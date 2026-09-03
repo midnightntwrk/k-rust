@@ -7,19 +7,19 @@ module MAIN
   import K []
   sort SortBool{}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,6,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,14)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,3,13)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   hooked-sort SortInt{}
   [
     hasDomainValues{}(),
     hook{}("INT.Int"),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,2,29)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   symbol Lbl'UndsStarUnds'{}(SortExp{}, SortExp{}) : SortExp{}
@@ -69,19 +69,19 @@ module MAIN
   import K []
   sort SortBool{}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,6,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,14)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,3,13)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   hooked-sort SortInt{}
   [
     hasDomainValues{}(),
     hook{}("INT.Int"),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,2,29)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   symbol Lbl'UndsStarUnds'{}(SortExp{}, SortExp{}) : SortExp{}

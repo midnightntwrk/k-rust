@@ -4,6 +4,15 @@ use crate::kast::Sort;
 
 use super::*;
 
+const BUBBLE_TERMINATORS: [&str; 6] = [
+    "syntax",
+    "endmodule",
+    "rule",
+    "claim",
+    "configuration",
+    "context",
+];
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseError {
     pub message: String,
@@ -92,7 +101,7 @@ impl<'a> Parser<'a> {
     fn module(&mut self) -> Result<Module, ParseError> {
         self.expect_word("module")?;
         let start = self.last_start;
-        let name = self.word()?;
+        let name = self.unrestricted_word()?;
         let attributes = if self.peek_char_after_trivia()? == Some('[') {
             self.attributes()?
         } else {
@@ -118,19 +127,13 @@ impl<'a> Parser<'a> {
                 return Err(self.error("expected `endmodule`"));
             }
             if self.peek_word("imports") {
+                if !sentences.is_empty() {
+                    return Err(self.error("unexpected `imports` after the first sentence"));
+                }
                 imports.push(self.import(module_is_private)?);
                 continue;
             }
-            let sentence_start = self.offset;
-            let sentence_end = self.next_sentence_boundary(sentence_start)?;
-            let mut sentence_parser = self.subparser(sentence_start, sentence_end);
-            let sentence = sentence_parser.sentence()?;
-            sentence_parser.skip_trivia()?;
-            if !sentence_parser.done() {
-                return Err(sentence_parser.error("unexpected input after sentence"));
-            }
-            sentences.push(sentence);
-            self.offset = sentence_end;
+            sentences.push(self.sentence()?);
         }
     }
 
@@ -145,7 +148,7 @@ impl<'a> Parser<'a> {
         } else {
             !module_is_private
         };
-        let module = self.word()?;
+        let module = self.unrestricted_word()?;
         Ok(Import {
             module,
             public,
@@ -166,18 +169,18 @@ impl<'a> Parser<'a> {
         self.expect_word("syntax")?;
         let start = self.last_start;
         if self.consume_word("priority") {
-            let groups = self.raw_groups('>')?;
+            let (groups, end) = self.raw_groups('>')?;
             return Ok(Sentence::Priority(SyntaxPriority {
                 groups,
-                span: self.span(start, self.end),
+                span: self.span(start, end),
             }));
         }
         if let Some(associativity) = self.consume_associativity() {
-            let tags = self.raw_words()?;
+            let (tags, end) = self.raw_words()?;
             return Ok(Sentence::Associativity(SyntaxAssociativity {
                 associativity,
                 tags,
-                span: self.span(start, self.end),
+                span: self.span(start, end),
             }));
         }
         if self.consume_word("lexical") {
@@ -193,7 +196,7 @@ impl<'a> Parser<'a> {
                 name,
                 regex,
                 attributes,
-                span: self.span(start, self.end),
+                span: self.span(start, self.offset),
             }));
         }
 
@@ -203,9 +206,11 @@ impl<'a> Parser<'a> {
             Vec::new()
         };
         let sort = self.sort()?;
+        let sort_end = self.offset;
         self.skip_trivia()?;
-        let body = if self.consume("::=") {
-            SyntaxBody::Productions(self.priority_blocks()?)
+        let (body, end) = if self.consume("::=") {
+            let blocks = self.priority_blocks()?;
+            (SyntaxBody::Productions(blocks), self.offset)
         } else if self.consume("=") {
             let old_sort = self.sort()?;
             let attributes = if self.peek_char_after_trivia()? == Some('[') {
@@ -213,23 +218,27 @@ impl<'a> Parser<'a> {
             } else {
                 Vec::new()
             };
-            SyntaxBody::Synonym {
-                old_sort,
-                attributes,
-            }
+            (
+                SyntaxBody::Synonym {
+                    old_sort,
+                    attributes,
+                },
+                self.offset,
+            )
         } else {
-            let attributes = if self.peek_char_after_trivia()? == Some('[') {
-                self.attributes()?
+            let (attributes, end) = if self.peek_char_after_trivia()? == Some('[') {
+                let attributes = self.attributes()?;
+                (attributes, self.offset)
             } else {
-                Vec::new()
+                (Vec::new(), sort_end)
             };
-            SyntaxBody::Sort(attributes)
+            (SyntaxBody::Sort(attributes), end)
         };
         Ok(Sentence::Syntax(SyntaxDeclaration {
             parameters,
             sort,
             body,
-            span: self.span(start, self.end),
+            span: self.span(start, end),
         }))
     }
 
@@ -250,21 +259,22 @@ impl<'a> Parser<'a> {
             let mut productions = Vec::new();
             loop {
                 productions.push(self.production()?);
-                self.skip_trivia()?;
-                if self.consume("|") {
+                if self.peek_char_after_trivia()? == Some('|') {
+                    self.expect_char('|')?;
                     continue;
                 }
                 break;
             }
+            let end = self.offset;
             blocks.push(PriorityBlock {
                 associativity,
                 productions,
-                span: self.span(start, self.offset),
+                span: self.span(start, end),
             });
-            self.skip_trivia()?;
-            if !self.consume(">") {
+            if self.peek_char_after_trivia()? != Some('>') {
                 break;
             }
+            self.expect_char('>')?;
         }
         Ok(blocks)
     }
@@ -276,6 +286,10 @@ impl<'a> Parser<'a> {
         while !self.done() {
             let before_trivia = self.offset;
             self.skip_trivia()?;
+            if self.at_default_sentence_boundary() {
+                self.offset = before_trivia;
+                break;
+            }
             match self.peek_char() {
                 Some('|') | Some('>') | Some('[') | None => {
                     self.offset = before_trivia;
@@ -365,7 +379,11 @@ impl<'a> Parser<'a> {
             (BubbleKind::Configuration, self.last_start)
         } else if self.consume_word("context") {
             let start = self.last_start;
-            let kind = if self.consume_word("alias") {
+            let alias_end = self
+                .peek_run()
+                .and_then(|(run, _, end)| (run == "alias").then_some(end));
+            let kind = if let Some(end) = alias_end {
+                self.offset = end;
                 BubbleKind::ContextAlias
             } else {
                 BubbleKind::Context
@@ -374,22 +392,30 @@ impl<'a> Parser<'a> {
         } else {
             return Err(self.error("expected a K sentence"));
         };
-        self.skip_trivia()?;
-        let content_start = self.offset;
-        let raw = self.input[content_start..self.end].trim_end();
-        let trimmed_end = content_start + raw.len();
+        let mut content_start = None;
+        let mut content_end = self.offset;
+        while let Some((run, start, end)) = self.peek_run() {
+            if BUBBLE_TERMINATORS.contains(&run) {
+                break;
+            }
+            content_start.get_or_insert(start);
+            content_end = end;
+            self.offset = end;
+        }
+        let content_start = content_start.unwrap_or(content_end);
+        let sentence_end = content_end;
+        let raw = &self.input[content_start..content_end];
         let (label, after_label) = split_label(raw);
         let body_start = content_start + (raw.len() - after_label.len());
         let (content, attributes, content_end) =
             self.split_trailing_attributes(after_label, body_start)?;
-        self.offset = self.end;
         Ok(Sentence::Bubble(Bubble {
             kind,
-            content: content.trim().to_owned(),
+            content,
             label,
             attributes,
             content_span: self.span(body_start, content_end),
-            span: self.span(start, trimmed_end),
+            span: self.span(start, sentence_end),
         }))
     }
 
@@ -436,7 +462,7 @@ impl<'a> Parser<'a> {
             if self.consume("]") {
                 break;
             }
-            let key = self.word()?;
+            let key = self.unrestricted_word()?;
             if !is_attribute_key(&key) {
                 return Err(self.error("invalid attribute key"));
             }
@@ -555,111 +581,106 @@ impl<'a> Parser<'a> {
         Ok(items)
     }
 
-    fn raw_groups(&mut self, separator: char) -> Result<Vec<Vec<String>>, ParseError> {
-        let raw = self.remaining_without_comments()?;
-        let separator = separator.to_string();
+    fn raw_groups(&mut self, separator: char) -> Result<(Vec<Vec<String>>, usize), ParseError> {
         let mut groups = vec![Vec::new()];
-        for word in raw.split_whitespace() {
-            if word == separator {
+        let mut last_end = self.offset;
+        while let Some((run, _, end)) = self.peek_run() {
+            if BUBBLE_TERMINATORS.contains(&run) {
+                break;
+            }
+            self.offset = end;
+            last_end = end;
+            if run.len() == separator.len_utf8() && run.starts_with(separator) {
                 groups.push(Vec::new());
             } else {
-                groups.last_mut().unwrap().push(word.to_owned());
+                groups.last_mut().unwrap().push(run.to_owned());
             }
         }
-        Ok(groups)
+        Ok((groups, last_end))
     }
 
-    fn raw_words(&mut self) -> Result<Vec<String>, ParseError> {
-        Ok(self
-            .remaining_without_comments()?
-            .split_whitespace()
-            .map(str::to_owned)
-            .collect())
+    fn raw_words(&mut self) -> Result<(Vec<String>, usize), ParseError> {
+        let mut words = Vec::new();
+        let mut last_end = self.offset;
+        while let Some((run, _, end)) = self.peek_run() {
+            if BUBBLE_TERMINATORS.contains(&run) {
+                break;
+            }
+            words.push(run.to_owned());
+            self.offset = end;
+            last_end = end;
+        }
+        Ok((words, last_end))
     }
 
-    fn remaining_without_comments(&mut self) -> Result<String, ParseError> {
-        let mut result = String::new();
-        while !self.done() {
-            if self.starts_with("//") {
-                while let Some(ch) = self.bump() {
-                    if ch == '\n' {
-                        result.push(' ');
-                        break;
-                    }
-                }
-            } else if self.starts_with("/*") {
-                self.offset += 2;
-                while !self.done() && !self.starts_with("*/") {
-                    self.bump();
-                }
-                if self.done() {
-                    return Err(self.error("unterminated block comment"));
-                }
-                self.offset += 2;
-                result.push(' ');
-            } else if let Some(ch) = self.bump() {
-                result.push(ch);
-            }
-        }
-        Ok(result.trim().to_owned())
+    fn run_len(&self, offset: usize) -> usize {
+        self.input.as_bytes()[offset..self.end]
+            .iter()
+            .position(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+            .unwrap_or(self.end - offset)
     }
 
-    fn next_sentence_boundary(&self, start: usize) -> Result<usize, ParseError> {
-        let mut offset = start;
-        let mut quoted = false;
-        let mut block_comment = false;
-        while offset < self.end {
-            if block_comment {
-                if self.input[offset..].starts_with("*/") {
-                    block_comment = false;
-                    offset += 2;
-                } else {
-                    offset += self.char_len(offset);
-                }
-                continue;
-            }
-            if !quoted && self.input[offset..].starts_with("/*") {
-                block_comment = true;
-                offset += 2;
-                continue;
-            }
-            if !quoted && self.input[offset..].starts_with("//") {
-                while offset < self.end && !self.input[offset..].starts_with('\n') {
-                    offset += self.char_len(offset);
-                }
-                continue;
-            }
-            let ch = self.input[offset..]
-                .chars()
-                .next()
-                .expect("offset is in range");
-            if ch == '"' && !self.is_escaped(offset) {
-                quoted = !quoted;
-            }
-            if !quoted && offset > start && self.is_line_prefix(offset) {
-                for keyword in [
-                    "syntax",
-                    "rule",
-                    "claim",
-                    "context",
-                    "configuration",
-                    "imports",
-                    "endmodule",
-                ] {
-                    if self.word_at(offset, keyword) {
-                        return Ok(offset);
-                    }
-                }
-            }
-            offset += ch.len_utf8();
+    fn comment_len(&self, offset: usize) -> usize {
+        let remaining = &self.input.as_bytes()[offset..self.end];
+        if remaining.starts_with(b"//") {
+            return remaining
+                .iter()
+                .position(|byte| matches!(byte, b'\r' | b'\n'))
+                .map_or(0, |end| end + 1);
         }
-        if block_comment {
-            return Err(self.error("unterminated block comment"));
+        if remaining.starts_with(b"/*") {
+            return remaining[2..]
+                .windows(2)
+                .position(|window| window == b"*/")
+                .map_or(0, |end| end + 4);
         }
-        if quoted {
-            return Err(self.error("unterminated string"));
+        0
+    }
+
+    fn skip_bubble_trivia(&mut self) {
+        loop {
+            while self.offset < self.end
+                && matches!(
+                    self.input.as_bytes()[self.offset],
+                    b' ' | b'\t' | b'\r' | b'\n'
+                )
+            {
+                self.offset += 1;
+            }
+            let run_len = self.run_len(self.offset);
+            let comment_len = self.comment_len(self.offset);
+            if comment_len > run_len {
+                self.offset += comment_len;
+            } else {
+                break;
+            }
         }
-        Ok(self.end)
+    }
+
+    fn peek_run(&mut self) -> Option<(&'a str, usize, usize)> {
+        self.skip_bubble_trivia();
+        let start = self.offset;
+        let end = start + self.run_len(start);
+        (start < end).then(|| (&self.input[start..end], start, end))
+    }
+
+    fn at_default_sentence_boundary(&self) -> bool {
+        let end = self.offset + self.run_len(self.offset);
+        if end == self.offset {
+            return false;
+        }
+        matches!(
+            &self.input[self.offset..end],
+            "syntax"
+                | "endmodule"
+                | "rule"
+                | "claim"
+                | "configuration"
+                | "context"
+                | "imports"
+                | "module"
+                | "requires"
+        )
     }
 
     fn consume_associativity(&mut self) -> Option<Associativity> {
@@ -711,6 +732,14 @@ impl<'a> Parser<'a> {
     }
 
     fn word(&mut self) -> Result<String, ParseError> {
+        self.skip_trivia()?;
+        if self.at_default_sentence_boundary() {
+            return Err(self.error("expected identifier"));
+        }
+        self.unrestricted_word()
+    }
+
+    fn unrestricted_word(&mut self) -> Result<String, ParseError> {
         self.skip_trivia()?;
         let start = self.offset;
         while let Some(ch) = self.peek_char() {
@@ -857,12 +886,6 @@ impl<'a> Parser<'a> {
     fn done(&self) -> bool {
         self.offset >= self.end
     }
-    fn char_len(&self, offset: usize) -> usize {
-        self.input[offset..]
-            .chars()
-            .next()
-            .map_or(1, char::len_utf8)
-    }
     fn is_escaped(&self, offset: usize) -> bool {
         let mut slashes = 0;
         let mut cursor = offset;
@@ -871,14 +894,6 @@ impl<'a> Parser<'a> {
             cursor -= 1;
         }
         slashes % 2 == 1
-    }
-    fn is_line_prefix(&self, offset: usize) -> bool {
-        let line_start = self.input[..offset]
-            .rfind('\n')
-            .map_or(0, |index| index + 1);
-        self.input[line_start..offset]
-            .chars()
-            .all(char::is_whitespace)
     }
     fn position(&self, offset: usize) -> Position {
         let line_index = self.line_starts.partition_point(|start| *start <= offset) - 1;

@@ -7,7 +7,7 @@ module MAIN
   import K []
   sort SortBox{SortS0}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{} []
@@ -118,7 +118,7 @@ module MAIN
   import K []
   sort SortBox{SortS0}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,8,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{} []
