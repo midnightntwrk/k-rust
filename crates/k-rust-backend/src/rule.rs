@@ -574,10 +574,11 @@ pub(crate) fn internalize_rule_pattern(
     let mut predicates = Vec::new();
     for component in components {
         if is_term_pattern(component) {
-            terms.push(definition.internalize_term_with_validation(
+            terms.push(definition.internalize_term_collecting(
                 component,
                 sort_parameters,
                 subsort_validation,
+                &mut predicates,
             )?);
         } else {
             predicates.extend(internalize_predicates(
@@ -818,6 +819,34 @@ fn is_term_pattern(pattern: &kore::Pattern) -> bool {
             | kore::Pattern::DomainValue { .. }
             | kore::Pattern::AssociativeApplication { .. }
     )
+}
+
+pub(crate) fn contains_term_component(pattern: &kore::Pattern) -> bool {
+    match pattern {
+        kore::Pattern::String(_)
+        | kore::Pattern::Variable(_)
+        | kore::Pattern::Application { .. }
+        | kore::Pattern::DomainValue { .. }
+        | kore::Pattern::AssociativeApplication { .. } => true,
+        kore::Pattern::And { arguments, .. } => arguments.iter().any(contains_term_component),
+        kore::Pattern::Exists { body, .. } | kore::Pattern::Forall { body, .. } => {
+            contains_term_component(body)
+        }
+        kore::Pattern::Top { .. }
+        | kore::Pattern::Bottom { .. }
+        | kore::Pattern::Or { .. }
+        | kore::Pattern::Not { .. }
+        | kore::Pattern::Next { .. }
+        | kore::Pattern::Implies { .. }
+        | kore::Pattern::Iff { .. }
+        | kore::Pattern::Rewrites { .. }
+        | kore::Pattern::Mu { .. }
+        | kore::Pattern::Nu { .. }
+        | kore::Pattern::Ceil { .. }
+        | kore::Pattern::Floor { .. }
+        | kore::Pattern::Equals { .. }
+        | kore::Pattern::In { .. } => false,
+    }
 }
 
 fn make_rule(

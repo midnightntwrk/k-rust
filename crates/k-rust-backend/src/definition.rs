@@ -219,6 +219,9 @@ pub enum DefinitionError {
     MalformedAlias(String),
     AliasCycle(Vec<String>),
     MacroOrAliasInImplication(String),
+    PredicateInTermPosition {
+        count: usize,
+    },
     SortWithoutDomainValues {
         sort: Sort,
     },
@@ -238,6 +241,10 @@ impl fmt::Display for DefinitionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateName { name, .. } => write!(formatter, "Duplicated name: {name}."),
+            Self::PredicateInTermPosition { count } => write!(
+                formatter,
+                "predicate in term position ({count} floated conjuncts) where a term is required"
+            ),
             Self::SortWithoutDomainValues { .. } => write!(
                 formatter,
                 "Sorts used with domain value must have the hasDomainValues attribute."
@@ -524,9 +531,31 @@ impl BackendDefinition {
         sort_variables: &[Name],
         subsort_validation: SubsortValidation,
     ) -> Result<Term, DefinitionError> {
+        let mut floated = Vec::new();
+        let term = self.internalize_term_collecting(
+            pattern,
+            sort_variables,
+            subsort_validation,
+            &mut floated,
+        )?;
+        if !floated.is_empty() {
+            return Err(DefinitionError::PredicateInTermPosition {
+                count: floated.len(),
+            });
+        }
+        Ok(term)
+    }
+
+    pub(crate) fn internalize_term_collecting(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+        subsort_validation: SubsortValidation,
+        floated: &mut Vec<crate::rule::Predicate>,
+    ) -> Result<Term, DefinitionError> {
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
         let pattern = expand_aliases(pattern, &self.aliases)?;
-        self.internalize_term_with(&pattern, &known, subsort_validation)
+        self.internalize_term_with(&pattern, &known, subsort_validation, floated)
     }
 
     /// Internalize a constrained KORE pattern into its term and predicate components.
@@ -723,6 +752,7 @@ impl BackendDefinition {
         pattern: &kore::Pattern,
         sort_variables: &BTreeSet<Name>,
         subsort_validation: SubsortValidation,
+        floated: &mut Vec<crate::rule::Predicate>,
     ) -> Result<Term, DefinitionError> {
         match pattern {
             kore::Pattern::String(value) => Ok(Term::domain_value(
@@ -742,7 +772,12 @@ impl BackendDefinition {
                 let arguments = arguments
                     .iter()
                     .map(|argument| {
-                        self.internalize_term_with(argument, sort_variables, subsort_validation)
+                        self.internalize_term_with(
+                            argument,
+                            sort_variables,
+                            subsort_validation,
+                            floated,
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 self.internalize_application(symbol, arguments, sort_variables, subsort_validation)
@@ -753,10 +788,23 @@ impl BackendDefinition {
                 Ok(Term::domain_value(sort, value.as_str()))
             }
             kore::Pattern::And { arguments, .. } => {
-                let mut arguments = arguments
+                let (terms, predicates): (Vec<_>, Vec<_>) = arguments
                     .iter()
+                    .partition(|argument| crate::rule::contains_term_component(argument));
+                let sort_variables = sort_variables.iter().cloned().collect::<Vec<_>>();
+                for predicate in predicates {
+                    floated.push(internalize_rule_predicate(
+                        self,
+                        predicate,
+                        &sort_variables,
+                        subsort_validation,
+                    )?);
+                }
+                let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
+                let mut arguments = terms
+                    .into_iter()
                     .map(|argument| {
-                        self.internalize_term_with(argument, sort_variables, subsort_validation)
+                        self.internalize_term_with(argument, &known, subsort_validation, floated)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let Some(mut result) = arguments.pop() else {
@@ -775,7 +823,12 @@ impl BackendDefinition {
                 let arguments = arguments
                     .iter()
                     .map(|argument| {
-                        self.internalize_term_with(argument, sort_variables, subsort_validation)
+                        self.internalize_term_with(
+                            argument,
+                            sort_variables,
+                            subsort_validation,
+                            floated,
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let mut iter: Box<dyn Iterator<Item = Term>> = match associativity {
@@ -900,7 +953,11 @@ impl BackendDefinition {
         match syntax_sort {
             Some(sort) => internalize_sort(sort, &self.sorts, sort_variables),
             None => Ok(self
-                .internalize_term_with(pattern, sort_variables, subsort_validation)?
+                .internalize_term_with_validation(
+                    pattern,
+                    &sort_variables.iter().cloned().collect::<Vec<_>>(),
+                    subsort_validation,
+                )?
                 .sort()),
         }
     }

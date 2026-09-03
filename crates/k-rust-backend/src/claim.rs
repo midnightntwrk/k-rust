@@ -7,7 +7,7 @@ use k_rust_kore::kore::ast as kore;
 use crate::{
     definition::{BackendDefinition, DefinitionError, PendingAxiom, SubsortValidation},
     rewrite::Pattern,
-    rule::{RuleAttributes, internalize_rule_pattern},
+    rule::{RuleAttributes, contains_term_component, internalize_rule_pattern},
     term::Variable,
 };
 
@@ -190,34 +190,6 @@ fn distribute_arguments(arguments: &[kore::Pattern], inside_term: bool) -> Vec<V
             .collect();
     }
     combinations
-}
-
-fn contains_term_component(pattern: &kore::Pattern) -> bool {
-    match pattern {
-        kore::Pattern::String(_)
-        | kore::Pattern::Variable(_)
-        | kore::Pattern::Application { .. }
-        | kore::Pattern::DomainValue { .. }
-        | kore::Pattern::AssociativeApplication { .. } => true,
-        kore::Pattern::And { arguments, .. } => arguments.iter().any(contains_term_component),
-        kore::Pattern::Exists { body, .. } | kore::Pattern::Forall { body, .. } => {
-            contains_term_component(body)
-        }
-        kore::Pattern::Top { .. }
-        | kore::Pattern::Bottom { .. }
-        | kore::Pattern::Or { .. }
-        | kore::Pattern::Not { .. }
-        | kore::Pattern::Next { .. }
-        | kore::Pattern::Implies { .. }
-        | kore::Pattern::Iff { .. }
-        | kore::Pattern::Rewrites { .. }
-        | kore::Pattern::Mu { .. }
-        | kore::Pattern::Nu { .. }
-        | kore::Pattern::Ceil { .. }
-        | kore::Pattern::Floor { .. }
-        | kore::Pattern::Equals { .. }
-        | kore::Pattern::In { .. } => false,
-    }
 }
 
 fn has_attribute(attributes: &kore::Attributes, name: &str) -> bool {
