@@ -4920,7 +4920,7 @@ mod tests {
     }
 
     #[test]
-    fn aborts_after_rewriting_to_a_concrete_function_without_evaluators() {
+    fn reports_smt_indeterminacy_after_rewriting_to_a_concrete_function_without_evaluators() {
         let definition = non_evaluable_function_rewrite_definition();
         let initial = Pattern {
             term: internal_term(&definition, r#"wrap{}(foo{}(\dv{SortS{}}("12")))"#),
@@ -4941,8 +4941,9 @@ mod tests {
             [ExecutionLeaf {
                 pattern: Pattern { term, constraints },
                 depth: 1,
-                halt_reason: HaltReason::Indeterminate(IndeterminateReason::Match {
+                halt_reason: HaltReason::Indeterminate(IndeterminateReason::Smt {
                     rule_id,
+                    error: SmtError::Unavailable,
                     ..
                 }),
                 ..
