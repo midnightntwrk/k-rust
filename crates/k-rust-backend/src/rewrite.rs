@@ -357,10 +357,12 @@ fn execute_using(
     });
     if options.max_breadth == Some(0) {
         return ExecutionResult {
-            leaves: pending
-                .drain(..)
-                .map(|state| execution_state_at_breadth_bound(state, &observation_log))
-                .collect(),
+            leaves: merge_equal_final_leaves(
+                pending
+                    .drain(..)
+                    .map(|state| execution_state_at_breadth_bound(state, &observation_log))
+                    .collect(),
+            ),
             effects,
             discarded,
         };
@@ -853,10 +855,39 @@ fn execute_using(
         }
     }
     ExecutionResult {
-        leaves,
+        leaves: merge_equal_final_leaves(leaves),
         effects,
         discarded,
     }
+}
+
+/// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342): leaves that carry the
+/// same structural term and constraint set collapse into the first one found. Bottom leaves carry
+/// no configuration, so whole-state trivial and vacuous outcomes remain distinct.
+fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
+    let mut seen = Vec::new();
+    leaves
+        .into_iter()
+        .filter(|leaf| {
+            if matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous) {
+                return true;
+            }
+            let key = (
+                leaf.pattern.term.clone(),
+                leaf.pattern
+                    .constraints
+                    .iter()
+                    .cloned()
+                    .collect::<BTreeSet<_>>(),
+            );
+            if seen.contains(&key) {
+                false
+            } else {
+                seen.push(key);
+                true
+            }
+        })
+        .collect()
 }
 
 fn expand_stopped_branch_remainder(

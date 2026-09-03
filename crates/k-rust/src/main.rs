@@ -2435,12 +2435,13 @@ fn run_backend(
         .first()
         .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
         .unwrap_or_else(|| output_sort.clone());
-    let mut states = execution
+    let states = execution
         .leaves
         .iter()
         .filter(|leaf| !matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous))
         .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
         .collect::<Vec<_>>();
+    let mut states = order_disjuncts(states);
     Ok(match states.len() {
         0 => KorePattern::Bottom { sort: output_sort },
         1 => states.pop().unwrap(),
@@ -2561,7 +2562,7 @@ fn search_output(result: &PatternSearchResult, result_sort: &KoreSort) -> KorePa
             )
         })
         .collect::<Vec<_>>();
-    disjoin_outputs(solutions, result_sort)
+    disjoin_outputs(order_disjuncts(solutions), result_sort)
 }
 
 fn pattern_matches_output(
@@ -2580,7 +2581,7 @@ fn pattern_matches_output(
             )
         })
         .collect::<Vec<_>>();
-    disjoin_outputs(solutions, result_sort)
+    disjoin_outputs(order_disjuncts(solutions), result_sort)
 }
 
 fn match_condition_output(
@@ -2630,6 +2631,14 @@ fn disjoin_outputs(solutions: Vec<KorePattern>, result_sort: &KoreSort) -> KoreP
         };
     }
     result
+}
+
+/// Arbiter row 12: print disjuncts in the structural order of their externalized KORE, never in
+/// traversal order. Kore's internal term ordering is intentionally not reproduced; gates compare
+/// result sets.
+fn order_disjuncts(mut solutions: Vec<KorePattern>) -> Vec<KorePattern> {
+    solutions.sort();
+    solutions
 }
 
 fn compile_proof_source(
