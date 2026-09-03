@@ -470,7 +470,16 @@ mod tests {
         )
         .unwrap();
 
-        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+        let artifacts = compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                check_mode: CheckMode::Proof {
+                    definition_module: "MAIN".into(),
+                },
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap();
 
         assert_eq!(
             [
@@ -699,6 +708,9 @@ mod tests {
             &loaded,
             CompileOptions {
                 backend: CompilationBackend::Rust,
+                check_mode: CheckMode::Proof {
+                    definition_module: "MAIN".into(),
+                },
                 ..CompileOptions::default()
             },
         )
