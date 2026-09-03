@@ -92,6 +92,7 @@ impl DiagnosticPolicy {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticCode {
+    CellCollectionVarWithoutInitial,
     ClaimInDefinition,
     DeprecatedAttribute,
     DeprecatedProduction,
@@ -150,6 +151,9 @@ pub enum DiagnosticCode {
 impl DiagnosticCode {
     pub fn warning_category(self) -> Option<WarningCategory> {
         match self {
+            Self::CellCollectionVarWithoutInitial => {
+                Some(WarningCategory::CellCollectionVarWithoutInitial)
+            }
             Self::DeprecatedAttribute => Some(WarningCategory::FutureError),
             Self::DeprecatedProduction => Some(WarningCategory::DeprecatedSymbol),
             Self::DuplicateOverload => Some(WarningCategory::DuplicateOverload),

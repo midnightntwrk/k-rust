@@ -203,6 +203,39 @@ fn load_time_warnings_fail_the_load_under_warnings_to_errors() {
 }
 
 #[test]
+fn configuration_collection_warnings_follow_the_load_policy() {
+    let source = indoc! {r#"
+        module MAIN
+          configuration
+            <top><bad multiplicity="*" type="Set"> $FOO </bad></top>
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let error = load_with_options(
+        ResolvedSource::new("config.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            diagnostics: DiagnosticPolicy {
+                level: WarningLevel::All,
+                warnings_to_errors: true,
+            },
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_err();
+    let LoadError::SourceDiagnostics(diagnostics) = error else {
+        panic!("expected upgraded configuration warning, got {error:?}");
+    };
+    let collection = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::CellCollectionVarWithoutInitial)
+        .collect::<Vec<_>>();
+    assert_eq!(collection.len(), 1, "{diagnostics:#?}");
+    assert_eq!(collection[0].severity, Severity::Error);
+}
+
+#[test]
 fn legacy_builtin_names_warn_and_rewrite() {
     for (legacy, current) in [
         ("ffi.k", "ffi.md"),
