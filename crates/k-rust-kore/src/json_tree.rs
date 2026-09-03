@@ -40,7 +40,7 @@ impl Node {
 
     pub fn into_string(mut self) -> Option<String> {
         match &mut self {
-            Self::String(value) | Self::Number(value) => Some(std::mem::take(value)),
+            Self::String(value) => Some(std::mem::take(value)),
             _ => None,
         }
     }
