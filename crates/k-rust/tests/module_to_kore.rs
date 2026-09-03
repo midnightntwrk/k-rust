@@ -196,6 +196,26 @@ fn omits_syntax_relations_only_from_unlabeled_brackets() {
 }
 
 #[test]
+fn unit_attribute_naming_no_production_is_an_error() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax KItem
+          syntax MyMap [hook(MAP.Map)]
+          syntax MyMap ::= KItem "|->" KItem
+            [function, hook(MAP.element), symbol(element)]
+          syntax MyMap ::= MyMap MyMap
+            [function, hook(MAP.concat), symbol(concat), unit(.MyMap), element(element)]
+        endmodule
+    "#};
+    let error = declaration_modules(&lowered(source, "MAIN"), "MAIN")
+        .expect_err("a collection label must resolve to exactly one production");
+    assert_eq!(
+        error.to_string(),
+        "Expected to find exactly one production for KLabel: .MyMap found: 0"
+    );
+}
+
+#[test]
 fn bracket_declarations_accept_klabel_objects_and_legacy_strings() {
     let source = indoc! {r#"
         module MAIN
