@@ -2,14 +2,14 @@
 
 use super::Sentence;
 use crate::definition::{
-    Attributes, LabelHead, ProductionCatalog, ProductionItem, ResolvedModule, SortCatalog,
-    SortHead,
+    Attributes, LabelHead, OverloadOrder, ProductionCatalog, ProductionItem, ResolvedModule,
+    SortCatalog, SortHead,
     attribute_keys::{
         BUBBLE, CLAIM, CONFIGURATION, CONTEXT, CONTEXT_ALIAS, MODULE, PRODUCTION, RULE,
         SORT_SYNONYM, SYNTAX_ASSOCIATIVITY, SYNTAX_LEXICAL, SYNTAX_PRIORITY, SYNTAX_SORT,
         builtin_key, is_internal_key,
     },
-    match_rule_label,
+    match_rule_label, sentence_equivalent,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
@@ -55,12 +55,21 @@ pub fn check_attribute_semantics(
     productions: &ProductionCatalog<'_>,
     sorts: &SortCatalog<'_>,
 ) -> Vec<Diagnostic> {
+    check_attribute_semantics_with_overloads(sentences, productions, sorts, None)
+}
+
+pub(super) fn check_attribute_semantics_with_overloads(
+    sentences: &[&Sentence],
+    productions: &ProductionCatalog<'_>,
+    sorts: &SortCatalog<'_>,
+    overloads: Option<&OverloadOrder<'_>>,
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
         match sentence {
             Sentence::Rule { .. } => check_rule(sentence, productions, &mut diagnostics),
             Sentence::Production { .. } => {
-                check_production(sentence, productions, sorts, &mut diagnostics)
+                check_production(sentence, productions, sorts, overloads, &mut diagnostics)
             }
             _ => {}
         }
@@ -180,6 +189,7 @@ fn check_production(
     production: &Sentence,
     productions: &ProductionCatalog<'_>,
     sorts: &SortCatalog<'_>,
+    overloads: Option<&OverloadOrder<'_>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let Sentence::Production {
@@ -239,7 +249,18 @@ fn check_production(
             production,
         ));
     }
-    check_symbol_attributes(production, label.is_some(), attributes, diagnostics);
+    let marks_overload = overloads.is_some_and(|overloads| {
+        overloads.productions().any(|(id, candidate)| {
+            sentence_equivalent(candidate, production) && overloads.order().contains(&id)
+        })
+    });
+    check_symbol_attributes(
+        production,
+        label.is_some(),
+        marks_overload,
+        attributes,
+        diagnostics,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -422,6 +443,7 @@ fn check_bracket(
 fn check_symbol_attributes(
     production: &Sentence,
     has_label: bool,
+    marks_overload: bool,
     attributes: &Attributes,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -437,6 +459,12 @@ fn check_symbol_attributes(
             )),
             Some(_) => diagnostics.push(invalid_attribute(
                 "The 1-argument form of the `symbol(_)` attribute cannot be combined with `klabel(_)`.",
+                production,
+            )),
+            None if marks_overload => diagnostics.push(deprecated_attribute(
+                format!(
+                    "Attribute `klabel({klabel}) is deprecated, but marks an overload. Add `overload({klabel})`."
+                ),
                 production,
             )),
             None => diagnostics.push(deprecated_attribute(
