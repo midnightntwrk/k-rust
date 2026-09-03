@@ -25,10 +25,9 @@ version = 1
 # PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):
 #   1. the gate lines above that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)
 #   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label <branch> --ticket <ids named in the PR>` (or --all at a milestone)
-#   3. the id-divergence and multi-alias counts printed by scripts/reference-differential.sh while [normalisations].ignore_unique_id is set
+#   3. the permanent multi-alias oracle-exclusion count printed by scripts/reference-differential.sh
 
 [normalisations]
-ignore_unique_id = "B2-03"
 
 [reference.k]
 revision = "4a46d1231473b599c699160132fd6e76a5c46406"
@@ -58,8 +57,12 @@ requires = ["reference-toolchain"]
 constructs = []
 source = "${k}/k-distribution/tests/regression-new/append/test.k"
 main-module = "TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 0, "haskell/rust" = 1 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "ambiguous-rewrite"
@@ -67,8 +70,12 @@ requires = ["reference-toolchain"]
 constructs = []
 source = "${k}/k-distribution/tests/regression-new/amb-rew/test.k"
 main-module = "TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 3, "haskell/rust" = 33 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "casts"
@@ -76,8 +83,12 @@ requires = ["reference-toolchain"]
 constructs = []
 source = "${k}/k-distribution/tests/regression-new/cast/test.k"
 main-module = "TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "cell-map"
@@ -85,8 +96,12 @@ requires = ["reference-toolchain"]
 constructs = ["collections", "star-cell-variable"]
 source = "${k}/k-distribution/tests/regression-new/cell_map/test.k"
 main-module = "TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 5, "haskell/rust" = 36 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "evm-equivalence"
@@ -96,8 +111,12 @@ source = "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics/optimizations.md"
 main-module = "EVM-OPTIMIZATIONS"
 include = "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin"
 hook-namespaces = ["JSON", "KRYPTO"]
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 100000, "haskell/rust" = 100000 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "fresh-variables"
@@ -105,8 +124,12 @@ requires = ["reference-toolchain"]
 constructs = []
 source = "${k}/k-distribution/tests/regression-new/fresh1/test.k"
 main-module = "TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "imp"
@@ -114,8 +137,12 @@ requires = ["reference-toolchain", "ticket:A3-06"]
 constructs = []
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 main-module = "IMP"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "list-set"
@@ -123,8 +150,12 @@ requires = ["reference-toolchain"]
 constructs = ["collections"]
 source = "${k}/k-distribution/tests/regression-new/list-set/test.k"
 main-module = "TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "macro-rewrite"
@@ -132,8 +163,12 @@ requires = ["reference-toolchain"]
 constructs = ["macro-runtime"]
 source = "${k}/k-distribution/tests/regression-new/macro-rewrite/test.k"
 main-module = "TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "parametric-semantic-cast"
@@ -141,8 +176,12 @@ requires = ["reference-toolchain"]
 constructs = []
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/parametric-semantic-cast.k"
 main-module = "PARAMETRIC-SEMANTIC-CAST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 1, "haskell/rust" = 2 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "hooked-namespaces"
@@ -151,8 +190,12 @@ constructs = ["crypto-hook"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/hooked-namespaces.k"
 main-module = "HOOKED-NAMESPACES"
 hook-namespaces = ["KRYPTO", "HASH", "SECP256K1"]
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 3, "haskell/rust" = 35 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "star-cell-config"
@@ -160,8 +203,12 @@ requires = ["reference-toolchain"]
 constructs = ["star-cell-variable"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/star-cell-config.k"
 main-module = "STAR-CELL-CONFIG"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 33 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "overload-constructors"
@@ -169,8 +216,12 @@ requires = ["reference-toolchain"]
 constructs = ["overload-no-confusion"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/overload-constructors.k"
 main-module = "OVERLOAD-CONSTRUCTORS"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 0, "haskell/rust" = 1 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "owise-functions"
@@ -178,8 +229,12 @@ requires = ["reference-toolchain"]
 constructs = ["owise"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/owise-functions.k"
 main-module = "OWISE-FUNCTIONS"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "owise-competitors"
@@ -187,8 +242,12 @@ requires = ["reference-toolchain"]
 constructs = ["owise", "multiple-competitors"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/owise-competitors.k"
 main-module = "OWISE-COMPETITORS"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 0, "haskell/rust" = 1 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "owise"
@@ -196,8 +255,12 @@ requires = ["reference-toolchain"]
 constructs = ["owise"]
 source = "${k}/k-distribution/tests/regression-new/owise-haskell/demo.k"
 main-module = "DEMO"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 0, "haskell/rust" = 9 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "mir"
@@ -208,8 +271,12 @@ main-module = "KMIR"
 include = "${mir}/kmir/src/kmir/kdist"
 markdown-selector = "k & ! concrete"
 syntax-module = "KMIR-AST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 100000, "haskell/rust" = 100000 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "wasm"
@@ -217,8 +284,12 @@ requires = ["reference-toolchain"]
 constructs = []
 source = "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md"
 main-module = "WASM-TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 100000, "haskell/rust" = 100000 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "fresh-name-collision"
@@ -226,8 +297,12 @@ requires = ["reference-toolchain", "ticket:A3-06"]
 constructs = ["fresh-variable"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/fresh-name-collision/test.k"
 main-module = "TEST"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "concrete-rw2"
@@ -235,8 +310,12 @@ requires = ["reference-toolchain"]
 constructs = ["concrete-symbolic-rule-variables"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/concrete-rw2/test.k"
 main-module = "CONCRETE-RW2"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 2, "haskell/rust" = 32 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "parametric"
@@ -244,8 +323,12 @@ requires = ["reference-toolchain", "ticket:B2-03"]
 constructs = ["parametric-label"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/parametric/test.k"
 main-module = "PARAMETRIC"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "assoc-strict"
@@ -253,8 +336,12 @@ requires = ["reference-toolchain", "ticket:A3-06", "ticket:I1-06"]
 constructs = ["associativity", "strictness"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/assoc-strict/test.k"
 main-module = "ASSOC-STRICT"
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "exists-anon"
@@ -263,8 +350,12 @@ constructs = ["anonymous-existential"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/exists-anon/test.k"
 main-module = "EXISTS-ANON"
 pairings = ["haskell/rust"]
-comparisons = ["semantic-kore", "syntax-kore", "macro-kore", "parsed-definition"]
-unique-id-divergence-ceilings = { "kore/llvm" = 10000, "haskell/rust" = 10000 }
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
 
 [[compile]]
 name = "undefined-sort"
@@ -282,7 +373,6 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/cast-inner
 main-module = "CAST-INNER"
 pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
-unique-id-divergence-ceilings = { "haskell/rust" = 32 }
 
 [[compile]]
 name = "softpref"
@@ -301,7 +391,6 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/softpos/test
 main-module = "TEST"
 pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
-unique-id-divergence-ceilings = { "haskell/rust" = 32 }
 
 [[compile]]
 name = "wordstack"
@@ -320,7 +409,6 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/wordstack-fn
 main-module = "TEST"
 pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
-unique-id-divergence-ceilings = { "haskell/rust" = 32 }
 
 [[compile]]
 name = "gas3"
@@ -330,7 +418,6 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/gas3/test.k"
 main-module = "TEST"
 pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
-unique-id-divergence-ceilings = { "haskell/rust" = 1 }
 
 [[compile]]
 name = "rwpref"
@@ -358,7 +445,6 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast2/tes
 main-module = "TEST"
 pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
-unique-id-divergence-ceilings = { "haskell/rust" = 32 }
 
 [[compile]]
 name = "semcast3"
@@ -386,7 +472,6 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/anywhere2/te
 main-module = "TEST"
 pairings = ["kore/llvm"]
 comparisons = ["semantic-kore"]
-unique-id-divergence-ceilings = { "kore/llvm" = 0 }
 
 [[kast]]
 name = "imp"
@@ -1058,7 +1143,9 @@ main-module = "CO"
 syntax-module = "CO-SYNTAX"
 sort = "Pgm"
 depth = 2
-programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/execution/co/f3.co"]
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/co/f3.co",
+]
 
 [[execution]]
 name = "c3-tr"
@@ -1069,7 +1156,9 @@ main-module = "TR"
 syntax-module = "TR-SYNTAX"
 sort = "Pgm"
 depth = 2
-programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/a.tr"]
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/a.tr",
+]
 
 [[execution.search]]
 name = "final"

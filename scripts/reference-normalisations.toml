@@ -15,24 +15,13 @@ justification = "Scratch checkout paths and byte offsets differ by construction.
 fate = "keep-with-comment"
 
 [[normalisation]]
-id = "N2"
-gate = "compile and conformance kompile"
-anchor = "crates/k-rust/tests/reference_differential.rs:strip_unique_ids"
-anchor_symbol = "strip_unique_ids"
-anchor_helpers = ["strip_unique_id_attributes"]
-rule = "Compare UNIQUE_ID by default; K_DIFFERENTIAL_IGNORE_UNIQUE_ID=1 may ignore it while reporting the number of ID-only divergences."
-justification = "B2-03 keeps the known divergence visible without making every pre-fix compile case unusable."
-fate = "gate-behind-env; delete-after-B2-03"
-env = "K_DIFFERENTIAL_IGNORE_UNIQUE_ID"
-
-[[normalisation]]
 id = "N3"
 gate = "compile semantic KORE"
 anchor = "crates/k-rust/tests/reference_differential.rs:multi_alias_freezer"
 anchor_symbol = "multi_alias_freezer"
-anchor_helpers = ["strip_multi_alias_freezer_ids"]
+anchor_helpers = ["strip_multi_alias_freezer_ids", "strip_unique_id_attributes"]
 rule = "Ignore UNIQUE_ID only for freezer axioms whose shared hint has multiple generated suffixes."
-justification = "The reference suffix derives from Scala HashSet order and therefore is not a stable oracle."
+justification = "Decisions 07-1 and 13-3 make the Scala HashSet-derived suffix a permanent oracle-side exclusion; the port retains deterministic declaration order."
 fate = "keep-with-comment"
 
 [[normalisation]]
@@ -87,7 +76,11 @@ id = "N9"
 gate = "parsed-definition compile artifact"
 anchor = "crates/k-rust/tests/reference_differential.rs:normalize_definition_json"
 anchor_symbol = "normalize_definition_json"
-anchor_helpers = ["normalize_definition_value", "canonical_regex", "canonical_regex_body"]
+anchor_helpers = [
+  "normalize_definition_value",
+  "canonical_regex",
+  "canonical_regex_body",
+]
 rule = "Canonicalize regex languages, user lists, generated variables, and set-valued outer-syntax fields in parsed JSON."
 justification = "The outer definition contains order-free collections and equivalent regex encodings."
 fate = "keep-with-comment"

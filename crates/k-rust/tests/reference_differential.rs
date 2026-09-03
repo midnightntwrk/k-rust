@@ -1271,24 +1271,6 @@ fn comparator_detects_unique_id_differences_by_default() {
 }
 
 #[test]
-fn comparator_counts_unique_id_only_divergences_when_ignoring_ids() {
-    let reference = differential_definition(r#"axiom{} a{}() [UNIQUE'Unds'ID{}("reference-id")]"#);
-    let actual = differential_definition(r#"axiom{} a{}() [UNIQUE'Unds'ID{}("actual-id")]"#);
-
-    let report = compare_definitions_with(
-        reference,
-        actual,
-        CompareOptions {
-            ignore_unique_id: true,
-            ..CompareOptions::default()
-        },
-    );
-
-    assert_eq!(report.verdict, CompareVerdict::Equal);
-    assert_eq!(report.unique_id_only_divergences, 1);
-}
-
-#[test]
 fn comparator_skips_ids_of_multi_alias_freezer_axioms() {
     let definition = |first_id: &str, second_id: &str| {
         parse_definition(&format!(
@@ -1434,14 +1416,15 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
 
 #[derive(Clone, Copy, Debug)]
 struct CompareOptions {
-    ignore_unique_id: bool,
     skip_multi_alias_ids: bool,
 }
 
 impl Default for CompareOptions {
     fn default() -> Self {
         Self {
-            ignore_unique_id: false,
+            // Decisions 07-1 and 13-3: freezer suffixes for multi-alias context groups
+            // follow Scala HashSet iteration in the oracle. Keep the port's declaration
+            // order and exclude only those derived identifiers permanently.
             skip_multi_alias_ids: true,
         }
     }
@@ -1456,23 +1439,11 @@ enum CompareVerdict {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CompareReport {
     verdict: CompareVerdict,
-    unique_id_only_divergences: usize,
     multi_alias_axioms: usize,
 }
 
 fn compare_definitions(reference: Definition, actual: Definition) {
-    let report = compare_definitions_with(
-        reference,
-        actual,
-        CompareOptions {
-            ignore_unique_id: env::var("K_DIFFERENTIAL_IGNORE_UNIQUE_ID").as_deref() == Ok("1"),
-            ..CompareOptions::default()
-        },
-    );
-    println!(
-        "unique-id divergences: {}",
-        report.unique_id_only_divergences
-    );
+    let report = compare_definitions_with(reference, actual, CompareOptions::default());
     println!("multi-alias freezer axioms: {}", report.multi_alias_axioms);
     if let CompareVerdict::Differs(message) = report.verdict {
         panic!("{message}");
@@ -1495,29 +1466,14 @@ fn compare_definitions_with(
     } else {
         0
     };
-    let strict_reference = reference.clone();
-    let strict_actual = actual.clone();
-    if options.ignore_unique_id {
-        strip_unique_ids(&mut reference);
-        strip_unique_ids(&mut actual);
-    }
-
     let verdict = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compare_stripped_definitions(reference, actual, &raw_reference, &raw_actual)
     })) {
         Ok(()) => CompareVerdict::Equal,
         Err(panic) => CompareVerdict::Differs(panic_message(panic)),
     };
-    let unique_id_only_divergences = if options.ignore_unique_id && verdict == CompareVerdict::Equal
-    {
-        count_unique_id_divergences(&strict_reference, &strict_actual)
-    } else {
-        0
-    };
-
     CompareReport {
         verdict,
-        unique_id_only_divergences,
         multi_alias_axioms,
     }
 }
@@ -2097,24 +2053,6 @@ fn strip_source_metadata(definition: &mut Definition) {
     }
 }
 
-fn strip_unique_ids(definition: &mut Definition) {
-    strip_unique_id_attributes(&mut definition.attributes);
-    for module in &mut definition.modules {
-        strip_unique_id_attributes(&mut module.attributes);
-        for sentence in &mut module.sentences {
-            let attributes = match sentence {
-                Sentence::Import { attributes, .. }
-                | Sentence::SortDeclaration { attributes, .. }
-                | Sentence::SymbolDeclaration { attributes, .. }
-                | Sentence::AliasDeclaration { attributes, .. }
-                | Sentence::Axiom { attributes, .. }
-                | Sentence::Claim { attributes, .. } => attributes,
-            };
-            strip_unique_id_attributes(attributes);
-        }
-    }
-}
-
 fn strip_multi_alias_freezer_ids(definition: &mut Definition) -> usize {
     let mut stripped = 0;
     for module in &mut definition.modules {
@@ -2213,19 +2151,6 @@ fn strip_unique_id_attributes(attributes: &mut Attributes) {
             Pattern::Application { symbol, .. } if symbol.name == "UNIQUE'Unds'ID"
         )
     });
-}
-
-fn count_unique_id_divergences(reference: &Definition, actual: &Definition) -> usize {
-    reference
-        .modules
-        .iter()
-        .zip(&actual.modules)
-        .map(|(reference, actual)| {
-            let reference = multiset(reference.sentences.iter().map(canonical_sentence).collect());
-            let actual = multiset(actual.sentences.iter().map(canonical_sentence).collect());
-            count_differences(&reference, &actual).len()
-        })
-        .sum()
 }
 
 fn strip_attributes(attributes: &mut Attributes) {
