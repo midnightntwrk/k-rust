@@ -12,6 +12,7 @@ version = 1
 # Raise any hard ceiling only after measuring current machine headroom.
 #
 # scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner
+# scripts/reference-differential.sh fun-int-list-config
 # REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence
 # scripts/reference-kast-differential.sh wasm mir evm-equivalence
 # scripts/reference-non-imp-execution-differential.sh imp collections hooks-c2
@@ -350,6 +351,19 @@ constructs = ["anonymous-existential"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/exists-anon/test.k"
 main-module = "EXISTS-ANON"
 pairings = ["haskell/rust"]
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
+
+[[compile]]
+name = "fun-int-list-config"
+requires = ["reference-toolchain", "ticket:B1-02"]
+constructs = ["local-function", "user-list"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/fun-int-list-config/test.k"
+main-module = "FUN-INT-LIST-CONFIG"
 comparisons = [
   "semantic-kore",
   "syntax-kore",

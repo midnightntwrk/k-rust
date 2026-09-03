@@ -816,7 +816,7 @@ fn local_function_variable_patterns_keep_the_k_parameter_sort() {
 }
 
 #[test]
-fn local_function_singleton_user_list_patterns_keep_the_list_sort() {
+fn local_function_singleton_user_list_arguments_keep_the_k_parameter_sort() {
     let item = Sort::new("Item");
     let items = Sort::new("Items");
     let local_function = application(
@@ -873,10 +873,11 @@ fn local_function_singleton_user_list_patterns_keep_the_list_sort() {
         .unwrap();
 
     assert_eq!(
-        argument_sort, &items,
-        "singleton user-list patterns must adopt the list argument sort"
+        argument_sort,
+        &Sort::new("K"),
+        "an uncast variable pattern contributes K even for a user-list argument"
     );
-    assert!(lambda_attributes.get("total").is_none());
+    assert!(lambda_attributes.get("total").is_some());
 }
 
 #[test]
