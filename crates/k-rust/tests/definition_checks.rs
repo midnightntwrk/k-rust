@@ -450,6 +450,49 @@ fn deprecated_productions_are_reported_per_use() {
 }
 
 #[test]
+fn klabel_overloads_use_the_migration_warning_variant() {
+    let definition = resolved_definition(
+        "MAIN",
+        vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                i107_syntax_sort("Bool"),
+                i107_syntax_sort("Foo"),
+                i107_syntax_sort("Bar"),
+                production(None, "Foo", &["Bar"], Attributes::default()),
+                production(
+                    Some("fooFoo"),
+                    "Foo",
+                    &["Foo"],
+                    attrs(&[("klabel", json!("foo"))]),
+                ),
+                production(
+                    Some("fooBar"),
+                    "Bar",
+                    &["Bar"],
+                    attrs(&[("klabel", json!("foo"))]),
+                ),
+            ],
+            attributes: Attributes::default(),
+        }],
+    );
+    let diagnostics = k_rust::definition::check_definition(&definition).unwrap();
+    let migrations = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.message
+                == "Attribute `klabel(foo) is deprecated, but marks an overload. Add `overload(foo)`."
+        })
+        .count();
+    assert_eq!(migrations, 2, "{diagnostics:#?}");
+    assert!(!diagnostics.iter().any(|diagnostic| {
+        diagnostic.message
+            == "Attribute `klabel(_)` is deprecated. Either remove `klabel(foo)`, or replace it by `symbol(foo)`."
+    }));
+}
+
+#[test]
 fn anonymous_variables_in_symbolic_requires_are_legal() {
     let anonymous = Term::variable("_");
     let sentence = Sentence::Rule {
