@@ -305,6 +305,96 @@ fn is_sort_predicate_conflicts_match_kompile() {
 }
 
 #[test]
+fn unused_symbols_follow_check_klabels_exemptions() {
+    let definition = resolved_definition(
+        "MAIN",
+        vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                i107_syntax_sort("Bool"),
+                i107_syntax_sort("Int"),
+                i107_syntax_sort("Foo"),
+                i107_syntax_sort("Bar"),
+                production(Some("foo"), "Foo", &["Int"], located()),
+                production(
+                    Some("bar"),
+                    "Bar",
+                    &["Int"],
+                    attrs(&[
+                        ("unused", json!("")),
+                        (SOURCE_ATTRIBUTE, json!("checks.k")),
+                        (LOCATION_ATTRIBUTE, json!([2, 1, 2, 20])),
+                    ]),
+                ),
+            ],
+            attributes: Attributes::default(),
+        }],
+    );
+    let diagnostics = k_rust::definition::check_definition_with_options(
+        &definition,
+        StructuralCheckOptions {
+            builtin_source_prefixes: vec!["krust-builtin://".into()],
+            ..StructuralCheckOptions::default()
+        },
+    )
+    .unwrap();
+    let unused = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnusedSymbol)
+        .collect::<Vec<_>>();
+    assert_eq!(unused.len(), 1);
+    assert_eq!(
+        unused[0].message,
+        "Symbol 'foo' defined but not used. Add the 'unused' attribute if this is intentional."
+    );
+}
+
+#[test]
+fn duplicate_overload_sets_warn_once_per_disconnected_component() {
+    let overload = |label: &str, result: &str, arity: usize, line: usize| {
+        production(
+            Some(label),
+            result,
+            &vec![result; arity],
+            attrs(&[
+                ("overload", json!("foo")),
+                ("unused", json!("")),
+                (SOURCE_ATTRIBUTE, json!("overloads.k")),
+                (LOCATION_ATTRIBUTE, json!([line, 1, line, 20])),
+            ]),
+        )
+    };
+    let definition = resolved_definition(
+        "MAIN",
+        vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                i107_syntax_sort("Foo1"),
+                i107_syntax_sort("Foo2"),
+                production(None, "Foo1", &["Foo2"], Attributes::default()),
+                overload("foo1", "Foo1", 1, 4),
+                overload("foo2", "Foo2", 1, 5),
+                overload("foo11", "Foo1", 2, 6),
+                overload("foo22", "Foo2", 2, 7),
+            ],
+            attributes: Attributes::default(),
+        }],
+    );
+    let diagnostics = k_rust::definition::check_definition(&definition).unwrap();
+    let duplicates = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::DuplicateOverload)
+        .collect::<Vec<_>>();
+    assert_eq!(duplicates.len(), 2);
+    assert!(duplicates.iter().all(|diagnostic| {
+        diagnostic.message
+            == "Overload `foo` is not unique. Consider renaming one of the overload sets with this key."
+    }));
+}
+
+#[test]
 fn anonymous_variables_in_symbolic_requires_are_legal() {
     let anonymous = Term::variable("_");
     let sentence = Sentence::Rule {
