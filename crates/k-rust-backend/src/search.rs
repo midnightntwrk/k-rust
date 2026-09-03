@@ -445,16 +445,25 @@ fn search_graph_using(
             }
         }
 
-        if selects_reachable_state(options.search_type, state.depth)
+        // Kore's Simplify primitive turns a false-constrained configuration into a Bottom node,
+        // which has no program state and cannot be selected by a search strategy.
+        if predicates_truth(&state.pattern.constraints) == Truth::False {
+            continue;
+        }
+        let at_depth_bound = state.depth >= options.max_depth;
+        let is_result = selects_reachable_state(options.search_type, state.depth)
+            || (options.search_type == SearchType::Final && at_depth_bound);
+        if is_result
             && push_unique(
                 &mut states,
                 materialize_search_state(state.clone(), observation_head, &observation_log),
                 options.max_results,
             )
         {
-            if !pending.is_empty()
-                || state_may_expand(definition, &state, options, &mut fresh_counter, solver)
-            {
+            let truncated = !pending.is_empty()
+                || (options.search_type != SearchType::Final
+                    && state_may_expand(definition, &state, options, &mut fresh_counter, solver));
+            if truncated {
                 incomplete.push(IncompleteSearch::ResultBound);
             }
             break;
@@ -462,8 +471,7 @@ fn search_graph_using(
         if options.search_type == SearchType::One && state.depth == 1 {
             continue;
         }
-        let at_depth_bound = state.depth >= options.max_depth;
-        if at_depth_bound && options.search_type != SearchType::Final {
+        if at_depth_bound {
             incomplete.push(IncompleteSearch::DepthBound(materialize_search_state(
                 state,
                 observation_head,
@@ -479,40 +487,6 @@ fn search_graph_using(
             simplification_options(options),
             solver,
         );
-        if at_depth_bound {
-            match rewrite {
-                RewriteResult::Stuck(pattern) => {
-                    state.pattern = pattern;
-                    if push_unique(
-                        &mut states,
-                        materialize_search_state(state, observation_head, &observation_log),
-                        options.max_results,
-                    ) {
-                        if !pending.is_empty() {
-                            incomplete.push(IncompleteSearch::ResultBound);
-                        }
-                        break;
-                    }
-                }
-                RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
-                RewriteResult::Indeterminate { pattern, reason } => {
-                    state.pattern = pattern;
-                    incomplete.push(rewrite_incomplete(
-                        materialize_search_state(state, observation_head, &observation_log),
-                        reason,
-                    ));
-                }
-                RewriteResult::Finished(_) | RewriteResult::Branch { .. } => {
-                    incomplete.push(IncompleteSearch::DepthBound(materialize_search_state(
-                        state,
-                        observation_head,
-                        &observation_log,
-                    )));
-                }
-            }
-            continue;
-        }
-
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 state.pattern = pattern;
@@ -829,12 +803,18 @@ fn search_paths_using(
             }
         }
 
+        if predicates_truth(&path.state.pattern.constraints) == Truth::False {
+            continue;
+        }
         if path.visited.contains(&path.state.pattern) {
             continue;
         }
         path.visited.push(path.state.pattern.clone());
 
-        if selects_reachable_state(options.search_type, path.state.depth)
+        let at_depth_bound = path.state.depth >= options.max_depth;
+        let is_result = selects_reachable_state(options.search_type, path.state.depth)
+            || (options.search_type == SearchType::Final && at_depth_bound);
+        if is_result
             && !retain_witness(&mut witnesses, &path, options.max_results, &observation_log)
         {
             incomplete.push(IncompleteSearch::ResultBound);
@@ -843,8 +823,7 @@ fn search_paths_using(
         if options.search_type == SearchType::One && path.state.depth == 1 {
             continue;
         }
-        let at_depth_bound = path.state.depth >= options.max_depth;
-        if at_depth_bound && options.search_type != SearchType::Final {
+        if at_depth_bound {
             incomplete.push(IncompleteSearch::DepthBound(
                 path.materialize_state(&observation_log),
             ));
@@ -858,33 +837,6 @@ fn search_paths_using(
             simplification_options(options),
             solver,
         );
-        if at_depth_bound {
-            match rewrite {
-                RewriteResult::Stuck(pattern) => {
-                    path.state.pattern = pattern;
-                    if !retain_witness(&mut witnesses, &path, options.max_results, &observation_log)
-                    {
-                        incomplete.push(IncompleteSearch::ResultBound);
-                        break;
-                    }
-                }
-                RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
-                RewriteResult::Indeterminate { pattern, reason } => {
-                    path.state.pattern = pattern;
-                    incomplete.push(rewrite_incomplete(
-                        path.materialize_state(&observation_log),
-                        reason,
-                    ));
-                }
-                RewriteResult::Finished(_) | RewriteResult::Branch { .. } => {
-                    incomplete.push(IncompleteSearch::DepthBound(
-                        path.materialize_state(&observation_log),
-                    ));
-                }
-            }
-            continue;
-        }
-
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 path.state.pattern = pattern;
