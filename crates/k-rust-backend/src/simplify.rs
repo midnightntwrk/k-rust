@@ -76,9 +76,6 @@ pub(crate) struct PatternSimplification {
 pub enum SimplificationError {
     Cancelled,
     Builtin(BuiltinError),
-    ConflictingResults {
-        rule_ids: Vec<String>,
-    },
     DisjunctiveResult {
         rule_id: String,
         alternatives: usize,
@@ -93,9 +90,6 @@ pub enum SimplificationError {
     SmtPredicate {
         predicate: Box<Predicate>,
         error: SmtError,
-    },
-    InconsistentGroundTruth {
-        rule_id: String,
     },
     IterationLimit {
         limit: usize,
@@ -434,11 +428,19 @@ fn simplify_rule_predicates(
     )
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConditionIndeterminacy {
+    NoSolver,
+    ImplicationIndeterminate,
+    SmtUnknown(String),
+    InconsistentPathCondition,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum RuleCondition {
     Satisfied,
     Refuted,
-    Indeterminate,
+    Indeterminate(ConditionIndeterminacy),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -480,18 +482,18 @@ fn evaluate_rule_condition(
     match solver.check_predicates(known_predicates, &Substitution::new(), &predicates) {
         Ok(Validity::Valid) => Ok(RuleCondition::Satisfied),
         Ok(Validity::Invalid) => Ok(RuleCondition::Refuted),
-        Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {
-            Ok(RuleCondition::Indeterminate)
-        }
-        Ok(Validity::InconsistentGroundTruth) => {
-            Err(SimplificationError::InconsistentGroundTruth {
-                rule_id: rule_id.to_owned(),
-            })
-        }
-        Ok(Validity::Unknown(reason)) => Err(SimplificationError::Smt {
-            rule_id: rule_id.to_owned(),
-            error: SmtError::Unknown(reason),
-        }),
+        Ok(Validity::Indeterminate) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::ImplicationIndeterminate,
+        )),
+        Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::NoSolver,
+        )),
+        Ok(Validity::InconsistentGroundTruth) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::InconsistentPathCondition,
+        )),
+        Ok(Validity::Unknown(reason)) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::SmtUnknown(reason),
+        )),
         Err(error) => Err(SimplificationError::Smt {
             rule_id: rule_id.to_owned(),
             error,
@@ -549,15 +551,8 @@ pub fn simplify_and_decide_predicate_with_solver(
     ) {
         Ok(Validity::Valid) => Ok(Predicate::True),
         Ok(Validity::Invalid) => Ok(Predicate::False),
-        Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => Ok(simplified),
-        Ok(Validity::InconsistentGroundTruth) => Err(SimplificationError::SmtPredicate {
-            predicate: Box::new(simplified),
-            error: SmtError::InconsistentGroundTruth,
-        }),
-        Ok(Validity::Unknown(reason)) => Err(SimplificationError::SmtPredicate {
-            predicate: Box::new(simplified),
-            error: SmtError::Unknown(reason),
-        }),
+        Ok(Validity::Indeterminate | Validity::InconsistentGroundTruth | Validity::Unknown(_))
+        | Err(SmtError::Unavailable) => Ok(simplified),
         Err(error) => Err(SimplificationError::SmtPredicate {
             predicate: Box::new(simplified),
             error,
@@ -808,12 +803,6 @@ fn with_simplification_constraints(
     }
 }
 
-enum CeilEquationAttempt {
-    NotApplicable,
-    Indeterminate,
-    Applied(Predicate),
-}
-
 fn apply_ceil_theory(
     definition: &BackendDefinition,
     predicate: &Predicate,
@@ -827,11 +816,8 @@ fn apply_ceil_theory(
     };
     let groups = applicable_groups(&definition.ceil_theory, &term_index(term));
     for rules in groups.values() {
-        let mut results = Vec::new();
-        let mut rule_ids = Vec::new();
-        let mut indeterminate = false;
-        for rule in rules {
-            match apply_ceil_equation(
+        match scan_group(rules, |rule| {
+            apply_ceil_equation(
                 definition,
                 rule,
                 term,
@@ -839,25 +825,11 @@ fn apply_ceil_theory(
                 options,
                 active_conditions,
                 solver,
-            )? {
-                CeilEquationAttempt::NotApplicable => {}
-                CeilEquationAttempt::Indeterminate => indeterminate = true,
-                CeilEquationAttempt::Applied(result) => {
-                    results.push(result);
-                    rule_ids.push(rule.attributes.unique_id.clone());
-                }
-            }
-        }
-        if indeterminate && results.is_empty() {
-            return Ok(None);
-        }
-        match results.len() {
-            0 => {}
-            1 => return Ok(results.pop()),
-            _ if results.windows(2).all(|pair| pair[0] == pair[1]) => {
-                return Ok(results.into_iter().next());
-            }
-            _ => return Err(SimplificationError::ConflictingResults { rule_ids }),
+            )
+        })? {
+            GroupScan::Applied(result) => return Ok(Some(result)),
+            GroupScan::Blocked => return Ok(None),
+            GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -871,10 +843,10 @@ fn apply_ceil_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<CeilEquationAttempt, SimplificationError> {
+) -> Result<EquationAttempt<Predicate>, SimplificationError> {
     let substitution =
         match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
-            MatchResult::Failed(_) => return Ok(CeilEquationAttempt::NotApplicable),
+            MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable),
             MatchResult::Indeterminate {
                 substitution,
                 remainder,
@@ -885,10 +857,12 @@ fn apply_ceil_equation(
                     substitution,
                     &remainder,
                 ) else {
-                    return Ok(CeilEquationAttempt::Indeterminate);
+                    return Ok(EquationAttempt::Indeterminate(
+                        ConditionIndeterminacy::ImplicationIndeterminate,
+                    ));
                 };
                 let Some(substitution) = matches.into_iter().next() else {
-                    return Ok(CeilEquationAttempt::NotApplicable);
+                    return Ok(EquationAttempt::NotApplicable);
                 };
                 substitution
             }
@@ -899,7 +873,7 @@ fn apply_ceil_equation(
         .any(|variable| !rule.lhs.attributes().variables.contains(variable))
         || check_concreteness(rule, &substitution).is_some()
     {
-        return Ok(CeilEquationAttempt::NotApplicable);
+        return Ok(EquationAttempt::NotApplicable);
     }
 
     let requires = substitute_predicates(&rule.requires, &substitution);
@@ -914,22 +888,18 @@ fn apply_ceil_equation(
         solver,
     )? {
         RuleCondition::Satisfied => {}
-        RuleCondition::Refuted => return Ok(CeilEquationAttempt::NotApplicable),
-        RuleCondition::Indeterminate => return Ok(CeilEquationAttempt::Indeterminate),
+        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        RuleCondition::Indeterminate(reason) => {
+            return Ok(EquationAttempt::Indeterminate(reason));
+        }
     }
 
     let RuleRhs::Predicates(rhs) = &rule.rhs else {
-        return Ok(CeilEquationAttempt::NotApplicable);
+        return Ok(EquationAttempt::NotApplicable);
     };
-    Ok(CeilEquationAttempt::Applied(normalize_predicate(
+    Ok(EquationAttempt::Applied(normalize_predicate(
         Predicate::And(substitute_predicates(rhs, &substitution)),
     )))
-}
-
-enum PredicateEquationAttempt {
-    NotApplicable,
-    Indeterminate,
-    Applied(Predicate),
 }
 
 fn apply_predicate_theory(
@@ -941,11 +911,8 @@ fn apply_predicate_theory(
     solver: &dyn SmtSolver,
 ) -> Result<Option<Predicate>, SimplificationError> {
     for rules in definition.predicate_simplification_theory.values() {
-        let mut results = Vec::new();
-        let mut rule_ids = Vec::new();
-        let mut indeterminate = false;
-        for rule in rules {
-            match apply_predicate_equation(
+        match scan_group(rules, |rule| {
+            apply_predicate_equation(
                 definition,
                 rule,
                 predicate,
@@ -953,25 +920,11 @@ fn apply_predicate_theory(
                 options,
                 active_conditions,
                 solver,
-            )? {
-                PredicateEquationAttempt::NotApplicable => {}
-                PredicateEquationAttempt::Indeterminate => indeterminate = true,
-                PredicateEquationAttempt::Applied(result) => {
-                    results.push(result);
-                    rule_ids.push(rule.attributes.unique_id.clone());
-                }
-            }
-        }
-        if indeterminate && results.is_empty() {
-            return Ok(None);
-        }
-        match results.len() {
-            0 => {}
-            1 => return Ok(results.pop()),
-            _ if results.windows(2).all(|pair| pair[0] == pair[1]) => {
-                return Ok(results.into_iter().next());
-            }
-            _ => return Err(SimplificationError::ConflictingResults { rule_ids }),
+            )
+        })? {
+            GroupScan::Applied(result) => return Ok(Some(result)),
+            GroupScan::Blocked => return Ok(None),
+            GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -985,10 +938,14 @@ fn apply_predicate_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<PredicateEquationAttempt, SimplificationError> {
+) -> Result<EquationAttempt<Predicate>, SimplificationError> {
     let substitution = match match_predicate(definition, &rule.lhs, predicate) {
-        PredicateMatch::Failed => return Ok(PredicateEquationAttempt::NotApplicable),
-        PredicateMatch::Indeterminate => return Ok(PredicateEquationAttempt::Indeterminate),
+        PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable),
+        PredicateMatch::Indeterminate => {
+            return Ok(EquationAttempt::Indeterminate(
+                ConditionIndeterminacy::ImplicationIndeterminate,
+            ));
+        }
         PredicateMatch::Success(substitution) => substitution,
     };
     let requires = substitute_predicates(&rule.requires, &substitution);
@@ -1003,11 +960,13 @@ fn apply_predicate_equation(
         solver,
     )? {
         RuleCondition::Satisfied => {}
-        RuleCondition::Refuted => return Ok(PredicateEquationAttempt::NotApplicable),
-        RuleCondition::Indeterminate => return Ok(PredicateEquationAttempt::Indeterminate),
+        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        RuleCondition::Indeterminate(reason) => {
+            return Ok(EquationAttempt::Indeterminate(reason));
+        }
     }
     let rhs = substitute_predicates(&rule.rhs, &substitution);
-    Ok(PredicateEquationAttempt::Applied(normalize_predicate(
+    Ok(EquationAttempt::Applied(normalize_predicate(
         Predicate::And(rhs),
     )))
 }
@@ -1890,10 +1849,8 @@ fn apply_theory(
     let (theory, indeterminate_equation) = theory;
     let groups = applicable_groups(theory, &term_index(term));
     for rules in groups.values() {
-        let mut results = Vec::new();
-        let mut indeterminate = false;
-        for rule in rules {
-            match apply_equation(
+        match scan_group(rules, |rule| {
+            apply_equation(
                 definition,
                 rule,
                 term,
@@ -1901,37 +1858,16 @@ fn apply_theory(
                 options,
                 active_conditions,
                 solver,
-            )? {
-                EquationAttempt::NotApplicable => {}
-                EquationAttempt::Indeterminate => indeterminate = true,
-                EquationAttempt::Applied(result) => results.push(result),
+            )
+        })? {
+            GroupScan::Applied(result) => return Ok(Some(result)),
+            GroupScan::Blocked if indeterminate_equation == IndeterminateEquation::Block => {
+                // A rule at this priority may apply after the symbolic subject becomes more
+                // concrete. Function evaluation must preserve the application and must not fall
+                // through to an owise or otherwise lower-priority equation.
+                return Ok(None);
             }
-        }
-        if indeterminate
-            && results.is_empty()
-            && indeterminate_equation == IndeterminateEquation::Block
-        {
-            // A rule at this priority may apply after the symbolic subject becomes more concrete.
-            // Function evaluation must preserve the application and must not fall through to an
-            // owise or otherwise lower-priority equation. K simplification equations are hints:
-            // the reference backend continues past indeterminate matches in that theory.
-            return Ok(None);
-        }
-        match results.len() {
-            0 => {}
-            1 => return Ok(results.pop()),
-            _ => {
-                let first = &results[0].term;
-                if results.iter().all(|result| &result.term == first) {
-                    return Ok(results.into_iter().next());
-                }
-                return Err(SimplificationError::ConflictingResults {
-                    rule_ids: results
-                        .into_iter()
-                        .flat_map(|result| result.applied_rules)
-                        .collect(),
-                });
-            }
+            GroupScan::Blocked | GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -1957,10 +1893,35 @@ fn applicable_groups(theory: &Theory, index: &TermIndex) -> BTreeMap<u8, Vec<Arc
     result
 }
 
-enum EquationAttempt {
+enum EquationAttempt<T> {
     NotApplicable,
-    Indeterminate,
-    Applied(Simplification),
+    Indeterminate(ConditionIndeterminacy),
+    Applied(T),
+}
+
+enum GroupScan<T> {
+    Applied(T),
+    Blocked,
+    NotApplicable,
+}
+
+fn scan_group<R, T>(
+    rules: &[Arc<R>],
+    mut attempt: impl FnMut(&R) -> Result<EquationAttempt<T>, SimplificationError>,
+) -> Result<GroupScan<T>, SimplificationError> {
+    let mut indeterminate = false;
+    for rule in rules {
+        match attempt(rule)? {
+            EquationAttempt::Applied(result) => return Ok(GroupScan::Applied(result)),
+            EquationAttempt::Indeterminate(_reason) => indeterminate = true,
+            EquationAttempt::NotApplicable => {}
+        }
+    }
+    Ok(if indeterminate {
+        GroupScan::Blocked
+    } else {
+        GroupScan::NotApplicable
+    })
 }
 
 fn apply_equation(
@@ -1971,7 +1932,7 @@ fn apply_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<EquationAttempt, SimplificationError> {
+) -> Result<EquationAttempt<Simplification>, SimplificationError> {
     let substitution =
         match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
             MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable),
@@ -1985,7 +1946,9 @@ fn apply_equation(
                     substitution.clone(),
                     &remainder,
                 ) else {
-                    return Ok(EquationAttempt::Indeterminate);
+                    return Ok(EquationAttempt::Indeterminate(
+                        ConditionIndeterminacy::ImplicationIndeterminate,
+                    ));
                 };
                 let Some(substitution) = matches.into_iter().next() else {
                     return Ok(EquationAttempt::NotApplicable);
@@ -2020,7 +1983,9 @@ fn apply_equation(
     )? {
         RuleCondition::Satisfied => {}
         RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
-        RuleCondition::Indeterminate => return Ok(EquationAttempt::Indeterminate),
+        RuleCondition::Indeterminate(reason) => {
+            return Ok(EquationAttempt::Indeterminate(reason));
+        }
     }
     let (alternatives, is_disjunction) = match &rule.rhs {
         RuleRhs::Term(rhs) => (

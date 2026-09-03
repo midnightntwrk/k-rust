@@ -775,9 +775,6 @@ fn simplification_failure_output(
         SimplificationError::Builtin(error) => SearchFailureOutput::Builtin {
             error: builtin_failure_output(error),
         },
-        SimplificationError::ConflictingResults { rule_ids } => {
-            SearchFailureOutput::ConflictingResults { rules: rule_ids }
-        }
         SimplificationError::DisjunctiveResult {
             rule_id,
             alternatives,
@@ -797,11 +794,6 @@ fn simplification_failure_output(
             SearchFailureOutput::SmtPredicate {
                 predicate: encode_predicate(&predicate, result_sort)?,
                 error: smt_failure_output(error, result_sort)?,
-            }
-        }
-        SimplificationError::InconsistentGroundTruth { rule_id } => {
-            SearchFailureOutput::InconsistentGroundTruth {
-                rule: Some(rule_id),
             }
         }
         SimplificationError::IterationLimit { limit, term } => {
