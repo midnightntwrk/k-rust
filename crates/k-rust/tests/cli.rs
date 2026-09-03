@@ -3261,6 +3261,8 @@ endmodule
             definition.to_str().unwrap(),
             "--main-module",
             "MAIN",
+            "--syntax-module",
+            "MAIN",
             "--sort",
             "K",
             "--expression",
