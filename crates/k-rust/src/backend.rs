@@ -1139,6 +1139,8 @@ mod tests {
             symbol a{}() : SortS{} [constructor{}()]
             symbol b{}() : SortS{} [constructor{}()]
             symbol c{}() : SortS{} [constructor{}()]
+            alias weakExistsFinally{S}(S) : S
+                where weakExistsFinally{S}(@X:S) := @X:S []
             axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(a{}(), \top{SortS{}}()),
                 \and{SortS{}}(b{}(), \top{SortS{}}())
@@ -1181,7 +1183,7 @@ mod tests {
             sort SortString{} [hasDomainValues{}()]
             sort SortK{} []
             symbol dotk{}() : SortK{} [constructor{}()]
-            symbol log{}(SortString{}) : SortK{}
+            hooked-symbol log{}(SortString{}) : SortK{}
                 [function{}(), total{}(), hook{}("IO.logString")]
         endmodule []"#;
 
@@ -1318,6 +1320,8 @@ mod tests {
                 symbol b{}() : SortS{} [constructor{}()]
                 symbol c{}() : SortS{} [constructor{}()]
                 symbol d{}() : SortS{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(a{}(), \top{SortS{}}()), b{}()
                 ) [label{}("a-to-b")]
@@ -1591,6 +1595,8 @@ mod tests {
                 sort SortS{{}} []
                 symbol a{{}}() : SortS{{}} [constructor{{}}()]
                 symbol c{{}}() : SortS{{}} [constructor{{}}()]
+                alias weakAlwaysFinally{{S}}(S) : S
+                    where weakAlwaysFinally{{S}}(@X:S) := @X:S []
                 {chain}
                 axiom{{}} \rewrites{{SortS{{}}}}(
                     \and{{SortS{{}}}}(
