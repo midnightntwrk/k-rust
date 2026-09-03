@@ -71,7 +71,9 @@ pub enum ParseError {
         expected: Vec<String>,
     },
     Ambiguous {
+        parses: usize,
         alternatives: Vec<AmbiguousParse>,
+        span: Option<TermSpan>,
     },
     TooManyParses {
         limit: usize,
@@ -178,17 +180,14 @@ impl fmt::Display for ParseError {
                 }
                 Ok(())
             }
-            Self::Ambiguous { alternatives } => {
+            Self::Ambiguous { alternatives, .. } => {
                 formatter.write_str("Parsing ambiguity.")?;
                 for (index, alternative) in alternatives.iter().enumerate() {
                     write!(
                         formatter,
                         "\n{}: {}\n    {}",
                         index + 1,
-                        alternative
-                            .production
-                            .as_deref()
-                            .unwrap_or("<generated production>"),
+                        alternative.production.as_deref().unwrap_or(""),
                         alternative.term
                     )?;
                 }
@@ -1357,7 +1356,6 @@ impl Grammar {
         let forest = self.collapse_packed_record_productions(forest, reserved_names)?;
         let forest = self.filter_packed_priority(forest)?;
         let forest = self.resolve_packed_applications(forest)?;
-        let forest = self.prefer_exact_packed_rewrite_sibling_sorts(forest);
         let forest = self.factor_pre_inference_packed_ambiguities(forest);
         let forest = self.push_top_lhs_packed_ambiguity_up(forest);
         Ok(forest)
@@ -2603,7 +2601,6 @@ mod chart_tests {
         let baseline = grammar
             .resolve_applications(baseline)
             .expect("the packed diamond contains no applications");
-        let baseline = grammar.prefer_exact_rewrite_sibling_sorts(baseline);
         let baseline = grammar.push_top_lhs_ambiguity_up(grammar.factor_ambiguities(baseline));
         reset_unpacked_nodes();
 
@@ -2613,7 +2610,6 @@ mod chart_tests {
         let materialized = grammar
             .resolve_applications(materialized)
             .expect("the factored diamond contains no applications");
-        let materialized = grammar.prefer_exact_rewrite_sibling_sorts(materialized);
         let materialized =
             grammar.push_top_lhs_ambiguity_up(grammar.factor_ambiguities(materialized));
 
@@ -3805,7 +3801,6 @@ mod chart_tests {
         let baseline = grammar
             .resolve_applications(baseline)
             .expect("the collapsed records contain no applications");
-        let baseline = grammar.prefer_exact_rewrite_sibling_sorts(baseline);
         let baseline = grammar.push_top_lhs_ambiguity_up(grammar.factor_ambiguities(baseline));
 
         let materialized = grammar

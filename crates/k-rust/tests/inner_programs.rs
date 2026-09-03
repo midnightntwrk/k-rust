@@ -266,7 +266,9 @@ fn reference_singleton_nelist_at_kitem_is_a_reported_ambiguity() {
 
     #[cfg(feature = "z3-inference")]
     match *error.error {
-        ParseError::Ambiguous { ref alternatives } => {
+        ParseError::Ambiguous {
+            ref alternatives, ..
+        } => {
             assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
             let productions = alternatives
                 .iter()

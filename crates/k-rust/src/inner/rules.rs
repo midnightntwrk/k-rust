@@ -169,7 +169,15 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
                     attributes.source_id().unwrap_or(SourceId(0)),
                     content_start_offset(attributes),
                 )
-                .map_err(|error| bubble_error(&module.name, sentence_type, attributes, error))?;
+                .map_err(|error| {
+                    bubble_error(
+                        &module.name,
+                        sentence_type,
+                        attributes,
+                        Some(contents),
+                        error,
+                    )
+                })?;
             *sentence = up_sentence(&module.name, sentence_type, parsed, attributes.clone())?;
         }
     }
@@ -200,15 +208,65 @@ fn bubble_error(
     module: &str,
     sentence_type: &str,
     attributes: &Attributes,
+    contents: Option<&str>,
     error: ParseError,
 ) -> RuleError {
+    let location = match (&error, contents) {
+        (
+            ParseError::Ambiguous {
+                span: Some(span), ..
+            },
+            Some(contents),
+        ) => ambiguity_location(attributes, contents, *span).or_else(|| attributes.location()),
+        _ => attributes.location(),
+    };
     RuleError::Parse(Box::new(RuleParseError {
         module: module.to_owned(),
         sentence_type: sentence_type.to_owned(),
         source: attributes.source().map(str::to_owned),
-        location: attributes.location(),
+        location,
         error,
     }))
+}
+
+fn ambiguity_location(
+    attributes: &Attributes,
+    contents: &str,
+    span: crate::kast::TermSpan,
+) -> Option<Location> {
+    let content_offset = content_start_offset(attributes);
+    let start = span.start.checked_sub(content_offset)?;
+    let end = span.end.checked_sub(content_offset)?;
+    let prefix = contents.get(..start)?;
+    let through = contents.get(start..end)?;
+    let mut line = attributes
+        .get("contentStartLine")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|line| u32::try_from(line).ok())?;
+    let mut column = attributes
+        .get("contentStartColumn")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|column| u32::try_from(column).ok())?;
+    advance_location(&mut line, &mut column, prefix);
+    let (start_line, start_column) = (line, column);
+    advance_location(&mut line, &mut column, through);
+    Some(Location {
+        start_line,
+        start_column,
+        end_line: line,
+        end_column: column,
+    })
+}
+
+fn advance_location(line: &mut u32, column: &mut u32, text: &str) {
+    for character in text.chars() {
+        if character == '\n' {
+            *line = line.saturating_add(1);
+            *column = 1;
+        } else {
+            *column = column.saturating_add(1);
+        }
+    }
 }
 
 fn up_sentence(
@@ -222,6 +280,7 @@ fn up_sentence(
             module,
             sentence_type,
             &attributes,
+            None,
             ParseError::NoParse {
                 position: 0,
                 expected: vec!["#RuleContent".into()],
@@ -240,6 +299,7 @@ fn up_sentence(
                 module,
                 sentence_type,
                 &attributes,
+                None,
                 ParseError::NoParse {
                     position: 0,
                     expected: vec!["rule content".into()],

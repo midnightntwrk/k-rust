@@ -275,10 +275,17 @@ fn incomparable_maximal_typings_are_reported_as_ambiguity() {
     let RuleError::Parse(error) = error else {
         panic!("expected a parse error, got {error:?}")
     };
-    let ParseError::Ambiguous { alternatives } = error.error else {
+    let ParseError::Ambiguous {
+        parses,
+        alternatives,
+        span,
+    } = error.error
+    else {
         panic!("expected an ambiguity, got {:?}", error.error)
     };
 
+    assert_eq!(parses, 2);
+    assert!(span.is_some());
     assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
     assert!(
         alternatives
@@ -323,7 +330,7 @@ fn a_dominating_typing_still_selects_one_parse() {
 }
 
 #[test]
-fn chooses_the_rewrite_overload_matching_the_rhs_sort() {
+fn rejects_non_function_rewrite_siblings_that_remain_ambiguous() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -335,7 +342,89 @@ fn chooses_the_rewrite_overload_matching_the_rhs_sort() {
           rule _ [ START := _ ] => .Bytes
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let error = resolve_rule_bubbles(&lowered(source))
+        .expect_err("rewrite siblings must not silently select mapWriteRange");
+    let rendered = error.to_string();
+    assert!(rendered.starts_with("rules.k:8:8:"), "{rendered}");
+    assert!(rendered.contains("\n1: syntax "), "{rendered}");
+    assert!(rendered.contains("\n2: syntax "), "{rendered}");
+    assert!(!rendered.contains("<generated production>"), "{rendered}");
+    let RuleError::Parse(error) = error else {
+        panic!("expected a parse error, got {error:?}")
+    };
+    let ParseError::Ambiguous {
+        parses,
+        alternatives,
+        span,
+    } = error.error
+    else {
+        panic!("expected an ambiguity, got {:?}", error.error)
+    };
+
+    assert_eq!(parses, 2);
+    assert!(span.is_some());
+    assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
+    assert!(alternatives[0].term.contains("mapWriteRange"));
+    assert!(alternatives[1].term.contains("setWordStack"));
+    assert!(
+        alternatives
+            .iter()
+            .any(|alternative| alternative.term.contains("mapWriteRange")),
+        "{alternatives:#?}"
+    );
+    assert!(
+        alternatives
+            .iter()
+            .any(|alternative| alternative.term.contains("setWordStack")),
+        "{alternatives:#?}"
+    );
+}
+
+#[test]
+fn rewrite_sibling_sort_does_not_select_constant_or_variable_overloads() {
+    for left in ["a(1)", "a(X)"] {
+        let source = format!(
+            r#"module MAIN
+  syntax Int ::= r"[0-9]+" [token]
+  syntax A ::= "a" "(" Int ")" [symbol(aA)]
+  syntax B ::= "a" "(" Int ")" [symbol(aB)]
+  syntax A ::= "mkA" "(" ")" [symbol(mkA)]
+  rule {left} => mkA()
+endmodule
+"#
+        );
+        let error = resolve_rule_bubbles(&lowered(&source))
+            .expect_err("unrelated result sorts must remain ambiguous");
+        assert!(
+            matches!(
+                error,
+                RuleError::Parse(ref error)
+                    if matches!(error.error, ParseError::Ambiguous { parses: 2, .. })
+            ),
+            "{left}: {error:?}"
+        );
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn function_rewrite_siblings_are_selected_by_whole_rule_inference() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= Int "<Int" Int [function, symbol(ltInt)]
+          syntax Bytes ::= ".Bytes" [symbol(.Bytes)]
+          syntax WordStack ::= ".WordStack" [symbol(.WordStack)]
+          syntax Bytes ::= Bytes "[" Int ":=" Bytes "]"
+                           [function, total, symbol(mapWriteRange)]
+          syntax WordStack ::= WordStack "[" Int ":=" Int "]"
+                               [function, total, symbol(setWordStack)]
+
+          rule _ [ START := _ ] => .Bytes requires START <Int 0
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source))
+        .expect("the rule condition should select the Bytes function");
     let body = resolved
         .main_module()
         .unwrap()
@@ -345,16 +434,10 @@ fn chooses_the_rewrite_overload_matching_the_rhs_sort() {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
-        .unwrap();
+        .expect("the rule should be resolved");
 
-    assert!(
-        body.contains("mapWriteRange"),
-        "unexpected overload: {body}"
-    );
-    assert!(
-        !body.contains("setWordStack"),
-        "unexpected overload: {body}"
-    );
+    assert!(body.contains("mapWriteRange"), "{body}");
+    assert!(!body.contains("setWordStack"), "{body}");
 }
 
 #[test]
@@ -830,7 +913,7 @@ fn reference_scan_d_upperid_token_and_variable_are_a_reported_ambiguity() {
     let RuleError::Parse(error) = error else {
         panic!("expected a parse error, got {error:?}")
     };
-    let ParseError::Ambiguous { alternatives } = error.error else {
+    let ParseError::Ambiguous { alternatives, .. } = error.error else {
         panic!("expected ambiguity, got {:?}", error.error)
     };
     assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
