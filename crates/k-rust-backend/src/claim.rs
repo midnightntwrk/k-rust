@@ -237,7 +237,8 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{{}} [hasDomainValues{{}}()]
-                symbol c{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
+                symbol c{{}}(SortS{{}}) : SortS{{}}
+                    [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
                 alias weakExistsFinally{{S}}(S) : S
                     where weakExistsFinally{{S}}(@X:S) := @X:S []
                 alias weakAlwaysFinally{{S}}(S) : S

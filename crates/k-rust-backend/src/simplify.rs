@@ -2000,8 +2000,10 @@ mod tests {
             module MAIN
                 sort SortS{{}} [hasDomainValues{{}}()]
                 hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
-                symbol wrap{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
-                symbol budgetPair{{}}(SortS{{}}, SortS{{}}) : SortS{{}} [constructor{{}}()]
+                symbol wrap{{}}(SortS{{}}) : SortS{{}}
+                    [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
+                symbol budgetPair{{}}(SortS{{}}, SortS{{}}) : SortS{{}}
+                    [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
                 symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
                 {axioms}
             endmodule []"#
@@ -2638,7 +2640,8 @@ mod tests {
     fn simplification_equations_continue_past_indeterminate_higher_priority_matches() {
         let definition = definition(
             r#"
-            symbol a{}() : SortS{} [constructor{}()]
+            symbol a{}() : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
             axiom{R} \implies{R}(
                 \top{R}(),
                 \equals{SortS{}, R}(
@@ -2985,7 +2988,7 @@ mod tests {
         let definition = definition(
             r#"
             symbol pair{}(SortS{}, SortS{}) : SortS{}
-                [constructor{}(), injective{}()]
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
             "#,
         );
         let one = term(&definition, r#"\dv{SortS{}}("1")"#);

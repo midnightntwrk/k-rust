@@ -192,14 +192,15 @@ mod tests {
     const BASE: &str = r#"
         []
         module BASE
-            sort SortState{} [hasDomainValues{}()]
-            symbol state{}(SortState{}) : SortState{} [constructor{}()]
+            sort SortToken{} [hasDomainValues{}()]
+            sort SortState{} []
+            symbol state{}(SortToken{}) : SortState{} [constructor{}()]
             axiom{} \rewrites{SortState{}}(
                 \and{SortState{}}(
-                    state{}(\dv{SortState{}}("a")), \top{SortState{}}()
+                    state{}(\dv{SortToken{}}("a")), \top{SortState{}}()
                 ),
                 \and{SortState{}}(
-                    state{}(\dv{SortState{}}("d")), \top{SortState{}}()
+                    state{}(\dv{SortToken{}}("d")), \top{SortState{}}()
                 )
             ) [label{}("BASE.AD")]
         endmodule []
@@ -209,18 +210,18 @@ mod tests {
         import BASE []
         axiom{} \rewrites{SortState{}}(
             \and{SortState{}}(
-                state{}(\dv{SortState{}}("d")), \top{SortState{}}()
+                state{}(\dv{SortToken{}}("d")), \top{SortState{}}()
             ),
             \and{SortState{}}(
-                state{}(\dv{SortState{}}("e")), \top{SortState{}}()
+                state{}(\dv{SortToken{}}("e")), \top{SortState{}}()
             )
         ) [label{}("NEW.DE")]
         axiom{} \rewrites{SortState{}}(
             \and{SortState{}}(
-                state{}(\dv{SortState{}}("e")), \top{SortState{}}()
+                state{}(\dv{SortToken{}}("e")), \top{SortState{}}()
             ),
             \and{SortState{}}(
-                state{}(\dv{SortState{}}("f")), \top{SortState{}}()
+                state{}(\dv{SortToken{}}("f")), \top{SortState{}}()
             )
         ) [label{}("NEW.EF")]
     endmodule []"#;
@@ -251,7 +252,7 @@ mod tests {
         let id = session.add_module(ADDED, module.clone(), true).unwrap();
         assert_eq!(
             id,
-            "m662deaa65f16b563cbc774410183536650dc7bcf8f482a131b4fa8eedf5f4809"
+            "m1c55d05826f1595ff6eb2663d76f0cb699e7d6c28a2b9dfeb4409202e43841a6"
         );
         assert_eq!(session.add_module(ADDED, module, true).unwrap(), id);
         assert_eq!(rule_count(&session.definition(Some("NEW")).unwrap()), 3);
@@ -339,10 +340,10 @@ mod tests {
             import NEW []
             axiom{} \rewrites{SortState{}}(
                 \and{SortState{}}(
-                    state{}(\dv{SortState{}}("f")), \top{SortState{}}()
+                    state{}(\dv{SortToken{}}("f")), \top{SortState{}}()
                 ),
                 \and{SortState{}}(
-                    state{}(\dv{SortState{}}("g")), \top{SortState{}}()
+                    state{}(\dv{SortToken{}}("g")), \top{SortState{}}()
                 )
             ) [label{}("EXTENSION.FG")]
         endmodule []"#;

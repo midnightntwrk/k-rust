@@ -277,7 +277,8 @@ mod tests {
         let source = r#"[]
             module MAIN
                 sort SortS{} [hasDomainValues{}()]
-                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol partial{}(SortS{}) : SortS{} [function{}()]
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
