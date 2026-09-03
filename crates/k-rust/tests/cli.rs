@@ -434,7 +434,6 @@ endmodule
             "ready",
             "--depth",
             "0",
-            "--no-prelude",
         ])
         .output()
         .unwrap();
