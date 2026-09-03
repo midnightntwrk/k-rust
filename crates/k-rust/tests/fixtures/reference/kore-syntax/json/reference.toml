@@ -20,6 +20,11 @@ file = "multi-or-right.json"
 source = "Kore.Syntax.Json.Types KJMultiOr and Kore.Syntax.Json.Internal toParsedPattern"
 sha256 = "91c6fffb984ab67b14fafefae0c964fb0ba1cc697cb5243df23cf78fd1d0a8be"
 
+[[input]]
+file = "deep-148.json"
+source = "B3-02 harvested reference-shaped 72-App KORE JSON depth probe"
+sha256 = "a31f6a82c2b43ce95dd63d4cffce75eea18ea5758a8e29fa8899a7fa682d66ea"
+
 [[artifact]]
 file = "mu-svar.json"
 command = "kore-parser syntax.kore --module M --pattern mu-svar.kore --no-verify --print-pattern-json > mu-svar.json"
