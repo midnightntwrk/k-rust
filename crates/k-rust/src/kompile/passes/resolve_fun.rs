@@ -223,18 +223,11 @@ impl Resolver<'_, '_> {
         let right = rewrite_right(&body);
         let lhs_sort = self.term_sort(&left, &attributes);
         let argument_sort = self.term_sort(&argument, &attributes);
-        // Java treats an uncast variable pattern as the unknown `K` sort in this LUB. Singleton
-        // user-list patterns are the exception: they adopt the concrete list argument sort while
-        // remaining non-total.
+        // Java treats an uncast variable pattern as the unknown `K` sort in this LUB, regardless
+        // of the concrete argument sort.
         let variable_pattern = underlying_variable(&left).is_some();
-        let singleton_user_list_pattern = variable_pattern
-            && matches!(
-                (&lhs_sort, &argument_sort),
-                (Some(lhs), Some(argument))
-                    if lhs != argument && self.injector.is_user_list_sort(argument)
-            );
         let parameter_sort = match (lhs_sort, argument_sort) {
-            (_, Some(argument)) if singleton_user_list_pattern => argument,
+            _ if matches!(left.unannotated(), Term::Variable { .. }) => Sort::new("K"),
             (Some(lhs), Some(argument)) => self
                 .injector
                 .least_upper_bound(&[lhs.clone(), argument.clone()], None)
@@ -244,9 +237,8 @@ impl Resolver<'_, '_> {
         let closure = closure_variables(&body);
         let predicate = matches!(source_label.name.as_str(), "_:=K_" | "_:/=K_");
 
-        let total = matches!(source_label.name.as_str(), "#fun2" | "#fun3" | "#let")
-            && variable_pattern
-            && !singleton_user_list_pattern;
+        let total =
+            matches!(source_label.name.as_str(), "#fun2" | "#fun3" | "#let") && variable_pattern;
         let result_sort = if predicate {
             Sort::new("Bool")
         } else {
