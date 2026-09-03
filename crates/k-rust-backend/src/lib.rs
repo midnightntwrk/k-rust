@@ -9,6 +9,7 @@ pub mod cancellation;
 pub mod claim;
 pub mod definedness;
 pub mod definition;
+pub mod diagnostic;
 pub mod externalize;
 pub mod implication;
 pub mod matching;
