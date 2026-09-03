@@ -6,6 +6,7 @@ use super::ast::{ProductionItem, Sentence};
 use super::ordering::Error as OrderingError;
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
+use super::sort_catalog::SortCatalog;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
@@ -16,6 +17,7 @@ mod production_shapes;
 mod regexes;
 mod rhs_variables;
 mod smt_lemmas;
+mod sorts;
 mod term_position;
 
 pub use attributes::{check_attribute_semantics, check_attributes};
@@ -25,6 +27,7 @@ pub use production_shapes::{check_configuration_cells, check_holes, check_stream
 pub use regexes::check_regexes;
 pub use rhs_variables::{StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables};
 pub use smt_lemmas::check_smt_lemmas;
+pub use sorts::{check_outer_modules, check_sorts, check_user_lists};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [&str; 3] = ["function", "token", "bracket"];
 const IGNORED_TOKEN_SORTS: [&str; 2] = ["KBott", "KLabel"];
@@ -61,6 +64,16 @@ pub fn check_module_with_options(
     module: ModuleId,
     options: StructuralCheckOptions,
 ) -> Result<Vec<Diagnostic>, Error> {
+    let sort_catalog = definition.sort_catalog(module);
+    check_module_with_options_and_catalog(definition, module, options, &sort_catalog)
+}
+
+fn check_module_with_options_and_catalog(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    options: StructuralCheckOptions,
+    sort_catalog: &SortCatalog<'_>,
+) -> Result<Vec<Diagnostic>, Error> {
     let sentences = definition
         .sorted_local_sentences(module)
         .map_err(Error::Ordering)?;
@@ -70,7 +83,6 @@ pub fn check_module_with_options(
     let priorities = definition
         .priorities(module)
         .map_err(Error::CircularPriority)?;
-    let sort_catalog = definition.sort_catalog(module);
     let production_catalog = definition.production_catalog(module);
     let rule_catalog = definition.rule_catalog(module);
     let macro_labels = rule_catalog.all_macro_labels(&production_catalog);
@@ -95,17 +107,13 @@ pub fn check_module_with_options(
         .chain(check_functions(
             &sentences,
             &production_catalog,
-            &sort_catalog,
+            sort_catalog,
         ))
-        .chain(check_klabels(
-            &sentences,
-            &production_catalog,
-            &sort_catalog,
-        ))
+        .chain(check_klabels(&sentences, &production_catalog, sort_catalog))
         .chain(check_attribute_semantics(
             &sentences,
             &production_catalog,
-            &sort_catalog,
+            sort_catalog,
         ))
         // Java validates SMT lemmas from `ExpandMacros`, after aliases and macros have been
         // removed from rule bodies. Checking here rejects valid lemmas that still contain an
@@ -126,8 +134,17 @@ pub fn check_definition_with_options(
     options: StructuralCheckOptions,
 ) -> Result<Vec<Diagnostic>, Error> {
     let mut diagnostics = Vec::new();
-    for (module, _) in definition.modules() {
-        diagnostics.extend(check_module_with_options(definition, module, options)?);
+    for (module_id, module) in definition.modules() {
+        let visible = definition.sentences(module_id);
+        let sort_catalog = definition.sort_catalog(module_id);
+        diagnostics.extend(check_sorts(module, &sort_catalog));
+        diagnostics.extend(check_user_lists(module, &visible));
+        diagnostics.extend(check_module_with_options_and_catalog(
+            definition,
+            module_id,
+            options,
+            &sort_catalog,
+        )?);
     }
     diagnostics.extend(check_duplicate_klabels(definition));
     diagnostics.extend(check_function_rule_attributes(definition));

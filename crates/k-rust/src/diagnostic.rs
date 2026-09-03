@@ -96,6 +96,7 @@ pub enum DiagnosticCode {
     DuplicateSentenceLabel,
     DuplicateConfigurationCell,
     DuplicateKLabel,
+    DuplicateUserList,
     FutureError,
     InvalidAnonymousVariable,
     InvalidAttribute,
@@ -134,7 +135,9 @@ pub enum DiagnosticCode {
     UnsupportedCellBag,
     UndefinedKLabel,
     UndeclaredTag,
+    UndefinedSort,
     UnrecognizedAttribute,
+    UnsupportedParametricSort,
 }
 
 impl DiagnosticCode {

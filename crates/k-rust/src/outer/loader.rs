@@ -6,7 +6,7 @@ use crate::{
     builtin,
     definition::{
         ConfigurationError, Definition, FlatImport, Location, ResolveError, ResolvedDefinition,
-        Sentence, apply_sort_synonyms, expand_configurations,
+        Sentence, apply_sort_synonyms, check_outer_modules, check_sorts, expand_configurations,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
@@ -346,6 +346,20 @@ fn finish_load(
     remove_unused_default_configuration: bool,
 ) -> Result<LoadedDefinition, LoadError> {
     let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
+    let resolved =
+        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+    let mut diagnostics = diagnostics;
+    let outer_diagnostics = check_outer_modules(&resolved);
+    let has_outer_errors = outer_diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error);
+    diagnostics.extend(outer_diagnostics);
+    if has_outer_errors {
+        return Err(LoadError::SourceDiagnostics(
+            options.diagnostics.apply(diagnostics),
+        ));
+    }
+
     let mut definition =
         exclude_modules_by_attributes(definition, &options.excluded_module_attributes)?;
     if remove_unused_default_configuration {
@@ -358,8 +372,25 @@ fn finish_load(
         add_implicit_configuration_imports(definition, options.configuration_module.as_deref())?;
     let definition =
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
-    let definition =
+    let mut definition =
         expand_configurations(&definition).map_err(LoadError::ConfigurationExpansion)?;
+    remove_temporary_cell_sort_declarations(&mut definition);
+    let resolved =
+        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+    let mut expanded_diagnostics = Vec::new();
+    for (module_id, module) in resolved.modules() {
+        expanded_diagnostics.extend(check_sorts(module, &resolved.sort_catalog(module_id)));
+    }
+    let has_expanded_errors = expanded_diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error);
+    diagnostics.extend(expanded_diagnostics);
+    if has_expanded_errors {
+        return Err(LoadError::SourceDiagnostics(
+            options.diagnostics.apply(diagnostics),
+        ));
+    }
+
     let definition = resolve_rule_bubbles(&definition).map_err(LoadError::RuleParsing)?;
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
@@ -377,6 +408,15 @@ fn finish_load(
         resolved,
         diagnostics,
     })
+}
+
+fn remove_temporary_cell_sort_declarations(definition: &mut Definition) {
+    for module in &mut definition.modules {
+        module.local_sentences.retain(|sentence| {
+            !matches!(sentence, Sentence::SyntaxSort { attributes, .. }
+                if attributes.get("temporary-cell-sort-decl").is_some())
+        });
+    }
 }
 
 fn without_unused_default_configuration(
