@@ -3510,7 +3510,7 @@ fn emit_attributes(
         .collect::<BTreeSet<_>>();
     let patterns = keys
         .into_iter()
-        .filter(|key| should_emit(key))
+        .filter(|key| overrides.contains_key(key) || should_emit(key))
         .map(|key| {
             let arguments = overrides.get(&key).cloned().unwrap_or_else(|| {
                 if valued.contains(&key) {
@@ -3586,7 +3586,6 @@ fn should_emit(key: &str) -> bool {
         key,
         "alias"
             | "alias-rec"
-            | "all-path"
             | "anywhere"
             | "assoc"
             | "binder"
@@ -3616,7 +3615,6 @@ fn should_emit(key: &str) -> bool {
             | "memo"
             | "non-executable"
             | "no-evaluators"
-            | "one-path"
             | "owise"
             | "preserves-definedness"
             | "priority"
@@ -3635,10 +3633,8 @@ fn should_emit(key: &str) -> bool {
             | "concat"
             | "cool-like"
             | "hasDomainValues"
-            | "left"
             | "nat"
             | "priorities"
-            | "right"
             | "symbol-overload"
             | "terminals"
             | "UNIQUE_ID"
