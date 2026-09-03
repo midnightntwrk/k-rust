@@ -4134,14 +4134,19 @@ mod tests {
         let simplify = request(&mut service, 1, "simplify", json!({ "state": chain }));
 
         // The standalone simplify API is intentionally unbounded for reference parity, while
-        // execution uses the shared finite default and reports exhaustion as an aborted leaf.
+        // execution uses the shared finite default and continues from the partial result.
         assert!(simplify.get("error").is_none(), "{simplify:#}");
         assert!(simplify["result"]["state"].to_string().contains("done"));
 
         let initial =
             encode_kore(&parse_pattern(r#"wrap{}(\dv{SortState{}}("value"))"#).unwrap()).unwrap();
         let execute = request(&mut service, 2, "execute", json!({ "state": initial }));
-        assert_eq!(execute["result"]["reason"], "aborted", "{execute:#}");
+        assert_eq!(execute["result"]["reason"], "branching", "{execute:#}");
+        assert_eq!(
+            execute["result"]["next-states"].as_array().map(Vec::len),
+            Some(2),
+            "{execute:#}"
+        );
 
         let configured = request(
             &mut service,

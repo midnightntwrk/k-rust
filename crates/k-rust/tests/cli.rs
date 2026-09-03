@@ -2583,10 +2583,15 @@ endmodule
         ])
         .output()
         .unwrap();
-    assert!(!limited.status.success());
-    let stderr = String::from_utf8(limited.stderr).unwrap();
-    assert!(stderr.contains("Simplification"), "{stderr}");
-    assert!(stderr.contains("IterationLimit"), "{stderr}");
+    assert!(
+        limited.status.success(),
+        "{}",
+        String::from_utf8_lossy(&limited.stderr)
+    );
+    let output = String::from_utf8(limited.stdout).unwrap();
+    assert!(output.contains(r#"\dv{SortInt{}}("334")"#), "{output}");
+    assert!(!output.contains("Lblinc"), "{output}");
+    assert!(!output.contains("Lblfoo"), "{output}");
 
     fs::remove_dir_all(root).unwrap();
 }
