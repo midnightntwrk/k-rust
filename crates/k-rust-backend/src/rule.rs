@@ -1628,6 +1628,25 @@ mod tests {
     }
 
     #[test]
+    fn rewrite_axioms_keep_their_concreteness_attribute() {
+        let classified = classify(
+            r#"axiom{} \rewrites{S{}}(
+                \and{S{}}(lhs{}(X:S{}), \top{S{}}()), rhs{}()
+            ) [symbolic{}()]"#,
+        )
+        .expect("axiom should classify")
+        .expect("axiom should be executable");
+
+        let ClassifiedAxiom::Rewrite { attributes, .. } = classified else {
+            panic!("expected rewrite");
+        };
+        assert_eq!(
+            attributes.concreteness,
+            Concreteness::All(ConstraintKind::Symbolic)
+        );
+    }
+
+    #[test]
     fn classifies_function_argument_binders() {
         let classified = classify(
             r#"axiom{R} \implies{R}(
