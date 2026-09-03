@@ -49,7 +49,7 @@ pub(crate) fn number_sentence(sentence: &mut Sentence) {
             })
             .collect::<BTreeMap<_, _>>(),
     );
-    let text = sentence_hash_text(sentence, &semantic_attributes);
+    let text = unique_id_text(sentence, &semantic_attributes);
     let digest = Sha3_256::digest(text.as_bytes());
     let mut id = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -63,7 +63,7 @@ pub(crate) fn number_sentence(sentence: &mut Sentence) {
     }
 }
 
-fn sentence_hash_text(sentence: &Sentence, attributes: &Attributes) -> String {
+pub(crate) fn unique_id_text(sentence: &Sentence, attributes: &Attributes) -> String {
     match sentence {
         Sentence::Rule {
             body,
@@ -135,13 +135,13 @@ fn normalize_term(
                 .collect(),
         ),
         Term::Apply { label, arguments } => Term::Apply {
-            label: label.clone(),
+            label: normalize_label(label),
             arguments: arguments
                 .iter()
                 .map(|argument| normalize_term(argument, variables, counter))
                 .collect(),
         },
-        Term::InjectedLabel(label) => Term::InjectedLabel(label.clone()),
+        Term::InjectedLabel(label) => Term::InjectedLabel(normalize_label(label)),
         Term::Token { token, sort } => Term::Token {
             token: token.clone(),
             sort: sort.clone(),
@@ -153,6 +153,27 @@ fn normalize_term(
         .map_or(normalized.clone(), |metadata| {
             normalized.with_metadata(metadata)
         })
+}
+
+fn normalize_label(label: &crate::kast::Label) -> crate::kast::Label {
+    // Java's hash text omits instantiated production parameters, but retains the explicit
+    // polymorphic placeholder carried by generated subsort and ML sentences.
+    if label
+        .parameters
+        .iter()
+        .any(|sort| sort.name == "#SortParam")
+    {
+        crate::kast::Label::with_parameters(
+            label.name.clone(),
+            label
+                .parameters
+                .iter()
+                .map(|sort| crate::kast::Sort::new(sort.name.clone()))
+                .collect(),
+        )
+    } else {
+        crate::kast::Label::new(label.name.clone())
+    }
 }
 
 fn format_attributes(attributes: &Attributes) -> String {
@@ -193,8 +214,8 @@ mod tests {
             attributes: Attributes::default(),
         };
         assert_eq!(
-            sentence_hash_text(&make("X"), &Attributes::default()),
-            sentence_hash_text(&make("Y"), &Attributes::default())
+            unique_id_text(&make("X"), &Attributes::default()),
+            unique_id_text(&make("Y"), &Attributes::default())
         );
     }
 
@@ -213,7 +234,7 @@ mod tests {
             attributes: Attributes::default(),
         };
         assert_eq!(
-            sentence_hash_text(&sentence, &Attributes::default()),
+            unique_id_text(&sentence, &Attributes::default()),
             "rule f(_0)=>_0 requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") "
         );
     }

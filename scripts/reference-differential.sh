@@ -126,17 +126,14 @@ mapfile -t cases < <(
     ((.comparisons // []) | join(" ")),
     ((.pairings // ["kore/llvm", "haskell/rust"]) | join(" ")),
     (.expect // "accept"),
-    ([.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")),
-    (.["unique-id-divergence-ceilings"]["kore/llvm"] // -1),
-    (.["unique-id-divergence-ceilings"]["haskell/rust"] // -1)
+    ([.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", "))
   ] | join("\u001f")' <<<"$manifest_json"
 )
-ignore_unique_id_ticket=$(jq -r '.normalisations.ignore_unique_id // ""' <<<"$manifest_json")
 selected_count=0
 
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces \
-    comparisons pairings expect blocking_tickets kore_ceiling haskell_ceiling <<<"$fixture"
+    comparisons pairings expect blocking_tickets <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -188,12 +185,10 @@ for fixture in "${cases[@]}"; do
       kore/llvm)
         reference_backend=kore
         rust_backend=llvm
-        ceiling=$kore_ceiling
         ;;
       haskell/rust)
         reference_backend=haskell
         rust_backend=rust
-        ceiling=$haskell_ceiling
         ;;
       *)
         echo "error: case $name declares unknown pairing $pairing" >&2
@@ -315,12 +310,7 @@ for fixture in "${cases[@]}"; do
     fi
     if [[ " $effective_comparisons " == *" semantic-kore "* ]]; then
       echo "[$name:$pairing] comparing semantic KORE"
-      compare_environment=()
-      if [[ ",$blocking_tickets," != *",$ignore_unique_id_ticket,"* ]]; then
-        compare_environment=(K_DIFFERENTIAL_IGNORE_UNIQUE_ID=1)
-      fi
       if ! comparison_output=$(env \
-        "${compare_environment[@]}" \
         K_REFERENCE_KORE="$semantic_reference" \
         K_RUST_KORE="$rust/definition.kore" \
         cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
@@ -330,22 +320,6 @@ for fixture in "${cases[@]}"; do
         exit 1
       fi
       printf '%s\n' "$comparison_output"
-      unique_id_divergences=$(sed -n 's/^unique-id divergences: \([0-9][0-9]*\)$/\1/p' <<<"$comparison_output" | tail -n1)
-      unique_id_divergences=${unique_id_divergences:-0}
-      if [[ -n "$ignore_unique_id_ticket" ]]; then
-        echo "[$name:$pairing] unique-id divergences ignored ($ignore_unique_id_ticket pending): $unique_id_divergences"
-        if ((ceiling < 0)); then
-          echo "error: case $name has no UNIQUE_ID divergence ceiling for $pairing" >&2
-          exit 2
-        fi
-        if ((unique_id_divergences > ceiling)); then
-          echo "error: $name $pairing has $unique_id_divergences UNIQUE_ID divergences, above its pinned ceiling $ceiling" >&2
-          exit 1
-        fi
-        if ((unique_id_divergences < ceiling)); then
-          echo "[$name:$pairing] UNIQUE_ID ceiling can improve from $ceiling to $unique_id_divergences"
-        fi
-      fi
     fi
     if [[ "$pairing" == kore/llvm && " $effective_comparisons " == *" syntax-kore "* ]]; then
       echo "[$name:$pairing] comparing syntax KORE"

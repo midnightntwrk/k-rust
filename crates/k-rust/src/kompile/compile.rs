@@ -488,7 +488,7 @@ mod tests {
                 artifact_digest(&artifacts.macros_kore),
             ],
             [
-                String::from("e5bedabb9e58a527bec700b07d3578c25152d9bf3a191a415b62a056d753d506",),
+                String::from("d8d93d5451a04f4213ad94f8fdb2eba275db88249531bc08a7311d67987d1f2e",),
                 String::from("2e7f3354ebe280754c47f057a728c4c03cde4ead9cc408da3f40585a62785278",),
                 String::from("a78f2c566b2439463a2e7ca515bbfa3f92948506583cbadaebdd507f277542bd",),
             ],

@@ -319,7 +319,6 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
         "REFERENCE_DIFFERENTIAL_PAIRINGS",
         "haskell/rust",
         "kore/llvm",
-        "multi-alias freezer axioms",
         "kore_parser",
         "verifying reference definition.kore",
         "verifying k-rust definition.kore",
