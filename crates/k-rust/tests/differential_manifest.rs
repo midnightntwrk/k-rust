@@ -119,6 +119,14 @@ fn part_b_manifest_schema_is_complete() {
         "K accepts an anonymous binder in requires only for its Haskell backend",
     );
     assert!(
+        compile_case("exists-anon")["requires"]
+            .as_array()
+            .expect("exists-anon requirements")
+            .iter()
+            .all(|requirement| requirement.as_str() != Some("ticket:B2-02")),
+        "I1-07 and A3-07 make the B2-02 integration fixture directly runnable",
+    );
+    assert!(
         compile_case("assoc-strict")["requires"]
             .as_array()
             .expect("assoc-strict requirements")
@@ -136,7 +144,6 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         ("compile", "imp"),
         ("compile", "parametric"),
         ("compile", "assoc-strict"),
-        ("compile", "exists-anon"),
         ("compile", "undefined-sort"),
         ("symbolic", "c1-map"),
         ("symbolic", "c1-t2"),

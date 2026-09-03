@@ -2,7 +2,7 @@ use indoc::indoc;
 use k_rust::definition::{Definition, LabelHead, ResolvedDefinition, Sentence};
 use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
-use k_rust::kompile::{TermConverter, term_to_kore};
+use k_rust::kompile::{TermConversionError, TermConverter, term_to_kore};
 use k_rust::kore::parser::parse_pattern;
 use k_rust::kore::printer::Printer;
 use k_rust::outer;
@@ -125,6 +125,105 @@ fn converts_ml_connectives_and_set_variables() {
             &term_to_kore(&definition, "MAIN", &set_variable).expect("set variable should convert")
         ),
         "@VarSET:SortS{}"
+    );
+}
+
+fn sorted_variable(name: &str, sort: &str) -> Term {
+    Term::Variable {
+        name: name.into(),
+        sort: Some(Sort::new(sort)),
+    }
+}
+
+fn anonymous_quantifier(label: &str, body: Term) -> Term {
+    Term::Apply {
+        label: Label::with_parameters(label, vec![Sort::new("Int"), Sort::new("Bool")]),
+        arguments: vec![sorted_variable("_Gen0", "Int"), body],
+    }
+}
+
+fn convert_handbuilt(term: &Term) -> Result<String, TermConversionError> {
+    let definition = lowered("module MAIN\nendmodule");
+    term_to_kore(&definition, "MAIN", term)
+        .map(|pattern| Printer::compact().print_pattern(&pattern))
+}
+
+#[test]
+fn anonymous_binder_quantifies_every_anonymous_variable_of_the_body() {
+    let term = anonymous_quantifier(
+        "#Exists",
+        Term::apply(
+            "p",
+            vec![sorted_variable("X", "Int"), sorted_variable("_Gen1", "Int")],
+        ),
+    );
+
+    assert_eq!(
+        convert_handbuilt(&term).unwrap(),
+        "\\exists{SortBool{}}(Var'Unds'Gen1:SortInt{}, Lblp{}(VarX:SortInt{}, Var'Unds'Gen1:SortInt{}))"
+    );
+}
+
+#[test]
+fn anonymous_binder_nests_one_quantifier_per_anonymous_variable_in_preorder() {
+    let term = anonymous_quantifier(
+        "#Forall",
+        Term::apply(
+            "p",
+            vec![
+                sorted_variable("_Gen2", "Int"),
+                sorted_variable("_Gen1", "Bool"),
+                sorted_variable("_Gen2", "Int"),
+            ],
+        ),
+    );
+
+    assert_eq!(
+        convert_handbuilt(&term).unwrap(),
+        "\\forall{SortBool{}}(Var'Unds'Gen2:SortInt{}, \\forall{SortBool{}}(Var'Unds'Gen1:SortBool{}, Lblp{}(Var'Unds'Gen2:SortInt{}, Var'Unds'Gen1:SortBool{}, Var'Unds'Gen2:SortInt{})))"
+    );
+}
+
+#[test]
+fn anonymous_binder_without_anonymous_body_variables_emits_the_body() {
+    let term = anonymous_quantifier(
+        "#Exists",
+        Term::apply("p", vec![sorted_variable("X", "Int")]),
+    );
+
+    assert_eq!(convert_handbuilt(&term).unwrap(), "Lblp{}(VarX:SortInt{})");
+}
+
+#[test]
+fn rejects_nested_anonymous_binders() {
+    let nested = anonymous_quantifier(
+        "#Forall",
+        Term::apply("p", vec![sorted_variable("_Gen1", "Int")]),
+    );
+    let term = anonymous_quantifier("#Exists", nested);
+
+    assert_eq!(
+        convert_handbuilt(&term).unwrap_err(),
+        TermConversionError::InvalidBuiltin {
+            label: "#Forall".into(),
+            message: "Nested quantifier over anonymous variables.".into(),
+        }
+    );
+}
+
+#[test]
+fn named_binders_keep_the_single_variable_translation() {
+    let term = Term::Apply {
+        label: Label::with_parameters("#Exists", vec![Sort::new("Int"), Sort::new("Bool")]),
+        arguments: vec![
+            sorted_variable("X", "Int"),
+            Term::apply("p", vec![sorted_variable("X", "Int")]),
+        ],
+    };
+
+    assert_eq!(
+        convert_handbuilt(&term).unwrap(),
+        "\\exists{SortBool{}}(VarX:SortInt{}, Lblp{}(VarX:SortInt{}))"
     );
 }
 
