@@ -2144,6 +2144,8 @@ fn wraps_cell_free_rules_and_contexts_in_the_main_computation_cell() {
           rule g(1) => 2 [anywhere, label(anywhere)]
           rule g(2) => 1 [simplification, label(simplification)]
           context g(HOLE) [label(context)]
+          syntax K
+          syntax Map
         endmodule
     "#};
     let transformed = add_implicit_computation_cell(&parsed(source)).unwrap();
@@ -2186,6 +2188,8 @@ fn imported_syntax_rules_use_the_main_modules_computation_cell() {
         module MAIN
           imports LANGUAGE-SYNTAX
           configuration <k> 0 </k>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let transformed = add_implicit_computation_cell(&parsed(source)).unwrap();
@@ -2220,6 +2224,8 @@ fn wraps_a_non_function_overload_in_the_computation_cell() {
           configuration <k> a </k>
           rule a => done [label(step)]
           rule f => a [label(equation)]
+          syntax K
+          syntax Map
         endmodule
     "#};
     let transformed = add_implicit_computation_cell(&parsed(source)).unwrap();
@@ -2257,6 +2263,8 @@ fn falls_back_safely_when_function_application_metadata_is_stale() {
           configuration <k> a </k>
           rule a => done [label(step)]
           rule f => done [label(equation)]
+          syntax K
+          syntax Map
         endmodule
     "#};
     let mut definition = parsed(source);
@@ -2367,6 +2375,8 @@ fn resolves_fresh_variables_and_generates_the_counter_configuration() {
                       | "freshId(" Int ")" [function, freshGenerator, symbol(freshId)]
           configuration <k> 0 </k>
           rule 0 => pair(!Y:Id, !X:Id) [label(fresh)]
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -2430,6 +2440,8 @@ fn expands_the_internally_generated_counter_configuration() {
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
           configuration <k> 0 </k>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
@@ -2458,6 +2470,8 @@ fn preserves_explicit_cell_variables_while_sorting_cell_fragments() {
           syntax Id ::= "freshId(" Int ")" [function, freshGenerator, symbol(freshId)]
           configuration <k> 0 </k>
           rule 0 => !X:Id
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -2497,6 +2511,8 @@ fn reports_missing_generators_for_fresh_variables() {
           syntax Exp ::= "a" [symbol(a)]
           configuration <k> a </k>
           rule a => !X:Exp [label(fresh)]
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -2595,6 +2611,8 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
             </top>
           rule <k> 0 => 1 ... </k>
           rule <state> 1 => 2 </state>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -2645,6 +2663,8 @@ fn preserves_already_complete_nested_cells() {
               <state> 1 </state>
             </top>
           rule inspect(T:TopCell) => inspect(T:TopCell)
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -2741,6 +2761,8 @@ fn complete_cells_are_rejected_with_a_typed_error() {
               <output> 0 </output>
             </top>
           rule <k> 0 => 1 </k>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -2935,6 +2957,8 @@ fn does_not_wrap_matching_logic_simplifications_in_the_generated_top_cell() {
                        | "m(" Exp ")" [mlOp, symbol(m)]
           configuration <k> a </k>
           rule m(a) => a [simplification]
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -2978,6 +3002,8 @@ fn splits_fragment_variables_on_both_sides_of_a_parent_cell_rewrite() {
             </top>
           rule <k> 0 => 1 ... </k>
                <saved> _ => SAVED </saved>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_anon_vars(&parsed(source));
@@ -3244,6 +3270,8 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
           rule <top>
             <k> 0 => 1 </k>
           </top>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -3287,6 +3315,8 @@ fn equal_concretized_defaults_have_distinct_destination_paths() {
                 <k> 0 </k>
               </thread>
             </top>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -3388,6 +3418,8 @@ fn preserves_repeated_cell_initializers_for_every_collection_shape() {
                         <id> {body} </id>
                       </thread>
                     </top>
+                  syntax K
+                  syntax Map
                 endmodule
                 "#
             );
@@ -3442,6 +3474,8 @@ fn splits_cell_fragment_variables_and_rebuilds_external_occurrences() {
           </top>
           requires isTopCellFragment(CELLS)
           ensures ok(CELLS)
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
@@ -3535,6 +3569,8 @@ fn marks_variable_headed_main_cell_sequences_as_cool_like() {
           syntax Int ::= r"[0-9]+" [token]
           configuration <k> 0 </k>
           rule <k> REST:K ~> 0 => REST ... </k>
+          syntax K
+          syntax Map
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(source));
