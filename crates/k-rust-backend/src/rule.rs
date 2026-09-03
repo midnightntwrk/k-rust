@@ -1532,7 +1532,7 @@ mod tests {
         let source = format!(
             r#"[]
             module MAIN
-                sort SortS{{}} [hasDomainValues{{}}()]
+                sort SortS{{}} []
                 symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
                 symbol a{{}}() : SortS{{}} [constructor{{}}()]
                 {axiom}
