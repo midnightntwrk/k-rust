@@ -72,6 +72,38 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
     ))
 }
 
+/// Restore generated sort predicates to their canonical unary signature after passes that may
+/// temporarily add arguments, then generate predicates for any newly introduced sorts.
+pub fn regenerate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, String> {
+    let mut output = definition.clone();
+    for module in &mut output.modules {
+        for sentence in &mut module.local_sentences {
+            let Sentence::Production {
+                label: Some(label),
+                items,
+                attributes,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            if attributes.get("predicate").is_none() {
+                continue;
+            }
+            *items = vec![
+                ProductionItem::Terminal(label.name.clone()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("K"),
+                    name: None,
+                },
+                ProductionItem::Terminal(")".into()),
+            ];
+        }
+    }
+    generate_sort_predicate_syntax(&output)
+}
+
 /// Apply the non-coverage form of Java's `GenerateSortProjections` transformation.
 pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, String> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
