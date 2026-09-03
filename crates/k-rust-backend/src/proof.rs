@@ -19,8 +19,8 @@ use crate::{
     rewrite::{
         IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind, Truth,
         conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
-        recover_indeterminate_match, rewrite_step_sequential_with_solver, rewrite_step_with_solver,
-        substitute_predicates,
+        recover_indeterminate_match, rewrite_step_sequential_with_options,
+        rewrite_step_with_options, substitute_predicates,
     },
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
@@ -211,9 +211,7 @@ pub fn prove_claim(
             definition,
             &state.pattern.constraints,
             &[],
-            SimplificationOptions {
-                max_iterations: options.max_simplification_iterations,
-            },
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         );
         finish_if_timed_out!();
@@ -235,9 +233,7 @@ pub fn prove_claim(
             definition,
             &state.pattern.term,
             &state.pattern.constraints,
-            SimplificationOptions {
-                max_iterations: options.max_simplification_iterations,
-            },
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         );
         finish_if_timed_out!();
@@ -280,6 +276,7 @@ pub fn prove_claim(
                 &claim.existentials,
                 SimplificationOptions {
                     max_iterations: options.max_simplification_iterations,
+                    ..SimplificationOptions::default()
                 },
                 solver,
             );
@@ -418,15 +415,20 @@ pub fn prove_claim(
         }
 
         let rewritten = match claim.mode {
-            ReachabilityMode::OnePath => rewrite_step_sequential_with_solver(
+            ReachabilityMode::OnePath => rewrite_step_sequential_with_options(
                 definition,
                 &state.pattern,
                 &mut fresh_counter,
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
             ),
-            ReachabilityMode::AllPath => {
-                rewrite_step_with_solver(definition, &state.pattern, &mut fresh_counter, solver)
-            }
+            ReachabilityMode::AllPath => rewrite_step_with_options(
+                definition,
+                &state.pattern,
+                &mut fresh_counter,
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+            ),
         };
         finish_if_timed_out!();
         match rewritten {
@@ -641,6 +643,7 @@ fn apply_claim(
                 &subject.constraints,
                 SimplificationOptions {
                     max_iterations: options.max_simplification_iterations,
+                    ..SimplificationOptions::default()
                 },
                 solver,
             ) {
@@ -689,6 +692,7 @@ fn apply_claim(
         bind_subject_variables(definition, &claim, substitution, match_conditions);
     let simplification = SimplificationOptions {
         max_iterations: options.max_simplification_iterations,
+        ..SimplificationOptions::default()
     };
     let match_conditions = match simplify_predicates_with_solver(
         definition,
@@ -1050,7 +1054,11 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::smt::{NoSolver, Satisfiability};
+    use crate::{
+        diagnostic::{self, BackendDiagnostic},
+        simplify::BudgetSubject,
+        smt::{NoSolver, Satisfiability},
+    };
 
     struct SlowSolver;
 
@@ -1385,7 +1393,7 @@ mod tests {
     "#;
 
     #[test]
-    fn rewrite_simplification_failure_is_a_proof_simplification_outcome() {
+    fn rewrite_budget_exhaustion_is_not_a_proof_simplification_error() {
         let rules = format!(
             r#"
             {NON_TERMINATING_SIMPLIFIER}
@@ -1404,27 +1412,36 @@ mod tests {
         let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
         let definition = definition(&rules, &claims);
 
-        let result = prove_claim(
-            &definition,
-            &definition.reachability_claims[0],
-            ProofOptions {
-                max_simplification_iterations: 1,
-                ..ProofOptions::default()
-            },
-            &NoSolver,
-        )
-        .expect("simplification failure should be a proof outcome");
+        let (result, diagnostics) = diagnostic::collect(|| {
+            prove_claim(
+                &definition,
+                &definition.reachability_claims[0],
+                ProofOptions {
+                    max_simplification_iterations: 1,
+                    ..ProofOptions::default()
+                },
+                &NoSolver,
+            )
+        });
+        let result = result.expect("budget exhaustion should remain a proof outcome");
 
-        assert!(matches!(
-            result.leaves.as_slice(),
-            [ProofLeaf {
-                outcome: ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(
+        assert!(
+            result.leaves.iter().all(|leaf| !matches!(
+                leaf.outcome,
+                ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(
                     SimplificationError::IterationLimit { .. }
                         | SimplificationError::PredicateIterationLimit { .. }
-                )),
-                ..
-            }]
-        ));
+                ))
+            )),
+            "{result:#?}"
+        );
+        assert!(diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            BackendDiagnostic::SimplificationBudgetExhausted {
+                limit: 1,
+                subject: BudgetSubject::Predicates,
+            }
+        )));
     }
 
     #[test]

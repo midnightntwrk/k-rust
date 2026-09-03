@@ -2,7 +2,10 @@
 
 use std::cell::RefCell;
 
-use crate::{rule::Predicate, simplify::ConditionIndeterminacy};
+use crate::{
+    rule::Predicate,
+    simplify::{BudgetSubject, ConditionIndeterminacy},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BackendDiagnostic {
@@ -14,6 +17,10 @@ pub enum BackendDiagnostic {
     UndecidedPredicate {
         predicate: Predicate,
         reason: ConditionIndeterminacy,
+    },
+    SimplificationBudgetExhausted {
+        limit: usize,
+        subject: BudgetSubject,
     },
 }
 

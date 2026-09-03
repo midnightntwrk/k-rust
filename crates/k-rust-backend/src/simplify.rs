@@ -32,15 +32,36 @@ use crate::{
 /// Default equation iterations allowed for each simplification fixed point.
 pub const DEFAULT_MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum BudgetPolicy {
+    #[default]
+    Fail,
+    KeepPartial,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BudgetSubject {
+    Term,
+    Predicates,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BudgetExhaustion {
+    pub limit: usize,
+    pub subject: BudgetSubject,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SimplificationOptions {
     pub max_iterations: usize,
+    pub budget: BudgetPolicy,
 }
 
 impl Default for SimplificationOptions {
     fn default() -> Self {
         Self {
             max_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+            budget: BudgetPolicy::Fail,
         }
     }
 }
@@ -54,6 +75,14 @@ impl SimplificationOptions {
     pub const fn unbounded() -> Self {
         Self {
             max_iterations: usize::MAX,
+            budget: BudgetPolicy::Fail,
+        }
+    }
+
+    pub const fn keep_partial(max_iterations: usize) -> Self {
+        Self {
+            max_iterations,
+            budget: BudgetPolicy::KeepPartial,
         }
     }
 }
@@ -64,6 +93,7 @@ pub struct Simplification {
     pub constraints: Vec<Predicate>,
     pub applied_rules: Vec<String>,
     pub effects: Vec<BuiltinEffect>,
+    pub exhausted: Option<BudgetExhaustion>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,15 +158,22 @@ pub fn simplify_with_solver(
         predicates: known_predicates,
         path_condition: &path_condition,
     };
-    simplify_with_budget(
+    let result = simplify_with_budget(
         definition,
         term,
         &assumptions,
-        options.max_iterations,
+        options,
         &mut remaining,
         &active_conditions,
         solver,
-    )
+    )?;
+    if let Some(exhausted) = result.exhausted {
+        diagnostic::emit(BackendDiagnostic::SimplificationBudgetExhausted {
+            limit: exhausted.limit,
+            subject: exhausted.subject,
+        });
+    }
+    Ok(result)
 }
 
 /// Simplify a constrained term while retaining and normalizing its path constraints.
@@ -220,7 +257,7 @@ pub fn simplify_predicates_with_solver(
 ) -> Result<Vec<Predicate>, SimplificationError> {
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
-    simplify_predicates_with_budget(
+    match simplify_predicates_with_budget(
         definition,
         predicates,
         known_predicates,
@@ -228,7 +265,19 @@ pub fn simplify_predicates_with_solver(
         &mut remaining,
         &active_conditions,
         solver,
-    )
+    ) {
+        Err(
+            SimplificationError::IterationLimit { .. }
+            | SimplificationError::PredicateIterationLimit { .. },
+        ) if options.budget == BudgetPolicy::KeepPartial => {
+            diagnostic::emit(BackendDiagnostic::SimplificationBudgetExhausted {
+                limit: options.max_iterations,
+                subject: BudgetSubject::Predicates,
+            });
+            Ok(predicates.to_vec())
+        }
+        result => result,
+    }
 }
 
 struct TermAssumptions<'a> {
@@ -610,7 +659,10 @@ fn simplify_predicate_with_budget(
             definition,
             term,
             &assumptions.terms,
-            limit,
+            SimplificationOptions {
+                max_iterations: limit,
+                budget: BudgetPolicy::Fail,
+            },
             &mut term_remaining,
             active_conditions,
             solver,
@@ -765,6 +817,7 @@ fn simplify_predicate_with_budget(
         assumptions.terms.predicates,
         SimplificationOptions {
             max_iterations: limit,
+            budget: BudgetPolicy::Fail,
         },
         active_conditions,
         solver,
@@ -792,6 +845,7 @@ fn simplify_predicate_with_budget(
         assumptions.terms.predicates,
         SimplificationOptions {
             max_iterations: limit,
+            budget: BudgetPolicy::Fail,
         },
         active_conditions,
         solver,
@@ -1352,7 +1406,7 @@ fn simplify_with_budget(
     definition: &BackendDefinition,
     term: &Term,
     assumptions: &TermAssumptions<'_>,
-    limit: usize,
+    options: SimplificationOptions,
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
@@ -1361,6 +1415,7 @@ fn simplify_with_budget(
     let mut constraints = Vec::new();
     let mut applied_rules = Vec::new();
     let mut effects = Vec::new();
+    let mut exhausted = None;
     loop {
         if cancellation_requested() {
             return Err(SimplificationError::Cancelled);
@@ -1372,13 +1427,14 @@ fn simplify_with_budget(
                 constraints,
                 applied_rules,
                 effects,
+                exhausted,
             });
         }
         let children = simplify_children(
             definition,
             &term,
             assumptions,
-            limit,
+            options,
             remaining,
             active_conditions,
             solver,
@@ -1387,9 +1443,7 @@ fn simplify_with_budget(
             definition,
             &children.term,
             assumptions.predicates,
-            SimplificationOptions {
-                max_iterations: limit,
-            },
+            options,
             active_conditions,
             solver,
         )?;
@@ -1399,18 +1453,41 @@ fn simplify_with_budget(
         applied_rules.extend(root.applied_rules);
         effects.extend(children.effects);
         effects.extend(root.effects);
+        exhausted = exhausted.or(children.exhausted).or(root.exhausted);
         if root.term == children.term || root.term.attributes().evaluated {
             return Ok(Simplification {
                 term: root.term,
                 constraints,
                 applied_rules,
                 effects,
+                exhausted,
             });
         }
         if *remaining == 0 {
-            return Err(SimplificationError::IterationLimit {
-                limit,
+            return match options.budget {
+                BudgetPolicy::Fail => Err(SimplificationError::IterationLimit {
+                    limit: options.max_iterations,
+                    term: root.term,
+                }),
+                BudgetPolicy::KeepPartial => Ok(Simplification {
+                    term: root.term,
+                    constraints,
+                    applied_rules,
+                    effects,
+                    exhausted: Some(BudgetExhaustion {
+                        limit: options.max_iterations,
+                        subject: BudgetSubject::Term,
+                    }),
+                }),
+            };
+        }
+        if exhausted.is_some() {
+            return Ok(Simplification {
                 term: root.term,
+                constraints,
+                applied_rules,
+                effects,
+                exhausted,
             });
         }
         *remaining -= 1;
@@ -1622,7 +1699,7 @@ fn simplify_children(
     definition: &BackendDefinition,
     term: &Term,
     assumptions: &TermAssumptions<'_>,
-    limit: usize,
+    options: SimplificationOptions,
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
@@ -1630,6 +1707,7 @@ fn simplify_children(
     let mut constraints = Vec::new();
     let mut applied_rules = Vec::new();
     let mut effects = Vec::new();
+    let mut exhausted = None;
     let mut child = |term: &Term| {
         // The iteration limit bounds one fixed-point lineage, not the total amount of productive
         // work in an entire term. Siblings receive independent copies of the current budget, while
@@ -1640,7 +1718,7 @@ fn simplify_children(
             definition,
             term,
             assumptions,
-            limit,
+            options,
             &mut child_remaining,
             active_conditions,
             solver,
@@ -1648,13 +1726,11 @@ fn simplify_children(
         constraints.extend(result.constraints);
         applied_rules.extend(result.applied_rules);
         effects.extend(result.effects);
+        exhausted = exhausted.or(result.exhausted);
         Ok::<_, SimplificationError>(result.term)
     };
     let term = match term.kind() {
         TermKind::And(left, right) => {
-            let options = SimplificationOptions {
-                max_iterations: limit,
-            };
             let left_top = matches_top_equation(
                 definition,
                 left,
@@ -1758,6 +1834,7 @@ fn simplify_children(
         constraints,
         applied_rules,
         effects,
+        exhausted,
     })
 }
 
@@ -1796,6 +1873,7 @@ fn simplify_root(
                     .expect("evaluated builtin has a hook")
             )],
             effects,
+            exhausted: None,
         });
     }
     if let Some(result) = apply_theory(
@@ -1828,6 +1906,7 @@ fn simplify_root(
         constraints: Vec::new(),
         applied_rules: Vec::new(),
         effects: Vec::new(),
+        exhausted: None,
     })
 }
 
@@ -2081,6 +2160,7 @@ fn apply_equation(
             constraints: vec![Predicate::False],
             applied_rules: vec![rule.attributes.unique_id.clone()],
             effects: Vec::new(),
+            exhausted: None,
         })),
         1 => {
             let (term, constraints) = live.pop().expect("one live alternative");
@@ -2089,6 +2169,7 @@ fn apply_equation(
                 constraints,
                 applied_rules: vec![rule.attributes.unique_id.clone()],
                 effects: Vec::new(),
+                exhausted: None,
             }))
         }
         alternatives => Err(SimplificationError::DisjunctiveResult {
@@ -2383,7 +2464,10 @@ mod tests {
         let result = simplify(
             &definition,
             &input,
-            SimplificationOptions { max_iterations: 1 },
+            SimplificationOptions {
+                max_iterations: 1,
+                ..SimplificationOptions::default()
+            },
         )
         .expect("evaluated terms should already be at a fixed point");
 
@@ -2418,7 +2502,10 @@ mod tests {
         let result = simplify(
             &definition,
             &input,
-            SimplificationOptions { max_iterations: 1 },
+            SimplificationOptions {
+                max_iterations: 1,
+                ..SimplificationOptions::default()
+            },
         )
         .expect("an evaluated boundary result should not require another iteration");
 
@@ -3770,7 +3857,10 @@ mod tests {
             simplify(
                 &definition,
                 &input,
-                SimplificationOptions { max_iterations: 3 },
+                SimplificationOptions {
+                    max_iterations: 3,
+                    ..SimplificationOptions::default()
+                },
             ),
             Err(SimplificationError::IterationLimit { limit: 3, .. })
         ));

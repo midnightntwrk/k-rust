@@ -385,7 +385,7 @@ fn search_graph_using(
             definition,
             &state.pattern.constraints,
             &[],
-            simplification_options(options),
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         ) {
             Ok(constraints) => state.pattern.constraints = constraints,
@@ -402,7 +402,7 @@ fn search_graph_using(
             definition,
             &state.pattern.term,
             &state.pattern.constraints,
-            simplification_options(options),
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         ) {
             Ok(simplified) => {
@@ -484,7 +484,7 @@ fn search_graph_using(
             definition,
             &state.pattern,
             &mut fresh_counter,
-            simplification_options(options),
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         );
         match rewrite {
@@ -744,7 +744,7 @@ fn search_paths_using(
             definition,
             &path.state.pattern.constraints,
             &[],
-            simplification_options(options),
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         ) {
             Ok(constraints) => path.state.pattern.constraints = constraints,
@@ -761,7 +761,7 @@ fn search_paths_using(
             definition,
             &path.state.pattern.term,
             &path.state.pattern.constraints,
-            simplification_options(options),
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         ) {
             Ok(simplified) => {
@@ -834,7 +834,7 @@ fn search_paths_using(
             definition,
             &path.state.pattern,
             &mut fresh_counter,
-            simplification_options(options),
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         );
         match rewrite {
@@ -1476,6 +1476,7 @@ fn normalize_match_condition(
 fn simplification_options(options: SearchOptions) -> SimplificationOptions {
     SimplificationOptions {
         max_iterations: options.max_simplification_iterations,
+        ..SimplificationOptions::default()
     }
 }
 
@@ -1584,8 +1585,12 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::term::{Sort, Symbol, Term, TermKind, Variable};
     use crate::transition::{ObservationEvent, ObservationOptions};
+    use crate::{
+        diagnostic::{self, BackendDiagnostic},
+        simplify::BudgetSubject,
+        term::{Sort, Symbol, Term, TermKind, Variable},
+    };
 
     #[test]
     fn cancellation_is_not_reported_as_a_simplifier_failure() {
@@ -1780,25 +1785,34 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_simplification_failure_is_classified_as_simplification() {
+    fn rewrite_budget_exhaustion_is_not_classified_as_simplification_failure() {
         let definition = rewrite_simplification_failure_definition();
-        let result = search_graph(
-            &definition,
-            pattern(&definition, "initial{}()"),
-            SearchOptions {
-                max_simplification_iterations: 1,
-                ..SearchOptions::default()
-            },
-        );
+        let (result, diagnostics) = diagnostic::collect(|| {
+            search_graph(
+                &definition,
+                pattern(&definition, "initial{}()"),
+                SearchOptions {
+                    max_simplification_iterations: 1,
+                    ..SearchOptions::default()
+                },
+            )
+        });
 
-        assert!(matches!(
-            result.incomplete.as_slice(),
-            [IncompleteSearch::Simplification {
+        assert!(result.incomplete.iter().all(|incomplete| !matches!(
+            incomplete,
+            IncompleteSearch::Simplification {
                 error: SimplificationError::IterationLimit { .. }
                     | SimplificationError::PredicateIterationLimit { .. },
                 ..
-            }]
-        ));
+            }
+        )));
+        assert!(diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            BackendDiagnostic::SimplificationBudgetExhausted {
+                limit: 1,
+                subject: BudgetSubject::Predicates,
+            }
+        )));
     }
 
     #[test]
