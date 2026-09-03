@@ -4,6 +4,7 @@ pub mod ast;
 pub mod binary;
 pub mod json;
 pub mod lexer;
+pub mod lexical;
 pub mod normalize;
 pub mod parser;
 pub mod printer;

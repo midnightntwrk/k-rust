@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use super::lexical;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     Comma,
@@ -227,7 +229,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn scan_id_tail(&mut self) {
-        while self.peek().is_some_and(is_id_tail) {
+        while self.peek().is_some_and(lexical::is_id_char) {
             self.bump();
         }
     }
@@ -260,10 +262,6 @@ impl<'a> Lexer<'a> {
 enum Prefix {
     Symbol,
     SetVariable,
-}
-
-fn is_id_tail(character: char) -> bool {
-    character.is_ascii_alphanumeric() || matches!(character, '\'' | '-')
 }
 
 fn is_whitespace(character: char) -> bool {
