@@ -15,7 +15,7 @@ use crate::{
         simplify_with_solver,
     },
     smt::{Satisfiability, SmtSolver, Validity},
-    substitution::{Substitution, substitute},
+    substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::Variable,
 };
 
@@ -29,6 +29,7 @@ pub enum ImplicationStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ImplicationFailure {
     TermMismatch,
+    PartialCoverage,
     ConsequentCondition,
 }
 
@@ -40,6 +41,11 @@ pub enum ImplicationFailure {
 pub struct ImplicationCondition {
     pub predicates: Vec<Predicate>,
     pub substitution: Substitution,
+    /// Existential bindings recovered from residual implication obligations.
+    ///
+    /// These are kept separate from the term-match substitution because the KORE RPC wire only
+    /// reports the latter.
+    pub witnesses: Substitution,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -61,6 +67,12 @@ struct Destination<'a> {
 struct Source<'a> {
     pattern: &'a Pattern,
     original_variable: Option<&'a Variable>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Obligations {
+    predicates: Vec<Predicate>,
+    witnesses: Substitution,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -255,10 +267,10 @@ pub fn check_disjunctive_implication_with_existentials(
                 remainder,
                 &antecedent.constraints,
             );
-            let obligations = combine_obligation_branches(obligations, existentials);
-            let obligations = match simplify_predicates_with_solver(
+            let obligations = match eliminate_and_quantify_obligation_branches(
                 definition,
-                &obligations,
+                obligations,
+                existentials,
                 &antecedent.constraints,
                 options,
                 solver,
@@ -269,15 +281,47 @@ pub fn check_disjunctive_implication_with_existentials(
                     continue;
                 }
             };
-            match predicates_truth(&obligations) {
-                Truth::True => return Ok(valid(Substitution::new())),
+            let predicates = match simplify_predicates_with_solver(
+                definition,
+                &obligations.predicates,
+                &antecedent.constraints,
+                options,
+                solver,
+            ) {
+                Ok(predicates) => predicates,
+                Err(_) => {
+                    incomplete = true;
+                    continue;
+                }
+            };
+            let obligations = Obligations {
+                predicates,
+                witnesses: obligations.witnesses,
+            };
+            match predicates_truth(&obligations.predicates) {
+                Truth::True => {
+                    return Ok(valid_with_witnesses(
+                        Substitution::new(),
+                        obligations.witnesses,
+                    ));
+                }
                 Truth::False => continue,
-                Truth::Unknown => branches.push(conjoin(obligations)),
+                Truth::Unknown => branches.push(obligations),
             }
         }
 
         if !branches.is_empty() {
-            let combined = vec![Predicate::Or(branches)];
+            let witnesses = if let [branch] = branches.as_slice() {
+                branch.witnesses.clone()
+            } else {
+                Substitution::new()
+            };
+            let combined = vec![Predicate::Or(
+                branches
+                    .into_iter()
+                    .map(|branch| conjoin(branch.predicates))
+                    .collect(),
+            )];
             let combined = simplify_predicates_with_solver(
                 definition,
                 &combined,
@@ -287,14 +331,18 @@ pub fn check_disjunctive_implication_with_existentials(
             )
             .unwrap_or(combined);
             match predicates_truth(&combined) {
-                Truth::True => return Ok(valid(Substitution::new())),
+                Truth::True => {
+                    return Ok(valid_with_witnesses(Substitution::new(), witnesses));
+                }
                 Truth::False => {}
                 Truth::Unknown => match solver.check_predicates(
                     &antecedent.constraints,
                     &Substitution::new(),
                     &combined,
                 ) {
-                    Ok(Validity::Valid) => return Ok(valid(Substitution::new())),
+                    Ok(Validity::Valid) => {
+                        return Ok(valid_with_witnesses(Substitution::new(), witnesses));
+                    }
                     Ok(Validity::InconsistentGroundTruth) => return Ok(vacuously_valid()),
                     Ok(Validity::Invalid) => {}
                     Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => {
@@ -523,14 +571,10 @@ fn discharge_consequent(
         remainder,
         &antecedent.constraints,
     );
-    let obligations = combine_obligation_branches(obligations, consequent.existentials);
-    if obligations.is_empty() {
-        return Ok(valid(substitution));
-    }
-
-    let obligations = match simplify_predicates_with_solver(
+    let obligations = match eliminate_and_quantify_obligation_branches(
         definition,
-        &obligations,
+        obligations,
+        consequent.existentials,
         &antecedent.constraints,
         options.simplification,
         solver,
@@ -538,33 +582,65 @@ fn discharge_consequent(
         Ok(obligations) => obligations,
         Err(_) => return Ok(indeterminate()),
     };
-    match predicates_truth(&obligations) {
-        Truth::True => return Ok(valid(substitution)),
+    if obligations.predicates.is_empty() {
+        return Ok(valid_with_witnesses(substitution, obligations.witnesses));
+    }
+
+    let predicates = match simplify_predicates_with_solver(
+        definition,
+        &obligations.predicates,
+        &antecedent.constraints,
+        options.simplification,
+        solver,
+    ) {
+        Ok(predicates) => predicates,
+        Err(_) => return Ok(indeterminate()),
+    };
+    let obligations = Obligations {
+        predicates,
+        witnesses: obligations.witnesses,
+    };
+    match predicates_truth(&obligations.predicates) {
+        Truth::True => {
+            return Ok(valid_with_witnesses(substitution, obligations.witnesses));
+        }
         Truth::False => {
             return Ok(if had_match_remainder {
-                invalid_with_bottom_condition()
+                invalid()
             } else {
-                condition_invalid_with_substitution(substitution)
+                condition_invalid_with_bindings(substitution, obligations.witnesses)
             });
         }
         Truth::Unknown => {}
     }
 
+    let Obligations {
+        predicates: obligations,
+        witnesses,
+    } = obligations;
     Ok(
         match solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations) {
-            Ok(Validity::Valid) => valid(substitution),
-            Ok(Validity::Invalid) if had_match_remainder => {
-                partial(source.original_variable, substitution, obligations)
-            }
-            Ok(Validity::Invalid) => condition_invalid_with_substitution(substitution),
+            Ok(Validity::Valid) => valid_with_witnesses(substitution, witnesses),
+            Ok(Validity::Invalid) if had_match_remainder => partial(
+                source.original_variable,
+                substitution,
+                witnesses,
+                obligations,
+            ),
+            Ok(Validity::Invalid) => condition_invalid_with_bindings(substitution, witnesses),
             Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
-                partial(source.original_variable, substitution, obligations)
+                partial(
+                    source.original_variable,
+                    substitution,
+                    witnesses,
+                    obligations,
+                )
             }
             Ok(Validity::Indeterminate)
                 if options.counterexamples == CounterexamplePolicy::RefuteImplication =>
             {
-                counterexample_invalid(substitution)
+                counterexample_invalid_with_bindings(substitution, witnesses)
             }
             Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
         },
@@ -597,20 +673,136 @@ fn quantify_obligations(
     vec![obligation]
 }
 
-fn combine_obligation_branches(
+fn eliminate_and_quantify_obligation_branches(
+    definition: &BackendDefinition,
     branches: Vec<Vec<Predicate>>,
     existentials: &BTreeSet<Variable>,
-) -> Vec<Predicate> {
-    let mut branches = branches
-        .into_iter()
-        .map(|branch| quantify_obligations(branch, existentials))
-        .collect::<Vec<_>>();
+    known: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Obligations, SimplificationError> {
+    let mut prepared = Vec::with_capacity(branches.len());
+    for branch in branches {
+        let mut obligations = eliminate_existential_witnesses(
+            definition,
+            branch,
+            existentials,
+            known,
+            options,
+            solver,
+        )?;
+        let remaining = existentials
+            .iter()
+            .filter(|variable| !obligations.witnesses.contains_key(*variable))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        obligations.predicates = quantify_obligations(obligations.predicates, &remaining);
+        prepared.push(obligations);
+    }
+    Ok(combine_obligation_branches(prepared))
+}
+
+fn eliminate_existential_witnesses(
+    definition: &BackendDefinition,
+    branch: Vec<Predicate>,
+    existentials: &BTreeSet<Variable>,
+    known: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Obligations, SimplificationError> {
+    let mut branch = simplify_predicates_with_solver(definition, &branch, known, options, solver)?;
+    branch.retain(|predicate| !matches!(predicate, Predicate::True));
+    let mut witnesses = Substitution::new();
+    if predicates_truth(&branch) == Truth::False {
+        return Ok(Obligations {
+            predicates: vec![Predicate::False],
+            witnesses,
+        });
+    }
+
+    let mut remaining = existentials.clone();
+    loop {
+        let (found, rest) = extract_substitution_for(&branch, &remaining, &definition.sort_graph);
+        if found.is_empty() {
+            break;
+        }
+        remaining.retain(|variable| !found.contains_key(variable));
+        witnesses = compose(&found, &witnesses);
+        branch = simplify_predicates_with_solver(
+            definition,
+            &substitute_predicates(&rest, &found),
+            known,
+            options,
+            solver,
+        )?;
+        branch.retain(|predicate| !matches!(predicate, Predicate::True));
+        if predicates_truth(&branch) == Truth::False {
+            return Ok(Obligations {
+                predicates: vec![Predicate::False],
+                witnesses,
+            });
+        }
+    }
+
+    if let Some(found) = residual_existential_equality_match(definition, &branch, &remaining) {
+        witnesses = compose(&found, &witnesses);
+        branch.clear();
+    }
+
+    Ok(Obligations {
+        predicates: substitute_predicates(&branch, &witnesses),
+        witnesses,
+    })
+}
+
+fn residual_existential_equality_match(
+    definition: &BackendDefinition,
+    branch: &[Predicate],
+    remaining: &BTreeSet<Variable>,
+) -> Option<Substitution> {
+    let [Predicate::Equals(left, right)] = branch else {
+        return None;
+    };
+    for (pattern, subject) in [(left, right), (right, left)] {
+        if pattern.attributes().variables.is_disjoint(remaining) {
+            continue;
+        }
+        if let MatchResult::Success(substitution) =
+            match_terms_in_definition(MatchMode::Implies, definition, pattern, subject)
+            && substitution
+                .keys()
+                .all(|variable| remaining.contains(variable))
+        {
+            return Some(substitution);
+        }
+    }
+    None
+}
+
+fn combine_obligation_branches(mut branches: Vec<Obligations>) -> Obligations {
     match branches.len() {
-        0 => vec![Predicate::False],
+        0 => Obligations {
+            predicates: vec![Predicate::False],
+            witnesses: Substitution::new(),
+        },
         1 => branches.pop().expect("one implication branch is present"),
-        _ => vec![Predicate::Or(
-            branches.into_iter().map(conjoin).collect::<Vec<_>>(),
-        )],
+        _ => {
+            if let Some(index) = branches
+                .iter()
+                .position(|branch| predicates_truth(&branch.predicates) == Truth::True)
+            {
+                return branches.swap_remove(index);
+            }
+            Obligations {
+                predicates: vec![Predicate::Or(
+                    branches
+                        .into_iter()
+                        .map(|branch| conjoin(branch.predicates))
+                        .collect(),
+                )],
+                witnesses: Substitution::new(),
+            }
+        }
     }
 }
 
@@ -686,12 +878,18 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
     }
 }
 
+#[cfg(test)]
 fn valid(substitution: Substitution) -> ImplicationResult {
+    valid_with_witnesses(substitution, Substitution::new())
+}
+
+fn valid_with_witnesses(substitution: Substitution, witnesses: Substitution) -> ImplicationResult {
     ImplicationResult {
         status: ImplicationStatus::Valid,
         condition: Some(ImplicationCondition {
             predicates: Vec::new(),
             substitution,
+            witnesses,
         }),
         failure: None,
         vacuous: false,
@@ -704,6 +902,7 @@ fn vacuously_valid() -> ImplicationResult {
         condition: Some(ImplicationCondition {
             predicates: vec![Predicate::False],
             substitution: Substitution::new(),
+            witnesses: Substitution::new(),
         }),
         failure: None,
         vacuous: true,
@@ -719,24 +918,13 @@ fn invalid() -> ImplicationResult {
     }
 }
 
-fn invalid_with_bottom_condition() -> ImplicationResult {
-    ImplicationResult {
-        status: ImplicationStatus::Invalid,
-        condition: Some(ImplicationCondition {
-            predicates: vec![Predicate::False],
-            substitution: Substitution::new(),
-        }),
-        failure: Some(ImplicationFailure::TermMismatch),
-        vacuous: false,
-    }
-}
-
 fn condition_invalid() -> ImplicationResult {
     ImplicationResult {
         status: ImplicationStatus::Invalid,
         condition: Some(ImplicationCondition {
             predicates: vec![Predicate::False],
             substitution: Substitution::new(),
+            witnesses: Substitution::new(),
         }),
         failure: Some(ImplicationFailure::ConsequentCondition),
         vacuous: false,
@@ -752,6 +940,26 @@ fn condition_invalid_with_substitution(substitution: Substitution) -> Implicatio
         condition: Some(ImplicationCondition {
             predicates: Vec::new(),
             substitution,
+            witnesses: Substitution::new(),
+        }),
+        failure: Some(ImplicationFailure::ConsequentCondition),
+        vacuous: false,
+    }
+}
+
+fn condition_invalid_with_bindings(
+    substitution: Substitution,
+    witnesses: Substitution,
+) -> ImplicationResult {
+    if witnesses.is_empty() {
+        return condition_invalid_with_substitution(substitution);
+    }
+    ImplicationResult {
+        status: ImplicationStatus::Invalid,
+        condition: Some(ImplicationCondition {
+            predicates: Vec::new(),
+            substitution,
+            witnesses,
         }),
         failure: Some(ImplicationFailure::ConsequentCondition),
         vacuous: false,
@@ -764,6 +972,26 @@ fn counterexample_invalid(substitution: Substitution) -> ImplicationResult {
         condition: Some(ImplicationCondition {
             predicates: Vec::new(),
             substitution,
+            witnesses: Substitution::new(),
+        }),
+        failure: Some(ImplicationFailure::ConsequentCondition),
+        vacuous: false,
+    }
+}
+
+fn counterexample_invalid_with_bindings(
+    substitution: Substitution,
+    witnesses: Substitution,
+) -> ImplicationResult {
+    if witnesses.is_empty() {
+        return counterexample_invalid(substitution);
+    }
+    ImplicationResult {
+        status: ImplicationStatus::Invalid,
+        condition: Some(ImplicationCondition {
+            predicates: Vec::new(),
+            substitution,
+            witnesses,
         }),
         failure: Some(ImplicationFailure::ConsequentCondition),
         vacuous: false,
@@ -773,6 +1001,7 @@ fn counterexample_invalid(substitution: Substitution) -> ImplicationResult {
 fn partial(
     antecedent_variable: Option<&Variable>,
     mut substitution: Substitution,
+    witnesses: Substitution,
     predicates: Vec<Predicate>,
 ) -> ImplicationResult {
     let mut predicates = predicates;
@@ -796,8 +1025,9 @@ fn partial(
         condition: Some(ImplicationCondition {
             predicates,
             substitution,
+            witnesses,
         }),
-        failure: Some(ImplicationFailure::TermMismatch),
+        failure: Some(ImplicationFailure::PartialCoverage),
         vacuous: false,
     }
 }
@@ -885,14 +1115,17 @@ mod tests {
             .condition
             .as_ref()
             .expect("a valid implication carries its condition");
-        let [(variable, value)] = condition.witnesses.iter().collect::<Vec<_>>().as_slice() else {
-            panic!("expected one existential witness, found {condition:#?}");
-        };
+        assert_eq!(condition.witnesses.len(), 1, "{condition:#?}");
+        let (variable, value) = condition
+            .witnesses
+            .iter()
+            .next()
+            .expect("one witness was just required");
         assert!(
             variable.name.starts_with(original_name),
             "the refreshed witness should retain its source name: {variable:?}"
         );
-        assert_eq!(*value, expected);
+        assert_eq!(value, expected);
     }
 
     #[derive(Clone, Debug)]

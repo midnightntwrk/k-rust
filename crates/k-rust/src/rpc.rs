@@ -1194,6 +1194,7 @@ fn special_implication_result(
         Some(ImplicationCondition {
             predicates,
             substitution: Substitution::new(),
+            witnesses: Substitution::new(),
         })
     };
     if matches!(antecedent, KorePattern::Bottom { .. }) {

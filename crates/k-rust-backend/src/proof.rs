@@ -1032,6 +1032,7 @@ fn vacuous_outcome(
         ProofLeafOutcome::Proven(ImplicationCondition {
             predicates: vec![crate::rule::Predicate::False],
             substitution: Substitution::new(),
+            witnesses: Substitution::new(),
         })
     } else {
         cause
@@ -1286,6 +1287,7 @@ mod tests {
                         second.clone(),
                     ])],
                     substitution: Substitution::new(),
+                    witnesses: Substitution::new(),
                 },
             ),
             crate::rule::Predicate::And(vec![
