@@ -2019,6 +2019,34 @@ mod tests {
             .expect("term should internalize")
     }
 
+    #[test]
+    fn equation_rhs_disjunction_with_two_live_alternatives_is_an_explicit_error() {
+        let definition = definition(
+            r#"
+            symbol a{}() : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(
+                        \or{SortS{}}(X:SortS{}, a{}()),
+                        \top{SortS{}}()
+                    )
+                )
+            ) [label{}("or-equation"), simplification{}()]
+            "#,
+        );
+        let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+
+        let error = simplify(&definition, &input, SimplificationOptions::default())
+            .expect_err("an equation must not silently choose between live RHS alternatives");
+        assert!(
+            format!("{error:?}").contains("DisjunctiveResult"),
+            "{error:?}"
+        );
+    }
+
     const IDENTITY: &str = r#"
         axiom{R} \implies{R}(
             \top{R}(),

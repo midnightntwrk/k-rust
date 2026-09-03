@@ -1865,6 +1865,111 @@ mod tests {
         assert!(matches!(term.kind(), TermKind::And(..)));
     }
 
+    fn disjunction_definition(sentences: &str) -> Result<BackendDefinition, DefinitionError> {
+        let source = format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol a{{}}() : SortS{{}} [constructor{{}}()]
+                symbol b{{}}() : SortS{{}} [constructor{{}}()]
+                symbol c{{}}() : SortS{{}} [constructor{{}}()]
+                symbol box{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
+                alias weakAlwaysFinally{{S}}(S) : S
+                    where weakAlwaysFinally{{S}}(@X:S) := @X:S []
+                {sentences}
+            endmodule []"#
+        );
+        BackendDefinition::internalize(
+            &parse_definition(&source).expect("disjunction definition should parse"),
+            "MAIN",
+        )
+    }
+
+    #[test]
+    fn splits_lhs_disjunctions_into_one_rule_per_disjunct() {
+        let definition = disjunction_definition(
+            r#"axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    box{}(\or{SortS{}}(a{}(), b{}())),
+                    \top{SortS{}}()
+                ),
+                c{}()
+            ) [label{}("split-lhs")]"#,
+        )
+        .expect("term disjunctions on rewrite LHSs should split");
+
+        let rules = definition
+            .rewrite_theory
+            .values()
+            .flat_map(BTreeMap::values)
+            .flatten()
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 2);
+        assert!(
+            rules
+                .iter()
+                .all(|rule| rule.attributes.unique_id == "split-lhs")
+        );
+    }
+
+    #[test]
+    fn internalizes_rhs_disjunctions_without_splitting_the_source_rule() {
+        let definition = disjunction_definition(
+            r#"axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(c{}(), \top{SortS{}}()),
+                \or{SortS{}}(a{}(), b{}())
+            ) [label{}("split-rhs")]"#,
+        )
+        .expect("term disjunctions on rewrite RHSs should internalize");
+
+        let rule_count = definition
+            .rewrite_theory
+            .values()
+            .flat_map(BTreeMap::values)
+            .map(Vec::len)
+            .sum::<usize>();
+        assert_eq!(rule_count, 1);
+    }
+
+    #[test]
+    fn splits_claim_lhs_disjunctions_into_several_claims() {
+        let definition = disjunction_definition(
+            r#"claim{} \implies{SortS{}}(
+                \or{SortS{}}(a{}(), b{}()),
+                weakAlwaysFinally{SortS{}}(c{}())
+            ) [label{}("split-claim"), all-path{}()]"#,
+        )
+        .expect("term disjunctions on claim LHSs should split");
+
+        assert_eq!(definition.reachability_claims.len(), 2);
+        assert!(
+            definition
+                .reachability_claims
+                .iter()
+                .all(|claim| claim.attributes.unique_id == "split-claim")
+        );
+    }
+
+    #[test]
+    fn nested_initial_disjunctions_expand_but_single_pattern_entry_rejects_them() {
+        let definition = disjunction_definition("").expect("control definition should load");
+        let syntax = parse_pattern(r#"box{}(\or{SortS{}}(a{}(), b{}()))"#)
+            .expect("nested initial disjunction should parse");
+
+        let alternatives = definition
+            .internalize_disjunction(&syntax, &[])
+            .expect("nested initial disjunction should distribute");
+        assert_eq!(alternatives.len(), 2);
+
+        let error = definition
+            .internalize_pattern(&syntax, &[])
+            .expect_err("a single-pattern boundary must reject a term disjunction");
+        assert!(
+            format!("{error:?}").contains("TermDisjunction"),
+            "{error:?}"
+        );
+    }
+
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(indoc! {r#"
             []

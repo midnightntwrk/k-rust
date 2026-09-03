@@ -4912,6 +4912,51 @@ mod tests {
     }
 
     #[test]
+    fn rhs_disjunction_branches_in_all_and_any_modes() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(\dv{SortS{}}("start")),
+                    \top{SortS{}}()
+                ),
+                \or{SortS{}}(
+                    wrap{}(\dv{SortS{}}("left")),
+                    wrap{}(\dv{SortS{}}("right"))
+                )
+            ) [label{}("split-rhs")]
+            "#,
+        );
+        let subject = Pattern {
+            term: internal_term(&definition, r#"wrap{}(\dv{SortS{}}("start"))"#),
+            constraints: Vec::new(),
+        };
+
+        for mode in [ExecutionMode::All, ExecutionMode::Any] {
+            let mut fresh = 0;
+            let result = rewrite_step_with_mode(
+                &definition,
+                &subject,
+                &mut fresh,
+                SimplificationOptions::default(),
+                &NoSolver,
+                mode,
+                false,
+            );
+            let RewriteResult::Branch { branches, .. } = result else {
+                panic!("RHS disjunction should branch in {mode:?}: {result:?}");
+            };
+            assert_eq!(branches.len(), 2);
+            let rendered = branches
+                .iter()
+                .map(|branch| crate::externalize::constrained_pattern(&branch.pattern).to_string())
+                .collect::<Vec<_>>();
+            assert!(rendered.iter().any(|pattern| pattern.contains("left")));
+            assert!(rendered.iter().any(|pattern| pattern.contains("right")));
+        }
+    }
+
+    #[test]
     fn reports_vacuous_execution_paths() {
         let definition = definition("");
         let subject = Pattern {

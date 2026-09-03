@@ -1,0 +1,10 @@
+[]
+module SY
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol b{}() : SortS{} [constructor{}()]
+  symbol left{}() : SortS{} [constructor{}()]
+  symbol right{}() : SortS{} [constructor{}()]
+  axiom{} \rewrites{SortS{}}(\and{SortS{}}(a{}(),\top{SortS{}}()),left{}()) [label{}("left-step")]
+  axiom{} \rewrites{SortS{}}(\and{SortS{}}(b{}(),\top{SortS{}}()),right{}()) [label{}("right-step")]
+endmodule []
