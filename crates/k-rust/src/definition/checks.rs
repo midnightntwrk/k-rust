@@ -12,6 +12,7 @@ use crate::kast::{Label, Sort, Term};
 
 mod attributes;
 mod functions;
+mod kompile_checks;
 mod labels;
 mod production_shapes;
 mod regexes;
@@ -22,10 +23,15 @@ mod term_position;
 
 pub use attributes::{check_attribute_semantics, check_attributes};
 pub use functions::check_functions;
+pub use kompile_checks::{
+    check_claims_in_definition, check_is_sort_predicates, check_proof_module,
+};
 pub use labels::{check_duplicate_klabels, check_function_rule_attributes, check_klabels};
 pub use production_shapes::{check_configuration_cells, check_holes, check_streams};
 pub use regexes::check_regexes;
-pub use rhs_variables::{StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables};
+pub use rhs_variables::{
+    CheckMode, StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables,
+};
 pub use smt_lemmas::check_smt_lemmas;
 pub use sorts::{check_outer_modules, check_sorts, check_user_lists};
 
@@ -103,7 +109,7 @@ fn check_module_with_options_and_catalog(
         .chain(check_k_terms(&sentences))
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
-        .chain(check_rhs_variables(&sentences, options))
+        .chain(check_rhs_variables(&sentences, options.clone()))
         .chain(check_functions(
             &sentences,
             &production_catalog,
@@ -134,6 +140,9 @@ pub fn check_definition_with_options(
     options: StructuralCheckOptions,
 ) -> Result<Vec<Diagnostic>, Error> {
     let mut diagnostics = Vec::new();
+    diagnostics.extend(check_claims_in_definition(definition, &options));
+    diagnostics.extend(check_proof_module(definition, &options));
+    diagnostics.extend(check_is_sort_predicates(definition));
     for (module_id, module) in definition.modules() {
         let visible = definition.sentences(module_id);
         let sort_catalog = definition.sort_catalog(module_id);
@@ -142,7 +151,7 @@ pub fn check_definition_with_options(
         diagnostics.extend(check_module_with_options_and_catalog(
             definition,
             module_id,
-            options,
+            options.clone(),
             &sort_catalog,
         )?);
     }

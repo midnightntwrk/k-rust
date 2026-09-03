@@ -61,6 +61,7 @@ impl CompilationBackend {
             Self::Rust => StructuralCheckOptions {
                 symbolic: true,
                 backend: StructuralCheckBackend::Rust,
+                ..StructuralCheckOptions::default()
             },
         }
     }

@@ -14,11 +14,21 @@ pub enum StructuralCheckBackend {
     Other,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StructuralCheckOptions {
     /// Symbolic compilation permits existential variables.
     pub symbolic: bool,
     pub backend: StructuralCheckBackend,
+    pub mode: CheckMode,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum CheckMode {
+    #[default]
+    Definition,
+    Proof {
+        definition_module: String,
+    },
 }
 
 /// Java `CheckRHSVariables`, including pattern/value validation.
@@ -46,7 +56,7 @@ pub fn check_rhs_variables(
                 requires,
                 ensures,
                 matches!(sentence, Sentence::Claim { .. }),
-                options,
+                options.clone(),
                 &mut diagnostics,
             ),
             Sentence::Context { body, requires, .. } => {
