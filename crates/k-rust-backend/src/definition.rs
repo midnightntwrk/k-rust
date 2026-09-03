@@ -1727,6 +1727,87 @@ mod tests {
             .expect("Kore permits free variables in standalone patterns");
     }
 
+    fn predicate_floating_definition() -> BackendDefinition {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortToken{} [hasDomainValues{}()]
+                sort SortK{} []
+                symbol item{}(SortToken{}) : SortK{} [constructor{}()]
+                symbol cell{}(SortK{}) : SortK{} [constructor{}()]
+            endmodule []
+        "#})
+        .expect("predicate-floating definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("predicate-floating definition should internalize")
+    }
+
+    fn nested_predicate_pattern() -> kore::Pattern {
+        parse_pattern(indoc! {r#"
+            cell{}(
+                \and{SortK{}}(
+                    item{}(\dv{SortToken{}}("2")),
+                    \equals{SortToken{}, SortK{}}(
+                        \dv{SortToken{}}("3"),
+                        X:SortToken{}
+                    )
+                )
+            )
+        "#})
+        .expect("nested predicate pattern should parse")
+    }
+
+    #[test]
+    fn floats_predicates_under_constructors_into_rule_constraints() {
+        let definition = predicate_floating_definition();
+        let pattern = definition
+            .internalize_pattern(&nested_predicate_pattern(), &[])
+            .expect("nested predicates should float to the pattern condition");
+
+        assert_eq!(pattern.constraints.len(), 1);
+        let TermKind::Application {
+            symbol, arguments, ..
+        } = pattern.term.kind()
+        else {
+            panic!("expected outer cell application: {:?}", pattern.term);
+        };
+        assert_eq!(symbol.name.as_ref(), "cell");
+        assert_eq!(arguments.len(), 1);
+        assert!(matches!(
+            arguments[0].kind(),
+            TermKind::Application { symbol, .. } if symbol.name.as_ref() == "item"
+        ));
+    }
+
+    #[test]
+    fn rejects_floated_predicates_at_pure_term_entry_points() {
+        let error = predicate_floating_definition()
+            .internalize_term(&nested_predicate_pattern(), &[])
+            .expect_err("a pure term boundary must not discard floated predicates");
+
+        assert_eq!(
+            format!("{error}"),
+            "predicate in term position (1 floated conjuncts) where a term is required"
+        );
+    }
+
+    #[test]
+    fn keeps_term_conjunctions_as_and_terms() {
+        let definition = predicate_floating_definition();
+        let syntax = parse_pattern(indoc! {r#"
+            \and{SortToken{}}(
+                \dv{SortToken{}}("2"),
+                \dv{SortToken{}}("3")
+            )
+        "#})
+        .expect("term conjunction should parse");
+
+        let term = definition
+            .internalize_term(&syntax, &[])
+            .expect("two term components stay a term conjunction");
+        assert!(matches!(term.kind(), TermKind::And(..)));
+    }
+
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(indoc! {r#"
             []
