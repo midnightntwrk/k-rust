@@ -1738,6 +1738,36 @@ mod tests {
     }
 
     #[test]
+    fn rejects_non_decimal_int_literals() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortToken{} [hasDomainValues{}()]
+            endmodule []
+        "#})
+        .expect("domain-value definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("domain-value definition should internalize");
+
+        for value in ["3.0", "three"] {
+            let pattern = parse_pattern(&format!(r#"\dv{{SortInt{{}}}}("{value}")"#))
+                .expect("malformed Int domain value should parse as KORE");
+            assert!(matches!(
+                definition.internalize_term(&pattern, &[]),
+                Err(DefinitionError::InvalidDomainValue { sort, value: actual })
+                    if sort == Sort::simple("SortInt") && actual == value
+            ));
+        }
+
+        let token = parse_pattern(r#"\dv{SortToken{}}("value")"#)
+            .expect("unhooked domain value should parse");
+        definition
+            .internalize_term(&token, &[])
+            .expect("an unhooked hasDomainValues sort stays accepted");
+    }
+
+    #[test]
     fn reference_rejects_inconsistent_free_variable_sorts() {
         let error = BackendDefinition::internalize(&reference_definition_fixture("varsort"), "M")
             .expect_err("one free variable name must have one sort");
