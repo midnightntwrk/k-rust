@@ -25,9 +25,20 @@ fn symbol() -> impl Strategy<Value = Symbol> {
         })
 }
 
-fn pattern() -> impl Strategy<Value = Pattern> {
+fn pattern() -> BoxedStrategy<Pattern> {
+    pattern_with_strings(any::<String>().boxed())
+}
+
+fn json_pattern() -> BoxedStrategy<Pattern> {
+    let latin1 = prop::collection::vec(any::<u8>(), 0..64)
+        .prop_map(|bytes| bytes.into_iter().map(char::from).collect())
+        .boxed();
+    pattern_with_strings(latin1)
+}
+
+fn pattern_with_strings(strings: BoxedStrategy<String>) -> BoxedStrategy<Pattern> {
     let leaf = prop_oneof![
-        any::<String>().prop_map(Pattern::String),
+        strings.clone().prop_map(Pattern::String),
         ("[A-Z][A-Za-z0-9]{0,5}", sort()).prop_map(|(name, sort)| Pattern::Variable(Variable {
             kind: VariableKind::Element,
             name,
@@ -40,7 +51,7 @@ fn pattern() -> impl Strategy<Value = Pattern> {
         })),
         sort().prop_map(|sort| Pattern::Top { sort }),
         sort().prop_map(|sort| Pattern::Bottom { sort }),
-        (sort(), any::<String>()).prop_map(|(sort, value)| Pattern::DomainValue { sort, value }),
+        (sort(), strings).prop_map(|(sort, value)| Pattern::DomainValue { sort, value }),
     ];
 
     leaf.prop_recursive(5, 128, 8, |inner| {
@@ -168,6 +179,7 @@ fn pattern() -> impl Strategy<Value = Pattern> {
             ),
         ]
     })
+    .boxed()
 }
 
 proptest! {
@@ -188,7 +200,7 @@ proptest! {
     }
 
     #[test]
-    fn json_round_trip(pattern in pattern()) {
+    fn json_round_trip(pattern in json_pattern()) {
         let encoded = json::to_string(&pattern).unwrap();
         let decoded = json::from_str(&encoded).unwrap();
         prop_assert_eq!(decoded, pattern);
