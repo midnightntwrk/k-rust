@@ -238,6 +238,10 @@ mod tests {
             module MAIN
                 sort SortS{{}} [hasDomainValues{{}}()]
                 symbol c{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
+                alias weakExistsFinally{{S}}(S) : S
+                    where weakExistsFinally{{S}}(@X:S) := @X:S []
+                alias weakAlwaysFinally{{S}}(S) : S
+                    where weakAlwaysFinally{{S}}(@X:S) := @X:S []
                 {claims}
             endmodule []"#
         );
