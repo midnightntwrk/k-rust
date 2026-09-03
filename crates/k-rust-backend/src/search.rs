@@ -1069,6 +1069,9 @@ pub fn search_pattern_observed_with_solver(
     )
 }
 
+/// Arbiter row 11: `--bound` promises at most N results, selected from this engine's own BFS
+/// match list. Structural ordering is applied only when the CLI externalizes those selected
+/// results, so truncation remains a subset of the unbounded BFS list.
 fn search_pattern_using(
     definition: &BackendDefinition,
     initial: Vec<Pattern>,

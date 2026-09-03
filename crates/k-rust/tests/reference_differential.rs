@@ -804,8 +804,9 @@ fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
     match pattern {
         Pattern::Or { sort, arguments } => Pattern::Or {
             sort,
-            // N7: disjunction order is semantically empty, so execution gates
-            // compare a sorted multiset while retaining multiplicity.
+            // D1-06 / arbiter row 12: disjunction order is semantically empty, so execution
+            // gates compare a sorted multiset. C3-02 requires retaining multiplicity here:
+            // duplicate final configurations are a backend defect, not a gate normalization.
             arguments: arguments
                 .into_iter()
                 .map(normalize_execution_disjunct)
