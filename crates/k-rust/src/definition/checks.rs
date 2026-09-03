@@ -11,6 +11,7 @@ use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
 mod attributes;
+mod deprecated;
 mod functions;
 mod kompile_checks;
 mod labels;
@@ -22,6 +23,7 @@ mod sorts;
 mod term_position;
 
 pub use attributes::{check_attribute_semantics, check_attributes};
+pub use deprecated::check_deprecated_productions;
 pub use functions::check_functions;
 pub use kompile_checks::{
     check_claims_in_definition, check_is_sort_predicates, check_proof_module,
@@ -123,6 +125,10 @@ fn check_module_with_options_and_catalog(
             &sentences,
             &production_catalog,
             sort_catalog,
+        ))
+        .chain(check_deprecated_productions(
+            &sentences,
+            &production_catalog,
         ))
         // Java validates SMT lemmas from `ExpandMacros`, after aliases and macros have been
         // removed from rule bodies. Checking here rejects valid lemmas that still contain an
