@@ -5198,7 +5198,7 @@ mod tests {
             r#"
             axiom{} \rewrites{SortInt{}}(
                 \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
-                \dv{SortInt{}}("fallback")
+                \dv{SortInt{}}("20")
             ) [label{}("fallback"), priority{}("50")]
             "#
         } else {
@@ -5269,7 +5269,7 @@ mod tests {
         assert!(matches!(leaf.halt_reason, HaltReason::Stuck));
         assert!(matches!(
             leaf.pattern.term.kind(),
-            TermKind::DomainValue { value, .. } if value.as_ref() == "fallback"
+            TermKind::DomainValue { value, .. } if value.as_ref() == "20"
         ));
         assert!(
             leaf.pattern
@@ -5343,7 +5343,7 @@ mod tests {
         };
         assert!(matches!(
             branch.pattern.term.kind(),
-            TermKind::DomainValue { value, .. } if value.as_ref() == "fallback"
+            TermKind::DomainValue { value, .. } if value.as_ref() == "20"
         ));
         assert!(branch.pattern.constraints.contains(&trivial[0].remainder));
     }
@@ -6087,11 +6087,11 @@ mod tests {
                             \dv{SortBool{}}("true")
                         )
                     ),
-                    \dv{SortInt{}}("high")
+                    \dv{SortInt{}}("10")
                 ) [label{}("high"), priority{}("10")]
                 axiom{} \rewrites{SortInt{}}(
                     \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
-                    \dv{SortInt{}}("fallback")
+                    \dv{SortInt{}}("20")
                 ) [label{}("fallback"), priority{}("50")]
             endmodule []"#,
         )
@@ -6121,8 +6121,8 @@ mod tests {
             ))
         };
 
-        assert_eq!(run("5"), "high");
-        assert_eq!(run("15"), "fallback");
+        assert_eq!(run("5"), "10");
+        assert_eq!(run("15"), "20");
     }
 
     #[cfg(feature = "z3")]
@@ -6138,7 +6138,7 @@ mod tests {
                         \dv{SortBool{}}("true")
                     )
                 ),
-                \dv{SortInt{}}("negative")
+                \dv{SortInt{}}("-1")
             ) [label{}("negative")]
             "#,
         );
@@ -6180,7 +6180,7 @@ mod tests {
                         \dv{SortBool{}}("true")
                     )
                 ),
-                \dv{SortInt{}}("negative")
+                \dv{SortInt{}}("-1")
             ) [label{}("negative")]
             "#,
         );
@@ -6230,7 +6230,7 @@ mod tests {
                         \dv{SortBool{}}("true")
                     )
                 ),
-                \dv{SortInt{}}("negative")
+                \dv{SortInt{}}("-1")
             ) [label{}("negative"), priority{}("10")]
             axiom{} \rewrites{SortInt{}}(
                 \and{SortInt{}}(
@@ -6240,15 +6240,15 @@ mod tests {
                         \dv{SortBool{}}("true")
                     )
                 ),
-                \dv{SortInt{}}("positive")
+                \dv{SortInt{}}("1")
             ) [label{}("positive"), priority{}("10")]
             axiom{} \rewrites{SortInt{}}(
                 \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
-                \dv{SortInt{}}("zero-a")
+                \dv{SortInt{}}("2")
             ) [label{}("zero-a"), priority{}("50")]
             axiom{} \rewrites{SortInt{}}(
                 \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
-                \dv{SortInt{}}("zero-b")
+                \dv{SortInt{}}("3")
             ) [label{}("zero-b"), priority{}("50")]
             "#,
         );
@@ -6298,11 +6298,11 @@ mod tests {
                         \dv{SortBool{}}("true")
                     )
                 ),
-                \dv{SortInt{}}("negative")
+                \dv{SortInt{}}("-1")
             ) [label{}("negative"), priority{}("10")]
             axiom{} \rewrites{SortInt{}}(
                 \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
-                \dv{SortInt{}}("fallback")
+                \dv{SortInt{}}("20")
             ) [label{}("fallback"), priority{}("50")]
             "#,
         );
@@ -6332,7 +6332,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         values.sort();
-        assert_eq!(values, ["fallback", "negative"]);
+        assert_eq!(values, ["-1", "20"]);
         assert!(result.leaves.iter().any(|leaf| {
             leaf.trace
                 .iter()
@@ -6350,7 +6350,7 @@ mod tests {
                     wrap{}(\dv{SortInt{}}("0")),
                     \top{SortInt{}}()
                 ),
-                \dv{SortInt{}}("zero")
+                \dv{SortInt{}}("0")
             ) [label{}("zero")]
             "#,
         );
@@ -6568,7 +6568,7 @@ mod tests {
                         \dv{SortBool{}}("true")
                     )
                 ),
-                \dv{SortInt{}}("negative")
+                \dv{SortInt{}}("-1")
             ) [label{}("negative")]
             axiom{} \rewrites{SortInt{}}(
                 \and{SortInt{}}(
@@ -6578,7 +6578,7 @@ mod tests {
                         \dv{SortBool{}}("false")
                     )
                 ),
-                \dv{SortInt{}}("nonnegative")
+                \dv{SortInt{}}("1")
             ) [label{}("nonnegative")]
             "#,
         );
@@ -7852,7 +7852,7 @@ mod tests {
                         \dv{SortBool{}}("true")
                     )
                 ),
-                \dv{SortInt{}}("negative")
+                \dv{SortInt{}}("-1")
             ) [label{}("negative")]
             "#,
         );
