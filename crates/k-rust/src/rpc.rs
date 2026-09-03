@@ -2340,6 +2340,21 @@ mod tests {
         ))
     }
 
+    fn unsupported_hook_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  sort SortState{} [hasDomainValues{}()]
+                  hooked-symbol missing{}(SortState{}) : SortState{}
+                    [function{}(), hook{}("TEST.missing")]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
     fn symbolic_branch_service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(
@@ -4162,6 +4177,31 @@ mod tests {
             configured["result"]["state"].to_string().contains("done"),
             "{configured:#}"
         );
+    }
+
+    #[test]
+    fn unsupported_hooks_are_runtime_errors_for_execute_and_simplify() {
+        let state = encode_kore(&parse_pattern(r#"missing{}(\dv{SortState{}}("value"))"#).unwrap())
+            .unwrap();
+
+        for (id, method) in [(1, "execute"), (2, "simplify")] {
+            let mut service = unsupported_hook_service();
+            let response = request(&mut service, id, method, json!({ "state": state.clone() }));
+
+            assert_eq!(response["error"]["code"], -32002, "{response:#}");
+            assert_eq!(
+                response["error"]["message"], "Runtime error",
+                "{response:#}"
+            );
+            let error = response["error"]["data"]["error"]
+                .as_str()
+                .expect("runtime error should contain a textual reason");
+            assert!(error.contains("TEST.missing"), "{response:#}");
+            assert!(
+                response["error"]["data"]["term"].is_object(),
+                "{response:#}"
+            );
+        }
     }
 
     #[test]

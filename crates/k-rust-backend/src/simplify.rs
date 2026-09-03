@@ -2270,6 +2270,8 @@ mod tests {
                 symbol budgetPair{{}}(SortS{{}}, SortS{{}}) : SortS{{}}
                     [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
                 symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+                hooked-symbol missingHook{{}}(SortS{{}}) : SortS{{}}
+                    [function{{}}(), hook{{}}("TEST.missing")]
                 {axioms}
             endmodule []"#
         );
@@ -2303,6 +2305,82 @@ mod tests {
         ) -> Result<Validity, SmtError> {
             Ok(self.0.clone())
         }
+    }
+
+    #[test]
+    fn unimplemented_hook_on_constructor_like_arguments_is_an_error() {
+        let definition = definition("");
+        let input = term(&definition, r#"missingHook{}(\dv{SortS{}}("value"))"#);
+
+        let error = simplify(&definition, &input, SimplificationOptions::default())
+            .expect_err("a concrete unimplemented hook must halt simplification");
+
+        let message = format!("{error:?}");
+        assert!(message.contains("UnsupportedHook"), "{message}");
+        assert!(message.contains("TEST.missing"), "{message}");
+    }
+
+    #[test]
+    fn unimplemented_hook_on_symbolic_arguments_stays_unevaluated() {
+        let definition = definition("");
+        let input = term(&definition, "missingHook{}(X:SortS{})");
+
+        let (result, diagnostics) =
+            diagnostic::collect(|| simplify(&definition, &input, SimplificationOptions::default()));
+
+        assert_eq!(
+            result.expect("symbolic hook should remain valid").term,
+            input
+        );
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        let message = format!("{:?}", diagnostics[0]);
+        assert!(message.contains("UnsupportedHookUnevaluated"), "{message}");
+        assert!(message.contains("TEST.missing"), "{message}");
+    }
+
+    #[test]
+    fn unimplemented_hook_with_equations_uses_the_equations() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    missingHook{}(X:SortS{}),
+                    \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                )
+            ) [label{}("missing-equation"), simplification{}()]
+            "#,
+        );
+        let input = term(&definition, r#"missingHook{}(\dv{SortS{}}("value"))"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("the definition equation should handle the hook");
+
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("value")"#));
+    }
+
+    #[test]
+    fn hooked_symbol_whose_equations_do_not_apply_stays_unevaluated() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    missingHook{}(\dv{SortS{}}("other")),
+                    \and{SortS{}}(
+                        \dv{SortS{}}("result"),
+                        \top{SortS{}}()
+                    )
+                )
+            ) [label{}("missing-equation"), simplification{}()]
+            "#,
+        );
+        let input = term(&definition, r#"missingHook{}(\dv{SortS{}}("value"))"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("an equation-backed hook may remain unevaluated");
+
+        assert_eq!(result.term, input);
     }
 
     fn conditional_nullary_function() -> BackendDefinition {
