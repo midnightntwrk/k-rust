@@ -252,7 +252,7 @@ fn gather_variables(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if let Term::Variable { name, sort } = term.unannotated() {
-        if position.lhs && !is_anonymous(name) || position.rhs && in_binder_lhs {
+        if position.lhs || position.rhs && in_binder_lhs {
             bound.insert(VariableKey::new(name, context_sort.or(sort.as_ref())));
         }
         if error_existential && name.starts_with('?') {
@@ -440,10 +440,6 @@ fn unbound_variable_names(sentence: &Sentence) -> BTreeSet<String> {
         .map(str::trim)
         .map(str::to_owned)
         .collect()
-}
-
-fn is_anonymous(name: &str) -> bool {
-    matches!(name, "_" | "?_" | "!_" | "@_")
 }
 
 #[cfg(test)]
