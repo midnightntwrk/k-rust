@@ -645,21 +645,79 @@ mod tests {
     }
 
     #[test]
-    fn inclusion_uses_keys_and_requires_constructor_like_absences() {
+    fn inclusion_compares_entries_and_requires_constructor_like_absences() {
         let definition = definition("SortMap");
         let left = Term::map(definition.clone(), vec![(key("a"), value("left"))], None);
-        let superset = Term::map(
+        let differing_superset = Term::map(
             definition.clone(),
             vec![(key("a"), value("right")), (key("b"), value("two"))],
             None,
         );
-        let disjoint = Term::map(definition, vec![(key("c"), value("three"))], None);
+        let matching_superset = Term::map(
+            definition.clone(),
+            vec![(key("a"), value("left")), (key("b"), value("two"))],
+            None,
+        );
+        let disjoint = Term::map(definition.clone(), vec![(key("c"), value("three"))], None);
+        let rest = Term::variable(Variable::new("REST", Sort::simple("SortMap")));
+        let differing_with_rest = Term::map(
+            definition.clone(),
+            vec![(key("a"), value("right"))],
+            Some(rest.clone()),
+        );
+        let missing_with_rest = Term::map(
+            definition.clone(),
+            vec![(key("b"), value("two"))],
+            Some(rest),
+        );
+        let symbolic_left = Term::map(
+            definition.clone(),
+            vec![(
+                key("a"),
+                Term::variable(Variable::new("X", Sort::simple("SortValue"))),
+            )],
+            None,
+        );
+        let symbolic_right = Term::map(
+            definition.clone(),
+            vec![(
+                key("a"),
+                Term::variable(Variable::new("Y", Sort::simple("SortValue"))),
+            )],
+            None,
+        );
+        let open_left = Term::map(
+            definition,
+            vec![(key("a"), value("left"))],
+            Some(Term::variable(Variable::new(
+                "LEFT_REST",
+                Sort::simple("SortMap"),
+            ))),
+        );
 
         assert_eq!(
-            inclusion(&[left.clone(), superset]),
+            inclusion(&[left.clone(), differing_superset]),
+            Ok(Some(bool_term(false)))
+        );
+        assert_eq!(
+            inclusion(&[left.clone(), matching_superset]),
             Ok(Some(bool_term(true)))
         );
-        assert_eq!(inclusion(&[left, disjoint]), Ok(Some(bool_term(false))));
+        assert_eq!(
+            inclusion(&[left.clone(), disjoint]),
+            Ok(Some(bool_term(false)))
+        );
+        assert_eq!(
+            inclusion(&[left.clone(), differing_with_rest]),
+            Ok(Some(bool_term(false)))
+        );
+        assert_eq!(inclusion(&[left.clone(), missing_with_rest]), Ok(None));
+        assert_eq!(inclusion(&[symbolic_left, left.clone()]), Ok(None));
+        assert_eq!(inclusion(&[left, symbolic_right]), Ok(None));
+        assert_eq!(
+            inclusion(&[open_left.clone(), open_left]),
+            Ok(Some(bool_term(true)))
+        );
     }
 
     #[test]

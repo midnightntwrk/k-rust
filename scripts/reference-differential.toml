@@ -1194,6 +1194,7 @@ depth = 1
 programs = [
   "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.hooks",
   "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.hooks",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/edges.hooks",
 ]
 
 [[execution.oracle-exception]]

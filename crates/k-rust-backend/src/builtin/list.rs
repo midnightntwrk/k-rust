@@ -558,4 +558,43 @@ mod tests {
         );
         assert_eq!(make(&[integer(-1), item("x")]), Ok(BuiltinResult::Bottom));
     }
+
+    #[test]
+    fn make_length_above_usize_is_unsupported() {
+        let length = BigInt::from(1_u8) << usize::BITS;
+
+        assert_eq!(
+            make(&[int_term(length.clone()), item("x")]),
+            Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ResultTooLarge {
+                    detail: format!("length {length}"),
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn indices_above_usize_are_out_of_range_for_concrete_lists() {
+        let definition = definition();
+        let list = Term::list(definition.clone(), vec![item("a"), item("b")], None);
+        let replacement = Term::list(definition, vec![item("x")], None);
+        let index = int_term(BigInt::from(1_u8) << usize::BITS);
+
+        assert_eq!(
+            get(&[list.clone(), index.clone()]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            range(&[list.clone(), index.clone(), integer(0)]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            update(&[list.clone(), index.clone(), item("x")]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            update_all(&[list, index, replacement]),
+            Ok(BuiltinResult::Bottom)
+        );
+    }
 }

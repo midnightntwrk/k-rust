@@ -699,7 +699,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        term::{FunctionType, Symbol, SymbolAttributes, Variable},
+        term::{
+            CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Symbol,
+            SymbolAttributes, Variable,
+        },
         timeout::{StepTimeoutController, StepTimeoutOptions},
     };
 
@@ -832,6 +835,140 @@ mod tests {
             evaluate(&comparison),
             Ok(BuiltinResult::Value(bool_term(true)))
         );
+    }
+
+    #[test]
+    fn int_pow_handles_exponents_beyond_u32() {
+        let beyond_u32 = BigInt::one() << 32;
+        let enormous: BigInt = BigInt::one() << 40;
+
+        assert_eq!(
+            evaluate_hook("INT.pow", &[int_term(BigInt::one()), int_term(beyond_u32)]),
+            Ok(BuiltinResult::Value(int_term(BigInt::one())))
+        );
+        assert_eq!(
+            evaluate_hook(
+                "INT.pow",
+                &[int_term(BigInt::zero()), int_term(enormous.clone())],
+            ),
+            Ok(BuiltinResult::Value(int_term(BigInt::zero())))
+        );
+        assert_eq!(
+            evaluate_hook(
+                "INT.pow",
+                &[
+                    int_term(BigInt::from(-1)),
+                    int_term(&enormous + BigInt::one()),
+                ],
+            ),
+            Ok(BuiltinResult::Value(int_term(BigInt::from(-1))))
+        );
+        assert!(matches!(
+            evaluate_hook("INT.pow", &[int_term(BigInt::from(2)), int_term(enormous)]),
+            Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ResultTooLarge { .. }
+            ))
+        ));
+        assert_eq!(
+            evaluate_hook(
+                "INT.pow",
+                &[int_term(BigInt::from(2)), int_term(BigInt::from(-1))],
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+    }
+
+    #[test]
+    fn int_shift_beyond_usize_is_computed_or_unsupported() {
+        let beyond_usize = BigInt::one() << usize::BITS;
+
+        assert_eq!(
+            evaluate_hook(
+                "INT.shr",
+                &[int_term(BigInt::from(8)), int_term(beyond_usize.clone())],
+            ),
+            Ok(BuiltinResult::Value(int_term(BigInt::zero())))
+        );
+        assert_eq!(
+            evaluate_hook(
+                "INT.shr",
+                &[int_term(BigInt::from(-8)), int_term(beyond_usize.clone()),],
+            ),
+            Ok(BuiltinResult::Value(int_term(BigInt::from(-1))))
+        );
+        assert_eq!(
+            evaluate_hook(
+                "INT.shl",
+                &[int_term(BigInt::zero()), int_term(beyond_usize.clone())],
+            ),
+            Ok(BuiltinResult::Value(int_term(BigInt::zero())))
+        );
+        assert!(matches!(
+            evaluate_hook(
+                "INT.shl",
+                &[int_term(BigInt::one()), int_term(beyond_usize)],
+            ),
+            Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ResultTooLarge { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn int_equality_is_reflexive_on_function_patterns() {
+        let argument = hooked(
+            "TEST.function",
+            Sort::simple("SortInt"),
+            vec![Term::variable(Variable::new("X", Sort::simple("SortInt")))],
+        );
+
+        assert_eq!(
+            evaluate_hook("INT.eq", &[argument.clone(), argument.clone()]),
+            Ok(BuiltinResult::Value(bool_term(true)))
+        );
+        assert_eq!(
+            evaluate_hook("INT.ne", &[argument.clone(), argument]),
+            Ok(BuiltinResult::Value(bool_term(false)))
+        );
+    }
+
+    #[test]
+    fn kequal_decides_distinct_constructor_like_collections() {
+        let symbols = CollectionSymbols {
+            unit: "unit".into(),
+            element: "element".into(),
+            concat: "concat".into(),
+        };
+        let map_definition = Arc::new(MapDefinition {
+            symbols: symbols.clone(),
+            key_sort: "SortInt".into(),
+            value_sort: "SortInt".into(),
+            map_sort: "SortMap".into(),
+        });
+        let list_definition = Arc::new(ListDefinition {
+            symbols,
+            element_sort: "SortInt".into(),
+            list_sort: "SortList".into(),
+        });
+        let left_map = Term::map(
+            map_definition.clone(),
+            vec![(int_term(BigInt::one()), int_term(BigInt::from(2)))],
+            None,
+        );
+        let right_map = Term::map(
+            map_definition,
+            vec![(int_term(BigInt::one()), int_term(BigInt::from(3)))],
+            None,
+        );
+        let left_list = Term::list(list_definition.clone(), vec![int_term(BigInt::one())], None);
+        let right_list = Term::list(list_definition, vec![int_term(BigInt::from(2))], None);
+
+        assert_eq!(evaluate_equality(&left_map, &right_map, None), Some(false));
+        assert_eq!(
+            evaluate_equality(&left_list, &right_list, None),
+            Some(false)
+        );
+        assert_eq!(evaluate_equality(&left_map, &left_map, None), Some(true));
     }
 
     #[test]
@@ -1028,7 +1165,11 @@ mod tests {
                 "FLOAT.root",
                 &[float_term("8.0f"), int_term(BigInt::from(3))],
             ),
-            Ok(BuiltinResult::NotApplicable)
+            Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ArgumentOutOfRange {
+                    detail: "root degree 3 (only 2 is implemented)".into(),
+                }
+            ))
         );
     }
 

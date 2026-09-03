@@ -1079,6 +1079,55 @@ fn reference_hook_pc_findstring_follows_domains_md() {
 }
 
 #[test]
+fn krun_executes_hook_edges_to_the_adjudicated_results() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("hooks-c2.k").to_str().unwrap(),
+            "--main-module",
+            "HOOKS-C2",
+            "--syntax-module",
+            "HOOKS-C2-SYNTAX",
+            "--sort",
+            "Pgm",
+            fixtures.join("edges.hooks").to_str().unwrap(),
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let bool_value = Regex::new(r#"\\dv\{SortBool\{\}\}\(\"(true|false)\"\)"#).unwrap();
+    let int_value = Regex::new(r#"\\dv\{SortInt\{\}\}\(\"(-?[0-9]+)\"\)"#).unwrap();
+    let string_value = Regex::new(r#"\\dv\{SortString\{\}\}\(\"([^\"]*)\"\)"#).unwrap();
+
+    let bools = bool_value
+        .captures_iter(&stdout)
+        .map(|captures| captures[1].parse::<bool>().unwrap())
+        .collect::<Vec<_>>();
+    let ints = int_value
+        .captures_iter(&stdout)
+        .take(4)
+        .map(|captures| captures[1].parse::<i64>().unwrap())
+        .collect::<Vec<_>>();
+    let strings = string_value
+        .captures_iter(&stdout)
+        .map(|captures| captures[1].to_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(bools, vec![false, false, false], "{stdout}");
+    assert_eq!(ints, vec![1, 1, 65_533, 0], "{stdout}");
+    assert_eq!(strings, vec!["he"], "{stdout}");
+}
+
+#[test]
 fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))

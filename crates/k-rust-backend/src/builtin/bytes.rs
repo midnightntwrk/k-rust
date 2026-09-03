@@ -492,6 +492,48 @@ mod tests {
     }
 
     #[test]
+    fn replace_at_past_the_end_is_bottom() {
+        assert_eq!(
+            replace_at(&[bytes_term(b"abc"), integer(2), bytes_term(b"xyz")]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            replace_at(&[bytes_term(b"abc"), integer(1), bytes_term(b"")]),
+            Ok(BuiltinResult::Value(bytes_term(b"abc")))
+        );
+        assert_eq!(
+            replace_at(&[bytes_term(b"abc"), integer(3), bytes_term(b"x")]),
+            Ok(BuiltinResult::Bottom)
+        );
+    }
+
+    #[test]
+    fn allocation_lengths_above_usize_are_unsupported() {
+        let large_length = BigInt::from(1_u8) << usize::BITS;
+        let length = int_term(large_length.clone());
+        let expected = BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
+            detail: format!("length {large_length}"),
+        });
+
+        assert_eq!(
+            pad(&[bytes_term(b"abc"), length.clone(), integer(0)], false),
+            Ok(expected.clone())
+        );
+        assert_eq!(
+            pad(&[bytes_term(b"abc"), length.clone(), integer(0)], true),
+            Ok(expected.clone())
+        );
+        assert_eq!(
+            int_to_bytes(&[
+                length,
+                integer(0),
+                constructor("LbllittleEndianBytes", "SortEndianness"),
+            ]),
+            Ok(expected)
+        );
+    }
+
+    #[test]
     fn integer_conversions_match_twos_complement_and_endianness() {
         let little = constructor("LbllittleEndianBytes", "SortEndianness");
         let big = constructor("LblbigEndianBytes", "SortEndianness");
