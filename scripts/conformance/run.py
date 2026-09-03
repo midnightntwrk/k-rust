@@ -43,7 +43,7 @@ KOMPILE_VALUE_OPTS = {"--backend", "--main-module", "--syntax-module", "--output
     "--bison-stack-max-depth", "--llvm-kompile-type", "--llvm-kompile-output", "-ccopt", "-w", "-W", "-Wno",
     "--warnings", "-d", "--directory", "--definition", "-O", "--concrete-rules", "--smt-prelude", "--llvm-kompile-flags"}
 KRUN_VALUE_OPTS = {"--definition", "-d", "--depth", "--bound", "--pattern", "--parser", "--output", "-o", "--output-file",
-    "-c", "-p", "--smt", "--smt-prelude", "--smt-timeout", "--term", "--search-pattern", "--md-selector", "-I", "--warnings", "-w"}
+    "-c", "-p", "--io", "--smt", "--smt-prelude", "--smt-timeout", "--term", "--search-pattern", "--md-selector", "-I", "--warnings", "-w"}
 KAST_VALUE_OPTS = {"--definition", "-d", "--sort", "-s", "--module", "-m", "--input", "-i", "--output", "-o", "--output-file",
     "--expression", "-e", "--md-selector", "-I", "--warnings", "-w", "--gen-parser-only"}
 KPROVE_VALUE_OPTS = {"--definition", "-d", "--spec-module", "--def-module", "--md-selector", "--smt", "--smt-prelude",
@@ -677,7 +677,7 @@ def do_krun(case, rec, search_file=False):
     for f in flags:
         if f in ("--search",): extra.append("--search-final")
         elif f in ("--search-all", "--search-final", "--search-one-step", "--search-one-or-more-steps"): extra.append(f)
-        elif f in ("--no-exc-wrap", "--no-pattern", "--io", "--profile", "--debug", "--no-expand-macros"): pass
+        elif f in ("--no-exc-wrap", "--no-pattern", "--profile", "--debug", "--no-expand-macros"): pass
         elif f in ("--help", "--version", "--dry-run", "--proof-hint", "--term"): unsupported.append(f)
         else: unsupported.append(f)
     for k, vs in opts.items():
@@ -685,6 +685,7 @@ def do_krun(case, rec, search_file=False):
         if k in ("--definition", "-d", "--smt", "--smt-prelude", "--warnings", "-w", "--md-selector"): continue
         if k == "--depth": extra += ["--depth", v]
         elif k == "--bound": extra += ["--search-bound", v]
+        elif k == "--io": extra += ["--io", v]
         elif k == "-c":
             for c in vs: extra += ["-c", c]
         elif k in ("--output", "-o"):
@@ -696,7 +697,6 @@ def do_krun(case, rec, search_file=False):
             for d in vs: extra += ["-I", d]
         else: unsupported.append(f"{k} {v}")
     if search_file: extra.append("--search-all")
-    if "off" in pos: pos.remove("off")
     if unsupported:
         step.update(verdict="krust-unsupported", reason="reference krun flags with no krust equivalent: " + " ".join(unsupported))
         return step_record(case, **step)
