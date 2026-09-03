@@ -125,6 +125,30 @@ fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
 }
 
 #[test]
+fn config_dependent_sort_predicate_has_the_reference_error() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Bool
+          syntax Exp
+          syntax Bool ::= isExp(Exp) [function, symbol(isExp)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let term = Term::apply(
+        "isExp",
+        vec![Term::variable("X"), Term::variable("THIS_CONFIGURATION")],
+    );
+    let error = injector
+        .inject_at_top(&term)
+        .expect_err("configuration-dependent predicates must be rejected");
+    assert_eq!(
+        error.to_string(),
+        "Invalid sort predicate isExp that depends directly or indirectly on the current configuration. Is it possible to replace the sort predicate with a regular function?"
+    );
+}
+
+#[test]
 fn reconstructs_a_singleton_user_list_for_generated_terms() {
     let definition = lowered(indoc! {r#"
         module MAIN
