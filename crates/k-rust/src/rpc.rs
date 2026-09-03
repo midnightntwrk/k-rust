@@ -1576,7 +1576,6 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
                 ("Uncertain about unification of rule", Some(rule_id))
             }
             k_rust_backend::rewrite::IndeterminateReason::Requires { rule_id, .. }
-            | k_rust_backend::rewrite::IndeterminateReason::Concreteness { rule_id, .. }
             | k_rust_backend::rewrite::IndeterminateReason::Smt { rule_id, .. } => {
                 ("Uncertain about a condition in rule", Some(rule_id))
             }
