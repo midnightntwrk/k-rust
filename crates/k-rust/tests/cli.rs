@@ -2612,6 +2612,38 @@ endmodule
 }
 
 #[test]
+fn reference_deprecated_configuration_reports_every_occurrence() {
+    let (root, _) = fixture();
+    let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/checks/deprecated.k");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "DEPRECATED",
+            "--syntax-module",
+            "DEPRECATED-SYNTAX",
+            "--output-directory",
+            root.join("compiled").to_str().unwrap(),
+            "--warnings",
+            "all",
+            "--warnings-to-errors",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches("Error[DeprecatedProduction]").count(),
+        11,
+        "{stderr}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_hook_namespaces_default_per_backend() {
     let source = r#"
 module MAIN
