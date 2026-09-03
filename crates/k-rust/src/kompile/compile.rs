@@ -57,10 +57,14 @@ impl CompilationBackend {
 
     fn structural_check_options(self) -> StructuralCheckOptions {
         match self {
-            Self::Llvm => StructuralCheckOptions::default(),
+            Self::Llvm => StructuralCheckOptions {
+                builtin_source_prefixes: vec!["krust-builtin://".into()],
+                ..StructuralCheckOptions::default()
+            },
             Self::Rust => StructuralCheckOptions {
                 symbolic: true,
                 backend: StructuralCheckBackend::Rust,
+                builtin_source_prefixes: vec!["krust-builtin://".into()],
                 ..StructuralCheckOptions::default()
             },
         }
