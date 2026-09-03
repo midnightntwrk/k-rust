@@ -7,7 +7,7 @@ use crate::{
         Associativity as FlatAssociativity, Attributes, Definition, FlatImport, FlatModule,
         LOCATION_ATTRIBUTE, ProductionItem as FlatProductionItem, SENTENCE_END_OFFSET_ATTRIBUTE,
         SENTENCE_START_OFFSET_ATTRIBUTE, SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE,
-        Sentence as FlatSentence,
+        Sentence as FlatSentence, json::label_json,
     },
     kast::{Label, Sort},
 };
@@ -222,8 +222,11 @@ fn lower_production(
     let label = effective_label(module, result_sort, production, false);
     let mut attributes = sentence_source_attributes(file, production.span, &production.attributes);
     if has_attribute(&production.attributes, "bracket") {
-        let bracket_label = prefix_label(module, result_sort, production, true);
-        attributes.insert("bracketLabel", json!(bracket_label));
+        let label = Label::with_parameters(
+            bracket_label(module, result_sort, production),
+            parameters.to_vec(),
+        );
+        attributes.insert("bracketLabel", label_json(&label));
     }
     output.push(FlatSentence::Production {
         label: label.map(|name| Label::with_parameters(name, parameters.to_vec())),
@@ -393,10 +396,11 @@ fn block_tags(module: &Module, result_sort: &Sort, block: &PriorityBlock) -> Vec
         .productions
         .iter()
         .filter_map(|production| {
-            effective_label(module, result_sort, production, false).or_else(|| {
-                has_attribute(&production.attributes, "bracket")
-                    .then(|| prefix_label(module, result_sort, production, true))
-            })
+            if has_attribute(&production.attributes, "bracket") {
+                Some(bracket_label(module, result_sort, production))
+            } else {
+                effective_label(module, result_sort, production, false)
+            }
         })
         .collect()
 }
@@ -412,11 +416,11 @@ fn build_tag_index(files: &[SourceFile]) -> TagIndex {
                 continue;
             };
             for production in blocks.iter().flat_map(|block| &block.productions) {
-                let compiled =
-                    effective_label(module, &syntax.sort, production, false).or_else(|| {
-                        has_attribute(&production.attributes, "bracket")
-                            .then(|| prefix_label(module, &syntax.sort, production, true))
-                    });
+                let compiled = if has_attribute(&production.attributes, "bracket") {
+                    Some(bracket_label(module, &syntax.sort, production))
+                } else {
+                    effective_label(module, &syntax.sort, production, false)
+                };
                 let Some(compiled) = compiled else {
                     continue;
                 };
@@ -509,6 +513,11 @@ fn effective_label(
         return Some(declared.replace(' ', ""));
     }
     Some(prefix_label(module, result_sort, production, true))
+}
+
+fn bracket_label(module: &Module, result_sort: &Sort, production: &Production) -> String {
+    effective_label(module, result_sort, production, true)
+        .expect("bracket productions always have an effective label")
 }
 
 fn prefix_label(

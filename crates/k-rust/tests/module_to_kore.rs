@@ -9,6 +9,7 @@ use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
 use k_rust::kore::printer::Printer;
 use k_rust::{kast, kast::Label, outer};
 use serde::Deserialize;
+use serde_json::json;
 
 fn lowered(source: &str, main_module: &str) -> k_rust::definition::Definition {
     let parsed = outer::parse("declarations.k", source).expect("definition should parse");
@@ -191,6 +192,53 @@ fn omits_syntax_relations_only_from_unlabeled_brackets() {
             labeled.contains(&relation),
             "labeled bracket omitted `{relation}` attribute"
         );
+    }
+}
+
+#[test]
+fn bracket_declarations_accept_klabel_objects_and_legacy_strings() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax {S} Box{S} ::= "(" Box{S} ")" [bracket]
+        endmodule
+    "#};
+
+    for (representation, expected_parameter_count) in [
+        (
+            json!({
+                "node": "KLabel",
+                "name": "paren",
+                "params": [{"node": "KSort", "name": "S", "params": []}],
+            }),
+            1,
+        ),
+        (json!("paren"), 1),
+    ] {
+        let mut definition = lowered(source, "MAIN");
+        let bracket = definition.modules[0]
+            .local_sentences
+            .iter_mut()
+            .find(|sentence| sentence.attributes().get("bracket").is_some())
+            .expect("expected a bracket production");
+        bracket
+            .attributes_mut()
+            .insert("bracketLabel", representation);
+
+        let declarations = declaration_modules(&definition, "MAIN").unwrap();
+        let symbol = declarations
+            .syntax
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration { symbol, .. }
+                    if symbol.name == encode_kore_label(&Label::new("paren")).name =>
+                {
+                    Some(symbol)
+                }
+                _ => None,
+            })
+            .expect("the structured bracket label should declare a syntax symbol");
+        assert_eq!(symbol.sort_parameters.len(), expected_parameter_count);
     }
 }
 

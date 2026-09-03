@@ -254,7 +254,7 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         token: attributes.get("token").is_some(),
         transparent: attributes.get("bracket").is_some(),
         bracket: attributes.get("bracket").is_some(),
-        bracket_label: attributes.get_str("bracketLabel"),
+        bracket_label: attributes.label("bracketLabel").map(|label| label.name),
         apply_priority: attributes.get_str("applyPriority"),
         function: attributes.get("function").is_some(),
         macro_like: ["macro", "macro-rec", "alias", "alias-rec"]

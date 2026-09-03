@@ -677,6 +677,75 @@ fn generated_list_terminator_symbols_follow_explicit_list_symbols() {
     assert_eq!(symbol, ".List{\"items\"}");
 }
 
+#[test]
+fn bracket_label_uses_the_declared_symbol() {
+    let source = indoc! {r#"
+        module BRACKET-LABELS
+          syntax Exp ::= "(" Exp ")" [bracket, symbol( paren)]
+                       > "[" Exp "]" [bracket]
+                       > "{" Exp "}" [bracket, klabel(curly)]
+        endmodule
+    "#};
+    let definition = lower(
+        &parse("bracket-labels.k", source).expect("definition should parse"),
+        "BRACKET-LABELS",
+    )
+    .expect("definition should lower");
+    let sentences = &definition.main_module().unwrap().local_sentences;
+
+    let bracket_label = |opening: &str| {
+        sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                k_rust::definition::Sentence::Production {
+                    items, attributes, ..
+                } if items.first()
+                    == Some(&k_rust::definition::ProductionItem::Terminal(
+                        opening.into(),
+                    )) =>
+                {
+                    attributes.get("bracketLabel")
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing bracket production beginning with {opening:?}"))
+    };
+
+    assert_eq!(
+        bracket_label("("),
+        &serde_json::json!({"node": "KLabel", "name": "paren", "params": []})
+    );
+    assert_eq!(
+        bracket_label("["),
+        &serde_json::json!({
+            "node": "KLabel",
+            "name": "[_]_BRACKET-LABELS_Exp_Exp",
+            "params": []
+        })
+    );
+    assert_eq!(
+        bracket_label("{"),
+        &serde_json::json!({
+            "node": "KLabel",
+            "name": "{_}_BRACKET-LABELS_Exp_Exp",
+            "params": []
+        })
+    );
+
+    let priorities = sentences.iter().find_map(|sentence| match sentence {
+        k_rust::definition::Sentence::SyntaxPriority { priorities, .. } => Some(priorities),
+        _ => None,
+    });
+    assert_eq!(
+        priorities,
+        Some(&vec![
+            vec!["paren".into()],
+            vec!["[_]_BRACKET-LABELS_Exp_Exp".into()],
+            vec!["{_}_BRACKET-LABELS_Exp_Exp".into()],
+        ])
+    );
+}
+
 outer_snapshot!(
     bubble_attributes_ignore_commented_brackets,
     indoc! {r#"

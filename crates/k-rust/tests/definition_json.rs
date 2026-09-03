@@ -200,6 +200,57 @@ fn preserves_unknown_and_typed_attributes() {
 }
 
 #[test]
+fn bracket_label_round_trips_as_a_klabel_node() {
+    let bracket_label = value!({
+        "node": "KLabel",
+        "name": "paren",
+        "params": [{"node": "KSort", "name": "S", "params": []}],
+    });
+    let definition = complete_definition(vec![Sentence::Production {
+        label: None,
+        parameters: vec![Sort::new("S")],
+        sort: Sort::with_parameters("Box", vec![Sort::new("S")]),
+        items: vec![
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::NonTerminal {
+                sort: Sort::with_parameters("Box", vec![Sort::new("S")]),
+                name: None,
+            },
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes: Attributes::new(BTreeMap::from([
+            ("bracket".into(), value!("")),
+            ("bracketLabel".into(), bracket_label.clone()),
+        ])),
+    }]);
+
+    let wire = assert_definition_round_trip!(definition);
+    assert_eq!(
+        wire["term"]["modules"][0]["localSentences"][0]["att"]["att"]["bracketLabel"],
+        bracket_label
+    );
+
+    let legacy = complete_definition(vec![Sentence::Production {
+        label: None,
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![ProductionItem::NonTerminal {
+            sort: Sort::new("Exp"),
+            name: None,
+        }],
+        attributes: Attributes::new(BTreeMap::from([(
+            "bracketLabel".into(),
+            value!("legacy-bracket"),
+        )])),
+    }]);
+    let legacy_wire = assert_definition_round_trip!(legacy);
+    assert_eq!(
+        legacy_wire["term"]["modules"][0]["localSentences"][0]["att"]["att"]["bracketLabel"],
+        "legacy-bracket"
+    );
+}
+
+#[test]
 fn cloning_attributes_shares_provenance_receipt_storage() {
     let receipt = value!({
         "pass": "subsort-kitem",

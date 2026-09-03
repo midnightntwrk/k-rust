@@ -17,6 +17,34 @@ use k_rust::{
 use serde_json::json;
 
 #[test]
+fn reference_bracket_symbol_fixture_matches_k_parsed_json() {
+    // reference: kompile test.k --backend haskell --emit-json
+    let source = include_str!("fixtures/reference/outer/bracket-symbol/test.k");
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/reference/outer/bracket-symbol/bracket-label.json"
+    ))
+    .unwrap();
+    let parsed = k_rust::outer::parse("bracket-symbol.k", source).unwrap();
+    let definition = k_rust::outer::lower(&parsed, "BRACKET-SYMBOL").unwrap();
+    let actual = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Production { attributes, .. }
+                if attributes.get_str("symbol") == Some("paren") =>
+            {
+                attributes.get("bracketLabel")
+            }
+            _ => None,
+        })
+        .expect("the reference bracket production should be lowered");
+
+    assert_eq!(actual, &expected);
+}
+
+#[test]
 fn hand_built_definition_conforms_to_the_complete_public_compiler_pipeline() {
     assert_compiles_on_both_backends(structured_definition(false), |artifacts| {
         assert!(artifacts.definition_kore.contains("SortExp"));

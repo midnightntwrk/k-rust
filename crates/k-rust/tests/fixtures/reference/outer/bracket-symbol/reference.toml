@@ -1,0 +1,18 @@
+case = "bracket-symbol"
+subsystem = "outer"
+source_ticket = "A1-10"
+harvested_from = "draft/fable51-review/fixtures/a1-fixtures/bracket-symbol"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "bracket-label.json"
+command = "kompile test.k --backend haskell --main-module BRACKET-SYMBOL --emit-json --output-definition k-out && jq -c '.. | objects | select(.node? == \"KProduction\" and .att.att.symbol? == \"paren\") | .att.att.bracketLabel' k-out/parsed.json > bracket-label.json"
+tool = "kompile + jq"
+exit_code = 0
+sha256 = "c7252afcf8091feb565f273b24d1e81de0dc9d2b283932b88ae736efd90fdc95"
+
+[[input]]
+file = "test.k"
+source = "draft/fable51-review/fixtures/a1-fixtures/bracket-symbol/test.k"
+sha256 = "f2ba2ea528e295709d01846b62cd4e2c5eb1301c30d68017cdff3db02b7368de"
