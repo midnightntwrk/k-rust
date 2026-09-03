@@ -1,17 +1,18 @@
 //! Host-independent orchestration of the ordered K frontend compilation pipeline.
 
-use std::{fmt, str::FromStr};
+use std::{collections::BTreeSet, fmt, str::FromStr};
 
 use crate::{
     definition::{
         CheckMode, Definition, ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
         checks::check_definition_with_options, expand_configurations_with_diagnostics,
     },
-    diagnostic::{Diagnostic, DiagnosticPolicy, Severity},
+    diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     kore::printer::Printer as KorePrinter,
     outer::LoadedDefinition,
 };
 
+use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
 use super::{
     ModuleToKoreOptions, add_cool_like_attributes, add_implicit_computation_cell,
     add_semantics_module, add_sort_injections_to_definition, check_simplification_rules,
@@ -205,11 +206,33 @@ pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<CompiledKoreArtifacts, CompileError> {
-    let (definition, diagnostics) = transform_loaded_definition(loaded, &options)?;
+    let (definition, mut diagnostics) = transform_loaded_definition(loaded, &options)?;
     let resolved = stage(
         "resolve transformed definition",
         ResolvedDefinition::resolve(&definition),
     )?;
+    let hook_namespaces = options
+        .hook_namespaces
+        .clone()
+        .unwrap_or_else(|| options.backend.default_hook_namespaces());
+    diagnostics.extend(
+        options
+            .diagnostics
+            .apply(unadmitted_hook_namespace_diagnostics(
+                &resolved,
+                &hook_namespaces,
+            )),
+    );
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        return Err(CompileError::from_diagnostics(
+            "hook namespace checks",
+            "hook namespace checks failed",
+            diagnostics,
+        ));
+    }
     let generated = stage(
         "emit KORE",
         module_to_kore_from_resolved_with_options(
@@ -218,10 +241,7 @@ pub fn compile_loaded_definition(
             ModuleToKoreOptions {
                 generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
                 default_claims_to_all_path: options.default_claims_to_all_path,
-                hook_namespaces: options
-                    .hook_namespaces
-                    .clone()
-                    .unwrap_or_else(|| options.backend.default_hook_namespaces()),
+                hook_namespaces,
             },
         ),
     )?;
@@ -244,6 +264,42 @@ pub fn compile_loaded_definition(
         macros_kore,
         diagnostics,
     })
+}
+
+fn unadmitted_hook_namespace_diagnostics(
+    definition: &ResolvedDefinition,
+    admitted: &[String],
+) -> Vec<Diagnostic> {
+    let mut seen = BTreeSet::new();
+    let mut diagnostics = Vec::new();
+    for sentence in definition.sentences(definition.main_module_id()) {
+        let crate::definition::Sentence::Production { attributes, .. } = sentence else {
+            continue;
+        };
+        if attributes.get("function").is_none() {
+            continue;
+        }
+        let Some(hook) = attributes.get_str("hook") else {
+            continue;
+        };
+        let Some((namespace, _)) = hook.split_once('.') else {
+            continue;
+        };
+        if BUILTIN_HOOK_NAMESPACES.contains(&namespace)
+            || admitted.iter().any(|candidate| candidate == namespace)
+            || !seen.insert((namespace.to_owned(), hook.to_owned()))
+        {
+            continue;
+        }
+        diagnostics.push(Diagnostic::warning_at(
+            DiagnosticCode::UnadmittedHookNamespace,
+            format!(
+                "hook namespace `{namespace}` of `hook({hook})` is neither builtin nor selected with --hook-namespaces; the production compiles as an unhooked function"
+            ),
+            attributes,
+        ));
+    }
+    diagnostics
 }
 
 fn transform_loaded_definition(

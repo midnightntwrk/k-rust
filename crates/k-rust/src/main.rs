@@ -183,9 +183,14 @@ struct KcompileArgs {
     #[arg(long, value_name = "MODULE")]
     syntax_module: Option<String>,
 
-    /// Plugin hook namespaces (for example `KRYPTO`) emitted as hooked symbols. Defaults to the
+    /// Plugin hook namespaces (for example `KRYPTO`) emitted as hooked symbols. K's form is one
+    /// whitespace-separated list; commas and repeated flags are accepted too. Defaults to the
     /// namespaces the Rust backend implements, or to none for other backends.
-    #[arg(long, value_name = "NAMESPACE", value_delimiter = ',')]
+    #[arg(
+        long,
+        value_name = "NAMESPACES",
+        action = clap::ArgAction::Append
+    )]
     hook_namespaces: Option<Vec<String>>,
 
     /// Directory in which generated KORE files are written.
@@ -1048,7 +1053,9 @@ impl From<KcompileArgs> for KcompileOptions {
                 arguments.warnings.policy(),
             ),
             backend: arguments.backend.into(),
-            hook_namespaces: arguments.hook_namespaces,
+            hook_namespaces: arguments
+                .hook_namespaces
+                .map(|values| split_hook_namespaces(&values)),
             syntax_module: arguments.syntax_module,
             output_directory: arguments.output_directory,
             emit_json: arguments.emit_json,
@@ -1057,6 +1064,32 @@ impl From<KcompileArgs> for KcompileOptions {
             compiled_definition: arguments.compiled_definition,
         }
     }
+}
+
+/// K's `StringListConverter` semantics plus comma separators retained for krust compatibility.
+fn split_hook_namespaces(values: &[String]) -> Vec<String> {
+    let mut namespaces = Vec::new();
+    for value in values {
+        let mut namespace = String::new();
+        let mut characters = value.chars().peekable();
+        while let Some(character) = characters.next() {
+            match character {
+                '\\' if characters.peek().is_some_and(|next| next.is_whitespace()) => {
+                    namespace.push(characters.next().expect("peeked character must exist"));
+                }
+                character if character.is_whitespace() || character == ',' => {
+                    if !namespace.is_empty() {
+                        namespaces.push(std::mem::take(&mut namespace));
+                    }
+                }
+                character => namespace.push(character),
+            }
+        }
+        if !namespace.is_empty() {
+            namespaces.push(namespace);
+        }
+    }
+    namespaces
 }
 
 impl From<KastArgs> for KastOptions {
