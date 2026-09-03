@@ -1,0 +1,8 @@
+// reference definition for kore-parser --print-pattern-json probes
+[]
+module M
+  sort S{} []
+  symbol a{}() : S{} []
+  symbol b{}() : S{} []
+  symbol c{}() : S{} []
+endmodule []

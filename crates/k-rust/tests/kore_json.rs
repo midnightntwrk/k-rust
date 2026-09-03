@@ -43,3 +43,33 @@ fn rejects_wrong_format_and_version() {
     assert!(json::from_str(r#"{"format":"other","version":1,"term":{"tag":"Top","sort":{"tag":"SortVar","name":"S"}}}"#).is_err());
     assert!(json::from_str(r#"{"format":"KORE","version":2,"term":{"tag":"Top","sort":{"tag":"SortVar","name":"S"}}}"#).is_err());
 }
+
+#[test]
+fn reference_print_pattern_json_pins_set_variable_names() {
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/kore-syntax/json");
+    let source = fs::read_to_string(root.join("mu-svar.json")).unwrap();
+    let value: Value = serde_json::from_str(&source).unwrap();
+    assert_eq!(value["term"]["var"], "@X");
+    assert_eq!(value["term"]["arg"]["name"], "@X");
+
+    let pattern = json::from_str(&source).unwrap();
+    assert_eq!(
+        pattern,
+        parser::parse_pattern(r"\mu{}(@X:S{}, @X:S{})").unwrap()
+    );
+}
+
+#[test]
+fn reference_multi_or_json_expands_to_binary_or() {
+    let source = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/reference/kore-syntax/json/multi-or-right.json"),
+    )
+    .unwrap();
+    let pattern = json::from_str(&source).unwrap();
+    assert_eq!(
+        pattern,
+        parser::parse_pattern(r"\or{S{}}(a{}(), \or{S{}}(b{}(), c{}()))").unwrap()
+    );
+}

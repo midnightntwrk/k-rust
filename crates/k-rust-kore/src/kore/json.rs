@@ -625,6 +625,23 @@ fn associative(
 mod tests {
     use super::*;
     use crate::kore::parser::parse_pattern;
+    use serde_json::{Value, json};
+
+    fn sort() -> Value {
+        json!({ "tag": "SortApp", "name": "S", "args": [] })
+    }
+
+    fn app(name: &str) -> Value {
+        json!({ "tag": "App", "name": name, "sorts": [], "args": [] })
+    }
+
+    fn document(term: Value) -> String {
+        json!({ "format": "KORE", "version": 1, "term": term }).to_string()
+    }
+
+    fn decode(term: Value) -> Result<Pattern, Error> {
+        from_str(&document(term))
+    }
 
     #[test]
     fn accepts_binary_and_or_fields_from_legacy_version_one_producers() {
@@ -693,5 +710,127 @@ mod tests {
         });
 
         assert!(to_value(&pattern).is_ok());
+    }
+
+    #[test]
+    fn rejects_reference_lexical_errors() {
+        let cases = [
+            (
+                json!({ "tag": "SVar", "name": "X", "sort": sort() }),
+                "Lexical errors in set variable : X",
+            ),
+            (
+                json!({ "tag": "EVar", "name": "foo bar", "sort": sort() }),
+                "Lexical error in element variable : foo bar",
+            ),
+            (
+                json!({ "tag": "EVar", "name": "é", "sort": sort() }),
+                "Lexical error in element variable : é",
+            ),
+            (
+                json!({ "tag": "App", "name": "a b", "sorts": [], "args": [] }),
+                "Lexical error in app symbol : a b",
+            ),
+            (
+                json!({ "tag": "App", "name": "", "sorts": [], "args": [] }),
+                "Lexical error in app symbol : ",
+            ),
+            (
+                json!({ "tag": "DV", "sort": sort(), "value": "≤" }),
+                "Lexical error in domain value string : ≤",
+            ),
+            (
+                json!({ "tag": "String", "value": "Ā" }),
+                "Lexical error in string literal : Ā",
+            ),
+            (
+                json!({ "tag": "Mu", "var": "X", "varSort": sort(), "arg": app("a") }),
+                "Lexical errors in fixpoint expression variable : X",
+            ),
+        ];
+
+        for (term, expected_prefix) in cases {
+            let error = decode(term).expect_err("reference lexical error must be rejected");
+            assert!(
+                error.to_string().starts_with(expected_prefix),
+                "expected {expected_prefix:?}, got {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_fields_below_the_envelope_only() {
+        assert!(
+            decode(json!({ "tag": "Top", "sort": sort(), "bogus": 1 }))
+                .unwrap_err()
+                .to_string()
+                .contains("unknown field")
+        );
+        assert!(
+            decode(json!({
+                "tag": "Top",
+                "sort": { "tag": "SortApp", "name": "S", "args": [], "bogus": 1 }
+            }))
+            .unwrap_err()
+            .to_string()
+            .contains("unknown field")
+        );
+        assert!(
+            decode(json!({
+                "tag": "And",
+                "sort": sort(),
+                "patterns": [app("a")],
+                "first": app("b")
+            }))
+            .unwrap_err()
+            .to_string()
+            .contains("unknown field `first`")
+        );
+
+        let source = json!({
+            "format": "KORE",
+            "version": 1,
+            "term": { "tag": "Top", "sort": sort() },
+            "extra": 1
+        })
+        .to_string();
+        assert!(from_str(&source).is_ok());
+    }
+
+    #[test]
+    fn decodes_multi_or_as_the_reference_expands_it() {
+        let multi_or = |assoc: &str, argss: Vec<Value>| json!({ "tag": "MultiOr", "assoc": assoc, "sort": sort(), "argss": argss });
+        let left = decode(multi_or("Left", vec![app("a"), app("b"), app("c")])).unwrap();
+        let right = decode(multi_or("Right", vec![app("a"), app("b"), app("c")])).unwrap();
+        let one = decode(multi_or("Left", vec![app("a")])).unwrap();
+
+        assert_eq!(
+            left,
+            parse_pattern(r"\or{S{}}(\or{S{}}(a{}(), b{}()), c{}())").unwrap()
+        );
+        assert_eq!(
+            right,
+            parse_pattern(r"\or{S{}}(a{}(), \or{S{}}(b{}(), c{}()))").unwrap()
+        );
+        assert_eq!(one, parse_pattern("a{}()").unwrap());
+        assert_eq!(
+            decode(multi_or("Left", Vec::new()))
+                .unwrap_err()
+                .to_string(),
+            "MultiOr requires at least one argument"
+        );
+        assert!(decode(multi_or("Middle", vec![app("a")])).is_err());
+    }
+
+    #[test]
+    fn accepted_names_round_trip_through_text() {
+        for term in [
+            json!({ "tag": "EVar", "name": "X-1'", "sort": sort() }),
+            json!({ "tag": "SVar", "name": "@X-1'", "sort": sort() }),
+            json!({ "tag": "App", "name": "\\foo", "sorts": [], "args": [] }),
+        ] {
+            let pattern = decode(term).unwrap();
+            assert_eq!(parse_pattern(&pattern.to_string()).unwrap(), pattern);
+        }
     }
 }
