@@ -179,6 +179,23 @@ fn every_java_json_sentence_has_a_round_trip() {
 }
 
 #[test]
+fn decodes_definitions_with_deep_rule_bodies() {
+    let mut body = Term::variable("X");
+    for _ in 0..300 {
+        body = Term::apply("wrap", vec![body]);
+    }
+    let definition = complete_definition(vec![Sentence::Rule {
+        body,
+        requires: bool_token("true"),
+        ensures: bool_token("true"),
+        attributes: empty_attributes(),
+    }]);
+
+    let encoded = json::to_string(&definition).unwrap();
+    assert_eq!(json::from_str(&encoded).unwrap(), definition);
+}
+
+#[test]
 fn preserves_unknown_and_typed_attributes() {
     let mut entries = BTreeMap::new();
     entries.insert("unknown-internal".into(), value!({"nested": [1, true]}));

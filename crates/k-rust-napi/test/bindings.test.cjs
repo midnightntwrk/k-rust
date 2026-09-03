@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 const test = require('node:test')
 
 const {
@@ -18,6 +20,7 @@ module MAIN
   symbol a{}() : SortS{} [constructor{}()]
   symbol b{}() : SortS{} [constructor{}()]
   symbol c{}() : SortS{} [constructor{}()]
+  symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
   axiom{} \rewrites{SortS{}}(
     \and{SortS{}}(a{}(), \top{SortS{}}()),
     \and{SortS{}}(b{}(), \top{SortS{}}())
@@ -31,6 +34,24 @@ module MAIN
     weakExistsFinally{SortS{}}(\and{SortS{}}(c{}(), \top{SortS{}}()))
   ) [label{}("reaches-c")]
 endmodule []`
+
+const koreSortS = { tag: 'SortApp', name: 'SortS', args: [] }
+
+function deeplyNestedKore(depth) {
+  let term = { tag: 'Top', sort: koreSortS }
+  for (let index = 0; index < depth; index += 1) {
+    term = { tag: 'Not', sort: koreSortS, arg: term }
+  }
+  return { format: 'KORE', version: 1, term }
+}
+
+function deeplyNestedBackendState(depth) {
+  let term = { tag: 'App', name: 'a', sorts: [], args: [] }
+  for (let index = 0; index < depth; index += 1) {
+    term = { tag: 'App', name: 'wrap', sorts: [], args: [term] }
+  }
+  return { format: 'KORE', version: 1, term }
+}
 
 test('parses programs through virtual requires', () => {
   const parsed = parseProgram({
@@ -104,6 +125,32 @@ test('round-trips KAST and KORE through typed JSON', () => {
 
   const kore = parseKore('X:S')
   assert.equal(printKore(kore.kore), kore.text)
+})
+
+test('reads deep typed JSON without a surface-specific recursion limit', () => {
+  const kore = deeplyNestedKore(160)
+  assert.equal((printKore(kore).match(/\\not/g) ?? []).length, 160)
+
+  const kast = JSON.parse(
+    fs.readFileSync(
+      path.join(
+        __dirname,
+        '../../k-rust/tests/fixtures/reference/kast/json/deep-70/ref-p2.json',
+      ),
+      'utf8',
+    ),
+  )
+  assert.equal(
+    (printKast(kast).match(/g\(_\)_TEST-SYNTAX_Exp_Exp/g) ?? []).length,
+    70,
+  )
+
+  const backend = createBackend({ definitionKore: backendDefinition, moduleName: 'MAIN' })
+  const execution = backend.execute({
+    state: deeplyNestedBackendState(200),
+    maxDepth: 0,
+  })
+  assert.equal(execution.leaves.length, 1)
 })
 
 test('runs the complete persistent native backend API', () => {

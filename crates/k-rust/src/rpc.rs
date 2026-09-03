@@ -3374,6 +3374,46 @@ mod tests {
     }
 
     #[test]
+    fn execute_accepts_a_deep_state_payload() {
+        std::thread::Builder::new()
+            .stack_size(CONNECTION_STACK_SIZE)
+            .spawn(|| {
+                let definition = parse_definition(
+                    r#"[]
+                    module TEST
+                      sort SortK{} []
+                      symbol value{}() : SortK{} [constructor{}()]
+                      symbol wrap{}(SortK{}) : SortK{} [constructor{}()]
+                    endmodule []"#,
+                )
+                .unwrap();
+                let mut service = RpcService::new(BackendSession::new(definition, "TEST"));
+                let depth = 2_000;
+                let prefix = r#"{"tag":"App","name":"wrap","sorts":[],"args":["#;
+                let suffix = "]}";
+                let term = format!(
+                    "{}{}{}",
+                    prefix.repeat(depth),
+                    r#"{"tag":"App","name":"value","sorts":[],"args":[]}"#,
+                    suffix.repeat(depth)
+                );
+                let request = format!(
+                    r#"{{"jsonrpc":"2.0","id":1,"method":"execute","params":{{"state":{{"format":"KORE","version":1,"term":{term}}},"max-depth":0}}}}"#
+                );
+
+                let response = service
+                    .handle_line(&request)
+                    .expect("execute requests receive a response");
+                let response = parse_json_value(&response).unwrap();
+                assert!(response.get("error").is_none(), "{response}");
+                assert_eq!(response["result"]["depth"], 0);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
     fn notifications_and_notification_only_batches_have_no_response() {
         let mut service = service();
         assert_eq!(

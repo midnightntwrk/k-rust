@@ -1314,6 +1314,18 @@ mod tests {
     }
 
     #[test]
+    fn facade_decodes_deep_kore_json_without_a_recursion_limit() {
+        let sort = serde_json::json!({ "tag": "SortApp", "name": "SortK", "args": [] });
+        let mut term = serde_json::json!({ "tag": "Top", "sort": sort });
+        for _ in 0..160 {
+            term = serde_json::json!({ "tag": "Not", "sort": sort, "arg": term });
+        }
+        let envelope = serde_json::json!({ "format": "KORE", "version": 1, "term": term });
+
+        assert!(decode_pattern(envelope).is_ok());
+    }
+
+    #[test]
     fn prove_request_accepts_explicit_circularities() {
         assert!(
             serde_json::from_str::<ProveRequest>(
