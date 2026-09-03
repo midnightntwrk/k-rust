@@ -4,6 +4,7 @@ use std::{collections::BTreeSet, error::Error, fmt};
 
 use crate::{
     definition::BackendDefinition,
+    ite::{IteSplit, split_ite_pair},
     matching::{
         FailReason, MatchMode, MatchResult, SortError, expand_closed_map_implication_remainders,
         match_terms_in_definition,
@@ -11,8 +12,8 @@ use crate::{
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::Predicate,
     simplify::{
-        SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
-        simplify_with_solver,
+        SimplificationError, SimplificationOptions, normalize_predicate,
+        simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
@@ -335,20 +336,37 @@ pub fn check_disjunctive_implication_with_existentials(
                     return Ok(valid_with_witnesses(Substitution::new(), witnesses));
                 }
                 Truth::False => {}
-                Truth::Unknown => match solver.check_predicates(
-                    &antecedent.constraints,
-                    &Substitution::new(),
-                    &combined,
-                ) {
-                    Ok(Validity::Valid) => {
+                Truth::Unknown => {
+                    let verdict = solver.check_predicates(
+                        &antecedent.constraints,
+                        &Substitution::new(),
+                        &combined,
+                    );
+                    match &verdict {
+                        Ok(Validity::Valid) => {
+                            return Ok(valid_with_witnesses(Substitution::new(), witnesses));
+                        }
+                        Ok(Validity::InconsistentGroundTruth) => return Ok(vacuously_valid()),
+                        _ => {}
+                    }
+                    if refuted_by_simplification(
+                        definition,
+                        &antecedent,
+                        &combined,
+                        options,
+                        solver,
+                    )
+                    .unwrap_or(false)
+                    {
                         return Ok(valid_with_witnesses(Substitution::new(), witnesses));
                     }
-                    Ok(Validity::InconsistentGroundTruth) => return Ok(vacuously_valid()),
-                    Ok(Validity::Invalid) => {}
-                    Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => {
+                    if matches!(
+                        verdict,
+                        Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_)
+                    ) {
                         incomplete = true;
                     }
-                },
+                }
             }
         }
 
@@ -618,33 +636,66 @@ fn discharge_consequent(
         predicates: obligations,
         witnesses,
     } = obligations;
-    Ok(
-        match solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations) {
-            Ok(Validity::Valid) => valid_with_witnesses(substitution, witnesses),
-            Ok(Validity::Invalid) if had_match_remainder => partial(
+    let verdict =
+        solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations);
+    if !matches!(
+        &verdict,
+        Ok(Validity::Valid | Validity::InconsistentGroundTruth)
+    ) && refuted_by_simplification(
+        definition,
+        antecedent,
+        &obligations,
+        options.simplification,
+        solver,
+    )
+    .unwrap_or(false)
+    {
+        return Ok(valid_with_witnesses(substitution, witnesses));
+    }
+    Ok(match verdict {
+        Ok(Validity::Valid) => valid_with_witnesses(substitution, witnesses),
+        Ok(Validity::Invalid) if had_match_remainder => partial(
+            source.original_variable,
+            substitution,
+            witnesses,
+            obligations,
+        ),
+        Ok(Validity::Invalid) => condition_invalid_with_bindings(substitution, witnesses),
+        Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
+        Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
+            partial(
                 source.original_variable,
                 substitution,
                 witnesses,
                 obligations,
-            ),
-            Ok(Validity::Invalid) => condition_invalid_with_bindings(substitution, witnesses),
-            Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
-            Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
-                partial(
-                    source.original_variable,
-                    substitution,
-                    witnesses,
-                    obligations,
-                )
-            }
-            Ok(Validity::Indeterminate)
-                if options.counterexamples == CounterexamplePolicy::RefuteImplication =>
-            {
-                counterexample_invalid_with_bindings(substitution, witnesses)
-            }
-            Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
-        },
-    )
+            )
+        }
+        Ok(Validity::Indeterminate)
+            if options.counterexamples == CounterexamplePolicy::RefuteImplication =>
+        {
+            counterexample_invalid_with_bindings(substitution, witnesses)
+        }
+        Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
+    })
+}
+
+fn refuted_by_simplification(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    obligations: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<bool, SimplificationError> {
+    let counterexample =
+        normalize_predicate(Predicate::Not(Box::new(conjoin(obligations.to_vec()))));
+    let mut conjuncts = antecedent.constraints.clone();
+    conjuncts.push(counterexample);
+    let simplified = simplify_predicates_with_solver(definition, &conjuncts, &[], options, solver)?;
+    Ok(predicates_truth(&simplified) == Truth::False
+        || matches!(
+            solver.is_sat(&simplified, &Substitution::new()),
+            Ok(Satisfiability::Unsat)
+        ))
 }
 
 fn quantify_obligations(
@@ -828,9 +879,9 @@ fn implication_obligations(
 ) -> Vec<Predicate> {
     let mut obligations = Vec::new();
     for (left, right) in remainder {
-        let predicate = Predicate::Equals(
-            substitute(&left, substitution),
-            substitute(&right, substitution),
+        let predicate = remainder_obligation(
+            &substitute(&left, substitution),
+            &substitute(&right, substitution),
         );
         if !obligations.contains(&predicate) {
             obligations.push(predicate);
@@ -843,6 +894,30 @@ fn implication_obligations(
     }
     obligations.retain(|predicate| !known.contains(predicate));
     obligations
+}
+
+fn remainder_obligation(left: &crate::term::Term, right: &crate::term::Term) -> Predicate {
+    let Some(IteSplit {
+        condition,
+        then_pair,
+        else_pair,
+        ..
+    }) = split_ite_pair(left, right)
+    else {
+        return Predicate::Equals(left.clone(), right.clone());
+    };
+    let then_obligation = remainder_obligation(&then_pair.0, &then_pair.1);
+    let else_obligation = remainder_obligation(&else_pair.0, &else_pair.1);
+    normalize_predicate(Predicate::Or(vec![
+        normalize_predicate(Predicate::And(vec![
+            Predicate::Term(condition.clone()),
+            then_obligation,
+        ])),
+        normalize_predicate(Predicate::And(vec![
+            Predicate::Not(Box::new(Predicate::Term(condition))),
+            else_obligation,
+        ])),
+    ]))
 }
 
 fn free_variables(pattern: &Pattern) -> BTreeSet<Variable> {

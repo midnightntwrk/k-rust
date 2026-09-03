@@ -1211,7 +1211,8 @@ fn normalize_hooked_boolean_predicate(
         symbol, arguments, ..
     } = application.kind()
     else {
-        return Predicate::Equals(left, right);
+        return boolean_literal_equality(application, value)
+            .unwrap_or(Predicate::Equals(left, right));
     };
     if let Some(operator) = symbol.attributes.hook.as_deref() {
         let bool_operand = |term: &Term, value| {
@@ -1252,7 +1253,10 @@ fn normalize_hooked_boolean_predicate(
         Some("KEQUAL.ne") => (value, true),
         Some("INT.eq") => (!value, false),
         Some("INT.ne") => (value, false),
-        _ => return Predicate::Equals(left, right),
+        _ => {
+            return boolean_literal_equality(application, value)
+                .unwrap_or(Predicate::Equals(left, right));
+        }
     };
     let [left_operand, right_operand] = arguments.as_slice() else {
         return Predicate::Equals(left, right);
@@ -1281,6 +1285,17 @@ fn normalize_hooked_boolean_predicate(
     predicates.extend(ceil_term(definition, &right_operand));
     predicates.push(condition);
     normalize_predicate(Predicate::And(predicates))
+}
+
+fn boolean_literal_equality(term: &Term, value: bool) -> Option<Predicate> {
+    if term.sort() != crate::term::Sort::simple("SortBool") || bool_value(term).is_some() {
+        return None;
+    }
+    Some(if value {
+        Predicate::Term(term.clone())
+    } else {
+        Predicate::Not(Box::new(Predicate::Term(term.clone())))
+    })
 }
 
 fn align_subsort_operands(
