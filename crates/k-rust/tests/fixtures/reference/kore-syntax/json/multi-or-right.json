@@ -1,0 +1,14 @@
+{
+  "format": "KORE",
+  "version": 1,
+  "term": {
+    "tag": "MultiOr",
+    "assoc": "Right",
+    "sort": { "tag": "SortApp", "name": "S", "args": [] },
+    "argss": [
+      { "tag": "App", "name": "a", "sorts": [], "args": [] },
+      { "tag": "App", "name": "b", "sorts": [], "args": [] },
+      { "tag": "App", "name": "c", "sorts": [], "args": [] }
+    ]
+  }
+}

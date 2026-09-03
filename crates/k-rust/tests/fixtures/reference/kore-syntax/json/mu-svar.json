@@ -1,0 +1,22 @@
+{
+  "format": "KORE",
+  "version": 1,
+  "term": {
+    "tag": "Mu",
+    "var": "@X",
+    "varSort": {
+      "tag": "SortApp",
+      "name": "S",
+      "args": []
+    },
+    "arg": {
+      "tag": "SVar",
+      "name": "@X",
+      "sort": {
+        "tag": "SortApp",
+        "name": "S",
+        "args": []
+      }
+    }
+  }
+}

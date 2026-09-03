@@ -1,0 +1,2 @@
+// reference: kore-parser syntax.kore --module M --pattern mu-svar.kore --no-verify --print-pattern-json
+\mu{}(@X:S{}, @X:S{})

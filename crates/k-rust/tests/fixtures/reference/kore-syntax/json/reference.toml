@@ -1,0 +1,28 @@
+case = "json"
+subsystem = "kore-syntax"
+source_ticket = "B3-05"
+harvested_from = "draft/fable51-review/design/11-kore-syntax-and-stack-safety.md B3-05 probes"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[input]]
+file = "syntax.kore"
+source = "minimal hand-written definition for the B3-05 JSON printer probe"
+sha256 = "1b57c858652983118bbd0e9d86385c5c04f914dd4efad41f772ecda38795fd08"
+
+[[input]]
+file = "mu-svar.kore"
+source = "hand-written B3-05 set-variable wire-name probe"
+sha256 = "6dbd8da927e5149d0b64d6ef30c21463197ebec12a0e787eb9e8081b120103b9"
+
+[[expectation]]
+file = "multi-or-right.json"
+source = "Kore.Syntax.Json.Types KJMultiOr and Kore.Syntax.Json.Internal toParsedPattern"
+sha256 = "91c6fffb984ab67b14fafefae0c964fb0ba1cc697cb5243df23cf78fd1d0a8be"
+
+[[artifact]]
+file = "mu-svar.json"
+command = "kore-parser syntax.kore --module M --pattern mu-svar.kore --no-verify --print-pattern-json > mu-svar.json"
+tool = "kore-parser"
+exit_code = 0
+sha256 = "1fc925570e4ec559bd42700e7a5d946bb98475c1f63f48b4298d86eb122af338"
