@@ -841,7 +841,7 @@ fn normalize_execution_structure(pattern: Pattern) -> Pattern {
             ) {
                 let mut flattened = Vec::new();
                 for argument in arguments {
-                    flatten_collection(&symbol, argument, &mut flattened);
+                    flatten_collection(symbol, argument, &mut flattened);
                 }
                 flattened.sort();
                 let mut flattened = flattened.into_iter().rev();
