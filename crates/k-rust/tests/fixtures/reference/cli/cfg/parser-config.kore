@@ -1,0 +1,7 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+    Lbl'-LT-'k'-GT-'{}(
+        kseq{}(/* Inj: */ inj{SortPgm{}, SortKItem{}}(Lblgo{}()), dotk{}())
+    ),
+    Lbl'-LT-'env'-GT-'{}(LblselectedEnv{}()),
+    Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)

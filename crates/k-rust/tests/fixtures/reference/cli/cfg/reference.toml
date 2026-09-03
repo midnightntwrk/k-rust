@@ -1,0 +1,39 @@
+case = "cfg"
+subsystem = "cli"
+source_ticket = "D1-03"
+harvested_from = "draft/fable51-review/fixtures/d1-fixtures/cfg"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "config-main.kore"
+command = '''
+kompile test.k --backend haskell --main-module CFG --syntax-module CFG-SYNTAX --output-definition ref --warnings none >/dev/null &&
+krun 1.pgm --definition ref -cENV='two()' --output kore > config-main.kore
+'''
+tool = "krun"
+exit_code = 0
+sha256 = "6ba9d91652b8bd98259f8d5bd09d83ddf13d44f2838cac2210efba0933061440"
+
+[[artifact]]
+file = "program-reject.exit"
+command = '''
+set +e
+krun two.pgm --definition ref -cENV=1 --output kore >/dev/null 2>&1
+rc=$?
+printf '%s\n' "$rc" > program-reject.exit
+exit "$rc"
+'''
+tool = "krun"
+exit_code = 113
+sha256 = "6df9d0a6ea8e120e383e708daf48c33d8f6d0f79b42bfc2a0fefbb2d092cadee"
+
+[[artifact]]
+file = "parser-config.kore"
+command = '''
+kompile parser.k --backend haskell --main-module PARSER --syntax-module PARSER-SYNTAX --output-definition parser-ref --warnings none >/dev/null &&
+krun go.pgm --definition parser-ref -cENV=selected --output kore > parser-config.kore
+'''
+tool = "krun"
+exit_code = 0
+sha256 = "7e083332478f15a8d47b1e8ec59a16c9dd438493d661ea218891f9a543fc47bd"
