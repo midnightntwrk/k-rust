@@ -2032,10 +2032,10 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 sort SortGas{} []
                 symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
-                symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), hook{}("INT.add")]
                 symbol gasAdd{}(SortGas{}, SortGas{}) : SortGas{}
                     [function{}(), total{}()]
@@ -2249,8 +2249,8 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), hook{}("INT.add")]
                 axiom{R, Q} \implies{R}(
                     \not{R}(\equals{SortInt{}, R}(J:SortInt{}, K:SortInt{})),
@@ -2290,8 +2290,8 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 symbol isFun{}(SortInt{}) : SortBool{} [function{}(), total{}()]
                 symbol fun{}(SortInt{}) : SortInt{} [function{}()]
                 axiom{R, Q} \implies{R}(
@@ -2488,7 +2488,7 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortInt{} [hasDomainValues{}()]
-                symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), hook{}("INT.add")]
             endmodule []"#,
         )
@@ -2520,11 +2520,11 @@ mod tests {
                 sort SortBool{} [hasDomainValues{}()]
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
-                symbol mapUnit{}() : SortMap{}
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit")]
-                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element")]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol nonEmpty{}(SortMap{}) : SortBool{} [function{}()]
                 axiom{R} \implies{R}(
@@ -2573,11 +2573,11 @@ mod tests {
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
                 sort SortResult{} []
-                symbol mapUnit{}() : SortMap{}
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit")]
-                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element")]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol select{}(SortMap{}, SortKey{}) : SortResult{} [function{}()]
                 symbol exact{}() : SortResult{} [constructor{}()]
@@ -2703,7 +2703,7 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortInt{} [hasDomainValues{}()]
-                symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), functional{}(), hook{}("INT.add")]
                 axiom{R} \implies{R}(
                     \top{R}(),
@@ -2772,9 +2772,9 @@ mod tests {
                 symbol dotk{}() : SortK{} [constructor{}()]
                 symbol kseq{}(SortKItem{}, SortK{}) : SortK{}
                     [constructor{}(), injective{}()]
-                symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
                     [function{}(), total{}(), hook{}("BOOL.and")]
-                symbol notEqual{}(SortK{}, SortK{}) : SortBool{}
+                hooked-symbol notEqual{}(SortK{}, SortK{}) : SortBool{}
                     [function{}(), total{}(), hook{}("KEQUAL.ne")]
                 symbol g{}(SortElement{}) : SortElement{} [function{}(), total{}()]
                 symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
@@ -2844,7 +2844,7 @@ mod tests {
                 symbol dotk{}() : SortK{} [constructor{}()]
                 symbol kseq{}(SortKItem{}, SortK{}) : SortK{}
                     [constructor{}(), injective{}()]
-                symbol notEqual{}(SortK{}, SortK{}) : SortBool{}
+                hooked-symbol notEqual{}(SortK{}, SortK{}) : SortBool{}
                     [function{}(), total{}(), hook{}("KEQUAL.ne")]
                 symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
                 axiom{R} \exists{R}(
@@ -2906,11 +2906,11 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                symbol notBool{}(SortBool{}) : SortBool{}
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-symbol notBool{}(SortBool{}) : SortBool{}
                     [function{}(), total{}(), hook{}("BOOL.not")]
-                symbol equalsInt{}(SortInt{}, SortInt{}) : SortBool{}
+                hooked-symbol equalsInt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), hook{}("INT.eq")]
             endmodule []"#,
         )
@@ -2943,9 +2943,9 @@ mod tests {
             module MAIN
                 sort SortBool{} [hasDomainValues{}()]
                 sort SortInt{} [hasDomainValues{}()]
-                symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
+                hooked-symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), hook{}("INT.eq")]
-                symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), hook{}("INT.pow")]
             endmodule []"#,
         )
@@ -3075,7 +3075,7 @@ mod tests {
                 sort SortK{} []
                 sort SortUnit{} []
                 symbol dotk{}() : SortK{} [constructor{}()]
-                symbol log{}(SortString{}) : SortUnit{}
+                hooked-symbol log{}(SortString{}) : SortUnit{}
                     [function{}(), total{}(), hook{}("IO.logString")]
             endmodule []"#,
         )
@@ -3106,7 +3106,7 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortInt{} [hasDomainValues{}()]
-                symbol tdiv{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-symbol tdiv{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), hook{}("INT.tdiv")]
             endmodule []"#,
         )
@@ -3131,8 +3131,8 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
                 symbol f{}(SortInt{}) : SortInt{} [function{}()]
@@ -3245,7 +3245,7 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 symbol loop{}(SortBool{}) : SortBool{} [function{}()]
                 axiom{R} \implies{R}(
                     \equals{SortBool{}, R}(
@@ -3424,14 +3424,14 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortList{} []
-                symbol size{}(SortList{}) : SortInt{}
+                hooked-symbol size{}(SortList{}) : SortInt{}
                     [function{}(), total{}(), hook{}("LIST.size")]
-                symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
-                symbol gt{}(SortInt{}, SortInt{}) : SortBool{}
+                hooked-symbol gt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
             endmodule []"#,
         )

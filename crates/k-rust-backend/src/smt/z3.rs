@@ -281,8 +281,8 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortS{} []
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
@@ -338,14 +338,14 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortList{} []
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
-                symbol abstractSize{}(SortList{}) : SortInt{}
+                hooked-symbol abstractSize{}(SortList{}) : SortInt{}
                     [function{}(), total{}(), hook{}("LIST.size")]
-                symbol translatedSize{}(SortList{}) : SortInt{}
+                hooked-symbol translatedSize{}(SortList{}) : SortInt{}
                     [function{}(), total{}(), hook{}("LIST.size"), smtlib{}("list-size")]
             endmodule []"#,
         )
@@ -428,7 +428,7 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 symbol f{}(SortInt{}) : SortInt{}
                     [function{}(), total{}(), smtlib{}("f")]
                 axiom{R} \implies{R}(

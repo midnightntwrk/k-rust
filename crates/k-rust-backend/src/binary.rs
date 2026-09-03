@@ -159,7 +159,7 @@ mod tests {
             []
             module TEST
               sort SortS{} []
-              sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+              hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
               sort SortKItem{} []
               symbol state{}(SortS{}) : SortS{} [constructor{}()]
               symbol value{}() : SortS{} [constructor{}()]

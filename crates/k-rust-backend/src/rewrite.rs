@@ -4226,11 +4226,11 @@ mod tests {
                 hooked-sort SortSet{}
                     [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
                 sort SortState{} []
-                symbol setUnit{}() : SortSet{}
+                hooked-symbol setUnit{}() : SortSet{}
                     [function{}(), total{}(), hook{}("SET.unit")]
-                symbol setItem{}(SortElement{}) : SortSet{}
+                hooked-symbol setItem{}(SortElement{}) : SortSet{}
                     [function{}(), total{}(), hook{}("SET.element")]
-                symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
                     [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
                 symbol state{}(SortSet{}) : SortState{} [constructor{}()]
                 symbol picked{}(SortElement{}, SortSet{}) : SortState{} [constructor{}()]
@@ -4259,17 +4259,17 @@ mod tests {
                     [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
                 sort SortListState{} []
                 sort SortSetState{} []
-                symbol listUnit{}() : SortList{}
+                hooked-symbol listUnit{}() : SortList{}
                     [function{}(), total{}(), hook{}("LIST.unit")]
-                symbol listItem{}(SortElement{}) : SortList{}
+                hooked-symbol listItem{}(SortElement{}) : SortList{}
                     [function{}(), total{}(), hook{}("LIST.element")]
-                symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+                hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
                     [function{}(), hook{}("LIST.concat"), assoc{}()]
-                symbol setUnit{}() : SortSet{}
+                hooked-symbol setUnit{}() : SortSet{}
                     [function{}(), total{}(), hook{}("SET.unit")]
-                symbol setItem{}(SortElement{}) : SortSet{}
+                hooked-symbol setItem{}(SortElement{}) : SortSet{}
                     [function{}(), total{}(), hook{}("SET.element")]
-                symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
                     [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
                 symbol listState{}(SortList{}) : SortListState{} [constructor{}()]
                 symbol listDone{}() : SortListState{} [constructor{}()]
@@ -4308,11 +4308,11 @@ mod tests {
                 hooked-sort SortSet{}
                     [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
                 sort SortState{} []
-                symbol setUnit{}() : SortSet{}
+                hooked-symbol setUnit{}() : SortSet{}
                     [function{}(), total{}(), hook{}("SET.unit")]
-                symbol setItem{}(SortElement{}) : SortSet{}
+                hooked-symbol setItem{}(SortElement{}) : SortSet{}
                     [function{}(), total{}(), hook{}("SET.element")]
-                symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
                     [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
                 symbol opaqueA{}() : SortSet{} [function{}(), total{}()]
                 symbol opaqueB{}() : SortSet{} [function{}(), total{}()]
@@ -4349,11 +4349,11 @@ mod tests {
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
                 sort SortState{} []
-                symbol mapUnit{}() : SortMap{}
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit")]
-                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element")]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
                 symbol mapPicked{}(SortKey{}, SortValue{}, SortMap{}) : SortState{} [constructor{}()]
@@ -4384,11 +4384,11 @@ mod tests {
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
                 sort SortState{} []
-                symbol mapUnit{}() : SortMap{}
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit")]
-                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element")]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
                 symbol mixedState{}(SortValue{}, SortMap{}) : SortState{} [constructor{}()]
@@ -4448,11 +4448,11 @@ mod tests {
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
                 sort SortState{} []
-                symbol mapUnit{}() : SortMap{}
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit")]
-                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element")]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
                 symbol mapPicked{}(SortValue{}, SortMap{}) : SortState{} [constructor{}()]
@@ -4484,11 +4484,11 @@ mod tests {
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
                 sort SortState{} []
-                symbol mapUnit{}() : SortMap{}
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit")]
-                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element")]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol request{}(SortMap{}, SortKey{}) : SortState{} [constructor{}()]
                 symbol exact{}() : SortState{} [constructor{}()]
@@ -4536,19 +4536,19 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortKey{} []
                 sort SortValue{} []
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
                 sort SortState{} []
-                symbol mapUnit{}() : SortMap{}
+                hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit")]
-                symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.element")]
-                symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
-                symbol inKeys{}(SortKey{}, SortMap{}) : SortBool{}
+                hooked-symbol inKeys{}(SortKey{}, SortMap{}) : SortBool{}
                     [function{}(), total{}(), hook{}("MAP.in_keys")]
                 symbol state{}(SortBool{}) : SortState{} [constructor{}()]
                 symbol done{}() : SortState{} [constructor{}()]
@@ -4612,10 +4612,10 @@ mod tests {
     fn ite_rewrite_definition(lhs: &str) -> BackendDefinition {
         let source = r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortValue{} []
                 sort SortState{} []
-                symbol ite{}(SortBool{}, SortValue{}, SortValue{}) : SortValue{}
+                hooked-symbol ite{}(SortBool{}, SortValue{}, SortValue{}) : SortValue{}
                     [function{}(), total{}(), hook{}("KEQUAL.ite")]
                 symbol chosen{}() : SortValue{} [constructor{}()]
                 symbol rejected{}() : SortValue{} [constructor{}()]
@@ -4639,7 +4639,7 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{} [hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 symbol wrap{}(SortBool{}) : SortS{} [constructor{}()]
                 symbol not{}(SortBool{}) : SortBool{}
                     [function{}(), total{}()]
@@ -4717,10 +4717,10 @@ mod tests {
     fn kequal_rewrite_definition(lhs: &str) -> BackendDefinition {
         let source = r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortValue{} []
                 sort SortState{} []
-                symbol equal{}(SortValue{}, SortValue{}) : SortBool{}
+                hooked-symbol equal{}(SortValue{}, SortValue{}) : SortBool{}
                     [function{}(), total{}(), hook{}("KEQUAL.eq")]
                 symbol chosen{}() : SortValue{} [constructor{}()]
                 symbol rejected{}() : SortValue{} [constructor{}()]
@@ -4747,10 +4747,10 @@ mod tests {
     ) -> BackendDefinition {
         let source = r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                sort $SORT{} [hook{}("$SORT_HOOK"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort $SORT{} [hook{}("$SORT_HOOK"), hasDomainValues{}()]
                 sort SortState{} []
-                symbol equal{}($SORT{}, $SORT{}) : SortBool{}
+                hooked-symbol equal{}($SORT{}, $SORT{}) : SortBool{}
                     [function{}(), total{}(), hook{}("$EQUALITY_HOOK")]
                 symbol value{}() : $SORT{} [constructor{}()]
                 symbol state{}(SortBool{}) : SortState{} [constructor{}()]
@@ -4774,13 +4774,13 @@ mod tests {
     fn boolean_rewrite_definition(lhs: &str) -> BackendDefinition {
         let source = r#"[]
             module MAIN
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortState{} []
-                symbol and{}(SortBool{}, SortBool{}) : SortBool{}
+                hooked-symbol and{}(SortBool{}, SortBool{}) : SortBool{}
                     [function{}(), total{}(), hook{}("BOOL.and")]
-                symbol or{}(SortBool{}, SortBool{}) : SortBool{}
+                hooked-symbol or{}(SortBool{}, SortBool{}) : SortBool{}
                     [function{}(), total{}(), hook{}("BOOL.or")]
-                symbol not{}(SortBool{}) : SortBool{}
+                hooked-symbol not{}(SortBool{}) : SortBool{}
                     [function{}(), total{}(), hook{}("BOOL.not")]
                 symbol state{}(SortBool{}) : SortState{} [constructor{}()]
                 symbol done{}() : SortState{} [constructor{}()]
@@ -4997,8 +4997,8 @@ mod tests {
     fn symbolic_remainder_definition(rules: &str) -> BackendDefinition {
         let source = r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
                 symbol pair{}(SortInt{}, SortInt{}) : SortInt{} [constructor{}()]
                 symbol partial{}(SortInt{}) : SortInt{} [function{}()]
@@ -5213,7 +5213,7 @@ mod tests {
     fn retains_conditions_from_configuration_function_simplification() {
         let definition = definition(
             r#"
-            sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
             symbol pair{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
             symbol constrained{}(SortS{}) : SortS{} [function{}(), total{}()]
             symbol predicate{}(SortS{}) : SortBool{} [function{}(), total{}()]
@@ -5426,7 +5426,7 @@ mod tests {
     fn simplifies_rule_conditions_with_backend_equations_before_rewriting() {
         let definition = definition(
             r#"
-            sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
             symbol isZero{}(SortS{}) : SortBool{} [function{}(), total{}()]
             axiom{R} \implies{R}(
                 \top{R}(),
@@ -5555,8 +5555,8 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-                sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
@@ -6260,16 +6260,16 @@ mod tests {
         definition(
             r#"
             sort SortElement{} [hasDomainValues{}()]
-            sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
             hooked-sort SortList{}
                 [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
-            symbol listUnit{}() : SortList{}
+            hooked-symbol listUnit{}() : SortList{}
                 [function{}(), total{}(), hook{}("LIST.unit")]
-            symbol listItem{}(SortElement{}) : SortList{}
+            hooked-symbol listItem{}(SortElement{}) : SortList{}
                 [function{}(), total{}(), hook{}("LIST.element")]
-            symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+            hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
                 [function{}(), hook{}("LIST.concat"), assoc{}()]
-            symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+            hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
                 [function{}(), total{}(), hook{}("INT.add")]
             symbol size{}(SortList{}) : SortInt{} [function{}()]
             symbol stackState{}(SortList{}) : SortS{} [constructor{}()]
@@ -6600,7 +6600,7 @@ mod tests {
                 sort SortString{} [hasDomainValues{}()]
                 sort SortK{} []
                 symbol dotk{}() : SortK{} [constructor{}()]
-                symbol log{}(SortString{}) : SortK{}
+                hooked-symbol log{}(SortString{}) : SortK{}
                     [function{}(), total{}(), hook{}("IO.logString")]
             endmodule []"#,
         )
@@ -6637,7 +6637,7 @@ mod tests {
                 sort SortString{} [hasDomainValues{}()]
                 sort SortK{} []
                 symbol dotk{}() : SortK{} [constructor{}()]
-                symbol log{}(SortString{}) : SortK{}
+                hooked-symbol log{}(SortString{}) : SortK{}
                     [function{}(), total{}(), hook{}("IO.logString")]
             endmodule []"#,
         )
@@ -6673,7 +6673,7 @@ mod tests {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 sort SortState{} []
-                symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
+                hooked-symbol pow{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), hook{}("INT.pow")]
                 symbol state{}(SortInt{}) : SortState{} [constructor{}()]
             endmodule []"#,
@@ -7095,7 +7095,7 @@ mod tests {
                 sort SortString{} [hasDomainValues{}()]
                 sort SortK{} []
                 symbol dotk{}() : SortK{} [constructor{}()]
-                symbol log{}(SortString{}) : SortK{}
+                hooked-symbol log{}(SortString{}) : SortK{}
                     [function{}(), total{}(), hook{}("IO.logString")]
             endmodule []"#,
         )
@@ -7232,7 +7232,7 @@ mod tests {
                 sort SortK{} []
                 symbol initial{}() : SortK{} [constructor{}()]
                 symbol dotk{}() : SortK{} [constructor{}()]
-                symbol log{}(SortString{}) : SortK{}
+                hooked-symbol log{}(SortString{}) : SortK{}
                     [function{}(), hook{}("IO.logString")]
                 axiom{} \rewrites{SortK{}}(
                     \and{SortK{}}(initial{}(), \top{SortK{}}()),
@@ -7378,7 +7378,7 @@ mod tests {
                 sort SortK{} []
                 symbol initial{}() : SortK{} [constructor{}()]
                 symbol dotk{}() : SortK{} [constructor{}()]
-                symbol log{}(SortString{}) : SortK{}
+                hooked-symbol log{}(SortString{}) : SortK{}
                     [function{}(), hook{}("IO.logString")]
                 symbol dead{}(SortK{}) : SortK{} [function{}(), total{}()]
                 axiom{R} \implies{R}(
