@@ -1,6 +1,7 @@
 //! K definition syntax and KAST JSON interchange.
 
 pub mod ast;
+pub(crate) mod attribute_keys;
 pub mod catalog;
 pub mod checks;
 pub mod configuration;

@@ -1,7 +1,11 @@
 use indoc::indoc;
-use k_rust::definition::{SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE};
+use k_rust::definition::{
+    SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, json as definition_json,
+};
+use k_rust::diagnostic::DiagnosticCode;
 use k_rust::outer::{
-    Sentence, check_brackets, check_list_declarations, extract_fenced_k_code, lower, parse,
+    LoadOptions, Sentence, check_brackets, check_list_declarations, extract_fenced_k_code,
+    load_structured, lower, parse,
 };
 use proptest::prelude::*;
 
@@ -494,7 +498,138 @@ fn rejects_duplicate_attribute_keys_before_lowering_loses_them() {
     let source = "module MAIN\nsyntax Exp ::= \"x\" [symbol(first), symbol(second)]\nendmodule\n";
     let error = parse("duplicate-attribute.k", source).unwrap_err();
 
-    assert_eq!(error.message, "duplicate attribute key \"symbol\"");
+    assert_eq!(error.message, "Duplicate attribute: symbol");
+}
+
+#[test]
+fn attribute_parameters_follow_att_add_arity() {
+    let parse_production = |attributes: &str| {
+        let source = format!("module MAIN\n  syntax Foo ::= \"a\" {attributes}\nendmodule\n");
+        parse("attribute-arity.k", &source)
+    };
+
+    for (attributes, message) in [
+        (
+            "[function(x)]",
+            "Parameters for the attribute 'function' are forbidden.",
+        ),
+        (
+            "[klabel]",
+            "Parameters for the attribute 'klabel' are required.",
+        ),
+        (
+            r#"[format("")]"#,
+            "Parameters for the attribute 'format' are required.",
+        ),
+    ] {
+        let error = parse_production(attributes).unwrap_err();
+        assert_eq!(error.message, message, "attributes: {attributes}");
+    }
+
+    let error = parse(
+        "attribute-arity.k",
+        "module MAIN\n  syntax Foo [hook]\nendmodule\n",
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.message,
+        "Parameters for the attribute 'hook' are required."
+    );
+
+    for attributes in [
+        "[symbol]",
+        "[symbol(x)]",
+        "[concrete]",
+        "[concrete(X)]",
+        "[strict]",
+        "[strict(1)]",
+        "[unknownkey(x)]",
+    ] {
+        parse_production(attributes)
+            .unwrap_or_else(|error| panic!("{attributes} should parse: {error}"));
+    }
+}
+
+#[test]
+fn trailing_attribute_candidates_abort_on_fatal_attribute_errors() {
+    let duplicate = parse(
+        "duplicate-attribute-rule.k",
+        "module MAIN\n  rule X => Y [concrete, concrete]\nendmodule\n",
+    )
+    .unwrap_err();
+    assert_eq!(duplicate.message, "Duplicate attribute: concrete");
+
+    let arity = parse(
+        "forbidden-attribute-rule.k",
+        "module MAIN\n  rule a() => .K [owise(1)]\nendmodule\n",
+    )
+    .unwrap_err();
+    assert_eq!(
+        arity.message,
+        "Parameters for the attribute 'owise' are forbidden."
+    );
+}
+
+#[test]
+fn internal_keys_and_group_values_are_checked_on_user_source() {
+    let internal = parse(
+        "internal-attribute.k",
+        "module MAIN\n  syntax Foo ::= \"a\" [userList(*), bracketLabel(foo)]\nendmodule\n",
+    )
+    .unwrap();
+    let diagnostics = lower(&internal, "MAIN").unwrap_err();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::UnrecognizedAttribute);
+    assert_eq!(
+        diagnostics[0].message,
+        "Unrecognized attributes: [bracketLabel, userList]"
+    );
+
+    let invalid_group = parse(
+        "invalid-group.k",
+        "module MAIN\n  syntax Foo ::= \"a\" [group(Foo)]\nendmodule\n",
+    )
+    .unwrap();
+    let diagnostics = lower(&invalid_group, "MAIN").unwrap_err();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidAttribute);
+    assert_eq!(
+        diagnostics[0].message,
+        "group(_) attribute expects a comma separated list of groups, each of which consists of a lower case letter followed by any number of alphanumeric or '-' characters."
+    );
+
+    let valid_group = parse(
+        "valid-group.k",
+        "module MAIN\n  syntax Foo ::= \"a\" [group(a, b-c)]\nendmodule\n",
+    )
+    .unwrap();
+    lower(&valid_group, "MAIN").unwrap();
+}
+
+#[test]
+fn structured_json_internal_keys_remain_accepted() {
+    let parsed = parse(
+        "structured-user-list.k",
+        "module MAIN\n  syntax Items ::= List{Item, \",\"}\nendmodule\n",
+    )
+    .unwrap();
+    let definition = lower(&parsed, "MAIN").unwrap();
+    assert!(
+        definition.modules[0]
+            .local_sentences
+            .iter()
+            .any(|sentence| { sentence.attributes().get("userList").is_some() })
+    );
+
+    let encoded = definition_json::to_string(&definition).unwrap();
+    let decoded = definition_json::from_str(&encoded).unwrap();
+    let loaded = load_structured(decoded, &LoadOptions::default()).unwrap();
+    assert!(
+        loaded.definition.modules[0]
+            .local_sentences
+            .iter()
+            .any(|sentence| sentence.attributes().get("userList").is_some())
+    );
 }
 
 #[test]

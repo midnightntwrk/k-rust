@@ -2,6 +2,7 @@ use std::{error::Error, fmt, rc::Rc, sync::LazyLock};
 
 use regex::Regex;
 
+use crate::definition::attribute_keys::{KeyParameter, builtin_key};
 use crate::kast::Sort;
 
 use super::*;
@@ -19,6 +20,7 @@ const BUBBLE_TERMINATORS: [&str; 6] = [
 pub struct ParseError {
     pub message: String,
     pub position: Position,
+    pub fatal: bool,
 }
 
 impl fmt::Display for ParseError {
@@ -428,15 +430,19 @@ impl<'a> Parser<'a> {
     ) -> Result<(String, Vec<Attribute>, usize), ParseError> {
         for index in attribute_starts(raw).into_iter().rev() {
             let mut parser = self.subparser(raw_start + index, raw_start + raw.len());
-            if let Ok(attributes) = parser.attributes() {
-                parser.skip_trivia()?;
-                if parser.done() {
-                    return Ok((
-                        raw[..index].trim_end().to_owned(),
-                        attributes,
-                        raw_start + index,
-                    ));
+            match parser.attributes() {
+                Ok(attributes) => {
+                    parser.skip_trivia()?;
+                    if parser.done() {
+                        return Ok((
+                            raw[..index].trim_end().to_owned(),
+                            attributes,
+                            raw_start + index,
+                        ));
+                    }
                 }
+                Err(error) if error.fatal => return Err(error),
+                Err(_) => {}
             }
         }
         Ok((raw.to_owned(), Vec::new(), raw_start + raw.len()))
@@ -464,7 +470,22 @@ impl<'a> Parser<'a> {
                 .iter()
                 .any(|attribute: &Attribute| attribute.key == key)
             {
-                return Err(self.error(format!("duplicate attribute key {key:?}")));
+                return Err(self.fatal_error(format!("Duplicate attribute: {key}")));
+            }
+            if let Some(builtin) = builtin_key(&key) {
+                let parameter_is_present = value.as_deref().is_some_and(|value| !value.is_empty());
+                let message = match builtin.parameter {
+                    KeyParameter::Forbidden if parameter_is_present => Some(format!(
+                        "Parameters for the attribute '{key}' are forbidden."
+                    )),
+                    KeyParameter::Required if !parameter_is_present => Some(format!(
+                        "Parameters for the attribute '{key}' are required."
+                    )),
+                    _ => None,
+                };
+                if let Some(message) = message {
+                    return Err(self.fatal_error(message));
+                }
             }
             attributes.push(Attribute { key, value });
             self.skip_trivia()?;
@@ -922,6 +943,14 @@ impl<'a> Parser<'a> {
         ParseError {
             message: message.into(),
             position: self.position(self.offset),
+            fatal: false,
+        }
+    }
+    fn fatal_error(&self, message: impl Into<String>) -> ParseError {
+        ParseError {
+            message: message.into(),
+            position: self.position(self.offset),
+            fatal: true,
         }
     }
 }

@@ -1,12 +1,115 @@
+use std::sync::LazyLock;
+
+use regex::Regex;
+
 use crate::{
-    definition::Location,
+    definition::{
+        Location,
+        attribute_keys::{builtin_key, is_internal_key},
+    },
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::Sort,
 };
 
-use super::{Production, ProductionItem, SourceFile, Span, SyntaxBody};
+use super::{Attribute, Production, ProductionItem, SourceFile, Span, SyntaxBody};
 
 const BASE_SORTS: &[&str] = &["K", "KResult", "KItem", "KList", "Bag", "KLabel"];
+const INVALID_GROUP_MESSAGE: &str = "group(_) attribute expects a comma separated list of groups, each of which consists of a lower case letter followed by any number of alphanumeric or '-' characters.";
+static GROUPS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\A[ \t\n\x0B\x0C\r]*[a-z][a-zA-Z0-9-]*[ \t\n\x0B\x0C\r]*(,[ \t\n\x0B\x0C\r]*[a-z][a-zA-Z0-9-]*[ \t\n\x0B\x0C\r]*)*\z",
+    )
+    .unwrap()
+});
+
+pub(crate) fn check_user_attributes(file: &SourceFile) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for module in &file.modules {
+        check_attribute_list(
+            file,
+            module.span,
+            &module.attributes,
+            false,
+            &mut diagnostics,
+        );
+        for sentence in &module.sentences {
+            match sentence {
+                super::Sentence::Syntax(syntax) => match &syntax.body {
+                    SyntaxBody::Sort(attributes) | SyntaxBody::Synonym { attributes, .. } => {
+                        check_attribute_list(file, syntax.span, attributes, false, &mut diagnostics)
+                    }
+                    SyntaxBody::Productions(blocks) => {
+                        for production in blocks.iter().flat_map(|block| &block.productions) {
+                            check_attribute_list(
+                                file,
+                                production.span,
+                                &production.attributes,
+                                true,
+                                &mut diagnostics,
+                            );
+                        }
+                    }
+                },
+                super::Sentence::Lexical(lexical) => check_attribute_list(
+                    file,
+                    lexical.span,
+                    &lexical.attributes,
+                    false,
+                    &mut diagnostics,
+                ),
+                super::Sentence::Bubble(bubble) => check_attribute_list(
+                    file,
+                    bubble.span,
+                    &bubble.attributes,
+                    false,
+                    &mut diagnostics,
+                ),
+                super::Sentence::Priority(_) | super::Sentence::Associativity(_) => {}
+            }
+        }
+    }
+    diagnostics
+}
+
+fn check_attribute_list(
+    file: &SourceFile,
+    span: Span,
+    attributes: &[Attribute],
+    production: bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut internal = attributes
+        .iter()
+        .filter(|attribute| {
+            builtin_key(&attribute.key).is_none() && is_internal_key(&attribute.key)
+        })
+        .map(|attribute| attribute.key.as_str())
+        .collect::<Vec<_>>();
+    internal.sort_unstable();
+    if !internal.is_empty() {
+        diagnostics.push(Diagnostic::error_at_location(
+            DiagnosticCode::UnrecognizedAttribute,
+            format!("Unrecognized attributes: [{}]", internal.join(", ")),
+            file.source.clone(),
+            location(span),
+        ));
+    }
+
+    if production
+        && let Some(group) = attributes
+            .iter()
+            .find(|attribute| attribute.key == "group")
+            .and_then(|attribute| attribute.value.as_deref())
+        && !GROUPS.is_match(group)
+    {
+        diagnostics.push(Diagnostic::error_at_location(
+            DiagnosticCode::InvalidAttribute,
+            INVALID_GROUP_MESSAGE,
+            file.source.clone(),
+            location(span),
+        ));
+    }
+}
 
 pub fn check_list_declarations(file: &SourceFile) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
