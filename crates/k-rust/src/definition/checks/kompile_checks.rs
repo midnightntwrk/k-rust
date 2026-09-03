@@ -18,7 +18,13 @@ pub fn check_claims_in_definition(
             .collect::<BTreeSet<_>>(),
         CheckMode::Proof { definition_module } => definition
             .module_id(definition_module)
-            .map(|module| module_closure(definition, module))
+            .map(|module| {
+                if module == definition.main_module_id() {
+                    BTreeSet::new()
+                } else {
+                    module_closure(definition, module)
+                }
+            })
             .unwrap_or_default(),
     };
     definition
@@ -46,12 +52,16 @@ pub fn check_proof_module(
     let Some(definition_module) = definition.module_id(definition_module) else {
         return Vec::new();
     };
+    if definition_module == definition.main_module_id() {
+        return Vec::new();
+    }
     let definition_closure = module_closure(definition, definition_module);
+    let specification_closure = module_closure(definition, definition.main_module_id());
     let definition_sort_catalog = definition.sort_catalog(definition_module);
     let definition_sorts = definition_sort_catalog.all_sorts();
     let mut diagnostics = Vec::new();
     for (module_id, module) in definition.modules() {
-        if definition_closure.contains(&module_id) {
+        if definition_closure.contains(&module_id) || !specification_closure.contains(&module_id) {
             continue;
         }
         for sentence in &module.local_sentences {

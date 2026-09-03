@@ -11,8 +11,8 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
-    definition::{Sentence, checks::check_definition, json as definition_json},
-    diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
+    definition::{CheckMode, Sentence, checks::check_definition, json as definition_json},
+    diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, prepare_reference_kast},
     kast::{
         Sort as KastSort, Term as KastTerm, json as kast_json, parser::parse_sort,
@@ -1203,7 +1203,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             .as_deref()
             .unwrap_or(&options.common.module)
     });
-    let loaded = if let Some(prepared) = &options.compiled_definition {
+    let mut loaded = if let Some(prepared) = &options.compiled_definition {
         load_definition_against_prepared(
             &options.common,
             configuration_module.expect("--compiled-definition requires --for-proving"),
@@ -1212,12 +1212,40 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     } else {
         load_definition(&options.common, Some(options.backend), configuration_module)?
     };
+    if let Some(syntax_module) = &options.syntax_module {
+        if loaded.resolved.module_id(syntax_module).is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Could not find main syntax module with name {syntax_module} in definition."
+                ),
+            )
+            .into());
+        }
+    } else {
+        let default_syntax_module = format!("{}-SYNTAX", loaded.resolved.main_module().name);
+        if loaded.resolved.module_id(&default_syntax_module).is_none() {
+            loaded.diagnostics.extend(options.common.diagnostics.apply(vec![
+                Diagnostic::warning_at(
+                    DiagnosticCode::MissingSyntaxModule,
+                    format!(
+                        "Could not find main syntax module with name {default_syntax_module} in definition.  Use --syntax-module to specify one. Using {} as default.",
+                        loaded.resolved.main_module().name
+                    ),
+                    &loaded.resolved.main_module().attributes,
+                ),
+            ]));
+        }
+    }
     let artifacts = match compile_loaded_definition(
         &loaded,
         CompileOptions {
             backend: options.backend,
             hook_namespaces: options.hook_namespaces,
             default_claims_to_all_path: options.for_proving,
+            check_mode: configuration_module.map_or(CheckMode::Definition, |module| CheckMode::Proof {
+                definition_module: module.to_owned(),
+            }),
             diagnostics: options.common.diagnostics,
             ..CompileOptions::default()
         },
@@ -2584,6 +2612,9 @@ fn compile_proof_source(
             backend: CompilationBackend::Rust,
             default_claims_to_all_path: true,
             diagnostics: common.diagnostics,
+            check_mode: CheckMode::Proof {
+                definition_module: definition_module.to_owned(),
+            },
             ..CompileOptions::default()
         },
     ) {

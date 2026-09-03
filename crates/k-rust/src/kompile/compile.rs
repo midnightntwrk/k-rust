@@ -4,7 +4,7 @@ use std::{fmt, str::FromStr};
 
 use crate::{
     definition::{
-        Definition, ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
+        CheckMode, Definition, ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
         checks::check_definition_with_options, expand_configurations_with_diagnostics,
     },
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity},
@@ -55,16 +55,18 @@ impl CompilationBackend {
         }
     }
 
-    fn structural_check_options(self) -> StructuralCheckOptions {
+    fn structural_check_options(self, mode: CheckMode) -> StructuralCheckOptions {
         match self {
             Self::Llvm => StructuralCheckOptions {
                 builtin_source_prefixes: vec!["krust-builtin://".into()],
+                mode,
                 ..StructuralCheckOptions::default()
             },
             Self::Rust => StructuralCheckOptions {
                 symbolic: true,
                 backend: StructuralCheckBackend::Rust,
                 builtin_source_prefixes: vec!["krust-builtin://".into()],
+                mode,
                 ..StructuralCheckOptions::default()
             },
         }
@@ -106,6 +108,8 @@ pub struct CompileOptions {
     pub hook_namespaces: Option<Vec<String>>,
     /// Filtering and severity policy for diagnostics produced by compilation checks.
     pub diagnostics: DiagnosticPolicy,
+    /// Definition-only or proof-module structural checks.
+    pub check_mode: CheckMode,
 }
 
 impl Default for CompileOptions {
@@ -116,6 +120,7 @@ impl Default for CompileOptions {
             default_claims_to_all_path: false,
             hook_namespaces: None,
             diagnostics: DiagnosticPolicy::default(),
+            check_mode: CheckMode::default(),
         }
     }
 }
@@ -249,7 +254,12 @@ fn transform_loaded_definition(
     )?;
     let checked = options.diagnostics.apply(stage(
         "definition checks",
-        check_definition_with_options(&resolved, options.backend.structural_check_options()),
+        check_definition_with_options(
+            &resolved,
+            options
+                .backend
+                .structural_check_options(options.check_mode.clone()),
+        ),
     )?);
     let mut diagnostics = loaded.diagnostics.clone();
     diagnostics.extend(options.diagnostics.apply(configuration_diagnostics));
