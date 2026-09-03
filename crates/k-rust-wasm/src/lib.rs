@@ -567,6 +567,18 @@ mod tests {
         format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#)
     }
 
+    fn deeply_nested_backend_request(depth: usize) -> String {
+        let prefix = r#"{"tag":"App","name":"wrap","sorts":[],"args":["#;
+        let suffix = "]}";
+        let term = format!(
+            "{}{}{}",
+            prefix.repeat(depth),
+            r#"{"tag":"App","name":"value","sorts":[],"args":[]}"#,
+            suffix.repeat(depth)
+        );
+        format!(r#"{{"state":{{"format":"KORE","version":1,"term":{term}}},"maxDepth":0}}"#)
+    }
+
     #[test]
     fn converts_deep_serialized_values_without_the_default_json_recursion_limit() {
         let mut json = "null".to_owned();
@@ -582,6 +594,41 @@ mod tests {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(|| assert!(print_kore(&deeply_nested_kore_json(160), None).is_ok()))
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn prints_deep_kast_json_without_the_default_recursion_limit() {
+        let source =
+            include_str!("../../k-rust/tests/fixtures/reference/kast/json/deep-70/ref-p2.json");
+        let printed = print_kast_wasm(source).unwrap();
+        assert_eq!(printed.matches("g(_)_TEST-SYNTAX_Exp_Exp").count(), 70);
+    }
+
+    #[test]
+    fn backend_requests_do_not_apply_the_default_recursion_limit() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let inner = Backend::new(
+                    r#"[]
+                    module TEST
+                      sort SortK{} []
+                      symbol value{}() : SortK{} [constructor{}()]
+                      symbol wrap{}(SortK{}) : SortK{} [constructor{}()]
+                    endmodule []"#,
+                    "TEST",
+                    BackendOptions::default(),
+                )
+                .unwrap();
+                let mut backend = WasmBackend { inner };
+
+                backend
+                    .execute(&deeply_nested_backend_request(200))
+                    .unwrap();
+            })
             .unwrap()
             .join()
             .unwrap();
