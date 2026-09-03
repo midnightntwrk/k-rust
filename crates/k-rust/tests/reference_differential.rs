@@ -801,36 +801,38 @@ fn implication_fallback_checks_both_directions_and_requires_valid() {
 
 fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
     let pattern = normalize_execution_structure(pattern);
-    match pattern {
+    match &pattern {
         Pattern::Or { sort, arguments } => Pattern::Or {
-            sort,
+            sort: sort.clone(),
             // D1-06 / arbiter row 12: disjunction order is semantically empty, so execution
             // gates compare a sorted multiset. C3-02 requires retaining multiplicity here:
             // duplicate final configurations are a backend defect, not a gate normalization.
             arguments: arguments
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(normalize_execution_disjunct)
                 .collect(),
         },
-        pattern => normalize_execution_disjunct(pattern),
+        _ => normalize_execution_disjunct(pattern),
     }
 }
 
 fn normalize_execution_disjunct(mut pattern: Pattern) -> Pattern {
     // N16: reference execution can leave an AC remainder variable free while
     // the port quantifies its corresponding generated variable.
-    while let Pattern::Exists { body, .. } = pattern {
-        pattern = *body;
+    while let Pattern::Exists { body, .. } = &mut pattern {
+        pattern = std::mem::replace(body.as_mut(), Pattern::String(String::new()));
     }
     rename_generated_variables(&mut pattern);
     pattern
 }
 
 fn normalize_execution_structure(pattern: Pattern) -> Pattern {
-    match pattern {
+    match &pattern {
         Pattern::Application { symbol, arguments } => {
             let arguments = arguments
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(normalize_execution_structure)
                 .collect::<Vec<_>>();
             if matches!(
@@ -854,99 +856,108 @@ fn normalize_execution_structure(pattern: Pattern) -> Pattern {
                 }
                 result
             } else {
-                Pattern::Application { symbol, arguments }
+                Pattern::Application {
+                    symbol: symbol.clone(),
+                    arguments,
+                }
             }
         }
         Pattern::And { sort, arguments } => Pattern::And {
-            sort,
+            sort: sort.clone(),
             arguments: arguments
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(normalize_execution_structure)
                 .collect(),
         },
         Pattern::Or { sort, arguments } => {
             let mut flattened = Vec::new();
-            for argument in arguments.into_iter().map(normalize_execution_structure) {
-                match argument {
+            for mut argument in arguments.iter().cloned().map(normalize_execution_structure) {
+                let nested = match &mut argument {
                     Pattern::Or {
                         sort: nested_sort,
                         arguments,
-                    } if nested_sort == sort => flattened.extend(arguments),
-                    argument => flattened.push(argument),
+                    } if nested_sort == sort => Some(std::mem::take(arguments)),
+                    _ => None,
+                };
+                if let Some(mut nested) = nested {
+                    flattened.append(&mut nested);
+                } else {
+                    flattened.push(argument);
                 }
             }
             flattened.sort();
             Pattern::Or {
-                sort,
+                sort: sort.clone(),
                 arguments: flattened,
             }
         }
         Pattern::Not { sort, argument } => Pattern::Not {
-            sort,
-            argument: Box::new(normalize_execution_structure(*argument)),
+            sort: sort.clone(),
+            argument: Box::new(normalize_execution_structure((**argument).clone())),
         },
         Pattern::Next { sort, argument } => Pattern::Next {
-            sort,
-            argument: Box::new(normalize_execution_structure(*argument)),
+            sort: sort.clone(),
+            argument: Box::new(normalize_execution_structure((**argument).clone())),
         },
         Pattern::Implies { sort, left, right } => Pattern::Implies {
-            sort,
-            left: Box::new(normalize_execution_structure(*left)),
-            right: Box::new(normalize_execution_structure(*right)),
+            sort: sort.clone(),
+            left: Box::new(normalize_execution_structure((**left).clone())),
+            right: Box::new(normalize_execution_structure((**right).clone())),
         },
         Pattern::Iff { sort, left, right } => Pattern::Iff {
-            sort,
-            left: Box::new(normalize_execution_structure(*left)),
-            right: Box::new(normalize_execution_structure(*right)),
+            sort: sort.clone(),
+            left: Box::new(normalize_execution_structure((**left).clone())),
+            right: Box::new(normalize_execution_structure((**right).clone())),
         },
         Pattern::Rewrites { sort, left, right } => Pattern::Rewrites {
-            sort,
-            left: Box::new(normalize_execution_structure(*left)),
-            right: Box::new(normalize_execution_structure(*right)),
+            sort: sort.clone(),
+            left: Box::new(normalize_execution_structure((**left).clone())),
+            right: Box::new(normalize_execution_structure((**right).clone())),
         },
         Pattern::Exists {
             sort,
             variable,
             body,
         } => Pattern::Exists {
-            sort,
-            variable,
-            body: Box::new(normalize_execution_structure(*body)),
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: Box::new(normalize_execution_structure((**body).clone())),
         },
         Pattern::Forall {
             sort,
             variable,
             body,
         } => Pattern::Forall {
-            sort,
-            variable,
-            body: Box::new(normalize_execution_structure(*body)),
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: Box::new(normalize_execution_structure((**body).clone())),
         },
         Pattern::Mu { variable, body } => Pattern::Mu {
-            variable,
-            body: Box::new(normalize_execution_structure(*body)),
+            variable: variable.clone(),
+            body: Box::new(normalize_execution_structure((**body).clone())),
         },
         Pattern::Nu { variable, body } => Pattern::Nu {
-            variable,
-            body: Box::new(normalize_execution_structure(*body)),
+            variable: variable.clone(),
+            body: Box::new(normalize_execution_structure((**body).clone())),
         },
         Pattern::Ceil {
             operand_sort,
             result_sort,
             argument,
         } => Pattern::Ceil {
-            operand_sort,
-            result_sort,
-            argument: Box::new(normalize_execution_structure(*argument)),
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            argument: Box::new(normalize_execution_structure((**argument).clone())),
         },
         Pattern::Floor {
             operand_sort,
             result_sort,
             argument,
         } => Pattern::Floor {
-            operand_sort,
-            result_sort,
-            argument: Box::new(normalize_execution_structure(*argument)),
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            argument: Box::new(normalize_execution_structure((**argument).clone())),
         },
         Pattern::Equals {
             operand_sort,
@@ -954,10 +965,10 @@ fn normalize_execution_structure(pattern: Pattern) -> Pattern {
             left,
             right,
         } => Pattern::Equals {
-            operand_sort,
-            result_sort,
-            left: Box::new(normalize_execution_structure(*left)),
-            right: Box::new(normalize_execution_structure(*right)),
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            left: Box::new(normalize_execution_structure((**left).clone())),
+            right: Box::new(normalize_execution_structure((**right).clone())),
         },
         Pattern::In {
             operand_sort,
@@ -965,42 +976,46 @@ fn normalize_execution_structure(pattern: Pattern) -> Pattern {
             left,
             right,
         } => Pattern::In {
-            operand_sort,
-            result_sort,
-            left: Box::new(normalize_execution_structure(*left)),
-            right: Box::new(normalize_execution_structure(*right)),
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            left: Box::new(normalize_execution_structure((**left).clone())),
+            right: Box::new(normalize_execution_structure((**right).clone())),
         },
         Pattern::AssociativeApplication {
             associativity,
             symbol,
             arguments,
         } => Pattern::AssociativeApplication {
-            associativity,
-            symbol,
+            associativity: *associativity,
+            symbol: symbol.clone(),
             arguments: arguments
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(normalize_execution_structure)
                 .collect(),
         },
-        leaf @ (Pattern::String(_)
+        Pattern::String(_)
         | Pattern::Variable(_)
         | Pattern::Top { .. }
         | Pattern::Bottom { .. }
-        | Pattern::DomainValue { .. }) => leaf,
+        | Pattern::DomainValue { .. } => pattern,
     }
 }
 
-fn flatten_collection(symbol: &Symbol, pattern: Pattern, output: &mut Vec<Pattern>) {
-    match pattern {
+fn flatten_collection(symbol: &Symbol, mut pattern: Pattern, output: &mut Vec<Pattern>) {
+    let nested_arguments = match &mut pattern {
         Pattern::Application {
             symbol: nested,
             arguments,
-        } if nested == *symbol => {
-            for argument in arguments {
-                flatten_collection(symbol, argument, output);
-            }
+        } if *nested == *symbol => Some(std::mem::take(arguments)),
+        _ => None,
+    };
+    if let Some(arguments) = nested_arguments {
+        for argument in arguments {
+            flatten_collection(symbol, argument, output);
         }
-        pattern => output.push(pattern),
+    } else {
+        output.push(pattern);
     }
 }
 
@@ -1870,13 +1885,18 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
                 canonicalize_existentials(argument);
             }
             let mut flattened = Vec::new();
-            for argument in std::mem::take(arguments) {
-                match argument {
+            for mut argument in std::mem::take(arguments) {
+                let nested = match &mut argument {
                     Pattern::Or {
                         sort: nested_sort,
                         arguments: nested,
-                    } if nested_sort == *sort => flattened.extend(nested),
-                    argument => flattened.push(argument),
+                    } if *nested_sort == *sort => Some(std::mem::take(nested)),
+                    _ => None,
+                };
+                if let Some(mut nested) = nested {
+                    flattened.append(&mut nested);
+                } else {
+                    flattened.push(argument);
                 }
             }
             flattened.sort();
@@ -1920,7 +1940,7 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
     let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
     let mut binders = Vec::new();
     loop {
-        match (quantifier, current) {
+        let fields = match (quantifier, &mut current) {
             (
                 Quantifier::Exists,
                 Pattern::Exists {
@@ -1936,15 +1956,18 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
                     variable,
                     body,
                 },
-            ) => {
-                binders.push((sort, variable));
-                current = *body;
-            }
-            (_, body) => {
-                current = body;
-                break;
-            }
-        }
+            ) => Some((
+                sort.clone(),
+                variable.clone(),
+                std::mem::replace(body.as_mut(), Pattern::String(String::new())),
+            )),
+            _ => None,
+        };
+        let Some((sort, variable, body)) = fields else {
+            break;
+        };
+        binders.push((sort, variable));
+        current = body;
     }
     binders.sort_by(|left, right| {
         let key = |(_, variable): &(_, k_rust::kore::ast::Variable)| {

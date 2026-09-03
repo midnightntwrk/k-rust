@@ -870,9 +870,9 @@ fn reference_sd_symbolic_depth_two_leaves_match_modulo_gotstuck() {
         String::from_utf8_lossy(&execute.stderr)
     );
 
-    let disjuncts = |pattern| match pattern {
-        Pattern::Or { arguments, .. } => arguments,
-        pattern => vec![pattern],
+    let disjuncts = |mut pattern| match &mut pattern {
+        Pattern::Or { arguments, .. } => std::mem::take(arguments),
+        _ => vec![pattern],
     };
     let reference = disjuncts(
         parse_pattern(&fs::read_to_string(fixtures.join("depth-two.kore")).unwrap()).unwrap(),

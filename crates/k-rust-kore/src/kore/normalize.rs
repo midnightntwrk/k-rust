@@ -9,164 +9,57 @@ use super::ast::{Associativity, Pattern};
 /// `RightAssoc.pattern`, symbol sort parameters are preserved in both directions.
 pub fn for_kast(pattern: &Pattern) -> Pattern {
     use Pattern::*;
-
-    let child = |pattern: &Pattern| Box::new(for_kast(pattern));
-    match pattern {
-        String(value) => String(value.clone()),
-        Variable(variable) => Variable(variable.clone()),
-        Application { symbol, arguments } => Application {
-            symbol: symbol.clone(),
-            arguments: arguments.iter().map(for_kast).collect(),
+    super::walk::rebuild(pattern, |pattern, arguments| match pattern {
+        And { sort, .. } => match arguments.len() {
+            0 => Top { sort: sort.clone() },
+            1 => arguments
+                .into_iter()
+                .next()
+                .expect("one normalized conjunction argument is present"),
+            _ => And {
+                sort: sort.clone(),
+                arguments,
+            },
         },
-        Top { sort } => Top { sort: sort.clone() },
-        Bottom { sort } => Bottom { sort: sort.clone() },
-        And { sort, arguments } => {
-            let arguments: Vec<_> = arguments.iter().map(for_kast).collect();
-            match arguments.as_slice() {
-                [] => Top { sort: sort.clone() },
-                [argument] => argument.clone(),
-                _ => And {
-                    sort: sort.clone(),
-                    arguments,
-                },
-            }
-        }
-        Or { sort, arguments } => {
-            let arguments: Vec<_> = arguments.iter().map(for_kast).collect();
-            match arguments.as_slice() {
-                [] => Bottom { sort: sort.clone() },
-                [argument] => argument.clone(),
-                _ => Or {
-                    sort: sort.clone(),
-                    arguments,
-                },
-            }
-        }
-        Not { sort, argument } => Not {
-            sort: sort.clone(),
-            argument: child(argument),
-        },
-        Next { sort, argument } => Next {
-            sort: sort.clone(),
-            argument: child(argument),
-        },
-        Implies { sort, left, right } => Implies {
-            sort: sort.clone(),
-            left: child(left),
-            right: child(right),
-        },
-        Iff { sort, left, right } => Iff {
-            sort: sort.clone(),
-            left: child(left),
-            right: child(right),
-        },
-        Rewrites { sort, left, right } => Rewrites {
-            sort: sort.clone(),
-            left: child(left),
-            right: child(right),
-        },
-        Exists {
-            sort,
-            variable,
-            body,
-        } => Exists {
-            sort: sort.clone(),
-            variable: variable.clone(),
-            body: child(body),
-        },
-        Forall {
-            sort,
-            variable,
-            body,
-        } => Forall {
-            sort: sort.clone(),
-            variable: variable.clone(),
-            body: child(body),
-        },
-        Mu { variable, body } => Mu {
-            variable: variable.clone(),
-            body: child(body),
-        },
-        Nu { variable, body } => Nu {
-            variable: variable.clone(),
-            body: child(body),
-        },
-        Ceil {
-            operand_sort,
-            result_sort,
-            argument,
-        } => Ceil {
-            operand_sort: operand_sort.clone(),
-            result_sort: result_sort.clone(),
-            argument: child(argument),
-        },
-        Floor {
-            operand_sort,
-            result_sort,
-            argument,
-        } => Floor {
-            operand_sort: operand_sort.clone(),
-            result_sort: result_sort.clone(),
-            argument: child(argument),
-        },
-        Equals {
-            operand_sort,
-            result_sort,
-            left,
-            right,
-        } => Equals {
-            operand_sort: operand_sort.clone(),
-            result_sort: result_sort.clone(),
-            left: child(left),
-            right: child(right),
-        },
-        In {
-            operand_sort,
-            result_sort,
-            left,
-            right,
-        } => In {
-            operand_sort: operand_sort.clone(),
-            result_sort: result_sort.clone(),
-            left: child(left),
-            right: child(right),
-        },
-        DomainValue { sort, value } => DomainValue {
-            sort: sort.clone(),
-            value: value.clone(),
+        Or { sort, .. } => match arguments.len() {
+            0 => Bottom { sort: sort.clone() },
+            1 => arguments
+                .into_iter()
+                .next()
+                .expect("one normalized disjunction argument is present"),
+            _ => Or {
+                sort: sort.clone(),
+                arguments,
+            },
         },
         AssociativeApplication {
             associativity,
             symbol,
-            arguments,
-        } => {
-            let arguments: Vec<_> = arguments.iter().map(for_kast).collect();
-            match associativity {
-                Associativity::Left => {
-                    let mut arguments = arguments.into_iter();
-                    let first = arguments
-                        .next()
-                        .expect("associative patterns are non-empty");
-                    arguments.fold(first, |left, right| Application {
-                        symbol: symbol.clone(),
-                        arguments: vec![left, right],
-                    })
-                }
-                Associativity::Right => {
-                    let (last, rest) = arguments
-                        .split_last()
-                        .expect("associative patterns are non-empty");
-                    rest.iter()
-                        .rev()
-                        .cloned()
-                        .fold(last.clone(), |right, left| Application {
-                            symbol: symbol.clone(),
-                            arguments: vec![left, right],
-                        })
-                }
+            ..
+        } => match associativity {
+            Associativity::Left => {
+                let mut arguments = arguments.into_iter();
+                let first = arguments
+                    .next()
+                    .expect("associative patterns are non-empty");
+                arguments.fold(first, |left, right| Application {
+                    symbol: symbol.clone(),
+                    arguments: vec![left, right],
+                })
             }
-        }
-    }
+            Associativity::Right => {
+                let mut arguments = arguments.into_iter().rev();
+                let last = arguments
+                    .next()
+                    .expect("associative patterns are non-empty");
+                arguments.fold(last, |right, left| Application {
+                    symbol: symbol.clone(),
+                    arguments: vec![left, right],
+                })
+            }
+        },
+        _ => super::walk::clone_node(pattern, arguments),
+    })
 }
 
 #[cfg(test)]
