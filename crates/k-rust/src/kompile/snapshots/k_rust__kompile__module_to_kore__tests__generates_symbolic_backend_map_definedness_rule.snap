@@ -226,7 +226,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Bool\n  syntax Key\n  synta
         },
         attributes: Attributes {
             entries: {
-                "UNIQUE_ID": String("5520f5485a31e9ab8f5a1603bef90213bdff39b1cb30e35bfcf0fb6e0654fb35"),
+                "UNIQUE_ID": String("99687ac5d140126fe3ff5def4a95aaef24acaaf5b30d0a8f07a551f2b1918575"),
                 "simplification": String(""),
             },
         },
