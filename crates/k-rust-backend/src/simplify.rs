@@ -2193,6 +2193,50 @@ mod tests {
             .expect("term should internalize")
     }
 
+    struct FixedValiditySolver(Validity);
+
+    impl SmtSolver for FixedValiditySolver {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &Substitution,
+        ) -> Result<crate::smt::Satisfiability, SmtError> {
+            unreachable!()
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &Substitution,
+            _checked: &[Predicate],
+        ) -> Result<Validity, SmtError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn conditional_nullary_function() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol f{}() : SortS{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("zero")),
+                        \top{R}()
+                    ),
+                    \equals{SortS{}, R}(
+                        f{}(),
+                        \and{SortS{}}(\dv{SortS{}}("result"), \top{SortS{}}())
+                    )
+                ) [label{}("conditional")]
+            endmodule []"#,
+        )
+        .expect("conditional function definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("conditional function definition should internalize")
+    }
+
     #[test]
     fn equation_rhs_disjunction_with_two_live_alternatives_is_an_explicit_error() {
         let definition = definition(
@@ -3895,28 +3939,7 @@ mod tests {
     }
 
     #[test]
-    fn standalone_predicate_simplification_reports_smt_unknown() {
-        struct UnknownSolver;
-
-        impl SmtSolver for UnknownSolver {
-            fn is_sat(
-                &self,
-                _predicates: &[Predicate],
-                _substitution: &Substitution,
-            ) -> Result<crate::smt::Satisfiability, SmtError> {
-                unreachable!()
-            }
-
-            fn check_predicates(
-                &self,
-                _known: &[Predicate],
-                _substitution: &Substitution,
-                _checked: &[Predicate],
-            ) -> Result<Validity, SmtError> {
-                Ok(Validity::Unknown("incomplete arithmetic".into()))
-            }
-        }
-
+    fn standalone_predicate_simplification_keeps_the_residual_on_smt_unknown() {
         let definition = definition("");
         let predicate = Predicate::Term(term(&definition, "X:SortS{}"));
         let result = simplify_and_decide_predicate_with_solver(
@@ -3924,15 +3947,84 @@ mod tests {
             &predicate,
             &[],
             SimplificationOptions::default(),
-            &UnknownSolver,
+            &FixedValiditySolver(Validity::Unknown("incomplete arithmetic".into())),
+        )
+        .expect("SMT unknown should preserve the residual predicate");
+
+        assert_eq!(result, predicate);
+    }
+
+    #[test]
+    fn unknown_function_condition_leaves_the_application_unevaluated() {
+        let definition = conditional_nullary_function();
+        let input = term(&definition, "f{}()");
+
+        let result = simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            &FixedValiditySolver(Validity::Unknown("timeout".into())),
+        )
+        .expect("SMT unknown should not be a simplification error");
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
+    }
+
+    #[test]
+    fn unknown_simplification_condition_tries_the_next_equation() {
+        let definition = definition(
+            r#"
+            axiom{R} \implies{R}(
+                \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("zero")),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("conditional"), \top{SortS{}}())
+                )
+            ) [label{}("conditional"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("fallback"), \top{SortS{}}())
+                )
+            ) [label{}("fallback"), simplification{}()]
+            "#,
         );
+        let input = term(&definition, "f{}(Y:SortS{})");
+
+        let result = simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            &FixedValiditySolver(Validity::Unknown("timeout".into())),
+        )
+        .expect("an unknown simplification condition should be skipped");
 
         assert_eq!(
-            result,
-            Err(SimplificationError::SmtPredicate {
-                predicate: Box::new(predicate),
-                error: SmtError::Unknown("incomplete arithmetic".into()),
-            })
+            result.term,
+            term(&definition, r#"\dv{SortS{}}("fallback")"#)
         );
+        assert_eq!(result.applied_rules, ["fallback"]);
+    }
+
+    #[test]
+    fn inconsistent_path_condition_is_indeterminate_not_an_error() {
+        let definition = conditional_nullary_function();
+        let input = term(&definition, "f{}()");
+
+        let result = simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            &FixedValiditySolver(Validity::InconsistentGroundTruth),
+        )
+        .expect("an inconsistent path condition should not be a simplification error");
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
     }
 }
