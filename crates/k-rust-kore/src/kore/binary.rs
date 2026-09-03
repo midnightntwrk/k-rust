@@ -571,27 +571,29 @@ fn application(
         }
         "\\not" | "\\next" => {
             let sort = one_sort(sorts, offset, name)?;
-            let [argument] = arguments.as_slice() else {
-                return malformed_application(offset, name, "one term argument");
-            };
+            expect_arity(&arguments, 1, offset, name)?;
+            let argument = arguments
+                .into_iter()
+                .next()
+                .expect("one term argument was checked");
             if name == "\\not" {
                 Ok(Pattern::Not {
                     sort,
-                    argument: Box::new(argument.clone()),
+                    argument: Box::new(argument),
                 })
             } else {
                 Ok(Pattern::Next {
                     sort,
-                    argument: Box::new(argument.clone()),
+                    argument: Box::new(argument),
                 })
             }
         }
         "\\implies" | "\\iff" | "\\rewrites" => {
             let sort = one_sort(sorts, offset, name)?;
-            let [left, right] = arguments.as_slice() else {
-                return malformed_application(offset, name, "two term arguments");
-            };
-            let (left, right) = (Box::new(left.clone()), Box::new(right.clone()));
+            expect_arity(&arguments, 2, offset, name)?;
+            let mut arguments = arguments.into_iter();
+            let left = Box::new(arguments.next().expect("two term arguments were checked"));
+            let right = Box::new(arguments.next().expect("two term arguments were checked"));
             match name {
                 "\\implies" => Ok(Pattern::Implies { sort, left, right }),
                 "\\iff" => Ok(Pattern::Iff { sort, left, right }),
@@ -600,7 +602,11 @@ fn application(
         }
         "\\exists" | "\\forall" => {
             let sort = one_sort(sorts, offset, name)?;
-            let [Pattern::Variable(variable), body] = arguments.as_slice() else {
+            expect_arity(&arguments, 2, offset, name)?;
+            let mut arguments = arguments.into_iter();
+            let variable_pattern = arguments.next().expect("two term arguments were checked");
+            let body = arguments.next().expect("two term arguments were checked");
+            let Pattern::Variable(variable) = &variable_pattern else {
                 return malformed_application(offset, name, "a variable and a body");
             };
             if variable.kind != VariableKind::Element {
@@ -610,19 +616,23 @@ fn application(
                 Ok(Pattern::Exists {
                     sort,
                     variable: variable.clone(),
-                    body: Box::new(body.clone()),
+                    body: Box::new(body),
                 })
             } else {
                 Ok(Pattern::Forall {
                     sort,
                     variable: variable.clone(),
-                    body: Box::new(body.clone()),
+                    body: Box::new(body),
                 })
             }
         }
         "\\mu" | "\\nu" => {
             expect_sort_arity(sorts, 0, offset, name)?;
-            let [Pattern::Variable(variable), body] = arguments.as_slice() else {
+            expect_arity(&arguments, 2, offset, name)?;
+            let mut arguments = arguments.into_iter();
+            let variable_pattern = arguments.next().expect("two term arguments were checked");
+            let body = arguments.next().expect("two term arguments were checked");
+            let Pattern::Variable(variable) = &variable_pattern else {
                 return malformed_application(offset, name, "a set variable and a body");
             };
             if variable.kind != VariableKind::Set {
@@ -631,12 +641,12 @@ fn application(
             if name == "\\mu" {
                 Ok(Pattern::Mu {
                     variable: variable.clone(),
-                    body: Box::new(body.clone()),
+                    body: Box::new(body),
                 })
             } else {
                 Ok(Pattern::Nu {
                     variable: variable.clone(),
-                    body: Box::new(body.clone()),
+                    body: Box::new(body),
                 })
             }
         }
@@ -644,20 +654,22 @@ fn application(
             let [operand_sort, result_sort] = sorts.as_slice() else {
                 return malformed_application(offset, name, "two sort parameters");
             };
-            let [argument] = arguments.as_slice() else {
-                return malformed_application(offset, name, "one term argument");
-            };
+            expect_arity(&arguments, 1, offset, name)?;
+            let argument = arguments
+                .into_iter()
+                .next()
+                .expect("one term argument was checked");
             if name == "\\ceil" {
                 Ok(Pattern::Ceil {
                     operand_sort: operand_sort.clone(),
                     result_sort: result_sort.clone(),
-                    argument: Box::new(argument.clone()),
+                    argument: Box::new(argument),
                 })
             } else {
                 Ok(Pattern::Floor {
                     operand_sort: operand_sort.clone(),
                     result_sort: result_sort.clone(),
-                    argument: Box::new(argument.clone()),
+                    argument: Box::new(argument),
                 })
             }
         }
@@ -665,14 +677,13 @@ fn application(
             let [operand_sort, result_sort] = sorts.as_slice() else {
                 return malformed_application(offset, name, "two sort parameters");
             };
-            let [left, right] = arguments.as_slice() else {
-                return malformed_application(offset, name, "two term arguments");
-            };
+            expect_arity(&arguments, 2, offset, name)?;
+            let mut arguments = arguments.into_iter();
             let fields = (
                 operand_sort.clone(),
                 result_sort.clone(),
-                Box::new(left.clone()),
-                Box::new(right.clone()),
+                Box::new(arguments.next().expect("two term arguments were checked")),
+                Box::new(arguments.next().expect("two term arguments were checked")),
             );
             if name == "\\equals" {
                 Ok(Pattern::Equals {
@@ -692,7 +703,12 @@ fn application(
         }
         "\\left-assoc" | "\\right-assoc" => {
             expect_sort_arity(sorts, 0, offset, name)?;
-            let [Pattern::Application { symbol, arguments }] = arguments.as_slice() else {
+            expect_arity(&arguments, 1, offset, name)?;
+            let mut application = arguments
+                .into_iter()
+                .next()
+                .expect("one term argument was checked");
+            let Pattern::Application { symbol, arguments } = &mut application else {
                 return malformed_application(offset, name, "one symbol application");
             };
             Ok(Pattern::AssociativeApplication {
@@ -701,8 +717,14 @@ fn application(
                 } else {
                     Associativity::Right
                 },
-                symbol: symbol.clone(),
-                arguments: arguments.clone(),
+                symbol: std::mem::replace(
+                    symbol,
+                    Symbol {
+                        name: String::new(),
+                        sort_parameters: Vec::new(),
+                    },
+                ),
+                arguments: std::mem::take(arguments),
             })
         }
         _ => Ok(Pattern::Application { symbol, arguments }),
@@ -756,171 +778,200 @@ struct Encoder<'a> {
 
 impl Encoder<'_> {
     fn pattern(&mut self, pattern: &Pattern) -> Result<(), BinaryError> {
-        match pattern {
-            Pattern::String(value) => {
-                self.output.push(STRING_PATTERN);
-                self.string(value)?;
-            }
-            Pattern::Variable(variable) => {
-                self.sort(&variable.sort)?;
-                self.output.push(VARIABLE_PATTERN);
-                self.output.push(VARIABLE);
-                self.string(&variable.name)?;
-            }
-            Pattern::Application { symbol, arguments } => {
-                self.application(symbol, arguments)?;
-            }
-            Pattern::Top { sort } => self.ml_application("\\top", &[sort], &[])?,
-            Pattern::Bottom { sort } => self.ml_application("\\bottom", &[sort], &[])?,
-            Pattern::And { sort, arguments } => {
-                let arguments = arguments.iter().collect::<Vec<_>>();
-                self.ml_application("\\and", &[sort], &arguments)?;
-            }
-            Pattern::Or { sort, arguments } => {
-                let arguments = arguments.iter().collect::<Vec<_>>();
-                self.ml_application("\\or", &[sort], &arguments)?;
-            }
-            Pattern::Not { sort, argument } => {
-                self.ml_application("\\not", &[sort], &[argument.as_ref()])?;
-            }
-            Pattern::Next { sort, argument } => {
-                self.ml_application("\\next", &[sort], &[argument.as_ref()])?;
-            }
-            Pattern::Implies { sort, left, right } => {
-                self.ml_application("\\implies", &[sort], &[left.as_ref(), right.as_ref()])?;
-            }
-            Pattern::Iff { sort, left, right } => {
-                self.ml_application("\\iff", &[sort], &[left.as_ref(), right.as_ref()])?;
-            }
-            Pattern::Rewrites { sort, left, right } => {
-                self.ml_application("\\rewrites", &[sort], &[left.as_ref(), right.as_ref()])?;
-            }
-            Pattern::Exists {
-                sort,
-                variable,
-                body,
-            } => self.quantifier("\\exists", sort, variable, body)?,
-            Pattern::Forall {
-                sort,
-                variable,
-                body,
-            } => self.quantifier("\\forall", sort, variable, body)?,
-            Pattern::Mu { variable, body } => self.fixed_point("\\mu", variable, body)?,
-            Pattern::Nu { variable, body } => self.fixed_point("\\nu", variable, body)?,
-            Pattern::Ceil {
-                operand_sort,
-                result_sort,
-                argument,
-            } => {
-                self.ml_application("\\ceil", &[operand_sort, result_sort], &[argument.as_ref()])?
-            }
-            Pattern::Floor {
-                operand_sort,
-                result_sort,
-                argument,
-            } => self.ml_application(
-                "\\floor",
-                &[operand_sort, result_sort],
-                &[argument.as_ref()],
-            )?,
-            Pattern::Equals {
-                operand_sort,
-                result_sort,
-                left,
-                right,
-            } => self.ml_application(
-                "\\equals",
-                &[operand_sort, result_sort],
-                &[left.as_ref(), right.as_ref()],
-            )?,
-            Pattern::In {
-                operand_sort,
-                result_sort,
-                left,
-                right,
-            } => self.ml_application(
-                "\\in",
-                &[operand_sort, result_sort],
-                &[left.as_ref(), right.as_ref()],
-            )?,
-            Pattern::DomainValue { sort, value } => {
-                self.output.push(STRING_PATTERN);
-                self.string(value)?;
-                self.symbol("\\dv", std::slice::from_ref(sort))?;
-                self.output.push(COMPOSITE_PATTERN);
-                self.length(1, 2)?;
-            }
-            Pattern::AssociativeApplication {
-                associativity,
-                symbol,
-                arguments,
-            } => {
-                self.application(symbol, arguments)?;
-                let name = match associativity {
-                    Associativity::Left => "\\left-assoc",
-                    Associativity::Right => "\\right-assoc",
-                };
-                self.symbol(name, &[])?;
-                self.output.push(COMPOSITE_PATTERN);
-                self.length(1, 2)?;
+        enum Task<'a> {
+            Pattern(&'a Pattern),
+            Variable(&'a Variable),
+            Finish(&'a Pattern),
+        }
+
+        let mut tasks = vec![Task::Pattern(pattern)];
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Variable(variable) => {
+                    self.sort(&variable.sort)?;
+                    self.output.push(VARIABLE_PATTERN);
+                    self.output.push(VARIABLE);
+                    self.string(&variable.name)?;
+                }
+                Task::Pattern(Pattern::String(value)) => {
+                    self.output.push(STRING_PATTERN);
+                    self.string(value)?;
+                }
+                Task::Pattern(Pattern::Variable(variable)) => {
+                    tasks.push(Task::Variable(variable));
+                }
+                Task::Pattern(Pattern::DomainValue { sort, value }) => {
+                    self.output.push(STRING_PATTERN);
+                    self.string(value)?;
+                    self.finish_application("\\dv", std::slice::from_ref(sort), 1)?;
+                }
+                Task::Pattern(node) => {
+                    tasks.push(Task::Finish(node));
+                    match node {
+                        Pattern::Application { arguments, .. }
+                        | Pattern::And { arguments, .. }
+                        | Pattern::Or { arguments, .. }
+                        | Pattern::AssociativeApplication { arguments, .. } => {
+                            for argument in arguments.iter().rev() {
+                                tasks.push(Task::Pattern(argument));
+                            }
+                        }
+                        Pattern::Not { argument, .. }
+                        | Pattern::Next { argument, .. }
+                        | Pattern::Ceil { argument, .. }
+                        | Pattern::Floor { argument, .. } => {
+                            tasks.push(Task::Pattern(argument));
+                        }
+                        Pattern::Implies { left, right, .. }
+                        | Pattern::Iff { left, right, .. }
+                        | Pattern::Rewrites { left, right, .. }
+                        | Pattern::Equals { left, right, .. }
+                        | Pattern::In { left, right, .. } => {
+                            tasks.push(Task::Pattern(right));
+                            tasks.push(Task::Pattern(left));
+                        }
+                        Pattern::Exists { variable, body, .. }
+                        | Pattern::Forall { variable, body, .. }
+                        | Pattern::Mu { variable, body }
+                        | Pattern::Nu { variable, body } => {
+                            tasks.push(Task::Pattern(body));
+                            tasks.push(Task::Variable(variable));
+                        }
+                        Pattern::Top { .. } | Pattern::Bottom { .. } => {}
+                        Pattern::String(_) | Pattern::Variable(_) | Pattern::DomainValue { .. } => {
+                            unreachable!("leaf patterns were emitted above")
+                        }
+                    }
+                }
+                Task::Finish(node) => match node {
+                    Pattern::Application { symbol, arguments } => {
+                        self.finish_application(
+                            &symbol.name,
+                            &symbol.sort_parameters,
+                            arguments.len(),
+                        )?;
+                    }
+                    Pattern::Top { sort } => {
+                        self.finish_application("\\top", std::slice::from_ref(sort), 0)?;
+                    }
+                    Pattern::Bottom { sort } => {
+                        self.finish_application("\\bottom", std::slice::from_ref(sort), 0)?;
+                    }
+                    Pattern::And { sort, arguments } => {
+                        self.finish_application(
+                            "\\and",
+                            std::slice::from_ref(sort),
+                            arguments.len(),
+                        )?;
+                    }
+                    Pattern::Or { sort, arguments } => {
+                        self.finish_application(
+                            "\\or",
+                            std::slice::from_ref(sort),
+                            arguments.len(),
+                        )?;
+                    }
+                    Pattern::Not { sort, .. } => {
+                        self.finish_application("\\not", std::slice::from_ref(sort), 1)?;
+                    }
+                    Pattern::Next { sort, .. } => {
+                        self.finish_application("\\next", std::slice::from_ref(sort), 1)?;
+                    }
+                    Pattern::Implies { sort, .. } => {
+                        self.finish_application("\\implies", std::slice::from_ref(sort), 2)?;
+                    }
+                    Pattern::Iff { sort, .. } => {
+                        self.finish_application("\\iff", std::slice::from_ref(sort), 2)?;
+                    }
+                    Pattern::Rewrites { sort, .. } => {
+                        self.finish_application("\\rewrites", std::slice::from_ref(sort), 2)?;
+                    }
+                    Pattern::Exists { sort, .. } => {
+                        self.finish_application("\\exists", std::slice::from_ref(sort), 2)?;
+                    }
+                    Pattern::Forall { sort, .. } => {
+                        self.finish_application("\\forall", std::slice::from_ref(sort), 2)?;
+                    }
+                    Pattern::Mu { .. } => self.finish_application("\\mu", &[], 2)?,
+                    Pattern::Nu { .. } => self.finish_application("\\nu", &[], 2)?,
+                    Pattern::Ceil {
+                        operand_sort,
+                        result_sort,
+                        ..
+                    } => {
+                        self.finish_application(
+                            "\\ceil",
+                            &[operand_sort.clone(), result_sort.clone()],
+                            1,
+                        )?;
+                    }
+                    Pattern::Floor {
+                        operand_sort,
+                        result_sort,
+                        ..
+                    } => {
+                        self.finish_application(
+                            "\\floor",
+                            &[operand_sort.clone(), result_sort.clone()],
+                            1,
+                        )?;
+                    }
+                    Pattern::Equals {
+                        operand_sort,
+                        result_sort,
+                        ..
+                    } => {
+                        self.finish_application(
+                            "\\equals",
+                            &[operand_sort.clone(), result_sort.clone()],
+                            2,
+                        )?;
+                    }
+                    Pattern::In {
+                        operand_sort,
+                        result_sort,
+                        ..
+                    } => {
+                        self.finish_application(
+                            "\\in",
+                            &[operand_sort.clone(), result_sort.clone()],
+                            2,
+                        )?;
+                    }
+                    Pattern::AssociativeApplication {
+                        associativity,
+                        symbol,
+                        arguments,
+                    } => {
+                        self.finish_application(
+                            &symbol.name,
+                            &symbol.sort_parameters,
+                            arguments.len(),
+                        )?;
+                        let name = match associativity {
+                            Associativity::Left => "\\left-assoc",
+                            Associativity::Right => "\\right-assoc",
+                        };
+                        self.finish_application(name, &[], 1)?;
+                    }
+                    Pattern::String(_) | Pattern::Variable(_) | Pattern::DomainValue { .. } => {
+                        unreachable!("leaf patterns do not have finish tasks")
+                    }
+                },
             }
         }
         Ok(())
     }
 
-    fn quantifier(
+    fn finish_application(
         &mut self,
         name: &str,
-        sort: &Sort,
-        variable: &Variable,
-        body: &Pattern,
+        sorts: &[Sort],
+        arity: usize,
     ) -> Result<(), BinaryError> {
-        self.pattern(&Pattern::Variable(variable.clone()))?;
-        self.pattern(body)?;
-        self.symbol(name, std::slice::from_ref(sort))?;
+        self.symbol(name, sorts)?;
         self.output.push(COMPOSITE_PATTERN);
-        self.length(2, 2)
-    }
-
-    fn fixed_point(
-        &mut self,
-        name: &str,
-        variable: &Variable,
-        body: &Pattern,
-    ) -> Result<(), BinaryError> {
-        self.pattern(&Pattern::Variable(variable.clone()))?;
-        self.pattern(body)?;
-        self.symbol(name, &[])?;
-        self.output.push(COMPOSITE_PATTERN);
-        self.length(2, 2)
-    }
-
-    fn ml_application(
-        &mut self,
-        name: &str,
-        sorts: &[&Sort],
-        arguments: &[&Pattern],
-    ) -> Result<(), BinaryError> {
-        for argument in arguments {
-            self.pattern(argument)?;
-        }
-        for sort in sorts {
-            self.sort(sort)?;
-        }
-        self.output.push(SYMBOL);
-        self.length(sorts.len(), 2)?;
-        self.string(name)?;
-        self.output.push(COMPOSITE_PATTERN);
-        self.length(arguments.len(), 2)
-    }
-
-    fn application(&mut self, symbol: &Symbol, arguments: &[Pattern]) -> Result<(), BinaryError> {
-        for argument in arguments {
-            self.pattern(argument)?;
-        }
-        self.symbol(&symbol.name, &symbol.sort_parameters)?;
-        self.output.push(COMPOSITE_PATTERN);
-        self.length(arguments.len(), 2)
+        self.length(arity, 2)
     }
 
     fn symbol(&mut self, name: &str, sorts: &[Sort]) -> Result<(), BinaryError> {

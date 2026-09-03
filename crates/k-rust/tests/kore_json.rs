@@ -79,6 +79,9 @@ fn reference_shaped_deep_app_chain_decodes() {
     // reference: shape emitted by kore-parser --print-pattern-json; the fixture is the harvested
     // B3-02 depth-148 JSON document from draft/fable51-review/fixtures/b3-probe/deep.json.
     let source = include_str!("fixtures/reference/kore-syntax/json/deep-148.json");
-    assert!(json::from_str(source).is_err());
-    assert!(json::from_str_unbounded(source).is_ok());
+    assert!(json::from_str(source).is_ok());
+    #[allow(deprecated)]
+    {
+        assert!(json::from_str_unbounded(source).is_ok());
+    }
 }

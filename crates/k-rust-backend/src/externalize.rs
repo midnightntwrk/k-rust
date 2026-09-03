@@ -660,9 +660,9 @@ mod tests {
         };
 
         assert!(matches!(
-            constrained_pattern(&pattern),
+            &constrained_pattern(&pattern),
             kore::Pattern::And { sort, arguments }
-                if sort == kore::Sort::Application {
+                if sort == &kore::Sort::Application {
                     name: "SortInt".into(),
                     arguments: Vec::new(),
                 } && arguments.len() == 2
@@ -688,7 +688,7 @@ mod tests {
         });
 
         assert!(matches!(
-            grouped,
+            &grouped,
             kore::Pattern::And { arguments, .. }
                 if arguments.len() == 2
                     && matches!(&arguments[1], kore::Pattern::And { arguments, .. } if arguments.len() == 2)
@@ -722,7 +722,7 @@ mod tests {
         let false_value = Term::domain_value(boolean_sort.clone(), "false");
 
         assert!(matches!(
-            predicate_pattern(
+            &predicate_pattern(
                 &Predicate::Equals(value, false_value),
                 &Sort::simple("SortGeneratedTopCell"),
             ),
@@ -759,13 +759,13 @@ mod tests {
             booster_predicate_pattern(&definition, &Predicate::Equals(x, one), &result_sort);
 
         assert!(matches!(
-            pattern,
+            &pattern,
             kore::Pattern::Equals {
                 operand_sort,
                 left,
                 right,
                 ..
-            } if operand_sort == sort(&Sort::simple("SortBool"))
+            } if *operand_sort == sort(&Sort::simple("SortBool"))
                 && matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "true")
                 && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. } if symbol.name == "intEq")
         ));
@@ -780,7 +780,7 @@ mod tests {
             &result_sort,
         );
         assert!(matches!(
-            pattern,
+            &pattern,
             kore::Pattern::Equals { right, .. }
                 if matches!(right.as_ref(), kore::Pattern::Application { symbol, .. } if symbol.name == "condition")
         ));
@@ -794,7 +794,7 @@ mod tests {
         let logical =
             booster_rule_predicate_pattern(&Predicate::Equals(truth, condition), &result_sort);
         assert!(matches!(
-            logical,
+            &logical,
             kore::Pattern::Not { argument, .. }
                 if matches!(argument.as_ref(), kore::Pattern::Equals { left, right, .. }
                     if matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")

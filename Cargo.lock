@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust-kore"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "indoc",
  "insta",

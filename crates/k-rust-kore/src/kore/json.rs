@@ -1,6 +1,6 @@
 //! KORE JSON version 1 serialization.
 
-use serde::{Deserialize, Serialize};
+use crate::json_tree::{self, Node};
 
 use super::{
     ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind},
@@ -12,7 +12,11 @@ pub const VERSION: u32 = 1;
 
 #[derive(Debug)]
 pub enum Error {
-    Json(serde_json::Error),
+    Syntax {
+        line: usize,
+        column: usize,
+        message: String,
+    },
     Shape(String),
     Lexical {
         kind: &'static str,
@@ -26,17 +30,21 @@ pub enum Error {
 }
 
 impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Json(error) => error.fmt(f),
-            Self::Shape(message) => f.write_str(message),
+            Self::Syntax {
+                line,
+                column,
+                message,
+            } => write!(formatter, "{message} at line {line} column {column}"),
+            Self::Shape(message) => formatter.write_str(message),
             Self::Lexical {
                 kind,
                 text,
                 problems,
             } => {
                 write!(
-                    f,
+                    formatter,
                     "Lexical {} in {kind} : {text}",
                     if problems.len() == 1 {
                         "error"
@@ -45,62 +53,112 @@ impl std::fmt::Display for Error {
                     }
                 )?;
                 for problem in problems {
-                    write!(f, " * {problem}")?;
+                    write!(formatter, " * {problem}")?;
                 }
                 Ok(())
             }
-            Self::UnsupportedFormat(format) => write!(f, "unsupported KORE JSON format {format:?}"),
+            Self::UnsupportedFormat(format) => {
+                write!(formatter, "unsupported KORE JSON format {format:?}")
+            }
             Self::UnsupportedVersion(version) => {
-                write!(f, "unsupported KORE JSON version {version}")
+                write!(formatter, "unsupported KORE JSON version {version}")
             }
             Self::EmptyAssociativeApplication => {
-                f.write_str("associative application requires at least one argument")
+                formatter.write_str("associative application requires at least one argument")
             }
-            Self::EmptyMultiOr => f.write_str("MultiOr requires at least one argument"),
+            Self::EmptyMultiOr => formatter.write_str("MultiOr requires at least one argument"),
         }
     }
 }
 
 impl std::error::Error for Error {}
 
-impl From<serde_json::Error> for Error {
-    fn from(error: serde_json::Error) -> Self {
-        Self::Json(error)
+impl From<json_tree::Error> for Error {
+    fn from(error: json_tree::Error) -> Self {
+        Self::Syntax {
+            line: error.line,
+            column: error.column,
+            message: error.message,
+        }
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct Envelope {
-    format: String,
-    version: u32,
-    term: JsonPattern,
+struct Fields {
+    values: Vec<(String, Node)>,
 }
 
-pub fn from_str(input: &str) -> Result<Pattern, Error> {
-    let envelope: Envelope = serde_json::from_str(input)?;
-    decode_envelope(envelope)
-}
-
-/// Decode KORE JSON without serde_json's nesting limit.
-///
-/// Callers must provide enough stack for deeply nested syntax. The regular [`from_str`] remains
-/// bounded for untrusted and stack-constrained environments.
-pub fn from_str_unbounded(input: &str) -> Result<Pattern, Error> {
-    let mut deserializer = serde_json::Deserializer::from_str(input);
-    deserializer.disable_recursion_limit();
-    let envelope = Envelope::deserialize(&mut deserializer)?;
-    deserializer.end()?;
-    decode_envelope(envelope)
-}
-
-fn decode_envelope(envelope: Envelope) -> Result<Pattern, Error> {
-    if envelope.format != FORMAT {
-        return Err(Error::UnsupportedFormat(envelope.format));
+impl Fields {
+    fn new(node: Node) -> Result<Self, Error> {
+        let kind = node.kind();
+        Ok(Self {
+            values: node
+                .into_object()
+                .ok_or_else(|| Error::Shape(format!("invalid type: {kind}, expected an object")))?,
+        })
     }
-    if envelope.version != VERSION {
-        return Err(Error::UnsupportedVersion(envelope.version));
+
+    fn take(&mut self, name: &str) -> Option<Node> {
+        self.values
+            .iter()
+            .position(|(key, _)| key == name)
+            .map(|index| self.values.swap_remove(index).1)
     }
-    envelope.term.try_into()
+
+    fn required(&mut self, name: &str) -> Result<Node, Error> {
+        self.take(name)
+            .ok_or_else(|| Error::Shape(format!("missing field `{name}`")))
+    }
+
+    fn string(&mut self, name: &str) -> Result<String, Error> {
+        expect_string(self.required(name)?, name)
+    }
+
+    fn array(&mut self, name: &str) -> Result<Vec<Node>, Error> {
+        expect_array(self.required(name)?, name)
+    }
+
+    fn finish(self) -> Result<(), Error> {
+        if let Some((name, _)) = self.values.first() {
+            Err(Error::Shape(format!("unknown field `{name}`")))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn expect_string(node: Node, field: &str) -> Result<String, Error> {
+    let kind = node.kind();
+    node.into_string().ok_or_else(|| {
+        Error::Shape(format!(
+            "invalid type: {kind}, expected a string for field `{field}`"
+        ))
+    })
+}
+
+fn expect_array(node: Node, field: &str) -> Result<Vec<Node>, Error> {
+    let kind = node.kind();
+    node.into_array().ok_or_else(|| {
+        Error::Shape(format!(
+            "invalid type: {kind}, expected an array for field `{field}`"
+        ))
+    })
+}
+
+fn expect_u32(mut node: Node, field: &str) -> Result<u32, Error> {
+    let kind = node.kind();
+    let value = match &mut node {
+        Node::Number(value) => std::mem::take(value),
+        _ => {
+            return Err(Error::Shape(format!(
+                "invalid type: {kind}, expected u32 for field `{field}`"
+            )));
+        }
+    };
+    value.parse().map_err(|_| {
+        Error::Shape(format!(
+            "invalid value: {value}, expected u32 for field `{field}`"
+        ))
+    })
 }
 
 fn require_lexical(kind: &'static str, text: &str, problems: Vec<Problem>) -> Result<(), Error> {
@@ -115,665 +173,788 @@ fn require_lexical(kind: &'static str, text: &str, problems: Vec<Problem>) -> Re
     }
 }
 
-pub fn to_string(pattern: &Pattern) -> Result<String, Error> {
-    Ok(serde_json::to_string(&Envelope {
-        format: FORMAT.into(),
-        version: VERSION,
-        term: pattern.into(),
-    })?)
+pub fn from_str(input: &str) -> Result<Pattern, Error> {
+    let root = json_tree::parse(input)?;
+    let mut envelope = Fields::new(root)?;
+    let format = envelope.string("format")?;
+    let version = expect_u32(envelope.required("version")?, "version")?;
+    let term = envelope.required("term")?;
+    // Version-one producers are allowed to attach metadata beside the envelope.
+    if format != FORMAT {
+        return Err(Error::UnsupportedFormat(format));
+    }
+    if version != VERSION {
+        return Err(Error::UnsupportedVersion(version));
+    }
+    build_pattern(term)
 }
 
-/// Convert a KORE pattern to a JSON value without serde_json's nesting limit.
-///
-/// Callers must provide enough stack for deeply nested syntax.
-pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
-    let encoded = to_string(pattern)?;
-    let mut deserializer = serde_json::Deserializer::from_str(&encoded);
-    deserializer.disable_recursion_limit();
-    let value = serde_json::Value::deserialize(&mut deserializer)?;
-    deserializer.end()?;
-    Ok(value)
+/// Compatibility alias for the now-unbounded from_str.
+#[deprecated(note = "from_str has no depth limit")]
+pub fn from_str_unbounded(input: &str) -> Result<Pattern, Error> {
+    from_str(input)
+}
+
+pub fn to_string(pattern: &Pattern) -> Result<String, Error> {
+    Ok(json_tree::to_string(&envelope_node(pattern), false))
 }
 
 pub fn to_string_pretty(pattern: &Pattern) -> Result<String, Error> {
-    Ok(serde_json::to_string_pretty(&Envelope {
-        format: FORMAT.into(),
-        version: VERSION,
-        term: pattern.into(),
-    })?)
+    Ok(json_tree::to_string(&envelope_node(pattern), true))
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "tag", deny_unknown_fields)]
-enum JsonSort {
-    SortVar { name: String },
-    SortApp { name: String, args: Vec<JsonSort> },
+pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
+    Ok(envelope_node(pattern).into_value())
 }
 
-impl From<&Sort> for JsonSort {
-    fn from(sort: &Sort) -> Self {
-        match sort {
-            Sort::Variable(name) => Self::SortVar { name: name.clone() },
-            Sort::Application { name, arguments } => Self::SortApp {
-                name: name.clone(),
-                args: arguments.iter().map(Into::into).collect(),
-            },
+fn envelope_node(pattern: &Pattern) -> Node {
+    Node::Object(vec![
+        ("format".into(), Node::String(FORMAT.into())),
+        ("version".into(), Node::Number(VERSION.to_string())),
+        ("term".into(), pattern_node(pattern)),
+    ])
+}
+
+enum SortHead {
+    Variable(String),
+    Application(String),
+}
+
+fn sort_head(node: Node) -> Result<(SortHead, Vec<Node>), Error> {
+    let mut fields = Fields::new(node)?;
+    let tag = fields.string("tag")?;
+    let result = match tag.as_str() {
+        "SortVar" => (SortHead::Variable(fields.string("name")?), Vec::new()),
+        "SortApp" => (
+            SortHead::Application(fields.string("name")?),
+            fields.array("args")?,
+        ),
+        _ => {
+            return Err(Error::Shape(format!(
+                "unknown variant `{tag}`, expected `SortVar` or `SortApp`"
+            )));
+        }
+    };
+    fields.finish()?;
+    Ok(result)
+}
+
+fn build_sort(root: Node) -> Result<Sort, Error> {
+    struct Frame {
+        head: SortHead,
+        remaining: std::vec::IntoIter<Node>,
+        built: Vec<Sort>,
+    }
+
+    impl Frame {
+        fn new(node: Node) -> Result<Self, Error> {
+            let (head, children) = sort_head(node)?;
+            Ok(Self {
+                head,
+                remaining: children.into_iter(),
+                built: Vec::new(),
+            })
+        }
+
+        fn finish(self) -> Sort {
+            match self.head {
+                SortHead::Variable(name) => Sort::Variable(name),
+                SortHead::Application(name) => Sort::Application {
+                    name,
+                    arguments: self.built,
+                },
+            }
+        }
+    }
+
+    let mut stack = vec![Frame::new(root)?];
+    loop {
+        if let Some(child) = stack.last_mut().and_then(|frame| frame.remaining.next()) {
+            stack.push(Frame::new(child)?);
+            continue;
+        }
+        let sort = stack.pop().expect("the root sort frame remains").finish();
+        if let Some(parent) = stack.last_mut() {
+            parent.built.push(sort);
+        } else {
+            return Ok(sort);
         }
     }
 }
 
-impl From<JsonSort> for Sort {
-    fn from(sort: JsonSort) -> Self {
+fn sort_node(root: &Sort) -> Node {
+    struct Frame<'a> {
+        sort: &'a Sort,
+        next: usize,
+        built: Vec<Node>,
+    }
+
+    fn children(sort: &Sort) -> &[Sort] {
         match sort {
-            JsonSort::SortVar { name } => Self::Variable(name),
-            JsonSort::SortApp { name, args } => Self::Application {
-                name,
-                arguments: args.into_iter().map(Into::into).collect(),
-            },
+            Sort::Variable(_) => &[],
+            Sort::Application { arguments, .. } => arguments,
+        }
+    }
+
+    let mut stack = vec![Frame {
+        sort: root,
+        next: 0,
+        built: Vec::new(),
+    }];
+    loop {
+        let frame = stack.last_mut().expect("the root sort frame remains");
+        if let Some(child) = children(frame.sort).get(frame.next) {
+            frame.next += 1;
+            stack.push(Frame {
+                sort: child,
+                next: 0,
+                built: Vec::new(),
+            });
+            continue;
+        }
+        let frame = stack.pop().expect("the completed sort frame is present");
+        let node = match frame.sort {
+            Sort::Variable(name) => Node::Object(vec![
+                ("tag".into(), Node::String("SortVar".into())),
+                ("name".into(), Node::String(name.clone())),
+            ]),
+            Sort::Application { name, .. } => Node::Object(vec![
+                ("tag".into(), Node::String("SortApp".into())),
+                ("name".into(), Node::String(name.clone())),
+                ("args".into(), Node::Array(frame.built)),
+            ]),
+        };
+        if let Some(parent) = stack.last_mut() {
+            parent.built.push(node);
+        } else {
+            return node;
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "tag", deny_unknown_fields)]
-enum JsonPattern {
-    String {
-        value: String,
-    },
-    EVar {
-        name: String,
-        sort: JsonSort,
-    },
-    SVar {
-        name: String,
-        sort: JsonSort,
-    },
-    App {
-        name: String,
-        sorts: Vec<JsonSort>,
-        args: Vec<JsonPattern>,
-    },
-    Top {
-        sort: JsonSort,
-    },
-    Bottom {
-        sort: JsonSort,
-    },
-    And {
-        sort: JsonSort,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        patterns: Option<Vec<JsonPattern>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        first: Option<Box<JsonPattern>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        second: Option<Box<JsonPattern>>,
-    },
-    Or {
-        sort: JsonSort,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        patterns: Option<Vec<JsonPattern>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        first: Option<Box<JsonPattern>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        second: Option<Box<JsonPattern>>,
-    },
-    Not {
-        sort: JsonSort,
-        arg: Box<JsonPattern>,
-    },
-    Next {
-        sort: JsonSort,
-        dest: Box<JsonPattern>,
-    },
-    Implies {
-        sort: JsonSort,
-        first: Box<JsonPattern>,
-        second: Box<JsonPattern>,
-    },
-    Iff {
-        sort: JsonSort,
-        first: Box<JsonPattern>,
-        second: Box<JsonPattern>,
-    },
-    Rewrites {
-        sort: JsonSort,
-        source: Box<JsonPattern>,
-        dest: Box<JsonPattern>,
-    },
-    Exists {
-        sort: JsonSort,
-        var: String,
-        #[serde(rename = "varSort")]
-        var_sort: JsonSort,
-        arg: Box<JsonPattern>,
-    },
-    Forall {
-        sort: JsonSort,
-        var: String,
-        #[serde(rename = "varSort")]
-        var_sort: JsonSort,
-        arg: Box<JsonPattern>,
-    },
-    Mu {
-        var: String,
-        #[serde(rename = "varSort")]
-        var_sort: JsonSort,
-        arg: Box<JsonPattern>,
-    },
-    Nu {
-        var: String,
-        #[serde(rename = "varSort")]
-        var_sort: JsonSort,
-        arg: Box<JsonPattern>,
-    },
-    Ceil {
-        #[serde(rename = "argSort")]
-        arg_sort: JsonSort,
-        sort: JsonSort,
-        arg: Box<JsonPattern>,
-    },
-    Floor {
-        #[serde(rename = "argSort")]
-        arg_sort: JsonSort,
-        sort: JsonSort,
-        arg: Box<JsonPattern>,
-    },
-    Equals {
-        #[serde(rename = "argSort")]
-        arg_sort: JsonSort,
-        sort: JsonSort,
-        first: Box<JsonPattern>,
-        second: Box<JsonPattern>,
-    },
-    In {
-        #[serde(rename = "argSort")]
-        arg_sort: JsonSort,
-        sort: JsonSort,
-        first: Box<JsonPattern>,
-        second: Box<JsonPattern>,
-    },
-    DV {
-        sort: JsonSort,
-        value: String,
-    },
-    MultiOr {
-        assoc: LeftRight,
-        sort: JsonSort,
-        argss: Vec<JsonPattern>,
-    },
-    LeftAssoc {
-        symbol: String,
-        sorts: Vec<JsonSort>,
-        argss: Vec<JsonPattern>,
-    },
-    RightAssoc {
-        symbol: String,
-        sorts: Vec<JsonSort>,
-        argss: Vec<JsonPattern>,
-    },
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Copy)]
 enum LeftRight {
     Left,
     Right,
 }
 
-impl JsonPattern {
-    fn check_lexical(&self) -> Result<(), Error> {
-        match self {
-            Self::String { value } => {
-                require_lexical("string literal", value, lexical::latin1_problems(value))
+enum PatternHead {
+    String(String),
+    Variable(Variable),
+    Application(Symbol),
+    Top(Sort),
+    Bottom(Sort),
+    And(Sort),
+    Or(Sort),
+    Not(Sort),
+    Next(Sort),
+    Implies(Sort),
+    Iff(Sort),
+    Rewrites(Sort),
+    Exists(Sort, Variable),
+    Forall(Sort, Variable),
+    Mu(Variable),
+    Nu(Variable),
+    Ceil(Sort, Sort),
+    Floor(Sort, Sort),
+    Equals(Sort, Sort),
+    In(Sort, Sort),
+    DomainValue(Sort, String),
+    MultiOr(LeftRight, Sort),
+    Associative(Associativity, Symbol),
+}
+
+fn variable(kind: VariableKind, name: String, sort: Sort) -> Variable {
+    Variable { kind, name, sort }
+}
+
+fn symbol(name: String, sorts: Vec<Node>) -> Result<Symbol, Error> {
+    Ok(Symbol {
+        name,
+        sort_parameters: sorts
+            .into_iter()
+            .map(build_sort)
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn pattern_head(node: Node) -> Result<(PatternHead, Vec<Node>), Error> {
+    let mut fields = Fields::new(node)?;
+    let tag = fields.string("tag")?;
+    let mut children = Vec::new();
+    let head = match tag.as_str() {
+        "String" => {
+            let value = fields.string("value")?;
+            require_lexical("string literal", &value, lexical::latin1_problems(&value))?;
+            PatternHead::String(value)
+        }
+        "EVar" | "SVar" => {
+            let kind = if tag == "EVar" {
+                VariableKind::Element
+            } else {
+                VariableKind::Set
+            };
+            let name = fields.string("name")?;
+            let problems = if kind == VariableKind::Element {
+                lexical::identifier_problems(&name)
+            } else {
+                lexical::set_variable_problems(&name)
+            };
+            require_lexical(
+                if kind == VariableKind::Element {
+                    "element variable"
+                } else {
+                    "set variable"
+                },
+                &name,
+                problems,
+            )?;
+            PatternHead::Variable(variable(kind, name, build_sort(fields.required("sort")?)?))
+        }
+        "App" => {
+            let name = fields.string("name")?;
+            require_lexical("app symbol", &name, lexical::symbol_problems(&name))?;
+            let head = PatternHead::Application(symbol(name, fields.array("sorts")?)?);
+            children = fields.array("args")?;
+            head
+        }
+        "Top" => PatternHead::Top(build_sort(fields.required("sort")?)?),
+        "Bottom" => PatternHead::Bottom(build_sort(fields.required("sort")?)?),
+        "And" | "Or" => {
+            let sort = build_sort(fields.required("sort")?)?;
+            children = if let Some(patterns) = fields.take("patterns") {
+                if fields.take("first").is_some() {
+                    return Err(Error::Shape("unknown field `first`".into()));
+                }
+                if fields.take("second").is_some() {
+                    return Err(Error::Shape("unknown field `second`".into()));
+                }
+                expect_array(patterns, "patterns")?
+            } else {
+                vec![fields.required("first")?, fields.required("second")?]
+            };
+            if tag == "And" {
+                PatternHead::And(sort)
+            } else {
+                PatternHead::Or(sort)
             }
-            Self::EVar { name, .. } => {
-                require_lexical("element variable", name, lexical::identifier_problems(name))
+        }
+        "Not" => {
+            let head = PatternHead::Not(build_sort(fields.required("sort")?)?);
+            children.push(fields.required("arg")?);
+            head
+        }
+        "Next" => {
+            let head = PatternHead::Next(build_sort(fields.required("sort")?)?);
+            children.push(fields.required("dest")?);
+            head
+        }
+        "Implies" | "Iff" => {
+            let sort = build_sort(fields.required("sort")?)?;
+            children.push(fields.required("first")?);
+            children.push(fields.required("second")?);
+            if tag == "Implies" {
+                PatternHead::Implies(sort)
+            } else {
+                PatternHead::Iff(sort)
             }
-            Self::SVar { name, .. } => {
-                require_lexical("set variable", name, lexical::set_variable_problems(name))
-            }
-            Self::App { name, .. } => {
-                require_lexical("app symbol", name, lexical::symbol_problems(name))
-            }
-            Self::Exists { var, .. } | Self::Forall { var, .. } => require_lexical(
+        }
+        "Rewrites" => {
+            let head = PatternHead::Rewrites(build_sort(fields.required("sort")?)?);
+            children.push(fields.required("source")?);
+            children.push(fields.required("dest")?);
+            head
+        }
+        "Exists" | "Forall" => {
+            let sort = build_sort(fields.required("sort")?)?;
+            let name = fields.string("var")?;
+            require_lexical(
                 "quantifier variable",
-                var,
-                lexical::identifier_problems(var),
-            ),
-            Self::Mu { var, .. } | Self::Nu { var, .. } => require_lexical(
+                &name,
+                lexical::identifier_problems(&name),
+            )?;
+            let variable = variable(
+                VariableKind::Element,
+                name,
+                build_sort(fields.required("varSort")?)?,
+            );
+            children.push(fields.required("arg")?);
+            if tag == "Exists" {
+                PatternHead::Exists(sort, variable)
+            } else {
+                PatternHead::Forall(sort, variable)
+            }
+        }
+        "Mu" | "Nu" => {
+            let name = fields.string("var")?;
+            require_lexical(
                 "fixpoint expression variable",
-                var,
-                lexical::set_variable_problems(var),
-            ),
-            Self::DV { value, .. } => require_lexical(
+                &name,
+                lexical::set_variable_problems(&name),
+            )?;
+            let variable = variable(
+                VariableKind::Set,
+                name,
+                build_sort(fields.required("varSort")?)?,
+            );
+            children.push(fields.required("arg")?);
+            if tag == "Mu" {
+                PatternHead::Mu(variable)
+            } else {
+                PatternHead::Nu(variable)
+            }
+        }
+        "Ceil" | "Floor" => {
+            let operand = build_sort(fields.required("argSort")?)?;
+            let result = build_sort(fields.required("sort")?)?;
+            children.push(fields.required("arg")?);
+            if tag == "Ceil" {
+                PatternHead::Ceil(operand, result)
+            } else {
+                PatternHead::Floor(operand, result)
+            }
+        }
+        "Equals" | "In" => {
+            let operand = build_sort(fields.required("argSort")?)?;
+            let result = build_sort(fields.required("sort")?)?;
+            children.push(fields.required("first")?);
+            children.push(fields.required("second")?);
+            if tag == "Equals" {
+                PatternHead::Equals(operand, result)
+            } else {
+                PatternHead::In(operand, result)
+            }
+        }
+        "DV" => {
+            let sort = build_sort(fields.required("sort")?)?;
+            let value = fields.string("value")?;
+            require_lexical(
                 "domain value string",
-                value,
-                lexical::latin1_problems(value),
-            ),
-            Self::LeftAssoc { symbol, .. } | Self::RightAssoc { symbol, .. } => require_lexical(
-                "left-assoc symbol",
-                symbol,
-                lexical::symbol_problems(symbol),
-            ),
-            _ => Ok(()),
+                &value,
+                lexical::latin1_problems(&value),
+            )?;
+            PatternHead::DomainValue(sort, value)
+        }
+        "MultiOr" => {
+            let associativity = match fields.string("assoc")?.as_str() {
+                "Left" => LeftRight::Left,
+                "Right" => LeftRight::Right,
+                other => {
+                    return Err(Error::Shape(format!(
+                        "unknown variant `{other}`, expected `Left` or `Right`"
+                    )));
+                }
+            };
+            let head = PatternHead::MultiOr(associativity, build_sort(fields.required("sort")?)?);
+            children = fields.array("argss")?;
+            head
+        }
+        "LeftAssoc" | "RightAssoc" => {
+            let name = fields.string("symbol")?;
+            require_lexical("left-assoc symbol", &name, lexical::symbol_problems(&name))?;
+            let associativity = if tag == "LeftAssoc" {
+                Associativity::Left
+            } else {
+                Associativity::Right
+            };
+            let head =
+                PatternHead::Associative(associativity, symbol(name, fields.array("sorts")?)?);
+            children = fields.array("argss")?;
+            head
+        }
+        _ => {
+            return Err(Error::Shape(format!(
+                "unknown variant `{tag}`, expected a KORE pattern tag"
+            )));
+        }
+    };
+    fields.finish()?;
+    Ok((head, children))
+}
+
+fn build_pattern(root: Node) -> Result<Pattern, Error> {
+    struct Frame {
+        head: PatternHead,
+        remaining: std::vec::IntoIter<Node>,
+        built: Vec<Pattern>,
+    }
+
+    impl Frame {
+        fn new(node: Node) -> Result<Self, Error> {
+            let (head, children) = pattern_head(node)?;
+            Ok(Self {
+                head,
+                remaining: children.into_iter(),
+                built: Vec::new(),
+            })
+        }
+
+        fn finish(self) -> Result<Pattern, Error> {
+            let mut children = self.built.into_iter();
+            let mut child = || {
+                Box::new(
+                    children
+                        .next()
+                        .expect("the JSON frame supplies every pattern child"),
+                )
+            };
+            Ok(match self.head {
+                PatternHead::String(value) => Pattern::String(value),
+                PatternHead::Variable(variable) => Pattern::Variable(variable),
+                PatternHead::Application(symbol) => Pattern::Application {
+                    symbol,
+                    arguments: children.collect(),
+                },
+                PatternHead::Top(sort) => Pattern::Top { sort },
+                PatternHead::Bottom(sort) => Pattern::Bottom { sort },
+                PatternHead::And(sort) => Pattern::And {
+                    sort,
+                    arguments: children.collect(),
+                },
+                PatternHead::Or(sort) => Pattern::Or {
+                    sort,
+                    arguments: children.collect(),
+                },
+                PatternHead::Not(sort) => Pattern::Not {
+                    sort,
+                    argument: child(),
+                },
+                PatternHead::Next(sort) => Pattern::Next {
+                    sort,
+                    argument: child(),
+                },
+                PatternHead::Implies(sort) => Pattern::Implies {
+                    sort,
+                    left: child(),
+                    right: child(),
+                },
+                PatternHead::Iff(sort) => Pattern::Iff {
+                    sort,
+                    left: child(),
+                    right: child(),
+                },
+                PatternHead::Rewrites(sort) => Pattern::Rewrites {
+                    sort,
+                    left: child(),
+                    right: child(),
+                },
+                PatternHead::Exists(sort, variable) => Pattern::Exists {
+                    sort,
+                    variable,
+                    body: child(),
+                },
+                PatternHead::Forall(sort, variable) => Pattern::Forall {
+                    sort,
+                    variable,
+                    body: child(),
+                },
+                PatternHead::Mu(variable) => Pattern::Mu {
+                    variable,
+                    body: child(),
+                },
+                PatternHead::Nu(variable) => Pattern::Nu {
+                    variable,
+                    body: child(),
+                },
+                PatternHead::Ceil(operand_sort, result_sort) => Pattern::Ceil {
+                    operand_sort,
+                    result_sort,
+                    argument: child(),
+                },
+                PatternHead::Floor(operand_sort, result_sort) => Pattern::Floor {
+                    operand_sort,
+                    result_sort,
+                    argument: child(),
+                },
+                PatternHead::Equals(operand_sort, result_sort) => Pattern::Equals {
+                    operand_sort,
+                    result_sort,
+                    left: child(),
+                    right: child(),
+                },
+                PatternHead::In(operand_sort, result_sort) => Pattern::In {
+                    operand_sort,
+                    result_sort,
+                    left: child(),
+                    right: child(),
+                },
+                PatternHead::DomainValue(sort, value) => Pattern::DomainValue { sort, value },
+                PatternHead::MultiOr(associativity, sort) => {
+                    let mut arguments = children;
+                    let first = arguments.next().ok_or(Error::EmptyMultiOr)?;
+                    match associativity {
+                        LeftRight::Left => arguments.fold(first, |left, right| Pattern::Or {
+                            sort: sort.clone(),
+                            arguments: vec![left, right],
+                        }),
+                        LeftRight::Right => {
+                            let mut arguments = std::iter::once(first).chain(arguments).rev();
+                            let last = arguments.next().expect("MultiOr has at least one argument");
+                            arguments.fold(last, |right, left| Pattern::Or {
+                                sort: sort.clone(),
+                                arguments: vec![left, right],
+                            })
+                        }
+                    }
+                }
+                PatternHead::Associative(associativity, symbol) => {
+                    let arguments: Vec<_> = children.collect();
+                    if arguments.is_empty() {
+                        return Err(Error::EmptyAssociativeApplication);
+                    }
+                    Pattern::AssociativeApplication {
+                        associativity,
+                        symbol,
+                        arguments,
+                    }
+                }
+            })
+        }
+    }
+
+    let mut stack = vec![Frame::new(root)?];
+    loop {
+        if let Some(child) = stack.last_mut().and_then(|frame| frame.remaining.next()) {
+            stack.push(Frame::new(child)?);
+            continue;
+        }
+        let pattern = stack
+            .pop()
+            .expect("the root pattern frame remains")
+            .finish()?;
+        if let Some(parent) = stack.last_mut() {
+            parent.built.push(pattern);
+        } else {
+            return Ok(pattern);
         }
     }
 }
 
-impl From<&Pattern> for JsonPattern {
-    fn from(pattern: &Pattern) -> Self {
-        fn sorts(sort: &Sort) -> JsonSort {
-            sort.into()
-        }
-        fn pat(pattern: &Pattern) -> Box<JsonPattern> {
-            Box::new(pattern.into())
-        }
+fn array_nodes<'a>(values: impl IntoIterator<Item = &'a Sort>) -> Node {
+    Node::Array(values.into_iter().map(sort_node).collect())
+}
+
+fn pattern_node(pattern: &Pattern) -> Node {
+    super::walk::rebuild(pattern, |pattern, children| {
+        let mut children = children.into_iter();
+        let mut child = || {
+            children
+                .next()
+                .expect("the traversal supplies every pattern child")
+        };
         match pattern {
-            Pattern::String(value) => Self::String {
-                value: value.clone(),
-            },
-            Pattern::Variable(variable) => match variable.kind {
-                VariableKind::Element => Self::EVar {
-                    name: variable.name.clone(),
-                    sort: sorts(&variable.sort),
-                },
-                VariableKind::Set => Self::SVar {
-                    name: variable.name.clone(),
-                    sort: sorts(&variable.sort),
-                },
-            },
-            Pattern::Application { symbol, arguments } => Self::App {
-                name: symbol.name.clone(),
-                sorts: symbol.sort_parameters.iter().map(Into::into).collect(),
-                args: arguments.iter().map(Into::into).collect(),
-            },
-            Pattern::Top { sort } => Self::Top { sort: sorts(sort) },
-            Pattern::Bottom { sort } => Self::Bottom { sort: sorts(sort) },
-            Pattern::And { sort, arguments } => Self::And {
-                sort: sorts(sort),
-                patterns: Some(arguments.iter().map(Into::into).collect()),
-                first: None,
-                second: None,
-            },
-            Pattern::Or { sort, arguments } => Self::Or {
-                sort: sorts(sort),
-                patterns: Some(arguments.iter().map(Into::into).collect()),
-                first: None,
-                second: None,
-            },
-            Pattern::Not { sort, argument } => Self::Not {
-                sort: sorts(sort),
-                arg: pat(argument),
-            },
-            Pattern::Next { sort, argument } => Self::Next {
-                sort: sorts(sort),
-                dest: pat(argument),
-            },
-            Pattern::Implies { sort, left, right } => Self::Implies {
-                sort: sorts(sort),
-                first: pat(left),
-                second: pat(right),
-            },
-            Pattern::Iff { sort, left, right } => Self::Iff {
-                sort: sorts(sort),
-                first: pat(left),
-                second: pat(right),
-            },
-            Pattern::Rewrites { sort, left, right } => Self::Rewrites {
-                sort: sorts(sort),
-                source: pat(left),
-                dest: pat(right),
-            },
-            Pattern::Exists {
-                sort,
-                variable,
-                body,
-            } => Self::Exists {
-                sort: sorts(sort),
-                var: variable.name.clone(),
-                var_sort: sorts(&variable.sort),
-                arg: pat(body),
-            },
-            Pattern::Forall {
-                sort,
-                variable,
-                body,
-            } => Self::Forall {
-                sort: sorts(sort),
-                var: variable.name.clone(),
-                var_sort: sorts(&variable.sort),
-                arg: pat(body),
-            },
-            Pattern::Mu { variable, body } => Self::Mu {
-                var: variable.name.clone(),
-                var_sort: sorts(&variable.sort),
-                arg: pat(body),
-            },
-            Pattern::Nu { variable, body } => Self::Nu {
-                var: variable.name.clone(),
-                var_sort: sorts(&variable.sort),
-                arg: pat(body),
-            },
+            Pattern::String(value) => Node::Object(vec![
+                ("tag".into(), Node::String("String".into())),
+                ("value".into(), Node::String(value.clone())),
+            ]),
+            Pattern::Variable(variable) => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if variable.kind == VariableKind::Element {
+                            "EVar"
+                        } else {
+                            "SVar"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("name".into(), Node::String(variable.name.clone())),
+                ("sort".into(), sort_node(&variable.sort)),
+            ]),
+            Pattern::Application { symbol, .. } => Node::Object(vec![
+                ("tag".into(), Node::String("App".into())),
+                ("name".into(), Node::String(symbol.name.clone())),
+                ("sorts".into(), array_nodes(symbol.sort_parameters.iter())),
+                ("args".into(), Node::Array(children.collect())),
+            ]),
+            Pattern::Top { sort } | Pattern::Bottom { sort } => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if matches!(pattern, Pattern::Top { .. }) {
+                            "Top"
+                        } else {
+                            "Bottom"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("sort".into(), sort_node(sort)),
+            ]),
+            Pattern::And { sort, .. } | Pattern::Or { sort, .. } => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if matches!(pattern, Pattern::And { .. }) {
+                            "And"
+                        } else {
+                            "Or"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("sort".into(), sort_node(sort)),
+                ("patterns".into(), Node::Array(children.collect())),
+            ]),
+            Pattern::Not { sort, .. } | Pattern::Next { sort, .. } => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if matches!(pattern, Pattern::Not { .. }) {
+                            "Not"
+                        } else {
+                            "Next"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("sort".into(), sort_node(sort)),
+                (
+                    if matches!(pattern, Pattern::Not { .. }) {
+                        "arg"
+                    } else {
+                        "dest"
+                    }
+                    .into(),
+                    child(),
+                ),
+            ]),
+            Pattern::Implies { sort, .. } | Pattern::Iff { sort, .. } => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if matches!(pattern, Pattern::Implies { .. }) {
+                            "Implies"
+                        } else {
+                            "Iff"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("sort".into(), sort_node(sort)),
+                ("first".into(), child()),
+                ("second".into(), child()),
+            ]),
+            Pattern::Rewrites { sort, .. } => Node::Object(vec![
+                ("tag".into(), Node::String("Rewrites".into())),
+                ("sort".into(), sort_node(sort)),
+                ("source".into(), child()),
+                ("dest".into(), child()),
+            ]),
+            Pattern::Exists { sort, variable, .. } | Pattern::Forall { sort, variable, .. } => {
+                Node::Object(vec![
+                    (
+                        "tag".into(),
+                        Node::String(
+                            if matches!(pattern, Pattern::Exists { .. }) {
+                                "Exists"
+                            } else {
+                                "Forall"
+                            }
+                            .into(),
+                        ),
+                    ),
+                    ("sort".into(), sort_node(sort)),
+                    ("var".into(), Node::String(variable.name.clone())),
+                    ("varSort".into(), sort_node(&variable.sort)),
+                    ("arg".into(), child()),
+                ])
+            }
+            Pattern::Mu { variable, .. } | Pattern::Nu { variable, .. } => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if matches!(pattern, Pattern::Mu { .. }) {
+                            "Mu"
+                        } else {
+                            "Nu"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("var".into(), Node::String(variable.name.clone())),
+                ("varSort".into(), sort_node(&variable.sort)),
+                ("arg".into(), child()),
+            ]),
             Pattern::Ceil {
                 operand_sort,
                 result_sort,
-                argument,
-            } => Self::Ceil {
-                arg_sort: sorts(operand_sort),
-                sort: sorts(result_sort),
-                arg: pat(argument),
-            },
-            Pattern::Floor {
+                ..
+            }
+            | Pattern::Floor {
                 operand_sort,
                 result_sort,
-                argument,
-            } => Self::Floor {
-                arg_sort: sorts(operand_sort),
-                sort: sorts(result_sort),
-                arg: pat(argument),
-            },
+                ..
+            } => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if matches!(pattern, Pattern::Ceil { .. }) {
+                            "Ceil"
+                        } else {
+                            "Floor"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("argSort".into(), sort_node(operand_sort)),
+                ("sort".into(), sort_node(result_sort)),
+                ("arg".into(), child()),
+            ]),
             Pattern::Equals {
                 operand_sort,
                 result_sort,
-                left,
-                right,
-            } => Self::Equals {
-                arg_sort: sorts(operand_sort),
-                sort: sorts(result_sort),
-                first: pat(left),
-                second: pat(right),
-            },
-            Pattern::In {
+                ..
+            }
+            | Pattern::In {
                 operand_sort,
                 result_sort,
-                left,
-                right,
-            } => Self::In {
-                arg_sort: sorts(operand_sort),
-                sort: sorts(result_sort),
-                first: pat(left),
-                second: pat(right),
-            },
-            Pattern::DomainValue { sort, value } => Self::DV {
-                sort: sorts(sort),
-                value: value.clone(),
-            },
+                ..
+            } => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if matches!(pattern, Pattern::Equals { .. }) {
+                            "Equals"
+                        } else {
+                            "In"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("argSort".into(), sort_node(operand_sort)),
+                ("sort".into(), sort_node(result_sort)),
+                ("first".into(), child()),
+                ("second".into(), child()),
+            ]),
+            Pattern::DomainValue { sort, value } => Node::Object(vec![
+                ("tag".into(), Node::String("DV".into())),
+                ("sort".into(), sort_node(sort)),
+                ("value".into(), Node::String(value.clone())),
+            ]),
             Pattern::AssociativeApplication {
                 associativity,
                 symbol,
-                arguments,
-            } => {
-                let fields = (
-                    symbol.name.clone(),
-                    symbol.sort_parameters.iter().map(Into::into).collect(),
-                    arguments.iter().map(Into::into).collect(),
-                );
-                match associativity {
-                    Associativity::Left => Self::LeftAssoc {
-                        symbol: fields.0,
-                        sorts: fields.1,
-                        argss: fields.2,
-                    },
-                    Associativity::Right => Self::RightAssoc {
-                        symbol: fields.0,
-                        sorts: fields.1,
-                        argss: fields.2,
-                    },
-                }
-            }
-        }
-    }
-}
-
-impl TryFrom<JsonPattern> for Pattern {
-    type Error = Error;
-
-    fn try_from(pattern: JsonPattern) -> Result<Self, Error> {
-        pattern.check_lexical()?;
-        match pattern {
-            JsonPattern::And {
-                sort,
-                patterns: variadic,
-                first,
-                second,
-            } => Ok(Self::And {
-                sort: sort.into(),
-                arguments: patterns(json_arguments(variadic, first, second)?)?,
-            }),
-            JsonPattern::Or {
-                sort,
-                patterns: variadic,
-                first,
-                second,
-            } => Ok(Self::Or {
-                sort: sort.into(),
-                arguments: patterns(json_arguments(variadic, first, second)?)?,
-            }),
-            JsonPattern::MultiOr { assoc, sort, argss } => {
-                multi_or(assoc, sort.into(), patterns(argss)?)
-            }
-            JsonPattern::Not { sort, arg } => Ok(Self::Not {
-                sort: sort.into(),
-                argument: boxed(*arg)?,
-            }),
-            pattern => convert_regular_pattern(pattern),
-        }
-    }
-}
-
-fn variable(kind: VariableKind, name: String, sort: JsonSort) -> Variable {
-    Variable {
-        kind,
-        name,
-        sort: sort.into(),
-    }
-}
-
-fn boxed(pattern: JsonPattern) -> Result<Box<Pattern>, Error> {
-    Ok(Box::new(pattern.try_into()?))
-}
-
-fn patterns(values: Vec<JsonPattern>) -> Result<Vec<Pattern>, Error> {
-    values.into_iter().map(TryInto::try_into).collect()
-}
-
-fn symbol(name: String, sorts: Vec<JsonSort>) -> Symbol {
-    Symbol {
-        name,
-        sort_parameters: sorts.into_iter().map(Into::into).collect(),
-    }
-}
-
-fn convert_regular_pattern(pattern: JsonPattern) -> Result<Pattern, Error> {
-    Ok(match pattern {
-        JsonPattern::String { value } => Pattern::String(value),
-        JsonPattern::EVar { name, sort } => {
-            Pattern::Variable(variable(VariableKind::Element, name, sort))
-        }
-        JsonPattern::SVar { name, sort } => {
-            Pattern::Variable(variable(VariableKind::Set, name, sort))
-        }
-        JsonPattern::App { name, sorts, args } => Pattern::Application {
-            symbol: symbol(name, sorts),
-            arguments: patterns(args)?,
-        },
-        JsonPattern::Top { sort } => Pattern::Top { sort: sort.into() },
-        JsonPattern::Bottom { sort } => Pattern::Bottom { sort: sort.into() },
-        JsonPattern::Next { sort, dest } => Pattern::Next {
-            sort: sort.into(),
-            argument: boxed(*dest)?,
-        },
-        JsonPattern::Implies {
-            sort,
-            first,
-            second,
-        } => Pattern::Implies {
-            sort: sort.into(),
-            left: boxed(*first)?,
-            right: boxed(*second)?,
-        },
-        JsonPattern::Iff {
-            sort,
-            first,
-            second,
-        } => Pattern::Iff {
-            sort: sort.into(),
-            left: boxed(*first)?,
-            right: boxed(*second)?,
-        },
-        JsonPattern::Rewrites { sort, source, dest } => Pattern::Rewrites {
-            sort: sort.into(),
-            left: boxed(*source)?,
-            right: boxed(*dest)?,
-        },
-        JsonPattern::Exists {
-            sort,
-            var,
-            var_sort,
-            arg,
-        } => Pattern::Exists {
-            sort: sort.into(),
-            variable: variable(VariableKind::Element, var, var_sort),
-            body: boxed(*arg)?,
-        },
-        JsonPattern::Forall {
-            sort,
-            var,
-            var_sort,
-            arg,
-        } => Pattern::Forall {
-            sort: sort.into(),
-            variable: variable(VariableKind::Element, var, var_sort),
-            body: boxed(*arg)?,
-        },
-        JsonPattern::Mu { var, var_sort, arg } => Pattern::Mu {
-            variable: variable(VariableKind::Set, var, var_sort),
-            body: boxed(*arg)?,
-        },
-        JsonPattern::Nu { var, var_sort, arg } => Pattern::Nu {
-            variable: variable(VariableKind::Set, var, var_sort),
-            body: boxed(*arg)?,
-        },
-        JsonPattern::Ceil {
-            arg_sort,
-            sort,
-            arg,
-        } => Pattern::Ceil {
-            operand_sort: arg_sort.into(),
-            result_sort: sort.into(),
-            argument: boxed(*arg)?,
-        },
-        JsonPattern::Floor {
-            arg_sort,
-            sort,
-            arg,
-        } => Pattern::Floor {
-            operand_sort: arg_sort.into(),
-            result_sort: sort.into(),
-            argument: boxed(*arg)?,
-        },
-        JsonPattern::Equals {
-            arg_sort,
-            sort,
-            first,
-            second,
-        } => Pattern::Equals {
-            operand_sort: arg_sort.into(),
-            result_sort: sort.into(),
-            left: boxed(*first)?,
-            right: boxed(*second)?,
-        },
-        JsonPattern::In {
-            arg_sort,
-            sort,
-            first,
-            second,
-        } => Pattern::In {
-            operand_sort: arg_sort.into(),
-            result_sort: sort.into(),
-            left: boxed(*first)?,
-            right: boxed(*second)?,
-        },
-        JsonPattern::DV { sort, value } => Pattern::DomainValue {
-            sort: sort.into(),
-            value,
-        },
-        JsonPattern::LeftAssoc {
-            symbol: name,
-            sorts,
-            argss,
-        } => associative(Associativity::Left, symbol(name, sorts), patterns(argss)?)?,
-        JsonPattern::RightAssoc {
-            symbol: name,
-            sorts,
-            argss,
-        } => associative(Associativity::Right, symbol(name, sorts), patterns(argss)?)?,
-        JsonPattern::And { .. }
-        | JsonPattern::Or { .. }
-        | JsonPattern::Not { .. }
-        | JsonPattern::MultiOr { .. } => {
-            unreachable!("special JSON pattern handled before regular conversion")
+                ..
+            } => Node::Object(vec![
+                (
+                    "tag".into(),
+                    Node::String(
+                        if *associativity == Associativity::Left {
+                            "LeftAssoc"
+                        } else {
+                            "RightAssoc"
+                        }
+                        .into(),
+                    ),
+                ),
+                ("symbol".into(), Node::String(symbol.name.clone())),
+                ("sorts".into(), array_nodes(symbol.sort_parameters.iter())),
+                ("argss".into(), Node::Array(children.collect())),
+            ]),
         }
     })
-}
-
-fn json_arguments(
-    patterns: Option<Vec<JsonPattern>>,
-    first: Option<Box<JsonPattern>>,
-    second: Option<Box<JsonPattern>>,
-) -> Result<Vec<JsonPattern>, Error> {
-    if let Some(patterns) = patterns {
-        if first.is_some() {
-            return Err(Error::Shape("unknown field `first`".into()));
-        }
-        if second.is_some() {
-            return Err(Error::Shape("unknown field `second`".into()));
-        }
-        return Ok(patterns);
-    }
-
-    let first = first.ok_or_else(|| Error::Shape("missing field `first`".into()))?;
-    let second = second.ok_or_else(|| Error::Shape("missing field `second`".into()))?;
-    Ok(vec![*first, *second])
-}
-
-fn multi_or(
-    associativity: LeftRight,
-    sort: Sort,
-    arguments: Vec<Pattern>,
-) -> Result<Pattern, Error> {
-    let mut arguments = arguments.into_iter();
-    let first = arguments.next().ok_or(Error::EmptyMultiOr)?;
-
-    Ok(match associativity {
-        LeftRight::Left => arguments.fold(first, |left, right| Pattern::Or {
-            sort: sort.clone(),
-            arguments: vec![left, right],
-        }),
-        LeftRight::Right => {
-            let mut arguments = std::iter::once(first).chain(arguments).rev();
-            let last = arguments.next().expect("MultiOr has at least one argument");
-            arguments.fold(last, |right, left| Pattern::Or {
-                sort: sort.clone(),
-                arguments: vec![left, right],
-            })
-        }
-    })
-}
-
-fn associative(
-    associativity: Associativity,
-    symbol: Symbol,
-    arguments: Vec<Pattern>,
-) -> Result<Pattern, Error> {
-    if arguments.is_empty() {
-        Err(Error::EmptyAssociativeApplication)
-    } else {
-        Ok(Pattern::AssociativeApplication {
-            associativity,
-            symbol,
-            arguments,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -839,7 +1020,7 @@ mod tests {
     }
 
     #[test]
-    fn explicitly_decodes_deep_kore_json_without_the_default_limit() {
+    fn both_json_entry_points_decode_without_a_depth_limit() {
         let sort = r#"{"tag":"SortApp","name":"SortK","args":[]}"#;
         let mut term = format!(r#"{{"tag":"Top","sort":{sort}}}"#);
         for _ in 0..140 {
@@ -847,12 +1028,15 @@ mod tests {
         }
         let source = format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#);
 
-        assert!(from_str(&source).is_err());
-        assert!(from_str_unbounded(&source).is_ok());
+        assert!(from_str(&source).is_ok());
+        #[allow(deprecated)]
+        {
+            assert!(from_str_unbounded(&source).is_ok());
+        }
     }
 
     #[test]
-    fn converts_deep_kore_patterns_to_json_values_without_the_default_limit() {
+    fn converts_deep_kore_patterns_to_json_values_without_a_depth_limit() {
         let sort = Sort::Application {
             name: "SortK".into(),
             arguments: Vec::new(),

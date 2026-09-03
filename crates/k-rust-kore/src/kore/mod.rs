@@ -9,6 +9,7 @@ pub mod normalize;
 pub mod parser;
 pub mod printer;
 pub mod string;
+mod walk;
 
 #[cfg(test)]
 mod deep;

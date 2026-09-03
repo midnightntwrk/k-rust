@@ -86,7 +86,7 @@ pub enum Associativity {
     Right,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub enum Pattern {
     String(String),
     Variable(Variable),
@@ -182,6 +182,29 @@ pub enum Pattern {
     },
 }
 
+impl Clone for Pattern {
+    fn clone(&self) -> Self {
+        super::walk::rebuild(self, super::walk::clone_node)
+    }
+}
+
+impl PartialEq for Pattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for Pattern {}
+
+impl Drop for Pattern {
+    fn drop(&mut self) {
+        let mut work = super::walk::take_children(self);
+        while let Some(mut child) = work.pop() {
+            work.extend(super::walk::take_children(&mut child));
+        }
+    }
+}
+
 impl PartialOrd for Pattern {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -191,222 +214,121 @@ impl PartialOrd for Pattern {
 impl Ord for Pattern {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use Pattern::*;
-        let rank = |pattern: &Pattern| match pattern {
-            Variable(_) => 0,
-            Application { .. } => 1,
-            Top { .. } => 2,
-            Bottom { .. } => 3,
-            And { .. } => 4,
-            Or { .. } => 5,
-            Not { .. } => 6,
-            Next { .. } => 7,
-            Implies { .. } => 8,
-            Iff { .. } => 9,
-            Exists { .. } => 10,
-            Forall { .. } => 11,
-            Mu { .. } => 12,
-            Nu { .. } => 13,
-            Ceil { .. } => 14,
-            Floor { .. } => 15,
-            Rewrites { .. } => 16,
-            Equals { .. } => 17,
-            In { .. } => 18,
-            DomainValue { .. } => 19,
-            String(_) => 20,
-            AssociativeApplication { .. } => 21,
-        };
-        rank(self)
-            .cmp(&rank(other))
-            .then_with(|| match (self, other) {
+        use std::cmp::Ordering;
+        fn rank(pattern: &Pattern) -> u8 {
+            match pattern {
+                Variable(_) => 0,
+                Application { .. } => 1,
+                Top { .. } => 2,
+                Bottom { .. } => 3,
+                And { .. } => 4,
+                Or { .. } => 5,
+                Not { .. } => 6,
+                Next { .. } => 7,
+                Implies { .. } => 8,
+                Iff { .. } => 9,
+                Exists { .. } => 10,
+                Forall { .. } => 11,
+                Mu { .. } => 12,
+                Nu { .. } => 13,
+                Ceil { .. } => 14,
+                Floor { .. } => 15,
+                Rewrites { .. } => 16,
+                Equals { .. } => 17,
+                In { .. } => 18,
+                DomainValue { .. } => 19,
+                String(_) => 20,
+                AssociativeApplication { .. } => 21,
+            }
+        }
+
+        fn scalars(left: &Pattern, right: &Pattern) -> Ordering {
+            match (left, right) {
                 (Variable(left), Variable(right)) => left.cmp(right),
-                (
-                    Application {
-                        symbol: ls,
-                        arguments: la,
-                    },
-                    Application {
-                        symbol: rs,
-                        arguments: ra,
-                    },
-                ) => ls.cmp(rs).then_with(|| la.cmp(ra)),
+                (Application { symbol: ls, .. }, Application { symbol: rs, .. }) => ls.cmp(rs),
                 (Top { sort: left }, Top { sort: right })
                 | (Bottom { sort: left }, Bottom { sort: right }) => left.cmp(right),
-                (
-                    And {
-                        sort: ls,
-                        arguments: la,
-                    },
-                    And {
-                        sort: rs,
-                        arguments: ra,
-                    },
-                )
-                | (
-                    Or {
-                        sort: ls,
-                        arguments: la,
-                    },
-                    Or {
-                        sort: rs,
-                        arguments: ra,
-                    },
-                ) => ls.cmp(rs).then_with(|| la.cmp(ra)),
-                (
-                    Not {
-                        sort: ls,
-                        argument: la,
-                    },
-                    Not {
-                        sort: rs,
-                        argument: ra,
-                    },
-                )
-                | (
-                    Next {
-                        sort: ls,
-                        argument: la,
-                    },
-                    Next {
-                        sort: rs,
-                        argument: ra,
-                    },
-                ) => ls.cmp(rs).then_with(|| la.cmp(ra)),
-                (
-                    Implies {
-                        sort: ls,
-                        left: ll,
-                        right: lr,
-                    },
-                    Implies {
-                        sort: rs,
-                        left: rl,
-                        right: rr,
-                    },
-                )
-                | (
-                    Iff {
-                        sort: ls,
-                        left: ll,
-                        right: lr,
-                    },
-                    Iff {
-                        sort: rs,
-                        left: rl,
-                        right: rr,
-                    },
-                )
-                | (
-                    Rewrites {
-                        sort: ls,
-                        left: ll,
-                        right: lr,
-                    },
-                    Rewrites {
-                        sort: rs,
-                        left: rl,
-                        right: rr,
-                    },
-                ) => ls.cmp(rs).then_with(|| ll.cmp(rl)).then_with(|| lr.cmp(rr)),
+                (And { sort: ls, .. }, And { sort: rs, .. })
+                | (Or { sort: ls, .. }, Or { sort: rs, .. }) => ls.cmp(rs),
+                (Not { sort: ls, .. }, Not { sort: rs, .. })
+                | (Next { sort: ls, .. }, Next { sort: rs, .. }) => ls.cmp(rs),
+                (Implies { sort: ls, .. }, Implies { sort: rs, .. })
+                | (Iff { sort: ls, .. }, Iff { sort: rs, .. })
+                | (Rewrites { sort: ls, .. }, Rewrites { sort: rs, .. }) => ls.cmp(rs),
                 (
                     Exists {
                         sort: ls,
                         variable: lv,
-                        body: lb,
+                        ..
                     },
                     Exists {
                         sort: rs,
                         variable: rv,
-                        body: rb,
+                        ..
                     },
                 )
                 | (
                     Forall {
                         sort: ls,
                         variable: lv,
-                        body: lb,
+                        ..
                     },
                     Forall {
                         sort: rs,
                         variable: rv,
-                        body: rb,
+                        ..
                     },
-                ) => ls.cmp(rs).then_with(|| lv.cmp(rv)).then_with(|| lb.cmp(rb)),
-                (
-                    Mu {
-                        variable: lv,
-                        body: lb,
-                    },
-                    Mu {
-                        variable: rv,
-                        body: rb,
-                    },
-                )
-                | (
-                    Nu {
-                        variable: lv,
-                        body: lb,
-                    },
-                    Nu {
-                        variable: rv,
-                        body: rb,
-                    },
-                ) => lv.cmp(rv).then_with(|| lb.cmp(rb)),
+                ) => ls.cmp(rs).then_with(|| lv.cmp(rv)),
+                (Mu { variable: lv, .. }, Mu { variable: rv, .. })
+                | (Nu { variable: lv, .. }, Nu { variable: rv, .. }) => lv.cmp(rv),
                 (
                     Ceil {
                         operand_sort: lo,
                         result_sort: lr,
-                        argument: la,
+                        ..
                     },
                     Ceil {
                         operand_sort: ro,
                         result_sort: rr,
-                        argument: ra,
+                        ..
                     },
                 )
                 | (
                     Floor {
                         operand_sort: lo,
                         result_sort: lr,
-                        argument: la,
+                        ..
                     },
                     Floor {
                         operand_sort: ro,
                         result_sort: rr,
-                        argument: ra,
+                        ..
                     },
-                ) => lo.cmp(ro).then_with(|| lr.cmp(rr)).then_with(|| la.cmp(ra)),
+                ) => lo.cmp(ro).then_with(|| lr.cmp(rr)),
                 (
                     Equals {
                         operand_sort: lo,
                         result_sort: lr,
-                        left: ll,
-                        right: lx,
+                        ..
                     },
                     Equals {
                         operand_sort: ro,
                         result_sort: rr,
-                        left: rl,
-                        right: rx,
+                        ..
                     },
                 )
                 | (
                     In {
                         operand_sort: lo,
                         result_sort: lr,
-                        left: ll,
-                        right: lx,
+                        ..
                     },
                     In {
                         operand_sort: ro,
                         result_sort: rr,
-                        left: rl,
-                        right: rx,
+                        ..
                     },
-                ) => lo
-                    .cmp(ro)
-                    .then_with(|| lr.cmp(rr))
-                    .then_with(|| ll.cmp(rl))
-                    .then_with(|| lx.cmp(rx)),
+                ) => lo.cmp(ro).then_with(|| lr.cmp(rr)),
                 (
                     DomainValue {
                         sort: ls,
@@ -422,16 +344,53 @@ impl Ord for Pattern {
                     AssociativeApplication {
                         associativity: la,
                         symbol: ls,
-                        arguments: lp,
+                        ..
                     },
                     AssociativeApplication {
                         associativity: ra,
                         symbol: rs,
-                        arguments: rp,
+                        ..
                     },
-                ) => la.cmp(ra).then_with(|| ls.cmp(rs)).then_with(|| lp.cmp(rp)),
-                _ => std::cmp::Ordering::Equal,
-            })
+                ) => la.cmp(ra).then_with(|| ls.cmp(rs)),
+                _ => Ordering::Equal,
+            }
+        }
+
+        enum Step<'a> {
+            Compare(&'a Pattern, &'a Pattern),
+            PrefixLength(Ordering),
+        }
+
+        let mut work = vec![Step::Compare(self, other)];
+        while let Some(step) = work.pop() {
+            let Step::Compare(left, right) = step else {
+                let Step::PrefixLength(ordering) = step else {
+                    unreachable!()
+                };
+                if !ordering.is_eq() {
+                    return ordering;
+                }
+                continue;
+            };
+
+            let ordering = rank(left)
+                .cmp(&rank(right))
+                .then_with(|| scalars(left, right));
+            if !ordering.is_eq() {
+                return ordering;
+            }
+
+            let (left_children, right_children) =
+                (super::walk::children(left), super::walk::children(right));
+            let common = left_children.len().min(right_children.len());
+            work.push(Step::PrefixLength(
+                left_children.len().cmp(&right_children.len()),
+            ));
+            for index in (0..common).rev() {
+                work.push(Step::Compare(left_children[index], right_children[index]));
+            }
+        }
+        Ordering::Equal
     }
 }
 

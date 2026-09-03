@@ -6,12 +6,46 @@ use super::{ParseError, Parser};
 
 impl Parser<'_> {
     pub(super) fn sort(&mut self) -> Result<Sort, ParseError> {
-        let name = self.expect(TokenKind::Id)?.text.to_owned();
-        if self.at(TokenKind::LBrace) {
-            let arguments = self.delimited(TokenKind::LBrace, TokenKind::RBrace, Self::sort)?;
-            Ok(Sort::Application { name, arguments })
-        } else {
-            Ok(Sort::Variable(name))
+        struct Frame {
+            name: String,
+            arguments: Vec<Sort>,
+        }
+
+        let mut stack: Vec<Frame> = Vec::new();
+        let mut value = None;
+        loop {
+            if value.is_none() {
+                let name = self.expect(TokenKind::Id)?.text.to_owned();
+                if self.consume(TokenKind::LBrace).is_none() {
+                    value = Some(Sort::Variable(name));
+                } else if self.consume(TokenKind::RBrace).is_some() {
+                    value = Some(Sort::Application {
+                        name,
+                        arguments: Vec::new(),
+                    });
+                } else {
+                    stack.push(Frame {
+                        name,
+                        arguments: Vec::new(),
+                    });
+                    continue;
+                }
+            }
+
+            let sort = value.take().expect("a sort was parsed or reduced");
+            let Some(frame) = stack.last_mut() else {
+                return Ok(sort);
+            };
+            frame.arguments.push(sort);
+            if self.consume(TokenKind::Comma).is_some() {
+                continue;
+            }
+            self.expect(TokenKind::RBrace)?;
+            let frame = stack.pop().expect("the current sort frame is present");
+            value = Some(Sort::Application {
+                name: frame.name,
+                arguments: frame.arguments,
+            });
         }
     }
 
@@ -31,36 +65,145 @@ impl Parser<'_> {
     }
 
     pub(super) fn pattern(&mut self) -> Result<Pattern, ParseError> {
+        let mut stack = Vec::new();
+        let mut value = None;
+        loop {
+            if value.is_none() {
+                match self.start_pattern()? {
+                    Started::Value(pattern) => value = Some(pattern),
+                    Started::Frame(frame) => {
+                        stack.push(frame);
+                        continue;
+                    }
+                }
+            }
+
+            let pattern = value.take().expect("a pattern was parsed or reduced");
+            let Some(frame) = stack.last_mut() else {
+                return Ok(pattern);
+            };
+            frame.arguments.push(pattern);
+
+            let complete = match frame.arity {
+                Arity::Variadic => self.consume(TokenKind::Comma).is_none(),
+                Arity::Exact(arity) if frame.arguments.len() < arity => {
+                    self.expect(TokenKind::Comma)?;
+                    false
+                }
+                Arity::Exact(_) => true,
+            };
+            if !complete {
+                continue;
+            }
+
+            self.expect(TokenKind::RParen)?;
+            let frame = stack.pop().expect("the current pattern frame is present");
+            if frame.outer_close {
+                self.expect(TokenKind::RParen)?;
+            }
+            let offset = self.peek().map_or(self.input_len, |token| token.offset);
+            value = Some(frame.head.finish(frame.arguments, offset)?);
+        }
+    }
+
+    fn start_pattern(&mut self) -> Result<Started, ParseError> {
         let Some(token) = self.peek() else {
             return Err(self.expected(TokenKind::Id));
         };
         match token.kind {
-            TokenKind::String => self.string_pattern(),
-            TokenKind::Id if self.variable_follows() => {
-                self.variable(VariableKind::Element).map(Pattern::Variable)
+            TokenKind::String => self.string_pattern().map(Started::Value),
+            TokenKind::Id if self.variable_follows() => self
+                .variable(VariableKind::Element)
+                .map(Pattern::Variable)
+                .map(Started::Value),
+            TokenKind::Id => {
+                let symbol = self.symbol()?;
+                self.variadic(Head::Application(symbol), false)
             }
-            TokenKind::Id => self.application(),
-            TokenKind::SetVarId => self.variable(VariableKind::Set).map(Pattern::Variable),
-            TokenKind::MlTop => self.nullary(true),
-            TokenKind::MlBottom => self.nullary(false),
-            TokenKind::MlAnd => self.multiary(true),
-            TokenKind::MlOr => self.multiary(false),
-            TokenKind::MlNot => self.unary(TokenKind::MlNot),
-            TokenKind::MlNext => self.unary(TokenKind::MlNext),
-            TokenKind::MlImplies => self.binary(TokenKind::MlImplies),
-            TokenKind::MlIff => self.binary(TokenKind::MlIff),
-            TokenKind::MlRewrites => self.binary(TokenKind::MlRewrites),
-            TokenKind::MlExists => self.quantifier(TokenKind::MlExists),
-            TokenKind::MlForall => self.quantifier(TokenKind::MlForall),
-            TokenKind::MlMu => self.fixpoint(TokenKind::MlMu),
-            TokenKind::MlNu => self.fixpoint(TokenKind::MlNu),
-            TokenKind::MlCeil => self.round_predicate(TokenKind::MlCeil),
-            TokenKind::MlFloor => self.round_predicate(TokenKind::MlFloor),
-            TokenKind::MlEquals => self.binary_predicate(TokenKind::MlEquals),
-            TokenKind::MlIn => self.binary_predicate(TokenKind::MlIn),
-            TokenKind::MlDv => self.domain_value(),
-            TokenKind::MlLeftAssoc => self.associative(Associativity::Left),
-            TokenKind::MlRightAssoc => self.associative(Associativity::Right),
+            TokenKind::SetVarId => self
+                .variable(VariableKind::Set)
+                .map(Pattern::Variable)
+                .map(Started::Value),
+            TokenKind::MlTop | TokenKind::MlBottom => {
+                self.expect(token.kind)?;
+                let sort = self.one_sort()?;
+                self.expect(TokenKind::LParen)?;
+                self.expect(TokenKind::RParen)?;
+                Ok(Started::Value(if token.kind == TokenKind::MlTop {
+                    Pattern::Top { sort }
+                } else {
+                    Pattern::Bottom { sort }
+                }))
+            }
+            TokenKind::MlAnd | TokenKind::MlOr => {
+                self.expect(token.kind)?;
+                let sort = self.one_sort()?;
+                self.variadic(
+                    if token.kind == TokenKind::MlAnd {
+                        Head::And(sort)
+                    } else {
+                        Head::Or(sort)
+                    },
+                    false,
+                )
+            }
+            TokenKind::MlNot | TokenKind::MlNext => {
+                self.expect(token.kind)?;
+                let sort = self.one_sort()?;
+                self.fixed(Head::Unary(token.kind, sort), 1)
+            }
+            TokenKind::MlImplies | TokenKind::MlIff | TokenKind::MlRewrites => {
+                self.expect(token.kind)?;
+                let sort = self.one_sort()?;
+                self.fixed(Head::Binary(token.kind, sort), 2)
+            }
+            TokenKind::MlExists | TokenKind::MlForall => {
+                self.expect(token.kind)?;
+                let sort = self.one_sort()?;
+                self.expect(TokenKind::LParen)?;
+                let variable = self.variable(VariableKind::Element)?;
+                self.expect(TokenKind::Comma)?;
+                Ok(Started::Frame(Frame::exact(
+                    Head::Quantifier(token.kind, sort, variable),
+                    1,
+                )))
+            }
+            TokenKind::MlMu | TokenKind::MlNu => {
+                self.expect(token.kind)?;
+                self.expect(TokenKind::LBrace)?;
+                self.expect(TokenKind::RBrace)?;
+                self.expect(TokenKind::LParen)?;
+                let variable = self.variable(VariableKind::Set)?;
+                self.expect(TokenKind::Comma)?;
+                Ok(Started::Frame(Frame::exact(
+                    Head::Fixpoint(token.kind, variable),
+                    1,
+                )))
+            }
+            TokenKind::MlCeil | TokenKind::MlFloor => {
+                self.expect(token.kind)?;
+                let (operand_sort, result_sort) = self.two_sorts()?;
+                self.fixed(
+                    Head::RoundPredicate(token.kind, operand_sort, result_sort),
+                    1,
+                )
+            }
+            TokenKind::MlEquals | TokenKind::MlIn => {
+                self.expect(token.kind)?;
+                let (operand_sort, result_sort) = self.two_sorts()?;
+                self.fixed(
+                    Head::BinaryPredicate(token.kind, operand_sort, result_sort),
+                    2,
+                )
+            }
+            TokenKind::MlDv => self.domain_value().map(Started::Value),
+            TokenKind::MlLeftAssoc | TokenKind::MlRightAssoc => {
+                self.associative(if token.kind == TokenKind::MlLeftAssoc {
+                    Associativity::Left
+                } else {
+                    Associativity::Right
+                })
+            }
             actual => Err(ParseError {
                 offset: token.offset,
                 message: format!("expected pattern, found {actual:?}"),
@@ -68,10 +211,26 @@ impl Parser<'_> {
         }
     }
 
-    pub(super) fn application(&mut self) -> Result<Pattern, ParseError> {
-        let symbol = self.symbol()?;
-        let arguments = self.delimited(TokenKind::LParen, TokenKind::RParen, Self::pattern)?;
-        Ok(Pattern::Application { symbol, arguments })
+    fn fixed(&mut self, head: Head, arity: usize) -> Result<Started, ParseError> {
+        self.expect(TokenKind::LParen)?;
+        Ok(Started::Frame(Frame::exact(head, arity)))
+    }
+
+    fn variadic(&mut self, head: Head, outer_close: bool) -> Result<Started, ParseError> {
+        self.expect(TokenKind::LParen)?;
+        if self.consume(TokenKind::RParen).is_some() {
+            if outer_close {
+                self.expect(TokenKind::RParen)?;
+            }
+            let offset = self.peek().map_or(self.input_len, |token| token.offset);
+            return head.finish(Vec::new(), offset).map(Started::Value);
+        }
+        Ok(Started::Frame(Frame {
+            head,
+            arguments: Vec::new(),
+            arity: Arity::Variadic,
+            outer_close,
+        }))
     }
 
     fn string_pattern(&mut self) -> Result<Pattern, ParseError> {
@@ -84,10 +243,11 @@ impl Parser<'_> {
     }
 
     fn string_value(&mut self) -> Result<String, ParseError> {
-        match self.string_pattern()? {
-            Pattern::String(value) => Ok(value),
-            _ => unreachable!("string_pattern always returns Pattern::String"),
-        }
+        let token = self.expect(TokenKind::String)?;
+        string::unquote(token.text).map_err(|error| ParseError {
+            offset: token.offset + error.offset,
+            message: error.message.into(),
+        })
     }
 
     fn variable_follows(&self) -> bool {
@@ -127,157 +287,6 @@ impl Parser<'_> {
         Ok((operand_sort, result_sort))
     }
 
-    fn one_pattern(&mut self) -> Result<Pattern, ParseError> {
-        self.expect(TokenKind::LParen)?;
-        let pattern = self.pattern()?;
-        self.expect(TokenKind::RParen)?;
-        Ok(pattern)
-    }
-
-    fn two_patterns(&mut self) -> Result<(Pattern, Pattern), ParseError> {
-        self.expect(TokenKind::LParen)?;
-        let left = self.pattern()?;
-        self.expect(TokenKind::Comma)?;
-        let right = self.pattern()?;
-        self.expect(TokenKind::RParen)?;
-        Ok((left, right))
-    }
-
-    fn nullary(&mut self, top: bool) -> Result<Pattern, ParseError> {
-        self.expect(if top {
-            TokenKind::MlTop
-        } else {
-            TokenKind::MlBottom
-        })?;
-        let sort = self.one_sort()?;
-        self.expect(TokenKind::LParen)?;
-        self.expect(TokenKind::RParen)?;
-        Ok(if top {
-            Pattern::Top { sort }
-        } else {
-            Pattern::Bottom { sort }
-        })
-    }
-
-    fn multiary(&mut self, and: bool) -> Result<Pattern, ParseError> {
-        self.expect(if and {
-            TokenKind::MlAnd
-        } else {
-            TokenKind::MlOr
-        })?;
-        let sort = self.one_sort()?;
-        let arguments = self.delimited(TokenKind::LParen, TokenKind::RParen, Self::pattern)?;
-        Ok(if and {
-            Pattern::And { sort, arguments }
-        } else {
-            Pattern::Or { sort, arguments }
-        })
-    }
-
-    fn unary(&mut self, kind: TokenKind) -> Result<Pattern, ParseError> {
-        self.expect(kind)?;
-        let sort = self.one_sort()?;
-        let argument = Box::new(self.one_pattern()?);
-        Ok(match kind {
-            TokenKind::MlNot => Pattern::Not { sort, argument },
-            TokenKind::MlNext => Pattern::Next { sort, argument },
-            _ => unreachable!("unary called with a non-unary token"),
-        })
-    }
-
-    fn binary(&mut self, kind: TokenKind) -> Result<Pattern, ParseError> {
-        self.expect(kind)?;
-        let sort = self.one_sort()?;
-        let (left, right) = self.two_patterns()?;
-        let (left, right) = (Box::new(left), Box::new(right));
-        Ok(match kind {
-            TokenKind::MlImplies => Pattern::Implies { sort, left, right },
-            TokenKind::MlIff => Pattern::Iff { sort, left, right },
-            TokenKind::MlRewrites => Pattern::Rewrites { sort, left, right },
-            _ => unreachable!("binary called with a non-binary token"),
-        })
-    }
-
-    fn quantifier(&mut self, kind: TokenKind) -> Result<Pattern, ParseError> {
-        self.expect(kind)?;
-        let sort = self.one_sort()?;
-        self.expect(TokenKind::LParen)?;
-        let variable = self.variable(VariableKind::Element)?;
-        self.expect(TokenKind::Comma)?;
-        let body = Box::new(self.pattern()?);
-        self.expect(TokenKind::RParen)?;
-        Ok(match kind {
-            TokenKind::MlExists => Pattern::Exists {
-                sort,
-                variable,
-                body,
-            },
-            TokenKind::MlForall => Pattern::Forall {
-                sort,
-                variable,
-                body,
-            },
-            _ => unreachable!("quantifier called with a non-quantifier token"),
-        })
-    }
-
-    fn fixpoint(&mut self, kind: TokenKind) -> Result<Pattern, ParseError> {
-        self.expect(kind)?;
-        self.expect(TokenKind::LBrace)?;
-        self.expect(TokenKind::RBrace)?;
-        self.expect(TokenKind::LParen)?;
-        let variable = self.variable(VariableKind::Set)?;
-        self.expect(TokenKind::Comma)?;
-        let body = Box::new(self.pattern()?);
-        self.expect(TokenKind::RParen)?;
-        Ok(match kind {
-            TokenKind::MlMu => Pattern::Mu { variable, body },
-            TokenKind::MlNu => Pattern::Nu { variable, body },
-            _ => unreachable!("fixpoint called with a non-fixpoint token"),
-        })
-    }
-
-    fn round_predicate(&mut self, kind: TokenKind) -> Result<Pattern, ParseError> {
-        self.expect(kind)?;
-        let (operand_sort, result_sort) = self.two_sorts()?;
-        let argument = Box::new(self.one_pattern()?);
-        Ok(match kind {
-            TokenKind::MlCeil => Pattern::Ceil {
-                operand_sort,
-                result_sort,
-                argument,
-            },
-            TokenKind::MlFloor => Pattern::Floor {
-                operand_sort,
-                result_sort,
-                argument,
-            },
-            _ => unreachable!("round_predicate called with a different token"),
-        })
-    }
-
-    fn binary_predicate(&mut self, kind: TokenKind) -> Result<Pattern, ParseError> {
-        self.expect(kind)?;
-        let (operand_sort, result_sort) = self.two_sorts()?;
-        let (left, right) = self.two_patterns()?;
-        let (left, right) = (Box::new(left), Box::new(right));
-        Ok(match kind {
-            TokenKind::MlEquals => Pattern::Equals {
-                operand_sort,
-                result_sort,
-                left,
-                right,
-            },
-            TokenKind::MlIn => Pattern::In {
-                operand_sort,
-                result_sort,
-                left,
-                right,
-            },
-            _ => unreachable!("binary_predicate called with a different token"),
-        })
-    }
-
     fn domain_value(&mut self) -> Result<Pattern, ParseError> {
         self.expect(TokenKind::MlDv)?;
         let sort = self.one_sort()?;
@@ -287,7 +296,7 @@ impl Parser<'_> {
         Ok(Pattern::DomainValue { sort, value })
     }
 
-    fn associative(&mut self, associativity: Associativity) -> Result<Pattern, ParseError> {
+    fn associative(&mut self, associativity: Associativity) -> Result<Started, ParseError> {
         self.expect(if associativity == Associativity::Left {
             TokenKind::MlLeftAssoc
         } else {
@@ -306,36 +315,185 @@ impl Parser<'_> {
                         .into(),
                 });
             }
-            let arguments = self.delimited(TokenKind::LParen, TokenKind::RParen, Self::pattern)?;
-            self.expect(TokenKind::RParen)?;
-            if arguments.is_empty() {
-                return Err(ParseError {
-                    offset: self.peek().map_or(self.input_len, |token| token.offset),
-                    message: "associative application requires at least one argument".into(),
-                });
-            }
-            return Ok(fold_associative_or(
-                associativity,
-                sorts.pop().expect("one sort was checked above"),
-                arguments,
-            ));
+            return self.variadic(
+                Head::AssociativeOr(
+                    associativity,
+                    sorts.pop().expect("one sort was checked above"),
+                ),
+                true,
+            );
         }
 
-        let Pattern::Application { symbol, arguments } = self.application()? else {
-            unreachable!("application always returns Pattern::Application");
-        };
-        self.expect(TokenKind::RParen)?;
-        let offset = self.peek().map_or(self.input_len, |token| token.offset);
-        if arguments.is_empty() {
-            return Err(ParseError {
-                offset,
-                message: "associative application requires at least one argument".into(),
-            });
+        let symbol = self.symbol()?;
+        self.variadic(Head::AssociativeApplication(associativity, symbol), true)
+    }
+}
+
+enum Started {
+    Value(Pattern),
+    Frame(Frame),
+}
+
+enum Arity {
+    Variadic,
+    Exact(usize),
+}
+
+struct Frame {
+    head: Head,
+    arguments: Vec<Pattern>,
+    arity: Arity,
+    outer_close: bool,
+}
+
+impl Frame {
+    fn exact(head: Head, arity: usize) -> Self {
+        Self {
+            head,
+            arguments: Vec::with_capacity(arity),
+            arity: Arity::Exact(arity),
+            outer_close: false,
         }
-        Ok(Pattern::AssociativeApplication {
-            associativity,
-            symbol,
-            arguments,
+    }
+}
+
+enum Head {
+    Application(Symbol),
+    And(Sort),
+    Or(Sort),
+    Unary(TokenKind, Sort),
+    Binary(TokenKind, Sort),
+    Quantifier(TokenKind, Sort, Variable),
+    Fixpoint(TokenKind, Variable),
+    RoundPredicate(TokenKind, Sort, Sort),
+    BinaryPredicate(TokenKind, Sort, Sort),
+    AssociativeApplication(Associativity, Symbol),
+    AssociativeOr(Associativity, Sort),
+}
+
+impl Head {
+    fn finish(self, arguments: Vec<Pattern>, offset: usize) -> Result<Pattern, ParseError> {
+        let mut arguments = arguments.into_iter();
+        let mut boxed = || {
+            Box::new(
+                arguments
+                    .next()
+                    .expect("the parser enforces fixed pattern arity"),
+            )
+        };
+        Ok(match self {
+            Self::Application(symbol) => Pattern::Application {
+                symbol,
+                arguments: arguments.collect(),
+            },
+            Self::And(sort) => Pattern::And {
+                sort,
+                arguments: arguments.collect(),
+            },
+            Self::Or(sort) => Pattern::Or {
+                sort,
+                arguments: arguments.collect(),
+            },
+            Self::Unary(TokenKind::MlNot, sort) => Pattern::Not {
+                sort,
+                argument: boxed(),
+            },
+            Self::Unary(TokenKind::MlNext, sort) => Pattern::Next {
+                sort,
+                argument: boxed(),
+            },
+            Self::Binary(kind, sort) => {
+                let (left, right) = (boxed(), boxed());
+                match kind {
+                    TokenKind::MlImplies => Pattern::Implies { sort, left, right },
+                    TokenKind::MlIff => Pattern::Iff { sort, left, right },
+                    TokenKind::MlRewrites => Pattern::Rewrites { sort, left, right },
+                    _ => unreachable!("binary head has a binary token"),
+                }
+            }
+            Self::Quantifier(kind, sort, variable) => {
+                let body = boxed();
+                match kind {
+                    TokenKind::MlExists => Pattern::Exists {
+                        sort,
+                        variable,
+                        body,
+                    },
+                    TokenKind::MlForall => Pattern::Forall {
+                        sort,
+                        variable,
+                        body,
+                    },
+                    _ => unreachable!("quantifier head has a quantifier token"),
+                }
+            }
+            Self::Fixpoint(kind, variable) => {
+                let body = boxed();
+                match kind {
+                    TokenKind::MlMu => Pattern::Mu { variable, body },
+                    TokenKind::MlNu => Pattern::Nu { variable, body },
+                    _ => unreachable!("fixpoint head has a fixpoint token"),
+                }
+            }
+            Self::RoundPredicate(kind, operand_sort, result_sort) => {
+                let argument = boxed();
+                match kind {
+                    TokenKind::MlCeil => Pattern::Ceil {
+                        operand_sort,
+                        result_sort,
+                        argument,
+                    },
+                    TokenKind::MlFloor => Pattern::Floor {
+                        operand_sort,
+                        result_sort,
+                        argument,
+                    },
+                    _ => unreachable!("round-predicate head has a round-predicate token"),
+                }
+            }
+            Self::BinaryPredicate(kind, operand_sort, result_sort) => {
+                let (left, right) = (boxed(), boxed());
+                match kind {
+                    TokenKind::MlEquals => Pattern::Equals {
+                        operand_sort,
+                        result_sort,
+                        left,
+                        right,
+                    },
+                    TokenKind::MlIn => Pattern::In {
+                        operand_sort,
+                        result_sort,
+                        left,
+                        right,
+                    },
+                    _ => unreachable!("binary-predicate head has a binary-predicate token"),
+                }
+            }
+            Self::AssociativeApplication(associativity, symbol) => {
+                let arguments: Vec<_> = arguments.collect();
+                if arguments.is_empty() {
+                    return Err(ParseError {
+                        offset,
+                        message: "associative application requires at least one argument".into(),
+                    });
+                }
+                Pattern::AssociativeApplication {
+                    associativity,
+                    symbol,
+                    arguments,
+                }
+            }
+            Self::AssociativeOr(associativity, sort) => {
+                let arguments: Vec<_> = arguments.collect();
+                if arguments.is_empty() {
+                    return Err(ParseError {
+                        offset,
+                        message: "associative application requires at least one argument".into(),
+                    });
+                }
+                fold_associative_or(associativity, sort, arguments)
+            }
+            Self::Unary(_, _) => unreachable!("unary head has a unary token"),
         })
     }
 }
@@ -416,16 +574,16 @@ mod tests {
         let unary_or = crate::kore::parser::parse_pattern(r"\or{S}(a{}())").unwrap();
 
         assert!(
-            matches!(top, crate::kore::ast::Pattern::And { arguments, .. } if arguments.is_empty())
+            matches!(&top, crate::kore::ast::Pattern::And { arguments, .. } if arguments.is_empty())
         );
         assert!(
-            matches!(bottom, crate::kore::ast::Pattern::Or { arguments, .. } if arguments.is_empty())
+            matches!(&bottom, crate::kore::ast::Pattern::Or { arguments, .. } if arguments.is_empty())
         );
         assert!(
-            matches!(unary_and, crate::kore::ast::Pattern::And { arguments, .. } if arguments.len() == 1)
+            matches!(&unary_and, crate::kore::ast::Pattern::And { arguments, .. } if arguments.len() == 1)
         );
         assert!(
-            matches!(unary_or, crate::kore::ast::Pattern::Or { arguments, .. } if arguments.len() == 1)
+            matches!(&unary_or, crate::kore::ast::Pattern::Or { arguments, .. } if arguments.len() == 1)
         );
     }
 
@@ -514,7 +672,7 @@ mod tests {
         let application = crate::kore::parser::parse_pattern(r"\foo{}()").unwrap();
 
         assert!(matches!(
-            element,
+            &element,
             crate::kore::ast::Pattern::Variable(crate::kore::ast::Variable {
                 kind: crate::kore::ast::VariableKind::Element,
                 name,
@@ -522,7 +680,7 @@ mod tests {
             }) if name == "\\foo"
         ));
         assert!(matches!(
-            set,
+            &set,
             crate::kore::ast::Pattern::Variable(crate::kore::ast::Variable {
                 kind: crate::kore::ast::VariableKind::Set,
                 name,
@@ -530,7 +688,7 @@ mod tests {
             }) if name == "\\@X"
         ));
         assert!(matches!(
-            application,
+            &application,
             crate::kore::ast::Pattern::Application { symbol, arguments }
                 if symbol.name == "\\foo" && arguments.is_empty()
         ));

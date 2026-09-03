@@ -1378,9 +1378,9 @@ fn extract_binders(pattern: &kore::Pattern) -> Result<Vec<ArgumentBinder>, Axiom
 
 fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore::Variable>) {
     let mut variables = Vec::new();
-    while let kore::Pattern::Exists { variable, body, .. } = pattern {
-        variables.push(variable);
-        pattern = *body;
+    while let kore::Pattern::Exists { variable, body, .. } = &mut pattern {
+        variables.push(variable.clone());
+        pattern = std::mem::replace(body.as_mut(), kore::Pattern::String(String::new()));
     }
     (pattern, variables)
 }

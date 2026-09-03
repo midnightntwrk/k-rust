@@ -4085,9 +4085,8 @@ mod tests {
             ),
         ]);
 
-        let KorePattern::And { arguments, .. } =
-            model_substitution(&substitution, &result_sort).unwrap()
-        else {
+        let pattern = model_substitution(&substitution, &result_sort).unwrap();
+        let KorePattern::And { arguments, .. } = &pattern else {
             panic!("multiple model bindings should form a conjunction");
         };
         assert_eq!(arguments.len(), 3);

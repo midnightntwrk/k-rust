@@ -2642,7 +2642,7 @@ fn emit_owise_equation(
             key(left).cmp(&key(right))
         });
         for term in quantified.into_iter().rev() {
-            let Pattern::Variable(variable) = converter.convert(&term)? else {
+            let Some(variable) = take_kore_variable(converter.convert(&term)?) else {
                 unreachable!("collected terms are variables")
             };
             candidate = Pattern::Exists {
@@ -3000,6 +3000,20 @@ fn is_true(term: &Term) -> bool {
     )
 }
 
+fn take_kore_variable(mut pattern: Pattern) -> Option<Variable> {
+    let Pattern::Variable(variable) = &mut pattern else {
+        return None;
+    };
+    Some(std::mem::replace(
+        variable,
+        Variable {
+            kind: VariableKind::Element,
+            name: String::new(),
+            sort: KoreSort::Variable(String::new()),
+        },
+    ))
+}
+
 fn existential_variables(
     right: &Term,
     ensures: &Term,
@@ -3017,9 +3031,9 @@ fn existential_variables(
     }
     terms
         .into_values()
-        .map(|term| match converter.convert(&term)? {
-            Pattern::Variable(variable) => Ok(variable),
-            _ => unreachable!("collected terms are variables"),
+        .map(|term| match take_kore_variable(converter.convert(&term)?) {
+            Some(variable) => Ok(variable),
+            None => unreachable!("collected terms are variables"),
         })
         .collect()
 }

@@ -1837,9 +1837,13 @@ fn externalize_rule_substitution(
     super::model_substitution(&substitution, result_sort).map(left_associate_conjunction)
 }
 
-fn left_associate_conjunction(pattern: KorePattern) -> KorePattern {
-    let KorePattern::And { sort, arguments } = pattern else {
-        return pattern;
+fn left_associate_conjunction(mut pattern: KorePattern) -> KorePattern {
+    let (sort, arguments) = match &mut pattern {
+        KorePattern::And { sort, arguments } => (
+            std::mem::replace(sort, KoreSort::Variable(String::new())),
+            std::mem::take(arguments),
+        ),
+        _ => return pattern,
     };
     let mut arguments = arguments.into_iter();
     let Some(first) = arguments.next() else {
@@ -3086,7 +3090,7 @@ mod tests {
                 constraints,
             },
         );
-        let KorePattern::And { arguments, .. } = normalized else {
+        let KorePattern::And { arguments, .. } = &normalized else {
             panic!("the outer conjunction should be preserved");
         };
         assert_eq!(arguments.len(), 2);
@@ -4102,7 +4106,7 @@ mod tests {
         let pattern = externalize_rule_substitution(&substitution, &Substitution::new(), &sort)
             .expect("non-empty rule substitution");
         assert!(matches!(
-            pattern,
+            &pattern,
             KorePattern::And { arguments, .. }
                 if arguments.len() == 2
                     && matches!(&arguments[0], KorePattern::And { arguments, .. }
