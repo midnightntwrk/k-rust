@@ -445,3 +445,30 @@ fn unbound_variable_names(sentence: &Sentence) -> BTreeSet<String> {
 fn is_anonymous(name: &str) -> bool {
     matches!(name, "_" | "?_" | "!_" | "@_")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn symbolic_requires_gather_anonymous_lhs_binders() {
+        let mut bound = BTreeSet::new();
+        let sentence = Sentence::Rule {
+            body: Term::variable("_"),
+            requires: Term::variable("_"),
+            ensures: Term::variable("_"),
+            attributes: Default::default(),
+        };
+        gather_variables(
+            &Term::variable("_"),
+            TermPosition::BODY,
+            false,
+            None,
+            false,
+            &mut bound,
+            &sentence,
+            &mut Vec::new(),
+        );
+        assert_eq!(bound, BTreeSet::from([VariableKey::new("_", None)]));
+    }
+}
