@@ -273,6 +273,53 @@ collect_responses() {
   send_raw "$port" \
     '{"jsonrpc":"2.0","id":"bad-module","method":"add-module","params":{}}' \
     "$work/$prefix-invalid-add-module.json"
+  send_raw "$port" \
+    '{"jsonrpc":"2.0","id":"error-add-module-malformed","method":"add-module","params":{"module":"module BROKEN"}}' \
+    "$work/$prefix-error-add-module-malformed.json"
+  send_raw "$port" \
+    '{"jsonrpc":"2.0","id":"error-add-module-new-symbol","method":"add-module","params":{"module":"module RPC-NEW-SYMBOL symbol Lblnew{}() : SortGeneratedTopCell{} [] endmodule []"}}' \
+    "$work/$prefix-error-add-module-new-symbol.json"
+  send_raw "$port" \
+    '{"jsonrpc":"2.0","id":"error-execute-bad-symbol","method":"execute","params":{"state":{"format":"KORE","version":1,"term":{"tag":"App","name":"LblNOPE","sorts":[],"args":[]}}}}' \
+    "$work/$prefix-error-execute-bad-symbol.json"
+  send_raw "$port" '[]' "$work/$prefix-error-empty-batch.json"
+  send_raw "$port" \
+    '[{"jsonrpc":"2.0","id":"error-cancel-in-batch","method":"cancel"}]' \
+    "$work/$prefix-error-cancel-in-batch.json"
+  send_raw "$port" \
+    "$(jq -c '{
+      jsonrpc: \"2.0\",
+      id: \"error-implies-top\",
+      method: \"implies\",
+      params: {
+        antecedent: {
+          format: \"KORE\",
+          version: 1,
+          term: {
+            tag: \"Top\",
+            sort: {tag: \"SortApp\", name: \"SortGeneratedTopCell\", args: []}
+          }
+        },
+        consequent: .
+      }
+    }' "$work/start.json")" \
+    "$work/$prefix-error-implies-top.json"
+}
+
+normalize_rpc_response() {
+  local response=$1
+  local input=$2
+  case "$response" in
+    error-add-module-malformed)
+      jq -S '.error.data.error |= type' "$input"
+      ;;
+    error-execute-bad-symbol)
+      jq -S '.error.data |= map({error: (.error | type)})' "$input"
+      ;;
+    *)
+      jq -S . "$input"
+      ;;
+  esac
 }
 
 echo "[$name:rpc] compiling the reference Haskell definition"
@@ -476,8 +523,8 @@ for reference_oracle in "${reference_oracles[@]}"; do
         exit 1
       fi
     elif ! diff -u \
-      <(jq -S . "$work/reference-$rpc_flavour-$response.json") \
-      <(jq -S . "$work/rust-$response.json"); then
+      <(normalize_rpc_response "$response" "$work/reference-$rpc_flavour-$response.json") \
+      <(normalize_rpc_response "$response" "$work/rust-$response.json"); then
       echo "error: RPC response differs for $oracle_name:$response" >&2
       exit 1
     fi

@@ -2232,9 +2232,6 @@ mod tests {
             [label{}("TEST.step"), UNIQUE'Unds'ID{}("rule-id")]
         endmodule []"#;
 
-    // Accepted matrix gap: backend code 1 and SMT code 5 failures require deterministic fault
-    // injection. Their wire shapes are covered by the reference differential RPC corpus.
-
     fn service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(DEFINITION).unwrap(),
@@ -2498,7 +2495,7 @@ mod tests {
     #[test]
     fn invalid_requests_report_the_reference_error_shape() {
         let cases = vec![
-            ("empty batch", json!([]), None),
+            ("empty batch", json!([]), Some(json!([]))),
             ("non-object", json!(42), Some(json!(42))),
             (
                 "missing version",
@@ -2538,7 +2535,7 @@ mod tests {
             assert_eq!(response["jsonrpc"], "2.0", "{name}");
             assert_eq!(response["id"], Value::Null, "{name}");
             assert_eq!(response["error"]["code"], -32600, "{name}");
-            assert_eq!(response["error"]["message"], "Invalid Request", "{name}");
+            assert_eq!(response["error"]["message"], "Invalid request", "{name}");
             assert_eq!(
                 response["error"].get("data"),
                 expected_data.as_ref(),
@@ -2580,6 +2577,29 @@ mod tests {
             assert_eq!(response["error"]["code"], -32602, "{name}");
             assert_eq!(response["error"]["message"], "Invalid params", "{name}");
             assert_eq!(response["error"]["data"], params, "{name}");
+        }
+    }
+
+    #[test]
+    fn absent_and_null_params_omit_invalid_params_data() {
+        for request in [
+            json!({ "jsonrpc": "2.0", "id": 17, "method": "execute" }),
+            json!({ "jsonrpc": "2.0", "id": 17, "method": "execute", "params": null }),
+        ] {
+            let mut service = service();
+            let response: Value = serde_json::from_str(
+                &service
+                    .handle_line(&request.to_string())
+                    .expect("requests with ids receive responses"),
+            )
+            .unwrap();
+
+            assert_eq!(response["error"]["code"], -32602, "{response:#}");
+            assert_eq!(
+                response["error"]["message"], "Invalid params",
+                "{response:#}"
+            );
+            assert!(response["error"].get("data").is_none(), "{response:#}");
         }
     }
 
@@ -2674,6 +2694,43 @@ mod tests {
                     "term": encode_kore(&invalid_injection).unwrap(),
                     "error": "SortKItem{} is not a subsort of SortK{}",
                 }],
+            })
+        );
+
+        let mut unknown_symbol_service = service();
+        let unknown_symbol = parse_pattern("missing{}()").unwrap();
+        let unknown_symbol_error = request(
+            &mut unknown_symbol_service,
+            4,
+            "execute",
+            json!({ "state": encode_kore(&unknown_symbol).unwrap() }),
+        );
+        assert_eq!(
+            unknown_symbol_error["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": [{
+                    "term": encode_kore(&unknown_symbol).unwrap(),
+                    "error": "Unknown symbol 'missing'",
+                }],
+            })
+        );
+
+        let mut unknown_sort_service = service();
+        let unknown_sort = parse_pattern("VarX:SortMissing{}").unwrap();
+        let unknown_sort_error = request(
+            &mut unknown_sort_service,
+            5,
+            "execute",
+            json!({ "state": encode_kore(&unknown_sort).unwrap() }),
+        );
+        assert_eq!(
+            unknown_sort_error["error"],
+            json!({
+                "code": 2,
+                "message": "Could not verify pattern",
+                "data": [{ "error": "Unknown sort 'SortMissing'" }],
             })
         );
     }
@@ -3008,10 +3065,15 @@ mod tests {
         )
         .expect_err("a diverging simplification rule should fail the request");
 
+        assert_eq!(fault.code, 6);
+        assert_eq!(fault.message, "Aborted");
         assert!(
-            fault.message.contains("could not simplify pattern"),
-            "{}",
-            fault.message
+            fault
+                .data
+                .as_ref()
+                .and_then(Value::as_str)
+                .is_some_and(|error| error.contains("IterationLimit")),
+            "{fault:#?}"
         );
     }
 
@@ -3338,9 +3400,50 @@ mod tests {
             json!({
                 "code": 2,
                 "message": "Could not verify pattern",
-                "data": "antecedent and consequent sorts differ",
+                "data": [{ "error": "antecedent and consequent sorts differ" }],
             })
         );
+    }
+
+    #[test]
+    fn internal_solver_failures_use_runtime_error_taxonomy() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol f{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), smtlib{}("f")]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortInt{}, R}(
+                        f{}(X:SortInt{}),
+                        \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}())
+                    )
+                ) [simplification{}(), smt-lemma{}(), label{}("f-is-one")]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortInt{}, R}(
+                        f{}(X:SortInt{}),
+                        \and{SortInt{}}(\dv{SortInt{}}("2"), \top{SortInt{}}())
+                    )
+                ) [simplification{}(), smt-lemma{}(), label{}("f-is-two")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let fault = solver(&definition, Z3Options::default())
+            .expect_err("contradictory SMT lemmas must reject the solver")
+            .into_value(json!(1));
+
+        assert_eq!(fault["error"]["code"], -32002, "{fault:#}");
+        assert_eq!(fault["error"]["message"], "Runtime error", "{fault:#}");
+        assert!(
+            fault["error"]["data"]["error"]
+                .as_str()
+                .is_some_and(|error| !error.is_empty()),
+            "{fault:#}"
+        );
+        assert!(fault["error"]["data"].get("term").is_none(), "{fault:#}");
     }
 
     #[test]
@@ -3456,27 +3559,16 @@ mod tests {
     }
 
     #[test]
-    fn cancel_requests_inside_batches_report_the_reference_error() {
+    fn reference_rpc_cancel_in_batch_answers_32601() {
         let mut service = service();
-        let response: Value = serde_json::from_str(
-            &service
-                .handle_line(r#"[{"jsonrpc":"2.0","id":7,"method":"cancel"}]"#)
-                .unwrap(),
-        )
+        let request = include_str!("../tests/fixtures/reference/rpc/br/cancel-request.json");
+        let response: Value = serde_json::from_str(&service.handle_line(request).unwrap()).unwrap();
+        let expected: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/reference/rpc/br/cancel-response.json"
+        ))
         .unwrap();
 
-        assert_eq!(
-            response,
-            json!([{
-                "jsonrpc": "2.0",
-                "id": 7,
-                "error": {
-                    "code": -32001,
-                    "message": "Cancel request unsupported in batch mode",
-                    "data": null,
-                },
-            }])
-        );
+        assert_eq!(response, expected);
     }
 
     #[test]
@@ -3502,6 +3594,22 @@ mod tests {
     #[test]
     fn add_module_reports_reference_validation_errors() {
         let mut service = service();
+
+        let malformed = request(
+            &mut service,
+            0,
+            "add-module",
+            json!({ "module": "module EXTRA" }),
+        );
+        assert_eq!(malformed["error"]["code"], 8, "{malformed:#}");
+        assert_eq!(malformed["error"]["message"], "Invalid module");
+        assert!(
+            malformed["error"]["data"]["error"]
+                .as_str()
+                .is_some_and(|error| !error.is_empty()),
+            "{malformed:#}"
+        );
+
         let unknown_import = request(
             &mut service,
             1,
@@ -3547,6 +3655,88 @@ mod tests {
                 "message": "Duplicate module name",
                 "data": "EXTRA",
             })
+        );
+
+        let new_sort = request(
+            &mut service,
+            4,
+            "add-module",
+            json!({
+                "module": "module NEW-SORT sort SortNew{} [] endmodule []",
+            }),
+        );
+        assert_eq!(
+            new_sort["error"],
+            json!({
+                "code": 8,
+                "message": "Invalid module",
+                "data": { "error": "Module introduces new sorts: SortNew" },
+            })
+        );
+
+        let new_symbol = request(
+            &mut service,
+            5,
+            "add-module",
+            json!({
+                "module": "module NEW-SYMBOL symbol fresh{}() : SortState{} [] endmodule []",
+            }),
+        );
+        assert_eq!(
+            new_symbol["error"],
+            json!({
+                "code": 8,
+                "message": "Invalid module",
+                "data": { "error": "Module introduces new symbols: fresh" },
+            })
+        );
+
+        let unknown_symbol = request(
+            &mut service,
+            6,
+            "add-module",
+            json!({
+                "module": r#"module BAD-AXIOM
+                    axiom{} missing{}() []
+                endmodule []"#,
+            }),
+        );
+        assert_eq!(unknown_symbol["error"]["code"], 8, "{unknown_symbol:#}");
+        assert_eq!(unknown_symbol["error"]["message"], "Invalid module");
+        assert_eq!(
+            unknown_symbol["error"]["data"]["context"],
+            json!(["Pattern error at UNKNOWN in definition"]),
+            "{unknown_symbol:#}"
+        );
+        assert_eq!(
+            unknown_symbol["error"]["data"]["error"], "Unknown symbol 'missing'",
+            "{unknown_symbol:#}"
+        );
+        assert!(
+            unknown_symbol["error"]["data"]["term"].is_object(),
+            "{unknown_symbol:#}"
+        );
+    }
+
+    #[test]
+    fn non_smt_simplification_failures_use_the_aborted_taxonomy() {
+        let sort = BackendSort::simple("SortState");
+        let fault = simplify_fault(
+            SimplificationError::IterationLimit {
+                limit: 0,
+                term: Term::domain_value(sort.clone(), "value"),
+            },
+            &sort,
+        )
+        .into_value(json!(1));
+
+        assert_eq!(fault["error"]["code"], 6, "{fault:#}");
+        assert_eq!(fault["error"]["message"], "Aborted", "{fault:#}");
+        assert!(
+            fault["error"]["data"]
+                .as_str()
+                .is_some_and(|error| error.contains("IterationLimit")),
+            "{fault:#}"
         );
     }
 
