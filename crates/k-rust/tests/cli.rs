@@ -960,6 +960,35 @@ fn krun_search_final_reports_states_cut_by_the_depth_bound() {
 }
 
 #[test]
+fn kore_exec_merges_converging_final_states() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/execution/br");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "BR",
+            "--syntax-module",
+            "BR-SYNTAX",
+            "--sort",
+            "Pgm",
+            fixtures.join("a.br").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Lble'Unds'BR-SYNTAX'Unds'Pgm"), "{stdout}");
+    assert!(!stdout.contains(r"\or{"), "{stdout}");
+}
+
+#[test]
 fn reference_hook_pc_findstring_follows_domains_md() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks/pc");

@@ -1141,6 +1141,7 @@ main-module = "BR"
 syntax-module = "BR-SYNTAX"
 sort = "Pgm"
 depth = 1
+programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/execution/br/a.br"]
 
 [[execution.search]]
 name = "final-depth-one"
