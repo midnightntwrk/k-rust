@@ -861,7 +861,7 @@ struct KastBatchCase {
 #[derive(Debug)]
 struct KrunOptions {
     common: CommonOptions,
-    syntax_module: String,
+    syntax_module: Option<String>,
     sort: String,
     expression: Option<String>,
     program_file: Option<PathBuf>,
@@ -1127,16 +1127,13 @@ impl From<KastArgs> for KastOptions {
 
 impl From<KrunArgs> for KrunOptions {
     fn from(arguments: KrunArgs) -> Self {
-        let syntax_module = arguments
-            .syntax_module
-            .unwrap_or_else(|| arguments.module.clone());
         Self {
             common: arguments.source.common(
                 arguments.definition,
                 arguments.module,
                 arguments.warnings.policy(),
             ),
-            syntax_module,
+            syntax_module: arguments.syntax_module,
             sort: arguments.sort,
             expression: arguments.expression,
             program_file: arguments.program_file,
@@ -1244,6 +1241,51 @@ fn load_definition(
     Ok(loaded)
 }
 
+struct SyntaxModule {
+    name: String,
+    fallback_warning: Option<Diagnostic>,
+}
+
+/// Resolve `KompileOptions.syntaxModule` using `ParserUtils`' missing-default fallback.
+fn resolve_syntax_module(
+    definition: &k_rust::definition::ResolvedDefinition,
+    explicit: Option<&str>,
+) -> Result<SyntaxModule, Box<dyn Error>> {
+    let main = definition.main_module();
+    if let Some(name) = explicit {
+        if definition.module_id(name).is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Could not find main syntax module with name {name} in definition."),
+            )
+            .into());
+        }
+        return Ok(SyntaxModule {
+            name: name.to_owned(),
+            fallback_warning: None,
+        });
+    }
+
+    let default = format!("{}-SYNTAX", main.name);
+    if definition.module_id(&default).is_some() {
+        return Ok(SyntaxModule {
+            name: default,
+            fallback_warning: None,
+        });
+    }
+    Ok(SyntaxModule {
+        name: main.name.clone(),
+        fallback_warning: Some(Diagnostic::warning_at(
+            DiagnosticCode::MissingSyntaxModule,
+            format!(
+                "Could not find main syntax module with name {default} in definition.  Use --syntax-module to specify one. Using {} as default.",
+                main.name
+            ),
+            &main.attributes,
+        )),
+    })
+}
+
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     if options.for_proving && options.backend != CompilationBackend::Rust {
         return Err("--for-proving requires --backend rust".into());
@@ -1264,30 +1306,11 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         load_definition(&options.common, Some(options.backend), configuration_module)?
     };
     let builtin_source_prefixes = options.common.builtin_source_prefixes();
-    if let Some(syntax_module) = &options.syntax_module {
-        if loaded.resolved.module_id(syntax_module).is_none() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "Could not find main syntax module with name {syntax_module} in definition."
-                ),
-            )
-            .into());
-        }
-    } else {
-        let default_syntax_module = format!("{}-SYNTAX", loaded.resolved.main_module().name);
-        if loaded.resolved.module_id(&default_syntax_module).is_none() {
-            loaded.diagnostics.extend(options.common.diagnostics.apply(vec![
-                Diagnostic::warning_at(
-                    DiagnosticCode::MissingSyntaxModule,
-                    format!(
-                        "Could not find main syntax module with name {default_syntax_module} in definition.  Use --syntax-module to specify one. Using {} as default.",
-                        loaded.resolved.main_module().name
-                    ),
-                    &loaded.resolved.main_module().attributes,
-                ),
-            ]));
-        }
+    let syntax_module = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
+    if let Some(warning) = syntax_module.fallback_warning {
+        loaded
+            .diagnostics
+            .extend(options.common.diagnostics.apply(vec![warning]));
     }
     let artifacts = match compile_loaded_definition(
         &loaded,
@@ -1312,7 +1335,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     emit_diagnostics(&artifacts.diagnostics);
     fs::create_dir_all(&options.output_directory)?;
     if options.emit_json || options.for_proving {
-        let definition = parsed_definition_for_json(&loaded, options.syntax_module.as_deref())?;
+        let definition = parsed_definition_for_json(&loaded, &syntax_module.name)?;
         fs::write(
             options.output_directory.join("parsed.json"),
             definition_json::to_string_pretty(&definition)?,
@@ -1354,24 +1377,12 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
 
 fn parsed_definition_for_json(
     loaded: &k_rust::outer::LoadedDefinition,
-    syntax_module: Option<&str>,
+    syntax_module: &str,
 ) -> Result<k_rust::definition::Definition, Box<dyn Error>> {
     // Match DefinitionParsing.parseDefinitionAndResolveBubbles: retain the semantic and syntax
     // import closures, the frontend's always-present utility modules, and entry modules whose
     // visible sentences contained no bubbles before backend-tag filtering.
     let main = loaded.resolved.main_module();
-    let default_syntax_module = format!("{}-SYNTAX", main.name);
-    let syntax_module = match syntax_module {
-        Some(module) if loaded.resolved.module_id(module).is_none() => {
-            return Err(format!("definition syntax module {module:?} was not found").into());
-        }
-        Some(module) => module,
-        None => loaded
-            .resolved
-            .module_id(&default_syntax_module)
-            .map(|_| default_syntax_module.as_str())
-            .unwrap_or(&main.name),
-    };
 
     let mut seeds = BTreeSet::from([
         main.name.clone(),
@@ -1509,7 +1520,13 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
-    let loaded = load_definition(&options.common, Some(CompilationBackend::Rust), None)?;
+    let mut loaded = load_definition(&options.common, Some(CompilationBackend::Rust), None)?;
+    let syntax_module = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
+    if let Some(warning) = syntax_module.fallback_warning {
+        loaded
+            .diagnostics
+            .extend(options.common.diagnostics.apply(vec![warning]));
+    }
     let builtin_source_prefixes = options.common.builtin_source_prefixes();
     let compiled = match compile_loaded_definition(
         &loaded,
@@ -1530,17 +1547,21 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
 
     let source = read_program_source(options.expression, options.program_file)?;
     let start_sort = parse_sort(&options.sort)?;
-    let parser = ProgramParser::from_resolved(&loaded.resolved, &options.syntax_module)?;
-    let program = parser.parse(&start_sort, &source)?;
-    let program = expand_macros_in_term(&loaded.definition, &options.syntax_module, program)?;
+    let program_parser = ProgramParser::from_resolved(&loaded.resolved, &syntax_module.name)?;
+    let program = program_parser.parse(&start_sort, &source)?;
+    let program = expand_macros_in_term(&loaded.definition, &syntax_module.name, program)?;
     // Parser annotations refer to the source definition's production catalog. Perform
     // production-sensitive conversion there, before crossing into the transformed definition.
-    let injector = SortInjector::new(&loaded.resolved, &options.syntax_module)?;
-    let program_sort = injector.term_sort(&program, None)?;
-    let program = injector.inject_at_top(&program)?;
-    let program = term_to_kore_from_resolved(&loaded.resolved, &options.syntax_module, &program)?;
+    let program_injector = SortInjector::new(&loaded.resolved, &syntax_module.name)?;
+    let program_sort = program_injector.term_sort(&program, None)?;
+    let program = program_injector.inject_at_top(&program)?;
+    let program = term_to_kore_from_resolved(&loaded.resolved, &syntax_module.name, &program)?;
     let available_config_vars =
         configuration_variable_sorts(&loaded.resolved, &options.common.module)?;
+    let config_parser_modules =
+        configuration_variable_parser_modules(&loaded.resolved, &options.common.module)?;
+    let mut config_parsers = BTreeMap::new();
+    let mut config_injectors = BTreeMap::new();
     let mut seen_config_vars = BTreeSet::new();
     let mut config_vars = Vec::new();
     for assignment in &options.config_vars {
@@ -1576,13 +1597,44 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
                 )
             }
         })?;
-        let value = parser.parse(sort, source).map_err(|error| {
+        let parser_module = config_parser_modules
+            .get(name)
+            .map(String::as_str)
+            .unwrap_or(&options.common.module);
+        if loaded.resolved.module_id(parser_module).is_none() {
+            return Err(format!(
+                "parser module `{parser_module}` for configuration variable `${name}` was not found"
+            )
+            .into());
+        }
+        if !config_parsers.contains_key(parser_module) {
+            config_parsers.insert(
+                parser_module.to_owned(),
+                ProgramParser::from_resolved(&loaded.resolved, parser_module)?,
+            );
+            config_injectors.insert(
+                parser_module.to_owned(),
+                SortInjector::new(&loaded.resolved, parser_module)?,
+            );
+        }
+        let parser = config_parsers
+            .get(parser_module)
+            .expect("configuration parser was inserted above");
+        let injector = config_injectors
+            .get(parser_module)
+            .expect("configuration injector was inserted above");
+        let parse_sort = if sort.name == "K" {
+            KastSort::new("KItem")
+        } else {
+            sort.clone()
+        };
+        let value = parser.parse(&parse_sort, source).map_err(|error| {
             format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
         })?;
-        let value = expand_macros_in_term(&loaded.definition, &options.syntax_module, value)?;
+        let value = expand_macros_in_term(&loaded.definition, parser_module, value)?;
         let value_sort = injector.term_sort(&value, None)?;
         let value = injector.inject_at_top(&value)?;
-        let value = term_to_kore_from_resolved(&loaded.resolved, &options.syntax_module, &value)?;
+        let value = term_to_kore_from_resolved(&loaded.resolved, parser_module, &value)?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
     let missing_config_vars = available_config_vars
@@ -3172,6 +3224,41 @@ fn read_program_source(
         (None, None) => read_stdin()?,
         (Some(_), Some(_)) => unreachable!(),
     })
+}
+
+fn configuration_variable_parser_modules(
+    definition: &k_rust::definition::ResolvedDefinition,
+    module: &str,
+) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
+    let module = definition
+        .module_id(module)
+        .ok_or_else(|| format!("definition has no module `{module}`"))?;
+    let mut modules = BTreeMap::new();
+    for sentence in definition.sentences(module) {
+        let Sentence::Production { attributes, .. } = sentence else {
+            continue;
+        };
+        if attributes.get("cell").is_none() {
+            continue;
+        }
+        let Some(parser) = attributes.get_str("parser") else {
+            continue;
+        };
+        for entry in parser.split(';') {
+            let fields = entry.split(',').map(str::trim).collect::<Vec<_>>();
+            let [name, parser_module] = fields.as_slice() else {
+                return Err(format!("Invalid value for parser attribute: {parser}").into());
+            };
+            if name.is_empty() || parser_module.is_empty() {
+                return Err(format!("Invalid value for parser attribute: {parser}").into());
+            }
+            modules.insert(
+                name.strip_prefix('$').unwrap_or(name).to_string(),
+                (*parser_module).to_string(),
+            );
+        }
+    }
+    Ok(modules)
 }
 
 fn configuration_variable_sorts(
