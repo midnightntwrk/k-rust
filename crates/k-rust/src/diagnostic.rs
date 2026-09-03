@@ -132,6 +132,7 @@ pub enum DiagnosticCode {
     UnsupportedExistentialVariable,
     UnsupportedCellBag,
     UndefinedKLabel,
+    UndeclaredTag,
     UnrecognizedAttribute,
 }
 

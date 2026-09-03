@@ -746,6 +746,148 @@ fn bracket_label_uses_the_declared_symbol() {
     );
 }
 
+#[test]
+fn priority_tags_resolve_through_context_tags() {
+    let anonymous_source = include_str!("fixtures/reference/outer/priority-anonymous-tag/test.k");
+    let anonymous = parse("priority-anonymous-tag.k", anonymous_source).unwrap();
+    let diagnostics = lower(&anonymous, "PRIORITY-ANONYMOUS-TAG").unwrap_err();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::UndeclaredTag);
+    assert_eq!(
+        diagnostics[0].message,
+        "Could not find any productions for tag: _*_"
+    );
+    assert_eq!(
+        diagnostics[0].source.as_deref(),
+        Some("priority-anonymous-tag.k")
+    );
+    let location = diagnostics[0].location.expect("priority sentence location");
+    assert_eq!(
+        (
+            location.start_line,
+            location.start_column,
+            location.end_line,
+            location.end_column,
+        ),
+        (4, 3, 4, 28)
+    );
+    let reference = include_str!("fixtures/reference/outer/priority-anonymous-tag/diagnostic.txt");
+    assert!(reference.contains(&diagnostics[0].message));
+    assert!(reference.contains("Location(4,3,4,28)"));
+
+    let unknown_source = include_str!("fixtures/reference/outer/priority-unknown-tag/test.k");
+    let unknown = parse("priority-unknown-tag.k", unknown_source).unwrap();
+    let diagnostics = lower(&unknown, "PRIORITY-UNKNOWN-TAG").unwrap_err();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::UndeclaredTag);
+    assert_eq!(
+        diagnostics[0].message,
+        "Could not find any productions for tag: nosuchtag"
+    );
+    assert_eq!(
+        diagnostics[0].source.as_deref(),
+        Some("priority-unknown-tag.k")
+    );
+    let location = diagnostics[0].location.expect("priority sentence location");
+    assert_eq!(
+        (
+            location.start_line,
+            location.start_column,
+            location.end_line,
+            location.end_column,
+        ),
+        (3, 3, 3, 32)
+    );
+    let reference = include_str!("fixtures/reference/outer/priority-unknown-tag/diagnostic.txt");
+    assert!(reference.contains(&diagnostics[0].message));
+    assert!(reference.contains("Location(3,3,3,32)"));
+
+    let associativity_source = indoc! {r#"
+        module ASSOCIATIVITY-UNKNOWN-TAG
+          syntax Foo ::= "a" [symbol(a)]
+          syntax left nosuchtag
+        endmodule
+    "#};
+    let associativity = parse("associativity-unknown-tag.k", associativity_source).unwrap();
+    let diagnostics = lower(&associativity, "ASSOCIATIVITY-UNKNOWN-TAG").unwrap_err();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::UndeclaredTag);
+    assert_eq!(
+        diagnostics[0].message,
+        "Could not find any productions for tag: nosuchtag"
+    );
+    let location = diagnostics[0]
+        .location
+        .expect("associativity sentence location");
+    assert_eq!(
+        (
+            location.start_line,
+            location.start_column,
+            location.end_line,
+            location.end_column,
+        ),
+        (3, 3, 3, 24)
+    );
+
+    let valid_source = indoc! {r#"
+        module TAGS
+          syntax Exp ::= "foo" [symbol(foo)]
+                       | "bar" [symbol(bar)]
+                       | Exp "+" Exp
+                       | Exp "*" Exp [group(mult)]
+                       | "(" Exp ")" [bracket, symbol(paren)]
+                       | Exp "-" Exp [klabel(minus)]
+          syntax priority foo > bar
+          syntax left _+__TAGS
+          syntax right mult
+          syntax non-assoc paren
+          syntax priority minus > foo
+        endmodule
+    "#};
+    let definition = lower(&parse("valid-tags.k", valid_source).unwrap(), "TAGS").unwrap();
+    let sentences = &definition.main_module().unwrap().local_sentences;
+    let priorities = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            k_rust::definition::Sentence::SyntaxPriority { priorities, .. } => Some(priorities),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        priorities,
+        vec![
+            &vec![vec!["foo".to_owned()], vec!["bar".to_owned()]],
+            &vec![
+                vec!["_-__TAGS_Exp_Exp_Exp".to_owned()],
+                vec!["foo".to_owned()],
+            ],
+        ]
+    );
+
+    let associativity_tags = |expected| {
+        sentences.iter().find_map(|sentence| match sentence {
+            k_rust::definition::Sentence::SyntaxAssociativity {
+                associativity,
+                tags,
+                ..
+            } if *associativity == expected => Some(tags),
+            _ => None,
+        })
+    };
+    assert_eq!(
+        associativity_tags(k_rust::definition::Associativity::Left),
+        Some(&vec!["_+__TAGS_Exp_Exp_Exp".to_owned()])
+    );
+    assert_eq!(
+        associativity_tags(k_rust::definition::Associativity::Right),
+        Some(&vec!["_*__TAGS_Exp_Exp_Exp".to_owned()])
+    );
+    assert_eq!(
+        associativity_tags(k_rust::definition::Associativity::NonAssoc),
+        Some(&vec!["paren".to_owned()])
+    );
+}
+
 outer_snapshot!(
     bubble_attributes_ignore_commented_brackets,
     indoc! {r#"

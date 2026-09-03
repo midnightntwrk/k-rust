@@ -5,10 +5,11 @@ use serde_json::{Value, json};
 use crate::{
     definition::{
         Associativity as FlatAssociativity, Attributes, Definition, FlatImport, FlatModule,
-        LOCATION_ATTRIBUTE, ProductionItem as FlatProductionItem, SENTENCE_END_OFFSET_ATTRIBUTE,
-        SENTENCE_START_OFFSET_ATTRIBUTE, SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE,
-        Sentence as FlatSentence, json::label_json,
+        LOCATION_ATTRIBUTE, Location, ProductionItem as FlatProductionItem,
+        SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, SOURCE_ATTRIBUTE,
+        SOURCE_ID_ATTRIBUTE, Sentence as FlatSentence, json::label_json,
     },
+    diagnostic::{Diagnostic, DiagnosticCode},
     kast::{Label, Sort},
 };
 
@@ -46,26 +47,41 @@ pub(crate) fn lower_files(
     }
 
     let tag_index = build_tag_index(files);
+    let mut modules = Vec::new();
+    for file in files {
+        for module in &file.modules {
+            modules.push(lower_module(file, module, &tag_index, &mut diagnostics));
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
+
     Ok(Definition {
         main_module: main_module.into(),
-        modules: files
-            .iter()
-            .flat_map(|file| {
-                file.modules
-                    .iter()
-                    .map(|module| lower_module(file, module, &tag_index))
-            })
-            .collect(),
+        modules,
         attributes: Attributes::default(),
     })
 }
 
 type TagIndex = BTreeMap<String, Vec<String>>;
 
-fn lower_module(file: &SourceFile, module: &Module, tag_index: &TagIndex) -> FlatModule {
+fn lower_module(
+    file: &SourceFile,
+    module: &Module,
+    tag_index: &TagIndex,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> FlatModule {
     let mut local_sentences = Vec::new();
     for sentence in &module.sentences {
-        lower_sentence(file, module, sentence, tag_index, &mut local_sentences);
+        lower_sentence(
+            file,
+            module,
+            sentence,
+            tag_index,
+            &mut local_sentences,
+            diagnostics,
+        );
     }
 
     let mut temporary_cell_sorts = Vec::new();
@@ -117,6 +133,7 @@ fn lower_sentence(
     sentence: &Sentence,
     tag_index: &TagIndex,
     output: &mut Vec<FlatSentence>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) {
     match sentence {
         Sentence::Syntax(syntax) => match &syntax.body {
@@ -165,20 +182,27 @@ fn lower_sentence(
                 }
             }
         },
-        Sentence::Priority(priority) => output.push(FlatSentence::SyntaxPriority {
-            priorities: priority
-                .groups
-                .iter()
-                .map(|group| resolve_tags(group, tag_index))
-                .collect(),
-            attributes: sentence_source_attributes(file, priority.span, &[]),
-        }),
+        Sentence::Priority(priority) => match priority
+            .groups
+            .iter()
+            .map(|group| resolve_tags(group, tag_index, file, priority.span))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(priorities) => output.push(FlatSentence::SyntaxPriority {
+                priorities,
+                attributes: sentence_source_attributes(file, priority.span, &[]),
+            }),
+            Err(diagnostic) => diagnostics.push(diagnostic),
+        },
         Sentence::Associativity(associativity) => {
-            output.push(FlatSentence::SyntaxAssociativity {
-                associativity: lower_associativity(associativity.associativity),
-                tags: resolve_tags(&associativity.tags, tag_index),
-                attributes: sentence_source_attributes(file, associativity.span, &[]),
-            });
+            match resolve_tags(&associativity.tags, tag_index, file, associativity.span) {
+                Ok(tags) => output.push(FlatSentence::SyntaxAssociativity {
+                    associativity: lower_associativity(associativity.associativity),
+                    tags,
+                    attributes: sentence_source_attributes(file, associativity.span, &[]),
+                }),
+                Err(diagnostic) => diagnostics.push(diagnostic),
+            }
         }
         Sentence::Lexical(lexical) => output.push(FlatSentence::SyntaxLexical {
             name: lexical.name.clone(),
@@ -424,11 +448,7 @@ fn build_tag_index(files: &[SourceFile]) -> TagIndex {
                 let Some(compiled) = compiled else {
                     continue;
                 };
-                if let Some(source) = source_label(production, false).or_else(|| {
-                    has_attribute(&production.attributes, "bracket")
-                        .then(|| source_label(production, true))
-                        .flatten()
-                }) {
+                if let Some(source) = tag_key(module, production) {
                     insert_tag(&mut index, source, compiled.clone());
                 }
                 if let Some(groups) = attribute_value(&production.attributes, "group") {
@@ -446,26 +466,21 @@ fn build_tag_index(files: &[SourceFile]) -> TagIndex {
     index
 }
 
-fn source_label(production: &Production, bracket: bool) -> Option<String> {
-    let symbol = attribute_value(&production.attributes, "symbol");
-    let declared = symbol
-        .filter(|symbol| !symbol.is_empty())
-        .or_else(|| attribute_value(&production.attributes, "klabel"));
+/// The source-side label key used by K's definition-wide `Context.tags` index.
+fn tag_key(module: &Module, production: &Production) -> Option<String> {
+    let declared = declared_label(production);
+    let bracket = has_attribute(&production.attributes, "bracket");
     let syntactic_subsort = matches!(
         production.items.as_slice(),
         [ProductionItem::NonTerminal { .. }]
     );
     if !bracket
         && declared.is_none()
-        && (syntactic_subsort
-            || has_attribute(&production.attributes, "token")
-            || has_attribute(&production.attributes, "bracket"))
+        && (syntactic_subsort || has_attribute(&production.attributes, "token"))
     {
         return None;
     }
-    declared
-        .map(|label| label.replace(' ', ""))
-        .or_else(|| Some(raw_prefix_label(production).0))
+    Some(declared.unwrap_or_else(|| format!("{}_{}", raw_prefix_label(production).0, module.name)))
 }
 
 fn insert_tag(index: &mut TagIndex, source: String, compiled: String) {
@@ -476,10 +491,32 @@ fn insert_tag(index: &mut TagIndex, source: String, compiled: String) {
     }
 }
 
-fn resolve_tags(tags: &[String], index: &TagIndex) -> Vec<String> {
-    tags.iter()
-        .flat_map(|tag| index.get(tag).cloned().unwrap_or_else(|| vec![tag.clone()]))
-        .collect()
+fn resolve_tags(
+    tags: &[String],
+    index: &TagIndex,
+    file: &SourceFile,
+    span: Span,
+) -> Result<Vec<String>, Diagnostic> {
+    let mut resolved = Vec::new();
+    for tag in tags {
+        let Some(labels) = index.get(tag) else {
+            return Err(Diagnostic::error_at_location(
+                DiagnosticCode::UndeclaredTag,
+                format!("Could not find any productions for tag: {tag}"),
+                file.source.clone(),
+                location(span),
+            ));
+        };
+        resolved.extend(labels.iter().cloned());
+    }
+    Ok(resolved)
+}
+
+fn declared_label(production: &Production) -> Option<String> {
+    attribute_value(&production.attributes, "symbol")
+        .filter(|symbol| !symbol.is_empty())
+        .or_else(|| attribute_value(&production.attributes, "klabel"))
+        .map(|label| label.replace(' ', ""))
 }
 
 fn effective_label(
@@ -488,10 +525,7 @@ fn effective_label(
     production: &Production,
     bracket: bool,
 ) -> Option<String> {
-    let symbol = attribute_value(&production.attributes, "symbol");
-    let declared = symbol
-        .filter(|symbol| !symbol.is_empty())
-        .or_else(|| attribute_value(&production.attributes, "klabel"));
+    let declared = declared_label(production);
     let syntactic_subsort = matches!(
         production.items.as_slice(),
         [ProductionItem::NonTerminal { .. }]
@@ -510,7 +544,7 @@ fn effective_label(
             .iter()
             .any(|attribute| attribute.key == "symbol")
     {
-        return Some(declared.replace(' ', ""));
+        return Some(declared);
     }
     Some(prefix_label(module, result_sort, production, true))
 }
@@ -576,6 +610,15 @@ fn lower_associativity(associativity: Associativity) -> FlatAssociativity {
         Associativity::Right => FlatAssociativity::Right,
         Associativity::NonAssoc => FlatAssociativity::NonAssoc,
         Associativity::Unspecified => FlatAssociativity::Unspecified,
+    }
+}
+
+fn location(span: Span) -> Location {
+    Location {
+        start_line: span.start.line,
+        start_column: span.start.column,
+        end_line: span.end.line,
+        end_column: span.end.column,
     }
 }
 
