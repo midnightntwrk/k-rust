@@ -573,13 +573,7 @@ fn source_attributes(file: &SourceFile, span: Span, attributes: &[Attribute]) ->
     for attribute in attributes {
         result.insert(
             attribute.key.clone(),
-            json!(
-                attribute
-                    .value
-                    .as_deref()
-                    .map(decode_attribute_value)
-                    .unwrap_or_default()
-            ),
+            json!(attribute.value.as_deref().unwrap_or_default()),
         );
     }
     result.insert(SOURCE_ATTRIBUTE, json!(file.source));
@@ -605,14 +599,6 @@ fn sentence_source_attributes(
     result.insert(SENTENCE_START_OFFSET_ATTRIBUTE, json!(span.start.offset));
     result.insert(SENTENCE_END_OFFSET_ATTRIBUTE, json!(span.end.offset));
     result
-}
-
-fn decode_attribute_value(value: &str) -> String {
-    if value.starts_with('"') && value.ends_with('"') {
-        serde_json::from_str(value).unwrap_or_else(|_| value.to_owned())
-    } else {
-        value.to_owned()
-    }
 }
 
 fn has_attribute(attributes: &[Attribute], key: &str) -> bool {

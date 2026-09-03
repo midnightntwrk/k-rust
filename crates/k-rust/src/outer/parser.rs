@@ -456,38 +456,7 @@ impl<'a> Parser<'a> {
             }
             self.skip_trivia()?;
             let value = if self.consume("(") {
-                let start = self.offset;
-                let mut depth = 1usize;
-                let mut quoted = false;
-                let parsed = 'value: loop {
-                    if self.offset >= self.end {
-                        break 'value None;
-                    }
-                    let ch = self
-                        .bump()
-                        .ok_or_else(|| self.error("unterminated attribute"))?;
-                    if ch == '"' && !self.is_escaped(self.offset - 1) {
-                        quoted = !quoted;
-                    }
-                    if !quoted {
-                        if ch == '(' {
-                            depth += 1;
-                        }
-                        if ch == ')' {
-                            depth -= 1;
-                            if depth == 0 {
-                                let end = self.offset - 1;
-                                break 'value Some(self.input[start..end].to_owned());
-                            }
-                        }
-                    }
-                };
-                let parsed = parsed.ok_or_else(|| self.error("unterminated attribute value"))?;
-                Some(if parsed.starts_with('"') && parsed.ends_with('"') {
-                    serde_json::from_str(&parsed).unwrap_or(parsed)
-                } else {
-                    parsed
-                })
+                Some(self.attribute_value()?)
             } else {
                 None
             };
@@ -506,6 +475,66 @@ impl<'a> Parser<'a> {
             break;
         }
         Ok(attributes)
+    }
+
+    fn attribute_value(&mut self) -> Result<String, ParseError> {
+        if self.peek_char() == Some('"') {
+            self.bump();
+            let mut value = String::new();
+            loop {
+                let ch = self
+                    .bump()
+                    .ok_or_else(|| self.error("unterminated attribute string"))?;
+                match ch {
+                    '"' => break,
+                    '\n' | '\r' => return Err(self.error("newline in attribute string")),
+                    '\\' => {
+                        let escaped = self
+                            .bump()
+                            .ok_or_else(|| self.error("unterminated attribute string"))?;
+                        value.push(match escaped {
+                            '"' => '"',
+                            'n' => '\n',
+                            'r' => '\r',
+                            't' => '\t',
+                            '\\' => '\\',
+                            '\n' | '\r' => {
+                                return Err(self.error("newline in attribute string"));
+                            }
+                            other => {
+                                return Err(self.error(format!(
+                                    "invalid escape `\\{other}` in attribute string"
+                                )));
+                            }
+                        });
+                    }
+                    other => value.push(other),
+                }
+            }
+            self.skip_trivia()?;
+            self.expect_raw(')')?;
+            return Ok(value);
+        }
+
+        let start = self.offset;
+        let mut depth = 1usize;
+        loop {
+            let ch = self
+                .bump()
+                .ok_or_else(|| self.error("unterminated attribute value"))?;
+            match ch {
+                '"' => return Err(self.error("quote in unquoted attribute value")),
+                '\n' | '\r' => return Err(self.error("newline in unquoted attribute value")),
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Ok(self.input[start..self.offset - 1].to_owned());
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     fn sort(&mut self) -> Result<Sort, ParseError> {
@@ -873,15 +902,6 @@ impl<'a> Parser<'a> {
     }
     fn done(&self) -> bool {
         self.offset >= self.end
-    }
-    fn is_escaped(&self, offset: usize) -> bool {
-        let mut slashes = 0;
-        let mut cursor = offset;
-        while cursor > 0 && self.input.as_bytes()[cursor - 1] == b'\\' {
-            slashes += 1;
-            cursor -= 1;
-        }
-        slashes % 2 == 1
     }
     fn position(&self, offset: usize) -> Position {
         let line_index = self.line_starts.partition_point(|start| *start <= offset) - 1;

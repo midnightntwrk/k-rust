@@ -428,6 +428,68 @@ fn preserves_edge_spaces_in_unquoted_attribute_values() {
 }
 
 #[test]
+fn attribute_strings_are_decoded_once_with_k_escapes() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= "a" [format("\"%1\""), hook("INT.add"), foo("a\\b"), edge( x)]
+        endmodule
+    "#};
+    let parsed = parse("attribute-strings.k", source).unwrap();
+    let Sentence::Syntax(syntax) = &parsed.modules[0].sentences[0] else {
+        panic!("expected syntax declaration")
+    };
+    let k_rust::outer::SyntaxBody::Productions(blocks) = &syntax.body else {
+        panic!("expected syntax productions")
+    };
+    let attributes = &blocks[0].productions[0].attributes;
+
+    assert_eq!(attributes[0].value.as_deref(), Some("\"%1\""));
+    assert_eq!(attributes[1].value.as_deref(), Some("INT.add"));
+    assert_eq!(attributes[2].value.as_deref(), Some(r"a\b"));
+    assert_eq!(attributes[3].value.as_deref(), Some(" x"));
+
+    let definition = lower(&parsed, "MAIN").unwrap();
+    let lowered_attributes = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            k_rust::definition::Sentence::Production { attributes, .. } => Some(attributes),
+            _ => None,
+        })
+        .expect("expected lowered production");
+    assert_eq!(lowered_attributes.get_str("format"), Some("\"%1\""));
+    assert_eq!(lowered_attributes.get_str("hook"), Some("INT.add"));
+    assert_eq!(lowered_attributes.get_str("foo"), Some(r"a\b"));
+    assert_eq!(lowered_attributes.get_str("edge"), Some(" x"));
+
+    let invalid_escape = parse(
+        "invalid-attribute-escape.k",
+        "module MAIN\nsyntax Foo ::= \"a\" [foo(\"\\A\")]\nendmodule\n",
+    )
+    .unwrap_err();
+    assert_eq!(
+        invalid_escape.message,
+        r"invalid escape `\A` in attribute string"
+    );
+
+    let raw_newline = parse(
+        "newline-in-attribute-string.k",
+        "module MAIN\nsyntax Foo ::= \"a\" [foo(\"a\nb\")]\nendmodule\n",
+    )
+    .unwrap_err();
+    assert_eq!(raw_newline.message, "newline in attribute string");
+
+    let unquoted_quote = parse(
+        "quote-in-unquoted-attribute.k",
+        "module MAIN\nsyntax Foo ::= \"a\" [foo(a\"b\")]\nendmodule\n",
+    )
+    .unwrap_err();
+    assert_eq!(unquoted_quote.message, "quote in unquoted attribute value");
+}
+
+#[test]
 fn rejects_duplicate_attribute_keys_before_lowering_loses_them() {
     let source = "module MAIN\nsyntax Exp ::= \"x\" [symbol(first), symbol(second)]\nendmodule\n";
     let error = parse("duplicate-attribute.k", source).unwrap_err();
