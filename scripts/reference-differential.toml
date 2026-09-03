@@ -1079,7 +1079,7 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/cli/io/io.k"
 main-module = "IO"
 syntax-module = "IO"
 sort = "Int"
-depth = 0
+depth = 1
 programs = [
   "${workspace}/crates/k-rust/tests/fixtures/reference/cli/io/program.pgm",
 ]
