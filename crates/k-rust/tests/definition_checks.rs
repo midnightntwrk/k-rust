@@ -1442,6 +1442,11 @@ fn definition_runner_checks_every_module_and_definition_wide_invariants() {
                 name: "BASE".into(),
                 imports: Vec::new(),
                 local_sentences: vec![
+                    Sentence::SyntaxSort {
+                        parameters: Vec::new(),
+                        sort: Sort::new("K"),
+                        attributes: Attributes::default(),
+                    },
                     production(Some("dup"), "Int", &[], Attributes::default()),
                     production(Some("hot"), "Foo", &["K"], attrs(&[("strict", json!(""))])),
                 ],
