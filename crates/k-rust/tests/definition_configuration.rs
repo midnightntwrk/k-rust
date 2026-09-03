@@ -1,5 +1,9 @@
 use indoc::indoc;
-use k_rust::definition::{Attributes, ProductionItem, Sentence, expand_configurations};
+use k_rust::definition::{
+    Attributes, ProductionItem, Sentence, expand_configurations,
+    expand_configurations_with_diagnostics,
+};
+use k_rust::diagnostic::DiagnosticCode;
 use k_rust::inner::{ConfigError, resolve_configuration_bubbles};
 use k_rust::kast::{Term, TermSpan};
 use k_rust::outer::{ResolvedSource, load};
@@ -11,6 +15,29 @@ fn parsed(source: &str) -> k_rust::definition::Definition {
     let parsed = k_rust::outer::parse("configuration.k", source).unwrap();
     let lowered = k_rust::outer::lower(&parsed, "MAIN").unwrap();
     resolve_configuration_bubbles(&lowered).unwrap()
+}
+
+#[test]
+fn collection_cell_with_config_variable_warns_without_initial() {
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          configuration
+            <top>
+              <good multiplicity="*" type="Set" initial=""> $FOO </good>
+              <bad multiplicity="*" type="Set"> $FOO </bad>
+            </top>
+        endmodule
+    "#});
+    let (_, diagnostics) = expand_configurations_with_diagnostics(&definition).unwrap();
+    let warnings = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::CellCollectionVarWithoutInitial)
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(
+        warnings[0].message,
+        "Configuration variable found in declaration of collection cell <bad>. Implicitly, this causes the initial configuration to start with one <bad> element instead of zero. Add the `initial=\"\"` attribute to make that behavior explicit."
+    );
 }
 
 fn attributes(attributes: &Attributes) -> String {
