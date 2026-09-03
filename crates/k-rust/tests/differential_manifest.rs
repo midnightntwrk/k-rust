@@ -32,10 +32,9 @@ const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
 #[test]
 fn part_b_manifest_schema_is_complete() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
-    assert_eq!(
-        manifest["normalisations"]["ignore_unique_id"].as_str(),
-        Some("B2-03"),
-        "the temporary UNIQUE_ID escape hatch must name its deleting ticket"
+    assert!(
+        manifest["normalisations"].get("ignore_unique_id").is_none(),
+        "B2-03 removes the temporary UNIQUE_ID escape hatch"
     );
 
     let allowed_pairings = BTreeSet::from(["kore/llvm", "haskell/rust"]);
@@ -76,17 +75,10 @@ fn part_b_manifest_schema_is_complete() {
             );
             continue;
         }
-        let ceilings = entry["unique-id-divergence-ceilings"]
-            .as_table()
-            .unwrap_or_else(|| panic!("accept case {name} must pin UNIQUE_ID divergence ceilings"));
-        for pairing in effective_pairings {
-            assert!(
-                ceilings[pairing]
-                    .as_integer()
-                    .is_some_and(|count| count >= 0),
-                "{name} must pin a non-negative UNIQUE_ID ceiling for {pairing}"
-            );
-        }
+        assert!(
+            entry.get("unique-id-divergence-ceilings").is_none(),
+            "strict UNIQUE_ID parity makes the old ceiling on {name} obsolete"
+        );
     }
 
     for required in [
@@ -295,24 +287,14 @@ fn part_b_pending_and_special_case_schema_is_complete() {
 }
 
 #[test]
-fn measured_compile_divergence_ceilings_are_pinned() {
+fn b2_03_removes_measured_compile_divergence_ceilings() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
-    let append = manifest["compile"]
-        .as_array()
-        .expect("compile cases")
-        .iter()
-        .find(|entry| entry["name"].as_str() == Some("append"))
-        .expect("append compile case");
-
-    assert_eq!(
-        append["unique-id-divergence-ceilings"]["kore/llvm"].as_integer(),
-        Some(0),
-        "append's measured kore/llvm UNIQUE_ID ceiling must not hide a new divergence",
-    );
-    assert_eq!(
-        append["unique-id-divergence-ceilings"]["haskell/rust"].as_integer(),
-        Some(1),
-        "append's measured haskell/rust UNIQUE_ID ceiling must stay ratcheted",
+    assert!(
+        manifest["compile"]
+            .as_array()
+            .expect("compile cases")
+            .iter()
+            .all(|entry| entry.get("unique-id-divergence-ceilings").is_none())
     );
 }
 
@@ -337,8 +319,7 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
         "REFERENCE_DIFFERENTIAL_PAIRINGS",
         "haskell/rust",
         "kore/llvm",
-        "K_DIFFERENTIAL_IGNORE_UNIQUE_ID",
-        "unique-id divergences",
+        "multi-alias freezer axioms",
         "kore_parser",
         "verifying reference definition.kore",
         "verifying k-rust definition.kore",
@@ -348,11 +329,16 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
             "compile gate lacks {needle}"
         );
     }
-    assert!(
-        COMPILE_SCRIPT
-            .contains("if [[ \",$blocking_tickets,\" != *\",$ignore_unique_id_ticket,\"* ]]",),
-        "a case blocked by the UNIQUE_ID ticket must run its strict pending comparison",
-    );
+    for obsolete in [
+        "K_DIFFERENTIAL_IGNORE_UNIQUE_ID",
+        "ignore_unique_id_ticket",
+        "unique-id-divergence-ceilings",
+    ] {
+        assert!(
+            !COMPILE_SCRIPT.contains(obsolete),
+            "B2-03 must remove the general UNIQUE_ID escape hatch: {obsolete}"
+        );
+    }
     for script in [EXECUTION_SCRIPT, MIR_EXECUTION_SCRIPT, &symbolic] {
         assert!(script.contains("K_DIFFERENTIAL_DEFINITION"));
         assert!(script.contains("K_DIFFERENTIAL_MODULE"));
@@ -446,11 +432,14 @@ fn every_gate_normalisation_is_registered() {
         .iter()
         .map(|row| row["id"].as_str().expect("normalisation id"))
         .collect::<BTreeSet<_>>();
-    let expected = (1..=20).map(|id| format!("N{id}")).collect::<BTreeSet<_>>();
+    let expected = (1..=20)
+        .filter(|id| *id != 2)
+        .map(|id| format!("N{id}"))
+        .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain exactly N1 through N20"
+        "the gate register must contain N1 and N3 through N20 after B2-03 deletes N2"
     );
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut registered_symbols = BTreeSet::new();
@@ -804,7 +793,7 @@ fn manual_certification_protocol_names_part_b_green_gates() {
         "# PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):",
         "#   1. the gate lines above that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)",
         "#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label <branch> --ticket <ids named in the PR>` (or --all at a milestone)",
-        "#   3. the id-divergence and multi-alias counts printed by scripts/reference-differential.sh while [normalisations].ignore_unique_id is set",
+        "#   3. the permanent multi-alias oracle-exclusion count printed by scripts/reference-differential.sh",
     ] {
         assert!(
             MANIFEST.lines().any(|line| line == requirement),

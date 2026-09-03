@@ -1,5 +1,6 @@
 use indoc::indoc;
 use k_rust::{
+    builtin::embedded,
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
         ResolvedDefinition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE,
@@ -7,19 +8,25 @@ use k_rust::{
     },
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan, printer::Printer},
     kompile::{
-        add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
-        add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
-        constant_fold, expand_macros, generate_sort_predicate_rules,
-        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
-        minimize_term_construction, module_to_kore, number_sentences, propagate_macro_attributes,
-        remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
-        resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
-        resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
-        resolve_semantic_casts, resolve_strict, subsort_kitem,
+        CompilationBackend, CompileOptions, add_cool_like_attributes,
+        add_implicit_computation_cell, add_semantics_module, add_sort_injections_to_definition,
+        check_simplification_rules, compile_loaded_definition, concretize_cells, constant_fold,
+        expand_macros, generate_sort_predicate_rules, generate_sort_predicate_syntax,
+        generate_sort_projections, guard_or_patterns, minimize_term_construction, module_to_kore,
+        number_sentences, propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm,
+        resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
+        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
+        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
+        subsort_kitem,
     },
-    outer::{ResolvedSource, load},
+    kore::{
+        ast::{Pattern as KorePattern, Sentence as KoreSentence},
+        parser::parse_definition,
+    },
+    outer::{LoadOptions, ResolvedSource, load, load_with_options},
     provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -32,6 +39,101 @@ fn parsed(source: &str) -> k_rust::definition::Definition {
     )
     .unwrap()
     .definition
+}
+
+#[derive(Deserialize)]
+struct ParametricIdOracle {
+    rule: Vec<ParametricRuleId>,
+}
+
+#[derive(Deserialize)]
+struct ParametricRuleId {
+    line: usize,
+    unique_id: String,
+}
+
+#[test]
+fn reference_parametric_fixture_rule_ids_match() {
+    // reference: k/result/bin/kompile --backend haskell --main-module PARAMETRIC test.k
+    let source = include_str!("fixtures/reference/kompile/parametric/test.k");
+    let oracle: ParametricIdOracle = toml::from_str(include_str!(
+        "fixtures/reference/kompile/parametric/reference.toml"
+    ))
+    .expect("reference id oracle should parse");
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("parametric.k", source),
+        "PARAMETRIC",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("reference fixture should load");
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect("reference fixture should compile");
+    let definition =
+        parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse");
+
+    let attribute = |attributes: &k_rust::kore::ast::Attributes, name: &str| {
+        attributes.0.iter().find_map(|attribute| match attribute {
+            KorePattern::Application { symbol, arguments }
+                if symbol.name == name
+                    && matches!(arguments.as_slice(), [KorePattern::String(_)]) =>
+            {
+                let [KorePattern::String(value)] = arguments.as_slice() else {
+                    unreachable!()
+                };
+                Some(value.clone())
+            }
+            _ => None,
+        })
+    };
+    let actual = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| {
+            let KoreSentence::Axiom { attributes, .. } = sentence else {
+                return None;
+            };
+            let source = attribute(
+                attributes,
+                "org'Stop'kframework'Stop'attributes'Stop'Source",
+            )?;
+            source.ends_with("parametric.k)").then(|| {
+                let location = attribute(
+                    attributes,
+                    "org'Stop'kframework'Stop'attributes'Stop'Location",
+                )
+                .expect("source rule should have a location");
+                let line = location
+                    .strip_prefix("Location(")
+                    .and_then(|location| location.split(',').next())
+                    .and_then(|line| line.parse().ok())
+                    .expect("source rule location should start with its line");
+                (
+                    line,
+                    attribute(attributes, "UNIQUE'Unds'ID")
+                        .expect("source rule should have a unique id"),
+                )
+            })
+        })
+        .collect::<BTreeMap<_, _>>();
+    let expected = oracle
+        .rule
+        .into_iter()
+        .map(|rule| (rule.line, rule.unique_id))
+        .collect::<BTreeMap<_, _>>();
+
+    assert_eq!(actual, expected);
 }
 
 fn snapshot_attributes(attributes: &Attributes) -> BTreeMap<String, Value> {

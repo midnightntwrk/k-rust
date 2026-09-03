@@ -11,3 +11,19 @@ command = 'set +e; kompile test.k --backend haskell --output-definition ref && k
 tool = "kore-parser"
 exit_code = 0
 sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+
+[[rule]]
+line = 5
+unique_id = "1f0e83b1bbdafc88c4a6b7175e91f3cda74de182a11b82952302d5d4eaa96f81"
+
+[[rule]]
+line = 6
+unique_id = "684c82ace8b75594b1aab71701419d5b24f4c8a07ef5d526ad1b9c1677b67f6b"
+
+[[rule]]
+line = 7
+unique_id = "5d1d6de9c2e61d29c3cd44281fb3f6ccdaedf3fac31fa45a3318ebfddee4f14d"
+
+[[rule]]
+line = 9
+unique_id = "d12c45eca088b3e922a9160d9e6633b41a76ed3f454087b7b06237a8893f9e09"
