@@ -1,0 +1,38 @@
+case = "assoc-strict"
+subsystem = "kompile"
+source_ticket = "I1-06"
+harvested_from = "k/result/bin/kompile --backend haskell"
+
+heat_labels = [
+  "ASSOC-STRICT.minus2-heat",
+  "ASSOC-STRICT.plus1-heat",
+  "ASSOC-STRICT.plus2-heat",
+  "ASSOC-STRICT.times1-heat",
+  "ASSOC-STRICT.times2-heat",
+]
+
+cool_labels = [
+  "ASSOC-STRICT.minus2-cool",
+  "ASSOC-STRICT.plus1-cool",
+  "ASSOC-STRICT.plus2-cool",
+  "ASSOC-STRICT.times1-cool",
+  "ASSOC-STRICT.times2-cool",
+]
+
+heat_attributes = [
+  "UNIQUE_ID",
+  "label",
+  "org.kframework.attributes.Location",
+  "org.kframework.attributes.Source",
+  "symbol",
+]
+
+cool_attributes = [
+  "UNIQUE_ID",
+  "cool",
+  "cool-like",
+  "label",
+  "org.kframework.attributes.Location",
+  "org.kframework.attributes.Source",
+  "symbol",
+]

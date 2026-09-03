@@ -1,13 +1,19 @@
 use indoc::indoc;
+use k_rust::builtin::embedded;
 use k_rust::definition::ResolvedDefinition;
 use k_rust::kompile::{
-    declaration_modules, declaration_modules_from_resolved_with_options, encode_kore_identifier,
-    encode_kore_label, encode_kore_sort, module_to_kore,
+    CompilationBackend, CompileOptions, compile_loaded_definition, declaration_modules,
+    declaration_modules_from_resolved_with_options, encode_kore_identifier, encode_kore_label,
+    encode_kore_sort, module_to_kore,
 };
 use k_rust::kore::ast::{Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
 use k_rust::kore::printer::Printer;
-use k_rust::{kast, kast::Label, outer};
+use k_rust::{
+    kast,
+    kast::Label,
+    outer::{self, LoadOptions, ResolvedSource, load_with_options},
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -19,6 +25,104 @@ fn lowered(source: &str, main_module: &str) -> k_rust::definition::Definition {
 fn rules(source: &str, main_module: &str) -> k_rust::definition::Definition {
     k_rust::inner::resolve_rule_bubbles(&lowered(source, main_module))
         .expect("rule bubbles should resolve")
+}
+
+#[derive(Deserialize)]
+struct StrictnessAttributeOracle {
+    heat_labels: Vec<String>,
+    cool_labels: Vec<String>,
+    heat_attributes: Vec<String>,
+    cool_attributes: Vec<String>,
+}
+
+#[test]
+fn strictness_rules_do_not_emit_frontend_only_production_attributes() {
+    // reference: k/result/bin/kompile --backend haskell --main-module ASSOC-STRICT test.k
+    let source = include_str!("fixtures/reference/kompile/assoc-strict/test.k");
+    let oracle: StrictnessAttributeOracle = toml::from_str(include_str!(
+        "fixtures/reference/kompile/assoc-strict/attributes.toml"
+    ))
+    .expect("reference attribute oracle should parse");
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("assoc-strict.k", source),
+        "ASSOC-STRICT",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("reference fixture should load");
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect("reference fixture should compile");
+    let definition =
+        parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse");
+
+    let expected = oracle
+        .heat_labels
+        .into_iter()
+        .map(|label| (label, oracle.heat_attributes.clone()))
+        .chain(
+            oracle
+                .cool_labels
+                .into_iter()
+                .map(|label| (label, oracle.cool_attributes.clone())),
+        )
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let actual = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| {
+            let Sentence::Axiom { attributes, .. } = sentence else {
+                return None;
+            };
+            let label = attributes.0.iter().find_map(|attribute| match attribute {
+                Pattern::Application { symbol, arguments }
+                    if symbol.name == "label"
+                        && matches!(arguments.as_slice(), [Pattern::String(_)]) =>
+                {
+                    let [Pattern::String(label)] = arguments.as_slice() else {
+                        unreachable!()
+                    };
+                    Some(label.clone())
+                }
+                _ => None,
+            })?;
+            expected.contains_key(&label).then(|| {
+                let mut names = attributes
+                    .0
+                    .iter()
+                    .filter_map(|attribute| match attribute {
+                        Pattern::Application { symbol, .. } => Some(symbol.name.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                names.sort();
+                (label, names)
+            })
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let expected = expected
+        .into_iter()
+        .map(|(label, names)| {
+            let mut names = names
+                .into_iter()
+                .map(|name| encode_kore_identifier(&name))
+                .collect::<Vec<_>>();
+            names.sort();
+            (label, names)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    assert_eq!(actual, expected);
 }
 
 macro_rules! declaration_snapshot {
