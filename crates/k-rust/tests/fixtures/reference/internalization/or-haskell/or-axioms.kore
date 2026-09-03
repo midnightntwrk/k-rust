@@ -1,0 +1,12 @@
+[]
+module TEST-OR
+  sort SortS{} []
+  symbol foo{}() : SortS{} [constructor{}()]
+  symbol bar{}() : SortS{} [constructor{}()]
+  symbol baz{}() : SortS{} [constructor{}()]
+  symbol result{}() : SortS{} [constructor{}()]
+  axiom{} \rewrites{SortS{}}(
+    \or{SortS{}}(\or{SortS{}}(foo{}(), bar{}()), baz{}()),
+    result{}()
+  ) [label{}("or-haskell-1")]
+endmodule []

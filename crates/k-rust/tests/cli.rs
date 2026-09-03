@@ -1345,6 +1345,52 @@ endmodule []
 }
 
 #[test]
+fn kore_exec_executes_every_disjunct_of_the_initial_pattern() {
+    let (root, _) = fixture();
+    let definition = root.join("disjunctive-definition.kore");
+    let program = root.join("disjunctive-program.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol b{}() : SortS{} [constructor{}()]
+  symbol left{}() : SortS{} [constructor{}()]
+  symbol right{}() : SortS{} [constructor{}()]
+  axiom{} \rewrites{SortS{}}(\and{SortS{}}(a{}(),\top{SortS{}}()), left{}()) [label{}("left-step")]
+  axiom{} \rewrites{SortS{}}(\and{SortS{}}(b{}(),\top{SortS{}}()), right{}()) [label{}("right-step")]
+endmodule []
+"#,
+    )
+    .unwrap();
+    fs::write(&program, r#"\or{SortS{}}(a{}(), b{}())"#).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            program.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("left{}()"), "{stdout}");
+    assert!(stdout.contains("right{}()"), "{stdout}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kore_exec_adds_a_rule_module_before_execution() {
     let (root, _) = fixture();
     let definition = root.join("definition.kore");

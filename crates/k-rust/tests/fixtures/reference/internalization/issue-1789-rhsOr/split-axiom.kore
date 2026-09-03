@@ -1,0 +1,14 @@
+[]
+module RHS-OR
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol b{}() : SortS{} [constructor{}()]
+  symbol f{}(SortS{}) : SortS{} [function{}()]
+  axiom{R} \implies{R}(
+    \top{R}(),
+    \equals{SortS{},R}(
+      f{}(X:SortS{}),
+      \and{SortS{}}(\or{SortS{}}(X:SortS{},a{}()),\top{SortS{}}())
+    )
+  ) [label{}("xyzzy"), simplification{}()]
+endmodule []
