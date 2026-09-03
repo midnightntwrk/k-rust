@@ -31,7 +31,7 @@ const PROGRAM_BUILTIN_MODULE: &str = "K";
 const COLLECTION_HOOKS: [&str; 4] = ["SET.Set", "MAP.Map", "LIST.List", "RANGEMAP.RangeMap"];
 // Java `Hooks.namespaces`: hooks outside this set are only emitted as hooked symbols when the
 // compilation admits their namespace through `ModuleToKoreOptions::hook_namespaces`.
-const BUILTIN_HOOK_NAMESPACES: [&str; 19] = [
+pub(crate) const BUILTIN_HOOK_NAMESPACES: [&str; 19] = [
     "BOOL",
     "BUFFER",
     "BYTES",
