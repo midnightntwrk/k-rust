@@ -66,6 +66,171 @@ fn explicit_public_import_inside_a_private_module_stays_public() {
 }
 
 #[test]
+fn sentence_boundaries_follow_outer_jj_token_rules() {
+    let parsed = parse(
+        "one-line-rules.k",
+        "module M syntax Foo ::= \"a\" | \"b\" rule a => b rule b => a endmodule",
+    )
+    .unwrap();
+    assert_eq!(parsed.modules[0].sentences.len(), 3);
+    let bubbles = parsed.modules[0]
+        .sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Bubble(bubble) => Some(bubble.content.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(bubbles, ["a => b", "b => a"]);
+
+    let parsed = parse(
+        "one-line-syntax.k",
+        "module M syntax Foo ::= \"c\" syntax Bar ::= \"d\" rule c => c endmodule",
+    )
+    .unwrap();
+    assert_eq!(parsed.modules[0].sentences.len(), 3);
+    assert!(matches!(
+        parsed.modules[0].sentences.as_slice(),
+        [
+            Sentence::Syntax(_),
+            Sentence::Syntax(_),
+            Sentence::Bubble(_)
+        ]
+    ));
+
+    let parsed = parse(
+        "one-line-states.k",
+        "module M syntax priority a > b rule x => y context alias [c]: HERE = HOLE context HOLE endmodule",
+    )
+    .unwrap();
+    assert!(matches!(
+        parsed.modules[0].sentences.as_slice(),
+        [
+            Sentence::Priority(_),
+            Sentence::Bubble(k_rust::outer::Bubble {
+                kind: k_rust::outer::BubbleKind::Rule,
+                ..
+            }),
+            Sentence::Bubble(k_rust::outer::Bubble {
+                kind: k_rust::outer::BubbleKind::ContextAlias,
+                ..
+            }),
+            Sentence::Bubble(k_rust::outer::Bubble {
+                kind: k_rust::outer::BubbleKind::Context,
+                ..
+            }),
+        ]
+    ));
+
+    let parsed = parse(
+        "no-string-state.k",
+        "module M rule X => \"a syntax Foo endmodule",
+    )
+    .unwrap();
+    let Sentence::Bubble(bubble) = &parsed.modules[0].sentences[0] else {
+        panic!("expected a rule bubble")
+    };
+    assert_eq!(bubble.content, "X => \"a");
+    assert!(matches!(
+        parsed.modules[0].sentences[1],
+        Sentence::Syntax(_)
+    ));
+}
+
+#[test]
+fn imports_are_rejected_after_the_first_sentence() {
+    let error = parse(
+        "imports-after-sentence.k",
+        indoc! {r#"
+            module BASE
+              syntax Foo ::= "foo"
+            endmodule
+            module MAIN
+              syntax Bar ::= "bar"
+              imports BASE
+              rule foo => .K
+            endmodule
+        "#},
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error.message,
+        "unexpected `imports` after the first sentence"
+    );
+    assert_eq!((error.position.line, error.position.column), (6, 3));
+}
+
+#[test]
+fn sentence_bubbles_use_longest_whitespace_delimited_tokens() {
+    let parsed = parse(
+        "bubble-tokens.k",
+        indoc! {r#"
+            module M
+              rule first // syntax is comment text
+                   => value rules rule( b//syntax rule second => value
+            endmodule
+        "#},
+    )
+    .unwrap();
+    let bubbles = parsed.modules[0]
+        .sentences
+        .iter()
+        .map(|sentence| match sentence {
+            Sentence::Bubble(bubble) => bubble.content.as_str(),
+            _ => panic!("expected only rule bubbles"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(bubbles.len(), 2);
+    assert!(bubbles[0].contains("// syntax is comment text"));
+    assert!(bubbles[0].contains("rules rule( b//syntax"));
+    assert_eq!(bubbles[1], "second => value");
+
+    let parsed = parse(
+        "unclosed-comment.k",
+        "module M rule X /* remains bubble text endmodule",
+    )
+    .unwrap();
+    let Sentence::Bubble(bubble) = &parsed.modules[0].sentences[0] else {
+        panic!("expected a rule bubble")
+    };
+    assert_eq!(bubble.content, "X /* remains bubble text");
+}
+
+#[test]
+fn sentence_spans_end_at_the_last_token() {
+    let source = indoc! {r#"
+        module M
+          syntax Foo ::= "x" // syntax comment
+          syntax priority a > b // priority comment
+          rule X => X // rule comment
+        endmodule
+    "#};
+    let parsed = parse("sentence-spans.k", source).unwrap();
+    let [
+        Sentence::Syntax(syntax),
+        Sentence::Priority(priority),
+        Sentence::Bubble(rule),
+    ] = parsed.modules[0].sentences.as_slice()
+    else {
+        panic!("expected syntax, priority, and rule sentences")
+    };
+
+    assert_eq!(syntax.span.end.offset, source.find(" // syntax").unwrap());
+    let k_rust::outer::SyntaxBody::Productions(blocks) = &syntax.body else {
+        panic!("expected a syntax production")
+    };
+    assert_eq!(blocks[0].span.end.offset, syntax.span.end.offset);
+    assert_eq!(
+        priority.span.end.offset,
+        source.find(" // priority").unwrap()
+    );
+    assert_eq!(rule.span.end.offset, source.find(" // rule").unwrap());
+    assert_eq!(rule.content_span.end.offset, rule.span.end.offset);
+    assert_eq!(rule.content, "X => X");
+}
+
+#[test]
 fn lowering_preserves_bubble_content_offsets() {
     fn content_start_offset(source_name: &str, source: &str) -> usize {
         let lowered = lower(&parse(source_name, source).unwrap(), "MAIN").unwrap();

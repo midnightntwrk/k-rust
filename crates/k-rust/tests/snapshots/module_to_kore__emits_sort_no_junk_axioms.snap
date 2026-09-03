@@ -8,14 +8,14 @@ module MAIN
   sort SortAtom{} [hasDomainValues{}()]
   sort SortEmpty{}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,9,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,15)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{} []
   sort SortTokenSort{}
   [
     hasDomainValues{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,10,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,9,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     token{}()
   ]
@@ -109,14 +109,14 @@ module MAIN
   sort SortAtom{} [hasDomainValues{}()]
   sort SortEmpty{}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,9,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,15)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   sort SortExp{} []
   sort SortTokenSort{}
   [
     hasDomainValues{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,10,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,9,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     token{}()
   ]

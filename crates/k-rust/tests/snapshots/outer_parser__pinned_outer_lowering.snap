@@ -143,8 +143,8 @@ Definition {
                             "org.kframework.attributes.Location": Array [
                                 Number(8),
                                 Number(3),
-                                Number(11),
-                                Number(3),
+                                Number(10),
+                                Number(39),
                             ],
                             "org.kframework.attributes.Source": String("record-and-list.k"),
                             "org.kframework.attributes.SourceId": Number(0),
@@ -191,8 +191,8 @@ Definition {
                             "org.kframework.attributes.Location": Array [
                                 Number(9),
                                 Number(18),
-                                Number(11),
-                                Number(3),
+                                Number(10),
+                                Number(39),
                             ],
                             "org.kframework.attributes.Source": String("record-and-list.k"),
                             "org.kframework.attributes.SourceId": Number(0),
@@ -496,8 +496,8 @@ Definition {
                             "org.kframework.attributes.Location": Array [
                                 Number(14),
                                 Number(3),
-                                Number(16),
-                                Number(3),
+                                Number(14),
+                                Number(29),
                             ],
                             "org.kframework.attributes.Source": String("record-and-list.k"),
                             "org.kframework.attributes.SourceId": Number(0),

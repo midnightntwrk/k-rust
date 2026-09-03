@@ -44,9 +44,9 @@ SourceFile {
                                 column: 3,
                             },
                             end: Position {
-                                offset: 102,
-                                line: 4,
-                                column: 28,
+                                offset: 46,
+                                line: 2,
+                                column: 31,
                             },
                         },
                     },

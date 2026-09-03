@@ -10,13 +10,13 @@ module MAIN
     concat{}(Lbl'Unds'Map'Unds'{}()),
     element{}(LblMapItem{}()),
     hook{}("MAP.Map"),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,2,29)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     unit{}(Lbl'Stop'Map{}())
   ]
   sort SortMapItem{}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,3,17)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   hooked-symbol Lbl'Stop'Map{}() : SortMap{}
@@ -53,13 +53,13 @@ module MAIN
     concat{}(Lbl'Unds'Map'Unds'{}()),
     element{}(LblMapItem{}()),
     hook{}("MAP.Map"),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,3,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,2,29)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     unit{}(Lbl'Stop'Map{}())
   ]
   sort SortMapItem{}
   [
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,4,3)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,3,3,17)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
   hooked-symbol Lbl'Stop'Map{}() : SortMap{}
