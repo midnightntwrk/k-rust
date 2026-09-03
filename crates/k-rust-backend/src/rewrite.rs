@@ -4655,12 +4655,13 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
             module MAIN
-                sort SortSub{} [hasDomainValues{}()]
+                sort SortToken{} [hasDomainValues{}()]
+                sort SortSub{} []
                 sort SortTop{} []
                 sort SortState{} []
                 symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
-                symbol lower{}(SortSub{}) : SortSub{}
-                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                symbol token{}(SortToken{}) : SortSub{} [constructor{}()]
+                symbol lower{}(SortSub{}) : SortSub{} [constructor{}()]
                 symbol upper{}(SortTop{}) : SortTop{} [constructor{}()]
                 symbol overloadState{}(SortTop{}) : SortState{} [constructor{}()]
                 symbol overloadResult{}(SortTop{}) : SortState{} [constructor{}()]
@@ -5295,26 +5296,28 @@ mod tests {
     fn narrows_configuration_variables_from_repeated_rule_variables() {
         let definition = definition(
             r#"
-            symbol pair{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
-            symbol arrow{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
-            axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(
-                    pair{}(T:SortS{}, T:SortS{}),
-                    \top{SortS{}}()
+            sort SortTerm{} []
+            symbol pair{}(SortTerm{}, SortTerm{}) : SortTerm{} [constructor{}()]
+            symbol arrow{}(SortTerm{}, SortTerm{}) : SortTerm{} [constructor{}()]
+            symbol done{}() : SortTerm{} [constructor{}()]
+            axiom{} \rewrites{SortTerm{}}(
+                \and{SortTerm{}}(
+                    pair{}(T:SortTerm{}, T:SortTerm{}),
+                    \top{SortTerm{}}()
                 ),
-                \dv{SortS{}}("done")
+                done{}()
             ) [label{}("repeated-variable")]
             "#,
         );
         let configuration = Pattern {
             term: internal_term(
                 &definition,
-                "pair{}(X:SortS{}, arrow{}(Y:SortS{}, Z:SortS{}))",
+                "pair{}(X:SortTerm{}, arrow{}(Y:SortTerm{}, Z:SortTerm{}))",
             ),
             constraints: Vec::new(),
         };
-        let expected_variable = internal_term(&definition, "X:SortS{}");
-        let expected_value = internal_term(&definition, "arrow{}(Y:SortS{}, Z:SortS{})");
+        let expected_variable = internal_term(&definition, "X:SortTerm{}");
+        let expected_value = internal_term(&definition, "arrow{}(Y:SortTerm{}, Z:SortTerm{})");
         let solver = crate::smt::Z3Solver::new(&definition).unwrap();
         let mut fresh = 0;
 
@@ -5328,7 +5331,7 @@ mod tests {
         };
         assert!(matches!(
             applied.pattern.term.kind(),
-            TermKind::DomainValue { value, .. } if value.as_ref() == "done"
+            TermKind::Application { symbol, .. } if symbol.name.as_ref() == "done"
         ));
         assert!(
             applied
@@ -5344,7 +5347,9 @@ mod tests {
         let definition = definition(
             r#"
             hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-            symbol pair{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+            sort SortPair{} []
+            symbol pair{}(SortS{}, SortS{}) : SortPair{} [constructor{}()]
+            symbol done{}() : SortPair{} [constructor{}()]
             symbol constrained{}(SortS{}) : SortS{} [function{}(), total{}()]
             symbol predicate{}(SortS{}) : SortBool{} [function{}(), total{}()]
             axiom{R} \implies{R}(
@@ -5360,12 +5365,12 @@ mod tests {
                     )
                 )
             ) [label{}("constrained"), simplification{}()]
-            axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(
+            axiom{} \rewrites{SortPair{}}(
+                \and{SortPair{}}(
                     pair{}(X:SortS{}, X:SortS{}),
-                    \top{SortS{}}()
+                    \top{SortPair{}}()
                 ),
-                \dv{SortS{}}("done")
+                done{}()
             ) [label{}("repeated-variable")]
             "#,
         );
@@ -5391,10 +5396,7 @@ mod tests {
         let [branch] = branches.as_slice() else {
             panic!("expected one constrained rewrite branch, found {branches:?}");
         };
-        assert_eq!(
-            branch.pattern.term,
-            internal_term(&definition, r#"\dv{SortS{}}("done")"#)
-        );
+        assert_eq!(branch.pattern.term, internal_term(&definition, "done{}()"));
         assert!(matches!(
             branch.pattern.constraints.as_slice(),
             [Predicate::Equals(..)]
@@ -5998,22 +6000,29 @@ mod tests {
     fn narrows_a_constructor_pattern_with_fresh_rule_variables() {
         let definition = symbolic_remainder_definition(
             r#"
-            axiom{} \rewrites{SortInt{}}(
-                \and{SortInt{}}(
-                    wrap{}(
-                        pair{}(
-                            X:SortInt{},
-                            \dv{SortInt{}}("0")
+            sort SortNarrow{} []
+            symbol narrowZero{}() : SortNarrow{} [constructor{}()]
+            symbol narrowPair{}(SortNarrow{}, SortNarrow{}) : SortNarrow{} [constructor{}()]
+            symbol narrowWrap{}(SortNarrow{}) : SortNarrow{} [constructor{}()]
+            axiom{} \rewrites{SortNarrow{}}(
+                \and{SortNarrow{}}(
+                    narrowWrap{}(
+                        narrowPair{}(
+                            X:SortNarrow{},
+                            narrowZero{}()
                         )
                     ),
-                    \top{SortInt{}}()
+                    \top{SortNarrow{}}()
                 ),
-                X:SortInt{}
+                X:SortNarrow{}
             ) [label{}("destructure")]
             "#,
         );
         let solver = crate::smt::Z3Solver::new(&definition).unwrap();
-        let subject = symbolic_subject(&definition);
+        let subject = Pattern {
+            term: internal_term(&definition, "narrowWrap{}(X:SortNarrow{})"),
+            constraints: Vec::new(),
+        };
         let mut fresh = 0;
 
         let RewriteResult::Branch {
@@ -6050,12 +6059,13 @@ mod tests {
         else {
             panic!("expected constructor pattern, found {constructor:?}");
         };
-        assert_eq!(symbol.name.as_ref(), "pair");
+        assert_eq!(symbol.name.as_ref(), "narrowPair");
         assert!(
             matches!(arguments[0].kind(), TermKind::Variable(variable) if variable == result_variable)
         );
         assert!(
-            matches!(arguments[1].kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "0")
+            matches!(arguments[1].kind(), TermKind::Application { symbol, .. }
+                if symbol.name.as_ref() == "narrowZero")
         );
         assert_ne!(result_variable.name.as_ref(), "Rule#X");
         let first_name = result_variable.name.clone();
@@ -7678,7 +7688,8 @@ mod tests {
     fn any_mode_passes_only_the_first_rules_remainder_to_later_rules() {
         let definition = definition(
             r#"
-            symbol fallback{}(SortS{}) : SortS{} [constructor{}()]
+            symbol fallback{}(SortS{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
             axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(
                     wrap{}(\dv{SortS{}}("a")),
@@ -7775,7 +7786,7 @@ mod tests {
     #[test]
     fn rewrites_through_a_direct_symbol_overload() {
         let definition = overload_rewrite_definition();
-        let value = r#"\dv{SortSub{}}("value")"#;
+        let value = r#"token{}(\dv{SortToken{}}("value"))"#;
         let subject = Pattern {
             term: internal_term(
                 &definition,
