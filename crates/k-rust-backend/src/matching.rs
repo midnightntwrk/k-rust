@@ -105,6 +105,16 @@ impl SortGraph {
         Ok(true)
     }
 
+    pub(crate) fn subsorts_of(&self, sort: &Sort) -> Option<&BTreeSet<Name>> {
+        let Sort::Application { name, arguments } = sort else {
+            return None;
+        };
+        arguments
+            .is_empty()
+            .then(|| self.subsorts.get(name))
+            .flatten()
+    }
+
     fn overlap(&self, left: &Sort, right: &Sort) -> bool {
         let (
             Sort::Application {
@@ -127,6 +137,79 @@ impl SortGraph {
             _ => true,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum InjectionEquality {
+    Direct(Term, Term),
+    Split(Term, Term),
+    Distinct,
+    Unknown,
+}
+
+pub(crate) fn match_injection_equality(
+    sorts: Option<&SortGraph>,
+    left: &Term,
+    right: &Term,
+) -> Option<InjectionEquality> {
+    let (
+        TermKind::Injection {
+            source: left_source,
+            target: left_target,
+            term: left,
+        },
+        TermKind::Injection {
+            source: right_source,
+            target: right_target,
+            term: right,
+        },
+    ) = (left.kind(), right.kind())
+    else {
+        return None;
+    };
+    if left_target != right_target {
+        return Some(InjectionEquality::Distinct);
+    }
+    if left_source == right_source {
+        return Some(InjectionEquality::Direct(left.clone(), right.clone()));
+    }
+    if let Some(sorts) = sorts {
+        if sorts.check_subsort(right_source, left_source).ok() == Some(true) {
+            return Some(InjectionEquality::Split(
+                left.clone(),
+                Term::injection(right_source.clone(), left_source.clone(), right.clone()),
+            ));
+        }
+        if sorts.check_subsort(left_source, right_source).ok() == Some(true) {
+            return Some(InjectionEquality::Split(
+                Term::injection(left_source.clone(), right_source.clone(), left.clone()),
+                right.clone(),
+            ));
+        }
+    }
+    if has_constructor_like_top(left) || has_constructor_like_top(right) {
+        return Some(InjectionEquality::Distinct);
+    }
+    if let Some(sorts) = sorts
+        && let (Some(left), Some(right)) = (
+            sorts.subsorts_of(left_source),
+            sorts.subsorts_of(right_source),
+        )
+        && left.is_disjoint(right)
+    {
+        return Some(InjectionEquality::Distinct);
+    }
+    Some(InjectionEquality::Unknown)
+}
+
+fn has_constructor_like_top(term: &Term) -> bool {
+    term.attributes().constructor_like
+        || matches!(
+            term.kind(),
+            TermKind::Application { symbol, .. }
+                if symbol.attributes.symbol_type == SymbolType::Constructor
+        )
+        || matches!(term.kind(), TermKind::Injection { .. })
 }
 
 pub fn match_terms(

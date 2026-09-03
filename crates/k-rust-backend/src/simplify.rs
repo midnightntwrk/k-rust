@@ -9,15 +9,16 @@ use rustc_hash::FxHashSet;
 
 use crate::{
     builtin::{
-        BuiltinEffect, BuiltinError, BuiltinResult, evaluate as evaluate_builtin, k_sequence_item,
+        BuiltinEffect, BuiltinError, BuiltinResult, evaluate_in_definition as evaluate_builtin,
+        k_sequence_item,
     },
     cancellation::cancellation_requested,
     definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     matching::{
-        MatchMode, MatchResult, match_collection_remainders_all_in_definition,
-        match_term_pairs_in_definition, match_terms_in_definition,
+        InjectionEquality, MatchMode, MatchResult, match_collection_remainders_all_in_definition,
+        match_injection_equality, match_term_pairs_in_definition, match_terms_in_definition,
     },
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
@@ -687,6 +688,7 @@ fn simplify_predicate_with_budget(
                 definition,
                 Predicate::Equals(left.term, right.term),
             );
+            let equality = normalize_injection_equality(definition, equality);
             with_simplification_constraints(constraints, equality)
         }
         Predicate::Ceil(term) => {
@@ -869,6 +871,19 @@ fn simplify_predicate_with_budget(
         active_conditions,
         solver,
     )
+}
+
+fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predicate) -> Predicate {
+    let Predicate::Equals(left, right) = predicate else {
+        return predicate;
+    };
+    match match_injection_equality(Some(&definition.sort_graph), &left, &right) {
+        Some(InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right)) => {
+            normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right))
+        }
+        Some(InjectionEquality::Distinct) => Predicate::False,
+        Some(InjectionEquality::Unknown) | None => Predicate::Equals(left, right),
+    }
 }
 
 fn with_simplification_constraints(
@@ -1846,7 +1861,8 @@ fn simplify_root(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
-    let builtin = evaluate_builtin(term).map_err(SimplificationError::Builtin)?;
+    let builtin =
+        evaluate_builtin(term, &definition.sort_graph).map_err(SimplificationError::Builtin)?;
     if !matches!(builtin, BuiltinResult::NotApplicable) {
         let TermKind::Application { symbol, .. } = term.kind() else {
             unreachable!("only applications have builtin hooks")

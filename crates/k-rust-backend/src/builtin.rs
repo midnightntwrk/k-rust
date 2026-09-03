@@ -12,6 +12,7 @@ mod set;
 mod string;
 
 use crate::{
+    matching::{InjectionEquality, SortGraph, match_injection_equality},
     term::{Sort, SymbolType, Term, TermKind},
     timeout::interruption_requested,
 };
@@ -81,6 +82,20 @@ impl From<Option<Term>> for BuiltinResult {
 
 /// Evaluate a hooked application, returning `None` when its arguments are not determined enough.
 pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
+    evaluate_with_sort_graph(term, None)
+}
+
+pub(crate) fn evaluate_in_definition(
+    term: &Term,
+    sort_graph: &SortGraph,
+) -> Result<BuiltinResult, BuiltinError> {
+    evaluate_with_sort_graph(term, Some(sort_graph))
+}
+
+fn evaluate_with_sort_graph(
+    term: &Term,
+    sort_graph: Option<&SortGraph>,
+) -> Result<BuiltinResult, BuiltinError> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -91,7 +106,7 @@ pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let result_sort = term.sort();
-    evaluate_hook_with_sort(hook, arguments, Some(&result_sort))
+    evaluate_hook_with_sort(hook, arguments, Some(&result_sort), sort_graph)
 }
 
 /// Hook namespaces this backend dispatches beyond K's fixed builtin set.
@@ -101,13 +116,14 @@ pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
 pub const PLUGIN_HOOK_NAMESPACES: [&str; 3] = ["KRYPTO", "HASH", "SECP256K1"];
 
 pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
-    evaluate_hook_with_sort(hook, arguments, None)
+    evaluate_hook_with_sort(hook, arguments, None, None)
 }
 
 fn evaluate_hook_with_sort(
     hook: &str,
     arguments: &[Term],
     result_sort: Option<&Sort>,
+    sort_graph: Option<&SortGraph>,
 ) -> Result<BuiltinResult, BuiltinError> {
     check_interrupted()?;
     match hook {
@@ -149,8 +165,8 @@ fn evaluate_hook_with_sort(
         "INT.shl" => int_shift(hook, arguments, false),
         "INT.shr" => int_shift(hook, arguments, true),
         "KEQUAL.ite" => kequal_ite(arguments),
-        "KEQUAL.eq" => kequal(arguments, false),
-        "KEQUAL.ne" => kequal(arguments, true),
+        "KEQUAL.eq" => kequal(arguments, false, sort_graph),
+        "KEQUAL.ne" => kequal(arguments, true, sort_graph),
         "IO.logString" => return io_log_string(arguments),
         hook if hook.starts_with("LIST.") => return list::evaluate(hook, arguments),
         hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
@@ -457,18 +473,37 @@ fn kequal_ite(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     })
 }
 
-fn kequal(arguments: &[Term], negate: bool) -> Result<Option<Term>, BuiltinError> {
+fn kequal(
+    arguments: &[Term],
+    negate: bool,
+    sort_graph: Option<&SortGraph>,
+) -> Result<Option<Term>, BuiltinError> {
     expect_arity(if negate { "KEQUAL.ne" } else { "KEQUAL.eq" }, arguments, 2)?;
+    if let (Some(left), Some(right)) = (
+        k_sequence_injection(&arguments[0]),
+        k_sequence_injection(&arguments[1]),
+    ) {
+        match match_injection_equality(sort_graph, left, right) {
+            Some(
+                InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right),
+            ) => {
+                return Ok(evaluate_equality(&left, &right, sort_graph)
+                    .map(|equal| bool_term(equal != negate)));
+            }
+            Some(InjectionEquality::Distinct) => return Ok(Some(bool_term(negate))),
+            Some(InjectionEquality::Unknown) | None => {}
+        }
+    }
     let Some(left) = k_sequence_item(&arguments[0]) else {
         return Ok(None);
     };
     let Some(right) = k_sequence_item(&arguments[1]) else {
         return Ok(None);
     };
-    Ok(evaluate_equality(left, right).map(|equal| bool_term(equal != negate)))
+    Ok(evaluate_equality(left, right, sort_graph).map(|equal| bool_term(equal != negate)))
 }
 
-fn evaluate_equality(left: &Term, right: &Term) -> Option<bool> {
+fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) -> Option<bool> {
     match (left.kind(), right.kind()) {
         (
             TermKind::Application {
@@ -490,7 +525,7 @@ fn evaluate_equality(left: &Term, right: &Term) -> Option<bool> {
             }
             let mut equal = true;
             for (left, right) in left_arguments.iter().zip(right_arguments) {
-                equal &= evaluate_equality(left, right)?;
+                equal &= evaluate_equality(left, right, sort_graph)?;
             }
             Some(equal)
         }
@@ -504,19 +539,14 @@ fn evaluate_equality(left: &Term, right: &Term) -> Option<bool> {
         {
             Some(false)
         }
-        (
-            TermKind::Injection {
-                source: left_source,
-                target: left_target,
-                term: left,
-            },
-            TermKind::Injection {
-                source: right_source,
-                target: right_target,
-                term: right,
-            },
-        ) if left_source == right_source && left_target == right_target => {
-            evaluate_equality(left, right)
+        (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
+            match match_injection_equality(sort_graph, left, right)? {
+                InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right) => {
+                    evaluate_equality(&left, &right, sort_graph)
+                }
+                InjectionEquality::Distinct => Some(false),
+                InjectionEquality::Unknown => None,
+            }
         }
         (TermKind::DomainValue { .. }, TermKind::DomainValue { .. }) => Some(left == right),
         _ if left == right => Some(true),
@@ -525,6 +555,14 @@ fn evaluate_equality(left: &Term, right: &Term) -> Option<bool> {
 }
 
 pub(crate) fn k_sequence_item(term: &Term) -> Option<&Term> {
+    let injection = k_sequence_injection(term)?;
+    let TermKind::Injection { term: item, .. } = injection.kind() else {
+        unreachable!("k_sequence_injection returns an injection")
+    };
+    Some(item)
+}
+
+fn k_sequence_injection(term: &Term) -> Option<&Term> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -534,7 +572,7 @@ pub(crate) fn k_sequence_item(term: &Term) -> Option<&Term> {
     let [first, tail] = arguments.as_slice() else {
         return None;
     };
-    let TermKind::Injection { term: item, .. } = first.kind() else {
+    let TermKind::Injection { .. } = first.kind() else {
         return None;
     };
     let TermKind::Application {
@@ -548,7 +586,7 @@ pub(crate) fn k_sequence_item(term: &Term) -> Option<&Term> {
     (symbol.name.as_ref() == "kseq"
         && tail_symbol.name.as_ref() == "dotk"
         && tail_arguments.is_empty())
-    .then_some(item)
+    .then_some(first)
 }
 
 fn read_bool(term: &Term) -> Option<bool> {
