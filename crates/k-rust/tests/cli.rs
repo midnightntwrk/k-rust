@@ -990,6 +990,48 @@ fn kore_exec_merges_converging_final_states() {
 }
 
 #[test]
+fn krun_reports_bottom_when_the_only_matching_rule_has_a_false_ensures() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/execution/tr");
+    let run = |search: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "TR",
+            "--syntax-module",
+            "TR-SYNTAX",
+            "--sort",
+            "Pgm",
+            fixtures.join("a.tr").to_str().unwrap(),
+        ]);
+        if search {
+            command.arg("--search-final");
+        }
+        command.output().unwrap()
+    };
+
+    for search in [false, true] {
+        let output = run(search);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            stdout.contains(r"\bottom{SortGeneratedTopCell{}}()"),
+            "search={search}: {stdout}"
+        );
+        assert!(
+            !stdout.contains("Lblc'Unds'TR-SYNTAX'Unds'Pgm"),
+            "search={search}: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn reference_hook_pc_findstring_follows_domains_md() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks/pc");

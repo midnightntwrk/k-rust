@@ -4120,6 +4120,31 @@ mod tests {
         TransitionClass, UncommittedReason,
     };
 
+    #[derive(Clone, Debug)]
+    struct FixedSolver {
+        satisfiability: Result<Satisfiability, SmtError>,
+        validity: Result<Validity, SmtError>,
+    }
+
+    impl SmtSolver for FixedSolver {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            self.satisfiability.clone()
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &Substitution,
+            _checked: &[Predicate],
+        ) -> Result<Validity, SmtError> {
+            self.validity.clone()
+        }
+    }
+
     #[test]
     fn large_unique_extensions_preserve_first_occurrence_order() {
         let sort = Sort::simple("SortS");
@@ -5049,6 +5074,229 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[test]
+    fn a_trivial_rule_shadows_lower_priority_rules() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(\dv{SortS{}}("discarded"), \bottom{SortS{}}())
+            ) [label{}("trivial"), priority{}("50")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("fallback")
+            ) [label{}("fallback"), owise{}()]
+            "#,
+        );
+        let initial = subject(&definition, "value");
+        let mut fresh = 0;
+
+        assert_eq!(
+            rewrite_step(&definition, &initial, &mut fresh),
+            RewriteResult::Trivial(initial.clone())
+        );
+        assert!(matches!(
+            execute(&definition, initial.clone(), ExecutionOptions::default())
+                .leaves
+                .as_slice(),
+            [ExecutionLeaf {
+                depth: 0,
+                halt_reason: HaltReason::Trivial,
+                ..
+            }]
+        ));
+        let search = crate::search::search_graph(
+            &definition,
+            initial,
+            crate::search::SearchOptions {
+                search_type: crate::search::SearchType::Final,
+                ..crate::search::SearchOptions::default()
+            },
+        );
+        assert!(search.states.is_empty(), "{search:#?}");
+    }
+
+    fn symbolic_trivial_definition(include_fallback: bool) -> BackendDefinition {
+        let fallback = if include_fallback {
+            r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+                \dv{SortInt{}}("fallback")
+            ) [label{}("fallback"), priority{}("50")]
+            "#
+        } else {
+            ""
+        };
+        symbolic_remainder_definition(&format!(
+            r#"
+            axiom{{}} \rewrites{{SortInt{{}}}}(
+                \and{{SortInt{{}}}}(
+                    wrap{{}}(X:SortInt{{}}),
+                    \equals{{SortBool{{}}, SortInt{{}}}}(
+                        lt{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+                        \dv{{SortBool{{}}}}("true")
+                    )
+                ),
+                \and{{SortInt{{}}}}(
+                    \dv{{SortInt{{}}}}("discarded"),
+                    \bottom{{SortInt{{}}}}()
+                )
+            ) [label{{}}("trivial"), priority{{}}("10")]
+            {fallback}
+            "#,
+        ))
+    }
+
+    fn indeterminate_sat_solver() -> FixedSolver {
+        FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        }
+    }
+
+    #[test]
+    fn a_trivial_rule_joins_the_group_remainder_symbolically() {
+        let definition = symbolic_trivial_definition(true);
+        let initial = symbolic_subject(&definition);
+        let solver = indeterminate_sat_solver();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            trivial,
+            ..
+        } = rewrite_step_with_solver(&definition, &initial, &mut fresh, &solver)
+        else {
+            panic!("a conditional bottom result should leave its complement");
+        };
+        assert!(branches.is_empty());
+        let [trivial] = trivial.as_slice() else {
+            panic!("expected one visible trivial sub-case");
+        };
+        assert_eq!(trivial.rule_id, "trivial");
+        assert_eq!(trivial.label.as_deref(), Some("trivial"));
+        assert_ne!(trivial.applicability, Predicate::True);
+        assert_eq!(
+            trivial.remainder,
+            Predicate::Not(Box::new(trivial.applicability.clone()))
+        );
+        assert_eq!(remainder.rule_ids, ["trivial"]);
+        assert!(remainder.pattern.constraints.contains(&trivial.remainder));
+
+        let execution =
+            execute_with_solver(&definition, initial, ExecutionOptions::default(), &solver);
+        let [leaf] = execution.leaves.as_slice() else {
+            panic!("the complement should reach the fallback exactly once");
+        };
+        assert!(matches!(leaf.halt_reason, HaltReason::Stuck));
+        assert!(matches!(
+            leaf.pattern.term.kind(),
+            TermKind::DomainValue { value, .. } if value.as_ref() == "fallback"
+        ));
+        assert!(
+            leaf.pattern
+                .constraints
+                .iter()
+                .any(|predicate| matches!(predicate, Predicate::Not(_)))
+        );
+    }
+
+    #[test]
+    fn a_mixed_group_keeps_its_trivial_sub_case_visible() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(\dv{SortS{}}("discarded"), \bottom{SortS{}}())
+            ) [label{}("trivial")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("survivor")
+            ) [label{}("survivor")]
+            "#,
+        );
+        let initial = subject(&definition, "value");
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: None,
+            trivial,
+            ..
+        } = rewrite_step(&definition, &initial, &mut fresh)
+        else {
+            panic!("a mixed group must retain its bottom sub-case");
+        };
+        assert_eq!(branches.len(), 1);
+        assert_eq!(trivial.len(), 1);
+        assert_eq!(trivial[0].rule_id, "trivial");
+        assert_eq!(trivial[0].applicability, Predicate::True);
+        assert_eq!(trivial[0].remainder, Predicate::False);
+
+        let execution = execute(&definition, initial, ExecutionOptions::default());
+        let [leaf] = execution.leaves.as_slice() else {
+            panic!("execution must drop only the trivial sub-case");
+        };
+        assert!(matches!(
+            leaf.pattern.term.kind(),
+            TermKind::DomainValue { value, .. } if value.as_ref() == "survivor"
+        ));
+    }
+
+    #[test]
+    fn sequential_mode_narrows_by_trivial_rules() {
+        let definition = symbolic_trivial_definition(true);
+        let initial = symbolic_subject(&definition);
+        let solver = indeterminate_sat_solver();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: None,
+            trivial,
+            ..
+        } = rewrite_step_sequential_with_solver(&definition, &initial, &mut fresh, &solver)
+        else {
+            panic!("sequential rewriting must expose and exclude the trivial sub-case");
+        };
+        assert_eq!(trivial.len(), 1);
+        let [branch] = branches.as_slice() else {
+            panic!("the fallback should cover only the trivial rule's complement");
+        };
+        assert!(matches!(
+            branch.pattern.term.kind(),
+            TermKind::DomainValue { value, .. } if value.as_ref() == "fallback"
+        ));
+        assert!(branch.pattern.constraints.contains(&trivial[0].remainder));
+    }
+
+    #[test]
+    fn trivial_only_sequence_with_a_satisfiable_remainder_is_not_bottom() {
+        let definition = symbolic_trivial_definition(false);
+        let initial = symbolic_subject(&definition);
+        let solver = indeterminate_sat_solver();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            trivial,
+            ..
+        } = rewrite_step_sequential_with_solver(&definition, &initial, &mut fresh, &solver)
+        else {
+            panic!("the uncovered symbolic remainder must remain live");
+        };
+        assert!(branches.is_empty());
+        assert_eq!(trivial.len(), 1);
+        assert!(
+            remainder
+                .pattern
+                .constraints
+                .contains(&trivial[0].remainder)
+        );
     }
 
     #[test]

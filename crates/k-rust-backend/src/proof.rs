@@ -1861,6 +1861,53 @@ mod tests {
     }
 
     #[test]
+    fn trivial_sub_cases_of_a_mixed_group_refute_the_claim() {
+        let rules = r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                \and{SortS{}}(b{}(), \bottom{SortS{}}())
+            ) [label{}("a-to-bottom")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                c{}()
+            ) [label{}("a-to-c")]
+        "#;
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
+        let definition = definition(rules, &claims);
+        let claim = &definition.reachability_claims[0];
+
+        let rejected = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                max_counterexamples: 2,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .unwrap();
+        assert_eq!(rejected.status, ProofStatus::Disproved, "{rejected:#?}");
+        assert!(
+            rejected.leaves.iter().any(|leaf| {
+                leaf.depth == 1 && matches!(leaf.outcome, ProofLeafOutcome::Trivial)
+            })
+        );
+
+        let allowed = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                allow_vacuous: true,
+                max_counterexamples: 2,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .unwrap();
+        assert_eq!(allowed.status, ProofStatus::Proven, "{allowed:#?}");
+    }
+
+    #[test]
     fn smt_unsat_state_after_a_step_is_vacuous() {
         let rules = r#"
             symbol opaque{}() : SortS{} [function{}()]
