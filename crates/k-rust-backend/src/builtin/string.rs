@@ -1,6 +1,6 @@
 //! Deterministic `STRING` hooks implemented by Kore's fallback evaluator.
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
 use super::{
@@ -67,21 +67,18 @@ fn substring(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let Some((start, end)) = read_int(&arguments[1]).zip(read_int(&arguments[2])) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some((start, end)) = start.to_i64().zip(end.to_i64()) else {
-        return Ok(BuiltinResult::NotApplicable);
-    };
-    let start = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
-    let count = usize::try_from(end.max(0))
-        .unwrap_or(usize::MAX)
-        .saturating_sub(start);
+    let start = saturating_i64(&start);
+    let end = saturating_i64(&end);
+    let start_index = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
+    let count = usize::try_from(end.saturating_sub(start).max(0)).unwrap_or(usize::MAX);
     let mut result = String::new();
     for (index, character) in value.chars().enumerate() {
         if index % 1024 == 0 {
             check_interrupted()?;
         }
-        if index >= start && index - start < count {
+        if index >= start_index && index - start_index < count {
             result.push(character);
-        } else if index >= start.saturating_add(count) {
+        } else if index >= start_index.saturating_add(count) {
             break;
         }
     }
@@ -109,9 +106,10 @@ fn find(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(start) = read_int(&arguments[2]).and_then(|start| start.to_i64()) else {
+    let Some(start) = read_int(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
+    let start = saturating_i64(&start);
     let haystack = haystack.chars().collect::<Vec<_>>();
     let needle = needle.chars().collect::<Vec<_>>();
     let start = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
@@ -144,8 +142,12 @@ fn string_to_base(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(base) = read_base(&arguments[1]) else {
+    let Some(base) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
+    };
+    let base = match read_base(&base) {
+        Ok(base) => base,
+        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     Ok(BigInt::parse_bytes(value.as_bytes(), base)
         .map(int_term)
@@ -157,8 +159,12 @@ fn base_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let Some(value) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(base) = read_base(&arguments[1]) else {
+    let Some(base) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
+    };
+    let base = match read_base(&base) {
+        Ok(base) => base,
+        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     Ok(BuiltinResult::Value(string_term(value.to_str_radix(base))))
 }
@@ -188,6 +194,9 @@ fn chr(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let Some(value) = read_int(&arguments[0]).and_then(|value| value.to_u32()) else {
         return Ok(BuiltinResult::Bottom);
     };
+    if (0xd800..=0xdfff).contains(&value) {
+        return Ok(BuiltinResult::Value(string_term('\u{fffd}'.to_string())));
+    }
     Ok(char::from_u32(value)
         .map(|value| string_term(value.to_string()))
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
@@ -235,10 +244,22 @@ fn string_to_token(
     )))
 }
 
-fn read_base(term: &Term) -> Option<u32> {
-    read_int(term)
-        .and_then(|base| base.to_u32())
+fn read_base(base: &BigInt) -> Result<u32, UnsupportedHookReason> {
+    base.to_u32()
         .filter(|base| (2..=36).contains(base))
+        .ok_or_else(|| UnsupportedHookReason::ArgumentOutOfRange {
+            detail: format!("base {base} is outside 2..36"),
+        })
+}
+
+fn saturating_i64(value: &BigInt) -> i64 {
+    value.to_i64().unwrap_or_else(|| {
+        if value.sign() == Sign::Minus {
+            i64::MIN
+        } else {
+            i64::MAX
+        }
+    })
 }
 
 fn read_string(term: &Term) -> Option<&str> {
@@ -346,6 +367,30 @@ mod tests {
                 "substrString(hello, {start}, {end})"
             );
         }
+
+        let beyond_i64: BigInt = BigInt::from(1_u8) << 100;
+        assert_eq!(
+            evaluate(
+                "STRING.substr",
+                vec![
+                    string_term("hello"),
+                    int_term(-&beyond_i64),
+                    int_term(beyond_i64.clone()),
+                ],
+            ),
+            BuiltinResult::Value(string_term("hello"))
+        );
+        assert_eq!(
+            evaluate(
+                "STRING.substr",
+                vec![
+                    string_term("hello"),
+                    int_term(beyond_i64.clone()),
+                    int_term(beyond_i64),
+                ],
+            ),
+            BuiltinResult::Value(string_term(""))
+        );
     }
 
     #[test]
@@ -384,6 +429,26 @@ mod tests {
                 "findString(hello, {needle:?}, {start})"
             );
         }
+
+        let beyond_i64: BigInt = BigInt::from(1_u8) << 100;
+        assert_eq!(
+            evaluate(
+                "STRING.find",
+                vec![
+                    string_term("hello"),
+                    string_term("h"),
+                    int_term(-&beyond_i64),
+                ],
+            ),
+            BuiltinResult::Value(int_term(BigInt::from(0)))
+        );
+        assert_eq!(
+            evaluate(
+                "STRING.find",
+                vec![string_term("hello"), string_term("h"), int_term(beyond_i64),],
+            ),
+            BuiltinResult::Value(int_term(BigInt::from(-1)))
+        );
     }
 
     #[test]

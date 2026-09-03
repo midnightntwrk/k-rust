@@ -496,7 +496,7 @@ fn inclusion(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
                 rest: right_rest,
                 ..
             },
-        ) => concrete_inclusion(left_entries, right_entries, right_rest),
+        ) => entry_inclusion(left_entries, right_entries, right_rest),
         (TermKind::Map { rest: Some(_), .. }, TermKind::Map { .. }) => Ok(None),
         (
             TermKind::Map {
@@ -514,32 +514,39 @@ fn inclusion(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     }
 }
 
-fn concrete_inclusion(
+fn entry_inclusion(
     left_entries: &[(Term, Term)],
     right_entries: &[(Term, Term)],
     right_rest: &Option<Term>,
 ) -> Result<Option<Term>, BuiltinError> {
-    let left_keys = left_entries
-        .iter()
-        .map(|(key, _)| key)
-        .collect::<BTreeSet<_>>();
-    let right_keys = right_entries
-        .iter()
-        .map(|(key, _)| key)
-        .collect::<BTreeSet<_>>();
-    if left_keys.is_subset(&right_keys) {
-        return Ok(Some(bool_term(true)));
-    }
-    if right_rest.is_none()
-        && left_keys
+    let mut undecided = false;
+    for (left_key, left_value) in left_entries {
+        if let Some((_, right_value)) = right_entries
             .iter()
-            .chain(&right_keys)
-            .all(|key| key.attributes().constructor_like)
-    {
-        Ok(Some(bool_term(false)))
-    } else {
-        Ok(None)
+            .find(|(right_key, _)| left_key == right_key)
+        {
+            if left_value == right_value {
+                continue;
+            }
+            if left_value.attributes().constructor_like && right_value.attributes().constructor_like
+            {
+                return Ok(Some(bool_term(false)));
+            }
+            undecided = true;
+            continue;
+        }
+        if right_rest.is_some()
+            || !left_key.attributes().constructor_like
+            || right_entries
+                .iter()
+                .any(|(right_key, _)| !right_key.attributes().constructor_like)
+        {
+            undecided = true;
+            continue;
+        }
+        return Ok(Some(bool_term(false)));
     }
+    Ok((!undecided).then(|| bool_term(true)))
 }
 
 fn map_sort(definition: &MapDefinition) -> crate::term::Sort {

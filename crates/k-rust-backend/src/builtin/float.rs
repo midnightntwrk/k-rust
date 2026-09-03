@@ -246,7 +246,11 @@ fn root(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::NotApplicable);
     };
     if degree != BigInt::from(2) {
-        return Ok(BuiltinResult::NotApplicable);
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ArgumentOutOfRange {
+                detail: format!("root degree {degree} (only 2 is implemented)"),
+            },
+        ));
     }
     Ok(BuiltinResult::Value(float_term(value.sqrt())))
 }
