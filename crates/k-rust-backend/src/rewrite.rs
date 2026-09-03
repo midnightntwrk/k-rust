@@ -2363,18 +2363,6 @@ fn apply_rule_with_match(
                         fresh_counter,
                     ) {
                         recovered
-                    } else if remainder.iter().any(|(left, right)| {
-                        !left.attributes().can_be_evaluated || !right.attributes().can_be_evaluated
-                    }) {
-                        // A `no-evaluators` function cannot become rigid after another
-                        // simplification pass. Turning this remainder into an equality
-                        // constraint would falsely make the rule applicable and can rewrite
-                        // the same state forever. Booster reports the match as indeterminate.
-                        return RuleAttempt::Indeterminate(IndeterminateReason::Match {
-                            rule_id: rule.attributes.unique_id.clone(),
-                            substitution,
-                            remainder,
-                        });
                     } else {
                         match recover_general_unification(
                             definition,
