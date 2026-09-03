@@ -3660,6 +3660,44 @@ mod tests {
     }
 
     #[test]
+    fn boolean_equalities_with_literals_normalize_to_term_predicates() {
+        let definition = definition("");
+        let condition = term(&definition, "B:SortBool{}");
+        let true_value = Term::domain_value(Sort::simple("SortBool"), "true");
+        let false_value = Term::domain_value(Sort::simple("SortBool"), "false");
+
+        for (predicate, expected) in [
+            (
+                Predicate::Equals(condition.clone(), false_value.clone()),
+                Predicate::Not(Box::new(Predicate::Term(condition.clone()))),
+            ),
+            (
+                Predicate::Equals(false_value, condition.clone()),
+                Predicate::Not(Box::new(Predicate::Term(condition.clone()))),
+            ),
+            (
+                Predicate::Equals(condition.clone(), true_value.clone()),
+                Predicate::Term(condition.clone()),
+            ),
+            (
+                Predicate::Equals(true_value, condition.clone()),
+                Predicate::Term(condition.clone()),
+            ),
+        ] {
+            let result = simplify_predicate_with_solver(
+                &definition,
+                &predicate,
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .expect("Boolean literal equality should simplify");
+
+            assert_eq!(result, expected, "input: {predicate:#?}");
+        }
+    }
+
+    #[test]
     fn normalizes_symbolic_integer_equality_and_keeps_operand_definedness() {
         let syntax = parse_definition(
             r#"[]
