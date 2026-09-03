@@ -423,7 +423,11 @@ fn napi_error(error: impl std::fmt::Display) -> Error {
 }
 
 fn deserialize_native<T: serde::de::DeserializeOwned>(json: &str) -> Result<T> {
-    serde_json::from_str(json).map_err(napi_error)
+    let mut deserializer = serde_json::Deserializer::from_str(json);
+    deserializer.disable_recursion_limit();
+    let value = serde::Deserialize::deserialize(&mut deserializer).map_err(napi_error)?;
+    deserializer.end().map_err(napi_error)?;
+    Ok(value)
 }
 
 fn serialize_native(value: &impl serde::Serialize) -> Result<String> {

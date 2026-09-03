@@ -63,6 +63,16 @@ The port is complete only when all of the following are demonstrated from the cu
 Incremental checkpoints may implement narrower vertical slices, but they do not reduce this
 completion contract.
 
+## JSON depth policy
+
+The standalone KORE JSON and KAST term JSON readers and writers impose no nesting-depth limit; memory is their only parser bound.
+The Node-API and WebAssembly backend request readers, the CLI KORE readers, the KORE RPC transport and payload reader, the backend facade, and the structured KAST definition reader all disable serde's default recursion limit or delegate to the iterative syntax codecs.
+The RPC `KoreJson` payload uses `RawValue`, but the surrounding RPC frame and the backend and JavaScript host contracts intentionally retain `serde_json::Value`.
+Those retained values still use recursive serialization and destruction, so their practical capacity is set by the host thread: roughly 200,000 JSON levels on the 64 MiB RPC workers, 50,000 on the 16 MiB WebAssembly test host, and 3,000 on Node's main thread.
+KAST term traits and text codecs remain stack-bounded at roughly 80,000 levels on an 8 MiB thread, 160,000 on a 16 MiB thread, and 10,000 on Node's main thread.
+Backend pattern internalization and backend term passes retain the 64 MiB CLI and RPC worker envelope.
+No RPC or host surface applies a denial-of-service depth cap; process memory limits belong to the embedding application or process supervisor.
+
 ## Simplification iteration budgets
 
 The backend limits simplification per fixed-point lineage rather than counting whole-pattern passes as Booster's `--equation-max-iterations` does.

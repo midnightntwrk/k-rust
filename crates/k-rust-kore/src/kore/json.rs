@@ -1,4 +1,8 @@
 //! KORE JSON version 1 serialization.
+//!
+//! The text, JSON, and binary codecs and every traversal of [`Pattern`] are iterative and impose no depth limit.
+//! Host APIs likewise apply no deliberate parser depth cap, but host envelopes that retain [`serde_json::Value`] remain bounded by their thread's native stack during value serialization and destruction.
+//! KAST term traits and text codecs, backend pattern internalization, and backend term passes retain their own native-stack bounds.
 
 use crate::json_tree::{self, Node};
 

@@ -43,7 +43,7 @@ use k_rust_backend::{
     term::{Sort as BackendSort, Term, Variable},
 };
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value, json, value::RawValue};
 
 const JSON_RPC_VERSION: &str = "2.0";
 const CONNECTION_STACK_SIZE: usize = 64 * 1024 * 1024;
@@ -112,9 +112,8 @@ struct KoreJson(KorePattern);
 
 impl<'de> Deserialize<'de> for KoreJson {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = Value::deserialize(deserializer)?;
-        let source = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
-        kore_json::from_str_unbounded(&source)
+        let raw = Box::<RawValue>::deserialize(deserializer)?;
+        kore_json::from_str(raw.get())
             .map(Self)
             .map_err(serde::de::Error::custom)
     }
