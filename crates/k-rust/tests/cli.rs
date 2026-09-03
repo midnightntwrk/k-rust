@@ -3291,6 +3291,89 @@ endmodule
 }
 
 #[test]
+fn reference_kcompile_accepts_hook_namespace_list_spellings() {
+    // reference: k/result/bin/kompile test.k --backend haskell --hook-namespaces "A B"
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/hooks");
+    let expected = fs::read_to_string(fixtures.join("hook-attributes.txt")).unwrap();
+    let (root, _) = fixture();
+
+    for (name, namespaces) in [
+        ("space", &["A B"][..]),
+        ("comma", &["A,B"][..]),
+        ("repeated", &["A", "B"][..]),
+    ] {
+        let output_directory = root.join(name);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "kcompile",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "HOOKS",
+            "--syntax-module",
+            "HOOKS",
+            "--backend",
+            "llvm",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+        ]);
+        for namespace in namespaces {
+            command.args(["--hook-namespaces", namespace]);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let kore = fs::read_to_string(output_directory.join("definition.kore")).unwrap();
+        for hook in expected.lines() {
+            assert!(kore.contains(hook), "{name} did not emit {hook}:\n{kore}");
+        }
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kcompile_warns_when_a_plugin_hook_namespace_is_not_selected() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/hooks");
+    let (root, _) = fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "HOOKS",
+            "--syntax-module",
+            "HOOKS",
+            "--backend",
+            "llvm",
+            "--output-directory",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(
+        stderr.matches("UnadmittedHookNamespace").count(),
+        2,
+        "{stderr}"
+    );
+    assert!(stderr.contains("hook(A.f)"), "{stderr}");
+    assert!(stderr.contains("hook(B.g)"), "{stderr}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_backend_selects_symbolic_or_concrete_modules() {
     let source = r#"
 module SYMBOLIC [symbolic]

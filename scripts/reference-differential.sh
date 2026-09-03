@@ -221,7 +221,7 @@ for fixture in "${cases[@]}"; do
     fi
     if [[ -n "$hook_namespaces" ]]; then
       reference_hook_args=(--hook-namespaces "$hook_namespaces")
-      rust_hook_args=(--hook-namespaces "${hook_namespaces// /,}")
+      rust_hook_args=(--hook-namespaces "$hook_namespaces")
     fi
 
     echo "[$name:$pairing] compiling with reference frontend"
