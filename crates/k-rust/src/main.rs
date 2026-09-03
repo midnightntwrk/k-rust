@@ -7,6 +7,7 @@ use std::{
     num::{NonZeroU32, NonZeroUsize},
     path::{Path, PathBuf},
     time::{Duration, Instant},
+    process::ExitCode,
 };
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
@@ -48,7 +49,7 @@ use k_rust_backend::{
     },
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
-        ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
+        ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         execute_disjunction_with_solver_and_observer,
     },
     rule::{Predicate, RulePatternError},
@@ -66,29 +67,35 @@ use k_rust_backend::{
     term::{Name as BackendName, Sort as BackendSort, Term, TermKind, Variable},
 };
 use serde::{Deserialize, Serialize};
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 mod rpc;
 
-fn main() {
-    let cli = Cli::parse();
-    if let Err(error) = run(cli) {
-        eprintln!("error: {error}");
-        std::process::exit(1);
+fn main() -> ExitCode {
+    match run(Cli::parse()) {
+        Ok(exit_code) => exit_code,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(1)
+        }
     }
 }
 
-fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
+fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
     match cli.command {
-        Command::Kcompile(options) => kcompile(options.into()),
-        Command::Kast(options) => kast(options.into()),
+        Command::Kcompile(options) => kcompile(options.into()).map(|()| ExitCode::SUCCESS),
+        Command::Kast(options) => kast(options.into()).map(|()| ExitCode::SUCCESS),
         Command::Krun(options) => krun(options.into()),
         Command::KoreExec(options) => kore_exec(options),
-        Command::KoreSimplify(options) => kore_simplify(options),
-        Command::KoreGetModel(options) => kore_get_model(options),
-        Command::KoreImplies(options) => kore_implies(options),
-        Command::KoreRpc(options) => kore_rpc(options),
-        Command::KoreMatchDisjunction(options) => kore_match_disjunction(options),
-        Command::Kprove(options) => kprove(options.into()),
+        Command::KoreSimplify(options) => kore_simplify(options).map(|()| ExitCode::SUCCESS),
+        Command::KoreGetModel(options) => kore_get_model(options).map(|()| ExitCode::SUCCESS),
+        Command::KoreImplies(options) => kore_implies(options).map(|()| ExitCode::SUCCESS),
+        Command::KoreRpc(options) => kore_rpc(options).map(|()| ExitCode::SUCCESS),
+        Command::KoreMatchDisjunction(options) => {
+            kore_match_disjunction(options).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Kprove(options) => kprove(options.into()).map(|()| ExitCode::SUCCESS),
     }
 }
 
@@ -1531,7 +1538,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
+fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let mut loaded = load_definition(&options.common, Some(CompilationBackend::Rust), None)?;
     let syntax_module = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
     if let Some(warning) = syntax_module.fallback_warning {
@@ -1730,11 +1737,14 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
             smt: options.smt,
         },
     )?;
-    println!("{}", KorePrinter::pretty(100).print_pattern(&output));
-    Ok(())
+    println!(
+        "{}",
+        KorePrinter::pretty(100).print_pattern(&output.pattern)
+    );
+    Ok(ExitCode::from(output.exit_code))
 }
 
-fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
+fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
     let definition_source = fs::read_to_string(&options.definition)?;
     let definition = parse_kore_definition(&definition_source).map_err(|error| {
         io::Error::new(
@@ -1781,13 +1791,13 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
             smt: options.smt.options(),
         },
     )?;
-    let output = KorePrinter::pretty(100).print_pattern(&output);
+    let pattern = KorePrinter::pretty(100).print_pattern(&output.pattern);
     if let Some(path) = options.output {
-        fs::write(path, output)?;
+        fs::write(path, pattern)?;
     } else {
-        println!("{output}");
+        println!("{pattern}");
     }
-    Ok(())
+    Ok(ExitCode::from(output.exit_code))
 }
 
 fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
@@ -2449,11 +2459,16 @@ fn pattern_match_error(error: PatternMatchError) -> io::Error {
     io::Error::other(format!("KORE pattern match was indeterminate: {error:?}"))
 }
 
+struct BackendRunOutput {
+    pattern: KorePattern,
+    exit_code: u8,
+}
+
 fn run_backend(
     backend: &BackendDefinition,
     initial: Vec<Pattern>,
     options: BackendRunOptions,
-) -> Result<KorePattern, Box<dyn Error>> {
+) -> Result<BackendRunOutput, Box<dyn Error>> {
     let Some(first_initial) = initial.first() else {
         return Err(io::Error::other("initial pattern has no live disjuncts").into());
     };
@@ -2502,7 +2517,10 @@ fn run_backend(
             ))
             .into());
         }
-        return Ok(search_output(&result, &output_sort));
+        return Ok(BackendRunOutput {
+            pattern: search_output(&result, &output_sort),
+            exit_code: 0,
+        });
     }
     let execution = execute_disjunction_with_solver_and_observer(
         backend,
@@ -2582,10 +2600,19 @@ fn run_backend(
                     .iter()
                     .any(|predicate| matches!(predicate, Predicate::False)))
     });
-    let states = execution
+    let finals = execution
         .leaves
         .iter()
         .filter(|leaf| !matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous))
+        .collect::<Vec<_>>();
+    let exit_code = exit_code_of(
+        backend,
+        &solver,
+        &finals,
+        options.max_simplification_iterations,
+    )?;
+    let states = finals
+        .iter()
         .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
         .collect::<Vec<_>>();
     if initial_is_bottom {
@@ -2594,14 +2621,83 @@ fn run_backend(
         );
     }
     let mut states = order_disjuncts(states);
-    Ok(match states.len() {
+    let pattern = match states.len() {
         0 => KorePattern::Bottom { sort: output_sort },
         1 => states.pop().unwrap(),
         _ => KorePattern::Or {
             sort: final_sort,
             arguments: states,
         },
-    })
+    };
+    Ok(BackendRunOutput { pattern, exit_code })
+}
+
+/// Match `Kore.Exec.getExitCode` over the merged, non-bottom final configurations.
+fn exit_code_of(
+    backend: &BackendDefinition,
+    solver: &dyn SmtSolver,
+    finals: &[&ExecutionLeaf],
+    max_iterations: usize,
+) -> Result<u8, Box<dyn Error>> {
+    let Some(symbol) = backend.symbols.get("LblgetExitCode") else {
+        return Ok(0);
+    };
+    let mut results = BTreeSet::new();
+    for leaf in finals {
+        let simplified = simplify_pattern_with_solver(
+            backend,
+            &Pattern {
+                term: Term::application(
+                    symbol.clone(),
+                    Vec::new(),
+                    vec![leaf.pattern.term.clone()],
+                ),
+                constraints: leaf.pattern.constraints.clone(),
+            },
+            SimplificationOptions {
+                max_iterations,
+                ..SimplificationOptions::default()
+            },
+            solver,
+        )
+        .map_err(|error| {
+            io::Error::other(format!(
+                "could not evaluate getExitCode on a final configuration: {error}"
+            ))
+        })?;
+        if !simplified
+            .constraints
+            .iter()
+            .any(|predicate| matches!(predicate, Predicate::False))
+        {
+            results.insert(simplified.term);
+        }
+    }
+
+    let mut distinct = results.into_iter();
+    let Some(term) = distinct.next() else {
+        return Ok(111);
+    };
+    if distinct.next().is_some() {
+        return Ok(111);
+    }
+    Ok(term_exit_code(&term).unwrap_or(111))
+}
+
+fn term_exit_code(term: &Term) -> Option<u8> {
+    let TermKind::DomainValue {
+        sort: BackendSort::Application { name, arguments },
+        value,
+    } = term.kind()
+    else {
+        return None;
+    };
+    if name.as_ref() != "SortInt" || !arguments.is_empty() {
+        return None;
+    }
+    let value = value.parse::<BigInt>().ok()?;
+    let modulus = BigInt::from(256_u16);
+    (((value % &modulus) + &modulus) % modulus).to_u8()
 }
 
 fn default_search_pattern(initial: &Pattern) -> Pattern {
@@ -3419,6 +3515,24 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exit_code_maps_reference_integer_values() {
+        let value = |value: &str| Term::domain_value(BackendSort::simple("SortInt"), value);
+
+        assert_eq!(term_exit_code(&value("0")), Some(0));
+        assert_eq!(term_exit_code(&value("7")), Some(7));
+        assert_eq!(term_exit_code(&value("-1")), Some(255));
+        assert_eq!(term_exit_code(&value("256")), Some(0));
+        assert_eq!(term_exit_code(&value("not-an-integer")), None);
+        assert_eq!(
+            term_exit_code(&Term::variable(Variable::new(
+                "VarExit",
+                BackendSort::simple("SortInt")
+            ))),
+            None
+        );
+    }
 
     #[test]
     fn disjuncts_are_printed_in_structural_order() {
