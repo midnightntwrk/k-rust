@@ -1,0 +1,6 @@
+// reference: kore-parser fail/alias-application-argument.kore --no-verify
+[]
+module M
+  sort S{} []
+  alias h{}(S{}) : S{} where h{}(g{}(X:S{})) := X:S{} []
+endmodule []

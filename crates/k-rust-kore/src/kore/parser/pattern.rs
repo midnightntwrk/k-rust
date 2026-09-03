@@ -458,4 +458,70 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn parses_reference_accepted_backslash_identifiers() {
+        let element = crate::kore::parser::parse_pattern(r"\foo:\S{}").unwrap();
+        let set = crate::kore::parser::parse_pattern(r"\@X:\S{}").unwrap();
+        let application = crate::kore::parser::parse_pattern(r"\foo{}()").unwrap();
+
+        assert!(matches!(
+            element,
+            crate::kore::ast::Pattern::Variable(crate::kore::ast::Variable {
+                kind: crate::kore::ast::VariableKind::Element,
+                name,
+                ..
+            }) if name == "\\foo"
+        ));
+        assert!(matches!(
+            set,
+            crate::kore::ast::Pattern::Variable(crate::kore::ast::Variable {
+                kind: crate::kore::ast::VariableKind::Set,
+                name,
+                ..
+            }) if name == "\\@X"
+        ));
+        assert!(matches!(
+            application,
+            crate::kore::ast::Pattern::Application { symbol, arguments }
+                if symbol.name == "\\foo" && arguments.is_empty()
+        ));
+    }
+
+    #[test]
+    fn expands_legacy_associative_or_like_the_reference() {
+        let left =
+            crate::kore::parser::parse_pattern(r"\left-assoc{}(\or{S{}}(a{}(), b{}(), c{}()))")
+                .unwrap();
+        let right =
+            crate::kore::parser::parse_pattern(r"\right-assoc{}(\or{S{}}(a{}(), b{}(), c{}()))")
+                .unwrap();
+
+        assert_eq!(
+            left,
+            crate::kore::parser::parse_pattern(r"\or{S{}}(\or{S{}}(a{}(), b{}()), c{}())").unwrap()
+        );
+        assert_eq!(
+            right,
+            crate::kore::parser::parse_pattern(r"\or{S{}}(a{}(), \or{S{}}(b{}(), c{}()))").unwrap()
+        );
+        assert_eq!(
+            crate::kore::parser::parse_pattern(r"\left-assoc{}(\or{S{}}(a{}()))").unwrap(),
+            crate::kore::parser::parse_pattern(r"a{}()").unwrap()
+        );
+    }
+
+    #[test]
+    fn rejects_undefined_associative_ml_heads_without_panicking() {
+        let error =
+            crate::kore::parser::parse_pattern(r"\left-assoc{}(\or{S{}, T{}}(a{}(), b{}()))")
+                .unwrap_err();
+        assert_eq!(
+            error.message,
+            "\\or under associative syntax requires exactly one sort parameter"
+        );
+        assert!(
+            crate::kore::parser::parse_pattern(r"\right-assoc{}(\and{S{}}(a{}(), b{}()))").is_err()
+        );
+    }
 }

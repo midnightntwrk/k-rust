@@ -44,6 +44,50 @@ fn parses_standalone_reference_patterns() {
     }
 }
 
+#[test]
+fn reference_kore_parser_grammar_verdicts() {
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/kore-syntax/grammar");
+    let verdicts = read(&root.join("verdicts.tsv"));
+    assert_eq!(
+        verdicts,
+        concat!(
+            "pass/alias-set-variable.kore\t0\n",
+            "pass/attribute-patterns.kore\t0\n",
+            "pass/backslash-identifiers.kore\t0\n",
+            "pass/legacy-multi-or.kore\t0\n",
+            "pass/whitespace.kore.in\t0\n",
+            "fail/alias-application-argument.kore\t1\n",
+            "fail/assoc-and-head.kore\t1\n",
+            "fail/empty-definition.kore\t1\n",
+        )
+    );
+
+    let pass = fixtures_in(&root.join("pass"), "kore");
+    assert_eq!(pass.len(), 4);
+    for path in pass {
+        assert_definition_round_trip(&path);
+    }
+
+    let template = read(&root.join("pass/whitespace.kore.in"));
+    let whitespace = template.replace("<FF>", "\u{c}").replace("<VT>", "\u{b}");
+    let definition = parse_definition(&whitespace).expect("reference whitespace should parse");
+    assert_eq!(
+        parse_definition(&definition.to_string()).unwrap(),
+        definition
+    );
+
+    let fail = fixtures_in(&root.join("fail"), "kore");
+    assert_eq!(fail.len(), 3);
+    for path in fail {
+        assert!(
+            parse_definition(&read(&path)).is_err(),
+            "unexpectedly accepted {}",
+            path.display()
+        );
+    }
+}
+
 fn assert_definition_round_trip(path: &Path) {
     let definition =
         parse_definition(&read(path)).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
@@ -66,12 +110,16 @@ fn fixtures(relative: &str) -> Vec<PathBuf> {
     let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/kore")
         .join(relative);
+    fixtures_in(&directory, "kore")
+}
+
+fn fixtures_in(directory: &Path, extension: &str) -> Vec<PathBuf> {
     let mut fixtures: Vec<_> = fs::read_dir(&directory)
         .unwrap_or_else(|error| panic!("{}: {error}", directory.display()))
         .map(|entry| entry.expect("fixture entry should be readable").path())
         .filter(|path| {
             path.extension()
-                .is_some_and(|extension| extension == "kore")
+                .is_some_and(|candidate| candidate == extension)
         })
         .collect();
     fixtures.sort();

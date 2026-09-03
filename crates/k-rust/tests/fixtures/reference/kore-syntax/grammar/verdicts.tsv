@@ -1,0 +1,8 @@
+pass/alias-set-variable.kore	0
+pass/attribute-patterns.kore	0
+pass/backslash-identifiers.kore	0
+pass/legacy-multi-or.kore	0
+pass/whitespace.kore.in	0
+fail/alias-application-argument.kore	1
+fail/assoc-and-head.kore	1
+fail/empty-definition.kore	1

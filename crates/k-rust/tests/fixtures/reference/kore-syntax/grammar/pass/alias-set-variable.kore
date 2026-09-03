@@ -1,0 +1,6 @@
+// reference: kore-parser pass/alias-set-variable.kore --no-verify
+[]
+module M
+  sort S{} []
+  alias h{}(S{}) : S{} where h{}(@X:S{}) := @X:S{} []
+endmodule []

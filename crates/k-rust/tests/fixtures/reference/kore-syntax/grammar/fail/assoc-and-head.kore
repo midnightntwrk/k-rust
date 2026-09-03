@@ -1,0 +1,7 @@
+// reference: kore-parser fail/assoc-and-head.kore --no-verify
+[]
+module M
+  sort S{} []
+  symbol a{}() : S{} []
+  axiom{} \right-assoc{}(\and{S{}}(a{}(), a{}())) []
+endmodule []

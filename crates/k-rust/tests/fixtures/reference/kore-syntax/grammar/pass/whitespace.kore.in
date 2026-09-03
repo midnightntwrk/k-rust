@@ -1,0 +1,2 @@
+// reference: replace <FF>/<VT>, then kore-parser generated-whitespace.kore --no-verify
+[]<FF>module M<VT>sort S{} []<FF>axiom{} \top{S{}}() []<VT>endmodule []
