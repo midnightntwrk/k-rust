@@ -15,7 +15,6 @@ pub enum TokenKind {
     RBracket,
     String,
     Id,
-    SymbolId,
     SetVarId,
     MlTop,
     MlBottom,
@@ -118,6 +117,7 @@ impl<'a> Lexer<'a> {
                 self.scan_string(start)?;
                 TokenKind::String
             }
+            '\\' if self.consume('@') => self.scan_prefixed_id(start, Prefix::SetVariable)?,
             '\\' => self.scan_prefixed_id(start, Prefix::Symbol)?,
             '@' => self.scan_prefixed_id(start, Prefix::SetVariable)?,
             character if character.is_ascii_alphabetic() => {
@@ -267,7 +267,7 @@ fn is_id_tail(character: char) -> bool {
 }
 
 fn is_whitespace(character: char) -> bool {
-    matches!(character, ' ' | '\t' | '\n' | '\r')
+    matches!(character, ' ' | '\t' | '\n' | '\u{b}' | '\u{c}' | '\r')
 }
 
 fn classify_id(text: &str) -> TokenKind {
@@ -309,7 +309,7 @@ fn classify_symbol(text: &str) -> TokenKind {
         "\\dv" => TokenKind::MlDv,
         "\\left-assoc" => TokenKind::MlLeftAssoc,
         "\\right-assoc" => TokenKind::MlRightAssoc,
-        _ => TokenKind::SymbolId,
+        _ => TokenKind::Id,
     }
 }
 

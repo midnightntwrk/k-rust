@@ -39,7 +39,7 @@ impl Parser<'_> {
             TokenKind::Id if self.variable_follows() => {
                 self.variable(VariableKind::Element).map(Pattern::Variable)
             }
-            TokenKind::Id | TokenKind::SymbolId => self.application(),
+            TokenKind::Id => self.application(),
             TokenKind::SetVarId => self.variable(VariableKind::Set).map(Pattern::Variable),
             TokenKind::MlTop => self.nullary(true),
             TokenKind::MlBottom => self.nullary(false),
@@ -96,7 +96,7 @@ impl Parser<'_> {
             .is_some_and(|token| token.kind == TokenKind::Colon)
     }
 
-    fn variable(&mut self, kind: VariableKind) -> Result<Variable, ParseError> {
+    pub(super) fn variable(&mut self, kind: VariableKind) -> Result<Variable, ParseError> {
         let token_kind = match kind {
             VariableKind::Element => TokenKind::Id,
             VariableKind::Set => TokenKind::SetVarId,
@@ -108,11 +108,7 @@ impl Parser<'_> {
     }
 
     fn symbol_name(&mut self) -> Result<String, ParseError> {
-        if let Some(token) = self.consume(TokenKind::Id) {
-            Ok(token.text.to_owned())
-        } else {
-            Ok(self.expect(TokenKind::SymbolId)?.text.to_owned())
-        }
+        Ok(self.expect(TokenKind::Id)?.text.to_owned())
     }
 
     fn one_sort(&mut self) -> Result<Sort, ParseError> {
@@ -300,6 +296,31 @@ impl Parser<'_> {
         self.expect(TokenKind::LBrace)?;
         self.expect(TokenKind::RBrace)?;
         self.expect(TokenKind::LParen)?;
+
+        if let Some(or) = self.consume(TokenKind::MlOr) {
+            let mut sorts = self.delimited(TokenKind::LBrace, TokenKind::RBrace, Self::sort)?;
+            if sorts.len() != 1 {
+                return Err(ParseError {
+                    offset: or.offset,
+                    message: "\\or under associative syntax requires exactly one sort parameter"
+                        .into(),
+                });
+            }
+            let arguments = self.delimited(TokenKind::LParen, TokenKind::RParen, Self::pattern)?;
+            self.expect(TokenKind::RParen)?;
+            if arguments.is_empty() {
+                return Err(ParseError {
+                    offset: self.peek().map_or(self.input_len, |token| token.offset),
+                    message: "associative application requires at least one argument".into(),
+                });
+            }
+            return Ok(fold_associative_or(
+                associativity,
+                sorts.pop().expect("one sort was checked above"),
+                arguments,
+            ));
+        }
+
         let Pattern::Application { symbol, arguments } = self.application()? else {
             unreachable!("application always returns Pattern::Application");
         };
@@ -316,6 +337,33 @@ impl Parser<'_> {
             symbol,
             arguments,
         })
+    }
+}
+
+fn fold_associative_or(
+    associativity: Associativity,
+    sort: Sort,
+    arguments: Vec<Pattern>,
+) -> Pattern {
+    let binary = |left, right| Pattern::Or {
+        sort: sort.clone(),
+        arguments: vec![left, right],
+    };
+    match associativity {
+        Associativity::Left => {
+            let mut arguments = arguments.into_iter();
+            let first = arguments
+                .next()
+                .expect("associative arguments are non-empty");
+            arguments.fold(first, binary)
+        }
+        Associativity::Right => {
+            let mut arguments = arguments.into_iter().rev();
+            let last = arguments
+                .next()
+                .expect("associative arguments are non-empty");
+            arguments.fold(last, |right, left| binary(left, right))
+        }
     }
 }
 
