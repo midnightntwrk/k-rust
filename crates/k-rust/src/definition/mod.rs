@@ -36,7 +36,9 @@ pub use checks::{
     check_unused_symbols, check_user_lists,
 };
 pub(crate) use configuration::expand_configurations_allowing_reserved_cells;
-pub use configuration::{ConfigurationError, expand_configurations};
+pub use configuration::{
+    ConfigurationError, expand_configurations, expand_configurations_with_diagnostics,
+};
 pub use ordering::{
     Error as OrderingError, compare_attributes, compare_sentences, compare_terms,
     sentence_equivalent, sort_sentences,

@@ -6,7 +6,7 @@ use crate::{
     builtin,
     definition::{
         ConfigurationError, Definition, FlatImport, Location, ResolveError, ResolvedDefinition,
-        Sentence, apply_sort_synonyms, check_outer_modules, check_sorts, expand_configurations,
+        Sentence, apply_sort_synonyms, check_outer_modules, check_sorts,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
@@ -372,8 +372,10 @@ fn finish_load(
         add_implicit_configuration_imports(definition, options.configuration_module.as_deref())?;
     let definition =
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
-    let mut definition =
-        expand_configurations(&definition).map_err(LoadError::ConfigurationExpansion)?;
+    let (mut definition, configuration_diagnostics) =
+        crate::definition::expand_configurations_with_diagnostics(&definition)
+            .map_err(LoadError::ConfigurationExpansion)?;
+    diagnostics.extend(configuration_diagnostics);
     remove_temporary_cell_sort_declarations(&mut definition);
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;

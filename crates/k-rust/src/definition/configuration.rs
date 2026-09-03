@@ -11,6 +11,7 @@ use super::{
     attribute_keys::{KeyParameter, builtin_key},
     sentence_equivalent, sort_sentences,
 };
+use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::string::unquote;
 use crate::kast::{Label, Sort, Term};
 use crate::provenance::{GeneratingPass, record_generated_origins};
@@ -52,8 +53,17 @@ impl std::error::Error for ConfigurationError {}
 /// The generated cells from imported modules are therefore visible while
 /// resolving external-cell declarations in importing modules.
 pub fn expand_configurations(definition: &Definition) -> Result<Definition, ConfigurationError> {
-    expand_configurations_inner(definition, false).map(|expanded| {
-        record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion)
+    expand_configurations_with_diagnostics(definition).map(|(expanded, _)| expanded)
+}
+
+pub fn expand_configurations_with_diagnostics(
+    definition: &Definition,
+) -> Result<(Definition, Vec<Diagnostic>), ConfigurationError> {
+    expand_configurations_inner(definition, false).map(|(expanded, diagnostics)| {
+        (
+            record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion),
+            diagnostics,
+        )
     })
 }
 
@@ -61,7 +71,7 @@ pub fn expand_configurations(definition: &Definition) -> Result<Definition, Conf
 pub(crate) fn expand_configurations_allowing_reserved_cells(
     definition: &Definition,
 ) -> Result<Definition, ConfigurationError> {
-    expand_configurations_inner(definition, true).map(|expanded| {
+    expand_configurations_inner(definition, true).map(|(expanded, _)| {
         record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion)
     })
 }
@@ -69,7 +79,7 @@ pub(crate) fn expand_configurations_allowing_reserved_cells(
 fn expand_configurations_inner(
     definition: &Definition,
     allow_reserved_cell_names: bool,
-) -> Result<Definition, ConfigurationError> {
+) -> Result<(Definition, Vec<Diagnostic>), ConfigurationError> {
     let initial =
         ResolvedDefinition::resolve(definition).map_err(ConfigurationError::Definition)?;
     let module_names = initial
@@ -78,6 +88,7 @@ fn expand_configurations_inner(
         .map(|id| initial.module(*id).name.clone())
         .collect::<Vec<_>>();
     let mut transformed = definition.clone();
+    let mut diagnostics = Vec::new();
 
     for module_name in module_names {
         let module_index = transformed
@@ -129,6 +140,7 @@ fn expand_configurations_inner(
                 attributes,
                 module_attributes: &module_attributes,
                 allow_reserved_cell_names,
+                diagnostics: &mut diagnostics,
             };
             generator.generate_top(body, ensures)?;
         }
@@ -140,7 +152,7 @@ fn expand_configurations_inner(
     }
 
     ResolvedDefinition::resolve(&transformed).map_err(ConfigurationError::Definition)?;
-    Ok(transformed)
+    Ok((transformed, diagnostics))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -165,6 +177,7 @@ struct Generator<'a, 'catalog> {
     attributes: &'a Attributes,
     module_attributes: &'a Attributes,
     allow_reserved_cell_names: bool,
+    diagnostics: &'a mut Vec<Diagnostic>,
 }
 
 impl Generator<'_, '_> {
@@ -408,6 +421,16 @@ impl Generator<'_, '_> {
         }
 
         let initializer_takes_map = has_variables || stream;
+        if multiplicity != Multiplicity::One && has_variables && properties.get("initial").is_none()
+        {
+            self.diagnostics.push(Diagnostic::warning_at(
+                DiagnosticCode::CellCollectionVarWithoutInitial,
+                format!(
+                    "Configuration variable found in declaration of collection cell <{cell_name}>. Implicitly, this causes the initial configuration to start with one <{cell_name}> element instead of zero. Add the `initial=\"\"` attribute to make that behavior explicit."
+                ),
+                &Attributes::default(),
+            ));
+        }
         let init_sort = if multiplicity == Multiplicity::Star {
             Sort::new(format!("{}{collection_sort}", sort.name))
         } else {

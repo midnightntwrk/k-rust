@@ -5,7 +5,7 @@ use std::{fmt, str::FromStr};
 use crate::{
     definition::{
         Definition, ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
-        checks::check_definition_with_options, expand_configurations,
+        checks::check_definition_with_options, expand_configurations_with_diagnostics,
     },
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity},
     kore::printer::Printer as KorePrinter,
@@ -239,9 +239,9 @@ fn transform_loaded_definition(
 ) -> Result<(Definition, Vec<Diagnostic>), CompileError> {
     // Loader-produced definitions are already expanded, while structured embedders can construct
     // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
-    let definition = stage(
+    let (definition, configuration_diagnostics) = stage(
         "expand structured configurations",
-        expand_configurations(&loaded.definition),
+        expand_configurations_with_diagnostics(&loaded.definition),
     )?;
     let resolved = stage(
         "resolve structured configurations",
@@ -252,6 +252,7 @@ fn transform_loaded_definition(
         check_definition_with_options(&resolved, options.backend.structural_check_options()),
     )?);
     let mut diagnostics = loaded.diagnostics.clone();
+    diagnostics.extend(options.diagnostics.apply(configuration_diagnostics));
     diagnostics.extend(checked);
     if diagnostics
         .iter()
