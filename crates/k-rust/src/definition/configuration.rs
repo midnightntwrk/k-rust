@@ -7,8 +7,9 @@ use serde_json::{Value, json};
 
 use super::{
     Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolveError,
-    ResolvedDefinition, Sentence, checks::is_builtin_attribute, sentence_equivalent,
-    sort_sentences,
+    ResolvedDefinition, Sentence,
+    attribute_keys::{KeyParameter, builtin_key},
+    sentence_equivalent, sort_sentences,
 };
 use crate::kast::string::unquote;
 use crate::kast::{Label, Sort, Term};
@@ -844,9 +845,9 @@ fn parse_property(term: &Term) -> Result<(String, String), String> {
         return Err("malformed cell property".into());
     }
     let key = expect_cell_name(key).ok_or("malformed cell property key")?;
-    if !is_builtin_attribute(key) {
+    let Some(builtin) = builtin_key(key) else {
         return Err(format!("unrecognized cell property {key:?}"));
-    }
+    };
     let Term::Token { token, sort } = value.unannotated() else {
         return Err("malformed cell property value".into());
     };
@@ -854,64 +855,13 @@ fn parse_property(term: &Term) -> Result<(String, String), String> {
         return Err("malformed cell property value".into());
     }
     let value = unquote(token)?;
-    if value.is_empty() && attribute_requires_value(key) {
+    if value.is_empty() && builtin.parameter == KeyParameter::Required {
         return Err(format!("cell property {key:?} requires a value"));
     }
-    if !value.is_empty() && attribute_forbids_value(key) {
+    if !value.is_empty() && builtin.parameter == KeyParameter::Forbidden {
         return Err(format!("cell property {key:?} does not accept a value"));
     }
     Ok((key.to_owned(), value))
-}
-
-fn attribute_requires_value(key: &str) -> bool {
-    matches!(
-        key,
-        "applyPriority"
-            | "cellName"
-            | "color"
-            | "colors"
-            | "context"
-            | "depends"
-            | "element"
-            | "format"
-            | "group"
-            | "hook"
-            | "index"
-            | "klabel"
-            | "label"
-            | "latex"
-            | "multiplicity"
-            | "overload"
-            | "parser"
-            | "prec"
-            | "priority"
-            | "result"
-            | "smt-hook"
-            | "smtlib"
-            | "syntactic"
-            | "terminator-symbol"
-            | "type"
-            | "unboundVariables"
-            | "unit"
-            | "update"
-            | "wrapElement"
-    )
-}
-
-fn attribute_forbids_value(key: &str) -> bool {
-    is_builtin_attribute(key)
-        && !attribute_requires_value(key)
-        && !matches!(
-            key,
-            "concrete"
-                | "hybrid"
-                | "seqstrict"
-                | "simplification"
-                | "stream"
-                | "strict"
-                | "symbol"
-                | "symbolic"
-        )
 }
 
 fn expect_cell_name(term: &Term) -> Option<&str> {

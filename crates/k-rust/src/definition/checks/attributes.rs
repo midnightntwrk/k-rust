@@ -2,26 +2,16 @@
 
 use super::Sentence;
 use crate::definition::{
-    Attributes, LabelHead, ProductionCatalog, ProductionItem, ResolvedModule,
-    SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, SortCatalog, SortHead,
+    Attributes, LabelHead, ProductionCatalog, ProductionItem, ResolvedModule, SortCatalog,
+    SortHead,
+    attribute_keys::{
+        BUBBLE, CLAIM, CONFIGURATION, CONTEXT, CONTEXT_ALIAS, MODULE, PRODUCTION, RULE,
+        SORT_SYNONYM, SYNTAX_ASSOCIATIVITY, SYNTAX_LEXICAL, SYNTAX_PRIORITY, SYNTAX_SORT,
+        builtin_key, is_internal_key,
+    },
     match_rule_label,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-
-const MODULE: u16 = 1 << 0;
-const SYNTAX_SORT: u16 = 1 << 1;
-const SORT_SYNONYM: u16 = 1 << 2;
-const SYNTAX_LEXICAL: u16 = 1 << 3;
-const PRODUCTION: u16 = 1 << 4;
-const SYNTAX_ASSOCIATIVITY: u16 = 1 << 5;
-const SYNTAX_PRIORITY: u16 = 1 << 6;
-const CONTEXT_ALIAS: u16 = 1 << 7;
-const CONTEXT: u16 = 1 << 8;
-const RULE: u16 = 1 << 9;
-const CLAIM: u16 = 1 << 10;
-const CONFIGURATION: u16 = 1 << 11;
-const BUBBLE: u16 = 1 << 12;
-const ALL_SENTENCES: u16 = !MODULE;
 
 #[derive(Clone, Copy)]
 struct Target {
@@ -86,9 +76,9 @@ fn check_attribute_map(
     let mut unknown = Vec::new();
     let mut restricted = Vec::new();
     for key in attributes.semantic_entries().keys() {
-        let allowed = if let Some(allowed) = builtin_allowed_targets(key) {
-            allowed
-        } else if is_internal_attribute(key) {
+        let allowed = if let Some(key) = builtin_key(key) {
+            key.targets
+        } else if is_internal_key(key) {
             continue;
         } else {
             unknown.push(key.clone());
@@ -538,105 +528,4 @@ fn sentence_target(sentence: &Sentence) -> Target {
             name: "Bubble",
         },
     }
-}
-
-pub(crate) fn is_builtin_attribute(key: &str) -> bool {
-    builtin_allowed_targets(key).is_some()
-}
-
-fn builtin_allowed_targets(key: &str) -> Option<u16> {
-    let allowed = match key {
-        "group" | "label" => ALL_SENTENCES,
-        "all-path" | "one-path" => CLAIM | MODULE,
-        "concrete" | "symbolic" => MODULE | PRODUCTION | RULE,
-        "cellCollection" | "hook" | "token" => PRODUCTION | SYNTAX_SORT,
-        "comm" | "initializer" => PRODUCTION | RULE,
-        "priority" | "result" => CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE,
-        "private" | "public" => MODULE | PRODUCTION,
-        "stream" => PRODUCTION | RULE,
-        "unboundVariables" => CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE | CLAIM,
-        "circularity" | "depends" | "trusted" => CLAIM,
-        "context" => CONTEXT_ALIAS,
-        "cool"
-        | "heat"
-        | "non-executable"
-        | "owise"
-        | "preserves-definedness"
-        | "simplification"
-        | "smt-lemma"
-        | "syntactic"
-        | "anywhere" => RULE,
-        "haskell" | "not-lr1" => MODULE,
-        "locations" => SYNTAX_SORT,
-        "alias" | "alias-rec" | "applyPriority" | "assoc" | "avoid" | "bag" | "binder"
-        | "bracket" | "cell" | "cellName" | "color" | "colors" | "constructor" | "deprecated"
-        | "element" | "exit" | "format" | "freshGenerator" | "function" | "functional"
-        | "hybrid" | "idem" | "impure" | "index" | "initial" | "injective" | "internal"
-        | "klabel" | "latex" | "left" | "macro" | "macro-rec" | "maincell" | "memo"
-        | "mlBinder" | "mlOp" | "multiplicity" | "non-assoc" | "no-evaluators" | "overload"
-        | "parser" | "prec" | "prefer" | "returnsUnit" | "right" | "seqstrict" | "smtlib"
-        | "smt-hook" | "strict" | "symbol" | "terminator-symbol" | "total" | "type" | "unit"
-        | "unparseAvoid" | "unused" | "update" | "wrapElement" => PRODUCTION,
-        _ => return None,
-    };
-    Some(allowed)
-}
-
-fn is_internal_attribute(key: &str) -> bool {
-    matches!(
-        key,
-        "anonymous"
-            | "bracketLabel"
-            | "cellFragment"
-            | "cellOptAbsent"
-            | "cellSort"
-            | "concat"
-            | "contentStartColumn"
-            | "contentStartLine"
-            | "contentStartOffset"
-            | "cool-like"
-            | "denormal"
-            | "digest"
-            | "dummy_cell"
-            | "filterElement"
-            | "fresh"
-            | "hasDomainValues"
-            | "left"
-            | "nat"
-            | "notInjection"
-            | "not-lr1-modules"
-            | "originalPrd"
-            | "predicate"
-            | "prettyPrintWithSortAnnotation"
-            | "priorities"
-            | "org.kframework.definition.Production"
-            | "projection"
-            | "recordPrd"
-            | "recordPrd-zero"
-            | "recordPrd-one"
-            | "recordPrd-main"
-            | "recordPrd-empty"
-            | "recordPrd-subsort"
-            | "recordPrd-repeat"
-            | "recordPrd-item"
-            | "refreshed"
-            | "right"
-            | "smt-prelude"
-            | "org.kframework.kore.Sort"
-            | "sortParams"
-            | "org.kframework.attributes.Source"
-            | "org.kframework.attributes.SourceId"
-            | "org.krust.provenance.Origin"
-            | SENTENCE_START_OFFSET_ATTRIBUTE
-            | SENTENCE_END_OFFSET_ATTRIBUTE
-            | "org.kframework.attributes.Location"
-            | "symbol-overload"
-            | "syntaxModule"
-            | "temporary-cell-sort-decl"
-            | "terminals"
-            | "UNIQUE_ID"
-            | "userList"
-            | "userListTerminator"
-            | "withConfig"
-    )
 }

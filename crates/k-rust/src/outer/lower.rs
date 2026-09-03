@@ -12,6 +12,7 @@ use crate::{
     kast::{Label, Sort},
 };
 
+use super::checks::check_user_attributes;
 use super::{
     Associativity, Attribute, Bubble, BubbleKind, Module, PriorityBlock, Production,
     ProductionItem, Sentence, SourceFile, Span, SyntaxBody, check_brackets,
@@ -36,6 +37,7 @@ pub(crate) fn lower_files(
 ) -> Result<Definition, Vec<crate::diagnostic::Diagnostic>> {
     let mut diagnostics = Vec::new();
     for file in files {
+        diagnostics.extend(check_user_attributes(file));
         diagnostics.extend(check_list_declarations(file));
         diagnostics.extend(check_brackets(file));
     }
