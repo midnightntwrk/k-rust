@@ -3285,6 +3285,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn disjuncts_are_printed_in_structural_order() {
+        let sort = kore_sort("SortGeneratedTopCell");
+        let application = |name: &str| kore_application(name, Vec::new(), Vec::new());
+        let solution = |name: &str| KorePattern::Equals {
+            operand_sort: sort.clone(),
+            result_sort: sort.clone(),
+            left: Box::new(KorePattern::Variable(KoreVariable {
+                kind: k_rust::kore::ast::VariableKind::Element,
+                name: "VarResult".into(),
+                sort: sort.clone(),
+            })),
+            right: Box::new(application(name)),
+        };
+
+        assert_eq!(
+            order_disjuncts(vec![solution("c"), solution("a"), solution("b")]),
+            vec![solution("a"), solution("b"), solution("c")]
+        );
+
+        let application = application("a");
+        let top = KorePattern::Top { sort: sort.clone() };
+        let conjunction = KorePattern::And {
+            sort,
+            arguments: vec![top.clone(), top.clone()],
+        };
+        assert_eq!(
+            order_disjuncts(vec![conjunction.clone(), top.clone(), application.clone()]),
+            vec![application, top, conjunction]
+        );
+    }
+
+    #[test]
     fn default_search_uses_the_reference_kore_variable_name() {
         let initial = Pattern {
             term: Term::variable(Variable::new(
