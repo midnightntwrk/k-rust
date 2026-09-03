@@ -343,12 +343,12 @@ enum RecordProductionKind {
     Item(String),
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct ProductionOptions<'a> {
     token: bool,
     transparent: bool,
     bracket: bool,
-    bracket_label: Option<&'a str>,
+    bracket_label: Option<String>,
     apply_priority: Option<&'a str>,
     function: bool,
     macro_like: bool,
@@ -1022,7 +1022,7 @@ impl Grammar {
                     token: attributes.get("token").is_some(),
                     transparent: attributes.get("bracket").is_some(),
                     bracket: attributes.get("bracket").is_some(),
-                    bracket_label: attributes.get_str("bracketLabel"),
+                    bracket_label: attributes.label("bracketLabel").map(|label| label.name),
                     apply_priority: attributes.get_str("applyPriority"),
                     function: attributes.get("function").is_some(),
                     macro_like: ["macro", "macro-rec", "alias", "alias-rec"]
@@ -1510,7 +1510,7 @@ impl Grammar {
             ProductionOptions {
                 transparent: true,
                 bracket: true,
-                bracket_label: Some(&bracket_label),
+                bracket_label: Some(bracket_label),
                 ..ProductionOptions::default()
             },
             &BTreeMap::new(),
@@ -1648,7 +1648,7 @@ impl Grammar {
         let parse_label = label
             .as_ref()
             .map(|label| label.name.clone())
-            .or_else(|| options.bracket_label.map(str::to_owned))
+            .or_else(|| options.bracket_label.clone())
             .or_else(|| {
                 options
                     .bracket

@@ -8,6 +8,7 @@ use std::{
 
 use serde_json::Value;
 
+use crate::kast::json::JsonLabel;
 use crate::kast::{Label, Sort, Term};
 use crate::provenance::{ORIGIN_ATTRIBUTE, SourceId};
 
@@ -142,6 +143,16 @@ impl Attributes {
 
     pub fn get_str(&self, key: &str) -> Option<&str> {
         self.get(key).and_then(Value::as_str)
+    }
+
+    /// Read a typed K label while accepting the string form emitted by older krust builds.
+    pub fn label(&self, key: &str) -> Option<Label> {
+        match self.get(key)? {
+            Value::String(name) => Some(Label::new(name.clone())),
+            value => serde_json::from_value::<JsonLabel>(value.clone())
+                .ok()
+                .map(Into::into),
+        }
     }
 
     pub fn insert(&mut self, key: impl Into<String>, value: Value) -> Option<Value> {

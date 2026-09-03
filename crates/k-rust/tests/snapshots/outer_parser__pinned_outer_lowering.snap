@@ -269,7 +269,11 @@ Definition {
                     attributes: Attributes {
                         entries: {
                             "bracket": String(""),
-                            "bracketLabel": String("(_)_OUTER-CORPUS_Exp_Exp"),
+                            "bracketLabel": Object {
+                                "name": String("(_)_OUTER-CORPUS_Exp_Exp"),
+                                "node": String("KLabel"),
+                                "params": Array [],
+                            },
                             "org.kframework.attributes.Location": Array [
                                 Number(10),
                                 Number(18),

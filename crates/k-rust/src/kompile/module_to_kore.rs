@@ -527,10 +527,13 @@ pub fn declaration_modules_from_resolved_with_options(
         else {
             continue;
         };
-        let Some(bracket_label) = attributes.get_str("bracketLabel") else {
+        let Some(mut bracket_label) = attributes.label("bracketLabel") else {
             continue;
         };
-        let label = Label::with_parameters(bracket_label, parameters.clone());
+        if attributes.get_str("bracketLabel").is_some() {
+            bracket_label.parameters = parameters.clone();
+        }
+        let label = bracket_label;
         let attributes = symbol_attributes(
             attributes,
             &label,

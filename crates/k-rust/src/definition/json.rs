@@ -14,12 +14,16 @@ use super::ast::{
 };
 use crate::kast::json::{self as term_json, JsonLabel, JsonSort, JsonTerm};
 use crate::{
-    kast::{ResolvedProductionId, Term, TermMetadata, TermSpan},
+    kast::{Label, ResolvedProductionId, Term, TermMetadata, TermSpan},
     provenance::{
         DestinationAnchor, GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord,
         ProvenanceLink, SourceId, SourceOffsetMap, SourceOffsetSegment, SourceTable,
     },
 };
+
+pub(crate) fn label_json(label: &Label) -> Value {
+    serde_json::to_value(JsonLabel::from(label)).expect("K labels serialize to JSON")
+}
 
 /// Wire-format discriminator for definitions that retain compiler provenance.
 pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
