@@ -156,6 +156,8 @@ fn evaluate_hook_with_sort(
         "INT.pow" => return int_pow(arguments),
         "INT.powmod" => return int_powmod(arguments),
         "INT.log2" => return int_log2(arguments),
+        "INT.shl" => return int_shift(hook, arguments, false),
+        "INT.shr" => return int_shift(hook, arguments, true),
         _ => {}
     }
     let result = match hook {
@@ -184,8 +186,6 @@ fn evaluate_hook_with_sort(
         "INT.or" => int_binary(hook, arguments, |left, right| left | right),
         "INT.xor" => int_binary(hook, arguments, |left, right| left ^ right),
         "INT.not" => int_unary(hook, arguments, |value| !value),
-        "INT.shl" => int_shift(hook, arguments, false),
-        "INT.shr" => int_shift(hook, arguments, true),
         "KEQUAL.ite" => kequal_ite(arguments),
         "KEQUAL.eq" => kequal(arguments, false, sort_graph),
         "KEQUAL.ne" => kequal(arguments, true, sort_graph),
@@ -295,9 +295,17 @@ fn int_compare(
     comparison: impl FnOnce(&BigInt, &BigInt) -> bool,
 ) -> Result<Option<Term>, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
-    Ok(read_int(&arguments[0])
-        .zip(read_int(&arguments[1]))
-        .map(|(left, right)| bool_term(comparison(&left, &right))))
+    if let Some((left, right)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) {
+        return Ok(Some(bool_term(comparison(&left, &right))));
+    }
+    if arguments[0] == arguments[1] {
+        return Ok(match hook {
+            "INT.eq" => Some(bool_term(true)),
+            "INT.ne" => Some(bool_term(false)),
+            _ => None,
+        });
+    }
+    Ok(None)
 }
 
 fn int_binary(
@@ -372,6 +380,8 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 }
 
 fn int_pow(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    const MAX_POW_RESULT_BITS: u64 = 1 << 32;
+
     expect_arity("INT.pow", arguments, 2)?;
     let Some((mut base, exponent)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -379,9 +389,42 @@ fn int_pow(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     if exponent.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom);
     }
-    let Some(mut exponent) = exponent.to_u32() else {
-        return Ok(BuiltinResult::Bottom);
+    if exponent.is_zero() || base.is_one() {
+        return Ok(BuiltinResult::Value(int_term(BigInt::one())));
+    }
+    if base.is_zero() {
+        return Ok(BuiltinResult::Value(int_term(BigInt::zero())));
+    }
+    if base == -BigInt::one() {
+        let odd = (&exponent & BigInt::one()).is_one();
+        return Ok(BuiltinResult::Value(int_term(if odd {
+            -BigInt::one()
+        } else {
+            BigInt::one()
+        })));
+    }
+    let Some(mut exponent) = exponent.to_u64() else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!(
+                    "{base} ^Int {exponent} needs more than {MAX_POW_RESULT_BITS} bits"
+                ),
+            },
+        ));
     };
+    if base
+        .bits()
+        .checked_mul(exponent)
+        .is_none_or(|bits| bits > MAX_POW_RESULT_BITS)
+    {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!(
+                    "{base} ^Int {exponent} needs more than {MAX_POW_RESULT_BITS} bits"
+                ),
+            },
+        ));
+    }
     let mut result = BigInt::one();
     while exponent != 0 {
         check_interrupted()?;
@@ -464,20 +507,41 @@ fn int_log2(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     ))))
 }
 
-fn int_shift(hook: &str, arguments: &[Term], right: bool) -> Result<Option<Term>, BuiltinError> {
+fn int_shift(hook: &str, arguments: &[Term], right: bool) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
     let Some((value, amount)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
-    let amount = if right { -amount } else { amount };
-    let magnitude = amount.abs().to_usize();
-    Ok(magnitude.map(|magnitude| {
-        int_term(if amount.sign() == Sign::Minus {
-            value >> magnitude
-        } else {
+    let shifts_left = if right {
+        amount.sign() == Sign::Minus
+    } else {
+        amount.sign() != Sign::Minus
+    };
+    if let Some(magnitude) = amount.abs().to_usize() {
+        let result = if shifts_left {
             value << magnitude
-        })
-    }))
+        } else {
+            value >> magnitude
+        };
+        return Ok(BuiltinResult::Value(int_term(result)));
+    }
+    if !shifts_left {
+        return Ok(BuiltinResult::Value(int_term(
+            if value.sign() == Sign::Minus {
+                -BigInt::one()
+            } else {
+                BigInt::zero()
+            },
+        )));
+    }
+    if value.is_zero() {
+        return Ok(BuiltinResult::Value(int_term(BigInt::zero())));
+    }
+    Ok(BuiltinResult::Unsupported(
+        UnsupportedHookReason::ResultTooLarge {
+            detail: format!("{value} {}Int {amount}", if right { ">>" } else { "<<" }),
+        },
+    ))
 }
 
 fn kequal_ite(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
@@ -530,6 +594,9 @@ fn kequal(
 }
 
 fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) -> Option<bool> {
+    if left.attributes().constructor_like && right.attributes().constructor_like {
+        return Some(left == right);
+    }
     match (left.kind(), right.kind()) {
         (
             TermKind::Application {

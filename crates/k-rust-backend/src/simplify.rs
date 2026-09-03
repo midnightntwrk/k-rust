@@ -1958,8 +1958,8 @@ fn simplify_root(
             .all(|argument| argument.attributes().constructor_like)
         {
             let index = term_index(term);
-            let has_equations = definition.function_theory.get(&index).is_some()
-                || definition.simplification_theory.get(&index).is_some();
+            let has_equations = definition.function_theory.contains_key(&index)
+                || definition.simplification_theory.contains_key(&index);
             let reason = match unsupported {
                 Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
                 Some(reason) => Some(reason),

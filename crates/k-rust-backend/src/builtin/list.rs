@@ -155,7 +155,11 @@ fn get(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
             }));
     }
     let Some(distance) = (-index_value).to_usize() else {
-        return Ok(BuiltinResult::NotApplicable);
+        return Ok(if rest.is_none() {
+            BuiltinResult::Bottom
+        } else {
+            BuiltinResult::NotApplicable
+        });
     };
     let known_tail = match rest {
         None => heads,
@@ -207,12 +211,16 @@ fn make(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     if length.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom);
     }
-    let Some(length) = length.to_usize() else {
-        return Ok(BuiltinResult::NotApplicable);
+    let Some(concrete_length) = length.to_usize() else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ResultTooLarge {
+                detail: format!("length {length}"),
+            },
+        ));
     };
     Ok(BuiltinResult::Value(Term::list(
         k_item_definition(),
-        vec![value.clone(); length],
+        vec![value.clone(); concrete_length],
         None,
     )))
 }
@@ -246,7 +254,7 @@ fn range(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     match rest {
         None => {
             let (Some(front), Some(back)) = (front, back) else {
-                return Ok(BuiltinResult::NotApplicable);
+                return Ok(BuiltinResult::Bottom);
             };
             let Some(end) = heads.len().checked_sub(back) else {
                 return Ok(BuiltinResult::Bottom);
@@ -314,7 +322,11 @@ fn update(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::Bottom);
     }
     let Some(index) = index.to_usize() else {
-        return Ok(BuiltinResult::NotApplicable);
+        return Ok(if rest.is_none() {
+            BuiltinResult::Bottom
+        } else {
+            BuiltinResult::NotApplicable
+        });
     };
     if index >= heads.len() {
         return Ok(if rest.is_none() {
@@ -363,7 +375,7 @@ fn update_all(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::Bottom);
     }
     let Some(index) = index.to_usize() else {
-        return Ok(BuiltinResult::NotApplicable);
+        return Ok(BuiltinResult::Bottom);
     };
     let Some(end) = index.checked_add(updates.len()) else {
         return Ok(BuiltinResult::Bottom);

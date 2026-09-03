@@ -190,8 +190,10 @@ fn pad(arguments: &[Term], left: bool) -> Result<BuiltinResult, BuiltinError> {
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(length) = read_nonnegative_len(&arguments[1]) else {
-        return Ok(BuiltinResult::NotApplicable);
+    let length = match read_nonnegative_len(&arguments[1]) {
+        Ok(Some(length)) => length,
+        Ok(None) => return Ok(BuiltinResult::NotApplicable),
+        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     let Some(value) = read_wrapping_byte(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -235,8 +237,10 @@ fn concatenate(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
 
 fn int_to_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("BYTES.int2bytes", arguments, 3)?;
-    let Some(length) = read_nonnegative_len(&arguments[0]) else {
-        return Ok(BuiltinResult::NotApplicable);
+    let length = match read_nonnegative_len(&arguments[0]) {
+        Ok(Some(length)) => length,
+        Ok(None) => return Ok(BuiltinResult::NotApplicable),
+        Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     let Some(value) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -311,12 +315,19 @@ fn read_index(term: &Term) -> Option<usize> {
     read_int(term).and_then(|value| value.to_usize())
 }
 
-fn read_nonnegative_len(term: &Term) -> Option<usize> {
-    let value = read_int(term)?;
+fn read_nonnegative_len(term: &Term) -> Result<Option<usize>, UnsupportedHookReason> {
+    let Some(value) = read_int(term) else {
+        return Ok(None);
+    };
     if value.sign() == Sign::Minus {
-        Some(0)
+        Ok(Some(0))
     } else {
-        value.to_usize()
+        value
+            .to_usize()
+            .map(Some)
+            .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
+                detail: format!("length {value}"),
+            })
     }
 }
 
