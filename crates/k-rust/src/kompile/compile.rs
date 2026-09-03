@@ -55,17 +55,21 @@ impl CompilationBackend {
         }
     }
 
-    fn structural_check_options(self, mode: CheckMode) -> StructuralCheckOptions {
+    fn structural_check_options(
+        self,
+        mode: CheckMode,
+        builtin_source_prefixes: Vec<String>,
+    ) -> StructuralCheckOptions {
         match self {
             Self::Llvm => StructuralCheckOptions {
-                builtin_source_prefixes: vec!["krust-builtin://".into()],
+                builtin_source_prefixes,
                 mode,
                 ..StructuralCheckOptions::default()
             },
             Self::Rust => StructuralCheckOptions {
                 symbolic: true,
                 backend: StructuralCheckBackend::Rust,
-                builtin_source_prefixes: vec!["krust-builtin://".into()],
+                builtin_source_prefixes,
                 mode,
                 ..StructuralCheckOptions::default()
             },
@@ -110,6 +114,8 @@ pub struct CompileOptions {
     pub diagnostics: DiagnosticPolicy,
     /// Definition-only or proof-module structural checks.
     pub check_mode: CheckMode,
+    /// Canonical source prefixes whose declarations are supplied by the builtin catalog.
+    pub builtin_source_prefixes: Vec<String>,
 }
 
 impl Default for CompileOptions {
@@ -121,6 +127,7 @@ impl Default for CompileOptions {
             hook_namespaces: None,
             diagnostics: DiagnosticPolicy::default(),
             check_mode: CheckMode::default(),
+            builtin_source_prefixes: vec!["krust-builtin://".into()],
         }
     }
 }
@@ -256,9 +263,10 @@ fn transform_loaded_definition(
         "definition checks",
         check_definition_with_options(
             &resolved,
-            options
-                .backend
-                .structural_check_options(options.check_mode.clone()),
+            options.backend.structural_check_options(
+                options.check_mode.clone(),
+                options.builtin_source_prefixes.clone(),
+            ),
         ),
     )?);
     let mut diagnostics = loaded.diagnostics.clone();

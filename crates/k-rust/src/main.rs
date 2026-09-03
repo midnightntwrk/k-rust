@@ -742,6 +742,28 @@ struct CommonOptions {
     diagnostics: DiagnosticPolicy,
 }
 
+impl CommonOptions {
+    fn configured_builtin_directory(&self) -> Option<PathBuf> {
+        self.builtin_directory
+            .clone()
+            .or_else(|| env::var_os("KRUST_BUILTIN_DIRECTORY").map(PathBuf::from))
+    }
+
+    fn builtin_source_prefixes(&self) -> Vec<String> {
+        let mut prefixes = vec!["krust-builtin://".into()];
+        if let Some(directory) = self.configured_builtin_directory()
+            && let Ok(canonical) = fs::canonicalize(directory)
+        {
+            let mut prefix = canonical.to_string_lossy().into_owned();
+            if !prefix.ends_with(std::path::MAIN_SEPARATOR) {
+                prefix.push(std::path::MAIN_SEPARATOR);
+            }
+            prefixes.push(prefix);
+        }
+        prefixes
+    }
+}
+
 #[derive(Debug)]
 struct KcompileOptions {
     common: CommonOptions,
@@ -1157,10 +1179,7 @@ fn load_definition(
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
-    let builtin_directory = options
-        .builtin_directory
-        .clone()
-        .or_else(|| env::var_os("KRUST_BUILTIN_DIRECTORY").map(PathBuf::from));
+    let builtin_directory = options.configured_builtin_directory();
     let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
     if let Some(directory) = builtin_directory {
         resolver = resolver.with_builtin_directory(directory);
@@ -1212,6 +1231,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     } else {
         load_definition(&options.common, Some(options.backend), configuration_module)?
     };
+    let builtin_source_prefixes = options.common.builtin_source_prefixes();
     if let Some(syntax_module) = &options.syntax_module {
         if loaded.resolved.module_id(syntax_module).is_none() {
             return Err(io::Error::new(
@@ -1247,6 +1267,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                 definition_module: module.to_owned(),
             }),
             diagnostics: options.common.diagnostics,
+            builtin_source_prefixes,
             ..CompileOptions::default()
         },
     ) {
@@ -1457,11 +1478,13 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
 
 fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let loaded = load_definition(&options.common, Some(CompilationBackend::Rust), None)?;
+    let builtin_source_prefixes = options.common.builtin_source_prefixes();
     let compiled = match compile_loaded_definition(
         &loaded,
         CompileOptions {
             backend: CompilationBackend::Rust,
             diagnostics: options.common.diagnostics,
+            builtin_source_prefixes,
             ..CompileOptions::default()
         },
     ) {
@@ -2606,6 +2629,7 @@ fn compile_proof_source(
             Some(definition_module),
         )?
     };
+    let builtin_source_prefixes = common.builtin_source_prefixes();
     let compiled = match compile_loaded_definition(
         &loaded,
         CompileOptions {
@@ -2615,6 +2639,7 @@ fn compile_proof_source(
             check_mode: CheckMode::Proof {
                 definition_module: definition_module.to_owned(),
             },
+            builtin_source_prefixes,
             ..CompileOptions::default()
         },
     ) {

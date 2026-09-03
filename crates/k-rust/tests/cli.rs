@@ -2599,7 +2599,10 @@ endmodule
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(stderr.matches("Error[UnusedSymbol]").count(), 1, "{stderr}");
-    assert!(stderr.contains("Symbol 'user_MAIN_User' defined but not used."), "{stderr}");
+    assert!(
+        stderr.contains("Symbol 'user_MAIN_User' defined but not used."),
+        "{stderr}"
+    );
     assert!(
         !stderr.contains("Symbol 'builtin_BUILTIN_Builtin' defined but not used."),
         "{stderr}"
