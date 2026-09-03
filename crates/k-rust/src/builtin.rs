@@ -4,7 +4,12 @@ use crate::outer::ResolvedSource;
 
 /// Normalize legacy `.k` builtin names to the current literate source names.
 pub fn source_name(required: &str) -> &str {
-    match required {
+    source_name_with_flag(required).0
+}
+
+/// Normalize a builtin source name and report whether it used a deprecated `.k` spelling.
+pub fn source_name_with_flag(required: &str) -> (&str, bool) {
+    let current = match required {
         "ffi.k" => "ffi.md",
         "json.k" => "json.md",
         "rat.k" => "rat.md",
@@ -12,7 +17,8 @@ pub fn source_name(required: &str) -> &str {
         "domains.k" => "domains.md",
         "kast.k" => "kast.md",
         required => required,
-    }
+    };
+    (current, current != required)
 }
 
 /// Return one of the K sources embedded in `k-rust`.

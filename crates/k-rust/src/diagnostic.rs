@@ -96,6 +96,7 @@ pub enum DiagnosticCode {
     DuplicateSentenceLabel,
     DuplicateConfigurationCell,
     DuplicateKLabel,
+    FutureError,
     InvalidAnonymousVariable,
     InvalidAttribute,
     InvalidAsPattern,
@@ -140,6 +141,7 @@ impl DiagnosticCode {
     pub fn warning_category(self) -> Option<WarningCategory> {
         match self {
             Self::DeprecatedAttribute => Some(WarningCategory::FutureError),
+            Self::FutureError => Some(WarningCategory::FutureError),
             Self::InvalidAssociativity => Some(WarningCategory::InvalidAssociativity),
             Self::MarkdownWarning => Some(WarningCategory::MalformedMarkdown),
             Self::UnusedVariable => Some(WarningCategory::UnusedVar),
