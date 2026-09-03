@@ -345,7 +345,7 @@ comparisons = [
 
 [[compile]]
 name = "exists-anon"
-requires = ["reference-toolchain", "ticket:B2-02"]
+requires = ["reference-toolchain"]
 constructs = ["anonymous-existential"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/exists-anon/test.k"
 main-module = "EXISTS-ANON"
