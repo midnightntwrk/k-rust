@@ -3816,6 +3816,108 @@ mod tests {
     }
 
     #[test]
+    fn keep_partial_returns_the_reached_term_with_the_exhaustion_flag() {
+        let (definition, input, _) = long_fixed_point_chain();
+        let partial = match simplify(
+            &definition,
+            &input,
+            SimplificationOptions {
+                max_iterations: 3,
+                budget: BudgetPolicy::Fail,
+            },
+        ) {
+            Err(SimplificationError::IterationLimit { term, .. }) => term,
+            result => {
+                panic!("expected the fail policy to expose its partial term, found {result:?}")
+            }
+        };
+
+        let result = simplify(
+            &definition,
+            &input,
+            SimplificationOptions {
+                max_iterations: 3,
+                budget: BudgetPolicy::KeepPartial,
+            },
+        )
+        .expect("the keep-partial policy should preserve the reached term");
+
+        assert_eq!(result.term, partial);
+        assert_eq!(
+            result.exhausted,
+            Some(BudgetExhaustion {
+                limit: 3,
+                subject: BudgetSubject::Term,
+            })
+        );
+    }
+
+    #[test]
+    fn keep_partial_keeps_unsimplified_constraints_at_the_predicate_bound() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol p0{}(SortS{}) : SortS{} [function{}()]
+                symbol p1{}(SortS{}) : SortS{} [function{}()]
+                symbol p2{}(SortS{}) : SortS{} [function{}()]
+                symbol p3{}(SortS{}) : SortS{} [function{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \equals{SortS{}, Q}(p0{}(X:SortS{}), X:SortS{}),
+                        \and{Q}(\equals{SortS{}, Q}(p1{}(X:SortS{}), X:SortS{}), \top{Q}())
+                    )
+                ) [label{}("predicate-0"), simplification{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \equals{SortS{}, Q}(p1{}(X:SortS{}), X:SortS{}),
+                        \and{Q}(\equals{SortS{}, Q}(p2{}(X:SortS{}), X:SortS{}), \top{Q}())
+                    )
+                ) [label{}("predicate-1"), simplification{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \equals{SortS{}, Q}(p2{}(X:SortS{}), X:SortS{}),
+                        \and{Q}(\equals{SortS{}, Q}(p3{}(X:SortS{}), X:SortS{}), \top{Q}())
+                    )
+                ) [label{}("predicate-2"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("predicate-chain definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("predicate-chain definition should internalize");
+        let value = term(&definition, r#"\dv{SortS{}}("value")"#);
+        let input = vec![Predicate::Equals(
+            term(&definition, r#"p0{}(\dv{SortS{}}("value"))"#),
+            value,
+        )];
+
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_predicates_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions {
+                    max_iterations: 1,
+                    budget: BudgetPolicy::KeepPartial,
+                },
+                &NoSolver,
+            )
+        });
+
+        assert_eq!(result.unwrap(), input);
+        assert_eq!(
+            diagnostics,
+            [BackendDiagnostic::SimplificationBudgetExhausted {
+                limit: 1,
+                subject: BudgetSubject::Predicates,
+            }]
+        );
+    }
+
+    #[test]
     fn default_budget_halts_a_long_chain_with_a_typed_error() {
         let (definition, input, _) = long_fixed_point_chain();
 

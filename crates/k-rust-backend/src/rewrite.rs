@@ -4185,10 +4185,14 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::cancellation::CancellationToken;
     use crate::transition::{
         ObservationEvent, ObservationFilterError, ObservationOptions, PatternDigest,
         TransitionClass, UncommittedReason,
+    };
+    use crate::{
+        cancellation::CancellationToken,
+        diagnostic::{self, BackendDiagnostic},
+        simplify::BudgetSubject,
     };
 
     #[derive(Clone, Debug)]
@@ -6854,21 +6858,36 @@ mod tests {
     }
 
     #[test]
-    fn execution_reports_default_budget_exhaustion_as_a_simplification_leaf() {
+    fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {
         let definition = definition(&long_requires_chain());
-        let result = execute(
-            &definition,
-            subject(&definition, "value"),
-            ExecutionOptions::default(),
-        );
+        let (result, diagnostics) = diagnostic::collect(|| {
+            execute(
+                &definition,
+                subject(&definition, "value"),
+                ExecutionOptions::default(),
+            )
+        });
 
         let [leaf] = result.leaves.as_slice() else {
-            panic!(
-                "expected one exhausted execution leaf, found {:?}",
-                result.leaves
-            );
+            panic!("expected one execution leaf, found {:?}", result.leaves);
         };
-        assert_iteration_limit(&leaf.halt_reason);
+        assert_eq!(leaf.depth, 0);
+        assert!(matches!(
+            leaf.halt_reason,
+            HaltReason::Indeterminate(IndeterminateReason::Requires { ref rule_id, .. })
+                if rule_id == "conditional"
+        ));
+        assert!(matches!(
+            leaf.pattern.term.kind(),
+            TermKind::Application { symbol, .. } if symbol.name.as_ref() == "wrap"
+        ));
+        assert_eq!(
+            diagnostics,
+            [BackendDiagnostic::SimplificationBudgetExhausted {
+                limit: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+                subject: BudgetSubject::Predicates,
+            }]
+        );
     }
 
     #[test]
