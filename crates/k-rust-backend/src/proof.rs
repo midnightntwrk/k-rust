@@ -1200,6 +1200,8 @@ mod tests {
             r#"[]
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                alias weakExistsFinally{S}(S) : S
+                    where weakExistsFinally{S}(@X:S) := @X:S []
                 claim{} \implies{SortInt{}}(
                     \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}()),
                     weakExistsFinally{SortInt{}}(
@@ -1262,6 +1264,8 @@ mod tests {
                 symbol c{}() : SortS{} [constructor{}()]
                 symbol total{}(SortS{}) : SortT{} [constructor{}()]
                 symbol end{}() : SortT{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
                 axiom{} \or{SortS{}}(
                     a{}(), b{}(), c{}(), \bottom{SortS{}}()
                 ) [constructor{}()]
@@ -1466,6 +1470,8 @@ mod tests {
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 symbol start{}(SortKey{}, SortMap{}) : SortState{} [constructor{}()]
                 symbol done{}(SortMap{}) : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
                 axiom{} \rewrites{SortState{}}(
                     \and{SortState{}}(
                         start{}(KEY:SortKey{}, MAP:SortMap{}),
@@ -2473,6 +2479,8 @@ mod tests {
                 symbol init{}(SortV{}) : SortS{} [constructor{}()]
                 symbol start{}(SortV{}) : SortS{} [constructor{}()]
                 symbol done{}() : SortS{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(init{}(X:SortV{}), \top{SortS{}}()),
                     start{}(X:SortV{})
