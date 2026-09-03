@@ -1424,6 +1424,12 @@ responses = [
   "invalid-implies",
   "invalid-get-model",
   "invalid-add-module",
+  "error-add-module-malformed",
+  "error-add-module-new-symbol",
+  "error-execute-bad-symbol",
+  "error-empty-batch",
+  "error-cancel-in-batch",
+  "error-implies-top",
 ]
 
 [[rpc]]
