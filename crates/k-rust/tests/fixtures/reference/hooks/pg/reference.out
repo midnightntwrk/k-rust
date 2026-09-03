@@ -1,0 +1,8 @@
+<k>
+  ListItem ( true )
+  ListItem ( true )
+  ListItem ( 3 )
+  ListItem ( true )
+  ListItem ( 1 )
+  ListItem ( .List ) ~> .K
+</k>

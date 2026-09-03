@@ -830,6 +830,33 @@ mod tests {
     }
 
     #[test]
+    fn int_domain_values_are_canonical_at_construction() {
+        let int_sort = Sort::simple("SortInt");
+        for (source, expected) in [("+3", "3"), ("007", "7"), ("-0", "0"), ("-12", "-12")] {
+            let term = Term::domain_value(int_sort.clone(), source);
+            let TermKind::DomainValue { value, .. } = term.kind() else {
+                unreachable!()
+            };
+            assert_eq!(value.as_ref(), expected, "{source}");
+        }
+
+        let canonical: Arc<str> = "12".into();
+        let canonical_term = Term::domain_value(int_sort.clone(), canonical.clone());
+        let TermKind::DomainValue { value, .. } = canonical_term.kind() else {
+            unreachable!()
+        };
+        assert!(Arc::ptr_eq(value, &canonical));
+
+        let signed = Term::domain_value(int_sort.clone(), "+3");
+        let unsigned = Term::domain_value(int_sort, "3");
+        assert_eq!(signed, unsigned);
+        assert_eq!(
+            calculate_hash(signed.kind()),
+            calculate_hash(unsigned.kind())
+        );
+    }
+
+    #[test]
     fn canonicalizes_internal_collections() {
         let one = Term::domain_value(sort(), "1");
         let two = Term::domain_value(sort(), "2");

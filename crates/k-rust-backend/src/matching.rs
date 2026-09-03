@@ -3356,6 +3356,23 @@ mod tests {
     }
 
     #[test]
+    fn signed_and_unsigned_int_literals_match_as_the_same_domain_value() {
+        let int_sort = Sort::simple("SortInt");
+        let pattern = domain_value(int_sort.clone(), "3");
+        let subject = domain_value(int_sort, "+3");
+
+        assert_eq!(
+            match_terms(
+                MatchMode::Rewrite,
+                &SortGraph::default(),
+                &pattern,
+                &subject
+            ),
+            MatchResult::Success(Substitution::new())
+        );
+    }
+
+    #[test]
     fn identical_shared_variables_match_without_a_binding() {
         let term = Term::variable(variable("X", sort()));
 

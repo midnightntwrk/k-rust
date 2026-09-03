@@ -664,6 +664,46 @@ mod tests {
         )
     }
 
+    fn k_sequence(item: Term) -> Term {
+        let item_sort = item.sort();
+        let k_item_sort = Sort::simple("SortKItem");
+        let k_sort = Sort::simple("SortK");
+        Term::application(
+            Arc::new(Symbol::constructor(
+                "kseq",
+                vec![k_item_sort.clone(), k_sort.clone()],
+                k_sort.clone(),
+            )),
+            Vec::new(),
+            vec![
+                Term::injection(item_sort, k_item_sort, item),
+                Term::application(
+                    Arc::new(Symbol::constructor("dotk", Vec::new(), k_sort)),
+                    Vec::new(),
+                    Vec::new(),
+                ),
+            ],
+        )
+    }
+
+    #[test]
+    fn kequal_treats_signed_and_unsigned_int_literals_as_equal() {
+        let int_sort = Sort::simple("SortInt");
+        let arguments = [
+            k_sequence(Term::domain_value(int_sort.clone(), "3")),
+            k_sequence(Term::domain_value(int_sort, "+3")),
+        ];
+
+        assert_eq!(
+            evaluate_hook("KEQUAL.eq", &arguments),
+            Ok(BuiltinResult::Value(bool_term(true)))
+        );
+        assert_eq!(
+            evaluate_hook("KEQUAL.ne", &arguments),
+            Ok(BuiltinResult::Value(bool_term(false)))
+        );
+    }
+
     #[test]
     fn boolean_hooks_short_circuit_unknown_arguments() {
         let unknown = Term::variable(Variable::new("B", Sort::simple("SortBool")));
