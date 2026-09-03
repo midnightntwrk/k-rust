@@ -185,4 +185,33 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn accepts_any_pattern_in_attributes() {
+        let sentence = crate::kore::parser::parse_sentence(
+            r#"axiom{} \top{S{}}() [a{}(), "literal", X:S{}, \dv{S{}}("1"), \and{S{}}(), @Y:S{}]"#,
+        )
+        .unwrap();
+        let crate::kore::ast::Sentence::Axiom { attributes, .. } = sentence else {
+            panic!("expected an axiom")
+        };
+        assert_eq!(attributes.0.len(), 6);
+    }
+
+    #[test]
+    fn alias_left_hand_side_accepts_only_variables() {
+        crate::kore::parser::parse_sentence(
+            "alias h{}(S{}) : S{} where h{}(X:S{}, @Y:S{}) := X:S{} []",
+        )
+        .unwrap();
+
+        let error = crate::kore::parser::parse_sentence(
+            "alias h{}(S{}) : S{} where h{}(g{}(X:S{})) := X:S{} []",
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.message,
+            "expected variable in alias left-hand side, found LBrace"
+        );
+    }
 }

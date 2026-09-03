@@ -1,0 +1,14 @@
+// reference: kore-parser pass/attribute-patterns.kore --no-verify
+[
+  key{}("x"),
+  "literal",
+  X:S{},
+  \dv{S{}}("1"),
+  \and{S{}}(),
+  @Y:S{}
+]
+module M
+  sort S{} []
+  symbol a{}() : S{} []
+  axiom{} \top{S{}}() [a{}(), "literal", X:S{}, \dv{S{}}("1"), \and{S{}}(), @Y:S{}]
+endmodule []

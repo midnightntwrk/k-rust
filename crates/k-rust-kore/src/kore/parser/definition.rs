@@ -107,4 +107,20 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn rejects_definitions_without_modules() {
+        let error = crate::kore::parser::parse_definition("[]").unwrap_err();
+        assert_eq!(error.offset, 2);
+        assert_eq!(error.message, "expected Module, found end of input");
+    }
+
+    #[test]
+    fn accepts_backslash_prefixed_module_names() {
+        let definition = crate::kore::parser::parse_definition(
+            "[] module \\M import \\N [] sort \\S{} [] endmodule []",
+        )
+        .unwrap();
+        assert_eq!(definition.modules[0].name, "\\M");
+    }
 }

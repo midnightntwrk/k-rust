@@ -22,7 +22,7 @@ fn lexes_trivia_and_identifiers() {
         ("xyz", vec![TokenKind::Id]),
         ("x-y'z", vec![TokenKind::Id]),
         ("   xyz\n", vec![TokenKind::Id]),
-        ("\\xyz", vec![TokenKind::SymbolId]),
+        ("\\xyz", vec![TokenKind::Id]),
         ("@xyz", vec![TokenKind::SetVarId]),
         ("module", vec![TokenKind::Module]),
         ("a b c", vec![TokenKind::Id, TokenKind::Id, TokenKind::Id]),
@@ -40,6 +40,23 @@ fn lexes_trivia_and_identifiers() {
                 TokenKind::RBracket,
             ],
         ),
+    ];
+
+    for (input, expected) in cases {
+        assert_eq!(kinds(input), expected, "input: {input:?}");
+    }
+}
+
+#[test]
+fn lexes_reference_backslash_identifiers_and_whitespace() {
+    let cases = [
+        ("\\foo", vec![TokenKind::Id]),
+        ("\\@X", vec![TokenKind::SetVarId]),
+        ("\\top", vec![TokenKind::MlTop]),
+        ("\\topx", vec![TokenKind::Id]),
+        ("\\left-assoc", vec![TokenKind::MlLeftAssoc]),
+        ("\\left-assocx", vec![TokenKind::Id]),
+        ("\u{c}\u{b}", vec![]),
     ];
 
     for (input, expected) in cases {

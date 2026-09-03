@@ -1,0 +1,9 @@
+// reference: kore-parser pass/backslash-identifiers.kore --no-verify
+[]
+module \M
+  import \N []
+  sort \S{} []
+  symbol \foo{}(\S{}) : \S{} []
+  axiom{} \foo{}(\bar:\S{}) []
+  axiom{} \mu{}(\@X:\S{}, \@X:\S{}) []
+endmodule []
