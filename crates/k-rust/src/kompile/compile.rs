@@ -1,6 +1,10 @@
 //! Host-independent orchestration of the ordered K frontend compilation pipeline.
 
-use std::{collections::BTreeSet, fmt, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    str::FromStr,
+};
 
 use crate::{
     definition::{
@@ -8,6 +12,7 @@ use crate::{
         checks::check_definition_with_options, expand_configurations_with_diagnostics,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
+    kast::{Sort, Term},
     kore::printer::Printer as KorePrinter,
     outer::LoadedDefinition,
 };
@@ -141,6 +146,11 @@ pub struct CompiledKoreArtifacts {
     pub syntax_definition_kore: String,
     pub macros_kore: String,
     pub diagnostics: Vec<Diagnostic>,
+    /// Configuration variable sorts in the transformed main module.
+    ///
+    /// Names omit the leading `$`. Collection after the compiler passes makes variables generated
+    /// for stream cells visible to execution clients.
+    pub configuration_variables: BTreeMap<String, Sort>,
 }
 
 /// A compilation failure with its precise pipeline stage and any structured diagnostics.
@@ -211,6 +221,10 @@ pub fn compile_loaded_definition(
         "resolve transformed definition",
         ResolvedDefinition::resolve(&definition),
     )?;
+    let configuration_variables = stage(
+        "collect configuration variables",
+        configuration_variables(&resolved),
+    )?;
     let hook_namespaces = options
         .hook_namespaces
         .clone()
@@ -263,7 +277,123 @@ pub fn compile_loaded_definition(
         syntax_definition_kore,
         macros_kore,
         diagnostics,
+        configuration_variables,
     })
+}
+
+/// Match `CompiledDefinition.initializeConfigurationVariableDefaultSorts` on the transformed
+/// main module, including configuration variables introduced by compiler passes.
+pub fn configuration_variables(
+    definition: &ResolvedDefinition,
+) -> Result<BTreeMap<String, Sort>, String> {
+    fn unwrap_singleton(mut term: &Term) -> &Term {
+        loop {
+            term = term.unannotated();
+            match term {
+                Term::Apply { label, arguments } if label.name == "inj" && arguments.len() == 1 => {
+                    term = &arguments[0];
+                }
+                Term::Sequence(items) if items.len() == 1 => {
+                    term = &items[0];
+                }
+                _ => return term,
+            }
+        }
+    }
+
+    fn lookup_name(term: &Term) -> Option<&str> {
+        let Term::Apply { label, arguments } = unwrap_singleton(term) else {
+            return None;
+        };
+        if label.name != "Map:lookup" {
+            return None;
+        }
+        let [_, key] = arguments.as_slice() else {
+            return None;
+        };
+        let Term::Token { token, sort } = unwrap_singleton(key) else {
+            return None;
+        };
+        (sort.name == "KConfigVar").then_some(token.as_str())
+    }
+
+    fn is_generic_k(sort: &Sort) -> bool {
+        sort.parameters.is_empty() && matches!(sort.name.as_str(), "K" | "KItem")
+    }
+
+    fn insert_sort(
+        sorts: &mut BTreeMap<String, Sort>,
+        name: String,
+        sort: Sort,
+    ) -> Result<(), String> {
+        let Some(existing) = sorts.get(&name) else {
+            sorts.insert(name, sort);
+            return Ok(());
+        };
+        if existing == &sort {
+            return Ok(());
+        }
+        match (is_generic_k(existing), is_generic_k(&sort)) {
+            (true, false) => {
+                sorts.insert(name, sort);
+                Ok(())
+            }
+            (false, true) => Ok(()),
+            (true, true) => {
+                if sort.name == "KItem" {
+                    sorts.insert(name, sort);
+                }
+                Ok(())
+            }
+            (false, false) => Err(format!(
+                "configuration variable `${name}` is used at both sort {existing} and {sort}"
+            )),
+        }
+    }
+
+    fn collect(term: &Term, sorts: &mut BTreeMap<String, Sort>) -> Result<(), String> {
+        match term.unannotated() {
+            Term::Apply { label, arguments } => {
+                if let Some(projected) = label.name.strip_prefix("project:")
+                    && let [argument] = arguments.as_slice()
+                    && let Some(name) = lookup_name(argument)
+                {
+                    insert_sort(
+                        sorts,
+                        name.strip_prefix('$').unwrap_or(name).to_owned(),
+                        Sort::new(projected),
+                    )?;
+                }
+                for argument in arguments {
+                    collect(argument, sorts)?;
+                }
+            }
+            Term::Rewrite { left, right } => {
+                collect(left, sorts)?;
+                collect(right, sorts)?;
+            }
+            Term::As { pattern, alias } => {
+                collect(pattern, sorts)?;
+                collect(alias, sorts)?;
+            }
+            Term::Sequence(items) => {
+                for item in items {
+                    collect(item, sorts)?;
+                }
+            }
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+            Term::Annotated { .. } => unreachable!("unannotated terms are matched above"),
+        }
+        Ok(())
+    }
+
+    let mut sorts = BTreeMap::new();
+    for sentence in definition.sentences(definition.main_module_id()) {
+        if let crate::definition::Sentence::Rule { body, .. } = sentence {
+            collect(body, &mut sorts)?;
+        }
+    }
+    Ok(sorts)
 }
 
 fn unadmitted_hook_namespace_diagnostics(
@@ -674,6 +804,39 @@ mod tests {
         assert!(parse_definition(&artifacts.definition_kore).is_ok());
         assert!(parse_definition(&artifacts.syntax_definition_kore).is_ok());
         assert_eq!(artifacts.macros_kore, "\n");
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn configuration_variables_include_stream_variables() {
+        let source = include_str!("../../tests/fixtures/reference/cli/io/io.k");
+        let prelude = embedded("prelude.md").unwrap();
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("io.k", source),
+            "IO",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![prelude],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+
+        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+        assert_eq!(
+            artifacts.configuration_variables,
+            BTreeMap::from([
+                ("IO".into(), crate::kast::Sort::new("String")),
+                ("PGM".into(), crate::kast::Sort::new("Int")),
+                ("STDIN".into(), crate::kast::Sort::new("String")),
+            ])
+        );
     }
 
     #[test]

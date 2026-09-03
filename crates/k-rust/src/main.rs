@@ -15,8 +15,7 @@ use k_rust::{
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, prepare_reference_kast},
     kast::{
-        Sort as KastSort, Term as KastTerm, json as kast_json, parser::parse_sort,
-        printer::Printer as KastPrinter,
+        Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
     },
     kompile::{
         CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
@@ -409,6 +408,11 @@ struct KrunArgs {
     /// Set a configuration variable (for example `-c ENV=.Map`). May be repeated.
     #[arg(short = 'c', long = "config-var", value_name = "NAME=VALUE")]
     config_vars: Vec<String>,
+
+    /// Enable real input/output for stream cells. `off` buffers standard input into `$STDIN`.
+    /// Defaults to `on` for execution and `off` for search.
+    #[arg(long, value_enum, value_name = "on|off")]
+    io: Option<IoArg>,
 
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, value_name = "STEPS")]
@@ -830,6 +834,12 @@ enum ExecutionStrategyArg {
     Any,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum IoArg {
+    On,
+    Off,
+}
+
 impl From<ExecutionStrategyArg> for ExecutionMode {
     fn from(strategy: ExecutionStrategyArg) -> Self {
         match strategy {
@@ -866,6 +876,7 @@ struct KrunOptions {
     expression: Option<String>,
     program_file: Option<PathBuf>,
     config_vars: Vec<String>,
+    io: Option<bool>,
     depth: u64,
     max_simplification_iterations: usize,
     breadth_limit: Option<usize>,
@@ -1138,6 +1149,7 @@ impl From<KrunArgs> for KrunOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             config_vars: arguments.config_vars,
+            io: arguments.io.map(|io| io == IoArg::On),
             depth: arguments.depth.unwrap_or(u64::MAX),
             max_simplification_iterations: arguments
                 .max_simplification_iterations
@@ -1545,6 +1557,11 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     };
     emit_diagnostics(&compiled.diagnostics);
 
+    let program_uses_stdin = options.expression.is_none()
+        && options
+            .program_file
+            .as_deref()
+            .is_none_or(|path| path == Path::new("-"));
     let source = read_program_source(options.expression, options.program_file)?;
     let start_sort = parse_sort(&options.sort)?;
     let program_parser = ProgramParser::from_resolved(&loaded.resolved, &syntax_module.name)?;
@@ -1556,8 +1573,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let program_sort = program_injector.term_sort(&program, None)?;
     let program = program_injector.inject_at_top(&program)?;
     let program = term_to_kore_from_resolved(&loaded.resolved, &syntax_module.name, &program)?;
-    let available_config_vars =
-        configuration_variable_sorts(&loaded.resolved, &options.common.module)?;
+    let available_config_vars = &compiled.configuration_variables;
     let config_parser_modules =
         configuration_variable_parser_modules(&loaded.resolved, &options.common.module)?;
     let mut config_parsers = BTreeMap::new();
@@ -1597,10 +1613,13 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
                 )
             }
         })?;
-        let parser_module = config_parser_modules
-            .get(name)
-            .map(String::as_str)
-            .unwrap_or(&options.common.module);
+        let parser_module = match config_parser_modules.get(name) {
+            Some(parser_module) => parser_module.as_str(),
+            None if matches!(name, "IO" | "STDIN") && sort == &KastSort::new("String") => {
+                "STRING-SYNTAX"
+            }
+            None => &options.common.module,
+        };
         if loaded.resolved.module_id(parser_module).is_none() {
             return Err(format!(
                 "parser module `{parser_module}` for configuration variable `${name}` was not found"
@@ -1636,6 +1655,31 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
         let value = injector.inject_at_top(&value)?;
         let value = term_to_kore_from_resolved(&loaded.resolved, parser_module, &value)?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
+    }
+    let io = options.io.unwrap_or(options.search.is_none());
+    let string_sort = KastSort::new("String");
+    if available_config_vars.get("IO") == Some(&string_sort) && !seen_config_vars.contains("IO") {
+        config_vars.push((
+            "$IO".into(),
+            string_domain_value(if io { "on" } else { "off" }),
+            kore_sort("SortString"),
+        ));
+        seen_config_vars.insert("IO".into());
+    }
+    if available_config_vars.get("STDIN") == Some(&string_sort)
+        && !seen_config_vars.contains("STDIN")
+    {
+        let input = if io || program_uses_stdin {
+            String::new()
+        } else {
+            read_stdin_for_stream()?
+        };
+        config_vars.push((
+            "$STDIN".into(),
+            string_domain_value(input),
+            kore_sort("SortString"),
+        ));
+        seen_config_vars.insert("STDIN".into());
     }
     let missing_config_vars = available_config_vars
         .keys()
@@ -2529,12 +2573,26 @@ fn run_backend(
         .first()
         .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
         .unwrap_or_else(|| output_sort.clone());
+    let initial_is_bottom = execution.leaves.iter().all(|leaf| {
+        leaf.depth == 0
+            && (matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous)
+                || leaf
+                    .pattern
+                    .constraints
+                    .iter()
+                    .any(|predicate| matches!(predicate, Predicate::False)))
+    });
     let states = execution
         .leaves
         .iter()
         .filter(|leaf| !matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous))
         .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
         .collect::<Vec<_>>();
+    if initial_is_bottom {
+        eprintln!(
+            "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
+        );
+    }
     let mut states = order_disjuncts(states);
     Ok(match states.len() {
         0 => KorePattern::Bottom { sort: output_sort },
@@ -3261,82 +3319,6 @@ fn configuration_variable_parser_modules(
     Ok(modules)
 }
 
-fn configuration_variable_sorts(
-    definition: &k_rust::definition::ResolvedDefinition,
-    module: &str,
-) -> Result<BTreeMap<String, KastSort>, Box<dyn Error>> {
-    fn lookup_name(term: &KastTerm) -> Option<&str> {
-        let KastTerm::Apply { label, arguments } = term.unannotated() else {
-            return None;
-        };
-        if label.name != "Map:lookup" {
-            return None;
-        }
-        let [_, key] = arguments.as_slice() else {
-            return None;
-        };
-        let KastTerm::Token { token, sort } = key.unannotated() else {
-            return None;
-        };
-        (sort.name == "KConfigVar").then_some(token.as_str())
-    }
-
-    fn collect(
-        term: &KastTerm,
-        sorts: &mut BTreeMap<String, KastSort>,
-    ) -> Result<(), Box<dyn Error>> {
-        match term.unannotated() {
-            KastTerm::Apply { label, arguments } => {
-                if let Some(projected) = label.name.strip_prefix("project:")
-                    && let [argument] = arguments.as_slice()
-                    && let Some(name) = lookup_name(argument)
-                {
-                    let name = name.strip_prefix('$').unwrap_or(name).to_owned();
-                    let sort = parse_sort(projected)?;
-                    if let Some(existing) = sorts.insert(name.clone(), sort.clone())
-                        && existing != sort
-                    {
-                        return Err(format!(
-                            "configuration variable `${name}` is used at both sort {existing} and {sort}"
-                        )
-                        .into());
-                    }
-                }
-                for argument in arguments {
-                    collect(argument, sorts)?;
-                }
-            }
-            KastTerm::Rewrite { left, right } => {
-                collect(left, sorts)?;
-                collect(right, sorts)?;
-            }
-            KastTerm::As { pattern, alias } => {
-                collect(pattern, sorts)?;
-                collect(alias, sorts)?;
-            }
-            KastTerm::Sequence(items) => {
-                for item in items {
-                    collect(item, sorts)?;
-                }
-            }
-            KastTerm::InjectedLabel(_) | KastTerm::Variable { .. } | KastTerm::Token { .. } => {}
-            KastTerm::Annotated { .. } => unreachable!("unannotated terms are matched above"),
-        }
-        Ok(())
-    }
-
-    let module = definition
-        .module_id(module)
-        .ok_or_else(|| format!("definition has no module `{module}`"))?;
-    let mut sorts = BTreeMap::new();
-    for sentence in definition.sentences(module) {
-        if let Sentence::Rule { body, .. } = sentence {
-            collect(body, &mut sorts)?;
-        }
-    }
-    Ok(sorts)
-}
-
 fn top_cell_initializer(
     program: KorePattern,
     program_sort: KoreSort,
@@ -3395,10 +3377,26 @@ fn kore_sort(name: &str) -> KoreSort {
     }
 }
 
+fn string_domain_value(value: impl Into<String>) -> KorePattern {
+    KorePattern::DomainValue {
+        sort: kore_sort("SortString"),
+        value: value.into(),
+    }
+}
+
 fn read_stdin() -> io::Result<String> {
     let mut source = String::new();
     io::stdin().read_to_string(&mut source)?;
     Ok(source)
+}
+
+fn read_stdin_for_stream() -> io::Result<String> {
+    let mut input = Vec::new();
+    io::stdin().read_to_end(&mut input)?;
+    Ok(match String::from_utf8(input) {
+        Ok(input) => input,
+        Err(error) => error.into_bytes().into_iter().map(char::from).collect(),
+    })
 }
 
 fn emit_diagnostics(diagnostics: &[Diagnostic]) {
@@ -3799,6 +3797,8 @@ mod tests {
             "1 + 2",
             "-c",
             "ENV=.Map",
+            "--io",
+            "off",
             "--depth",
             "42",
             "--breadth",
@@ -3826,6 +3826,7 @@ mod tests {
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));
         assert_eq!(options.config_vars, ["ENV=.Map"]);
+        assert_eq!(options.io, Some(false));
         assert_eq!(options.depth, 42);
         assert_eq!(options.breadth_limit, Some(7));
         assert!(options.execute_to_branch);
@@ -4254,6 +4255,7 @@ mod tests {
         };
         let krun = KrunOptions::from(krun);
         assert_eq!(krun.syntax_module, None);
+        assert_eq!(krun.io, None);
         assert_eq!(krun.depth, u64::MAX);
         assert_eq!(krun.max_simplification_iterations, 17);
 
