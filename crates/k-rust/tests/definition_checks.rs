@@ -11,7 +11,7 @@ use k_rust::definition::{
     check_sort_top_uniqueness, check_streams, check_syntax_groups, check_tokens,
     compute_priorities,
 };
-use k_rust::diagnostic::{DiagnosticCode, Severity};
+use k_rust::diagnostic::{Diagnostic, DiagnosticCode, Severity};
 use k_rust::kast::{Label, Sort, Term};
 use serde_json::{Value, json};
 
@@ -1796,4 +1796,301 @@ fn smt_lemma_terms_require_smt_backed_visible_productions() {
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidSmtLemma);
+}
+
+fn outer_check_module(name: &str, imports: &[&str], local_sentences: Vec<Sentence>) -> FlatModule {
+    FlatModule {
+        name: name.into(),
+        imports: imports
+            .iter()
+            .map(|name| FlatImport {
+                name: (*name).into(),
+                public: true,
+            })
+            .collect(),
+        local_sentences,
+        attributes: Attributes::default(),
+    }
+}
+
+fn outer_check_diagnostics(main_module: &str, modules: Vec<FlatModule>) -> Vec<Diagnostic> {
+    let definition = Definition {
+        main_module: main_module.into(),
+        modules,
+        attributes: Attributes::default(),
+    };
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    check_definition(&resolved).unwrap()
+}
+
+fn outer_sort_diagnostics(diagnostics: &[Diagnostic]) -> Vec<&Diagnostic> {
+    diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.message.starts_with("Could not find sorts:")
+                || diagnostic
+                    .message
+                    .starts_with("User-defined parametric sorts are currently unsupported:")
+        })
+        .collect()
+}
+
+fn syntax_sort(sort: Sort) -> Sentence {
+    Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort,
+        attributes: Attributes::default(),
+    }
+}
+
+#[test]
+fn check_sorts_rejects_undefined_nonterminals_in_every_module() {
+    let main_production = Sentence::Production {
+        label: None,
+        parameters: Vec::new(),
+        sort: Sort::new("MainResult"),
+        items: vec![ProductionItem::NonTerminal {
+            sort: Sort::new("MissingMainSort"),
+            name: None,
+        }],
+        attributes: attrs(&[
+            (SOURCE_ATTRIBUTE, json!("main.k")),
+            (LOCATION_ATTRIBUTE, json!([2, 3, 2, 40])),
+        ]),
+    };
+    let unrelated_production = Sentence::Production {
+        label: None,
+        parameters: Vec::new(),
+        sort: Sort::new("UnrelatedResult"),
+        items: vec![ProductionItem::NonTerminal {
+            sort: Sort::new("MissingUnrelatedSort"),
+            name: None,
+        }],
+        attributes: attrs(&[
+            (SOURCE_ATTRIBUTE, json!("unrelated.k")),
+            (LOCATION_ATTRIBUTE, json!([7, 5, 7, 44])),
+        ]),
+    };
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![
+            outer_check_module("MAIN", &[], vec![main_production]),
+            outer_check_module("UNRELATED", &[], vec![unrelated_production]),
+        ],
+    );
+    let diagnostics = outer_sort_diagnostics(&diagnostics);
+
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Could not find sorts: [MissingMainSort]"
+            && diagnostic.source.as_deref() == Some("main.k")
+            && diagnostic
+                .location
+                .is_some_and(|location| location.start_line == 2)
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message == "Could not find sorts: [MissingUnrelatedSort]"
+            && diagnostic.source.as_deref() == Some("unrelated.k")
+            && diagnostic
+                .location
+                .is_some_and(|location| location.start_line == 7)
+    }));
+}
+
+#[test]
+fn check_sorts_accepts_variables_synonyms_and_declared_instantiations() {
+    let formal = Sort::new("S");
+    let mint_six = Sort::with_parameters("MInt", vec![Sort::new("6")]);
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                Sentence::SortSynonym {
+                    new_sort: Sort::new("Alias"),
+                    old_sort: Sort::new("Original"),
+                    attributes: Attributes::default(),
+                },
+                syntax_sort(mint_six.clone()),
+                Sentence::Production {
+                    label: None,
+                    parameters: vec![formal.clone()],
+                    sort: Sort::new("GenericResult"),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: formal,
+                        name: None,
+                    }],
+                    attributes: Attributes::default(),
+                },
+                production(None, "SynonymResult", &["Alias"], Attributes::default()),
+                Sentence::Production {
+                    label: None,
+                    parameters: Vec::new(),
+                    sort: Sort::new("InstantiatedResult"),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: mint_six,
+                        name: None,
+                    }],
+                    attributes: Attributes::default(),
+                },
+            ],
+        )],
+    );
+
+    assert!(
+        outer_sort_diagnostics(&diagnostics).is_empty(),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn check_sorts_rejects_undeclared_instantiations_and_parametric_results() {
+    let formal = Sort::new("S");
+    let mint_six = Sort::with_parameters("MInt", vec![Sort::new("6")]);
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                Sentence::Production {
+                    label: None,
+                    parameters: Vec::new(),
+                    sort: Sort::new("UsesMInt"),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: mint_six.clone(),
+                        name: None,
+                    }],
+                    attributes: Attributes::default(),
+                },
+                Sentence::SyntaxSort {
+                    parameters: vec![formal.clone()],
+                    sort: Sort::with_parameters("Box", vec![formal.clone()]),
+                    attributes: Attributes::default(),
+                },
+                Sentence::SortSynonym {
+                    new_sort: Sort::with_parameters("Alias", vec![formal.clone()]),
+                    old_sort: Sort::new("Original"),
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: None,
+                    parameters: vec![formal.clone()],
+                    sort: Sort::with_parameters("Wrapper", vec![formal]),
+                    items: vec![ProductionItem::Terminal("wrap".into())],
+                    attributes: Attributes::default(),
+                },
+            ],
+        )],
+    );
+    let messages = outer_sort_diagnostics(&diagnostics)
+        .into_iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        messages,
+        BTreeSet::from([
+            "Could not find sorts: [MInt{6}]",
+            "User-defined parametric sorts are currently unsupported: Alias{S}",
+            "User-defined parametric sorts are currently unsupported: Box{S}",
+            "User-defined parametric sorts are currently unsupported: Wrapper{S}",
+        ])
+    );
+
+    let accepted = outer_check_diagnostics(
+        "MINT",
+        vec![outer_check_module("MINT", &[], vec![syntax_sort(mint_six)])],
+    );
+    assert!(
+        outer_sort_diagnostics(&accepted).is_empty(),
+        "{accepted:#?}"
+    );
+}
+
+fn user_list_at(source: &str, line: u32) -> Sentence {
+    production(
+        None,
+        "Elements",
+        &[],
+        attrs(&[
+            ("userList", json!("*")),
+            (SOURCE_ATTRIBUTE, json!(source)),
+            (LOCATION_ATTRIBUTE, json!([line, 3, line, 30])),
+        ]),
+    )
+}
+
+fn duplicate_user_list_diagnostics(diagnostics: &[Diagnostic]) -> Vec<&Diagnostic> {
+    diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .message
+                .starts_with("Sort Elements previously declared as a user list at ")
+        })
+        .collect()
+}
+
+#[test]
+fn check_user_lists_rejects_distinct_declarations_and_accepts_diamonds() {
+    let imported_siblings = outer_check_diagnostics(
+        "MAIN",
+        vec![
+            outer_check_module("A", &[], vec![user_list_at("lists.k", 2)]),
+            outer_check_module("B", &[], vec![user_list_at("lists.k", 7)]),
+            outer_check_module("MAIN", &["A", "B"], Vec::new()),
+        ],
+    );
+    assert!(
+        !duplicate_user_list_diagnostics(&imported_siblings).is_empty(),
+        "{imported_siblings:#?}"
+    );
+
+    let local = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![user_list_at("local.k", 3), user_list_at("local.k", 4)],
+        )],
+    );
+    assert!(
+        duplicate_user_list_diagnostics(&local)
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.message.contains("Source(local.k)")
+                    && diagnostic.message.contains("Location(3,3,3,30)")
+                    && diagnostic.location.is_some()
+            }),
+        "{local:#?}"
+    );
+
+    let diamond = outer_check_diagnostics(
+        "MAIN",
+        vec![
+            outer_check_module("BASE", &[], vec![user_list_at("base.k", 1)]),
+            outer_check_module("LEFT", &["BASE"], Vec::new()),
+            outer_check_module("RIGHT", &["BASE"], Vec::new()),
+            outer_check_module("MAIN", &["LEFT", "RIGHT"], Vec::new()),
+        ],
+    );
+    assert!(
+        duplicate_user_list_diagnostics(&diamond).is_empty(),
+        "{diamond:#?}"
+    );
+
+    let single = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![user_list_at("single.k", 1)],
+        )],
+    );
+    assert!(
+        duplicate_user_list_diagnostics(&single).is_empty(),
+        "{single:#?}"
+    );
 }

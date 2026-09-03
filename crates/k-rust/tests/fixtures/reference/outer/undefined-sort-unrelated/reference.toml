@@ -1,0 +1,18 @@
+case = "undefined-sort-unrelated"
+subsystem = "outer"
+source_ticket = "A1-02"
+harvested_from = "draft/fable51-review/fixtures/a1-fixtures/undefined-sort-unrelated"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "kompile.stderr"
+command = "kompile test.k --backend haskell --main-module UNDEFINED-SORT-UNRELATED --syntax-module UNDEFINED-SORT-UNRELATED >/dev/null 2> kompile.stderr"
+tool = "kompile"
+exit_code = 113
+sha256 = "a23f71d56640400c1fdd5e0c4d24ad8bea638f0785101bbf02ba868b53dbabb3"
+
+[[input]]
+file = "test.k"
+source = "draft/fable51-review/fixtures/a1-fixtures/undefined-sort-unrelated/test.k"
+sha256 = "0cf78e75dc10ecc8442211e66cbe094d3ab39d701dc63e4a2bc1055596ddf360"
