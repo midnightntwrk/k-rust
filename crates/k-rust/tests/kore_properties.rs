@@ -211,4 +211,17 @@ proptest! {
         let normalized = normalize::for_kast(&pattern);
         prop_assert_eq!(normalize::for_kast(&normalized), normalized);
     }
+
+    #[test]
+    fn ord_is_total(patterns in prop::collection::vec(pattern(), 3)) {
+        let [left, middle, right] = patterns.as_slice() else {
+            unreachable!("the strategy always produces three patterns")
+        };
+        prop_assert_eq!(left.cmp(middle), middle.cmp(left).reverse());
+        prop_assert_eq!(left.cmp(left), std::cmp::Ordering::Equal);
+        prop_assert_eq!(left == middle, left.cmp(middle).is_eq());
+        if left <= middle && middle <= right {
+            prop_assert!(left <= right);
+        }
+    }
 }

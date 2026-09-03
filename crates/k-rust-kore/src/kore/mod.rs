@@ -9,3 +9,6 @@ pub mod normalize;
 pub mod parser;
 pub mod printer;
 pub mod string;
+
+#[cfg(test)]
+mod deep;
