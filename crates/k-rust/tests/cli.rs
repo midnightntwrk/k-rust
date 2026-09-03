@@ -1401,7 +1401,7 @@ fn kore_exec_adds_a_rule_module_before_execution() {
         r#"[]
 module MAIN
   sort SortState{} [hasDomainValues{}()]
-  symbol state{}(SortState{}) : SortState{} [constructor{}()]
+  symbol state{}(SortState{}) : SortState{} [function{}(), injective{}(), total{}()]
   axiom{} \rewrites{SortState{}}(
     \and{SortState{}}(state{}(\dv{SortState{}}("a")), \top{SortState{}}()),
     \and{SortState{}}(state{}(\dv{SortState{}}("d")), \top{SortState{}}())
