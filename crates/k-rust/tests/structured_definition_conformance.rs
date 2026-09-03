@@ -87,6 +87,7 @@ fn assert_compiles_on_both_backends(
         source_table: Default::default(),
         definition,
         resolved,
+        diagnostics: Vec::new(),
     };
 
     for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {

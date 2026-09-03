@@ -2432,6 +2432,82 @@ fn kcompile_writes_parseable_kore_outputs() {
 }
 
 #[test]
+fn warning_flags_are_exposed_by_every_diagnostic_subcommand() {
+    for command in ["kcompile", "kast", "krun", "kprove"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([command, "--help"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{command}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let help = String::from_utf8(output.stdout).unwrap();
+        assert!(help.contains("-w, --warnings <LEVEL>"), "{command}: {help}");
+        assert!(help.contains("--warnings-to-errors"), "{command}: {help}");
+    }
+}
+
+#[test]
+fn warnings_to_errors_fails_kcompile_on_an_unused_variable() {
+    let (root, _) = fixture();
+    let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/checks/checkUnusedVar.k");
+    let run = |name: &str, warning_args: &[&str]| {
+        let output_directory = root.join(name);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "CHECKUNUSEDVAR",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+        ]);
+        command.args(warning_args);
+        command.output().unwrap()
+    };
+
+    let normal = run("normal", &[]);
+    assert!(
+        normal.status.success(),
+        "{}",
+        String::from_utf8_lossy(&normal.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&normal.stderr)
+            .matches("Warning[UnusedVariable]")
+            .count(),
+        3
+    );
+
+    let error = run("error", &["--warnings-to-errors"]);
+    assert!(!error.status.success());
+    let stderr = String::from_utf8_lossy(&error.stderr);
+    assert_eq!(
+        stderr.matches("Error[UnusedVariable]").count(),
+        3,
+        "{stderr}"
+    );
+    assert!(!stderr.contains("Warning[UnusedVariable]"), "{stderr}");
+
+    let none = run("none", &["--warnings", "none"]);
+    assert!(
+        none.status.success(),
+        "{}",
+        String::from_utf8_lossy(&none.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&none.stderr).contains("UnusedVariable"),
+        "{}",
+        String::from_utf8_lossy(&none.stderr)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_hook_namespaces_default_per_backend() {
     let source = r#"
 module MAIN

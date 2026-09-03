@@ -8,7 +8,7 @@ use k_rust::{
         PatternRequest, ProveRequest, SearchPatternRequest, SearchRequest,
     },
     definition::checks::check_definition,
-    diagnostic::{Diagnostic, Severity},
+    diagnostic::{Diagnostic, DiagnosticPolicy, Severity},
     inner::ProgramParser,
     kast::{
         json as kast_json,
@@ -308,6 +308,7 @@ fn compile_definition(options: &str) -> Result<String, String> {
             excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
             configuration_module: None,
             project_root: None,
+            diagnostics: Default::default(),
         },
     )
     .map_err(display_error)?;
@@ -356,11 +357,16 @@ fn parse_program(options: &str) -> Result<String, String> {
             excluded_module_attributes: Vec::new(),
             configuration_module: None,
             project_root: None,
+            diagnostics: Default::default(),
         },
     )
     .map_err(display_error)?;
 
-    let diagnostics = check_definition(&loaded.resolved).map_err(display_error)?;
+    let mut diagnostics = loaded.diagnostics.clone();
+    diagnostics.extend(
+        DiagnosticPolicy::default()
+            .apply(check_definition(&loaded.resolved).map_err(display_error)?),
+    );
     if diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)

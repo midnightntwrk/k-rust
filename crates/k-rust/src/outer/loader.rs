@@ -5,10 +5,10 @@ use std::{collections::BTreeMap, error::Error, fmt, path::Path};
 use crate::{
     builtin,
     definition::{
-        ConfigurationError, Definition, FlatImport, ResolveError, ResolvedDefinition, Sentence,
-        apply_sort_synonyms, expand_configurations,
+        ConfigurationError, Definition, FlatImport, Location, ResolveError, ResolvedDefinition,
+        Sentence, apply_sort_synonyms, expand_configurations,
     },
-    diagnostic::Diagnostic,
+    diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
     provenance::{LogicalSourceId, SourceTable},
 };
@@ -55,6 +55,8 @@ pub struct LoadOptions {
     pub configuration_module: Option<String>,
     /// Concrete checkout root stripped from resolver paths to form stable logical names.
     pub project_root: Option<String>,
+    /// Filtering and severity policy for diagnostics produced while loading sources.
+    pub diagnostics: DiagnosticPolicy,
 }
 
 impl Default for LoadOptions {
@@ -65,6 +67,7 @@ impl Default for LoadOptions {
             excluded_module_attributes: Vec::new(),
             configuration_module: None,
             project_root: None,
+            diagnostics: DiagnosticPolicy::default(),
         }
     }
 }
@@ -188,6 +191,8 @@ pub struct LoadedDefinition {
     pub source_table: SourceTable,
     pub definition: Definition,
     pub resolved: ResolvedDefinition,
+    /// Load-time warnings retained by the selected diagnostic policy.
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// Load one entry source, recursively resolve `requires`, lower all files with
@@ -250,6 +255,7 @@ fn load_impl(
         states: BTreeMap::new(),
         files: Vec::new(),
         source_table: SourceTable::default(),
+        diagnostics: Vec::new(),
     };
     for source in &options.implicit_sources {
         loader.visit(source.clone())?;
@@ -280,6 +286,7 @@ fn load_impl(
         definition,
         loader.files,
         loader.source_table,
+        loader.diagnostics,
         options,
         false,
     )
@@ -306,6 +313,7 @@ pub fn load_structured(
         states: BTreeMap::new(),
         files: Vec::new(),
         source_table: SourceTable::default(),
+        diagnostics: Vec::new(),
     };
     for source in &options.implicit_sources {
         loader.visit(source.clone())?;
@@ -317,13 +325,21 @@ pub fn load_structured(
     implicit.modules.append(&mut definition.modules);
     implicit.main_module = definition.main_module;
     implicit.attributes = definition.attributes;
-    finish_load(implicit, loader.files, loader.source_table, options, true)
+    finish_load(
+        implicit,
+        loader.files,
+        loader.source_table,
+        loader.diagnostics,
+        options,
+        true,
+    )
 }
 
 fn finish_load(
     definition: Definition,
     files: Vec<SourceFile>,
     source_table: SourceTable,
+    diagnostics: Vec<Diagnostic>,
     options: &LoadOptions,
     remove_unused_default_configuration: bool,
 ) -> Result<LoadedDefinition, LoadError> {
@@ -345,11 +361,19 @@ fn finish_load(
     let definition = resolve_rule_bubbles(&definition).map_err(LoadError::RuleParsing)?;
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+    let diagnostics = options.diagnostics.apply(diagnostics);
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        return Err(LoadError::SourceDiagnostics(diagnostics));
+    }
     Ok(LoadedDefinition {
         files,
         source_table,
         definition,
         resolved,
+        diagnostics,
     })
 }
 
@@ -512,6 +536,7 @@ struct Loader<'a, R> {
     states: BTreeMap<String, VisitState>,
     files: Vec<SourceFile>,
     source_table: SourceTable,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl<R: SourceResolver> Loader<'_, R> {
@@ -539,6 +564,15 @@ impl<R: SourceResolver> Loader<'_, R> {
                         source: source.source.clone(),
                         error,
                     })?;
+            self.diagnostics
+                .extend(extracted.warnings.iter().map(|warning| {
+                    Diagnostic::warning_at_location(
+                        DiagnosticCode::MarkdownWarning,
+                        warning.message.clone(),
+                        source.source.clone(),
+                        location_at_offset(&source.text, warning.offset),
+                    )
+                }));
             (extracted.text, Some(extracted.offset_map))
         } else {
             (source.text, None)
@@ -573,6 +607,21 @@ impl<R: SourceResolver> Loader<'_, R> {
         self.states.insert(source.source, VisitState::Complete);
         self.files.push(parsed);
         Ok(())
+    }
+}
+
+fn location_at_offset(source: &str, offset: usize) -> Location {
+    let prefix = source
+        .get(..offset)
+        .expect("Markdown warning offsets are source character boundaries");
+    let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u32 + 1;
+    let column = prefix[line_start..].chars().count() as u32 + 1;
+    Location {
+        start_line: line,
+        start_column: column,
+        end_line: line,
+        end_column: column,
     }
 }
 

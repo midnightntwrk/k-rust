@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use indoc::indoc;
 use k_rust::definition::Sentence;
+use k_rust::diagnostic::{DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel};
 use k_rust::kast::TermSpan;
 use k_rust::outer::{LoadError, LoadOptions, ResolvedSource, load, load_with_options};
 use k_rust::provenance::SourceId;
@@ -145,6 +146,58 @@ fn canonical_source_identity_deduplicates_diamond_leaves() {
             .collect::<Vec<_>>(),
         ["canonical/shared.k", "main.k"]
     );
+}
+
+#[test]
+fn load_time_warnings_fail_the_load_under_warnings_to_errors() {
+    let source = indoc! {r#"
+        ```{k
+        module IGNORED endmodule
+        ```
+
+        ```k
+        module MAIN endmodule
+        ```
+    "#};
+    let load_with_policy = |diagnostics| {
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+        load_with_options(
+            ResolvedSource::new("main.md", source),
+            "MAIN",
+            &mut resolver,
+            &LoadOptions {
+                diagnostics,
+                ..LoadOptions::default()
+            },
+        )
+    };
+
+    let normal = load_with_policy(DiagnosticPolicy::default()).unwrap();
+    assert!(normal.diagnostics.is_empty());
+
+    let all = load_with_policy(DiagnosticPolicy {
+        level: WarningLevel::All,
+        warnings_to_errors: false,
+    })
+    .unwrap();
+    assert_eq!(all.diagnostics.len(), 1);
+    assert_eq!(all.diagnostics[0].code, DiagnosticCode::MarkdownWarning);
+    assert_eq!(all.diagnostics[0].severity, Severity::Warning);
+    assert_eq!(all.diagnostics[0].source.as_deref(), Some("main.md"));
+    assert_eq!(all.diagnostics[0].location.unwrap().start_line, 1);
+    assert_eq!(all.diagnostics[0].location.unwrap().start_column, 4);
+
+    let error = load_with_policy(DiagnosticPolicy {
+        level: WarningLevel::All,
+        warnings_to_errors: true,
+    })
+    .unwrap_err();
+    let LoadError::SourceDiagnostics(diagnostics) = error else {
+        panic!("expected upgraded load-time diagnostics, got {error:?}");
+    };
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, DiagnosticCode::MarkdownWarning);
+    assert_eq!(diagnostics[0].severity, Severity::Error);
 }
 
 #[test]

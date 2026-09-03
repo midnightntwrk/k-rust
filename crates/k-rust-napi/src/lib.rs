@@ -9,7 +9,7 @@ use k_rust::{
     },
     builtin::embedded,
     definition::checks::check_definition,
-    diagnostic::{Diagnostic, Severity},
+    diagnostic::{Diagnostic, DiagnosticPolicy, Severity},
     inner::ProgramParser,
     kast::{
         json as kast_json,
@@ -300,6 +300,7 @@ pub fn compile_definition_native(
             excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
             configuration_module: None,
             project_root: None,
+            diagnostics: Default::default(),
         },
     )
     .map_err(napi_error)?;
@@ -345,11 +346,15 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
             excluded_module_attributes: Vec::new(),
             configuration_module: None,
             project_root: None,
+            diagnostics: Default::default(),
         },
     )
     .map_err(napi_error)?;
 
-    let diagnostics = check_definition(&loaded.resolved).map_err(napi_error)?;
+    let mut diagnostics = loaded.diagnostics.clone();
+    diagnostics.extend(
+        DiagnosticPolicy::default().apply(check_definition(&loaded.resolved).map_err(napi_error)?),
+    );
     if diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
