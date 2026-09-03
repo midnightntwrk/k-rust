@@ -4,7 +4,7 @@ version = 1
 origin_free_node_kinds = ["primitive-token", "structural-dot", "truth-value"]
 
 [[pipeline]]
-call = "expand_configurations"
+call = "expand_configurations_with_diagnostics"
 occurrences = 1
 behavior = "generating"
 generating_passes = ["configuration-expansion"]
@@ -131,6 +131,12 @@ occurrences = 2
 behavior = "generating"
 generating_passes = ["generate-sort-predicate-syntax"]
 reason = "Sort-predicate syntax generation creates predicate productions."
+
+[[pipeline]]
+call = "regenerate_sort_predicate_syntax"
+occurrences = 1
+behavior = "metadata-only"
+reason = "Predicate regeneration restores canonical signatures while retaining their production identities."
 
 [[pipeline]]
 call = "generate_sort_projections"
