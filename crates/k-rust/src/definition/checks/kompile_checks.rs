@@ -65,7 +65,7 @@ pub fn check_proof_module(
             continue;
         }
         for sentence in &module.local_sentences {
-            if is_proof_syntax(sentence) && !is_existing_sort_token(sentence, &definition_sorts) {
+            if is_proof_syntax(sentence) && !is_existing_sort_token(sentence, definition_sorts) {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::ProofModuleSyntax,
                     "Found syntax declaration in proof module. Only tokens for existing sorts are allowed.",
