@@ -41,7 +41,9 @@ pub use concretize_cells::{ConcretizeCellsError, concretize_cells};
 pub use constant_folding::{ConstantFoldingError, constant_fold};
 pub use expand_macros::{ExpandMacrosError, expand_macros, expand_macros_in_term};
 pub use finalize::{add_cool_like_attributes, add_semantics_module, generate_sort_predicate_rules};
-pub use generate_sort_helpers::{generate_sort_predicate_syntax, generate_sort_projections};
+pub use generate_sort_helpers::{
+    generate_sort_predicate_syntax, generate_sort_projections, regenerate_sort_predicate_syntax,
+};
 pub use guard_or_patterns::guard_or_patterns;
 pub use minimize_term_construction::minimize_term_construction;
 pub(crate) use number_sentences::number_sentence;

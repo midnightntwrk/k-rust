@@ -18,10 +18,11 @@ use super::{
     concretize_cells, constant_fold, expand_macros, generate_sort_predicate_rules,
     generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
     minimize_term_construction, module_to_kore_from_resolved_with_options, number_sentences,
-    propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var,
-    resolve_contexts, resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
-    resolve_function_with_config, resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts,
-    resolve_strict, rust_backend_hook_namespaces, subsort_kitem,
+    propagate_macro_attributes, regenerate_sort_predicate_syntax, remove_unit, resolve_anon_vars,
+    resolve_comm, resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
+    resolve_fresh_constants, resolve_fun, resolve_function_with_config,
+    resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
+    rust_backend_hook_namespaces, subsort_kitem,
 };
 
 /// Backend whose KORE input should be generated.
@@ -298,6 +299,10 @@ fn transform_loaded_definition(
         "resolve local functions",
         resolve_fun(&definition)
     );
+    let definition = stage(
+        "seed sort predicate syntax",
+        generate_sort_predicate_syntax(&definition),
+    )?;
     let definition = diagnostic_stage!(
         options.diagnostics,
         "resolve function configuration",
@@ -361,7 +366,7 @@ fn transform_loaded_definition(
     );
     let definition = stage(
         "regenerate sort predicate syntax",
-        generate_sort_predicate_syntax(&definition),
+        regenerate_sort_predicate_syntax(&definition),
     )?;
     let definition = stage(
         "regenerate sort projections",
