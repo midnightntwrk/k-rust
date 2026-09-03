@@ -7,7 +7,7 @@ use crate::{
         Definition, ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
         checks::check_definition_with_options, expand_configurations,
     },
-    diagnostic::{Diagnostic, Severity},
+    diagnostic::{Diagnostic, DiagnosticPolicy, Severity},
     kore::printer::Printer as KorePrinter,
     outer::LoadedDefinition,
 };
@@ -99,6 +99,8 @@ pub struct CompileOptions {
     /// Plugin hook namespaces to admit as hooked symbols (`kompile --hook-namespaces`); `None`
     /// uses [`CompilationBackend::default_hook_namespaces`].
     pub hook_namespaces: Option<Vec<String>>,
+    /// Filtering and severity policy for diagnostics produced by compilation checks.
+    pub diagnostics: DiagnosticPolicy,
 }
 
 impl Default for CompileOptions {
@@ -108,6 +110,7 @@ impl Default for CompileOptions {
             kore_width: 100,
             default_claims_to_all_path: false,
             hook_namespaces: None,
+            diagnostics: DiagnosticPolicy::default(),
         }
     }
 }
@@ -168,10 +171,10 @@ fn stage<T>(name: &'static str, result: Result<T, impl fmt::Display>) -> Result<
 }
 
 macro_rules! diagnostic_stage {
-    ($name:literal, $result:expr) => {
+    ($policy:expr, $name:literal, $result:expr) => {
         $result.map_err(|error| {
             let message = error.to_string();
-            CompileError::from_diagnostics($name, message, error.diagnostics)
+            CompileError::from_diagnostics($name, message, $policy.apply(error.diagnostics))
         })?
     };
 }
@@ -239,10 +242,12 @@ fn transform_loaded_definition(
         "resolve structured configurations",
         ResolvedDefinition::resolve(&definition),
     )?;
-    let diagnostics = stage(
+    let checked = options.diagnostics.apply(stage(
         "definition checks",
         check_definition_with_options(&resolved, options.backend.structural_check_options()),
-    )?;
+    )?);
+    let mut diagnostics = loaded.diagnostics.clone();
+    diagnostics.extend(checked);
     if diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -254,30 +259,57 @@ fn transform_loaded_definition(
         ));
     }
 
-    let definition = diagnostic_stage!("resolve commutative rules", resolve_comm(&definition));
-    let definition = diagnostic_stage!("resolve I/O streams", resolve_io(&definition));
-    let definition = diagnostic_stage!("resolve local functions", resolve_fun(&definition));
     let definition = diagnostic_stage!(
+        options.diagnostics,
+        "resolve commutative rules",
+        resolve_comm(&definition)
+    );
+    let definition = diagnostic_stage!(
+        options.diagnostics,
+        "resolve I/O streams",
+        resolve_io(&definition)
+    );
+    let definition = diagnostic_stage!(
+        options.diagnostics,
+        "resolve local functions",
+        resolve_fun(&definition)
+    );
+    let definition = diagnostic_stage!(
+        options.diagnostics,
         "resolve function configuration",
         resolve_function_with_config(&definition)
     );
-    let definition = diagnostic_stage!("resolve strictness", resolve_strict(&definition));
+    let definition = diagnostic_stage!(
+        options.diagnostics,
+        "resolve strictness",
+        resolve_strict(&definition)
+    );
     let definition = resolve_anon_vars(&definition);
-    let definition = diagnostic_stage!("resolve contexts", resolve_contexts(&definition));
+    let definition = diagnostic_stage!(
+        options.diagnostics,
+        "resolve contexts",
+        resolve_contexts(&definition)
+    );
     let definition = number_sentences(&definition);
     let definition = diagnostic_stage!(
+        options.diagnostics,
         "resolve heat/cool attributes",
         resolve_heat_cool_attributes(&definition)
     );
     let definition = resolve_semantic_casts(&definition);
     let definition = stage("add KItem subsorts", subsort_kitem(&definition))?;
-    let definition = diagnostic_stage!("constant folding", constant_fold(&definition));
+    let definition = diagnostic_stage!(
+        options.diagnostics,
+        "constant folding",
+        constant_fold(&definition)
+    );
     let definition = stage(
         "propagate macro attributes",
         propagate_macro_attributes(&definition),
     )?;
     let definition = stage("guard or-patterns", guard_or_patterns(&definition))?;
     let (definition, fresh_config_count) = diagnostic_stage!(
+        options.diagnostics,
         "resolve fresh configuration constants",
         resolve_fresh_config_constants(&definition)
     );
@@ -289,12 +321,17 @@ fn transform_loaded_definition(
         "generate sort projections",
         generate_sort_projections(&definition),
     )?;
-    let definition = diagnostic_stage!("expand macros", expand_macros(&definition));
+    let definition = diagnostic_stage!(
+        options.diagnostics,
+        "expand macros",
+        expand_macros(&definition)
+    );
     let definition = stage(
         "add implicit computation cell",
         add_implicit_computation_cell(&definition),
     )?;
     let definition = diagnostic_stage!(
+        options.diagnostics,
         "resolve fresh constants",
         resolve_fresh_constants(&definition, fresh_config_count)
     );
@@ -307,11 +344,16 @@ fn transform_loaded_definition(
         generate_sort_projections(&definition),
     )?;
     let definition = diagnostic_stage!(
+        options.diagnostics,
         "check simplification rules",
         check_simplification_rules(&definition)
     );
     let definition = stage("finalize KItem subsorts", subsort_kitem(&definition))?;
-    let definition = diagnostic_stage!("concretize cells", concretize_cells(&definition));
+    let definition = diagnostic_stage!(
+        options.diagnostics,
+        "concretize cells",
+        concretize_cells(&definition)
+    );
     // Coverage instrumentation and the optional unsafe-anywhere removal are identity stages
     // because neither optional mode is exposed by the frontend API yet.
     let definition = add_semantics_module(&definition);

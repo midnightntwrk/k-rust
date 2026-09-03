@@ -12,7 +12,7 @@ use std::{
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
     definition::{Sentence, checks::check_definition, json as definition_json},
-    diagnostic::{Diagnostic, Severity},
+    diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, prepare_reference_kast},
     kast::{
         Sort as KastSort, Term as KastTerm, json as kast_json, parser::parse_sort,
@@ -149,6 +149,23 @@ struct SourceArgs {
     no_prelude: bool,
 }
 
+#[derive(Clone, Copy, Debug, Args)]
+struct WarningArgs {
+    /// Warning level: all, normal, or none.
+    #[arg(
+        short = 'w',
+        long = "warnings",
+        value_enum,
+        default_value_t,
+        value_name = "LEVEL"
+    )]
+    warnings: WarningLevelArg,
+
+    /// Treat every reported warning as an error.
+    #[arg(long = "warnings-to-errors")]
+    warnings_to_errors: bool,
+}
+
 #[derive(Debug, Args)]
 struct KcompileArgs {
     /// K definition file to compile.
@@ -191,6 +208,9 @@ struct KcompileArgs {
     /// Compile this specification against a prepared semantics directory.
     #[arg(long, requires = "for_proving", value_name = "PATH")]
     compiled_definition: Option<PathBuf>,
+
+    #[command(flatten)]
+    warnings: WarningArgs,
 
     #[command(flatten)]
     source: SourceArgs,
@@ -263,6 +283,9 @@ struct KastArgs {
     /// KAST output format.
     #[arg(short = 'o', long, value_enum, default_value_t)]
     output: OutputFormat,
+
+    #[command(flatten)]
+    warnings: WarningArgs,
 
     #[command(flatten)]
     source: SourceArgs,
@@ -419,6 +442,9 @@ struct KrunArgs {
 
     #[command(flatten)]
     smt: SmtArgs,
+
+    #[command(flatten)]
+    warnings: WarningArgs,
 
     #[command(flatten)]
     source: SourceArgs,
@@ -699,6 +725,9 @@ struct KproveArgs {
     smt: SmtArgs,
 
     #[command(flatten)]
+    warnings: WarningArgs,
+
+    #[command(flatten)]
     source: SourceArgs,
 }
 
@@ -710,6 +739,7 @@ struct CommonOptions {
     markdown_selector: String,
     builtin_directory: Option<PathBuf>,
     no_prelude: bool,
+    diagnostics: DiagnosticPolicy,
 }
 
 #[derive(Debug)]
@@ -731,6 +761,24 @@ enum CompilationBackendArg {
     #[value(alias = "haskell")]
     Rust,
     Llvm,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+enum WarningLevelArg {
+    All,
+    #[default]
+    Normal,
+    None,
+}
+
+impl From<WarningLevelArg> for WarningLevel {
+    fn from(level: WarningLevelArg) -> Self {
+        match level {
+            WarningLevelArg::All => Self::All,
+            WarningLevelArg::Normal => Self::Normal,
+            WarningLevelArg::None => Self::None,
+        }
+    }
 }
 
 impl From<CompilationBackendArg> for CompilationBackend {
@@ -922,7 +970,12 @@ impl From<GraphSearchArg> for ProofSearchOrder {
 }
 
 impl SourceArgs {
-    fn common(self, definition: PathBuf, module: String) -> CommonOptions {
+    fn common(
+        self,
+        definition: PathBuf,
+        module: String,
+        diagnostics: DiagnosticPolicy,
+    ) -> CommonOptions {
         CommonOptions {
             definition,
             module,
@@ -930,6 +983,16 @@ impl SourceArgs {
             markdown_selector: self.markdown_selector,
             builtin_directory: self.builtin_directory,
             no_prelude: self.no_prelude,
+            diagnostics,
+        }
+    }
+}
+
+impl WarningArgs {
+    fn policy(self) -> DiagnosticPolicy {
+        DiagnosticPolicy {
+            level: self.warnings.into(),
+            warnings_to_errors: self.warnings_to_errors,
         }
     }
 }
@@ -958,9 +1021,11 @@ impl SearchArgs {
 impl From<KcompileArgs> for KcompileOptions {
     fn from(arguments: KcompileArgs) -> Self {
         Self {
-            common: arguments
-                .source
-                .common(arguments.definition, arguments.module),
+            common: arguments.source.common(
+                arguments.definition,
+                arguments.module,
+                arguments.warnings.policy(),
+            ),
             backend: arguments.backend.into(),
             hook_namespaces: arguments.hook_namespaces,
             syntax_module: arguments.syntax_module,
@@ -990,9 +1055,11 @@ impl From<KastArgs> for KastOptions {
         let batch_cases = collect_cases(arguments.batch_case);
         let batch_reject_cases = collect_cases(arguments.batch_reject_case);
         Self {
-            common: arguments
-                .source
-                .common(arguments.definition, arguments.module),
+            common: arguments.source.common(
+                arguments.definition,
+                arguments.module,
+                arguments.warnings.policy(),
+            ),
             backend: arguments.backend.into(),
             sort: arguments.sort,
             batch_cases,
@@ -1010,9 +1077,11 @@ impl From<KrunArgs> for KrunOptions {
             .syntax_module
             .unwrap_or_else(|| arguments.module.clone());
         Self {
-            common: arguments
-                .source
-                .common(arguments.definition, arguments.module),
+            common: arguments.source.common(
+                arguments.definition,
+                arguments.module,
+                arguments.warnings.policy(),
+            ),
             syntax_module,
             sort: arguments.sort,
             expression: arguments.expression,
@@ -1044,11 +1113,11 @@ impl From<KproveArgs> for KproveOptions {
             .unwrap_or_else(|| module.clone());
         let input = match (arguments.definition, arguments.compiled_definition) {
             (Some(definition), Some(compiled)) => KproveInput::SourceWithCompiled {
-                source: arguments.source.common(definition, module.clone()),
+                source: arguments.source.common(definition, module.clone(), arguments.warnings.policy()),
                 compiled,
             },
             (Some(definition), None) => {
-                KproveInput::Source(arguments.source.common(definition, module.clone()))
+                KproveInput::Source(arguments.source.common(definition, module.clone(), arguments.warnings.policy()))
             }
             (None, Some(compiled)) => KproveInput::Compiled(compiled),
             (None, None) => unreachable!("clap requires an input"),
@@ -1118,6 +1187,7 @@ fn load_definition(
                 .unwrap_or_default(),
             configuration_module: configuration_module.map(str::to_owned),
             project_root: None,
+            diagnostics: options.diagnostics,
         },
     )?;
     Ok(loaded)
@@ -1148,6 +1218,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             backend: options.backend,
             hook_namespaces: options.hook_namespaces,
             default_claims_to_all_path: options.for_proving,
+            diagnostics: options.common.diagnostics,
             ..CompileOptions::default()
         },
     ) {
@@ -1293,7 +1364,13 @@ fn parsed_definition_for_json(
 
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     let loaded = load_definition(&options.common, Some(options.backend), None)?;
-    let diagnostics = check_definition(&loaded.resolved)?;
+    let mut diagnostics = loaded.diagnostics.clone();
+    diagnostics.extend(
+        options
+            .common
+            .diagnostics
+            .apply(check_definition(&loaded.resolved)?),
+    );
     emit_diagnostics(&diagnostics);
     if diagnostics
         .iter()
@@ -1356,6 +1433,7 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
         &loaded,
         CompileOptions {
             backend: CompilationBackend::Rust,
+            diagnostics: options.common.diagnostics,
             ..CompileOptions::default()
         },
     ) {
@@ -2505,6 +2583,7 @@ fn compile_proof_source(
         CompileOptions {
             backend: CompilationBackend::Rust,
             default_claims_to_all_path: true,
+            diagnostics: common.diagnostics,
             ..CompileOptions::default()
         },
     ) {
@@ -2548,6 +2627,7 @@ fn load_definition_against_prepared(
             ],
             configuration_module: Some(definition_module.into()),
             project_root: None,
+            diagnostics: options.diagnostics,
         },
         &base,
         &manifest.sources,
