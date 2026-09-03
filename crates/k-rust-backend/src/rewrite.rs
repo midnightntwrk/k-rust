@@ -4102,7 +4102,8 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{{}} [hasDomainValues{{}}()]
-                symbol wrap{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()]
+                symbol wrap{{}}(SortS{{}}) : SortS{{}}
+                    [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
                 symbol injectiveFunction{{}}(SortS{{}}) : SortS{{}}
                     [function{{}}(), total{{}}(), injective{{}}()]
                 {axioms}
@@ -4582,7 +4583,8 @@ mod tests {
                 sort SortTop{} []
                 sort SortState{} []
                 symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
-                symbol lower{}(SortSub{}) : SortSub{} [constructor{}()]
+                symbol lower{}(SortSub{}) : SortSub{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol upper{}(SortTop{}) : SortTop{} [constructor{}()]
                 symbol overloadState{}(SortTop{}) : SortState{} [constructor{}()]
                 symbol overloadResult{}(SortTop{}) : SortState{} [constructor{}()]
@@ -4640,7 +4642,8 @@ mod tests {
             module MAIN
                 sort SortS{} [hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                symbol wrap{}(SortBool{}) : SortS{} [constructor{}()]
+                symbol wrap{}(SortBool{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol not{}(SortBool{}) : SortBool{}
                     [function{}(), total{}()]
                 axiom{} \rewrites{SortS{}}(
@@ -4662,8 +4665,10 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{} [hasDomainValues{}()]
-                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
-                symbol foo{}(SortS{}) : SortS{} [constructor{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                symbol foo{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol f{}(SortS{}) : SortS{}
                     [function{}(), total{}(), no-evaluators{}()]
                 axiom{} \rewrites{SortS{}}(
@@ -4752,7 +4757,8 @@ mod tests {
                 sort SortState{} []
                 hooked-symbol equal{}($SORT{}, $SORT{}) : SortBool{}
                     [function{}(), total{}(), hook{}("$EQUALITY_HOOK")]
-                symbol value{}() : $SORT{} [constructor{}()]
+                symbol value{}() : $SORT{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol state{}(SortBool{}) : SortState{} [constructor{}()]
                 symbol done{}() : SortState{} [constructor{}()]
                 axiom{} \rewrites{SortState{}}(
@@ -4999,8 +5005,10 @@ mod tests {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
-                symbol pair{}(SortInt{}, SortInt{}) : SortInt{} [constructor{}()]
+                symbol wrap{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                symbol pair{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol partial{}(SortInt{}) : SortInt{} [function{}()]
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
@@ -5126,7 +5134,8 @@ mod tests {
     fn simplifies_configuration_functions_after_partial_matching() {
         let definition = definition(
             r#"
-            symbol pair{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+            symbol pair{}(SortS{}, SortS{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
             symbol identity{}(SortS{}) : SortS{} [function{}(), total{}()]
             axiom{R} \implies{R}(
                 \top{R}(),
@@ -5557,7 +5566,8 @@ mod tests {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
+                symbol wrap{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
                 axiom{} \rewrites{SortInt{}}(
@@ -6272,7 +6282,8 @@ mod tests {
             hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
                 [function{}(), total{}(), hook{}("INT.add")]
             symbol size{}(SortList{}) : SortInt{} [function{}()]
-            symbol stackState{}(SortList{}) : SortS{} [constructor{}()]
+            symbol stackState{}(SortList{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
             axiom{R} \implies{R}(
                 \top{R}(),
                 \equals{SortInt{}, R}(

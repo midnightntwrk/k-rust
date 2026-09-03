@@ -842,9 +842,10 @@ mod tests {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortTree{} []
                 sort SortKItem{} []
                 symbol pair{}(SortInt{}, SortInt{}) : SortKItem{} [constructor{}()]
-                symbol succ{}(SortInt{}) : SortInt{} [constructor{}()]
+                symbol succ{}(SortTree{}) : SortTree{} [constructor{}()]
                 symbol f{}(SortInt{}) : SortInt{} [function{}()]
                 symbol opaque{}(SortInt{}) : SortInt{} [function{}()]
                 symbol sub{}(SortInt{}, SortInt{}) : SortInt{}
@@ -1003,8 +1004,8 @@ mod tests {
     #[test]
     fn rejects_an_occurs_check_below_only_constructors() {
         let definition = definition();
-        let antecedent = pattern(&definition, r#"succ{}(X:SortInt{})"#);
-        let consequent = pattern(&definition, r#"X:SortInt{}"#);
+        let antecedent = pattern(&definition, r#"succ{}(X:SortTree{})"#);
+        let consequent = pattern(&definition, r#"X:SortTree{}"#);
 
         let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
