@@ -305,10 +305,10 @@ fn is_sort_predicate_conflicts_match_kompile() {
 }
 
 #[test]
-fn requires_binders_bind_anonymous_variables_for_the_symbolic_backend() {
+fn anonymous_variables_in_symbolic_requires_are_legal() {
     let anonymous = Term::variable("_");
     let sentence = Sentence::Rule {
-        body: rewrite(token("0"), anonymous.clone()),
+        body: rewrite(token("0"), token("0")),
         requires: Term::apply(
             "#Exists",
             vec![anonymous.clone(), Term::apply("predicate", vec![anonymous])],

@@ -24,12 +24,13 @@ pub use catalog::{
     FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,
 };
 pub use checks::{
-    Error as CheckError, StructuralCheckBackend, StructuralCheckOptions, check_anonymous_variables,
-    check_associativity, check_attribute_semantics, check_attributes, check_configuration_cells,
-    check_definition, check_definition_with_options, check_duplicate_klabels,
-    check_duplicate_labels, check_function_rule_attributes, check_functions, check_holes,
+    CheckMode, Error as CheckError, StructuralCheckBackend, StructuralCheckOptions,
+    check_anonymous_variables, check_associativity, check_attribute_semantics, check_attributes,
+    check_claims_in_definition, check_configuration_cells, check_definition,
+    check_definition_with_options, check_duplicate_klabels, check_duplicate_labels,
+    check_function_rule_attributes, check_functions, check_holes, check_is_sort_predicates,
     check_k_terms, check_klabels, check_module, check_module_with_options, check_outer_modules,
-    check_regexes, check_rewrites, check_rhs_variables, check_smt_lemmas,
+    check_proof_module, check_regexes, check_rewrites, check_rhs_variables, check_smt_lemmas,
     check_sort_top_uniqueness, check_sorts, check_streams, check_syntax_groups, check_tokens,
     check_user_lists,
 };

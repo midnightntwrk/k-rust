@@ -92,6 +92,7 @@ impl DiagnosticPolicy {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticCode {
+    ClaimInDefinition,
     DeprecatedAttribute,
     DuplicateSentenceLabel,
     DuplicateConfigurationCell,
@@ -119,6 +120,7 @@ pub enum DiagnosticCode {
     InvalidRegex,
     InvalidRewrite,
     InvalidIoStream,
+    IsSortPredicateConflict,
     InvalidSmtLemma,
     InvalidSemanticCast,
     InvalidSimplification,
@@ -129,6 +131,8 @@ pub enum DiagnosticCode {
     MultipleTopSorts,
     InvalidTokenProduction,
     MarkdownWarning,
+    ProofModuleRule,
+    ProofModuleSyntax,
     UnusedVariable,
     UnboundVariable,
     UnsupportedExistentialVariable,
