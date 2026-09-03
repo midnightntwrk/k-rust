@@ -2644,6 +2644,38 @@ fn reference_deprecated_configuration_reports_every_occurrence() {
 }
 
 #[test]
+fn reference_configuration_dependent_sort_predicate_is_rejected() {
+    let (root, _) = fixture();
+    let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/checks/invalidSortPredicate.k");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "INVALIDSORTPREDICATE",
+            "--syntax-module",
+            "INVALIDSORTPREDICATE",
+            "--output-directory",
+            root.join("compiled").to_str().unwrap(),
+            "--warnings",
+            "none",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(
+            "Invalid sort predicate isExp that depends directly or indirectly on the current configuration. Is it possible to replace the sort predicate with a regular function?"
+        ),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_hook_namespaces_default_per_backend() {
     let source = r#"
 module MAIN
