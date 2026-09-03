@@ -1,6 +1,7 @@
 #![cfg(feature = "cli")]
 
 use std::{
+    collections::BTreeSet,
     fs,
     path::PathBuf,
     process::Command,
@@ -1134,6 +1135,128 @@ fn search_bound_truncation_is_reported_to_the_user() {
     assert!(stdout.contains("\\or{"), "{stdout}");
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_search_all_prints_disjuncts_in_a_deterministic_order() {
+    let definition =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/search/br-d1.k");
+    let run = |search_type: &str| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "BR",
+                "--syntax-module",
+                "BR-SYNTAX",
+                "--sort",
+                "Pgm",
+                "--expression",
+                "a",
+                "--depth",
+                "10",
+                search_type,
+            ])
+            .output()
+            .unwrap()
+    };
+    let assert_order = |stdout: &str, labels: &[&str]| {
+        let positions = labels
+            .iter()
+            .map(|label| {
+                stdout
+                    .find(&format!("Lbl{label}'Unds'BR-SYNTAX'Unds'Pgm"))
+                    .unwrap_or_else(|| panic!("missing {label:?} in {stdout}"))
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            positions.windows(2).all(|pair| pair[0] < pair[1]),
+            "labels {labels:?} were not ordered in {stdout}"
+        );
+    };
+
+    let all = run("--search-all");
+    assert!(
+        all.status.success(),
+        "{}",
+        String::from_utf8_lossy(&all.stderr)
+    );
+    assert_order(
+        &String::from_utf8(all.stdout).unwrap(),
+        &["a", "b", "c", "d", "zz"],
+    );
+
+    let final_states = run("--search-final");
+    assert!(
+        final_states.status.success(),
+        "{}",
+        String::from_utf8_lossy(&final_states.stderr)
+    );
+    assert_order(
+        &String::from_utf8(final_states.stdout).unwrap(),
+        &["c", "d", "zz"],
+    );
+}
+
+#[test]
+fn krun_search_bound_returns_a_subset_of_the_unbounded_solutions() {
+    let definition =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/search/br-d1.k");
+    let run = |bound: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "BR",
+            "--syntax-module",
+            "BR-SYNTAX",
+            "--sort",
+            "Pgm",
+            "--expression",
+            "a",
+            "--depth",
+            "10",
+            "--search-all",
+        ]);
+        if let Some(bound) = bound {
+            command.args(["--search-bound", bound]);
+        }
+        command.output().unwrap()
+    };
+    let labels = ["a", "b", "c", "d", "zz"];
+    let members = |stdout: &str| {
+        labels
+            .iter()
+            .copied()
+            .filter(|label| stdout.contains(&format!("Lbl{label}'Unds'BR-SYNTAX'Unds'Pgm")))
+            .collect::<BTreeSet<_>>()
+    };
+
+    let unbounded = run(None);
+    assert!(
+        unbounded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&unbounded.stderr)
+    );
+    let unbounded = members(&String::from_utf8(unbounded.stdout).unwrap());
+    assert_eq!(unbounded, labels.into_iter().collect());
+
+    let bounded = run(Some("2"));
+    assert!(
+        bounded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&bounded.stderr)
+    );
+    let stderr = String::from_utf8(bounded.stderr).unwrap();
+    assert!(
+        stderr.contains("search stopped at the requested result bound"),
+        "{stderr}"
+    );
+    let bounded = members(&String::from_utf8(bounded.stdout).unwrap());
+    assert_eq!(bounded.len(), 2);
+    assert!(bounded.is_subset(&unbounded));
 }
 
 #[test]
