@@ -94,6 +94,7 @@ impl DiagnosticPolicy {
 pub enum DiagnosticCode {
     ClaimInDefinition,
     DeprecatedAttribute,
+    DuplicateOverload,
     DuplicateSentenceLabel,
     DuplicateConfigurationCell,
     DuplicateKLabel,
@@ -142,16 +143,19 @@ pub enum DiagnosticCode {
     UndefinedSort,
     UnrecognizedAttribute,
     UnsupportedParametricSort,
+    UnusedSymbol,
 }
 
 impl DiagnosticCode {
     pub fn warning_category(self) -> Option<WarningCategory> {
         match self {
             Self::DeprecatedAttribute => Some(WarningCategory::FutureError),
+            Self::DuplicateOverload => Some(WarningCategory::DuplicateOverload),
             Self::FutureError => Some(WarningCategory::FutureError),
             Self::InvalidAssociativity => Some(WarningCategory::InvalidAssociativity),
             Self::MarkdownWarning => Some(WarningCategory::MalformedMarkdown),
             Self::UnusedVariable => Some(WarningCategory::UnusedVar),
+            Self::UnusedSymbol => Some(WarningCategory::UnusedSymbol),
             _ => None,
         }
     }

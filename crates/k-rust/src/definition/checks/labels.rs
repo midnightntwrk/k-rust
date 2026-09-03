@@ -4,7 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::Sentence;
 use crate::definition::{
-    LabelHead, ModuleId, ProductionCatalog, ProductionItem, ResolvedDefinition, SortCatalog,
+    LOCATION_ATTRIBUTE, LabelHead, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
+    ResolvedDefinition, SOURCE_ATTRIBUTE, SortCatalog, SortHead, StructuralCheckOptions,
     match_rule_label,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -134,6 +135,189 @@ pub fn check_duplicate_klabels(definition: &ResolvedDefinition) -> Vec<Diagnosti
         }
     }
     diagnostics
+}
+
+pub fn check_unused_symbols(
+    definition: &ResolvedDefinition,
+    options: &StructuralCheckOptions,
+) -> Vec<Diagnostic> {
+    let visible_modules = main_module_closure(definition);
+    let mut defined = BTreeMap::<String, (ModuleId, &Sentence)>::new();
+    let mut co_located = BTreeMap::<(String, String), BTreeSet<String>>::new();
+    for module in definition
+        .dependency_order()
+        .iter()
+        .filter(|module| visible_modules.contains(module))
+    {
+        for production in &definition.module(*module).local_sentences {
+            let Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } = production
+            else {
+                continue;
+            };
+            let Some(source) = attributes.get_str(SOURCE_ATTRIBUTE) else {
+                continue;
+            };
+            defined.insert(label.name.clone(), (*module, production));
+            if let Some(location) = attributes.get(LOCATION_ATTRIBUTE) {
+                co_located
+                    .entry((source.into(), location.to_string()))
+                    .or_default()
+                    .insert(label.name.clone());
+            }
+        }
+    }
+
+    let mut used = BTreeSet::new();
+    for module in definition
+        .dependency_order()
+        .iter()
+        .filter(|module| visible_modules.contains(module))
+    {
+        for sentence in &definition.module(*module).local_sentences {
+            for term in label_checked_terms(sentence) {
+                term.visit_preorder(&mut |term| match term {
+                    Term::Apply { label, .. } | Term::InjectedLabel(label) => {
+                        used.insert(label.name.clone());
+                    }
+                    _ => {}
+                });
+            }
+        }
+    }
+    for label in used.clone() {
+        let Some((_, production)) = defined.get(&label) else {
+            continue;
+        };
+        let attributes = production.attributes();
+        let Some(source) = attributes.get_str(SOURCE_ATTRIBUTE) else {
+            continue;
+        };
+        if let Some(location) = attributes.get(LOCATION_ATTRIBUTE)
+            && let Some(labels) = co_located.get(&(source.into(), location.to_string()))
+        {
+            used.extend(labels.iter().cloned());
+        }
+    }
+
+    defined
+        .into_iter()
+        .filter(|(label, (module, production))| {
+            let attributes = production.attributes();
+            !used.contains(label)
+                && attributes.get("maincell").is_none()
+                && attributes.get("unused").is_none()
+                && label != "<generatedTop>"
+                && !cell_collection_production(definition, *module, production)
+                && attributes.get_str(SOURCE_ATTRIBUTE).is_some_and(|source| {
+                    !options
+                        .builtin_source_prefixes
+                        .iter()
+                        .any(|prefix| source.starts_with(prefix))
+                })
+        })
+        .map(|(label, (_, production))| {
+            Diagnostic::warning(
+                DiagnosticCode::UnusedSymbol,
+                format!(
+                    "Symbol '{label}' defined but not used. Add the 'unused' attribute if this is intentional."
+                ),
+                production,
+            )
+        })
+        .collect()
+}
+
+pub fn check_duplicate_overloads(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
+    let Ok(overloads) = definition.overloads(definition.main_module_id()) else {
+        return Vec::new();
+    };
+    let mut groups = BTreeMap::<String, BTreeSet<ProductionId>>::new();
+    for (id, production) in overloads.productions() {
+        if let Some(key) = production.attributes().get_str("overload") {
+            groups.entry(key.into()).or_default().insert(id);
+        }
+    }
+    let components = overloads.order().connected_components();
+    let mut diagnostics = Vec::new();
+    for (key, group) in groups {
+        let group_components = components
+            .iter()
+            .map(|component| {
+                component
+                    .intersection(&group)
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+            })
+            .filter(|component| !component.is_empty())
+            .collect::<Vec<_>>();
+        let user_lists = group.iter().all(|id| {
+            overloads
+                .production(*id)
+                .attributes()
+                .get("userList")
+                .is_some()
+        });
+        let limit = if user_lists { 2 } else { 1 };
+        if group_components.len() <= limit {
+            continue;
+        }
+        for component in group_components {
+            let production = component
+                .iter()
+                .map(|id| overloads.production(*id))
+                .min_by_key(|production| location_key(production))
+                .expect("non-empty overload component");
+            diagnostics.push(Diagnostic::warning(
+                DiagnosticCode::DuplicateOverload,
+                format!(
+                    "Overload `{key}` is not unique. Consider renaming one of the overload sets with this key."
+                ),
+                production,
+            ));
+        }
+    }
+    diagnostics
+}
+
+fn cell_collection_production(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    production: &Sentence,
+) -> bool {
+    let Sentence::Production {
+        items, attributes, ..
+    } = production
+    else {
+        return false;
+    };
+    attributes.get("cell").is_some()
+        && items.iter().any(|item| {
+            let ProductionItem::NonTerminal { sort, .. } = item else {
+                return false;
+            };
+            definition
+                .sort_catalog(module)
+                .attributes_for(&SortHead::from(sort))
+                .is_some_and(|attributes| attributes.get("cellCollection").is_some())
+        })
+}
+
+fn location_key(production: &Sentence) -> (u32, u32, u32, u32) {
+    production.attributes().location().map_or(
+        (u32::MAX, u32::MAX, u32::MAX, u32::MAX),
+        |location| {
+            (
+                location.start_line,
+                location.start_column,
+                location.end_line,
+                location.end_column,
+            )
+        },
+    )
 }
 
 pub fn check_function_rule_attributes(definition: &ResolvedDefinition) -> Vec<Diagnostic> {

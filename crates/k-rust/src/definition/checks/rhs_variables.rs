@@ -20,6 +20,8 @@ pub struct StructuralCheckOptions {
     pub symbolic: bool,
     pub backend: StructuralCheckBackend,
     pub mode: CheckMode,
+    /// Source prefixes exempt from the user-facing unused-symbol warning.
+    pub builtin_source_prefixes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

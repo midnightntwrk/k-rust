@@ -26,7 +26,10 @@ pub use functions::check_functions;
 pub use kompile_checks::{
     check_claims_in_definition, check_is_sort_predicates, check_proof_module,
 };
-pub use labels::{check_duplicate_klabels, check_function_rule_attributes, check_klabels};
+pub use labels::{
+    check_duplicate_klabels, check_duplicate_overloads, check_function_rule_attributes,
+    check_klabels, check_unused_symbols,
+};
 pub use production_shapes::{check_configuration_cells, check_holes, check_streams};
 pub use regexes::check_regexes;
 pub use rhs_variables::{
@@ -156,6 +159,8 @@ pub fn check_definition_with_options(
         )?);
     }
     diagnostics.extend(check_duplicate_klabels(definition));
+    diagnostics.extend(check_unused_symbols(definition, &options));
+    diagnostics.extend(check_duplicate_overloads(definition));
     diagnostics.extend(check_function_rule_attributes(definition));
     diagnostics.sort();
     Ok(diagnostics)
