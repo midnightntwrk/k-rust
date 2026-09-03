@@ -3698,6 +3698,8 @@ mod tests {
             module SPEC
                 sort SortS{} []
                 symbol a{}() : SortS{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
                 claim{} \implies{SortS{}}(
                     \and{SortS{}}(a{}(), \top{SortS{}}()),
                     weakAlwaysFinally{SortS{}}(a{}())

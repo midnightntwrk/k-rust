@@ -2198,8 +2198,10 @@ mod tests {
     const DEFINITION: &str = r#"[]
         module TEST
           sort SortState{} [hasDomainValues{}()]
-          symbol state{}() : SortState{} [constructor{}()]
-          symbol next{}() : SortState{} [constructor{}()]
+          symbol state{}() : SortState{}
+            [function{}(), total{}(), injective{}(), no-evaluators{}()]
+          symbol next{}() : SortState{}
+            [function{}(), total{}(), injective{}(), no-evaluators{}()]
           axiom{} \rewrites{SortState{}}(
             \and{SortState{}}(state{}(), \top{SortState{}}()),
             \and{SortState{}}(next{}(), \top{SortState{}}())
@@ -2297,8 +2299,10 @@ mod tests {
             r#"[]
             module TEST
                 sort SortState{{}} [hasDomainValues{{}}()]
-                symbol wrap{{}}(SortState{{}}) : SortState{{}} [constructor{{}}()]
-                symbol done{{}}() : SortState{{}} [constructor{{}}()]
+                symbol wrap{{}}(SortState{{}}) : SortState{{}}
+                    [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
+                symbol done{{}}() : SortState{{}}
+                    [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
                 {theory}
             endmodule []"#
         );
@@ -2344,7 +2348,8 @@ mod tests {
                 module TEST
                   hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                   hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-                  symbol wrap{}(SortInt{}) : SortInt{} [constructor{}()]
+                  symbol wrap{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                   symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
                   axiom{} \rewrites{SortInt{}}(
@@ -3624,7 +3629,8 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{} [hasDomainValues{}()]
-                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol partial{}(SortS{}) : SortS{} [function{}()]
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
@@ -3895,7 +3901,7 @@ mod tests {
                   sort SortState{} []
                   symbol initial{}() : SortState{} [constructor{}()]
                   symbol state{}(SortInt{}) : SortState{} [constructor{}()]
-                  symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
+                  hooked-symbol eq{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
                   axiom{} \rewrites{SortState{}}(
                     \and{SortState{}}(initial{}(), \top{SortState{}}()),
@@ -3936,7 +3942,7 @@ mod tests {
         let syntax = parse_definition(
             r#"[]
                 module TEST
-                  sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                   sort SortFoo{} []
                   sort SortKItem{} []
                   sort SortK{} []
@@ -3947,7 +3953,7 @@ mod tests {
                   symbol dotk{}() : SortK{} [constructor{}()]
                   symbol kseq{}(SortKItem{}, SortK{}) : SortK{}
                     [constructor{}(), injective{}()]
-                  symbol equalK{}(SortK{}, SortK{}) : SortBool{}
+                  hooked-symbol equalK{}(SortK{}, SortK{}) : SortBool{}
                     [function{}(), total{}(), hook{}("KEQUAL.eq")]
                   symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
                   axiom{R} \exists{R}(
@@ -4253,7 +4259,8 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{} [hasDomainValues{}()]
-                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
                     wrap{}(X:SortS{})
@@ -4333,7 +4340,8 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortS{} [hasDomainValues{}()]
-                symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
                     wrap{}(X:SortS{})
