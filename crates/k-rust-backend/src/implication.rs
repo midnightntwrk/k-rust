@@ -880,6 +880,21 @@ mod tests {
         term(definition, &format!(r#"\dv{{SortInt{{}}}}("{value}")"#))
     }
 
+    fn assert_single_witness(result: &ImplicationResult, original_name: &str, expected: &Term) {
+        let condition = result
+            .condition
+            .as_ref()
+            .expect("a valid implication carries its condition");
+        let [(variable, value)] = condition.witnesses.iter().collect::<Vec<_>>().as_slice() else {
+            panic!("expected one existential witness, found {condition:#?}");
+        };
+        assert!(
+            variable.name.starts_with(original_name),
+            "the refreshed witness should retain its source name: {variable:?}"
+        );
+        assert_eq!(*value, expected);
+    }
+
     #[derive(Clone, Debug)]
     struct FixedSolver {
         satisfiability: Result<Satisfiability, SmtError>,
@@ -954,6 +969,7 @@ mod tests {
                 if left == &term(&definition, "X:SortInt{}")
                     && right == &term(&definition, "opaque{}(X:SortInt{})")
         ));
+        assert_eq!(result.failure, Some(ImplicationFailure::PartialCoverage));
     }
 
     #[test]
@@ -1049,6 +1065,7 @@ mod tests {
         assert_eq!(result.status, ImplicationStatus::Valid);
         let condition = result.condition.expect("a valid result has a condition");
         assert!(condition.predicates.is_empty());
+        assert!(condition.witnesses.is_empty());
         assert_eq!(
             condition.substitution.values().collect::<Vec<_>>(),
             vec![&Term::variable(crate::term::Variable::new(
@@ -1091,9 +1108,11 @@ mod tests {
         .expect("implication should be checked");
 
         assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert_single_witness(&result, "Y", &int(&definition, "5"));
         assert!(
             result
                 .condition
+                .as_ref()
                 .expect("a valid implication carries its condition")
                 .substitution
                 .is_empty(),
@@ -1130,6 +1149,22 @@ mod tests {
         .expect("implication should be checked");
 
         assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        let witnesses = &result
+            .condition
+            .as_ref()
+            .expect("a valid implication carries its condition")
+            .witnesses;
+        assert_eq!(witnesses.len(), 2);
+        assert!(
+            witnesses
+                .keys()
+                .all(|variable| variable.name.starts_with('Y'))
+        );
+        assert!(
+            witnesses
+                .values()
+                .all(|value| value == &int(&definition, "5"))
+        );
     }
 
     #[test]
@@ -1154,6 +1189,7 @@ mod tests {
         .expect("implication should be checked");
 
         assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert_single_witness(&result, "Y", &term(&definition, "X:SortTree{}"));
     }
 
     #[test]
@@ -1179,9 +1215,11 @@ mod tests {
         .expect("implication should be checked");
 
         assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert_single_witness(&result, "Y", &term(&definition, "X:SortInt{}"));
         assert!(
             result
                 .condition
+                .as_ref()
                 .expect("a valid implication carries its condition")
                 .substitution
                 .is_empty(),
@@ -1213,6 +1251,7 @@ mod tests {
         .expect("disjunctive implication should be checked");
 
         assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert_single_witness(&result, "Y", &term(&definition, "X:SortInt{}"));
     }
 
     #[test]
