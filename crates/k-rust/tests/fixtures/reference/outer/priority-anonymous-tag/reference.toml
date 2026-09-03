@@ -1,0 +1,18 @@
+case = "priority-anonymous-tag"
+subsystem = "outer"
+source_ticket = "A1-06"
+harvested_from = "draft/fable51-review/fixtures/a1-fixtures/priority-anonymous-tag"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "diagnostic.txt"
+command = "kompile test.k --backend haskell >/dev/null 2> raw.stderr; status=$?; awk 'NR == 1 || /Location/' raw.stderr > diagnostic.txt; exit $status"
+tool = "kompile + awk"
+exit_code = 113
+sha256 = "08ad577953e2e1f8ef629b6bff2af677d2a9b365b30dd2b4903ce2f0bae0c224"
+
+[[input]]
+file = "test.k"
+source = "draft/fable51-review/fixtures/a1-fixtures/priority-anonymous-tag/test.k"
+sha256 = "41082f3a5075327c62668664e7b553bb4e40bbfa883741b9916ccf5c31da469e"
