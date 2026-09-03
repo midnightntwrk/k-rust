@@ -288,7 +288,6 @@ pub(crate) fn is_parser_sort(sort: &Sort) -> bool {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "z3-inference")]
     macro_rules! assert_parametric_parse_snapshot {
         ($grammar:expr, $sort:expr, $code:expr) => {{
             let source = indoc::indoc! { $code };
@@ -420,7 +419,6 @@ mod tests {
     #[test]
     fn infers_parameters_when_result_is_a_formal_parameter() {
         let grammar = parametric_grammar();
-        #[cfg(feature = "z3-inference")]
         assert_parametric_parse_snapshot!(
             grammar,
             Sort::new("Int"),
@@ -428,8 +426,6 @@ mod tests {
             case1(i,k)
         "#
         );
-        #[cfg(not(feature = "z3-inference"))]
-        assert_z3_required(grammar.parse(&Sort::new("Int"), "case1(i,k)"));
     }
 
     #[test]
@@ -451,7 +447,6 @@ mod tests {
     #[test]
     fn infers_parameters_used_only_by_arguments() {
         let grammar = parametric_grammar();
-        #[cfg(feature = "z3-inference")]
         assert_parametric_parse_snapshot!(
             grammar,
             Sort::new("Int"),
@@ -459,8 +454,6 @@ mod tests {
             case4(k)
         "#
         );
-        #[cfg(not(feature = "z3-inference"))]
-        assert_z3_required(grammar.parse(&Sort::new("Int"), "case4(k)"));
     }
 
     #[cfg(not(feature = "z3-inference"))]

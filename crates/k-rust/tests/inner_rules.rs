@@ -102,8 +102,12 @@ fn sentence_summary(sentence: &Sentence) -> Option<SentenceSummary<'_>> {
 }
 
 fn lowered(source: &str) -> k_rust::definition::Definition {
+    lowered_module(source, "MAIN")
+}
+
+fn lowered_module(source: &str, main_module: &str) -> k_rust::definition::Definition {
     let parsed = k_rust::outer::parse("rules.k", source).unwrap();
-    k_rust::outer::lower(&parsed, "MAIN").unwrap()
+    k_rust::outer::lower(&parsed, main_module).unwrap()
 }
 
 macro_rules! assert_rule_resolution_snapshot {
@@ -493,6 +497,50 @@ fn parses_a_semantic_cast_inside_nested_map_and_bytes_lookups() {
         endmodule
     "##};
     resolve_rule_bubbles(&lowered(source)).unwrap();
+}
+
+#[test]
+fn semcast2_is_accepted_end_to_end() {
+    let source = include_str!("fixtures/reference/inner/semcast2/test.k");
+    let resolved = resolve_rule_bubbles(&lowered_module(source, "TEST"))
+        .expect("unambiguous rules use non-strict portable inference");
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .expect("the rule should be resolved");
+
+    assert!(body.contains("#SemanticCastToSmall(X)"), "{body}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn semcast3_and_semcast4_stay_rejected() {
+    for (name, source) in [
+        (
+            "semcast3",
+            include_str!("fixtures/reference/inner/semcast3/test.k"),
+        ),
+        (
+            "semcast4",
+            include_str!("fixtures/reference/inner/semcast4/test.k"),
+        ),
+    ] {
+        let result = resolve_rule_bubbles(&lowered_module(source, "TEST"));
+        assert!(
+            matches!(
+                result,
+                Err(RuleError::Parse(ref error))
+                    if matches!(error.error, ParseError::SortInference { .. })
+            ),
+            "{name} should stay on strict Z3 inference: {result:?}"
+        );
+    }
 }
 
 #[test]
@@ -1128,28 +1176,6 @@ fn avoided_production_removes_its_ambiguity_branch() {
     assert_ambiguity_requires_z3(&source);
 }
 
-#[cfg(not(feature = "z3-inference"))]
-fn assert_parametric_rule_requires_z3(source: &str) {
-    let result = resolve_rule_bubbles(&lowered(source));
-    assert!(
-        matches!(
-        result,
-        Err(RuleError::Parse(ref error))
-            if matches!(
-                error.error,
-                ParseError::Z3InferenceRequired {
-                    ambiguity: true,
-                    ..
-                } | ParseError::Z3InferenceRequired {
-                    parametric_sorts: true,
-                    ..
-                } | ParseError::Ambiguous { .. }
-            )
-        ),
-        "expected a parametric-inference boundary, found {result:?}"
-    );
-}
-
 #[test]
 fn infers_a_rule_parameter_used_as_the_result_sort() {
     let source = indoc! {r#"
@@ -1160,10 +1186,7 @@ fn infers_a_rule_parameter_used_as_the_result_sort() {
           rule box(same(1)) => box(1)
         endmodule
     "#};
-    #[cfg(feature = "z3-inference")]
     assert_rule_resolution_snapshot!(source);
-    #[cfg(not(feature = "z3-inference"))]
-    assert_parametric_rule_requires_z3(source);
 }
 
 #[test]
@@ -1175,10 +1198,34 @@ fn infers_a_rule_parameter_used_only_by_an_argument() {
           rule take(1) => 1
         endmodule
     "#};
-    #[cfg(feature = "z3-inference")]
     assert_rule_resolution_snapshot!(source);
-    #[cfg(not(feature = "z3-inference"))]
-    assert_parametric_rule_requires_z3(source);
+}
+
+#[test]
+fn parametric_origin_nodes_get_per_node_parameter_variables() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax Pair ::= "pair(" A "," B ")" [symbol(pair)]
+          syntax {S} S ::= "same(" S ")" [symbol(same)]
+          rule pair(same(a), same(b)) => pair(a, b)
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .expect("the rule should be resolved");
+
+    assert!(body.contains("same{A}"), "{body}");
+    assert!(body.contains("same{B}"), "{body}");
 }
 
 #[cfg(feature = "z3-inference")]

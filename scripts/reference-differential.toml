@@ -350,6 +350,44 @@ main-module = "TEST"
 pairings = ["haskell/rust"]
 expect = "reject"
 
+[[compile]]
+name = "semcast2"
+requires = ["reference-toolchain", "ticket:A3-07"]
+constructs = ["sort-inference", "portable-parametric-origin", "semantic-cast"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast2/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+comparisons = ["semantic-kore"]
+unique-id-divergence-ceilings = { "haskell/rust" = 32 }
+
+[[compile]]
+name = "semcast3"
+requires = ["reference-toolchain"]
+constructs = ["sort-inference", "ambiguity", "strict-semantic-cast"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast3/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+expect = "reject"
+
+[[compile]]
+name = "semcast4"
+requires = ["reference-toolchain"]
+constructs = ["sort-inference", "ambiguity", "strict-semantic-cast"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast4/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+expect = "reject"
+
+[[compile]]
+name = "anywhere2"
+requires = ["reference-toolchain"]
+constructs = ["sort-inference", "nested-rewrite", "anywhere"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/anywhere2/test.k"
+main-module = "TEST"
+pairings = ["kore/llvm"]
+comparisons = ["semantic-kore"]
+unique-id-divergence-ceilings = { "kore/llvm" = 0 }
+
 [[kast]]
 name = "imp"
 requires = ["reference-toolchain"]
