@@ -979,7 +979,7 @@ mod tests {
     }
 
     #[test]
-    fn retains_a_refuted_match_remainder_as_a_bottom_condition() {
+    fn term_mismatch_results_carry_no_condition() {
         let definition = definition();
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
         let value = int(&definition, "0");
@@ -998,7 +998,9 @@ mod tests {
         let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
 
-        assert_eq!(result, invalid_with_bottom_condition());
+        assert_eq!(result.status, ImplicationStatus::Invalid);
+        assert_eq!(result.condition, None);
+        assert_eq!(result.failure, Some(ImplicationFailure::TermMismatch));
     }
 
     #[test]
@@ -1054,6 +1056,163 @@ mod tests {
                 Sort::simple("SortInt"),
             ))]
         );
+    }
+
+    #[test]
+    fn eliminates_existential_witnesses_by_substitution() {
+        let definition = definition();
+        let value = int(&definition, "5");
+        let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
+        let mut consequent = pattern(
+            &definition,
+            r#"pair{}(\dv{SortInt{}}("5"), \dv{SortInt{}}("5"))"#,
+        );
+        consequent.constraints.push(Predicate::Equals(
+            Term::injection(
+                Sort::simple("SortInt"),
+                Sort::simple("SortKItem"),
+                Term::variable(y.clone()),
+            ),
+            Term::injection(Sort::simple("SortInt"), Sort::simple("SortKItem"), value),
+        ));
+        let antecedent = Pattern {
+            term: consequent.term.clone(),
+            constraints: Vec::new(),
+        };
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([y]),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert!(
+            result
+                .condition
+                .expect("a valid implication carries its condition")
+                .substitution
+                .is_empty(),
+            "obligation witnesses must not leak into the term-match substitution"
+        );
+    }
+
+    #[test]
+    fn witness_elimination_is_iterated() {
+        let definition = definition();
+        let antecedent = pattern(
+            &definition,
+            r#"pair{}(\dv{SortInt{}}("5"), \dv{SortInt{}}("5"))"#,
+        );
+        let mut consequent = antecedent.clone();
+        let y1 = crate::term::Variable::new("Y1", Sort::simple("SortInt"));
+        let y2 = crate::term::Variable::new("Y2", Sort::simple("SortInt"));
+        consequent.constraints = vec![
+            Predicate::Equals(
+                term(&definition, "f{}(Y1:SortInt{})"),
+                term(&definition, "f{}(Y2:SortInt{})"),
+            ),
+            Predicate::Equals(Term::variable(y2.clone()), int(&definition, "5")),
+        ];
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([y1, y2]),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+    }
+
+    #[test]
+    fn residual_equality_with_an_existential_is_discharged_by_matching() {
+        let definition = definition();
+        let antecedent = pattern(&definition, "succ{}(X:SortTree{})");
+        let mut consequent = antecedent.clone();
+        let y = crate::term::Variable::new("Y", Sort::simple("SortTree"));
+        consequent.constraints.push(Predicate::Equals(
+            term(&definition, "succ{}(Y:SortTree{})"),
+            term(&definition, "succ{}(X:SortTree{})"),
+        ));
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([y]),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+    }
+
+    #[test]
+    fn universal_variables_are_never_bound_as_witnesses() {
+        let definition = definition();
+        let antecedent = pattern(&definition, "X:SortInt{}");
+        let mut consequent = antecedent.clone();
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
+        consequent.constraints.push(Predicate::Equals(
+            Term::variable(x),
+            Term::variable(y.clone()),
+        ));
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([y]),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert!(
+            result
+                .condition
+                .expect("a valid implication carries its condition")
+                .substitution
+                .is_empty(),
+            "the universal must not be captured by either substitution"
+        );
+    }
+
+    #[test]
+    fn disjunctive_implication_eliminates_branch_witnesses() {
+        let definition = definition();
+        let antecedent = pattern(&definition, "X:SortInt{}");
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
+        let mut witnessed = antecedent.clone();
+        witnessed.constraints.push(Predicate::Equals(
+            Term::variable(y.clone()),
+            Term::variable(x),
+        ));
+        let alternative = pattern(&definition, r#"\dv{SortInt{}}("0")"#);
+
+        let result = check_disjunctive_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &[witnessed, alternative],
+            &BTreeSet::from([y]),
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("disjunctive implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
     }
 
     #[test]

@@ -1588,6 +1588,55 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn proves_a_claim_whose_existential_is_defined_by_an_obligation() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}() : SortState{} [constructor{}()]
+                symbol done{}(SortInt{}) : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(), \top{SortState{}}()),
+                    done{}(\dv{SortInt{}}("5"))
+                ) [label{}("step")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(
+                        \exists{SortState{}}(
+                            C:SortInt{},
+                            \and{SortState{}}(
+                                done{}(\dv{SortInt{}}("5")),
+                                \equals{SortInt{}, SortState{}}(
+                                    C:SortInt{},
+                                    \dv{SortInt{}}("5")
+                                )
+                            )
+                        )
+                    )
+                ) [label{}("existential-obligation")]
+            endmodule []"#,
+        )
+        .expect("existential claim should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("existential claim should internalize");
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &NoSolver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert_eq!(result.explored_states, 2);
+        assert_eq!(result.unexplored_states, 0);
+    }
+
     const NON_TERMINATING_SIMPLIFIER: &str = r#"
         symbol expand{}(SortS{}) : SortS{} [function{}()]
         axiom{R} \implies{R}(
