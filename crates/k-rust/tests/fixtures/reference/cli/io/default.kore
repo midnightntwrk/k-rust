@@ -1,0 +1,67 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+    Lbl'-LT-'k'-GT-'{}(
+        kseq{}(
+            /* Inj: */ inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5")),
+            dotk{}()
+        )
+    ),
+    Lbl'-LT-'in'-GT-'{}(
+        /* InternalList: */ Lbl'Unds'List'Unds'{}(
+            LblListItem{}(
+                /* Inj: */ inj{SortStream{}, SortKItem{}}(
+                    Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(
+                        kseq{}(
+                            /* Inj: */ inj{SortString{}, SortKItem{}}(
+                                \dv{SortString{}}("")
+                            ),
+                            dotk{}()
+                        )
+                    )
+                )
+            ),
+        Lbl'Unds'List'Unds'{}(
+            LblListItem{}(
+                /* Inj: */ inj{SortString{}, SortKItem{}}(
+                    \dv{SortString{}}("on")
+                )
+            ),
+            LblListItem{}(
+                /* Inj: */ inj{SortStream{}, SortKItem{}}(
+                    Lbl'Hash'istream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(
+                        \dv{SortInt{}}("0")
+                    )
+                )
+            )
+        ))
+    ),
+    Lbl'-LT-'out'-GT-'{}(
+        /* InternalList: */ Lbl'Unds'List'Unds'{}(
+            LblListItem{}(
+                /* Inj: */ inj{SortStream{}, SortKItem{}}(
+                    Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(
+                        \dv{SortInt{}}("1")
+                    )
+                )
+            ),
+        Lbl'Unds'List'Unds'{}(
+            LblListItem{}(
+                /* Inj: */ inj{SortString{}, SortKItem{}}(
+                    \dv{SortString{}}("on")
+                )
+            ),
+            LblListItem{}(
+                /* Inj: */ inj{SortStream{}, SortKItem{}}(
+                    Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(
+                        kseq{}(
+                            /* Inj: */ inj{SortString{}, SortKItem{}}(
+                                \dv{SortString{}}("")
+                            ),
+                            dotk{}()
+                        )
+                    )
+                )
+            )
+        ))
+    ),
+    Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)

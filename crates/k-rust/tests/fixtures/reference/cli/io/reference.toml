@@ -1,0 +1,25 @@
+case = "io"
+subsystem = "cli"
+source_ticket = "D1-02"
+harvested_from = "draft/fable51-review/fixtures/d1-fixtures/io"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "default.kore"
+command = '''
+kompile io.k --backend haskell --main-module IO --syntax-module IO --output-definition ref --warnings none >/dev/null &&
+krun program.pgm --definition ref --output kore </dev/null > default.kore
+'''
+tool = "krun"
+exit_code = 0
+sha256 = "748c6acfb267b9c490a3bb4e518c9bea14b17973d33f92162c20dcb41d3540dc"
+
+[[artifact]]
+file = "off.kore"
+command = '''
+printf 'ab' | krun program.pgm --definition ref --io off --output kore > off.kore
+'''
+tool = "krun"
+exit_code = 0
+sha256 = "cedf9e1004129344b8488cdab5ab8e928b5480e2e09d6e469fc4fef22d750040"
