@@ -303,6 +303,53 @@ pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
 unique-id-divergence-ceilings = { "haskell/rust" = 32 }
 
+[[compile]]
+name = "wordstack"
+requires = ["reference-toolchain"]
+constructs = ["rewrite-ambiguity", "unrelated-result-sorts"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/wordstack/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+expect = "reject"
+
+[[compile]]
+name = "wordstack-fn"
+requires = ["reference-toolchain"]
+constructs = ["rewrite-ambiguity", "function-sort-inference"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/wordstack-fn/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+comparisons = ["semantic-kore"]
+unique-id-divergence-ceilings = { "haskell/rust" = 32 }
+
+[[compile]]
+name = "gas3"
+requires = ["reference-toolchain"]
+constructs = ["overload", "rule-condition-inference"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/gas3/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+comparisons = ["semantic-kore"]
+unique-id-divergence-ceilings = { "haskell/rust" = 1 }
+
+[[compile]]
+name = "rwpref"
+requires = ["reference-toolchain"]
+constructs = ["rewrite-ambiguity", "constant-operand"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/rwpref/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+expect = "reject"
+
+[[compile]]
+name = "rwpref-variable"
+requires = ["reference-toolchain"]
+constructs = ["rewrite-ambiguity", "variable-operand"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/rwpref-variable/test.k"
+main-module = "TEST"
+pairings = ["haskell/rust"]
+expect = "reject"
+
 [[kast]]
 name = "imp"
 requires = ["reference-toolchain"]

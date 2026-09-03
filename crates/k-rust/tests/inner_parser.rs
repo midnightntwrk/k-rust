@@ -254,7 +254,7 @@ fn reports_real_tree_ambiguity() {
     #[cfg(feature = "z3-inference")]
     assert!(matches!(
         grammar.parse(&Sort::new("Start"), "x"),
-        Err(ParseError::Ambiguous { alternatives }) if alternatives.len() == 2
+        Err(ParseError::Ambiguous { alternatives, .. }) if alternatives.len() == 2
     ));
     #[cfg(not(feature = "z3-inference"))]
     assert_eq!(
