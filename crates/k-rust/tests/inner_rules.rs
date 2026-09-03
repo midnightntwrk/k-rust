@@ -1,5 +1,5 @@
 use indoc::indoc;
-use k_rust::definition::Sentence;
+use k_rust::definition::{Sentence, StructuralCheckOptions, check_rhs_variables};
 use k_rust::inner::{ParseError, RuleError, resolve_rule_bubbles};
 use k_rust::kast::{Sort, Term, TermSpan};
 use k_rust::outer::{ResolvedSource, load};
@@ -504,18 +504,22 @@ fn semcast2_is_accepted_end_to_end() {
     let source = include_str!("fixtures/reference/inner/semcast2/test.k");
     let resolved = resolve_rule_bubbles(&lowered_module(source, "TEST"))
         .expect("unambiguous rules use non-strict portable inference");
-    let body = resolved
+    let sentence = resolved
         .main_module()
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
-            Sentence::Rule { body, .. } => Some(body.to_string()),
-            _ => None,
-        })
+        .find(|sentence| matches!(sentence, Sentence::Rule { .. }))
         .expect("the rule should be resolved");
+    let Sentence::Rule { body, .. } = sentence else {
+        unreachable!()
+    };
 
-    assert!(body.contains("#SemanticCastToSmall(X)"), "{body}");
+    assert!(
+        body.to_string().contains("#SemanticCastToSmall(X)"),
+        "{body}"
+    );
+    assert!(check_rhs_variables(&[sentence], StructuralCheckOptions::default()).is_empty());
 }
 
 #[cfg(feature = "z3-inference")]
