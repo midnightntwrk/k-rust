@@ -1,0 +1,16 @@
+case = "hooks"
+subsystem = "cli"
+source_ticket = "D1-05"
+harvested_from = "draft/fable51-review/fixtures/d1-fixtures/hooks"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "hook-attributes.txt"
+command = '''
+kompile test.k --backend haskell --main-module HOOKS --syntax-module HOOKS --hook-namespaces "A B" --output-definition ref --warnings none >/dev/null &&
+grep -o 'hook{}("[AB]\.[fg]")' ref/definition.kore | sort -u > hook-attributes.txt
+'''
+tool = "kompile"
+exit_code = 0
+sha256 = "1459e63dc7f0724b7a4ff567bfb8f7c07d2b9cbc5e8bbc3d086bfb8fc596482f"

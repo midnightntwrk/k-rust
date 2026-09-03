@@ -199,6 +199,16 @@ comparisons = [
 ]
 
 [[compile]]
+name = "hook-namespaces-whitespace"
+requires = ["reference-toolchain"]
+constructs = ["plugin-hook-namespace-list"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/cli/hooks/test.k"
+main-module = "HOOKS"
+syntax-module = "HOOKS"
+hook-namespaces = ["A", "B"]
+comparisons = ["semantic-kore"]
+
+[[compile]]
 name = "star-cell-config"
 requires = ["reference-toolchain"]
 constructs = ["star-cell-variable"]
