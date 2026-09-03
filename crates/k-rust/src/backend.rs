@@ -30,7 +30,7 @@ use k_rust_backend::{
     },
     session::BackendSession,
     simplify::{
-        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationOptions,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
         simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
     },
     smt::SmtSolver,
@@ -924,6 +924,9 @@ fn halt_reason(reason: &HaltReason) -> (&'static str, Option<String>) {
         HaltReason::DepthBound => ("depth-bound", None),
         HaltReason::BreadthBound => ("breadth-bound", None),
         HaltReason::Indeterminate(_) => ("indeterminate", Some(format!("{reason:?}"))),
+        HaltReason::Simplification(error @ SimplificationError::UnsupportedHook { .. }) => {
+            ("unsupported-hook", Some(error.to_string()))
+        }
         HaltReason::Simplification(_) => ("simplification-error", Some(format!("{reason:?}"))),
         HaltReason::Timeout(_) => ("timeout", Some(format!("{reason:?}"))),
     }

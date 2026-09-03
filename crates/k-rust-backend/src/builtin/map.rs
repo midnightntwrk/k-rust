@@ -7,7 +7,10 @@ use std::{
 
 use num_bigint::BigInt;
 
-use super::{BuiltinError, BuiltinResult, bool_term, expect_arity, expect_sort, int_term};
+use super::{
+    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
+    int_term,
+};
 use crate::{
     builtin::{list::k_item_definition as k_item_list_definition, set::k_item_set_definition},
     term::{CollectionSymbols, MapDefinition, Term, TermKind},
@@ -28,13 +31,15 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "MAP.keys_list" => keys_list(arguments),
         "MAP.values" => values(arguments),
         "MAP.inclusion" => inclusion(arguments),
-        _ => Ok(None),
+        "MAP.concat" => return concat(arguments),
+        "MAP.lookup" => return lookup(arguments),
+        _ => {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::NotImplemented,
+            ));
+        }
     }?;
-    match hook {
-        "MAP.concat" => concat(arguments),
-        "MAP.lookup" => lookup(arguments),
-        _ => Ok(result.into()),
-    }
+    Ok(result.into())
 }
 
 fn k_item_definition() -> Arc<MapDefinition> {

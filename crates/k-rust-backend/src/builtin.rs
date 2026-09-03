@@ -1,5 +1,7 @@
 //! In-process evaluation of backend hooks implemented by Booster.
 
+use std::fmt;
+
 use num_bigint::{BigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
@@ -67,6 +69,26 @@ pub enum BuiltinResult {
     Value(Term),
     Bottom,
     Effect(BuiltinEffect),
+    Unsupported(UnsupportedHookReason),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UnsupportedHookReason {
+    NotImplemented,
+    ArgumentOutOfRange { detail: String },
+    ResultTooLarge { detail: String },
+}
+
+impl fmt::Display for UnsupportedHookReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotImplemented => formatter
+                .write_str("no evaluator in this backend and no equations in the definition"),
+            Self::ArgumentOutOfRange { detail } | Self::ResultTooLarge { detail } => {
+                formatter.write_str(detail)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -170,7 +192,7 @@ fn evaluate_hook_with_sort(
         "IO.logString" => return io_log_string(arguments),
         hook if hook.starts_with("LIST.") => return list::evaluate(hook, arguments),
         hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
-        hook if hook.starts_with("SET.") => set::evaluate(hook, arguments),
+        hook if hook.starts_with("SET.") => return set::evaluate(hook, arguments),
         hook if hook.starts_with("BYTES.") => return bytes::evaluate(hook, arguments),
         hook if hook.starts_with("FLOAT.") => return float::evaluate(hook, arguments),
         hook if hook
@@ -182,7 +204,11 @@ fn evaluate_hook_with_sort(
         hook if hook.starts_with("STRING.") => {
             return string::evaluate(hook, arguments, result_sort);
         }
-        _ => Ok(None),
+        _ => {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::NotImplemented,
+            ));
+        }
     }?;
     Ok(result.into())
 }

@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt,
     sync::Arc,
 };
 
@@ -9,8 +10,8 @@ use rustc_hash::FxHashSet;
 
 use crate::{
     builtin::{
-        BuiltinEffect, BuiltinError, BuiltinResult, evaluate_in_definition as evaluate_builtin,
-        k_sequence_item,
+        BuiltinEffect, BuiltinError, BuiltinResult, UnsupportedHookReason,
+        evaluate_in_definition as evaluate_builtin, k_sequence_item,
     },
     cancellation::cancellation_requested,
     definedness::ceil_term,
@@ -135,6 +136,23 @@ pub enum SimplificationError {
         hook: &'static str,
         symbol: &'static str,
     },
+    UnsupportedHook {
+        hook: String,
+        reason: UnsupportedHookReason,
+        term: Term,
+    },
+}
+
+impl fmt::Display for SimplificationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedHook { hook, reason, .. } => write!(
+                formatter,
+                "unsupported hook '{hook}' on constructor-like arguments: {reason}"
+            ),
+            _ => write!(formatter, "{self:?}"),
+        }
+    }
 }
 
 pub fn simplify(
@@ -1863,35 +1881,39 @@ fn simplify_root(
 ) -> Result<Simplification, SimplificationError> {
     let builtin =
         evaluate_builtin(term, &definition.sort_graph).map_err(SimplificationError::Builtin)?;
-    if !matches!(builtin, BuiltinResult::NotApplicable) {
-        let TermKind::Application { symbol, .. } = term.kind() else {
-            unreachable!("only applications have builtin hooks")
-        };
-        let (term, constraints, effects) = match builtin {
-            BuiltinResult::Value(result) => (result, Vec::new(), Vec::new()),
-            BuiltinResult::Bottom => (term.clone(), vec![Predicate::False], Vec::new()),
-            BuiltinResult::Effect(effect) => (
-                builtin_effect_result(definition, term, &effect)?,
-                Vec::new(),
-                vec![effect],
-            ),
-            BuiltinResult::NotApplicable => unreachable!(),
-        };
-        return Ok(Simplification {
-            term,
-            constraints,
-            applied_rules: vec![format!(
-                "builtin:{}",
-                symbol
-                    .attributes
-                    .hook
-                    .as_deref()
-                    .expect("evaluated builtin has a hook")
-            )],
-            effects,
-            exhausted: None,
-        });
-    }
+    let unsupported = match builtin {
+        BuiltinResult::NotApplicable => None,
+        BuiltinResult::Unsupported(reason) => Some(reason),
+        builtin => {
+            let TermKind::Application { symbol, .. } = term.kind() else {
+                unreachable!("only applications have builtin hooks")
+            };
+            let (term, constraints, effects) = match builtin {
+                BuiltinResult::Value(result) => (result, Vec::new(), Vec::new()),
+                BuiltinResult::Bottom => (term.clone(), vec![Predicate::False], Vec::new()),
+                BuiltinResult::Effect(effect) => (
+                    builtin_effect_result(definition, term, &effect)?,
+                    Vec::new(),
+                    vec![effect],
+                ),
+                BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_) => unreachable!(),
+            };
+            return Ok(Simplification {
+                term,
+                constraints,
+                applied_rules: vec![format!(
+                    "builtin:{}",
+                    symbol
+                        .attributes
+                        .hook
+                        .as_deref()
+                        .expect("evaluated builtin has a hook")
+                )],
+                effects,
+                exhausted: None,
+            });
+        }
+    };
     if let Some(result) = apply_theory(
         definition,
         (&definition.function_theory, IndeterminateEquation::Block),
@@ -1916,6 +1938,48 @@ fn simplify_root(
         solver,
     )? {
         return Ok(result);
+    }
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        debug_assert!(unsupported.is_none());
+        return Ok(Simplification {
+            term: term.clone(),
+            constraints: Vec::new(),
+            applied_rules: Vec::new(),
+            effects: Vec::new(),
+            exhausted: None,
+        });
+    };
+    if let Some(hook) = symbol.attributes.hook.as_deref() {
+        if arguments
+            .iter()
+            .all(|argument| argument.attributes().constructor_like)
+        {
+            let index = term_index(term);
+            let has_equations = definition.function_theory.get(&index).is_some()
+                || definition.simplification_theory.get(&index).is_some();
+            let reason = match unsupported {
+                Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
+                Some(reason) => Some(reason),
+                None => Some(UnsupportedHookReason::ArgumentOutOfRange {
+                    detail: "the evaluator did not reduce constructor-like arguments".into(),
+                }),
+            };
+            if let Some(reason) = reason {
+                return Err(SimplificationError::UnsupportedHook {
+                    hook: hook.to_owned(),
+                    reason,
+                    term: term.clone(),
+                });
+            }
+        } else if let Some(reason) = unsupported {
+            diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
+                hook: hook.to_owned(),
+                reason,
+            });
+        }
     }
     Ok(Simplification {
         term: term.clone(),

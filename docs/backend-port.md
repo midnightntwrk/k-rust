@@ -56,6 +56,7 @@ The port is complete only when all of the following are demonstrated from the cu
 - Function and simplification equations, rewrite priorities, injections, builtin collections, and
   relevant K hooks are covered by differential tests.
 - Unsupported behavior is not silently reported as stuck or successful.
+  A hook without an evaluator or applicable equations halts with a typed unsupported-hook error when every argument is constructor-like; symbolic applications remain unevaluated.
 - Release and CI checks prove that the default executable path has no runtime dependency on
   `kore-exec`, `kore-rpc`, or `kore-rpc-booster`.
 

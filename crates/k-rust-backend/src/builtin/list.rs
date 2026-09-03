@@ -6,7 +6,8 @@ use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
 use super::{
-    BuiltinError, BuiltinResult, bool_term, expect_arity, expect_sort, int_term, read_int,
+    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
+    int_term, read_int,
 };
 use crate::term::{CollectionSymbols, ListDefinition, Sort, Term, TermKind};
 
@@ -17,16 +18,18 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "LIST.in" => contains(arguments),
         "LIST.size" => size(arguments),
         "LIST.unit" => unit(arguments),
-        _ => Ok(None),
+        "LIST.get" => return get(arguments),
+        "LIST.make" => return make(arguments),
+        "LIST.range" => return range(arguments),
+        "LIST.update" => return update(arguments),
+        "LIST.updateAll" => return update_all(arguments),
+        _ => {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::NotImplemented,
+            ));
+        }
     }?;
-    match hook {
-        "LIST.get" => get(arguments),
-        "LIST.make" => make(arguments),
-        "LIST.range" => range(arguments),
-        "LIST.update" => update(arguments),
-        "LIST.updateAll" => update_all(arguments),
-        _ => Ok(result.into()),
-    }
+    Ok(result.into())
 }
 
 pub(super) fn k_item_definition() -> Arc<ListDefinition> {

@@ -3,7 +3,9 @@
 use num_bigint::BigInt;
 use num_traits::{FromPrimitive, ToPrimitive};
 
-use super::{BuiltinError, BuiltinResult, bool_term, expect_arity, int_term, read_int};
+use super::{
+    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, int_term, read_int,
+};
 use crate::term::{Sort, Term, TermKind};
 
 #[derive(Clone, Copy, Debug)]
@@ -229,7 +231,9 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "FLOAT.int2float" => int_to_float(hook, arguments),
         "FLOAT.float2int" => float_to_int(hook, arguments),
         "FLOAT.maxValue" => maximum_value(hook, arguments),
-        _ => Ok(BuiltinResult::NotApplicable),
+        _ => Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        )),
     }
 }
 

@@ -242,6 +242,20 @@ impl RpcFault {
         }
     }
 
+    fn runtime(error: impl Into<String>, term: &Term) -> Self {
+        let term = kore_json::to_value(&externalize::term(term)).unwrap_or_else(|error| {
+            json!({ "encoding-error": format!("could not encode runtime-error term: {error}") })
+        });
+        Self {
+            code: -32002,
+            message: "Runtime error".into(),
+            data: Some(json!({
+                "error": error.into(),
+                "term": term,
+            })),
+        }
+    }
+
     fn pattern(error: impl ToString) -> Self {
         Self {
             code: 2,
@@ -467,6 +481,9 @@ impl RpcService {
             HaltReason::DepthBound => ("depth-bound", None, None),
             HaltReason::BreadthBound => ("aborted", None, None),
             HaltReason::Timeout(_) => ("timeout", None, None),
+            HaltReason::Simplification(
+                error @ SimplificationError::UnsupportedHook { term, .. },
+            ) => return Err(RpcFault::runtime(error.to_string(), term)),
             HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => ("aborted", None, None),
             HaltReason::Branch {
                 branches,
@@ -741,6 +758,9 @@ impl RpcService {
 }
 
 fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcFault {
+    if let SimplificationError::UnsupportedHook { term, .. } = &error {
+        return RpcFault::runtime(error.to_string(), term);
+    }
     let SimplificationError::SmtPredicate { predicate, error } = error else {
         return RpcFault::backend(format!("could not simplify pattern: {error:?}"));
     };
