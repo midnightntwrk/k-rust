@@ -467,11 +467,15 @@ def krust_kompile_args(case, rec, force_syntax_module=False):
     if "--no-prelude" in flags: args.append("--no-prelude")
     if "--emit-json" in flags: args.append("--emit-json")
     dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap")]
+    inference_mode = (opts.get("--type-inference-mode") or [None])[-1]
     for k in opts:
         if k not in ("--backend", "--main-module", "--syntax-module", "--output-definition", "--md-selector", "-I", "--type-inference-mode"):
             dropped.append(f"{k} {' '.join(opts[k])}")
+    if inference_mode not in (None, "simplesub", "checked"):
+        dropped.append(f"--type-inference-mode {inference_mode}")
     if src.endswith(".json"): return None, "--outer-parsed-json input has no krust equivalent", None
-    info = dict(src=src, backend=backend, main=main, syn=syn or gs, dropped=dropped)
+    info = dict(src=src, backend=backend, main=main, syn=syn or gs, dropped=dropped,
+                inference_mode=inference_mode)
     return args, None, info
 
 
@@ -493,10 +497,13 @@ def do_kompile(case, rec, expect_fail):
     args, why, info = krust_kompile_args(case, rec, force_syntax_module=expect_fail)
     if args is None:
         step.update(verdict="krust-unsupported", reason=why); return step_record(case, **step)
-    step["krust_cmd"] = " ".join(shlex.quote(a) for a in args)
+    krust_env = ({"KRUST_TYPE_INFERENCE_MODE": "checked"}
+                 if info["inference_mode"] == "checked" else None)
+    env_prefix = "KRUST_TYPE_INFERENCE_MODE=checked " if krust_env else ""
+    step["krust_cmd"] = env_prefix + " ".join(shlex.quote(a) for a in args)
     if info["dropped"]: step["dropped_flags"] = info["dropped"]
     if os.path.exists(f"{case.dir}/krust-kompiled"): shutil.rmtree(f"{case.dir}/krust-kompiled")
-    krc, kout, kerr, ksecs, kto = sh(args, case.dir, case.remaining())
+    krc, kout, kerr, ksecs, kto = sh(args, case.dir, case.remaining(), env=krust_env)
     case.logfile("kompile.krust.log", kout + "\n--- stderr ---\n" + kerr)
     step["krust_rc"] = krc; step["krust_seconds"] = round(ksecs, 1)
     if kto:
@@ -871,7 +878,11 @@ def do_kprove(case, rec):
         f.write(f'requires "{rel_def}"\n' + open(f"{case.dir}/{spec}", errors="replace").read())
     args = [KRUST, "kprove", wrapped, "--main-module", spec_module, "--definition-module", def_module, "-I", ".",
             "--builtin-directory", BUILTIN] + extra
-    step["krust_cmd"] = " ".join(shlex.quote(a) for a in args) + f"   # {wrapped} = spec with `requires \"{rel_def}\"` prepended"
+    inference_mode = (opts.get("--type-inference-mode") or [None])[-1]
+    krust_env = ({"KRUST_TYPE_INFERENCE_MODE": "checked"}
+                 if inference_mode == "checked" else None)
+    env_prefix = "KRUST_TYPE_INFERENCE_MODE=checked " if krust_env else ""
+    step["krust_cmd"] = env_prefix + " ".join(shlex.quote(a) for a in args) + f"   # {wrapped} = spec with `requires \"{rel_def}\"` prepended"
     if unsupported:
         step.update(verdict="krust-unsupported", reason="reference kprove flags with no krust equivalent: " + " ".join(unsupported))
         return step_record(case, **step)
@@ -879,7 +890,7 @@ def do_kprove(case, rec):
     expected = open(outp, errors="replace").read() if outp and os.path.exists(outp) else None
     if expected is None:
         step.update(verdict="skipped-with-reason", reason="no checked-in .out"); return step_record(case, **step)
-    rc, out, err, secs, to = sh(args, case.dir, case.remaining())
+    rc, out, err, secs, to = sh(args, case.dir, case.remaining(), env=krust_env)
     case.logfile(f"{tag}.krust.log", out + "\n--- stderr ---\n" + err)
     step["krust_rc"] = rc; step["krust_seconds"] = round(secs, 1)
     if to: step.update(verdict="krust-error", stage="kprove", reason="krust kprove timed out (case budget)"); return step_record(case, **step)
