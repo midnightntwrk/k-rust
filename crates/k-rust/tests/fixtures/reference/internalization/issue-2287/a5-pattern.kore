@@ -1,0 +1,7 @@
+axiom{R} \implies{R}(
+  \top{R}(),
+  \equals{SortInt{},R}(
+    Lbl'UndsPlus'Int'Unds'{}(n:SortInt{},n:SortInt{}),
+    \and{SortInt{}}(\top{SortInt{}}(),\top{SortInt{}}())
+  )
+) [simplification{}()]

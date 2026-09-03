@@ -1506,7 +1506,7 @@ fn attribute_string_or_empty(
 
 #[cfg(test)]
 mod tests {
-    use k_rust_kore::kore::parser::parse_sentence;
+    use k_rust_kore::kore::parser::{parse_definition, parse_sentence};
 
     use super::*;
 
@@ -1526,6 +1526,65 @@ mod tests {
             &pattern,
             &attributes,
         )
+    }
+
+    fn top_rhs_definition(axiom: &str) -> Result<BackendDefinition, DefinitionError> {
+        let source = format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} [hasDomainValues{{}}()]
+                symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+                symbol a{{}}() : SortS{{}} [constructor{{}}()]
+                {axiom}
+            endmodule []"#
+        );
+        BackendDefinition::internalize(
+            &parse_definition(&source).expect("definition should parse"),
+            "MAIN",
+        )
+    }
+
+    #[test]
+    fn internalizes_top_right_hand_sides_of_simplifications() {
+        let definition = top_rhs_definition(
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\top{SortS{}}(), \top{SortS{}}())
+                )
+            ) [label{}("erase-f"), simplification{}()]
+            "#,
+        )
+        .expect("a simplification equation may have a top RHS");
+        let rule = definition
+            .simplification_theory
+            .values()
+            .flat_map(|groups| groups.values())
+            .flatten()
+            .next()
+            .expect("simplification rule should be indexed");
+
+        assert!(matches!(rule.rhs, RuleRhs::Top));
+    }
+
+    #[test]
+    fn top_right_hand_sides_are_rejected_on_rewrite_axioms() {
+        let error = top_rhs_definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                \and{SortS{}}(\top{SortS{}}(), \top{SortS{}}())
+            ) [label{}("invalid-top-rewrite")]
+            "#,
+        )
+        .expect_err("an executable rewrite still requires a term RHS");
+
+        assert_eq!(
+            error,
+            DefinitionError::RulePattern(RulePatternError::MissingTerm)
+        );
     }
 
     #[test]
