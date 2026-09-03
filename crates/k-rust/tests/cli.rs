@@ -927,6 +927,39 @@ fn kore_exec_applies_rewrite_rules_tagged_concrete_and_symbolic() {
 }
 
 #[test]
+fn krun_search_final_reports_states_cut_by_the_depth_bound() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/search/sd");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "SD",
+            "--syntax-module",
+            "SD-SYNTAX",
+            "--sort",
+            "Pgm",
+            "--expression",
+            "count(5)",
+            "--search-final",
+            "--depth",
+            "2",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#"\dv{SortInt{}}("3")"#), "{stdout}");
+    assert!(!stdout.contains(r"\bottom"), "{stdout}");
+}
+
+#[test]
 fn reference_hook_pc_findstring_follows_domains_md() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks/pc");
