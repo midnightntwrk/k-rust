@@ -3581,6 +3581,137 @@ mod tests {
         );
     }
 
+    fn injection_equality_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}()]
+                sort SortExp{} []
+                sort SortKItem{} []
+                sort SortA{} []
+                sort SortB{} []
+                sort SortC{} []
+                sort SortD{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                axiom{R} \exists{R}(E:SortExp{}, \equals{SortExp{}, R}(
+                    E:SortExp{}, inj{SortInt{}, SortExp{}}(I:SortInt{})
+                )) [subsort{SortInt{}, SortExp{}}()]
+                axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+                    K:SortKItem{}, inj{SortExp{}, SortKItem{}}(E:SortExp{})
+                )) [subsort{SortExp{}, SortKItem{}}()]
+                axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+                    K:SortKItem{}, inj{SortBool{}, SortKItem{}}(B:SortBool{})
+                )) [subsort{SortBool{}, SortKItem{}}()]
+                axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+                    K:SortKItem{}, inj{SortA{}, SortKItem{}}(A:SortA{})
+                )) [subsort{SortA{}, SortKItem{}}()]
+                axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+                    K:SortKItem{}, inj{SortB{}, SortKItem{}}(B:SortB{})
+                )) [subsort{SortB{}, SortKItem{}}()]
+                axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+                    K:SortKItem{}, inj{SortC{}, SortKItem{}}(C:SortC{})
+                )) [subsort{SortC{}, SortKItem{}}()]
+                axiom{R} \exists{R}(A:SortA{}, \equals{SortA{}, R}(
+                    A:SortA{}, inj{SortD{}, SortA{}}(D:SortD{})
+                )) [subsort{SortD{}, SortA{}}()]
+                axiom{R} \exists{R}(C:SortC{}, \equals{SortC{}, R}(
+                    C:SortC{}, inj{SortD{}, SortC{}}(D:SortD{})
+                )) [subsort{SortD{}, SortC{}}()]
+            endmodule []"#,
+        )
+        .expect("injection equality definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("injection equality definition should internalize")
+    }
+
+    fn simplify_injection_equality(
+        definition: &BackendDefinition,
+        left: &str,
+        right: &str,
+    ) -> Predicate {
+        simplify_predicate_with_solver(
+            definition,
+            &Predicate::Equals(term(definition, left), term(definition, right)),
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("injection equality should simplify")
+    }
+
+    #[test]
+    fn injection_equality_with_equal_sorts_reduces_to_the_children() {
+        let definition = injection_equality_definition();
+
+        assert_eq!(
+            simplify_injection_equality(
+                &definition,
+                "inj{SortInt{}, SortKItem{}}(I:SortInt{})",
+                r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5"))"#,
+            ),
+            Predicate::Equals(
+                term(&definition, "I:SortInt{}"),
+                term(&definition, r#"\dv{SortInt{}}("5")"#),
+            )
+        );
+    }
+
+    #[test]
+    fn injection_equality_with_a_subsort_relation_reinjects_the_smaller_side() {
+        let definition = injection_equality_definition();
+
+        assert_eq!(
+            simplify_injection_equality(
+                &definition,
+                "inj{SortInt{}, SortKItem{}}(I:SortInt{})",
+                "inj{SortExp{}, SortKItem{}}(E:SortExp{})",
+            ),
+            Predicate::Equals(
+                term(&definition, "inj{SortInt{}, SortExp{}}(I:SortInt{})"),
+                term(&definition, "E:SortExp{}"),
+            )
+        );
+    }
+
+    #[test]
+    fn injection_equality_with_a_constructor_head_is_bottom() {
+        let definition = injection_equality_definition();
+
+        assert_eq!(
+            simplify_injection_equality(
+                &definition,
+                "inj{SortInt{}, SortKItem{}}(I:SortInt{})",
+                r#"inj{SortBool{}, SortKItem{}}(\dv{SortBool{}}("true"))"#,
+            ),
+            Predicate::False,
+        );
+    }
+
+    #[test]
+    fn injection_equality_uses_common_subsorts_to_distinguish_unknown_from_disjoint() {
+        let definition = injection_equality_definition();
+        let disjoint = simplify_injection_equality(
+            &definition,
+            "inj{SortA{}, SortKItem{}}(A:SortA{})",
+            "inj{SortB{}, SortKItem{}}(B:SortB{})",
+        );
+        let common = simplify_injection_equality(
+            &definition,
+            "inj{SortA{}, SortKItem{}}(A:SortA{})",
+            "inj{SortC{}, SortKItem{}}(C:SortC{})",
+        );
+
+        assert_eq!(disjoint, Predicate::False);
+        assert_eq!(
+            common,
+            Predicate::Equals(
+                term(&definition, "inj{SortA{}, SortKItem{}}(A:SortA{})"),
+                term(&definition, "inj{SortC{}, SortKItem{}}(C:SortC{})"),
+            )
+        );
+    }
+
     #[test]
     fn preserves_a_symbolic_equality_between_singleton_k_sequences() {
         let syntax = parse_definition(

@@ -705,6 +705,23 @@ mod tests {
     }
 
     #[test]
+    fn kequal_decides_distinct_sort_injections() {
+        let arguments = [
+            k_sequence(Term::variable(Variable::new("I", Sort::simple("SortInt")))),
+            k_sequence(bool_term(true)),
+        ];
+
+        assert_eq!(
+            evaluate_hook("KEQUAL.eq", &arguments),
+            Ok(BuiltinResult::Value(bool_term(false)))
+        );
+        assert_eq!(
+            evaluate_hook("KEQUAL.ne", &arguments),
+            Ok(BuiltinResult::Value(bool_term(true)))
+        );
+    }
+
+    #[test]
     fn boolean_hooks_short_circuit_unknown_arguments() {
         let unknown = Term::variable(Variable::new("B", Sort::simple("SortBool")));
         let false_and_unknown = hooked(
