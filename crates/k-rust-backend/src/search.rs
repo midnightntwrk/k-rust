@@ -1717,6 +1717,35 @@ mod tests {
             .expect("converging search definition should internalize")
     }
 
+    fn search_bound_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module SEARCH-BOUND
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+                symbol d{}() : SortS{} [constructor{}()]
+                symbol e{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()), b{}()
+                ) [label{}("a-b")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()), c{}()
+                ) [label{}("a-c")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(b{}(), \top{SortS{}}()), d{}()
+                ) [label{}("b-d")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(d{}(), \top{SortS{}}()), e{}()
+                ) [label{}("d-e")]
+            endmodule []"#,
+        )
+        .expect("search-bound definition should parse");
+        BackendDefinition::internalize(&syntax, "SEARCH-BOUND")
+            .expect("search-bound definition should internalize")
+    }
+
     fn diamond_definition(cyclic: bool) -> BackendDefinition {
         let cycle = if cyclic {
             r#"
@@ -2764,7 +2793,173 @@ mod tests {
             names(&result),
             BTreeSet::from(["final1".into(), "final2".into()])
         );
-        assert!(result.incomplete.is_empty());
+        assert_eq!(
+            result
+                .incomplete
+                .iter()
+                .filter(|entry| matches!(entry, IncompleteSearch::DepthBound(_)))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn final_search_reports_rewritable_states_at_the_depth_bound() {
+        let definition = definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_depth: 1,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(
+            names(&result),
+            BTreeSet::from(["next1".into(), "next2".into()])
+        );
+        assert_eq!(
+            result
+                .incomplete
+                .iter()
+                .filter(|entry| matches!(entry, IncompleteSearch::DepthBound(_)))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn final_search_at_depth_zero_reports_the_initial_state() {
+        let definition = definition();
+        let result = search_graph(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_depth: 0,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(names(&result), BTreeSet::from(["initial".into()]));
+        assert!(matches!(
+            result.incomplete.as_slice(),
+            [IncompleteSearch::DepthBound(state)] if state.depth == 0
+        ));
+    }
+
+    #[test]
+    fn final_search_merges_stuck_and_depth_bound_states() {
+        let definition = search_bound_definition();
+        for (max_depth, expected) in [
+            (2, BTreeSet::from(["c".into(), "d".into()])),
+            (3, BTreeSet::from(["c".into(), "e".into()])),
+        ] {
+            let result = search_graph(
+                &definition,
+                pattern(&definition, "a{}()"),
+                SearchOptions {
+                    search_type: SearchType::Final,
+                    max_depth,
+                    ..SearchOptions::default()
+                },
+            );
+
+            assert_eq!(names(&result), expected, "depth {max_depth}");
+            assert_eq!(
+                result
+                    .incomplete
+                    .iter()
+                    .filter(|entry| matches!(entry, IncompleteSearch::DepthBound(_)))
+                    .count(),
+                1,
+                "depth {max_depth}"
+            );
+        }
+    }
+
+    #[test]
+    fn final_search_does_not_step_at_the_depth_bound() {
+        let definition = rewrite_simplification_failure_definition();
+        let result = search_graph(
+            &definition,
+            pattern(&definition, "initial{}()"),
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_depth: 0,
+                max_simplification_iterations: 1,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(names(&result), BTreeSet::from(["initial".into()]));
+        assert!(matches!(
+            result.incomplete.as_slice(),
+            [IncompleteSearch::DepthBound(_)]
+        ));
+    }
+
+    #[test]
+    fn vacuous_states_are_never_search_results() {
+        let definition = definition();
+        let vacuous = Pattern {
+            term: initial(&definition).term,
+            constraints: vec![Predicate::False],
+        };
+
+        for search_type in [
+            SearchType::One,
+            SearchType::Star,
+            SearchType::Plus,
+            SearchType::Final,
+        ] {
+            let result = search_graph(
+                &definition,
+                vacuous.clone(),
+                SearchOptions {
+                    search_type,
+                    max_depth: 0,
+                    ..SearchOptions::default()
+                },
+            );
+            assert!(result.states.is_empty(), "{search_type:?}");
+        }
+    }
+
+    #[test]
+    fn final_path_search_reports_witnesses_at_the_depth_bound() {
+        let definition = definition();
+        let result = search_paths(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_depth: 1,
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(
+            result
+                .witnesses
+                .iter()
+                .map(|witness| match witness.pattern.term.kind() {
+                    TermKind::Application { symbol, .. } => symbol.name.to_string(),
+                    other => panic!("expected an application, found {other:?}"),
+                })
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["next1".into(), "next2".into()])
+        );
+        assert_eq!(
+            result
+                .incomplete
+                .iter()
+                .filter(|entry| matches!(entry, IncompleteSearch::DepthBound(_)))
+                .count(),
+            2
+        );
     }
 
     #[test]
