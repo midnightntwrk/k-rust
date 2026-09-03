@@ -1093,6 +1093,62 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
+    fn conditional_ite_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol notBool{}(SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.not")]
+                hooked-symbol ite{}(SortBool{}, SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+                symbol f{}(SortBool{}) : SortInt{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            B:SortBool{},
+                            \dv{SortBool{}}("true")
+                        ),
+                        \and{R}(
+                            \in{SortBool{}, R}(X0:SortBool{}, B:SortBool{}),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortInt{}, R}(
+                        f{}(X0:SortBool{}),
+                        \and{SortInt{}}(
+                            \dv{SortInt{}}("1"),
+                            \top{SortInt{}}()
+                        )
+                    )
+                ) [label{}("f-true")]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            notBool{}(B:SortBool{}),
+                            \dv{SortBool{}}("true")
+                        ),
+                        \and{R}(
+                            \in{SortBool{}, R}(X0:SortBool{}, B:SortBool{}),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortInt{}, R}(
+                        f{}(X0:SortBool{}),
+                        \and{SortInt{}}(
+                            \dv{SortInt{}}("0"),
+                            \top{SortInt{}}()
+                        )
+                    )
+                ) [label{}("f-false")]
+            endmodule []"#,
+        )
+        .expect("conditional ITE definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("conditional ITE definition should internalize")
+    }
+
     fn term(definition: &BackendDefinition, source: &str) -> Term {
         definition
             .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
@@ -1250,6 +1306,87 @@ mod tests {
         assert_eq!(result.status, ImplicationStatus::Invalid);
         assert_eq!(result.condition, None);
         assert_eq!(result.failure, Some(ImplicationFailure::TermMismatch));
+    }
+
+    #[test]
+    fn ite_obligations_split_on_a_symbolic_condition() {
+        let definition = conditional_ite_definition();
+        let outer_condition = term(&definition, "B:SortBool{}");
+        let inner_condition = term(&definition, "C:SortBool{}");
+        let subject = term(&definition, "X:SortInt{}");
+        let then_branch = term(&definition, "Y:SortInt{}");
+        let else_branch = term(&definition, "Z:SortInt{}");
+        let inner_else_branch = term(&definition, "W:SortInt{}");
+        let consequent = pattern(&definition, "X:SortInt{}");
+
+        let obligations = implication_obligations(
+            &consequent,
+            &Substitution::new(),
+            vec![(
+                subject.clone(),
+                term(
+                    &definition,
+                    concat!(
+                        "ite{}(B:SortBool{}, ",
+                        "ite{}(C:SortBool{}, Y:SortInt{}, W:SortInt{}), ",
+                        "Z:SortInt{})",
+                    ),
+                ),
+            )],
+            &[],
+        );
+
+        assert_eq!(
+            obligations,
+            [Predicate::Or(vec![
+                Predicate::And(vec![
+                    Predicate::Term(outer_condition.clone()),
+                    Predicate::Or(vec![
+                        Predicate::And(vec![
+                            Predicate::Term(inner_condition.clone()),
+                            Predicate::Equals(subject.clone(), then_branch),
+                        ]),
+                        Predicate::And(vec![
+                            Predicate::Not(Box::new(Predicate::Term(inner_condition))),
+                            Predicate::Equals(subject.clone(), inner_else_branch),
+                        ]),
+                    ]),
+                ]),
+                Predicate::And(vec![
+                    Predicate::Not(Box::new(Predicate::Term(outer_condition))),
+                    Predicate::Equals(subject, else_branch),
+                ]),
+            ])]
+        );
+    }
+
+    #[test]
+    fn refutation_by_simplification_evaluates_functions_under_the_negated_obligation() {
+        let definition = conditional_ite_definition();
+        let zero = int(&definition, "0");
+        let antecedent = Pattern {
+            term: int(&definition, "2"),
+            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+                term(&definition, "f{}(B:SortBool{})"),
+                zero,
+            )))],
+        };
+        let consequent = pattern(
+            &definition,
+            "ite{}(B:SortBool{}, \\dv{SortInt{}}(\"2\"), \\dv{SortInt{}}(\"1\"))",
+        );
+
+        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+            .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert!(
+            result
+                .condition
+                .as_ref()
+                .is_some_and(|condition| condition.predicates.is_empty()),
+            "the refuted counterexample must leave no residual condition: {result:#?}"
+        );
     }
 
     #[test]

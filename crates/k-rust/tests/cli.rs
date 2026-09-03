@@ -2409,6 +2409,87 @@ fn kprove_one_path_claim_fails_on_the_uncovered_case() {
 }
 
 #[test]
+fn reference_ite_bug_splits_implication_obligations_without_branching_functions() {
+    // reference: kprove fixture captured under reference/implication/ite-bug/reference.log
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/implication/ite-bug");
+    let (root, _) = fixture();
+    fs::copy(fixtures.join("ite-bug.k"), root.join("ite-bug.k")).unwrap();
+    let cases = [
+        ("passing-spec.k", "PASSING-SPEC", true),
+        ("failing-1-spec.k", "FAILING-1-SPEC", false),
+        ("failing-2-spec.k", "FAILING-2-SPEC", false),
+    ];
+
+    for (specification, module, should_prove) in cases {
+        let source = format!(
+            "requires \"ite-bug.k\"\n{}",
+            fs::read_to_string(fixtures.join(specification)).unwrap()
+        );
+        let specification_path = root.join(specification);
+        fs::write(&specification_path, source).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                specification_path.to_str().unwrap(),
+                "--main-module",
+                module,
+                "--definition-module",
+                "ITE-BUG",
+                "--depth",
+                "10",
+            ])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+
+        assert_eq!(
+            output.status.success(),
+            should_prove,
+            "{specification}: {stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains(if should_prove { "proven" } else { "disproved" }),
+            "{specification}: {stdout}"
+        );
+    }
+
+    let nolemma = fixtures.join("nolemma");
+    fs::copy(nolemma.join("ite-bug.k"), root.join("ite-bug.k")).unwrap();
+    let specification = root.join("passing-nolemma-spec.k");
+    fs::write(
+        &specification,
+        format!(
+            "requires \"ite-bug.k\"\n{}",
+            fs::read_to_string(nolemma.join("passing-spec.k")).unwrap()
+        ),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--main-module",
+            "PASSING-SPEC",
+            "--definition-module",
+            "ITE-BUG",
+            "--depth",
+            "10",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.status.success(),
+        "nolemma/passing-spec.k: {stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("proven"), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kprove_rejects_claims_reached_only_through_bottom() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
