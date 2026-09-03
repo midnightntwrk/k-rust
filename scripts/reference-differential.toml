@@ -1072,6 +1072,19 @@ depth = 1
 programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/go.cmd"]
 
 [[execution]]
+name = "io"
+requires = ["reference-toolchain"]
+constructs = ["stream-cell-configuration"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/cli/io/io.k"
+main-module = "IO"
+syntax-module = "IO"
+sort = "Int"
+depth = 0
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/cli/io/program.pgm",
+]
+
+[[execution]]
 name = "macro-runtime"
 requires = ["reference-toolchain"]
 constructs = ["macro-runtime"]

@@ -3,8 +3,9 @@
 use std::{
     collections::BTreeSet,
     fs,
+    io::Write,
     path::PathBuf,
-    process::Command,
+    process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -51,6 +52,17 @@ fn fixture() -> (PathBuf, PathBuf) {
     fs::write(&definition, DEFINITION).unwrap();
     fs::write(root.join("base.k"), BASE).unwrap();
     (root, definition)
+}
+
+fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
 }
 
 fn branching_search_fixture() -> (PathBuf, PathBuf) {
@@ -824,6 +836,214 @@ endmodule
         String::from_utf8_lossy(&missing.stderr)
     );
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reference_krun_supplies_io_and_stdin_for_stream_cells() {
+    // reference: k/result/bin/krun program.pgm --definition ref --output kore </dev/null
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
+    let expected =
+        parse_pattern(&fs::read_to_string(fixtures.join("default.kore")).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("io.k").to_str().unwrap(),
+            fixtures.join("program.pgm").to_str().unwrap(),
+            "--main-module",
+            "IO",
+            "--sort",
+            "Int",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(parse_pattern(&stdout).unwrap(), expected);
+    assert!(!stdout.contains(r"\bottom"), "{stdout}");
+}
+
+#[test]
+fn reference_krun_io_off_feeds_standard_input_into_stdin() {
+    // reference: printf 'ab\n' | k/result/bin/krun program.pgm --definition ref --io off
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
+    let expected = parse_pattern(&fs::read_to_string(fixtures.join("off.kore")).unwrap()).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "krun",
+        fixtures.join("io.k").to_str().unwrap(),
+        fixtures.join("program.pgm").to_str().unwrap(),
+        "--main-module",
+        "IO",
+        "--sort",
+        "Int",
+        "--depth",
+        "0",
+        "--io",
+        "off",
+    ]);
+    let output = output_with_stdin(&mut command, b"ab\n");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn krun_accepts_explicit_stdin_and_io_overrides() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("io.k").to_str().unwrap(),
+            fixtures.join("program.pgm").to_str().unwrap(),
+            "--main-module",
+            "IO",
+            "--sort",
+            "Int",
+            "--depth",
+            "0",
+            "-cIO=\"off\"",
+            "-cSTDIN=\"x\"",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#"\dv{SortString{}}("x")"#), "{stdout}");
+    assert_eq!(stdout.matches(r#"\dv{SortString{}}("off")"#).count(), 2);
+}
+
+#[test]
+fn krun_search_defaults_io_off() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("io.k").to_str().unwrap(),
+            fixtures.join("program.pgm").to_str().unwrap(),
+            "--main-module",
+            "IO",
+            "--sort",
+            "Int",
+            "--depth",
+            "0",
+            "--search-final",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#"\dv{SortString{}}("off")"#), "{stdout}");
+    assert!(!stdout.contains(r#"\dv{SortString{}}("on")"#), "{stdout}");
+}
+
+#[test]
+fn krun_io_off_preserves_non_utf8_stdin_bytes() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "krun",
+        fixtures.join("io.k").to_str().unwrap(),
+        fixtures.join("program.pgm").to_str().unwrap(),
+        "--main-module",
+        "IO",
+        "--sort",
+        "Int",
+        "--depth",
+        "0",
+        "--io",
+        "off",
+    ]);
+    let output = output_with_stdin(&mut command, &[b'x', 0x80]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains(r#"\dv{SortString{}}("x\x80")"#)
+    );
+}
+
+#[test]
+fn krun_warns_when_the_initial_configuration_is_bottom() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax KItem ::= fail(Int) [function, symbol(fail)]
+  rule fail(_:Int) => #Bottom
+  configuration <k> fail($PGM:Int) </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Int",
+            "--expression",
+            "1",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "\\bottom{SortGeneratedTopCell{}}()\n"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(
+            "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
+        ),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
