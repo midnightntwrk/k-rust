@@ -39,7 +39,6 @@ use k_rust::{
     outer::{LoadOptions, SourceResolver, load_with_base, load_with_options},
 };
 use k_rust_backend::{
-    binary as backend_binary,
     builtin::BuiltinEffect,
     claim::ReachabilityClaim,
     definition::{BackendDefinition, DefinitionError},
@@ -2497,19 +2496,21 @@ fn decode_backend_pattern(
     purpose: &str,
     input: &[u8],
 ) -> Result<Pattern, Box<dyn Error>> {
-    if input.starts_with(b"\x7fKORE") {
-        return backend_binary::decode_pattern(definition, input)
-            .map_err(|error| invalid_kore_pattern(path, purpose, "binary", error));
-    }
-    let source = std::str::from_utf8(input)
-        .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
-    let syntax = if source.trim_start().starts_with('{') {
-        kore_json::from_str_unbounded(source)
-            .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))?
+    let syntax = if input.starts_with(b"\x7fKORE") {
+        kore_binary::decode_term(input)
+            .map_err(|error| invalid_kore_pattern(path, purpose, "binary", error))?
     } else {
-        parse_kore_pattern(source)
-            .map_err(|error| invalid_kore_pattern(path, purpose, "text", error))?
+        let source = std::str::from_utf8(input)
+            .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
+        if source.trim_start().starts_with('{') {
+            kore_json::from_str_unbounded(source)
+                .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))?
+        } else {
+            parse_kore_pattern(source)
+                .map_err(|error| invalid_kore_pattern(path, purpose, "text", error))?
+        }
     };
+    definition.verify_standalone_pattern(&syntax)?;
     definition
         .internalize_pattern(&syntax, &[])
         .map_err(Into::into)
