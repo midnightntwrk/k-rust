@@ -1153,6 +1153,66 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
+    fn claim_requires_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol middle{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol end{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol f{}(SortInt{}) : SortInt{} [function{}()]
+                symbol opaque{}(SortInt{}) : SortInt{}
+                    [function{}(), total{}(), no-evaluators{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortInt{}, R}(
+                        f{}(X:SortInt{}),
+                        \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
+                    )
+                ) [label{}("identity-f"), simplification{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    middle{}(X:SortInt{})
+                ) [label{}("start")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(middle{}(X:SortInt{}), \top{SortState{}}()),
+                    end{}(X:SortInt{})
+                ) [label{}("finish")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(N:SortInt{}), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(end{}(f{}(N:SortInt{})))
+                ) [label{}("goal")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(
+                        middle{}(Y:SortInt{}),
+                        \equals{SortInt{}, SortState{}}(
+                            Z:SortInt{},
+                            f{}(Y:SortInt{})
+                        )
+                    ),
+                    weakAlwaysFinally{SortState{}}(end{}(Z:SortInt{}))
+                ) [label{}("defines-z"), trusted{}()]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(
+                        middle{}(Y:SortInt{}),
+                        \equals{SortInt{}, SortState{}}(
+                            opaque{}(Y:SortInt{}),
+                            \dv{SortInt{}}("0")
+                        )
+                    ),
+                    weakAlwaysFinally{SortState{}}(end{}(Y:SortInt{}))
+                ) [label{}("guarded"), trusted{}()]
+            endmodule []"#,
+        )
+        .expect("claim requires definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("claim requires definition should internalize")
+    }
+
     fn term(definition: &BackendDefinition, source: &str) -> Term {
         let syntax = parse_pattern(source).expect("term should parse");
         definition
@@ -1376,6 +1436,120 @@ mod tests {
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
         assert_eq!(result.explored_states, 3);
         assert_eq!(result.unexplored_states, 0);
+    }
+
+    #[test]
+    fn claim_requires_defining_an_unbound_variable_is_a_substitution() {
+        let definition = claim_requires_definition();
+        let x = Term::variable(crate::term::Variable::new(
+            "X",
+            crate::term::Sort::simple("SortInt"),
+        ));
+        let subject = Pattern {
+            term: term(&definition, "middle{}(X:SortInt{})"),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let ClaimApplication::Applied {
+            patterns,
+            remainder: None,
+        } = apply_claim(
+            &definition,
+            &definition.reachability_claims[1],
+            &subject,
+            ProofOptions::default(),
+            &NoSolver,
+            &mut fresh,
+        )
+        else {
+            panic!("the defining requires equality should instantiate the claim");
+        };
+        let [successor] = patterns.as_slice() else {
+            panic!("expected one claim successor, found {patterns:?}");
+        };
+        assert_eq!(successor.term, term(&definition, "end{}(X:SortInt{})"));
+        assert!(successor.constraints.is_empty());
+        assert_eq!(
+            successor.term.attributes().variables,
+            BTreeSet::from([match x.kind() {
+                TermKind::Variable(variable) => variable.clone(),
+                _ => unreachable!("the test term is a variable"),
+            }])
+        );
+    }
+
+    #[test]
+    fn claim_with_undecidable_requires_narrows() {
+        let definition = claim_requires_definition();
+        let subject = Pattern {
+            term: term(&definition, "middle{}(X:SortInt{})"),
+            constraints: Vec::new(),
+        };
+        let expected = crate::rule::Predicate::Equals(
+            term(&definition, "opaque{}(X:SortInt{})"),
+            term(&definition, r#"\dv{SortInt{}}("0")"#),
+        );
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+
+        for solver in [&solver as &dyn SmtSolver, &NoSolver as &dyn SmtSolver] {
+            let mut fresh = 0;
+            let ClaimApplication::Applied {
+                patterns,
+                remainder: Some(remainder),
+            } = apply_claim(
+                &definition,
+                &definition.reachability_claims[2],
+                &subject,
+                ProofOptions::default(),
+                solver,
+                &mut fresh,
+            )
+            else {
+                panic!("an undecidable requires should split the covered sub-case");
+            };
+            let [successor] = patterns.as_slice() else {
+                panic!("expected one claim successor, found {patterns:?}");
+            };
+            assert_eq!(successor.term, term(&definition, "end{}(X:SortInt{})"));
+            assert_eq!(successor.constraints, vec![expected.clone()]);
+            assert_eq!(remainder.pattern.term, subject.term);
+            assert_eq!(
+                remainder.pattern.constraints,
+                vec![crate::rule::Predicate::Not(Box::new(expected.clone()))]
+            );
+        }
+    }
+
+    #[test]
+    fn solver_unknown_on_claim_requires_stays_indeterminate() {
+        let definition = claim_requires_definition();
+        let subject = Pattern {
+            term: term(&definition, "middle{}(X:SortInt{})"),
+            constraints: Vec::new(),
+        };
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Unknown("timeout".into())),
+        };
+        let mut fresh = 0;
+
+        assert!(matches!(
+            apply_claim(
+                &definition,
+                &definition.reachability_claims[2],
+                &subject,
+                ProofOptions::default(),
+                &solver,
+                &mut fresh,
+            ),
+            ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(
+                SmtError::Unknown(reason)
+            )) if reason == "timeout"
+        ));
     }
 
     const NON_TERMINATING_SIMPLIFIER: &str = r#"
