@@ -95,6 +95,7 @@ fn check_module_with_options_and_catalog(
         .priorities(module)
         .map_err(Error::CircularPriority)?;
     let production_catalog = definition.production_catalog(module);
+    let overloads = definition.overloads(module).ok();
     let rule_catalog = definition.rule_catalog(module);
     let macro_labels = rule_catalog.all_macro_labels(&production_catalog);
     let mut diagnostics = check_attributes(definition.module(module))
@@ -121,10 +122,11 @@ fn check_module_with_options_and_catalog(
             sort_catalog,
         ))
         .chain(check_klabels(&sentences, &production_catalog, sort_catalog))
-        .chain(check_attribute_semantics(
+        .chain(attributes::check_attribute_semantics_with_overloads(
             &sentences,
             &production_catalog,
             sort_catalog,
+            overloads.as_ref(),
         ))
         .chain(check_deprecated_productions(
             &sentences,
