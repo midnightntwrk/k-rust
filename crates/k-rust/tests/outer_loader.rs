@@ -354,6 +354,8 @@ fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
 fn parses_and_expands_configurations_with_visible_user_syntax() {
     let source = indoc! {r#"
         module MAIN
+          syntax K
+          syntax Map
           syntax Int ::= r"[0-9]+" [token]
           configuration <top><k> $PGM:Int </k><counter> 0 </counter></top>
         endmodule
@@ -389,9 +391,11 @@ fn parses_and_expands_configurations_with_visible_user_syntax() {
 fn imports_the_default_configuration_and_map_module_implicitly() {
     let implicit = indoc! {r#"
         module MAP
+          syntax Map
         endmodule
 
         module DEFAULT-CONFIGURATION
+          syntax K
           configuration <k> $PGM:K </k>
         endmodule
     "#};
@@ -442,6 +446,8 @@ fn imports_the_default_configuration_and_map_module_implicitly() {
 fn imports_default_configuration_into_distinct_configuration_module() {
     let implicit = indoc! {r#"
         module DEFAULT-CONFIGURATION
+          syntax K
+          syntax Map
           configuration <k> $PGM:K </k>
         endmodule
     "#};
@@ -662,6 +668,8 @@ fn reference_load_rejects_undefined_sorts_and_duplicate_user_lists() {
 fn temporary_cell_sort_declarations_are_removed_after_expansion() {
     let source = indoc! {r#"
         module CHECKCELLSORTDECLOK-SYNTAX
+          syntax K
+          syntax Map
           syntax Pgm
         endmodule
 
@@ -691,6 +699,8 @@ fn temporary_cell_sort_declarations_are_removed_after_expansion() {
 fn load_rechecks_sorts_after_configuration_expansion() {
     let source = indoc! {r#"
         module CHECKCELLSORTDECLFAIL-SYNTAX
+          syntax K
+          syntax Map
           syntax Pgm
         endmodule
 
