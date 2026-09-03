@@ -50,12 +50,12 @@ use k_rust_backend::{
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
-        execute_with_solver_and_observer,
+        execute_disjunction_with_solver_and_observer,
     },
     rule::{Predicate, RulePatternError},
     search::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
-        SearchType, match_disjunction, search_pattern_with_solver,
+        SearchType, match_disjunction, search_pattern_disjunction_with_solver,
     },
     session::BackendSession,
     simplify::{
@@ -1582,10 +1582,10 @@ fn krun(options: KrunOptions) -> Result<(), Box<dyn Error>> {
     let initial = backend.internalize_frontend_term(&initial, &[])?;
     let output = run_backend(
         &backend,
-        Pattern {
+        vec![Pattern {
             term: initial,
             constraints: Vec::new(),
-        },
+        }],
         BackendRunOptions {
             depth: options.depth,
             max_simplification_iterations: options.max_simplification_iterations,
@@ -1631,7 +1631,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<(), Box<dyn Error>> {
         session.add_module(&source, module, true)?;
     }
     let backend = session.definition(None)?;
-    let initial = load_backend_pattern(&backend, &options.pattern, "initial")?;
+    let initial = load_backend_patterns(&backend, &options.pattern, "initial")?;
     let output = run_backend(
         &backend,
         initial,
@@ -2322,10 +2322,13 @@ fn pattern_match_error(error: PatternMatchError) -> io::Error {
 
 fn run_backend(
     backend: &BackendDefinition,
-    initial: Pattern,
+    initial: Vec<Pattern>,
     options: BackendRunOptions,
 ) -> Result<KorePattern, Box<dyn Error>> {
-    let output_sort = externalize::sort(&initial.term.sort());
+    let Some(first_initial) = initial.first() else {
+        return Err(io::Error::other("initial pattern has no live disjuncts").into());
+    };
+    let output_sort = externalize::sort(&first_initial.term.sort());
     let solver = Z3Solver::with_options(backend, options.smt)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
     if let Some(search) = options.search {
@@ -2334,9 +2337,9 @@ fn run_backend(
         }
         let target = match search.pattern {
             Some(path) => load_backend_pattern(backend, &path, "search")?,
-            None => default_search_pattern(&initial),
+            None => default_search_pattern(first_initial),
         };
-        let result = search_pattern_with_solver(
+        let result = search_pattern_disjunction_with_solver(
             backend,
             initial,
             &target,
@@ -2372,7 +2375,7 @@ fn run_backend(
         }
         return Ok(search_output(&result, &output_sort));
     }
-    let execution = execute_with_solver_and_observer(
+    let execution = execute_disjunction_with_solver_and_observer(
         backend,
         initial,
         ExecutionOptions {
@@ -2463,6 +2466,19 @@ fn load_backend_pattern(
 ) -> Result<Pattern, Box<dyn Error>> {
     let input = fs::read(path)?;
     decode_backend_pattern(definition, path, purpose, &input)
+}
+
+fn load_backend_patterns(
+    definition: &BackendDefinition,
+    path: &Path,
+    purpose: &str,
+) -> Result<Vec<Pattern>, Box<dyn Error>> {
+    let input = fs::read(path)?;
+    let syntax = decode_kore_syntax(path, purpose, &input)?;
+    definition.verify_standalone_pattern(&syntax)?;
+    definition
+        .internalize_disjunction(&syntax, &[])
+        .map_err(Into::into)
 }
 
 fn load_kore_syntax(path: &Path, purpose: &str) -> Result<KorePattern, Box<dyn Error>> {

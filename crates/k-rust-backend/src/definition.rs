@@ -465,7 +465,9 @@ impl BackendDefinition {
                 | ClassifiedAxiom::Ceil { attributes, .. } => attributes.executable,
             })
             .map(|axiom| internalize_axiom(&result, axiom))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten();
         for rule in rules {
             match rule {
                 InternalizedRule::Term(kind, rule) => {
@@ -490,8 +492,10 @@ impl BackendDefinition {
             .claims
             .iter()
             .map(|claim| internalize_reachability_claim(&result, claim))
-            .filter_map(Result::transpose)
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect();
         result.finite_sort_constructors = collect_finite_sort_constructors(&result);
         crate::definedness::discharge_rewrite_definedness(&mut result);
         Ok(result)
@@ -709,15 +713,12 @@ impl BackendDefinition {
         sort_variables: &[Name],
     ) -> Result<Vec<Pattern>, DefinitionError> {
         let pattern = expand_aliases(pattern, &self.aliases)?;
-        let mut alternatives = Vec::new();
-        flatten_or(&pattern, &mut alternatives);
-        alternatives
+        crate::rule::term_disjuncts(&pattern)
             .into_iter()
-            .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
             .map(|alternative| {
                 let (term, constraints) = internalize_rule_pattern(
                     self,
-                    alternative,
+                    &alternative,
                     sort_variables,
                     SubsortValidation::Check,
                 )?;

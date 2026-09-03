@@ -291,7 +291,7 @@ pub fn search_graph_observed_with_solver(
 ) -> SearchResult {
     search_graph_using(
         definition,
-        initial,
+        vec![initial],
         options,
         solver,
         Some(observation),
@@ -306,28 +306,48 @@ pub fn search_graph_with_solver_and_observer(
     solver: &dyn SmtSolver,
     mut observe: impl FnMut(&BuiltinEffect),
 ) -> SearchResult {
+    search_graph_using(
+        definition,
+        vec![initial],
+        options,
+        solver,
+        None,
+        &mut observe,
+    )
+}
+
+pub fn search_graph_disjunction_with_solver_and_observer(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    mut observe: impl FnMut(&BuiltinEffect),
+) -> SearchResult {
     search_graph_using(definition, initial, options, solver, None, &mut observe)
 }
 
 fn search_graph_using(
     definition: &BackendDefinition,
-    initial: Pattern,
+    initial: Vec<Pattern>,
     options: SearchOptions,
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
 ) -> SearchResult {
     let mut observation_log = ObservationLog::default();
-    let mut pending = VecDeque::from([SearchWorkState {
-        state: SearchState {
-            pattern: initial,
-            depth: 0,
-            trace: Vec::new(),
-            branch: Vec::new(),
-            observations: Vec::new(),
-        },
-        observation: None,
-    }]);
+    let mut pending = initial
+        .into_iter()
+        .map(|pattern| SearchWorkState {
+            state: SearchState {
+                pattern,
+                depth: 0,
+                trace: Vec::new(),
+                branch: Vec::new(),
+                observations: Vec::new(),
+            },
+            observation: None,
+        })
+        .collect::<VecDeque<_>>();
     let mut states = Vec::new();
     let mut effects = Vec::new();
     let mut incomplete = Vec::new();
@@ -1047,6 +1067,16 @@ pub fn search_pattern_with_solver(
     options: SearchOptions,
     solver: &dyn SmtSolver,
 ) -> PatternSearchResult {
+    search_pattern_using(definition, vec![initial], target, options, solver, None)
+}
+
+pub fn search_pattern_disjunction_with_solver(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    target: &Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+) -> PatternSearchResult {
     search_pattern_using(definition, initial, target, options, solver, None)
 }
 
@@ -1079,7 +1109,7 @@ pub fn search_pattern_observed_with_solver(
 ) -> PatternSearchResult {
     search_pattern_using(
         definition,
-        initial,
+        vec![initial],
         target,
         options,
         solver,
@@ -1089,7 +1119,7 @@ pub fn search_pattern_observed_with_solver(
 
 fn search_pattern_using(
     definition: &BackendDefinition,
-    initial: Pattern,
+    initial: Vec<Pattern>,
     target: &Pattern,
     options: SearchOptions,
     solver: &dyn SmtSolver,
@@ -1108,14 +1138,21 @@ fn search_pattern_using(
         ..options
     };
     let graph = match observation {
-        Some(observation) => search_graph_observed_with_solver(
+        Some(observation) => search_graph_using(
             definition,
             initial,
             graph_options,
             solver,
-            observation,
+            Some(observation),
+            |_| {},
         ),
-        None => search_graph_with_solver(definition, initial, graph_options, solver),
+        None => search_graph_disjunction_with_solver_and_observer(
+            definition,
+            initial,
+            graph_options,
+            solver,
+            |_| {},
+        ),
     };
     let mut matches = Vec::new();
     let mut incomplete = graph.incomplete;

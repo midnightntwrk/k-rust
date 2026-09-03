@@ -71,6 +71,7 @@ pub struct ComputedRuleAttributes {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RewriteRule {
     pub lhs: Term,
+    pub lhs_alternative: Option<usize>,
     pub rhs: RuleRhs,
     pub requires: Vec<Predicate>,
     pub ensures: Vec<Predicate>,
@@ -88,8 +89,15 @@ pub struct PredicateRewriteRule {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RhsAlternative {
+    pub term: Term,
+    pub ensures: Vec<Predicate>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuleRhs {
     Term(Term),
+    Disjunction(Vec<RhsAlternative>),
     Bottom,
     Predicates(Vec<Predicate>),
 }
@@ -126,6 +134,7 @@ pub enum InternalizedRule {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RulePatternError {
     MissingTerm,
+    TermDisjunction,
     UnsupportedPredicate(&'static str),
     BinderSortMismatch(Variable),
 }
@@ -350,7 +359,7 @@ pub fn classify_axiom(
 pub fn internalize_axiom(
     definition: &BackendDefinition,
     axiom: &ClassifiedAxiom,
-) -> Result<InternalizedRule, DefinitionError> {
+) -> Result<Vec<InternalizedRule>, DefinitionError> {
     let subsort_validation = SubsortValidation::Ignore;
     match axiom {
         ClassifiedAxiom::Rewrite {
@@ -361,12 +370,8 @@ pub fn internalize_axiom(
             attributes,
             ..
         } => {
-            let (lhs, requires) =
-                internalize_rule_pattern(definition, lhs, sort_parameters, subsort_validation)?;
             let (rhs, ensures) =
                 internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
-            let lhs = rename_term(&lhs, |variable| prefixed(variable, "Rule#"));
-            let requires = rename_predicates(&requires, |variable| prefixed(variable, "Rule#"));
             let existential_variables = existentials
                 .iter()
                 .map(|variable| definition.internalize_variable(variable, sort_parameters))
@@ -383,18 +388,33 @@ pub fn internalize_axiom(
             let existentials = existential_variables
                 .iter()
                 .map(|variable| prefixed(variable, "Ex#"))
-                .collect();
-            Ok(InternalizedRule::Term(
-                RuleKind::Rewrite,
-                make_rule(
-                    lhs,
-                    rhs,
-                    requires,
-                    ensures,
-                    attributes.clone(),
-                    existentials,
-                ),
-            ))
+                .collect::<BTreeSet<_>>();
+            let lhs_alternatives = term_disjuncts(lhs);
+            let split = lhs_alternatives.len() > 1;
+            lhs_alternatives
+                .into_iter()
+                .enumerate()
+                .map(|(index, lhs)| {
+                    let (lhs, requires) = internalize_rule_pattern(
+                        definition,
+                        &lhs,
+                        sort_parameters,
+                        subsort_validation,
+                    )?;
+                    Ok(InternalizedRule::Term(
+                        RuleKind::Rewrite,
+                        make_rule(
+                            rename_term(&lhs, |variable| prefixed(variable, "Rule#")),
+                            rhs.clone(),
+                            rename_predicates(&requires, |variable| prefixed(variable, "Rule#")),
+                            ensures.clone(),
+                            attributes.clone(),
+                            existentials.clone(),
+                            split.then_some(index),
+                        ),
+                    ))
+                })
+                .collect()
         }
         ClassifiedAxiom::Simplification {
             sort_parameters,
@@ -417,12 +437,17 @@ pub fn internalize_axiom(
                     internalize_predicates(definition, rhs, sort_parameters, subsort_validation)?;
                 let rename = |variable: &Variable| prefixed(variable, "Eq#");
                 let mut lhs = rename_predicates(&[lhs], rename);
-                return Ok(InternalizedRule::Predicate(PredicateRewriteRule {
+                return Ok(vec![InternalizedRule::Predicate(PredicateRewriteRule {
                     lhs: lhs.pop().expect("one predicate was internalized"),
                     rhs: rename_predicates(&rhs, rename),
                     requires: rename_predicates(&requires, rename),
                     attributes: attributes.clone(),
-                }));
+                })]);
+            }
+            if contains_term_or(lhs) {
+                return Err(DefinitionError::RulePattern(
+                    RulePatternError::TermDisjunction,
+                ));
             }
             let lhs = definition.internalize_term_with_validation(
                 lhs,
@@ -434,7 +459,7 @@ pub fn internalize_axiom(
             let (rhs, ensures) =
                 internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
-            Ok(InternalizedRule::Term(
+            Ok(vec![InternalizedRule::Term(
                 RuleKind::Simplification,
                 make_rule(
                     rename_term(&lhs, rename),
@@ -443,8 +468,9 @@ pub fn internalize_axiom(
                     rename_predicates(&ensures, rename),
                     attributes.clone(),
                     BTreeSet::new(),
+                    None,
                 ),
-            ))
+            )])
         }
         ClassifiedAxiom::Function {
             sort_parameters,
@@ -455,6 +481,11 @@ pub fn internalize_axiom(
             attributes,
             ..
         } => {
+            if contains_term_or(lhs) {
+                return Err(DefinitionError::RulePattern(
+                    RulePatternError::TermDisjunction,
+                ));
+            }
             let mut lhs = definition.internalize_term_with_validation(
                 lhs,
                 sort_parameters,
@@ -482,7 +513,7 @@ pub fn internalize_axiom(
             let (rhs, ensures) =
                 internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
-            Ok(InternalizedRule::Term(
+            Ok(vec![InternalizedRule::Term(
                 RuleKind::Function,
                 make_rule(
                     rename_term(&lhs, rename),
@@ -491,8 +522,9 @@ pub fn internalize_axiom(
                     rename_predicates(&ensures, rename),
                     attributes.clone(),
                     BTreeSet::new(),
+                    None,
                 ),
-            ))
+            )])
         }
         ClassifiedAxiom::Ceil {
             sort_parameters,
@@ -515,10 +547,11 @@ pub fn internalize_axiom(
             let requires = rename_predicates(&requires, rename);
             let rhs = rename_predicates(&rhs, rename);
             let computed_attributes = computed_attributes([&lhs]);
-            Ok(InternalizedRule::Term(
+            Ok(vec![InternalizedRule::Term(
                 RuleKind::Ceil,
                 RewriteRule {
                     lhs,
+                    lhs_alternative: None,
                     rhs: RuleRhs::Predicates(rhs),
                     requires,
                     ensures: Vec::new(),
@@ -526,7 +559,7 @@ pub fn internalize_axiom(
                     computed_attributes,
                     existentials: BTreeSet::new(),
                 },
-            ))
+            )])
         }
     }
 }
@@ -568,6 +601,11 @@ pub(crate) fn internalize_rule_pattern(
     sort_parameters: &[Name],
     subsort_validation: SubsortValidation,
 ) -> Result<(Term, Vec<Predicate>), DefinitionError> {
+    if contains_term_or(pattern) {
+        return Err(DefinitionError::RulePattern(
+            RulePatternError::TermDisjunction,
+        ));
+    }
     let mut components = Vec::new();
     flatten_and(pattern, &mut components);
     let mut terms = Vec::new();
@@ -608,9 +646,31 @@ fn internalize_term_rhs(
     if contains_strict_bottom(pattern) {
         return Ok((RuleRhs::Bottom, Vec::new()));
     }
-    let (term, predicates) =
-        internalize_rule_pattern(definition, pattern, sort_parameters, subsort_validation)?;
-    Ok((RuleRhs::Term(term), predicates))
+    let alternatives = term_disjuncts(pattern);
+    match alternatives.as_slice() {
+        [] => Ok((RuleRhs::Bottom, Vec::new())),
+        [single] => {
+            let (term, predicates) =
+                internalize_rule_pattern(definition, single, sort_parameters, subsort_validation)?;
+            Ok((RuleRhs::Term(term), predicates))
+        }
+        many => Ok((
+            RuleRhs::Disjunction(
+                many.iter()
+                    .map(|alternative| {
+                        let (term, ensures) = internalize_rule_pattern(
+                            definition,
+                            alternative,
+                            sort_parameters,
+                            subsort_validation,
+                        )?;
+                        Ok(RhsAlternative { term, ensures })
+                    })
+                    .collect::<Result<Vec<_>, DefinitionError>>()?,
+            ),
+            Vec::new(),
+        )),
+    }
 }
 
 fn contains_strict_bottom(pattern: &kore::Pattern) -> bool {
@@ -849,6 +909,106 @@ pub(crate) fn contains_term_component(pattern: &kore::Pattern) -> bool {
     }
 }
 
+fn contains_term_or(pattern: &kore::Pattern) -> bool {
+    match pattern {
+        kore::Pattern::Or { arguments, .. } => arguments.iter().any(contains_term_component),
+        kore::Pattern::And { arguments, .. } => arguments.iter().any(contains_term_or),
+        kore::Pattern::Application { arguments, .. }
+        | kore::Pattern::AssociativeApplication { arguments, .. } => arguments
+            .iter()
+            .any(|argument| contains_term_or_in_context(argument, true)),
+        _ => false,
+    }
+}
+
+fn contains_term_or_in_context(pattern: &kore::Pattern, inside_term: bool) -> bool {
+    match pattern {
+        kore::Pattern::Or { arguments, .. } => {
+            inside_term || arguments.iter().any(contains_term_component)
+        }
+        kore::Pattern::And { arguments, .. } => arguments
+            .iter()
+            .any(|argument| contains_term_or_in_context(argument, inside_term)),
+        kore::Pattern::Application { arguments, .. }
+        | kore::Pattern::AssociativeApplication { arguments, .. } => arguments
+            .iter()
+            .any(|argument| contains_term_or_in_context(argument, true)),
+        _ => false,
+    }
+}
+
+pub(crate) fn distribute_term_or(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
+    distribute_term_or_with_context(pattern, false)
+}
+
+fn distribute_term_or_with_context(
+    pattern: &kore::Pattern,
+    inside_term: bool,
+) -> Vec<kore::Pattern> {
+    match pattern {
+        kore::Pattern::Or { arguments, .. }
+            if inside_term || arguments.iter().any(contains_term_component) =>
+        {
+            arguments
+                .iter()
+                .flat_map(|argument| distribute_term_or_with_context(argument, true))
+                .collect()
+        }
+        kore::Pattern::And { sort, arguments } => distribute_arguments(arguments, inside_term)
+            .into_iter()
+            .map(|arguments| kore::Pattern::And {
+                sort: sort.clone(),
+                arguments,
+            })
+            .collect(),
+        kore::Pattern::Application { symbol, arguments } => distribute_arguments(arguments, true)
+            .into_iter()
+            .map(|arguments| kore::Pattern::Application {
+                symbol: symbol.clone(),
+                arguments,
+            })
+            .collect(),
+        kore::Pattern::AssociativeApplication {
+            associativity,
+            symbol,
+            arguments,
+        } => distribute_arguments(arguments, true)
+            .into_iter()
+            .map(|arguments| kore::Pattern::AssociativeApplication {
+                associativity: *associativity,
+                symbol: symbol.clone(),
+                arguments,
+            })
+            .collect(),
+        _ => vec![pattern.clone()],
+    }
+}
+
+fn distribute_arguments(arguments: &[kore::Pattern], inside_term: bool) -> Vec<Vec<kore::Pattern>> {
+    let mut combinations = vec![Vec::new()];
+    for argument in arguments {
+        let alternatives = distribute_term_or_with_context(argument, inside_term);
+        combinations = combinations
+            .into_iter()
+            .flat_map(|prefix| {
+                alternatives.iter().cloned().map(move |alternative| {
+                    let mut combined = prefix.clone();
+                    combined.push(alternative);
+                    combined
+                })
+            })
+            .collect();
+    }
+    combinations
+}
+
+pub(crate) fn term_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
+    distribute_term_or(pattern)
+        .into_iter()
+        .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
+        .collect()
+}
+
 fn make_rule(
     lhs: Term,
     rhs: RuleRhs,
@@ -856,16 +1016,23 @@ fn make_rule(
     ensures: Vec<Predicate>,
     attributes: RuleAttributes,
     existentials: BTreeSet<Variable>,
+    lhs_alternative: Option<usize>,
 ) -> RewriteRule {
-    let mut computed_attributes = computed_attributes(std::iter::once(&lhs).chain(match &rhs {
-        RuleRhs::Term(rhs) => Some(rhs),
-        RuleRhs::Bottom | RuleRhs::Predicates(_) => None,
-    }));
+    let mut terms = vec![&lhs];
+    match &rhs {
+        RuleRhs::Term(rhs) => terms.push(rhs),
+        RuleRhs::Disjunction(alternatives) => {
+            terms.extend(alternatives.iter().map(|alternative| &alternative.term));
+        }
+        RuleRhs::Bottom | RuleRhs::Predicates(_) => {}
+    }
+    let mut computed_attributes = computed_attributes(terms);
     if attributes.preserves_definedness {
         computed_attributes.undefined_symbols.clear();
     }
     RewriteRule {
         lhs,
+        lhs_alternative,
         rhs,
         requires,
         ensures,
@@ -1013,9 +1180,18 @@ fn rename_term(term: &Term, rename: impl Fn(&Variable) -> Variable) -> Term {
     substitute(term, &substitution)
 }
 
-fn rename_rhs(rhs: RuleRhs, rename: impl Fn(&Variable) -> Variable) -> RuleRhs {
+fn rename_rhs(rhs: RuleRhs, rename: impl Copy + Fn(&Variable) -> Variable) -> RuleRhs {
     match rhs {
         RuleRhs::Term(term) => RuleRhs::Term(rename_term(&term, rename)),
+        RuleRhs::Disjunction(alternatives) => RuleRhs::Disjunction(
+            alternatives
+                .into_iter()
+                .map(|alternative| RhsAlternative {
+                    term: rename_term(&alternative.term, rename),
+                    ensures: rename_predicates(&alternative.ensures, rename),
+                })
+                .collect(),
+        ),
         RuleRhs::Bottom => RuleRhs::Bottom,
         RuleRhs::Predicates(_) => unreachable!("term rules cannot have predicate RHSs"),
     }
