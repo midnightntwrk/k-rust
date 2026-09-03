@@ -3,7 +3,7 @@ Lbl'-LT-'generatedTop'-GT-'{}(
     kseq{}(
       inj{SortList{}, SortKItem{}}(
         Lbl'Unds'List'Unds'{}(
-          LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("hel"))),
+          LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("hello"))),
           Lbl'Unds'List'Unds'{}(
             LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("ello"))),
             Lbl'Unds'List'Unds'{}(
