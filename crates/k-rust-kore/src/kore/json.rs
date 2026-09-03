@@ -2,7 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
+use super::{
+    ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind},
+    lexical::{self, Problem},
+};
 
 pub const FORMAT: &str = "KORE";
 pub const VERSION: u32 = 1;
@@ -10,15 +13,42 @@ pub const VERSION: u32 = 1;
 #[derive(Debug)]
 pub enum Error {
     Json(serde_json::Error),
+    Shape(String),
+    Lexical {
+        kind: &'static str,
+        text: String,
+        problems: Vec<Problem>,
+    },
     UnsupportedFormat(String),
     UnsupportedVersion(u32),
     EmptyAssociativeApplication,
+    EmptyMultiOr,
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Json(error) => error.fmt(f),
+            Self::Shape(message) => f.write_str(message),
+            Self::Lexical {
+                kind,
+                text,
+                problems,
+            } => {
+                write!(
+                    f,
+                    "Lexical {} in {kind} : {text}",
+                    if problems.len() == 1 {
+                        "error"
+                    } else {
+                        "errors"
+                    }
+                )?;
+                for problem in problems {
+                    write!(f, " * {problem}")?;
+                }
+                Ok(())
+            }
             Self::UnsupportedFormat(format) => write!(f, "unsupported KORE JSON format {format:?}"),
             Self::UnsupportedVersion(version) => {
                 write!(f, "unsupported KORE JSON version {version}")
@@ -26,6 +56,7 @@ impl std::fmt::Display for Error {
             Self::EmptyAssociativeApplication => {
                 f.write_str("associative application requires at least one argument")
             }
+            Self::EmptyMultiOr => f.write_str("MultiOr requires at least one argument"),
         }
     }
 }
@@ -72,6 +103,18 @@ fn decode_envelope(envelope: Envelope) -> Result<Pattern, Error> {
     envelope.term.try_into()
 }
 
+fn require_lexical(kind: &'static str, text: &str, problems: Vec<Problem>) -> Result<(), Error> {
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::Lexical {
+            kind,
+            text: text.to_owned(),
+            problems,
+        })
+    }
+}
+
 pub fn to_string(pattern: &Pattern) -> Result<String, Error> {
     Ok(serde_json::to_string(&Envelope {
         format: FORMAT.into(),
@@ -101,7 +144,7 @@ pub fn to_string_pretty(pattern: &Pattern) -> Result<String, Error> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "tag")]
+#[serde(tag = "tag", deny_unknown_fields)]
 enum JsonSort {
     SortVar { name: String },
     SortApp { name: String, args: Vec<JsonSort> },
@@ -132,7 +175,7 @@ impl From<JsonSort> for Sort {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "tag")]
+#[serde(tag = "tag", deny_unknown_fields)]
 enum JsonPattern {
     String {
         value: String,
@@ -158,13 +201,21 @@ enum JsonPattern {
     },
     And {
         sort: JsonSort,
-        #[serde(flatten)]
-        arguments: JsonArguments,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        patterns: Option<Vec<JsonPattern>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        first: Option<Box<JsonPattern>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        second: Option<Box<JsonPattern>>,
     },
     Or {
         sort: JsonSort,
-        #[serde(flatten)]
-        arguments: JsonArguments,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        patterns: Option<Vec<JsonPattern>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        first: Option<Box<JsonPattern>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        second: Option<Box<JsonPattern>>,
     },
     Not {
         sort: JsonSort,
@@ -245,6 +296,11 @@ enum JsonPattern {
         sort: JsonSort,
         value: String,
     },
+    MultiOr {
+        assoc: LeftRight,
+        sort: JsonSort,
+        argss: Vec<JsonPattern>,
+    },
     LeftAssoc {
         symbol: String,
         sorts: Vec<JsonSort>,
@@ -258,22 +314,47 @@ enum JsonPattern {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum JsonArguments {
-    Variadic {
-        patterns: Vec<JsonPattern>,
-    },
-    Binary {
-        first: Box<JsonPattern>,
-        second: Box<JsonPattern>,
-    },
+enum LeftRight {
+    Left,
+    Right,
 }
 
-impl JsonArguments {
-    fn into_patterns(self) -> Vec<JsonPattern> {
+impl JsonPattern {
+    fn check_lexical(&self) -> Result<(), Error> {
         match self {
-            Self::Variadic { patterns } => patterns,
-            Self::Binary { first, second } => vec![*first, *second],
+            Self::String { value } => {
+                require_lexical("string literal", value, lexical::latin1_problems(value))
+            }
+            Self::EVar { name, .. } => {
+                require_lexical("element variable", name, lexical::identifier_problems(name))
+            }
+            Self::SVar { name, .. } => {
+                require_lexical("set variable", name, lexical::set_variable_problems(name))
+            }
+            Self::App { name, .. } => {
+                require_lexical("app symbol", name, lexical::symbol_problems(name))
+            }
+            Self::Exists { var, .. } | Self::Forall { var, .. } => require_lexical(
+                "quantifier variable",
+                var,
+                lexical::identifier_problems(var),
+            ),
+            Self::Mu { var, .. } | Self::Nu { var, .. } => require_lexical(
+                "fixpoint expression variable",
+                var,
+                lexical::set_variable_problems(var),
+            ),
+            Self::DV { value, .. } => require_lexical(
+                "domain value string",
+                value,
+                lexical::latin1_problems(value),
+            ),
+            Self::LeftAssoc { symbol, .. } | Self::RightAssoc { symbol, .. } => require_lexical(
+                "left-assoc symbol",
+                symbol,
+                lexical::symbol_problems(symbol),
+            ),
+            _ => Ok(()),
         }
     }
 }
@@ -309,15 +390,15 @@ impl From<&Pattern> for JsonPattern {
             Pattern::Bottom { sort } => Self::Bottom { sort: sorts(sort) },
             Pattern::And { sort, arguments } => Self::And {
                 sort: sorts(sort),
-                arguments: JsonArguments::Variadic {
-                    patterns: arguments.iter().map(Into::into).collect(),
-                },
+                patterns: Some(arguments.iter().map(Into::into).collect()),
+                first: None,
+                second: None,
             },
             Pattern::Or { sort, arguments } => Self::Or {
                 sort: sorts(sort),
-                arguments: JsonArguments::Variadic {
-                    patterns: arguments.iter().map(Into::into).collect(),
-                },
+                patterns: Some(arguments.iter().map(Into::into).collect()),
+                first: None,
+                second: None,
             },
             Pattern::Not { sort, argument } => Self::Not {
                 sort: sorts(sort),
@@ -447,162 +528,236 @@ impl TryFrom<JsonPattern> for Pattern {
     type Error = Error;
 
     fn try_from(pattern: JsonPattern) -> Result<Self, Error> {
-        fn variable(kind: VariableKind, name: String, sort: JsonSort) -> Variable {
-            Variable {
-                kind,
-                name,
+        pattern.check_lexical()?;
+        match pattern {
+            JsonPattern::And {
+                sort,
+                patterns: variadic,
+                first,
+                second,
+            } => Ok(Self::And {
                 sort: sort.into(),
-            }
-        }
-        fn boxed(pattern: JsonPattern) -> Result<Box<Pattern>, Error> {
-            Ok(Box::new(pattern.try_into()?))
-        }
-        fn patterns(values: Vec<JsonPattern>) -> Result<Vec<Pattern>, Error> {
-            values.into_iter().map(TryInto::try_into).collect()
-        }
-        fn symbol(name: String, sorts: Vec<JsonSort>) -> Symbol {
-            Symbol {
-                name,
-                sort_parameters: sorts.into_iter().map(Into::into).collect(),
-            }
-        }
-        Ok(match pattern {
-            JsonPattern::String { value } => Self::String(value),
-            JsonPattern::EVar { name, sort } => {
-                Self::Variable(variable(VariableKind::Element, name, sort))
-            }
-            JsonPattern::SVar { name, sort } => {
-                Self::Variable(variable(VariableKind::Set, name, sort))
-            }
-            JsonPattern::App { name, sorts, args } => Self::Application {
-                symbol: symbol(name, sorts),
-                arguments: patterns(args)?,
-            },
-            JsonPattern::Top { sort } => Self::Top { sort: sort.into() },
-            JsonPattern::Bottom { sort } => Self::Bottom { sort: sort.into() },
-            JsonPattern::And { sort, arguments } => Self::And {
+                arguments: patterns(json_arguments(variadic, first, second)?)?,
+            }),
+            JsonPattern::Or {
+                sort,
+                patterns: variadic,
+                first,
+                second,
+            } => Ok(Self::Or {
                 sort: sort.into(),
-                arguments: patterns(arguments.into_patterns())?,
-            },
-            JsonPattern::Or { sort, arguments } => Self::Or {
-                sort: sort.into(),
-                arguments: patterns(arguments.into_patterns())?,
-            },
-            JsonPattern::Not { sort, arg } => Self::Not {
+                arguments: patterns(json_arguments(variadic, first, second)?)?,
+            }),
+            JsonPattern::MultiOr { assoc, sort, argss } => {
+                multi_or(assoc, sort.into(), patterns(argss)?)
+            }
+            JsonPattern::Not { sort, arg } => Ok(Self::Not {
                 sort: sort.into(),
                 argument: boxed(*arg)?,
-            },
-            JsonPattern::Next { sort, dest } => Self::Next {
-                sort: sort.into(),
-                argument: boxed(*dest)?,
-            },
-            JsonPattern::Implies {
-                sort,
-                first,
-                second,
-            } => Self::Implies {
-                sort: sort.into(),
-                left: boxed(*first)?,
-                right: boxed(*second)?,
-            },
-            JsonPattern::Iff {
-                sort,
-                first,
-                second,
-            } => Self::Iff {
-                sort: sort.into(),
-                left: boxed(*first)?,
-                right: boxed(*second)?,
-            },
-            JsonPattern::Rewrites { sort, source, dest } => Self::Rewrites {
-                sort: sort.into(),
-                left: boxed(*source)?,
-                right: boxed(*dest)?,
-            },
-            JsonPattern::Exists {
-                sort,
-                var,
-                var_sort,
-                arg,
-            } => Self::Exists {
-                sort: sort.into(),
-                variable: variable(VariableKind::Element, var, var_sort),
-                body: boxed(*arg)?,
-            },
-            JsonPattern::Forall {
-                sort,
-                var,
-                var_sort,
-                arg,
-            } => Self::Forall {
-                sort: sort.into(),
-                variable: variable(VariableKind::Element, var, var_sort),
-                body: boxed(*arg)?,
-            },
-            JsonPattern::Mu { var, var_sort, arg } => Self::Mu {
-                variable: variable(VariableKind::Set, var, var_sort),
-                body: boxed(*arg)?,
-            },
-            JsonPattern::Nu { var, var_sort, arg } => Self::Nu {
-                variable: variable(VariableKind::Set, var, var_sort),
-                body: boxed(*arg)?,
-            },
-            JsonPattern::Ceil {
-                arg_sort,
-                sort,
-                arg,
-            } => Self::Ceil {
-                operand_sort: arg_sort.into(),
-                result_sort: sort.into(),
-                argument: boxed(*arg)?,
-            },
-            JsonPattern::Floor {
-                arg_sort,
-                sort,
-                arg,
-            } => Self::Floor {
-                operand_sort: arg_sort.into(),
-                result_sort: sort.into(),
-                argument: boxed(*arg)?,
-            },
-            JsonPattern::Equals {
-                arg_sort,
-                sort,
-                first,
-                second,
-            } => Self::Equals {
-                operand_sort: arg_sort.into(),
-                result_sort: sort.into(),
-                left: boxed(*first)?,
-                right: boxed(*second)?,
-            },
-            JsonPattern::In {
-                arg_sort,
-                sort,
-                first,
-                second,
-            } => Self::In {
-                operand_sort: arg_sort.into(),
-                result_sort: sort.into(),
-                left: boxed(*first)?,
-                right: boxed(*second)?,
-            },
-            JsonPattern::DV { sort, value } => Self::DomainValue {
-                sort: sort.into(),
-                value,
-            },
-            JsonPattern::LeftAssoc {
-                symbol: name,
-                sorts,
-                argss,
-            } => associative(Associativity::Left, symbol(name, sorts), patterns(argss)?)?,
-            JsonPattern::RightAssoc {
-                symbol: name,
-                sorts,
-                argss,
-            } => associative(Associativity::Right, symbol(name, sorts), patterns(argss)?)?,
-        })
+            }),
+            pattern => convert_regular_pattern(pattern),
+        }
     }
+}
+
+fn variable(kind: VariableKind, name: String, sort: JsonSort) -> Variable {
+    Variable {
+        kind,
+        name,
+        sort: sort.into(),
+    }
+}
+
+fn boxed(pattern: JsonPattern) -> Result<Box<Pattern>, Error> {
+    Ok(Box::new(pattern.try_into()?))
+}
+
+fn patterns(values: Vec<JsonPattern>) -> Result<Vec<Pattern>, Error> {
+    values.into_iter().map(TryInto::try_into).collect()
+}
+
+fn symbol(name: String, sorts: Vec<JsonSort>) -> Symbol {
+    Symbol {
+        name,
+        sort_parameters: sorts.into_iter().map(Into::into).collect(),
+    }
+}
+
+fn convert_regular_pattern(pattern: JsonPattern) -> Result<Pattern, Error> {
+    Ok(match pattern {
+        JsonPattern::String { value } => Pattern::String(value),
+        JsonPattern::EVar { name, sort } => {
+            Pattern::Variable(variable(VariableKind::Element, name, sort))
+        }
+        JsonPattern::SVar { name, sort } => {
+            Pattern::Variable(variable(VariableKind::Set, name, sort))
+        }
+        JsonPattern::App { name, sorts, args } => Pattern::Application {
+            symbol: symbol(name, sorts),
+            arguments: patterns(args)?,
+        },
+        JsonPattern::Top { sort } => Pattern::Top { sort: sort.into() },
+        JsonPattern::Bottom { sort } => Pattern::Bottom { sort: sort.into() },
+        JsonPattern::Next { sort, dest } => Pattern::Next {
+            sort: sort.into(),
+            argument: boxed(*dest)?,
+        },
+        JsonPattern::Implies {
+            sort,
+            first,
+            second,
+        } => Pattern::Implies {
+            sort: sort.into(),
+            left: boxed(*first)?,
+            right: boxed(*second)?,
+        },
+        JsonPattern::Iff {
+            sort,
+            first,
+            second,
+        } => Pattern::Iff {
+            sort: sort.into(),
+            left: boxed(*first)?,
+            right: boxed(*second)?,
+        },
+        JsonPattern::Rewrites { sort, source, dest } => Pattern::Rewrites {
+            sort: sort.into(),
+            left: boxed(*source)?,
+            right: boxed(*dest)?,
+        },
+        JsonPattern::Exists {
+            sort,
+            var,
+            var_sort,
+            arg,
+        } => Pattern::Exists {
+            sort: sort.into(),
+            variable: variable(VariableKind::Element, var, var_sort),
+            body: boxed(*arg)?,
+        },
+        JsonPattern::Forall {
+            sort,
+            var,
+            var_sort,
+            arg,
+        } => Pattern::Forall {
+            sort: sort.into(),
+            variable: variable(VariableKind::Element, var, var_sort),
+            body: boxed(*arg)?,
+        },
+        JsonPattern::Mu { var, var_sort, arg } => Pattern::Mu {
+            variable: variable(VariableKind::Set, var, var_sort),
+            body: boxed(*arg)?,
+        },
+        JsonPattern::Nu { var, var_sort, arg } => Pattern::Nu {
+            variable: variable(VariableKind::Set, var, var_sort),
+            body: boxed(*arg)?,
+        },
+        JsonPattern::Ceil {
+            arg_sort,
+            sort,
+            arg,
+        } => Pattern::Ceil {
+            operand_sort: arg_sort.into(),
+            result_sort: sort.into(),
+            argument: boxed(*arg)?,
+        },
+        JsonPattern::Floor {
+            arg_sort,
+            sort,
+            arg,
+        } => Pattern::Floor {
+            operand_sort: arg_sort.into(),
+            result_sort: sort.into(),
+            argument: boxed(*arg)?,
+        },
+        JsonPattern::Equals {
+            arg_sort,
+            sort,
+            first,
+            second,
+        } => Pattern::Equals {
+            operand_sort: arg_sort.into(),
+            result_sort: sort.into(),
+            left: boxed(*first)?,
+            right: boxed(*second)?,
+        },
+        JsonPattern::In {
+            arg_sort,
+            sort,
+            first,
+            second,
+        } => Pattern::In {
+            operand_sort: arg_sort.into(),
+            result_sort: sort.into(),
+            left: boxed(*first)?,
+            right: boxed(*second)?,
+        },
+        JsonPattern::DV { sort, value } => Pattern::DomainValue {
+            sort: sort.into(),
+            value,
+        },
+        JsonPattern::LeftAssoc {
+            symbol: name,
+            sorts,
+            argss,
+        } => associative(Associativity::Left, symbol(name, sorts), patterns(argss)?)?,
+        JsonPattern::RightAssoc {
+            symbol: name,
+            sorts,
+            argss,
+        } => associative(Associativity::Right, symbol(name, sorts), patterns(argss)?)?,
+        JsonPattern::And { .. }
+        | JsonPattern::Or { .. }
+        | JsonPattern::Not { .. }
+        | JsonPattern::MultiOr { .. } => {
+            unreachable!("special JSON pattern handled before regular conversion")
+        }
+    })
+}
+
+fn json_arguments(
+    patterns: Option<Vec<JsonPattern>>,
+    first: Option<Box<JsonPattern>>,
+    second: Option<Box<JsonPattern>>,
+) -> Result<Vec<JsonPattern>, Error> {
+    if let Some(patterns) = patterns {
+        if first.is_some() {
+            return Err(Error::Shape("unknown field `first`".into()));
+        }
+        if second.is_some() {
+            return Err(Error::Shape("unknown field `second`".into()));
+        }
+        return Ok(patterns);
+    }
+
+    let first = first.ok_or_else(|| Error::Shape("missing field `first`".into()))?;
+    let second = second.ok_or_else(|| Error::Shape("missing field `second`".into()))?;
+    Ok(vec![*first, *second])
+}
+
+fn multi_or(
+    associativity: LeftRight,
+    sort: Sort,
+    arguments: Vec<Pattern>,
+) -> Result<Pattern, Error> {
+    let mut arguments = arguments.into_iter();
+    let first = arguments.next().ok_or(Error::EmptyMultiOr)?;
+
+    Ok(match associativity {
+        LeftRight::Left => arguments.fold(first, |left, right| Pattern::Or {
+            sort: sort.clone(),
+            arguments: vec![left, right],
+        }),
+        LeftRight::Right => {
+            let mut arguments = std::iter::once(first).chain(arguments).rev();
+            let last = arguments.next().expect("MultiOr has at least one argument");
+            arguments.fold(last, |right, left| Pattern::Or {
+                sort: sort.clone(),
+                arguments: vec![left, right],
+            })
+        }
+    })
 }
 
 fn associative(
