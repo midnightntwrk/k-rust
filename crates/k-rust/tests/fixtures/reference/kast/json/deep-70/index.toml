@@ -1,0 +1,23 @@
+schema = 1
+case = "deep-70"
+subsystem = "kast-json"
+source_ticket = "B3-06"
+harvested_from = "draft/fable51-review/fixtures/b3-kast"
+k_version = "7.1.337"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+
+[[input]]
+file = "test.k"
+sha256 = "5f8f2026d4e60d659998d1fd19050bf742f4666ff99127fbf1a1181a3924edd0"
+
+[[input]]
+file = "p2.test"
+sha256 = "6156d176bdfb1515b4ad8d57929a4a08126ddf7c13220c4f0e84bc5c7759c952"
+
+[[artifact]]
+file = "ref-p2.json"
+command = "kompile test.k --backend haskell --output-definition ref && kast --definition ref --output json p2.test > ref-p2.json"
+tool = "kompile + kast"
+exit_code = 0
+json_depth = 146
+sha256 = "1ed42c88e17f1ee916e1704f6c613791a422410dc3cd9073db0dbb950c0309e6"
