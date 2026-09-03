@@ -328,6 +328,7 @@ pub enum SearchFailureOutput {
         rule: String,
         predicates: Vec<Value>,
     },
+    /// Never emitted since C3-03; kept so older outputs still deserialize.
     Concreteness {
         rule: String,
         variable: Value,
@@ -855,12 +856,6 @@ fn indeterminate_failure_output(
             rule: rule_id,
             predicates: predicates_output(predicates, result_sort)?,
         },
-        IndeterminateReason::Concreteness { rule_id, variable } => {
-            SearchFailureOutput::Concreteness {
-                rule: rule_id,
-                variable: encode_variable(&variable)?,
-            }
-        }
         IndeterminateReason::Smt { rule_id, error } => SearchFailureOutput::Smt {
             rule: Some(rule_id),
             error: smt_failure_output(error, result_sort)?,

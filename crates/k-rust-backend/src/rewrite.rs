@@ -140,10 +140,6 @@ pub enum IndeterminateReason {
         rule_id: String,
         predicates: Vec<Predicate>,
     },
-    Concreteness {
-        rule_id: String,
-        variable: Variable,
-    },
     Smt {
         rule_id: String,
         error: SmtError,
@@ -2489,12 +2485,6 @@ fn apply_rule_with_match(
         }
     }
 
-    if let Some(variable) = check_concreteness(rule, &substitution) {
-        return RuleAttempt::Indeterminate(IndeterminateReason::Concreteness {
-            rule_id: rule.attributes.unique_id.clone(),
-            variable,
-        });
-    }
     let requires = substitute_predicates(&rule.requires, &substitution);
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
@@ -3739,6 +3729,8 @@ fn extend_unique(predicates: &mut Vec<Predicate>, added: impl IntoIterator<Item 
     }
 }
 
+/// Checks the equation-only `concrete` and `symbolic` application attributes.
+/// Rewrite rules never call this: Booster and Kore consult these attributes only for equations.
 pub(crate) fn check_concreteness(
     rule: &RewriteRule,
     substitution: &Substitution,
