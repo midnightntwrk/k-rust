@@ -2131,7 +2131,10 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::term::{Sort, Variable};
+    use crate::{
+        diagnostic::{self, BackendDiagnostic},
+        term::{Sort, Variable},
+    };
 
     fn definition(axioms: &str) -> BackendDefinition {
         let source = format!(
@@ -3907,16 +3910,25 @@ mod tests {
     fn standalone_predicate_simplification_keeps_the_residual_on_smt_unknown() {
         let definition = definition("");
         let predicate = Predicate::Term(term(&definition, "X:SortS{}"));
-        let result = simplify_and_decide_predicate_with_solver(
-            &definition,
-            &predicate,
-            &[],
-            SimplificationOptions::default(),
-            &FixedValiditySolver(Validity::Unknown("incomplete arithmetic".into())),
-        )
-        .expect("SMT unknown should preserve the residual predicate");
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_and_decide_predicate_with_solver(
+                &definition,
+                &predicate,
+                &[],
+                SimplificationOptions::default(),
+                &FixedValiditySolver(Validity::Unknown("incomplete arithmetic".into())),
+            )
+        });
+        let result = result.expect("SMT unknown should preserve the residual predicate");
 
         assert_eq!(result, predicate);
+        assert_eq!(
+            diagnostics,
+            [BackendDiagnostic::UndecidedPredicate {
+                predicate,
+                reason: ConditionIndeterminacy::SmtUnknown("incomplete arithmetic".into()),
+            }]
+        );
     }
 
     #[test]
@@ -3924,17 +3936,27 @@ mod tests {
         let definition = conditional_nullary_function();
         let input = term(&definition, "f{}()");
 
-        let result = simplify_with_solver(
-            &definition,
-            &input,
-            &[],
-            SimplificationOptions::default(),
-            &FixedValiditySolver(Validity::Unknown("timeout".into())),
-        )
-        .expect("SMT unknown should not be a simplification error");
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                &FixedValiditySolver(Validity::Unknown("timeout".into())),
+            )
+        });
+        let result = result.expect("SMT unknown should not be a simplification error");
 
         assert_eq!(result.term, input);
         assert!(result.applied_rules.is_empty());
+        assert!(matches!(
+            diagnostics.as_slice(),
+            [BackendDiagnostic::UndecidedCondition {
+                rule_id,
+                reason: ConditionIndeterminacy::SmtUnknown(reason),
+                predicates,
+            }] if rule_id == "conditional" && reason == "timeout" && predicates.len() == 1
+        ));
     }
 
     #[test]
@@ -3980,16 +4002,26 @@ mod tests {
         let definition = conditional_nullary_function();
         let input = term(&definition, "f{}()");
 
-        let result = simplify_with_solver(
-            &definition,
-            &input,
-            &[],
-            SimplificationOptions::default(),
-            &FixedValiditySolver(Validity::InconsistentGroundTruth),
-        )
-        .expect("an inconsistent path condition should not be a simplification error");
+        let (result, diagnostics) = diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                &FixedValiditySolver(Validity::InconsistentGroundTruth),
+            )
+        });
+        let result = result.expect("an inconsistent path condition should not be an error");
 
         assert_eq!(result.term, input);
         assert!(result.applied_rules.is_empty());
+        assert!(matches!(
+            diagnostics.as_slice(),
+            [BackendDiagnostic::UndecidedCondition {
+                rule_id,
+                reason: ConditionIndeterminacy::InconsistentPathCondition,
+                predicates,
+            }] if rule_id == "conditional" && predicates.len() == 1
+        ));
     }
 }
