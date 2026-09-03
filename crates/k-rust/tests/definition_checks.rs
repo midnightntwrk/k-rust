@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
-    Associativity, Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE,
+    Associativity, Attributes, CheckMode, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE,
     PartialOrder, ProductionCatalog, ProductionItem, ResolvedModule, SOURCE_ATTRIBUTE, Sentence,
     SortCatalog, StructuralCheckBackend, StructuralCheckOptions, check_anonymous_variables,
     check_associativity, check_attribute_semantics, check_attributes, check_configuration_cells,
@@ -87,6 +87,248 @@ fn production(
             .collect(),
         attributes,
     }
+}
+
+fn i107_syntax_sort(sort: &str) -> Sentence {
+    Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new(sort),
+        attributes: Attributes::default(),
+    }
+}
+
+fn resolved_definition(
+    main_module: &str,
+    modules: Vec<FlatModule>,
+) -> k_rust::definition::ResolvedDefinition {
+    k_rust::definition::ResolvedDefinition::resolve(&Definition {
+        main_module: main_module.into(),
+        modules,
+        attributes: Attributes::default(),
+    })
+    .unwrap()
+}
+
+#[test]
+fn claims_are_rejected_in_definitions_and_allowed_in_spec_modules() {
+    let claim = Sentence::Claim {
+        body: rewrite(token("0"), token("0")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: located(),
+    };
+    let definition = resolved_definition(
+        "MAIN",
+        vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                i107_syntax_sort("Int"),
+                i107_syntax_sort("Bool"),
+                claim.clone(),
+            ],
+            attributes: Attributes::default(),
+        }],
+    );
+    let diagnostics = k_rust::definition::check_definition_with_options(
+        &definition,
+        StructuralCheckOptions::default(),
+    )
+    .unwrap();
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == DiagnosticCode::ClaimInDefinition
+            && diagnostic.message == "Claims are not allowed in the definition."
+    }));
+
+    let proof = resolved_definition(
+        "SPEC",
+        vec![
+            FlatModule {
+                name: "DEF".into(),
+                imports: Vec::new(),
+                local_sentences: vec![i107_syntax_sort("Int"), i107_syntax_sort("Bool")],
+                attributes: Attributes::default(),
+            },
+            FlatModule {
+                name: "SPEC".into(),
+                imports: vec![FlatImport {
+                    name: "DEF".into(),
+                    public: true,
+                }],
+                local_sentences: vec![claim],
+                attributes: Attributes::default(),
+            },
+        ],
+    );
+    let diagnostics = k_rust::definition::check_definition_with_options(
+        &proof,
+        StructuralCheckOptions {
+            mode: CheckMode::Proof {
+                definition_module: "DEF".into(),
+            },
+            ..StructuralCheckOptions::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::ClaimInDefinition })
+    );
+}
+
+#[test]
+fn proof_modules_admit_only_claims_simplifications_and_existing_sort_tokens() {
+    let ordinary_rule = Sentence::Rule {
+        body: rewrite(token("0"), token("0")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: located(),
+    };
+    let simplification_rule = Sentence::Rule {
+        body: rewrite(token("0"), token("0")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("simplification", json!(""))]),
+    };
+    let existing_token = Sentence::Production {
+        label: None,
+        parameters: Vec::new(),
+        sort: Sort::new("Int"),
+        items: vec![ProductionItem::RegexTerminal {
+            regex: "[0-9]+".into(),
+            precede_regex: None,
+            follow_regex: None,
+        }],
+        attributes: attrs(&[("token", json!(""))]),
+    };
+    let proof = resolved_definition(
+        "SPEC",
+        vec![
+            FlatModule {
+                name: "DEF".into(),
+                imports: Vec::new(),
+                local_sentences: vec![i107_syntax_sort("Int"), i107_syntax_sort("Bool")],
+                attributes: Attributes::default(),
+            },
+            FlatModule {
+                name: "SPEC".into(),
+                imports: vec![FlatImport {
+                    name: "DEF".into(),
+                    public: true,
+                }],
+                local_sentences: vec![
+                    i107_syntax_sort("Fresh"),
+                    production(Some("fresh"), "Fresh", &[], Attributes::default()),
+                    existing_token,
+                    ordinary_rule,
+                    simplification_rule,
+                ],
+                attributes: Attributes::default(),
+            },
+        ],
+    );
+    let diagnostics = k_rust::definition::check_definition_with_options(
+        &proof,
+        StructuralCheckOptions {
+            mode: CheckMode::Proof {
+                definition_module: "DEF".into(),
+            },
+            ..StructuralCheckOptions::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::ProofModuleSyntax)
+            .count(),
+        2
+    );
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::ProofModuleRule)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn is_sort_predicate_conflicts_match_kompile() {
+    let predicate = |name: &str, arguments: &[&str]| Sentence::Production {
+        label: Some(Label::new(name)),
+        parameters: Vec::new(),
+        sort: Sort::new("Bool"),
+        items: std::iter::once(ProductionItem::Terminal(name.into()))
+            .chain(std::iter::once(ProductionItem::Terminal("(".into())))
+            .chain(arguments.iter().map(|sort| ProductionItem::NonTerminal {
+                sort: Sort::new(*sort),
+                name: None,
+            }))
+            .chain(std::iter::once(ProductionItem::Terminal(")".into())))
+            .collect(),
+        attributes: attrs(&[("function", json!(""))]),
+    };
+    let definition = resolved_definition(
+        "MAIN",
+        vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                i107_syntax_sort("Bool"),
+                i107_syntax_sort("KItem"),
+                i107_syntax_sort("Foo"),
+                i107_syntax_sort("NonAddr"),
+                predicate("isNonAddr", &["KItem"]),
+                predicate("isNonAddr", &["Foo"]),
+                predicate("isNonAddr", &["KItem", "KItem"]),
+                predicate("isFoo", &["Foo"]),
+                predicate("isnonaddr", &["KItem"]),
+                predicate("isNotASort", &["KItem"]),
+            ],
+            attributes: Attributes::default(),
+        }],
+    );
+    let diagnostics = k_rust::definition::check_definition(&definition).unwrap();
+    let conflicts = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::IsSortPredicateConflict)
+        .collect::<Vec<_>>();
+    assert_eq!(conflicts.len(), 4);
+    assert!(conflicts.iter().all(|diagnostic| {
+        diagnostic
+            .message
+            .starts_with("Syntax declaration conflicts with automatically generated is")
+    }));
+}
+
+#[test]
+fn requires_binders_bind_anonymous_variables_for_the_symbolic_backend() {
+    let anonymous = Term::variable("_");
+    let sentence = Sentence::Rule {
+        body: rewrite(token("0"), anonymous.clone()),
+        requires: Term::apply(
+            "#Exists",
+            vec![anonymous.clone(), Term::apply("predicate", vec![anonymous])],
+        ),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    let diagnostics = check_rhs_variables(
+        &[&sentence],
+        StructuralCheckOptions {
+            symbolic: true,
+            backend: StructuralCheckBackend::Rust,
+            ..StructuralCheckOptions::default()
+        },
+    );
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::UnboundVariable })
+    );
 }
 
 #[test]
