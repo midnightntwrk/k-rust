@@ -2019,7 +2019,11 @@ mod tests {
             let selected = search_graph(
                 &definition,
                 initial(&definition),
-                SearchOptions { search_type, ..SearchOptions::default() },
+                SearchOptions {
+                    search_type,
+                    max_depth,
+                    ..SearchOptions::default()
+                },
             );
             let closure = search_graph(
                 &definition,
