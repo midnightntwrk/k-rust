@@ -83,6 +83,9 @@ pub enum SimplificationError {
         rule_id: String,
         alternatives: usize,
     },
+    TopEquationOutsideConjunction {
+        rule_id: String,
+    },
     Smt {
         rule_id: String,
         error: SmtError,
@@ -1567,6 +1570,69 @@ fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
         .unwrap_or(rebuilt)
 }
 
+fn matches_top_equation(
+    definition: &BackendDefinition,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<Option<String>, SimplificationError> {
+    for rules in applicable_groups(&definition.simplification_theory, &term_index(term)).values() {
+        for rule in rules {
+            if !matches!(rule.rhs, RuleRhs::Top) {
+                continue;
+            }
+            let substitution =
+                match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
+                    MatchResult::Failed(_) => continue,
+                    MatchResult::Indeterminate {
+                        substitution,
+                        remainder,
+                    } => {
+                        let Some(matches) = match_collection_remainders_all_in_definition(
+                            MatchMode::Evaluate,
+                            definition,
+                            substitution,
+                            &remainder,
+                        ) else {
+                            continue;
+                        };
+                        let Some(substitution) = matches.into_iter().next() else {
+                            continue;
+                        };
+                        substitution
+                    }
+                    MatchResult::Success(substitution) => substitution,
+                };
+            if substitution
+                .keys()
+                .any(|variable| !rule.lhs.attributes().variables.contains(variable))
+                || check_concreteness(rule, &substitution).is_some()
+            {
+                continue;
+            }
+            let requires = substitute_predicates(&rule.requires, &substitution);
+            if matches!(
+                evaluate_rule_condition(
+                    definition,
+                    &rule.attributes.unique_id,
+                    Some(term),
+                    requires,
+                    known_predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )?,
+                RuleCondition::Satisfied
+            ) {
+                return Ok(Some(rule.attributes.unique_id.clone()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 fn simplify_children(
     definition: &BackendDefinition,
     term: &Term,
@@ -1600,7 +1666,43 @@ fn simplify_children(
         Ok::<_, SimplificationError>(result.term)
     };
     let term = match term.kind() {
-        TermKind::And(left, right) => Term::and(child(left)?, child(right)?),
+        TermKind::And(left, right) => {
+            let options = SimplificationOptions {
+                max_iterations: limit,
+            };
+            let left_top = matches_top_equation(
+                definition,
+                left,
+                assumptions.predicates,
+                options,
+                active_conditions,
+                solver,
+            )?;
+            let right_top = matches_top_equation(
+                definition,
+                right,
+                assumptions.predicates,
+                options,
+                active_conditions,
+                solver,
+            )?;
+            match (left_top, right_top) {
+                (Some(rule_id), None) => {
+                    let retained = child(right)?;
+                    applied_rules.push(rule_id);
+                    retained
+                }
+                (None, Some(rule_id)) => {
+                    let retained = child(left)?;
+                    applied_rules.push(rule_id);
+                    retained
+                }
+                (None, None) => Term::and(child(left)?, child(right)?),
+                (Some(rule_id), Some(_)) => {
+                    return Err(SimplificationError::TopEquationOutsideConjunction { rule_id });
+                }
+            }
+        }
         TermKind::Application {
             symbol,
             sort_arguments,
@@ -1941,6 +2043,11 @@ fn apply_equation(
                 .collect(),
             true,
         ),
+        RuleRhs::Top => {
+            return Err(SimplificationError::TopEquationOutsideConjunction {
+                rule_id: rule.attributes.unique_id.clone(),
+            });
+        }
         RuleRhs::Predicates(_) => return Ok(EquationAttempt::NotApplicable),
     };
     let mut live = Vec::new();

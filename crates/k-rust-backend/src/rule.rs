@@ -98,6 +98,7 @@ pub struct RhsAlternative {
 pub enum RuleRhs {
     Term(Term),
     Disjunction(Vec<RhsAlternative>),
+    Top,
     Bottom,
     Predicates(Vec<Predicate>),
 }
@@ -372,6 +373,9 @@ pub fn internalize_axiom(
         } => {
             let (rhs, ensures) =
                 internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
+            if matches!(rhs, RuleRhs::Top) {
+                return Err(DefinitionError::RulePattern(RulePatternError::MissingTerm));
+            }
             let existential_variables = existentials
                 .iter()
                 .map(|variable| definition.internalize_variable(variable, sort_parameters))
@@ -645,6 +649,15 @@ fn internalize_term_rhs(
 ) -> Result<(RuleRhs, Vec<Predicate>), DefinitionError> {
     if contains_strict_bottom(pattern) {
         return Ok((RuleRhs::Bottom, Vec::new()));
+    }
+    let mut components = Vec::new();
+    flatten_and(pattern, &mut components);
+    if !components.is_empty()
+        && components
+            .iter()
+            .all(|component| matches!(component, kore::Pattern::Top { .. }))
+    {
+        return Ok((RuleRhs::Top, Vec::new()));
     }
     let alternatives = term_disjuncts(pattern);
     match alternatives.as_slice() {
@@ -1024,7 +1037,7 @@ fn make_rule(
         RuleRhs::Disjunction(alternatives) => {
             terms.extend(alternatives.iter().map(|alternative| &alternative.term));
         }
-        RuleRhs::Bottom | RuleRhs::Predicates(_) => {}
+        RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => {}
     }
     let mut computed_attributes = computed_attributes(terms);
     if attributes.preserves_definedness {
@@ -1192,6 +1205,7 @@ fn rename_rhs(rhs: RuleRhs, rename: impl Copy + Fn(&Variable) -> Variable) -> Ru
                 })
                 .collect(),
         ),
+        RuleRhs::Top => RuleRhs::Top,
         RuleRhs::Bottom => RuleRhs::Bottom,
         RuleRhs::Predicates(_) => unreachable!("term rules cannot have predicate RHSs"),
     }
