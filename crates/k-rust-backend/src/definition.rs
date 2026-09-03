@@ -890,6 +890,12 @@ impl BackendDefinition {
                 value: value.into(),
             });
         }
+        if info.hook.as_deref() == Some("INT.Int") && !is_decimal_integer(value) {
+            return Err(DefinitionError::InvalidDomainValue {
+                sort: sort.clone(),
+                value: value.into(),
+            });
+        }
         Ok(())
     }
 
@@ -1037,6 +1043,11 @@ impl BackendDefinition {
         }
         Ok(Term::application(symbol, sort_arguments, arguments))
     }
+}
+
+fn is_decimal_integer(value: &str) -> bool {
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value).as_bytes();
+    !digits.is_empty() && digits.iter().all(u8::is_ascii_digit)
 }
 
 fn collect_finite_sort_constructors(
