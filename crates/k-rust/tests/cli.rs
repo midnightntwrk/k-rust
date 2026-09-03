@@ -2676,6 +2676,48 @@ fn reference_configuration_dependent_sort_predicate_is_rejected() {
 }
 
 #[test]
+fn reference_proof_modules_reject_rules_and_new_syntax() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/checks");
+    let semantics = fs::read_to_string(fixtures.join("errorClaim.k")).unwrap();
+    let cases = [
+        (
+            "rule-spec.k",
+            "RULE-SPEC",
+            "Only claims and simplification rules are allowed in proof modules.",
+        ),
+        (
+            "syntax-spec.k",
+            "SYNTAX-SPEC",
+            "Found syntax declaration in proof module. Only tokens for existing sorts are allowed.",
+        ),
+    ];
+    for (file, module, message) in cases {
+        let (root, definition) = fixture();
+        let specification = fs::read_to_string(fixtures.join(file)).unwrap();
+        fs::write(&definition, format!("{semantics}\n{specification}")).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                module,
+                "--definition-module",
+                "ERRORCLAIM",
+            ])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{file}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(message),
+            "{file}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn kcompile_hook_namespaces_default_per_backend() {
     let source = r#"
 module MAIN
