@@ -201,6 +201,7 @@ pub enum DeclarationError {
     Relations(RelationError),
     CircularPriority(Vec<String>),
     InvalidCollectionSort { sort: String, message: String },
+    InvalidCollectionLabel { label: String, productions: usize },
 }
 
 /// A failure while extending KORE declarations with semantic rules or claims.
@@ -378,6 +379,10 @@ impl fmt::Display for DeclarationError {
                     "cannot emit hooked collection sort {sort}: {message}"
                 )
             }
+            Self::InvalidCollectionLabel { label, productions } => write!(
+                formatter,
+                "Expected to find exactly one production for KLabel: {label} found: {productions}"
+            ),
         }
     }
 }
@@ -481,7 +486,7 @@ pub fn declaration_modules_from_resolved_with_options(
             items,
             &syntax_relations,
             hook_namespaces,
-        );
+        )?;
         let syntax_attributes = symbol_attributes(
             attributes,
             label,
@@ -495,7 +500,7 @@ pub fn declaration_modules_from_resolved_with_options(
             items,
             &syntax_relations,
             hook_namespaces,
-        );
+        )?;
         let hooked =
             attributes.get("function").is_some() && is_real_hook(attributes, hook_namespaces);
         let declaration = |attributes| KoreSentence::SymbolDeclaration {
@@ -547,7 +552,7 @@ pub fn declaration_modules_from_resolved_with_options(
             items,
             &syntax_relations,
             hook_namespaces,
-        );
+        )?;
         syntax_sentences.push(KoreSentence::SymbolDeclaration {
             hooked: false,
             symbol: encode_kore_label_with_formals(&label, parameters),
@@ -3211,7 +3216,7 @@ fn collection_attribute_overrides(
         ("update", attributes.get_str("update")),
     ] {
         if let Some(label_name) = label_name {
-            overrides.insert(key.into(), vec![label_pattern(label_name, productions)]);
+            overrides.insert(key.into(), vec![label_pattern(label_name, productions)?]);
         }
     }
     Ok(())
@@ -3231,7 +3236,7 @@ fn symbol_attributes(
     items: &[ProductionItem],
     syntax_relations: &SyntaxRelations,
     hook_namespaces: &[String],
-) -> Attributes {
+) -> Result<Attributes, DeclarationError> {
     let mut entries = source.semantic_entries().clone();
     for key in [
         "constructor",
@@ -3284,7 +3289,7 @@ fn symbol_attributes(
     let mut overrides = BTreeMap::new();
     for key in ["unit", "element", "update"] {
         if let Some(label) = entries.get(key).and_then(Value::as_str) {
-            overrides.insert(key.into(), vec![label_pattern(label, productions)]);
+            overrides.insert(key.into(), vec![label_pattern(label, productions)?]);
         }
     }
     if with_syntax {
@@ -3297,7 +3302,7 @@ fn symbol_attributes(
             &mut overrides,
         );
     }
-    emit_attributes(&entries, valued, &overrides)
+    Ok(emit_attributes(&entries, valued, &overrides))
 }
 
 fn add_syntax_attributes(
@@ -3552,21 +3557,28 @@ fn attribute_value_string(key: &str, value: &Value) -> String {
     }
 }
 
-fn label_pattern(label: &str, productions: &ProductionCatalog<'_>) -> Pattern {
+fn label_pattern(
+    label: &str,
+    productions: &ProductionCatalog<'_>,
+) -> Result<Pattern, DeclarationError> {
     let head = LabelHead::new(label);
-    let parameters = productions
-        .productions_for(&head)
-        .first()
-        .and_then(|id| match productions.production(*id) {
-            Sentence::Production { label, .. } => label.as_ref(),
-            _ => None,
-        })
-        .map(|label| label.parameters.clone())
-        .unwrap_or_default();
-    Pattern::Application {
+    let matches = productions.productions_for(&head);
+    let [production] = matches else {
+        return Err(DeclarationError::InvalidCollectionLabel {
+            label: label.into(),
+            productions: matches.len(),
+        });
+    };
+    let parameters = match productions.production(*production) {
+        Sentence::Production { label, .. } => label.as_ref(),
+        _ => None,
+    }
+    .map(|label| label.parameters.clone())
+    .unwrap_or_default();
+    Ok(Pattern::Application {
         symbol: encode_kore_label(&Label::with_parameters(label, parameters)),
         arguments: Vec::new(),
-    }
+    })
 }
 
 fn should_emit(key: &str) -> bool {

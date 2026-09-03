@@ -912,6 +912,7 @@ declaration_snapshot!(
         module MAIN
           syntax Map [hook(MAP.Map)]
           syntax MapItem
+          syntax MapItem ::= "item" [symbol(MapItem)]
           syntax Map ::= ".Map" [function, hook(MAP.unit), symbol(.Map), total]
           syntax Map ::= Map Map [element(MapItem), symbol(_Map_), unit(.Map)]
         endmodule
