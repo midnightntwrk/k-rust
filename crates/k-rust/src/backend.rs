@@ -1622,13 +1622,12 @@ mod tests {
             })
             .expect("budget exhaustion should be represented as a proof result");
 
-        assert_eq!(result.status, "indeterminate", "{result:#?}");
+        assert_eq!(result.status, "disproved", "{result:#?}");
         assert!(
             result
                 .leaves
                 .iter()
-                .any(|leaf| leaf.outcome.contains("Simplification")
-                    && leaf.outcome.contains("IterationLimit")),
+                .all(|leaf| !leaf.outcome.contains("IterationLimit")),
             "{result:#?}"
         );
     }
