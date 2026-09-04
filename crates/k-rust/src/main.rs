@@ -12,6 +12,10 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::{
+    backend::{
+        collect_free_kore_variables, implication_sort_variables, special_implication_result,
+        strip_exists,
+    },
     definition::{CheckMode, Sentence, checks::check_definition, json as definition_json},
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, prepare_reference_kast},
@@ -26,7 +30,7 @@ use k_rust::{
         ast::{
             Attributes as KoreAttributes, Definition as KoreDefinition, Module as KoreModule,
             Pattern as KorePattern, Sentence as KoreSentence, Sort as KoreSort,
-            Symbol as KoreSymbol, Variable as KoreVariable,
+            Symbol as KoreSymbol,
         },
         binary as kore_binary, json as kore_json,
         parser::{
@@ -2036,11 +2040,32 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
     reject_implication_variable_capture(&antecedent_syntax, &consequent_syntax)?;
 
     let sort_variables = implication_sort_variables(&antecedent_syntax, &consequent_syntax);
-    let (antecedent, antecedent_existentials) = backend
-        .internalize_implication_pattern(&antecedent_syntax, &sort_variables)
-        .map_err(|error| io::Error::other(format!("invalid implication antecedent: {error}")))?;
-    let result_sort = antecedent.term.sort();
-    let result = if matches!(strip_exists(&consequent_syntax), KorePattern::Not { .. }) {
+    let special_result = special_implication_result(&antecedent_syntax, &consequent_syntax);
+    let antecedent = if matches!(strip_exists(&antecedent_syntax), KorePattern::Bottom { .. }) {
+        None
+    } else {
+        Some(
+            backend
+                .internalize_implication_pattern(&antecedent_syntax, &sort_variables)
+                .map_err(|error| {
+                    io::Error::other(format!("invalid implication antecedent: {error}"))
+                })?,
+        )
+    };
+    let result_sort = match &antecedent {
+        Some((antecedent, _)) => antecedent.term.sort(),
+        None => {
+            backend
+                .internalize_predicate(&antecedent_syntax, &sort_variables)
+                .map_err(|error| {
+                    io::Error::other(format!("invalid implication antecedent: {error}"))
+                })?
+                .1
+        }
+    };
+    let result = if let Some(result) = special_result {
+        result
+    } else if matches!(strip_exists(&consequent_syntax), KorePattern::Not { .. }) {
         ImplicationResult {
             status: ImplicationStatus::Invalid,
             condition: None,
@@ -2048,6 +2073,8 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
             vacuous: false,
         }
     } else {
+        let (antecedent, antecedent_existentials) =
+            antecedent.expect("only a bottom antecedent bypasses implication internalization");
         let (consequent, consequent_existentials) = backend
             .internalize_implication_pattern(&consequent_syntax, &sort_variables)
             .map_err(|error| {
@@ -2135,9 +2162,15 @@ fn implication_condition_output(
                 .collect(),
         },
     };
+    let witnesses =
+        implication_substitution(&condition.witnesses, result_sort, antecedent_variable)
+            .unwrap_or_else(|| KorePattern::Top {
+                sort: externalize::sort(result_sort),
+            });
     Ok(serde_json::json!({
         "substitution": kore_json_value(&substitution)?,
         "predicate": kore_json_value(&predicate)?,
+        "witnesses": kore_json_value(&witnesses)?,
     }))
 }
 
@@ -2204,125 +2237,12 @@ fn reject_non_singleton_implication_pattern(
             format!("implication {side} must contain exactly one pattern"),
         )
         .into()),
-        KorePattern::Mu { .. } | KorePattern::Nu { .. } if side == "antecedent" => {
+        KorePattern::Top { .. } | KorePattern::Mu { .. } | KorePattern::Nu { .. }
+            if side == "antecedent" =>
+        {
             Err(io::Error::other("implication antecedent must be function-like").into())
         }
         _ => Ok(()),
-    }
-}
-
-fn strip_exists(mut pattern: &KorePattern) -> &KorePattern {
-    while let KorePattern::Exists { body, .. } = pattern {
-        pattern = body;
-    }
-    pattern
-}
-
-fn implication_sort_variables(
-    antecedent: &KorePattern,
-    consequent: &KorePattern,
-) -> Vec<BackendName> {
-    let mut variables = BTreeSet::new();
-    collect_pattern_sort_variables(antecedent, &mut variables);
-    collect_pattern_sort_variables(consequent, &mut variables);
-    variables.into_iter().map(BackendName::from).collect()
-}
-
-fn collect_sort_variables(sort: &KoreSort, output: &mut BTreeSet<String>) {
-    match sort {
-        KoreSort::Variable(name) => {
-            output.insert(name.clone());
-        }
-        KoreSort::Application { arguments, .. } => {
-            for argument in arguments {
-                collect_sort_variables(argument, output);
-            }
-        }
-    }
-}
-
-fn collect_pattern_sort_variables(pattern: &KorePattern, output: &mut BTreeSet<String>) {
-    let recurse =
-        |pattern, output: &mut BTreeSet<String>| collect_pattern_sort_variables(pattern, output);
-    match pattern {
-        KorePattern::String(_) => {}
-        KorePattern::Variable(variable) => collect_sort_variables(&variable.sort, output),
-        KorePattern::Application { symbol, arguments }
-        | KorePattern::AssociativeApplication {
-            symbol, arguments, ..
-        } => {
-            for sort in &symbol.sort_parameters {
-                collect_sort_variables(sort, output);
-            }
-            for argument in arguments {
-                recurse(argument, output);
-            }
-        }
-        KorePattern::Top { sort }
-        | KorePattern::Bottom { sort }
-        | KorePattern::Not { sort, .. }
-        | KorePattern::Next { sort, .. }
-        | KorePattern::And { sort, .. }
-        | KorePattern::Or { sort, .. }
-        | KorePattern::Rewrites { sort, .. }
-        | KorePattern::Implies { sort, .. }
-        | KorePattern::Iff { sort, .. }
-        | KorePattern::Exists { sort, .. }
-        | KorePattern::Forall { sort, .. } => collect_sort_variables(sort, output),
-        KorePattern::Mu { variable, .. } | KorePattern::Nu { variable, .. } => {
-            collect_sort_variables(&variable.sort, output);
-        }
-        KorePattern::Ceil {
-            operand_sort,
-            result_sort,
-            ..
-        }
-        | KorePattern::Floor {
-            operand_sort,
-            result_sort,
-            ..
-        }
-        | KorePattern::Equals {
-            operand_sort,
-            result_sort,
-            ..
-        }
-        | KorePattern::In {
-            operand_sort,
-            result_sort,
-            ..
-        } => {
-            collect_sort_variables(operand_sort, output);
-            collect_sort_variables(result_sort, output);
-        }
-        KorePattern::DomainValue { sort, .. } => collect_sort_variables(sort, output),
-    }
-    match pattern {
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => recurse(argument, output),
-        KorePattern::And { arguments, .. } | KorePattern::Or { arguments, .. } => {
-            for argument in arguments {
-                recurse(argument, output);
-            }
-        }
-        KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            recurse(left, output);
-            recurse(right, output);
-        }
-        KorePattern::Exists { variable, body, .. }
-        | KorePattern::Forall { variable, body, .. }
-        | KorePattern::Mu { variable, body }
-        | KorePattern::Nu { variable, body } => {
-            collect_sort_variables(&variable.sort, output);
-            recurse(body, output);
-        }
-        _ => {}
     }
 }
 
@@ -2353,56 +2273,6 @@ fn reject_implication_variable_capture(
             captured.join(", ")
         ))
         .into())
-    }
-}
-
-fn collect_free_kore_variables(
-    pattern: &KorePattern,
-    bound: &mut BTreeSet<KoreVariable>,
-    output: &mut BTreeSet<KoreVariable>,
-) {
-    match pattern {
-        KorePattern::Variable(variable) => {
-            if !bound.contains(variable) {
-                output.insert(variable.clone());
-            }
-        }
-        KorePattern::Application { arguments, .. }
-        | KorePattern::AssociativeApplication { arguments, .. }
-        | KorePattern::And { arguments, .. }
-        | KorePattern::Or { arguments, .. } => {
-            for argument in arguments {
-                collect_free_kore_variables(argument, bound, output);
-            }
-        }
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => {
-            collect_free_kore_variables(argument, bound, output);
-        }
-        KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            collect_free_kore_variables(left, bound, output);
-            collect_free_kore_variables(right, bound, output);
-        }
-        KorePattern::Exists { variable, body, .. }
-        | KorePattern::Forall { variable, body, .. }
-        | KorePattern::Mu { variable, body }
-        | KorePattern::Nu { variable, body } => {
-            let inserted = bound.insert(variable.clone());
-            collect_free_kore_variables(body, bound, output);
-            if inserted {
-                bound.remove(variable);
-            }
-        }
-        KorePattern::String(_)
-        | KorePattern::Top { .. }
-        | KorePattern::Bottom { .. }
-        | KorePattern::DomainValue { .. } => {}
     }
 }
 
@@ -3541,7 +3411,7 @@ mod tests {
         let solution = |name: &str| KorePattern::Equals {
             operand_sort: sort.clone(),
             result_sort: sort.clone(),
-            left: Box::new(KorePattern::Variable(KoreVariable {
+            left: Box::new(KorePattern::Variable(k_rust::kore::ast::Variable {
                 kind: k_rust::kore::ast::VariableKind::Element,
                 name: "VarResult".into(),
                 sort: sort.clone(),

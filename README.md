@@ -289,7 +289,8 @@ krust kore-get-model definition.kore --module MAIN --pattern predicate.kore --ou
 ```
 
 Check whether one constrained KORE pattern implies another. The JSON result includes the original
-implication, its `valid`, `invalid`, or `unknown` status, and any matching condition:
+implication, its `valid`, `invalid`, or `unknown` status, and any matching condition. Conditions
+keep the residual `predicate`, term-match `substitution`, and existential `witnesses` separate:
 
 ```console
 krust kore-implies definition.kore --module MAIN \
@@ -399,6 +400,8 @@ execution, simplification, implication checking, model generation, reachability 
 stateful module addition. Native sessions cache Z3 preludes per selected module.
 Persistent reachability is available as separate state-set/path-set and graph/pattern methods, with opt-in observed twins that serialize branch-local transition evidence and effects.
 Search requests negotiate schema version 1, reject unknown fields, and return a closed structural `incomplete` union; bounded synchronous responses are fully materialized and do not yet expose streaming or cancellation.
+Implication results advertise schema version 2 and expose structured `predicate`, `substitution`,
+and `witnesses` fields without flattening those bindings into one KORE conjunction.
 
 ## WebAssembly and TypeScript
 
