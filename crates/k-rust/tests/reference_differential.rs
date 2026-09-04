@@ -1347,6 +1347,18 @@ fn comparator_reorders_existential_binder_chains() {
 }
 
 #[test]
+fn comparator_reorders_generated_existential_binders_before_alpha_renaming() {
+    let reference = differential_definition(
+        r"axiom{} \exists{R{}}(Var'Unds'Gen2:Set{}, \exists{R{}}(Var'Unds'Gen3:Int{}, \and{R{}}(Var'Unds'Gen2:Set{}, Var'Unds'Gen3:Int{}))) []",
+    );
+    let actual = differential_definition(
+        r"axiom{} \exists{R{}}(Var'Unds'Gen3:Int{}, \exists{R{}}(Var'Unds'Gen2:Set{}, \and{R{}}(Var'Unds'Gen2:Set{}, Var'Unds'Gen3:Int{}))) []",
+    );
+
+    compare_definitions(reference, actual);
+}
+
+#[test]
 fn comparator_reorders_universal_binder_chains() {
     let reference = differential_definition(
         r"axiom{} \forall{S{}}(X:S{}, \forall{S{}}(Y:S{}, \and{S{}}(X:S{}, Y:S{}))) []",
