@@ -744,6 +744,16 @@ impl RpcService {
             let (_, result_sort) = definition
                 .internalize_predicate(&antecedent, &sort_variables)
                 .map_err(|error| pattern_fault(error, &antecedent))?;
+            let (consequent_pattern, _) = definition
+                .internalize_implication_pattern(&consequent, &sort_variables)
+                .map_err(|error| pattern_fault(error, &consequent))?;
+            let solver = solver(&definition, self.smt_options)?;
+            let consequent = simplified_implication_response_syntax(
+                &definition,
+                &consequent,
+                &consequent_pattern,
+                &solver,
+            )?;
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
         let (antecedent_pattern, antecedent_existentials) = definition
@@ -2105,7 +2115,7 @@ fn implication_result(
     let status = match result.status {
         ImplicationStatus::Valid => "valid",
         ImplicationStatus::Invalid => "invalid",
-        ImplicationStatus::Indeterminate => "unknown",
+        ImplicationStatus::Indeterminate => "indeterminate",
     };
     let implication = KorePattern::Implies {
         sort: externalize::sort(result_sort),
