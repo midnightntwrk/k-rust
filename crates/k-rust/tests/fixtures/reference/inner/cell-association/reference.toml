@@ -1,0 +1,21 @@
+case = "cell-association"
+subsystem = "inner"
+source_ticket = "B2-03 follow-up"
+harvested_from = "/tmp/stage12-final/tmp/k-rust-reference-differential.Lp3Fxl/cell-map/kore-llvm/reference/kompiled/parsed.json"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "association.toml"
+command = '''
+kompile test.k --backend kore --main-module TEST --output-definition ref --emit-json --warnings none &&
+jq -r 'def shape: if (.node == "KApply" and .label.name == "#cells") then "#cells(" + (.args[0] | shape) + ", " + (.args[1] | shape) + ")" elif .node == "KApply" then .label.name else .node end; [.term.modules[].localSentences[] | select(.node == "KRule") | select(.att.att["org.kframework.attributes.Source"] | strings | endswith("/cell_map/test.k")) | (.att.att["org.kframework.attributes.Location"][0]) as $line | select(($line == 20) or ($line == 34)) | "[[rule]]\nline = \($line)\nshape = \"\(.body | shape)\"\n"] | join("\n") | rtrimstr("\n")' ref/parsed.json > association.toml
+'''
+tool = "kompile and jq"
+exit_code = 0
+sha256 = "2e1bceaaa1bf4c0b165b36a051f11e9ff806bfad0735bb2ce458d3f95151713a"
+
+[[input]]
+file = "test.k"
+source = "k/k-distribution/tests/regression-new/cell_map/test.k"
+sha256 = "b15dc9df61a903f115e3d08fda31ec6b4b053c37a0ae005a027c962ae7c17343"
