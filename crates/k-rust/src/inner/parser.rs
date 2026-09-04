@@ -417,6 +417,7 @@ thread_local! {
     static UNPACKED_NODES: Cell<usize> = const { Cell::new(0) };
     static PACKED_APPLICATION_RESOLUTIONS: Cell<usize> = const { Cell::new(0) };
     static PACKED_PRIORITY_COMPUTATIONS: Cell<usize> = const { Cell::new(0) };
+    static CHART_COMPLETION_CANDIDATES: Cell<usize> = const { Cell::new(0) };
 }
 
 impl PartialEq for PackedTerm {
@@ -764,6 +765,16 @@ fn reset_packed_priority_computations() {
 #[cfg(test)]
 fn packed_priority_computations() -> usize {
     PACKED_PRIORITY_COMPUTATIONS.get()
+}
+
+#[cfg(test)]
+fn reset_chart_completion_candidates() {
+    CHART_COMPLETION_CANDIDATES.set(0);
+}
+
+#[cfg(test)]
+fn chart_completion_candidates() -> usize {
+    CHART_COMPLETION_CANDIDATES.get()
 }
 
 type Derivation = Vec<Rc<PackedTerm>>;
@@ -1202,6 +1213,8 @@ impl Grammar {
                         let mut nodes = BTreeSet::new();
                         let mut invalid = Vec::new();
                         for children in &derivations {
+                            #[cfg(test)]
+                            CHART_COMPLETION_CANDIDATES.set(CHART_COMPLETION_CANDIDATES.get() + 1);
                             let term = build_packed_term(
                                 state.production,
                                 production,
@@ -2239,6 +2252,8 @@ fn completed_nodes(
         let derivations = &chart.states[state];
         let production = &grammar.productions[state.production];
         for children in derivations {
+            #[cfg(test)]
+            CHART_COMPLETION_CANDIDATES.set(CHART_COMPLETION_CANDIDATES.get() + 1);
             let term = build_packed_term(
                 state.production,
                 production,
@@ -2490,6 +2505,208 @@ mod chart_tests {
         };
 
         assert!(Rc::ptr_eq(&children[0], &child));
+    }
+
+    #[test]
+    fn completed_nodes_are_canonical_for_their_chart_boundary() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("S"),
+                Vec::new(),
+                Some(Label::new("unit")),
+                false,
+                false,
+            )
+            .unwrap();
+        let state = State {
+            production: 0,
+            dot: 0,
+            origin: 0,
+        };
+        let mut chart = Chart::default();
+        chart.add(state, [Vec::new()]).unwrap();
+        chart
+            .completed
+            .entry(Sort::new("S"))
+            .or_default()
+            .push(state);
+        let provenance = ParseProvenance {
+            source: SourceId(0),
+            base_offset: 0,
+        };
+
+        let mut first = completed_nodes(&chart, &grammar, &Sort::new("S"), 0, 0, "", provenance).0;
+        let mut second = completed_nodes(&chart, &grammar, &Sort::new("S"), 0, 0, "", provenance).0;
+        let first = first.pop_first().expect("first completed node exists");
+        let second = second.pop_first().expect("second completed node exists");
+
+        assert!(Rc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn comparing_a_shared_packed_node_uses_its_identity() {
+        let node = PackedTerm::production(0, Vec::new(), TermMetadata::default());
+        let shared = Rc::clone(&node);
+        reset_packed_structural_comparisons();
+
+        assert_eq!(node.cmp(&shared), std::cmp::Ordering::Equal);
+        assert_eq!(packed_structural_comparisons(), 0);
+    }
+
+    #[test]
+    fn completed_casts_reject_an_unparenthesized_infix_child() {
+        let mut grammar = Grammar::default();
+        let sort = Sort::new("S");
+        grammar
+            .add(
+                sort.clone(),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: sort.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal("+".to_owned()),
+                    ProductionItem::NonTerminal {
+                        sort: sort.clone(),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("plus")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                sort,
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("S"),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(":S".to_owned()),
+                ],
+                Some(Label::new("#SemanticCastToS")),
+                false,
+                false,
+            )
+            .unwrap();
+        let operand = || {
+            PackedTerm::leaf(Term::Variable {
+                name: "X".to_owned(),
+                sort: None,
+            })
+        };
+        let infix = PackedTerm::production(0, vec![operand(), operand()], TermMetadata::default());
+        let cast = PackedTerm::production(1, vec![infix], TermMetadata::default());
+
+        assert_eq!(
+            grammar.filter_or_defer_packed_priority(cast),
+            Err(ParseError::CastPriority {
+                cast: "#SemanticCastToS".to_owned(),
+                child: "plus".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn casted_associative_chains_have_polynomial_completion_work() {
+        fn assert_operand(term: &Term) {
+            let Term::Apply { label, arguments } = term.unannotated() else {
+                panic!("expected semantic cast operand, got {term}");
+            };
+            assert_eq!(label.name, "#SemanticCastToS");
+            let [argument] = arguments.as_slice() else {
+                panic!("semantic cast has the wrong arity: {term}");
+            };
+            assert!(
+                matches!(argument.unannotated(), Term::Apply { label, arguments } if label.name == "x" && arguments.is_empty()),
+                "unexpected cast operand: {argument}"
+            );
+        }
+
+        fn assert_left_chain(term: &Term, operands: usize) {
+            if operands == 1 {
+                assert_operand(term);
+                return;
+            }
+            let Term::Apply { label, arguments } = term.unannotated() else {
+                panic!("expected plus prefix, got {term}");
+            };
+            assert_eq!(label.name, "plus");
+            let [prefix, operand] = arguments.as_slice() else {
+                panic!("plus has the wrong arity: {term}");
+            };
+            assert_left_chain(prefix, operands - 1);
+            assert_operand(operand);
+        }
+
+        let mut grammar = Grammar::default();
+        let sort = Sort::new("S");
+        grammar
+            .add(
+                sort.clone(),
+                vec![ProductionItem::Terminal("x".to_owned())],
+                Some(Label::new("x")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                sort.clone(),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: sort.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal("+".to_owned()),
+                    ProductionItem::NonTerminal {
+                        sort: sort.clone(),
+                        name: None,
+                    },
+                ],
+                Some(Label::new("plus")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                sort.clone(),
+                vec![
+                    ProductionItem::NonTerminal {
+                        sort: sort.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(":S".to_owned()),
+                ],
+                Some(Label::new("#SemanticCastToS")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .associativities
+            .left
+            .insert(("plus".to_owned(), "plus".to_owned()));
+        let operands = 30;
+        let input = std::iter::repeat_n("x:S", operands)
+            .collect::<Vec<_>>()
+            .join("+");
+        reset_chart_completion_candidates();
+
+        let parsed = grammar
+            .parse(&sort, &input)
+            .expect("casted chain should parse");
+
+        assert_left_chain(&parsed, operands);
+        assert!(
+            chart_completion_candidates() < 50_000,
+            "{} completion candidates exceeded the polynomial-work contract",
+            chart_completion_candidates()
+        );
     }
 
     #[test]
@@ -3389,7 +3606,7 @@ mod chart_tests {
     }
 
     #[test]
-    fn packed_application_resolution_keeps_the_per_node_derivation_limit() {
+    fn packed_application_resolution_preserves_more_than_sixty_four_alternatives() {
         let mut grammar = Grammar::default();
         grammar
             .add(
@@ -3440,21 +3657,10 @@ mod chart_tests {
         };
 
         let retained = grammar
-            .materialize_packed_forest(application(MAX_DERIVATIONS_PER_STATE))
-            .expect("exactly the per-node application limit is retained");
-        let rejected =
-            grammar.materialize_packed_forest(application(MAX_DERIVATIONS_PER_STATE + 1));
+            .materialize_packed_forest(application(70))
+            .expect("application resolution must not truncate a valid packed forest");
 
-        assert_eq!(
-            Grammar::ambiguity_count(&retained),
-            MAX_DERIVATIONS_PER_STATE
-        );
-        assert_eq!(
-            rejected,
-            Err(ParseError::TooManyParses {
-                limit: MAX_DERIVATIONS_PER_STATE,
-            })
-        );
+        assert_eq!(Grammar::ambiguity_count(&retained), 70);
     }
 
     #[test]
@@ -3509,7 +3715,7 @@ mod chart_tests {
             sort: Sort::new("KLabel"),
         });
         let arguments = PackedTerm::ambiguity(
-            (0..=MAX_DERIVATIONS_PER_STATE)
+            (0..70)
                 .map(|index| {
                     PackedTerm::leaf(Term::Variable {
                         name: format!("V{index}"),
@@ -3525,15 +3731,12 @@ mod chart_tests {
         ]));
         reset_packed_application_resolutions();
 
-        let error = grammar
+        let resolved = grammar
             .resolve_packed_applications(forest)
-            .expect_err("the shared application exceeds the per-node limit");
+            .expect("a shared application may resolve to more than 64 alternatives");
 
-        assert_eq!(
-            error,
-            ParseError::TooManyParses {
-                limit: MAX_DERIVATIONS_PER_STATE,
-            }
+        assert!(
+            matches!(&resolved.node, PackedNode::Ambiguity(alternatives) if alternatives.len() == 2)
         );
         assert_eq!(packed_application_resolutions(), 1);
     }
@@ -4063,7 +4266,7 @@ mod chart_tests {
         };
         let mut chart = Chart::default();
 
-        for count in 1..=MAX_DERIVATIONS_PER_STATE + 1 {
+        for count in 1..=70 {
             let alternatives = (0..count)
                 .map(|index| {
                     ParsedTerm::Term(Term::Variable {
@@ -4082,31 +4285,27 @@ mod chart_tests {
         assert!(matches!(
             &stored.iter().next().expect("one derivation exists")[0].node,
             PackedNode::Ambiguity(alternatives)
-                if alternatives.len() == MAX_DERIVATIONS_PER_STATE + 1
+                if alternatives.len() == 70
         ));
     }
 
     #[test]
-    fn retains_the_derivation_limit_for_uncovered_forests() {
+    fn chart_accepts_more_than_sixty_four_boundary_distinct_derivations() {
         let state = State {
             production: 0,
             dot: 2,
             origin: 0,
         };
         let mut chart = Chart::default();
-        let derivations = (0..=MAX_DERIVATIONS_PER_STATE).map(|index| {
+        let derivations = (0..70).map(|index| {
             vec![
                 derivation(variable(&format!("L{index}"))).pop().unwrap(),
                 derivation(variable(&format!("R{index}"))).pop().unwrap(),
             ]
         });
 
-        assert_eq!(
-            chart.add(state, derivations),
-            Err(ParseError::TooManyParses {
-                limit: MAX_DERIVATIONS_PER_STATE,
-            })
-        );
+        assert_eq!(chart.add(state, derivations), Ok(true));
+        assert_eq!(chart.states[&state].len(), 70);
     }
 
     fn spanned_node(production: usize, start: usize, end: usize) -> Rc<PackedTerm> {

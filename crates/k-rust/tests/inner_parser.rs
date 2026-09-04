@@ -436,7 +436,7 @@ fn equivalent_k_regex_asts_share_a_scanner_lexeme() {
 }
 
 #[test]
-fn bounds_cyclic_parse_forests() {
+fn reports_productive_unary_cycles_without_a_derivation_limit() {
     let sentences = vec![
         production(
             "Start",
@@ -453,9 +453,13 @@ fn bounds_cyclic_parse_forests() {
     ];
     let grammar = Grammar::from_sentences(&sentences).unwrap();
 
-    assert_eq!(
-        grammar.parse(&Sort::new("Start"), "x"),
-        Err(ParseError::TooManyParses { limit: 64 })
+    let error = grammar
+        .parse(&Sort::new("Start"), "x")
+        .expect_err("a productive unary cycle has an infinite parse forest");
+
+    assert!(
+        !matches!(error, ParseError::TooManyParses { .. }),
+        "productive unary cycles need their own diagnostic: {error}"
     );
 }
 
