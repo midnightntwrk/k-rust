@@ -99,6 +99,18 @@ run_reference_tool() (
   "$@"
 )
 
+run_reference_kompile() (
+  if [[ "$reference_backend" == haskell ]]; then
+    export GHCRTS=${GHCRTS:--N1}
+  fi
+  run_reference_tool "$@"
+)
+
+run_reference_parser() (
+  export GHCRTS=
+  run_reference_tool "$@"
+)
+
 pairing_is_requested() {
   local candidate=$1
   local requested
@@ -228,7 +240,7 @@ for fixture in "${cases[@]}"; do
     set +e
     (
       cd "$reference"
-      run_reference_tool "$kompile" "$source" \
+      run_reference_kompile "$kompile" "$source" \
         --backend "$reference_backend" \
         --main-module "$module" \
         --output-definition kompiled \
@@ -288,14 +300,14 @@ for fixture in "${cases[@]}"; do
       echo "[$name:$pairing] warning: definition verification disabled explicitly"
     else
       echo "[$name:$pairing] verifying reference definition.kore"
-      if ! run_reference_tool "$kore_parser" "$semantic_reference" \
+      if ! run_reference_parser "$kore_parser" "$semantic_reference" \
         >"$work/$name/$pairing_key/verify-reference.log" 2>&1; then
         cat "$work/$name/$pairing_key/verify-reference.log" >&2
         echo "error: reference definition rejected by kore-parser" >&2
         exit 2
       fi
       echo "[$name:$pairing] verifying k-rust definition.kore"
-      if ! run_reference_tool "$kore_parser" "$rust/definition.kore" \
+      if ! run_reference_parser "$kore_parser" "$rust/definition.kore" \
         >"$work/$name/$pairing_key/verify-rust.log" 2>&1; then
         cat "$work/$name/$pairing_key/verify-rust.log" >&2
         echo "error: k-rust definition rejected by kore-parser" >&2
