@@ -995,11 +995,12 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
     )?;
     grammar.add(
         Sort::new("Bag"),
-        vec![nonterminal("Cell"), nonterminal("Bag")],
+        vec![nonterminal("Bag"), nonterminal("Bag")],
         Some(Label::new("#cells")),
         false,
         false,
     )?;
+    grammar.add_left_associative("#cells");
     grammar.add(
         Sort::new("Bag"),
         vec![nonterminal("Cell")],
