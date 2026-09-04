@@ -676,6 +676,27 @@ mod tests {
     }
 
     #[test]
+    fn presents_inferred_parametric_labels_like_reference_kast() {
+        let result = parse_program(
+            r#"{
+                "definition": "module MAIN\n syntax Int ::= r\"[0-9]+\" [token]\n syntax K ::= Int\n syntax {S} Int ::= \"take(\" S \")\" [function, symbol(take)]\nendmodule",
+                "moduleName": "MAIN",
+                "sort": "Int",
+                "program": "take(1)",
+                "includePrelude": false
+            }"#,
+        )
+        .unwrap();
+        let result: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(result["text"], r#"take(#token("1","Int"))"#);
+        assert_eq!(
+            result["kast"]["term"]["label"]["params"],
+            serde_json::json!([])
+        );
+    }
+
+    #[test]
     fn compiles_a_portable_definition() {
         let result = compile_definition(
             r#"{

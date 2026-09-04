@@ -81,7 +81,7 @@ test('parses programs through virtual requires', () => {
   assert.equal(parsed.kast.term.token, '42')
 })
 
-test('uses Z3-backed parametric sort inference', () => {
+test('presents Z3-inferred parametric labels like reference kast', () => {
   const parsed = parseProgram({
     definition: `
       module MAIN
@@ -96,7 +96,8 @@ test('uses Z3-backed parametric sort inference', () => {
     includePrelude: false,
   })
 
-  assert.equal(parsed.text, 'box(same{Int}(#token("1","Int")))')
+  assert.equal(parsed.text, 'box(same(#token("1","Int")))')
+  assert.deepEqual(parsed.kast.term.args[0].label.params, [])
 })
 
 test('compiles definitions through the full native pipeline', () => {
