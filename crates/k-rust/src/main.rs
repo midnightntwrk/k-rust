@@ -18,7 +18,7 @@ use k_rust::{
     },
     definition::{CheckMode, Sentence, checks::check_definition, json as definition_json},
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel},
-    inner::{ProgramParser, prepare_reference_kast},
+    inner::{ProgramParser, parse_program_for_presentation},
     kast::{
         Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
     },
@@ -1494,11 +1494,6 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         return Err("definition checks failed".into());
     }
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
-    let module = loaded
-        .resolved
-        .module_id(&options.common.module)
-        .expect("the program parser resolved this module");
-    let productions = loaded.resolved.production_catalog(module);
     if !options.batch_cases.is_empty() || !options.batch_reject_cases.is_empty() {
         if options.output != OutputFormat::Json {
             return Err("KAST batch mode requires --output json".into());
@@ -1507,10 +1502,14 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         for case in options.batch_cases {
             let sort = parse_sort(&case.sort)
                 .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
-            let term = parser
-                .parse(&sort, &case.expression)
-                .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
-            let term = prepare_reference_kast(term, &productions);
+            let term = parse_program_for_presentation(
+                &loaded.resolved,
+                &options.common.module,
+                &parser,
+                &sort,
+                &case.expression,
+            )
+            .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
             let encoded: serde_json::Value =
                 serde_json::from_str(&kast_json::to_string_pretty(&term)?)?;
             if output.insert(case.name.clone(), encoded).is_some() {
@@ -1533,8 +1532,13 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     }
     let source = read_program_source(options.expression, options.program_file)?;
     let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
-    let term = parser.parse(&sort, &source)?;
-    let term = prepare_reference_kast(term, &productions);
+    let term = parse_program_for_presentation(
+        &loaded.resolved,
+        &options.common.module,
+        &parser,
+        &sort,
+        &source,
+    )?;
     match options.output {
         OutputFormat::Text => println!("{}", KastPrinter::new().print_term(&term)),
         OutputFormat::Json => println!("{}", kast_json::to_string_pretty(&term)?),
