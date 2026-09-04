@@ -10,12 +10,14 @@ use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
 use k_rust_backend::smt::NoSolver;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::smt::{ModelResult, Z3Options, Z3Solver};
-#[cfg(feature = "z3-inference")]
-use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
     definition::{BackendDefinition, DefinitionError},
     externalize,
-    implication::{ImplicationStatus, check_implication_with_existentials_complete},
+    implication::{
+        ImplicationCondition as BackendImplicationCondition, ImplicationFailure,
+        ImplicationResult as BackendImplicationResult, ImplicationStatus,
+        check_implication_with_existentials_complete,
+    },
     proof::{ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
@@ -34,6 +36,7 @@ use k_rust_backend::{
         simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
     },
     smt::SmtSolver,
+    substitution::Substitution,
     term::{Name, Sort, Term},
     transition::ObservationOptions,
 };
@@ -41,7 +44,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::kore::{
-    ast::{Pattern as KorePattern, Sort as KoreSort},
+    ast::{Pattern as KorePattern, Sort as KoreSort, Variable as KoreVariable},
     json as kore_json,
     parser::{parse_definition, parse_module},
 };
@@ -192,12 +195,15 @@ pub struct ImplicationRequest {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImplicationResult {
+    pub schema_version: u32,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<String>,
 }
+
+pub const IMPLICATION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -624,24 +630,48 @@ impl Backend {
         let antecedent = decode_pattern(request.antecedent)?;
         let consequent = decode_pattern(request.consequent)?;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            validate_implication_request(definition, &antecedent, &consequent)?;
             let sort_variables = implication_sort_variables(&antecedent, &consequent);
-            let (antecedent, antecedent_existentials) = definition
-                .internalize_implication_pattern(&antecedent, &sort_variables)
-                .map_err(error("could not internalize implication antecedent"))?;
-            let result_sort = antecedent.term.sort();
-            let (consequent, consequent_existentials) = definition
-                .internalize_implication_pattern(&consequent, &sort_variables)
-                .map_err(error("could not internalize implication consequent"))?;
-            let result = check_implication_with_existentials_complete(
-                definition,
-                &antecedent,
-                &antecedent_existentials,
-                &consequent,
-                &consequent_existentials,
-                solver,
-            )
-            .map_err(error("could not check implication"))?;
+            let special_result = special_implication_result(&antecedent, &consequent);
+            let antecedent_pattern =
+                if matches!(strip_exists(&antecedent), KorePattern::Bottom { .. }) {
+                    None
+                } else {
+                    Some(
+                        definition
+                            .internalize_implication_pattern(&antecedent, &sort_variables)
+                            .map_err(error("could not internalize implication antecedent"))?,
+                    )
+                };
+            let result_sort = match &antecedent_pattern {
+                Some((pattern, _)) => pattern.term.sort(),
+                None => {
+                    definition
+                        .internalize_predicate(&antecedent, &sort_variables)
+                        .map_err(error("could not internalize implication antecedent"))?
+                        .1
+                }
+            };
+            let result = if let Some(result) = special_result {
+                result
+            } else {
+                let (antecedent_pattern, antecedent_existentials) = antecedent_pattern
+                    .expect("only a bottom antecedent bypasses implication internalization");
+                let (consequent_pattern, consequent_existentials) = definition
+                    .internalize_implication_pattern(&consequent, &sort_variables)
+                    .map_err(error("could not internalize implication consequent"))?;
+                check_implication_with_existentials_complete(
+                    definition,
+                    &antecedent_pattern,
+                    &antecedent_existentials,
+                    &consequent_pattern,
+                    &consequent_existentials,
+                    solver,
+                )
+                .map_err(error("could not check implication"))?
+            };
             Ok(ImplicationResult {
+                schema_version: IMPLICATION_SCHEMA_VERSION,
                 status: match result.status {
                     ImplicationStatus::Valid => "valid",
                     ImplicationStatus::Invalid => "invalid",
@@ -934,11 +964,15 @@ fn condition_pattern(
     condition: &k_rust_backend::implication::ImplicationCondition,
     result_sort: &Sort,
 ) -> Result<Value, BackendError> {
-    let mut predicates = condition.predicates.clone();
-    predicates.extend(condition.substitution.iter().map(|(variable, value)| {
-        Predicate::Equals(Term::variable(variable.clone()), value.clone())
-    }));
-    let pattern = match predicates.as_slice() {
+    Ok(serde_json::json!({
+        "predicate": encode_predicates(&condition.predicates, result_sort)?,
+        "substitution": encode_substitution(&condition.substitution, result_sort)?,
+        "witnesses": encode_substitution(&condition.witnesses, result_sort)?,
+    }))
+}
+
+fn encode_predicates(predicates: &[Predicate], result_sort: &Sort) -> Result<Value, BackendError> {
+    let pattern = match predicates {
         [] => KorePattern::Top {
             sort: externalize::sort(result_sort),
         },
@@ -954,7 +988,204 @@ fn condition_pattern(
     encode_pattern(&pattern)
 }
 
-fn implication_sort_variables(antecedent: &KorePattern, consequent: &KorePattern) -> Vec<Name> {
+fn encode_substitution(
+    substitution: &Substitution,
+    result_sort: &Sort,
+) -> Result<Value, BackendError> {
+    let predicates = substitution
+        .iter()
+        .map(|(variable, value)| Predicate::Equals(Term::variable(variable.clone()), value.clone()))
+        .collect::<Vec<_>>();
+    encode_predicates(&predicates, result_sort)
+}
+
+pub fn special_implication_result(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+) -> Option<BackendImplicationResult> {
+    let antecedent = strip_exists(antecedent);
+    let consequent = strip_exists(consequent);
+    let condition = |predicates| {
+        Some(BackendImplicationCondition {
+            predicates,
+            substitution: Substitution::new(),
+            witnesses: Substitution::new(),
+        })
+    };
+    if matches!(antecedent, KorePattern::Bottom { .. }) {
+        Some(BackendImplicationResult {
+            status: ImplicationStatus::Valid,
+            condition: condition(vec![Predicate::False]),
+            failure: None,
+            vacuous: false,
+        })
+    } else if matches!(consequent, KorePattern::Top { .. }) {
+        Some(BackendImplicationResult {
+            status: ImplicationStatus::Valid,
+            condition: condition(Vec::new()),
+            failure: None,
+            vacuous: false,
+        })
+    } else if matches!(consequent, KorePattern::Bottom { .. }) {
+        Some(BackendImplicationResult {
+            status: ImplicationStatus::Invalid,
+            condition: condition(vec![Predicate::False]),
+            failure: Some(ImplicationFailure::ConsequentCondition),
+            vacuous: false,
+        })
+    } else {
+        None
+    }
+}
+
+fn validate_implication_request(
+    definition: &BackendDefinition,
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+) -> Result<(), BackendError> {
+    definition
+        .validate_implication_pattern(antecedent)
+        .map_err(error("invalid implication antecedent"))?;
+    definition
+        .validate_implication_pattern(consequent)
+        .map_err(error("invalid implication consequent"))?;
+
+    let antecedent_body = strip_exists(antecedent);
+    if matches!(antecedent_body, KorePattern::Or { arguments, .. } if arguments.len() != 1)
+        || matches!(
+            antecedent_body,
+            KorePattern::Top { .. } | KorePattern::Mu { .. } | KorePattern::Nu { .. }
+        )
+    {
+        return Err(BackendError(
+            "implication antecedent must be function-like".into(),
+        ));
+    }
+    if matches!(strip_exists(consequent), KorePattern::Or { arguments, .. } if arguments.len() != 1)
+    {
+        return Err(BackendError(
+            "implication consequent must contain exactly one pattern".into(),
+        ));
+    }
+
+    let mut antecedent_free = BTreeSet::new();
+    collect_free_kore_variables(antecedent, &mut BTreeSet::new(), &mut antecedent_free);
+    let mut captured = Vec::new();
+    let mut consequent_body = consequent;
+    while let KorePattern::Exists {
+        variable,
+        body: next,
+        ..
+    } = consequent_body
+    {
+        if antecedent_free.contains(variable) {
+            captured.push(variable.name.clone());
+        }
+        consequent_body = next;
+    }
+    if !captured.is_empty() {
+        return Err(BackendError(format!(
+            "consequent existentials capture antecedent variables: {}",
+            captured.join(", ")
+        )));
+    }
+
+    if let (Some(antecedent_sort), Some(consequent_sort)) = (
+        syntactic_pattern_sort(antecedent),
+        syntactic_pattern_sort(consequent),
+    ) && antecedent_sort != consequent_sort
+    {
+        return Err(BackendError(format!(
+            "antecedent and consequent sorts differ: {antecedent_sort} and {consequent_sort}"
+        )));
+    }
+    Ok(())
+}
+
+fn syntactic_pattern_sort(pattern: &KorePattern) -> Option<&KoreSort> {
+    match pattern {
+        KorePattern::Variable(variable) => Some(&variable.sort),
+        KorePattern::Top { sort }
+        | KorePattern::Bottom { sort }
+        | KorePattern::And { sort, .. }
+        | KorePattern::Or { sort, .. }
+        | KorePattern::Not { sort, .. }
+        | KorePattern::Next { sort, .. }
+        | KorePattern::Implies { sort, .. }
+        | KorePattern::Iff { sort, .. }
+        | KorePattern::Rewrites { sort, .. }
+        | KorePattern::Exists { sort, .. }
+        | KorePattern::Forall { sort, .. }
+        | KorePattern::DomainValue { sort, .. } => Some(sort),
+        KorePattern::Ceil { result_sort, .. }
+        | KorePattern::Floor { result_sort, .. }
+        | KorePattern::Equals { result_sort, .. }
+        | KorePattern::In { result_sort, .. } => Some(result_sort),
+        KorePattern::Mu { variable, .. } | KorePattern::Nu { variable, .. } => Some(&variable.sort),
+        KorePattern::String(_)
+        | KorePattern::Application { .. }
+        | KorePattern::AssociativeApplication { .. } => None,
+    }
+}
+
+pub fn strip_exists(mut pattern: &KorePattern) -> &KorePattern {
+    while let KorePattern::Exists { body, .. } = pattern {
+        pattern = body;
+    }
+    pattern
+}
+
+pub fn collect_free_kore_variables(
+    pattern: &KorePattern,
+    bound: &mut BTreeSet<KoreVariable>,
+    output: &mut BTreeSet<KoreVariable>,
+) {
+    match pattern {
+        KorePattern::Variable(variable) => {
+            if !bound.contains(variable) {
+                output.insert(variable.clone());
+            }
+        }
+        KorePattern::Application { arguments, .. }
+        | KorePattern::AssociativeApplication { arguments, .. }
+        | KorePattern::And { arguments, .. }
+        | KorePattern::Or { arguments, .. } => {
+            for argument in arguments {
+                collect_free_kore_variables(argument, bound, output);
+            }
+        }
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => {
+            collect_free_kore_variables(argument, bound, output);
+        }
+        KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            collect_free_kore_variables(left, bound, output);
+            collect_free_kore_variables(right, bound, output);
+        }
+        KorePattern::Exists { variable, body, .. }
+        | KorePattern::Forall { variable, body, .. }
+        | KorePattern::Mu { variable, body }
+        | KorePattern::Nu { variable, body } => {
+            let inserted = bound.insert(variable.clone());
+            collect_free_kore_variables(body, bound, output);
+            if inserted {
+                bound.remove(variable);
+            }
+        }
+        KorePattern::String(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => {}
+    }
+}
+
+pub fn implication_sort_variables(antecedent: &KorePattern, consequent: &KorePattern) -> Vec<Name> {
     let mut variables = BTreeSet::new();
     collect_pattern_sort_variables(antecedent, &mut variables);
     collect_pattern_sort_variables(consequent, &mut variables);

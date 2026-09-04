@@ -24,8 +24,8 @@ use k_rust_backend::{
     definition::{BackendDefinition, DefinitionError},
     externalize,
     implication::{
-        ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationResult,
-        ImplicationStatus, check_implication_with_existentials_complete,
+        ImplicationError, ImplicationResult, ImplicationStatus,
+        check_implication_with_existentials_complete,
     },
     matching::SortGraph,
     rewrite::{
@@ -737,23 +737,30 @@ impl RpcService {
         validate_implication_variable_capture(&antecedent, &consequent)?;
         validate_implication_sorts(&antecedent, &consequent)?;
         let sort_variables = super::implication_sort_variables(&antecedent, &consequent);
-        let mut special_result = special_implication_result(&antecedent, &consequent);
+        let mut special_result = super::special_implication_result(&antecedent, &consequent);
         if matches!(super::strip_exists(&antecedent), KorePattern::Bottom { .. })
             && let Some(result) = special_result.take()
         {
             let (_, result_sort) = definition
                 .internalize_predicate(&antecedent, &sort_variables)
                 .map_err(|error| pattern_fault(error, &antecedent))?;
-            let (consequent_pattern, _) = definition
-                .internalize_implication_pattern(&consequent, &sort_variables)
-                .map_err(|error| pattern_fault(error, &consequent))?;
-            let solver = solver(&definition, self.smt_options)?;
-            let consequent = simplified_implication_response_syntax(
-                &definition,
-                &consequent,
-                &consequent_pattern,
-                &solver,
-            )?;
+            let consequent = if matches!(
+                super::strip_exists(&consequent),
+                KorePattern::Top { .. } | KorePattern::Bottom { .. }
+            ) {
+                consequent
+            } else {
+                let (consequent_pattern, _) = definition
+                    .internalize_implication_pattern(&consequent, &sort_variables)
+                    .map_err(|error| pattern_fault(error, &consequent))?;
+                let solver = solver(&definition, self.smt_options)?;
+                simplified_implication_response_syntax(
+                    &definition,
+                    &consequent,
+                    &consequent_pattern,
+                    &solver,
+                )?
+            };
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
         let (antecedent_pattern, antecedent_existentials) = definition
@@ -1314,45 +1321,6 @@ fn validate_singleton_implication_patterns(
         ));
     }
     Ok(())
-}
-
-fn special_implication_result(
-    antecedent: &KorePattern,
-    consequent: &KorePattern,
-) -> Option<ImplicationResult> {
-    let antecedent = super::strip_exists(antecedent);
-    let consequent = super::strip_exists(consequent);
-    let condition = |predicates| {
-        Some(ImplicationCondition {
-            predicates,
-            substitution: Substitution::new(),
-            witnesses: Substitution::new(),
-        })
-    };
-    if matches!(antecedent, KorePattern::Bottom { .. }) {
-        Some(ImplicationResult {
-            status: ImplicationStatus::Valid,
-            condition: condition(vec![Predicate::False]),
-            failure: None,
-            vacuous: false,
-        })
-    } else if matches!(consequent, KorePattern::Top { .. }) {
-        Some(ImplicationResult {
-            status: ImplicationStatus::Valid,
-            condition: condition(Vec::new()),
-            failure: None,
-            vacuous: false,
-        })
-    } else if matches!(consequent, KorePattern::Bottom { .. }) {
-        Some(ImplicationResult {
-            status: ImplicationStatus::Invalid,
-            condition: condition(vec![Predicate::False]),
-            failure: Some(ImplicationFailure::ConsequentCondition),
-            vacuous: false,
-        })
-    } else {
-        None
-    }
 }
 
 fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> KorePattern {

@@ -91,6 +91,8 @@ backend.free()
 ```
 
 Portable `execute`, `simplify`, `implies`, `prove`, and `addModule` operations are available.
+Implication responses use schema version 2; their optional `condition` keeps `predicate`,
+term-match `substitution`, and existential `witnesses` as three separate KORE values.
 The portable backend also mirrors native `search`, `searchPaths`, `searchPattern`, `searchPatternPaths`, and their `*Observed` variants.
 Method names declare state-set versus path-set and observed versus ordinary behavior; each search response carries a versioned, closed structural completeness disposition.
 Observed calls accept an atomically validated exact-rule allowlist and expose transition-owned effects.

@@ -97,6 +97,8 @@ Backend methods accept typed KORE JSON from `parseKore` and include `execute`, `
 The method name declares state-set versus path-set modality; no request flag changes a result's meaning.
 Each search response carries `schemaVersion`, a literal `modality`, accumulated effects, and a closed `incomplete` union that reports every bound or backend uncertainty structurally.
 Set `maxResults` for definitions with many converging paths because path witnesses can grow exponentially and the synchronous response is fully materialized.
+Implication responses use schema version 2; their optional `condition` keeps `predicate`,
+term-match `substitution`, and existential `witnesses` as three separate KORE values.
 
 `executeObserved` and the four `*Observed` search methods opt into branch-local structured transition events.
 Their optional `rules` allowlist is validated atomically against exact executable rule ids.

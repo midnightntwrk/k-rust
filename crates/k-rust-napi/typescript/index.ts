@@ -448,9 +448,16 @@ export interface ImplicationOptions {
   schemaVersion?: number
 }
 
+export interface ImplicationCondition {
+  predicate: Kore
+  substitution: Kore
+  witnesses: Kore
+}
+
 export interface ImplicationResult {
+  schemaVersion: 2
   status: 'valid' | 'invalid' | 'unknown'
-  condition?: Kore
+  condition?: ImplicationCondition
   failure?: string
 }
 
