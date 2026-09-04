@@ -399,6 +399,15 @@ pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
 
 [[compile]]
+name = "casted-chain"
+requires = ["reference-toolchain"]
+constructs = ["associativity", "semantic-cast", "large-packed-forest"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/casted-chain/test.k"
+main-module = "CASTED-CHAIN"
+pairings = ["haskell/rust"]
+comparisons = ["semantic-kore", "parsed-definition"]
+
+[[compile]]
 name = "softpref"
 requires = ["reference-toolchain"]
 constructs = ["sort-inference", "incomparable-maximal-models"]

@@ -522,6 +522,65 @@ fn semcast2_is_accepted_end_to_end() {
     assert!(check_rhs_variables(&[sentence], StructuralCheckOptions::default()).is_empty());
 }
 
+#[test]
+fn reference_canonicalizes_an_eighty_operand_casted_chain_without_truncation() {
+    fn assert_cast_operand(term: &Term, index: usize) {
+        let Term::Apply { label, arguments } = term.unannotated() else {
+            panic!("operand {index} is not a semantic cast: {term}");
+        };
+        assert_eq!(label.name, "#SemanticCastToVal", "operand {index}: {term}");
+        let [argument] = arguments.as_slice() else {
+            panic!("operand {index} cast has the wrong arity: {term}");
+        };
+        assert!(
+            matches!(
+                argument.unannotated(),
+                Term::Variable { name, .. } if name == &format!("X{index}")
+            ),
+            "operand {index} cast has the wrong variable: {argument}"
+        );
+    }
+
+    fn assert_left_chain(term: &Term, operands: usize) {
+        if operands == 1 {
+            assert_cast_operand(term, 1);
+            return;
+        }
+        let Term::Apply { label, arguments } = term.unannotated() else {
+            panic!("prefix of {operands} operands is not an application: {term}");
+        };
+        assert_eq!(label.name, "plus", "prefix of {operands} operands: {term}");
+        let [prefix, operand] = arguments.as_slice() else {
+            panic!("plus at operand {operands} has the wrong arity: {term}");
+        };
+        assert_left_chain(prefix, operands - 1);
+        assert_cast_operand(operand, operands);
+    }
+
+    let source = include_str!("fixtures/reference/inner/casted-chain/test.k");
+    let resolved = resolve_rule_bubbles(&lowered_module(source, "CASTED-CHAIN"))
+        .expect("the reference-accepted casted chain should parse without a forest limit");
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("the resolved casted-chain rule should exist");
+    let Term::Rewrite { left, right } = body.unannotated() else {
+        panic!("the rule body is not a rewrite: {body}");
+    };
+
+    assert_left_chain(left, 80);
+    assert!(
+        matches!(right.unannotated(), Term::Token { token, sort } if token == "0" && sort == &Sort::new("Int")),
+        "unexpected casted-chain RHS: {right}"
+    );
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn semcast3_and_semcast4_stay_rejected() {
