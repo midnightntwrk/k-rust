@@ -304,6 +304,56 @@ fn rule_conditions_can_select_an_overloaded_rewrite_super_sort() {
 
 #[cfg(feature = "z3-inference")]
 #[test]
+fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Gas ::= Int
+          syntax Gas ::= cap(Gas, Gas, Int, Int) [symbol(capGas), overload(cap), function, total]
+          syntax Int ::= cap(Int, Int, Int, Int) [symbol(capInt), overload(cap), function, total]
+          syntax Bool ::= Int "<=Int" Int [symbol(leInt), function, total]
+          syntax {S} S ::= "ite" "(" Bool "," S "," S ")" [symbol(ite), function, total]
+
+          rule [cgascap]:
+               cap(GCAP:Int, GAVAIL:Int, GEXTRA, IGNORED)
+            => ite(0 <=Int GEXTRA, GCAP, GAVAIL)
+            requires 0 <=Int GCAP
+            [concrete]
+        endmodule
+    "#};
+    let prelude = k_rust::builtin::embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("cgascap.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("the reduced Cgascap definition should load");
+    let body = loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .expect("the reduced Cgascap rule should resolve");
+
+    assert!(body.contains("capInt"), "{body}");
+    assert!(!body.contains("capGas"), "{body}");
+    assert!(body.contains("ite{Int}"), "{body}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
 fn incomparable_maximal_typings_are_reported_as_ambiguity() {
     let source = indoc! {r#"
         module MAIN
