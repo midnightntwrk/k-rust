@@ -2,8 +2,9 @@ use indoc::indoc;
 use k_rust::definition::{Sentence, StructuralCheckOptions, check_rhs_variables};
 use k_rust::inner::{ParseError, RuleError, resolve_rule_bubbles};
 use k_rust::kast::{Sort, Term, TermSpan};
-use k_rust::outer::{ResolvedSource, load};
+use k_rust::outer::{LoadOptions, ResolvedSource, load, load_with_options};
 use k_rust::provenance::SourceTable;
+use serde::Deserialize;
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -23,6 +24,46 @@ struct MetadataSummary<'a> {
     logical_source: Option<&'a str>,
     span: Option<TermSpan>,
     production: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct CellAssociationOracle {
+    rule: Vec<CellAssociationRule>,
+}
+
+#[derive(Deserialize)]
+struct CellAssociationRule {
+    shape: String,
+}
+
+fn cell_association_shape(term: &Term) -> Option<String> {
+    let Term::Apply { label, arguments } = term.unannotated() else {
+        return None;
+    };
+    if label.name != "#cells" {
+        return Some(label.name.clone());
+    }
+    let [left, right] = arguments.as_slice() else {
+        return None;
+    };
+    Some(format!(
+        "#cells({}, {})",
+        cell_association_shape(left)?,
+        cell_association_shape(right)?
+    ))
+}
+
+fn cell_leaves<'a>(term: &'a Term, leaves: &mut Vec<&'a str>) {
+    let Term::Apply { label, arguments } = term.unannotated() else {
+        return;
+    };
+    if label.name == "#cells" {
+        for argument in arguments {
+            cell_leaves(argument, leaves);
+        }
+    } else {
+        leaves.push(&label.name);
+    }
 }
 
 fn metadata_summary<'a>(
@@ -693,6 +734,56 @@ fn loader_parses_rules_against_generated_rule_cells() {
     }, {
         insta::assert_debug_snapshot!(rules);
     });
+}
+
+#[test]
+fn reference_three_sibling_rule_cells_associate_left() {
+    // reference: k/result/bin/kompile test.k --backend kore --main-module TEST --emit-json
+    let source = include_str!("fixtures/reference/inner/cell-association/test.k");
+    let oracle: CellAssociationOracle = toml::from_str(include_str!(
+        "fixtures/reference/inner/cell-association/association.toml"
+    ))
+    .expect("reference cell-association oracle should parse");
+    let prelude = k_rust::builtin::embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("cell-association.k", source),
+        "TEST",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("reference cell-association fixture should load");
+    let actual = loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.source() == Some("cell-association.k") => Some(body),
+            _ => None,
+        })
+        .filter(|body| {
+            let mut leaves = Vec::new();
+            cell_leaves(body, &mut leaves);
+            leaves == ["<k>", "<key>", "<value>"]
+        })
+        .map(|body| cell_association_shape(body).expect("three sibling cells should form a tree"))
+        .collect::<Vec<_>>();
+    let expected = oracle
+        .rule
+        .into_iter()
+        .map(|rule| rule.shape)
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
 }
 
 #[cfg(feature = "z3-inference")]

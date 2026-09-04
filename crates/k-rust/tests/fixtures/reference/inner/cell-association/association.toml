@@ -1,0 +1,7 @@
+[[rule]]
+line = 20
+shape = "#cells(#cells(<k>, <key>), <value>)"
+
+[[rule]]
+line = 34
+shape = "#cells(#cells(<k>, <key>), <value>)"
