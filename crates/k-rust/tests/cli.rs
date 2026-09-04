@@ -2568,6 +2568,98 @@ fn kore_implies_returns_the_matching_condition() {
         "Z"
     );
     assert_eq!(output["condition"]["predicate"]["term"]["tag"], "Top");
+    assert_eq!(output["condition"]["witnesses"]["term"]["tag"], "Top");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kore_implies_follows_the_reference_special_case_matrix() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+endmodule []
+"#,
+    )
+    .unwrap();
+    let bottom = root.join("bottom.kore");
+    let top = root.join("top.kore");
+    let regular = root.join("regular.kore");
+    fs::write(&bottom, r#"\bottom{SortS{}}()"#).unwrap();
+    fs::write(&top, r#"\top{SortS{}}()"#).unwrap();
+    fs::write(&regular, "a{}()").unwrap();
+
+    let cases = [
+        (&bottom, &bottom, "valid", "Bottom"),
+        (&bottom, &top, "valid", "Bottom"),
+        (&bottom, &regular, "valid", "Bottom"),
+        (&regular, &bottom, "invalid", "Bottom"),
+        (&regular, &top, "valid", "Top"),
+        (&regular, &regular, "valid", "Top"),
+    ];
+    for (antecedent, consequent, status, predicate) in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kore-implies",
+                definition.to_str().unwrap(),
+                "--module",
+                "MAIN",
+                "--antecedent",
+                antecedent.to_str().unwrap(),
+                "--consequent",
+                consequent.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{} => {}: {}",
+            antecedent.display(),
+            consequent.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(output["status"], status, "{output:#}");
+        assert_eq!(
+            output["condition"]["predicate"]["term"]["tag"], predicate,
+            "{output:#}"
+        );
+        assert_eq!(
+            output["condition"]["substitution"]["term"]["tag"], "Top",
+            "{output:#}"
+        );
+        assert_eq!(
+            output["condition"]["witnesses"]["term"]["tag"], "Top",
+            "{output:#}"
+        );
+    }
+
+    for consequent in [&bottom, &top, &regular] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kore-implies",
+                definition.to_str().unwrap(),
+                "--module",
+                "MAIN",
+                "--antecedent",
+                top.to_str().unwrap(),
+                "--consequent",
+                consequent.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("function-like"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     fs::remove_dir_all(root).unwrap();
 }

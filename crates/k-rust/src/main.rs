@@ -3627,6 +3627,32 @@ mod tests {
     }
 
     #[test]
+    fn implication_condition_output_keeps_witnesses_separate() {
+        let result_sort = BackendSort::simple("SortS");
+        let condition = ImplicationCondition {
+            predicates: Vec::new(),
+            substitution: Substitution::new(),
+            witnesses: Substitution::from([(
+                Variable::new("Y!exists0", result_sort.clone()),
+                Term::variable(Variable::new("X", result_sort.clone())),
+            )]),
+        };
+
+        let output = implication_condition_output(&condition, &result_sort, None).unwrap();
+        assert_eq!(output["predicate"]["term"]["tag"], "Top", "{output:#}");
+        assert_eq!(output["substitution"]["term"]["tag"], "Top", "{output:#}");
+        assert_eq!(output["witnesses"]["term"]["tag"], "Equals", "{output:#}");
+        assert_eq!(
+            output["witnesses"]["term"]["first"]["name"], "Y",
+            "{output:#}"
+        );
+        assert_eq!(
+            output["witnesses"]["term"]["second"]["name"], "X",
+            "{output:#}"
+        );
+    }
+
+    #[test]
     fn decodes_deep_backend_kore_json_input() {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
