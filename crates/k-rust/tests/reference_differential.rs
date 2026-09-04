@@ -1823,11 +1823,13 @@ fn canonicalize_attributes(attributes: &mut Attributes) {
 }
 
 fn canonicalize_pattern(pattern: &mut Pattern) {
-    rename_generated_variables(pattern);
+    // N5/N6: stabilize set-derived binders, alpha-normalize each scope, and only then sort
+    // disjunctions. This makes N4's free-variable first-occurrence traversal independent of the
+    // reference's binder and competitor set order.
     canonicalize_existentials(pattern);
     alpha_normalize_bound_variables(pattern);
-    // Bound names participate in `Pattern::Ord`, so re-sort disjunctions after replacing them.
     canonicalize_existentials(pattern);
+    rename_generated_variables(pattern);
 }
 
 fn alpha_normalize_bound_variables(pattern: &mut Pattern) {
@@ -1981,9 +1983,88 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
         binders.push((sort, variable));
         current = body;
     }
+    let chain_variables = binders
+        .iter()
+        .map(|(_, variable)| variable.clone())
+        .collect::<BTreeSet<_>>();
+    let mut first_occurrences = BTreeMap::new();
+    fn record_first_occurrences(
+        pattern: &Pattern,
+        chain_variables: &BTreeSet<k_rust::kore::ast::Variable>,
+        shadowed: &mut Vec<k_rust::kore::ast::Variable>,
+        first_occurrences: &mut BTreeMap<k_rust::kore::ast::Variable, usize>,
+    ) {
+        match pattern {
+            Pattern::Application { arguments, .. }
+            | Pattern::And { arguments, .. }
+            | Pattern::Or { arguments, .. }
+            | Pattern::AssociativeApplication { arguments, .. } => {
+                for argument in arguments {
+                    record_first_occurrences(
+                        argument,
+                        chain_variables,
+                        shadowed,
+                        first_occurrences,
+                    );
+                }
+            }
+            Pattern::Not { argument, .. }
+            | Pattern::Next { argument, .. }
+            | Pattern::Ceil { argument, .. }
+            | Pattern::Floor { argument, .. } => {
+                record_first_occurrences(argument, chain_variables, shadowed, first_occurrences)
+            }
+            Pattern::Implies { left, right, .. }
+            | Pattern::Iff { left, right, .. }
+            | Pattern::Rewrites { left, right, .. }
+            | Pattern::Equals { left, right, .. }
+            | Pattern::In { left, right, .. } => {
+                record_first_occurrences(left, chain_variables, shadowed, first_occurrences);
+                record_first_occurrences(right, chain_variables, shadowed, first_occurrences);
+            }
+            Pattern::Exists { variable, body, .. }
+            | Pattern::Forall { variable, body, .. }
+            | Pattern::Mu { variable, body }
+            | Pattern::Nu { variable, body } => {
+                let shadows_chain = chain_variables.contains(variable);
+                if shadows_chain {
+                    shadowed.push(variable.clone());
+                }
+                record_first_occurrences(body, chain_variables, shadowed, first_occurrences);
+                if shadows_chain {
+                    shadowed.pop();
+                }
+            }
+            Pattern::Variable(variable)
+                if chain_variables.contains(variable) && !shadowed.contains(variable) =>
+            {
+                let next = first_occurrences.len();
+                first_occurrences.entry(variable.clone()).or_insert(next);
+            }
+            Pattern::Variable(_)
+            | Pattern::String(_)
+            | Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::DomainValue { .. } => {}
+        }
+    }
+    record_first_occurrences(
+        &current,
+        &chain_variables,
+        &mut Vec::new(),
+        &mut first_occurrences,
+    );
     binders.sort_by(|left, right| {
         let key = |(_, variable): &(_, k_rust::kore::ast::Variable)| {
-            (variable.name.clone(), variable.sort.clone(), variable.kind)
+            (
+                first_occurrences
+                    .get(variable)
+                    .copied()
+                    .unwrap_or(usize::MAX),
+                variable.sort.clone(),
+                variable.kind,
+                variable.name.clone(),
+            )
         };
         key(left).cmp(&key(right))
     });
@@ -2018,20 +2099,20 @@ fn generated_stem(name: &str) -> Option<&str> {
 }
 
 fn rename_generated_variables(pattern: &mut Pattern) {
-    fn visit(pattern: &mut Pattern, indices: &mut BTreeMap<String, usize>) {
-        let mut rename = |variable: &mut k_rust::kore::ast::Variable| {
-            let Some(stem) = generated_stem(&variable.name) else {
-                return;
-            };
-            let stem = stem.to_owned();
-            let next = indices.len();
-            let index = *indices.entry(variable.name.clone()).or_insert(next);
-            // KORE identifiers encode punctuation in apostrophe-delimited
-            // words. A raw `#` would make N15's serialized implication inputs
-            // unparsable by both kore-parser and krust.
-            variable.name = format!("Var'Unds'{stem}'Hash'KDiff{index}");
+    fn rename(variable: &mut k_rust::kore::ast::Variable, indices: &mut BTreeMap<String, usize>) {
+        let Some(stem) = generated_stem(&variable.name) else {
+            return;
         };
+        let stem = stem.to_owned();
+        let next = indices.len();
+        let index = *indices.entry(variable.name.clone()).or_insert(next);
+        // KORE identifiers encode punctuation in apostrophe-delimited
+        // words. A raw `#` would make N15's serialized implication inputs
+        // unparsable by both kore-parser and krust.
+        variable.name = format!("Var'Unds'{stem}'Hash'KDiff{index}");
+    }
 
+    fn visit(pattern: &mut Pattern, indices: &mut BTreeMap<String, usize>) {
         match pattern {
             Pattern::Application { arguments, .. }
             | Pattern::And { arguments, .. }
@@ -2057,10 +2138,10 @@ fn rename_generated_variables(pattern: &mut Pattern) {
             | Pattern::Forall { variable, body, .. }
             | Pattern::Mu { variable, body }
             | Pattern::Nu { variable, body } => {
-                rename(variable);
+                rename(variable, indices);
                 visit(body, indices);
             }
-            Pattern::Variable(variable) => rename(variable),
+            Pattern::Variable(variable) => rename(variable, indices),
             Pattern::String(_)
             | Pattern::Top { .. }
             | Pattern::Bottom { .. }
