@@ -1115,6 +1115,144 @@ reference_run_rust_frontend bash -c '
     fs::remove_dir_all(fixture).expect("remove guard fixture");
 }
 
+#[test]
+fn compile_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time after Unix epoch")
+        .as_nanos();
+    let fixture = std::env::temp_dir().join(format!(
+        "k-rust-reference-environment-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir(&fixture).expect("create environment fixture");
+    let calls = fixture.join("calls");
+    let fake_kompile = fixture.join("kompile");
+    let fake_kore_parser = fixture.join("kore-parser");
+    let fake_cargo = fixture.join("cargo");
+    let environment_state = r#"
+if [[ ${GHCRTS+x} != x ]]; then
+  ghcrts_state='<unset>'
+elif [[ -z "$GHCRTS" ]]; then
+  ghcrts_state='<empty>'
+else
+  ghcrts_state=$GHCRTS
+fi
+"#;
+    fs::write(
+        &fake_kompile,
+        format!(
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+{environment_state}
+printf 'kompile|%s\n' "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
+"#
+        ),
+    )
+    .expect("write fake kompile");
+    fs::write(
+        &fake_kore_parser,
+        format!(
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+{environment_state}
+printf 'parser|%s\n' "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
+"#
+        ),
+    )
+    .expect("write fake kore-parser");
+    fs::write(
+        &fake_cargo,
+        format!(
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+{environment_state}
+printf 'cargo-%s|%s\n' "${{1:-missing}}" "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
+"#
+        ),
+    )
+    .expect("write fake cargo");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for executable in [&fake_kompile, &fake_kore_parser, &fake_cargo] {
+            let mut permissions = fs::metadata(executable)
+                .expect("fake executable metadata")
+                .permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(executable, permissions).expect("make fixture executable");
+        }
+    }
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let script = workspace.join("scripts/reference-differential.sh");
+    let run = |pairing: &str, ghcrts: Option<&str>| {
+        fs::write(&calls, "").expect("clear environment call log");
+        let mut command = Command::new("bash");
+        command
+            .arg(&script)
+            .arg("append")
+            .env("PATH", &path)
+            .env("ENVIRONMENT_CALLS", &calls)
+            .env("K_KOMPILE", &fake_kompile)
+            .env("K_KORE_PARSER", &fake_kore_parser)
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+            .env("REFERENCE_DIFFERENTIAL_PAIRINGS", pairing);
+        match ghcrts {
+            Some(value) => {
+                command.env("GHCRTS", value);
+            }
+            None => {
+                command.env_remove("GHCRTS");
+            }
+        }
+        let output = command.output().expect("run compile environment fixture");
+        assert!(
+            output.status.success(),
+            "fixture control failed for {pairing} with GHCRTS={ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        fs::read_to_string(&calls).expect("environment call log")
+    };
+
+    let default_haskell = run("haskell/rust", None);
+    let overridden_haskell = run("haskell/rust", Some("-N3"));
+    let non_haskell = run("kore/llvm", None);
+
+    assert_eq!(
+        default_haskell,
+        "kompile|-N1\ncargo-run|<unset>\nparser|<empty>\nparser|<empty>\ncargo-test|<unset>\n",
+        "the default must make only the reference Haskell frontend single-capability",
+    );
+    assert_eq!(
+        overridden_haskell,
+        "kompile|-N3\ncargo-run|-N3\nparser|<empty>\nparser|<empty>\ncargo-test|-N3\n",
+        "a caller Haskell override must reach kompile while parsers remain compatible",
+    );
+    assert!(
+        non_haskell.starts_with("kompile|<unset>\ncargo-run|<unset>\n"),
+        "the default must not reach the non-Haskell reference frontend: {non_haskell}",
+    );
+    assert_eq!(
+        non_haskell.matches("parser|<empty>\n").count(),
+        2,
+        "both non-Haskell definition verifications must clear Haskell RTS options",
+    );
+    assert!(
+        !non_haskell.contains("|-N1"),
+        "the default Haskell runtime option leaked to a non-Haskell command: {non_haskell}",
+    );
+
+    fs::remove_dir_all(fixture).expect("remove environment fixture");
+}
+
 fn collect_workspace_paths(value: &Value, output: &mut BTreeSet<PathBuf>) {
     match value {
         Value::String(value) => {
