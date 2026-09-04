@@ -288,16 +288,16 @@ collect_responses() {
     "$work/$prefix-error-cancel-in-batch.json"
   send_raw "$port" \
     "$(jq -c '{
-      jsonrpc: \"2.0\",
-      id: \"error-implies-top\",
-      method: \"implies\",
+      jsonrpc: "2.0",
+      id: "error-implies-top",
+      method: "implies",
       params: {
         antecedent: {
-          format: \"KORE\",
+          format: "KORE",
           version: 1,
           term: {
-            tag: \"Top\",
-            sort: {tag: \"SortApp\", name: \"SortGeneratedTopCell\", args: []}
+            tag: "Top",
+            sort: {tag: "SortApp", name: "SortGeneratedTopCell", args: []}
           }
         },
         consequent: .

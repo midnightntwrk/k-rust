@@ -42,7 +42,7 @@ use k_rust_backend::{
     substitution::{Substitution, extract_substitution, substitute},
     term::{Sort as BackendSort, Term, Variable},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json, value::RawValue};
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -105,6 +105,58 @@ struct RpcFault {
     code: i64,
     message: String,
     data: Option<Value>,
+}
+
+/// `Kore.JsonRpc.Error.JsonRpcBackendError`; the discriminant is the wire code.
+#[derive(Clone, Copy, Debug)]
+#[repr(i64)]
+#[allow(dead_code)]
+enum BackendErrorKind {
+    CouldNotParsePattern = 1,
+    CouldNotVerifyPattern = 2,
+    CouldNotFindModule = 3,
+    ImplicationCheckError = 4,
+    SmtSolverError = 5,
+    Aborted = 6,
+    MultipleStates = 7,
+    InvalidModule = 8,
+    DuplicateModuleName = 9,
+}
+
+impl BackendErrorKind {
+    fn message(self) -> &'static str {
+        match self {
+            Self::CouldNotParsePattern => "Could not parse pattern",
+            Self::CouldNotVerifyPattern => "Could not verify pattern",
+            Self::CouldNotFindModule => "Could not find module",
+            Self::ImplicationCheckError => "Implication check error",
+            Self::SmtSolverError => "Smt solver error",
+            Self::Aborted => "Aborted",
+            Self::MultipleStates => "Multiple states",
+            Self::InvalidModule => "Invalid module",
+            Self::DuplicateModuleName => "Duplicate module name",
+        }
+    }
+}
+
+/// The shipped server's error detail object, with unavailable context omitted.
+#[derive(Debug, Serialize)]
+struct ErrorDetail {
+    error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    term: Option<Value>,
+}
+
+impl ErrorDetail {
+    fn message(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            context: None,
+            term: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -209,93 +261,92 @@ impl RpcFault {
         }
     }
 
-    fn cancel_unsupported_in_batch() -> Self {
+    fn cancel_not_supported() -> Self {
         Self {
-            code: -32001,
-            message: "Cancel request unsupported in batch mode".into(),
-            data: Some(Value::Null),
+            code: -32601,
+            message: "Cancel not supported".into(),
+            data: None,
         }
     }
 
     fn invalid_request(data: Option<Value>) -> Self {
         Self {
             code: -32600,
-            message: "Invalid Request".into(),
+            message: "Invalid request".into(),
             data,
         }
     }
 
-    fn invalid_params(data: Value) -> Self {
+    fn invalid_params(data: Option<Value>) -> Self {
         Self {
             code: -32602,
             message: "Invalid params".into(),
+            data,
+        }
+    }
+
+    fn backend_error(kind: BackendErrorKind, data: Value) -> Self {
+        Self {
+            code: kind as i64,
+            message: kind.message().into(),
             data: Some(data),
         }
     }
 
-    fn backend(message: impl Into<String>) -> Self {
-        Self {
-            code: 1,
-            message: message.into(),
-            data: None,
-        }
+    fn verify(details: Vec<ErrorDetail>) -> Self {
+        Self::backend_error(
+            BackendErrorKind::CouldNotVerifyPattern,
+            serde_json::to_value(details).expect("error details are serializable"),
+        )
     }
 
-    fn runtime(error: impl Into<String>, term: &Term) -> Self {
-        let term = kore_json::to_value(&externalize::term(term)).unwrap_or_else(|error| {
-            json!({ "encoding-error": format!("could not encode runtime-error term: {error}") })
-        });
+    fn invalid_module(detail: ErrorDetail) -> Self {
+        Self::backend_error(
+            BackendErrorKind::InvalidModule,
+            serde_json::to_value(detail).expect("error details are serializable"),
+        )
+    }
+
+    fn aborted(error: impl Into<String>) -> Self {
+        Self::backend_error(BackendErrorKind::Aborted, Value::String(error.into()))
+    }
+
+    fn runtime(error: impl Into<String>, term: Option<&Term>) -> Self {
+        let mut data = Map::from_iter([("error".into(), Value::String(error.into()))]);
+        if let Some(term) = term {
+            let term = kore_json::to_value(&externalize::term(term)).unwrap_or_else(|error| {
+                json!({ "encoding-error": format!("could not encode runtime-error term: {error}") })
+            });
+            data.insert("term".into(), term);
+        }
         Self {
             code: -32002,
             message: "Runtime error".into(),
-            data: Some(json!({
-                "error": error.into(),
-                "term": term,
-            })),
-        }
-    }
-
-    fn pattern(error: impl ToString) -> Self {
-        Self {
-            code: 2,
-            message: "Could not verify pattern".into(),
-            data: Some(Value::String(error.to_string())),
+            data: Some(Value::Object(data)),
         }
     }
 
     fn implication(error: impl Into<String>, context: Vec<String>) -> Self {
-        Self {
-            code: 4,
-            message: "Implication check error".into(),
-            data: Some(json!({
-                "context": context,
-                "error": error.into(),
-            })),
-        }
+        let detail = ErrorDetail {
+            error: error.into(),
+            context: Some(context),
+            term: None,
+        };
+        Self::backend_error(
+            BackendErrorKind::ImplicationCheckError,
+            serde_json::to_value(detail).expect("error details are serializable"),
+        )
     }
 
     fn module(module: &str, _error: impl ToString) -> Self {
-        Self {
-            code: 3,
-            message: "Could not find module".into(),
-            data: Some(Value::String(module.into())),
-        }
-    }
-
-    fn invalid_module(module: &str) -> Self {
-        Self {
-            code: 8,
-            message: "Invalid module".into(),
-            data: Some(json!({ "error": format!("Module {module} not found.") })),
-        }
+        Self::backend_error(
+            BackendErrorKind::CouldNotFindModule,
+            Value::String(module.into()),
+        )
     }
 
     fn duplicate_module_name(module: String) -> Self {
-        Self {
-            code: 9,
-            message: "Duplicate module name".into(),
-            data: Some(Value::String(module)),
-        }
+        Self::backend_error(BackendErrorKind::DuplicateModuleName, Value::String(module))
     }
 
     fn into_value(self, id: Value) -> Value {
@@ -341,7 +392,7 @@ impl RpcService {
         };
         let response = match message {
             Value::Array(requests) if requests.is_empty() => {
-                Some(RpcFault::invalid_request(None).into_value(Value::Null))
+                Some(RpcFault::invalid_request(Some(json!([]))).into_value(Value::Null))
             }
             Value::Array(requests) => {
                 let responses = requests
@@ -372,8 +423,8 @@ impl RpcService {
             return Some(RpcFault::invalid_request(Some(request)).into_value(Value::Null));
         }
         let method = method.expect("checked above");
-        let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
-        let result = self.dispatch(method, params.clone());
+        let params = object.get("params").cloned().unwrap_or(Value::Null);
+        let result = self.dispatch(method, params);
         if !id_present {
             return None;
         }
@@ -401,7 +452,7 @@ impl RpcService {
             "implies" => self.implies(decode_params(params)?),
             "add-module" => self.add_module(decode_params(params)?),
             "get-model" => self.get_model(decode_params(params)?),
-            "cancel" => Err(RpcFault::cancel_unsupported_in_batch()),
+            "cancel" => Err(RpcFault::cancel_not_supported()),
             _ => Err(RpcFault {
                 code: -32601,
                 message: "Method not found".into(),
@@ -471,7 +522,7 @@ impl RpcService {
             .leaves
             .into_iter()
             .next()
-            .ok_or_else(|| RpcFault::backend("execution produced no result"))?;
+            .ok_or_else(|| RpcFault::runtime("execution produced no result", None))?;
         let mut output = Map::new();
         let (reason, next_states, rule) = match &leaf.halt_reason {
             HaltReason::Cancelled => return Err(RpcFault::cancelled()),
@@ -482,7 +533,7 @@ impl RpcService {
             HaltReason::Timeout(_) => ("timeout", None, None),
             HaltReason::Simplification(
                 error @ SimplificationError::UnsupportedHook { term, .. },
-            ) => return Err(RpcFault::runtime(error.to_string(), term)),
+            ) => return Err(RpcFault::runtime(error.to_string(), Some(term))),
             HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => ("aborted", None, None),
             HaltReason::Branch {
                 branches,
@@ -605,18 +656,35 @@ impl RpcService {
     fn add_module(&mut self, params: AddModuleParams) -> Result<Value, RpcFault> {
         let _haskell_logging = params.haskell_logging;
         let module = parse_module(&params.module)
-            .map_err(|error| RpcFault::backend(format!("could not parse module: {error}")))?;
+            .map_err(|error| RpcFault::invalid_module(ErrorDetail::message(error.to_string())))?;
+        let error_module = module.clone();
         let id = self
             .session
             .add_module(&params.module, module, params.name_as_id)
             .map_err(|error| match error {
                 SessionError::Definition(DefinitionError::NoSuchModule(module)) => {
-                    RpcFault::invalid_module(&module)
+                    RpcFault::invalid_module(ErrorDetail::message(format!(
+                        "Module {module} not found."
+                    )))
                 }
                 SessionError::DuplicateModuleName(module) => {
                     RpcFault::duplicate_module_name(module)
                 }
-                error => RpcFault::backend(format!("could not add module: {error}")),
+                SessionError::IntroducesSorts(sorts) => {
+                    RpcFault::invalid_module(ErrorDetail::message(format!(
+                        "Module introduces new sorts: {}",
+                        sorts.join(", ")
+                    )))
+                }
+                SessionError::IntroducesSymbols(symbols) => {
+                    RpcFault::invalid_module(ErrorDetail::message(format!(
+                        "Module introduces new symbols: {}",
+                        symbols.join(", ")
+                    )))
+                }
+                SessionError::Definition(error) => {
+                    RpcFault::invalid_module(module_verification_detail(&error, &error_module))
+                }
             })?;
         Ok(json!({ "module": id }))
     }
@@ -635,8 +703,9 @@ impl RpcService {
         let solver = solver(&definition, self.smt_options)?;
         match solver
             .get_model(&[predicate], &Substitution::new())
-            .map_err(|error| RpcFault::backend(format!("could not obtain model: {error:?}")))?
-        {
+            .map_err(|error| {
+                RpcFault::runtime(format!("could not obtain model: {error:?}"), None)
+            })? {
             ModelResult::Sat(substitution) => {
                 let mut result = json!({ "satisfiable": "Sat" });
                 if let Some(substitution) = super::model_substitution(&substitution, &result_sort) {
@@ -674,12 +743,12 @@ impl RpcService {
         {
             let (_, result_sort) = definition
                 .internalize_predicate(&antecedent, &sort_variables)
-                .map_err(RpcFault::pattern)?;
+                .map_err(|error| pattern_fault(error, &antecedent))?;
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
         let (antecedent_pattern, antecedent_existentials) = definition
             .internalize_implication_pattern(&antecedent, &sort_variables)
-            .map_err(RpcFault::pattern)?;
+            .map_err(|error| pattern_fault(error, &antecedent))?;
         let result_sort = antecedent_pattern.term.sort();
         let solver = solver(&definition, self.smt_options)?;
         if let Some(result) = special_result {
@@ -714,9 +783,11 @@ impl RpcService {
         }
         let (consequent_pattern, consequent_existentials) = definition
             .internalize_implication_pattern(&consequent, &sort_variables)
-            .map_err(RpcFault::pattern)?;
+            .map_err(|error| pattern_fault(error, &consequent))?;
         if result_sort != consequent_pattern.term.sort() {
-            return Err(RpcFault::pattern("antecedent and consequent sorts differ"));
+            return Err(RpcFault::verify(vec![ErrorDetail::message(
+                "antecedent and consequent sorts differ",
+            )]));
         }
         let result = check_implication_with_existentials_complete(
             &definition,
@@ -758,10 +829,10 @@ impl RpcService {
 
 fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcFault {
     if let SimplificationError::UnsupportedHook { term, .. } = &error {
-        return RpcFault::runtime(error.to_string(), term);
+        return RpcFault::runtime(error.to_string(), Some(term));
     }
     let SimplificationError::SmtPredicate { predicate, error } = error else {
-        return RpcFault::backend(format!("could not simplify pattern: {error:?}"));
+        return RpcFault::aborted(error.to_string());
     };
     let term = externalize::ml_pattern(&predicate, result_sort);
     let reason = match error {
@@ -774,13 +845,12 @@ fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcF
         error => format!("{error:?}"),
     };
     let Ok(term) = encode_kore(&term) else {
-        return RpcFault::backend("could not encode the predicate rejected by SMT");
+        return RpcFault::runtime("could not encode the predicate rejected by SMT", None);
     };
-    RpcFault {
-        code: 5,
-        message: "Smt solver error".into(),
-        data: Some(json!({ "term": term, "error": reason })),
-    }
+    RpcFault::backend_error(
+        BackendErrorKind::SmtSolverError,
+        json!({ "term": term, "error": reason }),
+    )
 }
 
 fn contains_integer_power_application(pattern: &KorePattern) -> bool {
@@ -819,35 +889,38 @@ fn contains_integer_power_application(pattern: &KorePattern) -> bool {
 }
 
 fn implication_pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
-    let DefinitionError::MacroOrAliasInImplication(name) = error else {
-        return RpcFault::pattern(error);
+    let DefinitionError::MacroOrAliasInImplication(name) = &error else {
+        return pattern_fault(error, pattern);
     };
-    let context = macro_or_alias_context(pattern, &name)
+    let context = macro_or_alias_context(pattern, name)
         .unwrap_or_else(|| vec![format!("symbol or alias '{name}' (<unknown location>)")]);
-    RpcFault {
-        code: 2,
-        message: "Could not verify pattern".into(),
-        data: Some(json!([{
-            "context": context,
-            "error": "A symbol cannot be an alias or a macro",
-        }])),
-    }
+    RpcFault::verify(vec![ErrorDetail {
+        error: "A symbol cannot be an alias or a macro".into(),
+        context: Some(context),
+        term: None,
+    }])
 }
 
 fn pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
-    let detail = match &error {
+    RpcFault::verify(vec![verification_detail(&error, pattern)])
+}
+
+fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorDetail {
+    let (message, term) = match error {
+        DefinitionError::UnknownSymbol(symbol) => (
+            format!("Unknown symbol '{symbol}'"),
+            find_application(pattern, symbol, None, None, None).map(|(term, _)| term),
+        ),
         DefinitionError::WrongSymbolArity {
             symbol,
             expected,
             actual,
-        } => find_application(pattern, symbol, Some(*actual), None, None).map(|(term, _)| {
-            (
-                term,
-                format!(
-                    "Inconsistent pattern. Symbol '{symbol}' expected {expected} arguments but got {actual}"
-                ),
-            )
-        }),
+        } => (
+            format!(
+                "Inconsistent pattern. Symbol '{symbol}' expected {expected} arguments but got {actual}"
+            ),
+            find_application(pattern, symbol, Some(*actual), None, None).map(|(term, _)| term),
+        ),
         DefinitionError::IncorrectArgumentSort {
             symbol,
             index,
@@ -855,54 +928,104 @@ fn pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
             actual,
         } => {
             let actual_sort = externalize::sort(actual).to_string();
-            find_application(
+            let term = find_application(
                 pattern,
                 symbol,
                 None,
                 Some((*index, actual_sort.as_str())),
                 None,
             )
-                .and_then(|(_, arguments)| arguments.get(*index))
-                .map(|term| {
-                    (
-                        term,
-                        format!(
-                            "Incorrect sort: expected {} but got {actual_sort}",
-                            externalize::sort(expected)
-                        ),
-                    )
-                })
+            .and_then(|(_, arguments)| arguments.get(*index));
+            (
+                format!(
+                    "Incorrect sort: expected {} but got {actual_sort}",
+                    externalize::sort(expected)
+                ),
+                term,
+            )
         }
         DefinitionError::NotSubsort { source, target } => {
             let source = externalize::sort(source).to_string();
             let target = externalize::sort(target).to_string();
-            find_application(
-                pattern,
-                "inj",
-                Some(1),
-                None,
-                Some((source.as_str(), target.as_str())),
-            )
-            .map(|(term, _)| {
-                (
-                    term,
-                    format!("{source} is not a subsort of {target}"),
+            (
+                format!("{source} is not a subsort of {target}"),
+                find_application(
+                    pattern,
+                    "inj",
+                    Some(1),
+                    None,
+                    Some((source.as_str(), target.as_str())),
                 )
-            })
+                .map(|(term, _)| term),
+            )
         }
-        _ => None,
+        DefinitionError::ExpectedTerm(_) => ("Pattern not supported".into(), Some(pattern)),
+        _ => (error.to_string(), None),
     };
-    let Some((term, message)) = detail else {
-        return RpcFault::pattern(error);
-    };
-    let Ok(term) = encode_kore(term) else {
-        return RpcFault::pattern(error);
-    };
-    RpcFault {
-        code: 2,
-        message: "Could not verify pattern".into(),
-        data: Some(json!([{ "term": term, "error": message }])),
+    ErrorDetail {
+        error: message,
+        context: None,
+        term: term.and_then(|term| encode_kore(term).ok()),
     }
+}
+
+fn module_verification_detail(
+    error: &DefinitionError,
+    module: &k_rust::kore::ast::Module,
+) -> ErrorDetail {
+    let pattern = module.sentences.iter().find_map(|sentence| match sentence {
+        k_rust::kore::ast::Sentence::AliasDeclaration { right, .. }
+        | k_rust::kore::ast::Sentence::Axiom { pattern: right, .. }
+        | k_rust::kore::ast::Sentence::Claim { pattern: right, .. } => Some(right.as_ref()),
+        _ => None,
+    });
+    let mut detail = match (error, pattern) {
+        (DefinitionError::Verification(verification), Some(pattern))
+            if verification
+                .message
+                .strip_prefix("Head '")
+                .and_then(|message| message.strip_suffix("' not defined."))
+                .is_some() =>
+        {
+            let symbol = verification
+                .message
+                .strip_prefix("Head '")
+                .and_then(|message| message.strip_suffix("' not defined."))
+                .expect("guarded above");
+            ErrorDetail {
+                error: format!("Unknown symbol '{symbol}'"),
+                context: None,
+                term: find_application(pattern, symbol, None, None, None)
+                    .and_then(|(term, _)| encode_kore(term).ok()),
+            }
+        }
+        (_, Some(pattern)) => verification_detail(error, pattern),
+        (_, None) => ErrorDetail::message(error.to_string()),
+    };
+    if matches!(
+        error,
+        DefinitionError::UnknownSort(_)
+            | DefinitionError::UnknownSymbol(_)
+            | DefinitionError::WrongSortArity { .. }
+            | DefinitionError::WrongSortArgumentCount { .. }
+            | DefinitionError::WrongSymbolArity { .. }
+            | DefinitionError::WrongAliasSortArgumentCount { .. }
+            | DefinitionError::WrongAliasArity { .. }
+            | DefinitionError::IncorrectArgumentSort { .. }
+            | DefinitionError::NotSubsort { .. }
+            | DefinitionError::InvalidSortParameter
+            | DefinitionError::MacroOrAliasInImplication(_)
+            | DefinitionError::PredicateInTermPosition { .. }
+            | DefinitionError::SortWithoutDomainValues { .. }
+            | DefinitionError::InvalidDomainValue { .. }
+            | DefinitionError::ExpectedTerm(_)
+            | DefinitionError::EmptyAssociativeApplication(_)
+            | DefinitionError::RulePattern(_)
+            | DefinitionError::Verification(_)
+    ) {
+        detail.context = Some(vec!["Pattern error at UNKNOWN in definition".into()]);
+    }
+    detail
 }
 
 /// Report both interpretations attempted by Booster's simplify boundary.
@@ -1377,7 +1500,7 @@ fn simplified_not_consequent_response_syntax(
         KorePattern::Not { sort, argument } => {
             let (pattern, _) = definition
                 .internalize_implication_pattern(argument, sort_variables)
-                .map_err(RpcFault::pattern)?;
+                .map_err(|error| pattern_fault(error, argument))?;
             KorePattern::Not {
                 sort: sort.clone(),
                 argument: Box::new(simplified_implication_response_syntax(
@@ -1474,7 +1597,13 @@ fn implication_backend_fault(
                 ],
             )
         }
-        error => RpcFault::backend(format!("implication check failed: {error}")),
+        error => RpcFault::backend_error(
+            BackendErrorKind::ImplicationCheckError,
+            serde_json::to_value(ErrorDetail::message(format!(
+                "implication check failed: {error}"
+            )))
+            .expect("error details are serializable"),
+        ),
     }
 }
 
@@ -1734,7 +1863,8 @@ fn legacy_log_selected(requested: &[String], contexts: &[&str]) -> bool {
 }
 
 fn decode_params<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RpcFault> {
-    serde_json::from_value(params.clone()).map_err(|_| RpcFault::invalid_params(params))
+    let data = (!params.is_null()).then_some(params.clone());
+    serde_json::from_value(params).map_err(|_| RpcFault::invalid_params(data))
 }
 
 fn parse_json_value(source: &str) -> serde_json::Result<Value> {
@@ -1747,14 +1877,14 @@ fn parse_json_value(source: &str) -> serde_json::Result<Value> {
 
 fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
     let source = kore_json::to_string(pattern)
-        .map_err(|error| RpcFault::backend(format!("could not encode KORE JSON: {error}")))?;
+        .map_err(|error| RpcFault::runtime(format!("could not encode KORE JSON: {error}"), None))?;
     parse_json_value(&source)
-        .map_err(|error| RpcFault::backend(format!("could not encode KORE JSON: {error}")))
+        .map_err(|error| RpcFault::runtime(format!("could not encode KORE JSON: {error}"), None))
 }
 
 fn solver(definition: &BackendDefinition, options: Z3Options) -> Result<Z3Solver, RpcFault> {
     Z3Solver::with_options(definition, options)
-        .map_err(|error| RpcFault::backend(format!("could not initialize Z3: {error:?}")))
+        .map_err(|error| RpcFault::runtime(format!("could not initialize Z3: {error:?}"), None))
 }
 
 fn execute_state(

@@ -240,23 +240,136 @@ pub enum DefinitionError {
 impl fmt::Display for DefinitionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NoSuchModule(module) => write!(formatter, "Module {module} not found."),
+            Self::ImportCycle(modules) => {
+                write!(formatter, "Import cycle: {}", modules.join(" -> "))
+            }
+            Self::DuplicateModule(module) => write!(formatter, "Duplicate module '{module}'"),
+            Self::DuplicateSort(sort) => write!(formatter, "Duplicate sort '{sort}'"),
+            Self::DuplicateSymbol(symbol) => write!(formatter, "Duplicate symbol '{symbol}'"),
+            Self::DuplicateAlias(alias) => write!(formatter, "Duplicate alias '{alias}'"),
             Self::DuplicateName { name, .. } => write!(formatter, "Duplicated name: {name}."),
+            Self::DuplicateParameter(parameter) => {
+                write!(formatter, "Duplicate sort parameter '{parameter}'")
+            }
+            Self::UnknownSort(sort) => write!(formatter, "Unknown sort '{sort}'"),
+            Self::UnknownSymbol(symbol) => write!(formatter, "Unknown symbol '{symbol}'"),
+            Self::WrongSortArity {
+                sort,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "Sort '{sort}' expected {expected} parameters but got {actual}"
+            ),
+            Self::WrongSortArgumentCount {
+                symbol,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "Symbol '{symbol}' expected {expected} sort arguments but got {actual}"
+            ),
+            Self::WrongSymbolArity {
+                symbol,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "Symbol '{symbol}' expected {expected} arguments but got {actual}"
+            ),
+            Self::WrongAliasSortArgumentCount {
+                alias,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "Alias '{alias}' expected {expected} sort arguments but got {actual}"
+            ),
+            Self::WrongAliasArity {
+                alias,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "Alias '{alias}' expected {expected} arguments but got {actual}"
+            ),
+            Self::IncorrectArgumentSort {
+                symbol,
+                index,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "Argument {index} of symbol '{symbol}' expected sort {} but got {}",
+                display_sort(expected),
+                display_sort(actual)
+            ),
+            Self::NotSubsort { source, target } => write!(
+                formatter,
+                "{} is not a subsort of {}",
+                display_sort(source),
+                display_sort(target)
+            ),
+            Self::InvalidSymbolType(symbol) => {
+                write!(formatter, "Invalid type for symbol '{symbol}'")
+            }
+            Self::InvalidSortParameter => write!(formatter, "Invalid sort parameter"),
+            Self::MalformedAttribute(attribute) => {
+                write!(formatter, "Malformed attribute: {attribute}")
+            }
+            Self::MalformedCollection(error) => {
+                write!(formatter, "Malformed collection: {error}")
+            }
+            Self::MalformedAlias(error) => write!(formatter, "Malformed alias: {error}"),
+            Self::AliasCycle(aliases) => {
+                write!(formatter, "Alias cycle: {}", aliases.join(" -> "))
+            }
+            Self::MacroOrAliasInImplication(symbol) => {
+                write!(
+                    formatter,
+                    "A symbol cannot be an alias or a macro: '{symbol}'"
+                )
+            }
             Self::PredicateInTermPosition { count } => write!(
                 formatter,
                 "predicate in term position ({count} floated conjuncts) where a term is required"
             ),
-            Self::SortWithoutDomainValues { .. } => write!(
+            Self::SortWithoutDomainValues { sort } => write!(
                 formatter,
-                "Sorts used with domain value must have the hasDomainValues attribute."
+                "Sort {} used with a domain value must have the hasDomainValues attribute.",
+                display_sort(sort)
             ),
             Self::InvalidDomainValue { sort, value } => {
                 write!(
                     formatter,
-                    "invalid domain value {value:?} for sort {sort:?}"
+                    "Invalid domain value {value:?} for sort {}",
+                    display_sort(sort)
                 )
             }
+            Self::ExpectedTerm(pattern) => {
+                write!(
+                    formatter,
+                    "Pattern not supported where a term is required: {pattern}"
+                )
+            }
+            Self::EmptyAssociativeApplication(symbol) => {
+                write!(formatter, "Associative symbol '{symbol}' has no arguments")
+            }
+            Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),
+            Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error:?}"),
+            Self::Claim(error) => write!(formatter, "Invalid claim: {error:?}"),
             Self::Verification(error) => write!(formatter, "{error}"),
-            _ => write!(formatter, "{self:?}"),
+        }
+    }
+}
+
+fn display_sort(sort: &Sort) -> String {
+    match sort {
+        Sort::Variable(name) => name.to_string(),
+        Sort::Application { name, arguments } => {
+            let arguments = arguments.iter().map(display_sort).collect::<Vec<_>>();
+            format!("{name}{{{}}}", arguments.join(", "))
         }
     }
 }
