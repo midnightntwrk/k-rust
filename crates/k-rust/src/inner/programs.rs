@@ -171,6 +171,25 @@ pub fn parse_program(
         .map_err(ProgramError::Parse)
 }
 
+/// Parse a program and apply the reference `kast` presentation boundary.
+/// User-facing KAST must use this helper; compilation and execution must use [`ProgramParser::parse`].
+pub fn parse_program_for_presentation(
+    definition: &ResolvedDefinition,
+    module: &str,
+    parser: &ProgramParser,
+    start_sort: &Sort,
+    source: &str,
+) -> Result<Term, ProgramParseError> {
+    let module_id = definition
+        .module_id(module)
+        .expect("the program parser resolved this module");
+    let productions = definition.production_catalog(module_id);
+    Ok(prepare_reference_kast(
+        parser.parse(start_sort, source)?,
+        &productions,
+    ))
+}
+
 fn program_sentences(definition: &ResolvedDefinition, module: ModuleId) -> Vec<Sentence> {
     let substitute_imports = !definition
         .module(module)
