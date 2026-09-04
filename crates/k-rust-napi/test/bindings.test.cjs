@@ -162,7 +162,12 @@ test('runs the complete persistent native backend API', () => {
   const execution = backend.execute({ state: a, maxDepth: 2 })
   assert.equal(printKore(execution.leaves[0].state), 'c{}()')
   assert.equal(printKore(backend.simplify({ state: a })), 'a{}()')
-  assert.equal(backend.implies({ antecedent: c, consequent: c }).status, 'valid')
+  const implication = backend.implies({ antecedent: c, consequent: c })
+  assert.equal(implication.schemaVersion, 2)
+  assert.equal(implication.status, 'valid')
+  assert.equal(printKore(implication.condition.predicate), '\\top{SortS{}}()')
+  assert.equal(printKore(implication.condition.substitution), '\\top{SortS{}}()')
+  assert.equal(printKore(implication.condition.witnesses), '\\top{SortS{}}()')
   assert.equal(backend.getModel({ state: parseKore('\\top{SortS{}}()').kore }).satisfiable, 'unknown')
   assert.equal(backend.prove({ claim: 'reaches-c' }).status, 'proven')
 

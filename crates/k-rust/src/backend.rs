@@ -1423,6 +1423,115 @@ mod tests {
     }
 
     #[test]
+    fn persistent_backend_follows_the_reference_implication_matrix() {
+        let bottom = r#"\bottom{SortS{}}()"#;
+        let top = r#"\top{SortS{}}()"#;
+        let regular = "a{}()";
+        let cases = [
+            (bottom, bottom, "valid", "Bottom"),
+            (bottom, top, "valid", "Bottom"),
+            (bottom, regular, "valid", "Bottom"),
+            (regular, bottom, "invalid", "Bottom"),
+            (regular, top, "valid", "Top"),
+            (regular, regular, "valid", "Top"),
+        ];
+        let mut backend = backend();
+
+        for (antecedent, consequent, status, predicate) in cases {
+            let result = backend
+                .implies(ImplicationRequest {
+                    antecedent: json(antecedent),
+                    consequent: json(consequent),
+                    module_name: None,
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                })
+                .unwrap_or_else(|error| panic!("{antecedent} => {consequent} returned {error}"));
+            let result = serde_json::to_value(result).unwrap();
+            assert_eq!(result["status"], status, "{result:#}");
+            assert_eq!(
+                result["condition"]["predicate"]["term"]["tag"], predicate,
+                "{result:#}"
+            );
+            assert_eq!(
+                result["condition"]["substitution"]["term"]["tag"], "Top",
+                "{result:#}"
+            );
+            assert_eq!(
+                result["condition"]["witnesses"]["term"]["tag"], "Top",
+                "{result:#}"
+            );
+        }
+
+        for consequent in [bottom, top, regular] {
+            let error = backend
+                .implies(ImplicationRequest {
+                    antecedent: json(top),
+                    consequent: json(consequent),
+                    module_name: None,
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                })
+                .expect_err("a top antecedent must be rejected");
+            assert!(error.to_string().contains("function-like"), "{error}");
+        }
+    }
+
+    #[test]
+    fn persistent_implication_conditions_keep_bindings_separate() {
+        use k_rust_backend::{
+            implication::ImplicationCondition, substitution::Substitution, term::Variable,
+        };
+
+        let definition = backend().session.definition(None).unwrap();
+        let sort = Sort::simple("SortS");
+        let condition = ImplicationCondition {
+            predicates: vec![Predicate::False],
+            substitution: Substitution::from([(
+                Variable::new("X", sort.clone()),
+                definition
+                    .internalize_term(&parse_pattern("a{}()").unwrap(), &[])
+                    .unwrap(),
+            )]),
+            witnesses: Substitution::from([(
+                Variable::new("Y", sort.clone()),
+                definition
+                    .internalize_term(&parse_pattern("b{}()").unwrap(), &[])
+                    .unwrap(),
+            )]),
+        };
+
+        let output = condition_pattern(&condition, &sort).unwrap();
+        assert_eq!(output["predicate"]["term"]["tag"], "Bottom", "{output:#}");
+        assert_eq!(
+            output["substitution"]["term"]["tag"], "Equals",
+            "{output:#}"
+        );
+        assert_eq!(
+            output["substitution"]["term"]["first"]["name"], "X",
+            "{output:#}"
+        );
+        assert_eq!(output["witnesses"]["term"]["tag"], "Equals", "{output:#}");
+        assert_eq!(
+            output["witnesses"]["term"]["first"]["name"], "Y",
+            "{output:#}"
+        );
+    }
+
+    #[test]
+    fn persistent_implication_results_advertise_schema_version_two() {
+        let result = backend()
+            .implies(ImplicationRequest {
+                antecedent: json("a{}()"),
+                consequent: json("a{}()"),
+                module_name: None,
+                schema_version: BACKEND_SCHEMA_VERSION,
+            })
+            .unwrap();
+        let result = serde_json::to_value(result).unwrap();
+
+        assert_eq!(result["schemaVersion"], 2, "{result:#}");
+    }
+
+    #[test]
     fn persistent_backend_names_and_structures_unsupported_hook_failures() {
         let state = json(r#"missing{}(\dv{SortState{}}("value"))"#);
         let mut backend = Backend::new(

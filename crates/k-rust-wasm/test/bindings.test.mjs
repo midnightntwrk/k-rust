@@ -173,7 +173,12 @@ test('runs portable backend operations and reports the SMT boundary', () => {
   assert.equal(backend.capabilities.smt, false)
   assert.equal(printKore(backend.execute({ state: a, maxDepth: 2 }).leaves[0].state), 'c{}()')
   assert.equal(printKore(backend.simplify({ state: a })), 'a{}()')
-  assert.equal(backend.implies({ antecedent: c, consequent: c }).status, 'valid')
+  const implication = backend.implies({ antecedent: c, consequent: c })
+  assert.equal(implication.schemaVersion, 2)
+  assert.equal(implication.status, 'valid')
+  assert.equal(printKore(implication.condition.predicate), '\\top{SortS{}}()')
+  assert.equal(printKore(implication.condition.substitution), '\\top{SortS{}}()')
+  assert.equal(printKore(implication.condition.witnesses), '\\top{SortS{}}()')
   assert.equal(backend.prove({ claim: 'reaches-c' }).status, 'proven')
   assert.throws(
     () => backend.getModel({ state: parseKore('\\top{SortS{}}()').kore }),

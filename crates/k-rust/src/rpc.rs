@@ -3055,6 +3055,44 @@ mod tests {
     }
 
     #[test]
+    fn implication_special_cases_follow_the_reference_matrix() {
+        let bottom = r#"\bottom{SortK{}}()"#;
+        let top = r#"\top{SortK{}}()"#;
+        let regular = "value{}()";
+        let cases = [
+            (bottom, bottom, "valid", "Bottom"),
+            (bottom, top, "valid", "Bottom"),
+            (bottom, regular, "valid", "Bottom"),
+            (regular, bottom, "invalid", "Bottom"),
+            (regular, top, "valid", "Top"),
+            (regular, regular, "valid", "Top"),
+        ];
+
+        for (antecedent, consequent, status, predicate) in cases {
+            let response = implication_response(antecedent, consequent);
+            assert_eq!(response["result"]["status"], status, "{response:#}");
+            assert_eq!(
+                response["result"]["condition"]["predicate"]["term"]["tag"], predicate,
+                "{response:#}"
+            );
+            assert_eq!(
+                response["result"]["condition"]["substitution"]["term"]["tag"], "Top",
+                "{response:#}"
+            );
+        }
+
+        for consequent in [bottom, top, regular] {
+            let response = implication_response(top, consequent);
+            assert_eq!(response["error"]["code"], 4, "{response:#}");
+            assert_eq!(
+                response["error"]["data"]["error"],
+                "The check implication step expects the antecedent term to be function-like.",
+                "{response:#}"
+            );
+        }
+    }
+
+    #[test]
     fn implication_uses_an_smt_counterexample_as_a_public_refutation() {
         let mut service = smt_implication_service();
         let constrained = |bound| {
