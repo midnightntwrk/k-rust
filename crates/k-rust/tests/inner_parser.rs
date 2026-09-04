@@ -457,10 +457,7 @@ fn reports_productive_unary_cycles_without_a_derivation_limit() {
         .parse(&Sort::new("Start"), "x")
         .expect_err("a productive unary cycle has an infinite parse forest");
 
-    assert!(
-        !matches!(error, ParseError::TooManyParses { .. }),
-        "productive unary cycles need their own diagnostic: {error}"
-    );
+    assert_eq!(error, ParseError::CyclicParseForest);
 }
 
 #[test]

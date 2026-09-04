@@ -267,7 +267,6 @@ impl Grammar {
     ) -> Result<Rc<PackedTerm>, ParseError> {
         match self.filter_packed_priority_memo(
             Rc::clone(&term),
-            true,
             &mut HashMap::new(),
             &mut HashMap::new(),
         ) {
@@ -288,19 +287,13 @@ impl Grammar {
         &self,
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        self.filter_packed_priority_memo(term, false, &mut HashMap::new(), &mut HashMap::new())
+        self.filter_packed_priority_memo(term, &mut HashMap::new(), &mut HashMap::new())
     }
 
     /// Filter a packed node against the priority and associativity relations.
-    ///
-    /// With `defer_provisional`, a cast boundary violation is retained rather than rejected. A
-    /// cast can complete before the surrounding infix production has been packed, and rejecting
-    /// that provisional boundary at completion time can discard the valid sibling of a large
-    /// ambiguous forest. The complete priority pass repeats the check once the tree is formed.
     fn filter_packed_priority_memo(
         &self,
         term: Rc<PackedTerm>,
-        defer_provisional: bool,
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
@@ -335,7 +328,6 @@ impl Grammar {
                     for alternative in alternatives {
                         match self.filter_packed_priority_memo(
                             Rc::clone(&alternative),
-                            defer_provisional,
                             memo,
                             child_memo,
                         ) {
@@ -406,7 +398,6 @@ impl Grammar {
                                 *production,
                                 Rc::clone(child),
                                 side,
-                                defer_provisional,
                                 memo,
                                 child_memo,
                             )
@@ -460,7 +451,6 @@ impl Grammar {
         parent: usize,
         child: Rc<PackedTerm>,
         side: Option<Side>,
-        defer_provisional: bool,
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
@@ -473,7 +463,6 @@ impl Grammar {
             parent,
             Rc::clone(&child),
             side,
-            defer_provisional,
             memo,
             child_memo,
         );
@@ -486,7 +475,6 @@ impl Grammar {
         parent: usize,
         child: Rc<PackedTerm>,
         side: Option<Side>,
-        defer_provisional: bool,
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
@@ -498,7 +486,6 @@ impl Grammar {
                     parent,
                     Rc::clone(alternative),
                     side,
-                    defer_provisional,
                     memo,
                     child_memo,
                 ) {
@@ -529,13 +516,11 @@ impl Grammar {
                 children: Vec::new(),
                 metadata: crate::kast::TermMetadata::default(),
             };
-            if let Some(error) = self.child_violation(&self.productions[parent], &shallow, side)
-                && !(defer_provisional && matches!(error, ParseError::CastPriority { .. }))
-            {
+            if let Some(error) = self.child_violation(&self.productions[parent], &shallow, side) {
                 return Err(error);
             }
         }
-        self.filter_packed_priority_memo(child, defer_provisional, memo, child_memo)
+        self.filter_packed_priority_memo(child, memo, child_memo)
     }
 
     /// Apply priority and associativity to every packed ambiguity branch.
@@ -1016,11 +1001,6 @@ impl Grammar {
                                 first_error.get_or_insert(error);
                             }
                         }
-                        if resolved.len() > super::MAX_DERIVATIONS_PER_STATE {
-                            return Err(ParseError::TooManyParses {
-                                limit: super::MAX_DERIVATIONS_PER_STATE,
-                            });
-                        }
                     }
                     if resolved.is_empty() {
                         Err(first_error.expect("an empty ambiguity had no resolution result"))
@@ -1097,11 +1077,6 @@ impl Grammar {
                                         arguments.clone(),
                                         candidate_metadata,
                                     ));
-                                    if candidates.len() > super::MAX_DERIVATIONS_PER_STATE {
-                                        return Err(ParseError::TooManyParses {
-                                            limit: super::MAX_DERIVATIONS_PER_STATE,
-                                        });
-                                    }
                                 }
                             }
                         }
@@ -1133,11 +1108,6 @@ impl Grammar {
                 let mut flattened = Vec::new();
                 for alternative in packed_terms_in_structural_order(alternatives) {
                     flattened.extend(self.flatten_packed_klist(&alternative)?);
-                    if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
-                        return Err(ParseError::TooManyParses {
-                            limit: super::MAX_DERIVATIONS_PER_STATE,
-                        });
-                    }
                 }
                 flattened
             }
@@ -1162,20 +1132,13 @@ impl Grammar {
                                 combined
                             })
                         })
-                        .take(super::MAX_DERIVATIONS_PER_STATE + 1)
                         .collect()
                 }
                 _ => vec![vec![Rc::clone(term)]],
             },
             PackedNode::Term(_) => vec![vec![Rc::clone(term)]],
         };
-        if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
-            Err(ParseError::TooManyParses {
-                limit: super::MAX_DERIVATIONS_PER_STATE,
-            })
-        } else {
-            Ok(flattened)
-        }
+        Ok(flattened)
     }
 
     #[cfg(test)]
@@ -1194,11 +1157,6 @@ impl Grammar {
                         Err(error) => {
                             first_error.get_or_insert(error);
                         }
-                    }
-                    if resolved.len() > super::MAX_DERIVATIONS_PER_STATE {
-                        return Err(ParseError::TooManyParses {
-                            limit: super::MAX_DERIVATIONS_PER_STATE,
-                        });
                     }
                 }
                 match resolved.len() {
@@ -1262,11 +1220,6 @@ impl Grammar {
                                 children: arguments.clone(),
                                 metadata: candidate_metadata,
                             });
-                            if candidates.len() > super::MAX_DERIVATIONS_PER_STATE {
-                                return Err(ParseError::TooManyParses {
-                                    limit: super::MAX_DERIVATIONS_PER_STATE,
-                                });
-                            }
                         }
                     }
                 }
@@ -1292,11 +1245,6 @@ impl Grammar {
                 let mut flattened = Vec::new();
                 for alternative in alternatives {
                     flattened.extend(self.flatten_klist(alternative)?);
-                    if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
-                        return Err(ParseError::TooManyParses {
-                            limit: super::MAX_DERIVATIONS_PER_STATE,
-                        });
-                    }
                 }
                 flattened
             }
@@ -1321,7 +1269,6 @@ impl Grammar {
                                 combined
                             })
                         })
-                        .take(super::MAX_DERIVATIONS_PER_STATE + 1)
                         .collect()
                 }
                 _ => vec![vec![term.clone()]],
@@ -1331,13 +1278,7 @@ impl Grammar {
                 unreachable!("K lists are flattened before sort inference")
             }
         };
-        if flattened.len() > super::MAX_DERIVATIONS_PER_STATE {
-            Err(ParseError::TooManyParses {
-                limit: super::MAX_DERIVATIONS_PER_STATE,
-            })
-        } else {
-            Ok(flattened)
-        }
+        Ok(flattened)
     }
 
     /// Factor alternatives with a shared production into one differing child.

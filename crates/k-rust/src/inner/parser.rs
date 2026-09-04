@@ -11,6 +11,7 @@ mod z3_inference;
 
 #[cfg(test)]
 use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
 use std::rc::Rc;
@@ -28,8 +29,6 @@ use self::lists::UserList;
 pub(crate) use self::parametric::is_parser_sort;
 pub(super) use self::scanner::Scanner;
 use self::scanner::{Item, Layout, compile_item};
-
-const MAX_DERIVATIONS_PER_STATE: usize = 64;
 
 #[derive(Clone, Copy)]
 struct ParseProvenance {
@@ -75,9 +74,7 @@ pub enum ParseError {
         alternatives: Vec<AmbiguousParse>,
         span: Option<TermSpan>,
     },
-    TooManyParses {
-        limit: usize,
-    },
+    CyclicParseForest,
     CircularPriorities {
         path: Vec<String>,
     },
@@ -193,10 +190,9 @@ impl fmt::Display for ParseError {
                 }
                 Ok(())
             }
-            Self::TooManyParses { limit } => write!(
-                formatter,
-                "parse forest exceeded the per-state limit of {limit} derivations"
-            ),
+            Self::CyclicParseForest => {
+                formatter.write_str("parse forest is infinite because of a productive unary cycle")
+            }
             Self::CircularPriorities { path } => {
                 write!(
                     formatter,
@@ -436,6 +432,9 @@ impl PartialOrd for PackedTerm {
 
 impl Ord for PackedTerm {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if std::ptr::eq(self, other) {
+            return std::cmp::Ordering::Equal;
+        }
         // The fingerprint is a fast ordering key, not an identity. Equal keys still compare the
         // complete structure, so even an FNV collision cannot merge distinct parses.
         self.fingerprint.cmp(&other.fingerprint).then_with(|| {
@@ -1206,9 +1205,7 @@ impl Grammar {
                     }
                     None => {
                         if self.productive_unary_cycles.contains(&state.production) {
-                            return Err(ParseError::TooManyParses {
-                                limit: MAX_DERIVATIONS_PER_STATE,
-                            });
+                            return Err(ParseError::CyclicParseForest);
                         }
                         let mut nodes = BTreeSet::new();
                         let mut invalid = Vec::new();
@@ -1942,12 +1939,30 @@ struct State {
     origin: usize,
 }
 
-#[derive(Clone, Debug, Default)]
+type CompletedNodeKey = (Sort, usize, usize, SourceId, usize);
+type CompletedNodeResult = (BTreeSet<Rc<PackedTerm>>, Option<ParseError>);
+
+#[derive(Clone, Debug)]
 struct Chart {
     states: BTreeMap<State, Derivations>,
     waiting: BTreeMap<Sort, Vec<State>>,
     completed: BTreeMap<Sort, Vec<State>>,
     agenda: VecDeque<State>,
+    // Java exposes one completed node for each stable (sort, origin, end) chart boundary. Retain
+    // that identity until the chart changes; `add` invalidates this snapshot before reprocessing.
+    completed_nodes: RefCell<BTreeMap<CompletedNodeKey, CompletedNodeResult>>,
+}
+
+impl Default for Chart {
+    fn default() -> Self {
+        Self {
+            states: BTreeMap::new(),
+            waiting: BTreeMap::new(),
+            completed: BTreeMap::new(),
+            agenda: VecDeque::new(),
+            completed_nodes: RefCell::new(BTreeMap::new()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -2014,6 +2029,7 @@ impl Derivations {
         }
     }
 
+    #[cfg(test)]
     fn len(&self) -> usize {
         match self {
             Self::Empty => 0,
@@ -2099,11 +2115,7 @@ impl Chart {
         if !changed {
             return Ok(false);
         }
-        if stored.len() > MAX_DERIVATIONS_PER_STATE {
-            return Err(ParseError::TooManyParses {
-                limit: MAX_DERIVATIONS_PER_STATE,
-            });
-        }
+        self.completed_nodes.get_mut().clear();
         self.agenda.push_back(state);
         Ok(true)
     }
@@ -2243,6 +2255,16 @@ fn completed_nodes(
     input: &str,
     provenance: ParseProvenance,
 ) -> (BTreeSet<Rc<PackedTerm>>, Option<ParseError>) {
+    let key = (
+        sort.clone(),
+        origin,
+        end,
+        provenance.source,
+        provenance.base_offset,
+    );
+    if let Some(completed) = chart.completed_nodes.borrow().get(&key) {
+        return completed.clone();
+    }
     let mut nodes = BTreeSet::new();
     let mut invalid = Vec::new();
     for state in chart.completed.get(sort).into_iter().flatten() {
@@ -2274,7 +2296,12 @@ fn completed_nodes(
         }
     }
     let violation = (!invalid.is_empty()).then(|| canonical_packed_error(invalid));
-    (nodes, violation)
+    let completed = (nodes, violation);
+    chart
+        .completed_nodes
+        .borrow_mut()
+        .insert(key, completed.clone());
+    completed
 }
 
 fn canonical_packed_error(errors: Vec<(Rc<PackedTerm>, ParseError)>) -> ParseError {
@@ -2700,12 +2727,14 @@ mod chart_tests {
         let parsed = grammar
             .parse(&sort, &input)
             .expect("casted chain should parse");
+        let completion_candidates = chart_completion_candidates();
 
         assert_left_chain(&parsed, operands);
+        eprintln!("A2-02 completion candidates: {completion_candidates}");
         assert!(
-            chart_completion_candidates() < 50_000,
+            completion_candidates <= 2 * operands * operands,
             "{} completion candidates exceeded the polynomial-work contract",
-            chart_completion_candidates()
+            completion_candidates
         );
     }
 
