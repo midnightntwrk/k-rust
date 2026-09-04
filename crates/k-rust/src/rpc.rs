@@ -2376,6 +2376,7 @@ mod tests {
                 module TEST
                   sort SortK{} []
                   symbol value{}() : SortK{} [constructor{}()]
+                  symbol other{}() : SortK{} [constructor{}()]
                   symbol macroValue{}() : SortK{} [functional{}(), macro{}()]
                 endmodule []"#,
             )
@@ -2960,6 +2961,56 @@ mod tests {
         assert_eq!(
             response["result"]["condition"]["substitution"]["term"]["tag"],
             "Top"
+        );
+    }
+
+    #[test]
+    fn non_unifying_configurations_omit_condition() {
+        let response = implication_response("value{}()", "other{}()");
+
+        assert_eq!(response["result"]["status"], "invalid", "{response:#}");
+        assert!(
+            response["result"].get("condition").is_none(),
+            "{response:#}"
+        );
+    }
+
+    #[test]
+    fn indeterminate_implication_uses_the_reference_wire_status() {
+        let pattern = parse_pattern("value{}()").unwrap();
+        let response = implication_result(
+            &pattern,
+            &pattern,
+            &BackendSort::simple("SortK"),
+            ImplicationResult {
+                status: ImplicationStatus::Indeterminate,
+                condition: None,
+                failure: None,
+                vacuous: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(response["status"], "indeterminate", "{response:#}");
+        assert!(response.get("condition").is_none(), "{response:#}");
+    }
+
+    #[test]
+    fn bottom_antecedent_response_simplifies_the_consequent() {
+        let mut service = simplifying_implication_service();
+        let antecedent = encode_kore(&parse_pattern(r#"\bottom{SortState{}}()"#).unwrap()).unwrap();
+        let consequent = encode_kore(&parse_pattern("initial{}()").unwrap()).unwrap();
+        let response = request(
+            &mut service,
+            1,
+            "implies",
+            json!({ "antecedent": antecedent, "consequent": consequent }),
+        );
+
+        assert_eq!(response["result"]["status"], "valid", "{response:#}");
+        assert_eq!(
+            response["result"]["implication"]["term"]["second"]["name"], "state",
+            "{response:#}"
         );
     }
 
