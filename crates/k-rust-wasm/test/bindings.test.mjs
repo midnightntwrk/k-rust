@@ -118,6 +118,25 @@ test('executes the portable parser inside WebAssembly', () => {
   assert.equal(parsed.kast.term.token, '42')
 })
 
+test('presents inferred parametric labels like reference kast', () => {
+  const parsed = parseProgram({
+    definition: `
+      module MAIN
+        syntax Int ::= r"[0-9]+" [token]
+        syntax K ::= Int
+        syntax {S} Int ::= "take(" S ")" [function, symbol(take)]
+      endmodule
+    `,
+    moduleName: 'MAIN',
+    sort: 'Int',
+    program: 'take(1)',
+    includePrelude: false,
+  })
+
+  assert.equal(parsed.text, 'take(#token("1","Int"))')
+  assert.deepEqual(parsed.kast.term.label.params, [])
+})
+
 test('reports the portable Z3 inference boundary', () => {
   assert.throws(
     () =>
