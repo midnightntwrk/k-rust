@@ -4775,3 +4775,34 @@ fn krun_executes_float_fixture_to_pinned_kore_results() {
         );
     }
 }
+
+#[test]
+fn reference_krun_evaluates_a_named_field_projection_program() {
+    // reference: k/result/bin/kompile --backend llvm test.k && k/result/bin/krun 3.test (regression-new/record-llvm: `foo(test(5, 10, 15))` prints `10`)
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/inner/record-projection");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "TEST",
+            "--syntax-module",
+            "TEST",
+            "--sort",
+            "KItem",
+            "--expression",
+            "foo(test(5, 10, 15))",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains(r#"\dv{SortInt{}}("10")"#), "{output}");
+    assert!(!output.contains("project"), "{output}");
+}

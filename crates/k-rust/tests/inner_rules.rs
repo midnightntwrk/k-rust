@@ -2675,3 +2675,21 @@ fn exists_binder_variable_agrees_under_checked_inference() {
     assert_test_passes_under_checked_inference("reference_exists_binder_variable_is_inferred_at_k");
 }
 
+#[test]
+fn reference_rule_applies_a_named_field_projection() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
+    // parsed.txt: rule `getFoo(_)_TEST_Int_Foo`(#SemanticCastToFoo(F))=>`project:test(_,_,_)_TEST_Foo_Int_Int_Int:foo`(#SemanticCastToFoo(F)) requires #token("true","Bool") ensures #token("true","Bool")
+    // RuleGrammarGenerator.getCombinedGrammar adds GenerateSortProjections.gen(p) for every
+    // production of the module: a named nonterminal `foo: Int` of `test(...)` yields the
+    // function production `Int ::= "foo" "(" Foo ")"` with label project:<klabel>:foo, usable in
+    // rules and (record-llvm 3.test/4.test) in programs.
+    let source = include_str!("fixtures/reference/inner/record-projection/test.k");
+    let loaded = load_with_prelude(source, "test.k", "TEST")
+        .expect("the reference accepts a rule applying the generated field projection");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        [
+            "`getFoo(_)_TEST_Int_Foo`(#SemanticCastToFoo(F))=>`project:test(_,_,_)_TEST_Foo_Int_Int_Int:foo`(#SemanticCastToFoo(F)) requires #token(\"true\",\"Bool\")"
+        ]
+    );
+}
