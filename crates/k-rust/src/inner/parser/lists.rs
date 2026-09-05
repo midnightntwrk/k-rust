@@ -585,12 +585,16 @@ impl Grammar {
             .zip(&fresh)
             .enumerate()
             .map(|(index, (parameter, fresh))| {
-                let mut entries = bounds.get(parameter).cloned().unwrap_or_default();
-                entries.extend(fresh.clone());
+                // `substituteProd`: a parameter without bounds takes its fresh sort (the
+                // expected sort for the result parameter); a bounded one takes the lub of its
+                // bounds, where the fresh sort only filters the candidate upper bounds and never
+                // joins them. `1 => foo(1)` at a user-list position therefore instantiates
+                // `#KRewrite` at `Int` and the parent wraps the whole rewrite, as K does.
+                let entries = bounds.get(parameter).cloned().unwrap_or_default();
                 if entries.is_empty() {
-                    None
+                    fresh.clone()
                 } else {
-                    least_upper_bound(&entries, subsorts)
+                    least_upper_bound(&entries, fresh.as_ref(), subsorts)
                 }
                 .or_else(|| inferred.get(index).cloned())
                 .unwrap_or_else(|| parameter.clone())
@@ -687,8 +691,14 @@ fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
 }
 
 /// Port of `AddSortInjections.lub` over the parser's subsort order: the unique minimal common
-/// upper bound that is neither below `KBott` nor above `K`.
-fn least_upper_bound(sorts: &[Sort], subsorts: &PartialOrder<Sort>) -> Option<Sort> {
+/// upper bound that is neither below `KBott` nor above `K`. A single entry is returned as is;
+/// otherwise a non-parametric `expected` sort discards the candidates that do not fit below it,
+/// as Java's `expectedSort` argument does.
+fn least_upper_bound(
+    sorts: &[Sort],
+    expected: Option<&Sort>,
+    subsorts: &PartialOrder<Sort>,
+) -> Option<Sort> {
     let unique = sorts.iter().cloned().collect::<BTreeSet<_>>();
     if unique.len() == 1 {
         return unique.into_iter().next();
@@ -700,6 +710,11 @@ fn least_upper_bound(sorts: &[Sort], subsorts: &PartialOrder<Sort>) -> Option<So
         .into_iter()
         .filter(|bound| {
             !subsorts.less_than_eq(bound, &k_bottom) && !subsorts.greater_than(bound, &k)
+        })
+        .filter(|bound| {
+            expected
+                .filter(|expected| expected.parameters.is_empty())
+                .is_none_or(|expected| subsorts.less_than_eq(bound, expected))
         })
         .collect::<BTreeSet<_>>();
     let minimal = subsorts.minimal(bounds.iter());
