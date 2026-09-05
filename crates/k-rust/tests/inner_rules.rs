@@ -2645,3 +2645,33 @@ fn alias_variable_under_a_production_agrees_under_checked_inference() {
         "reference_alias_variable_under_a_production_is_cast_at_the_argument_sort",
     );
 }
+
+#[test]
+fn reference_exists_binder_variable_is_inferred_at_k() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
+    // parsed.txt: rule `foo(_)_TEST_Exp_Int`(#SemanticCastToInt(_X))=>#Exists(#SemanticCastToK(Y),#Equals(#SemanticCastToK(?_I),#SemanticCastToK(Y))) requires #token("true","Bool") ensures #token("true","Bool")
+    // Reduced from regression-new/checkWarns existsLHSBoundPass.k (rule at line 11), the one
+    // ktest-fail step of that case whose verdict differs from the reference. parsed.txt omits
+    // the inferred sort parameters of #Exists and #Equals; the casts to K fix them at {K,K},
+    // which k-rust renders.
+    let source = include_str!("fixtures/reference/inner/exists-binder/test.k");
+    let loaded = load_with_prelude(source, "test.k", "TEST")
+        .expect("the reference accepts the existential over a fresh variable");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        [
+            "`foo(_)_TEST_Exp_Int`(#SemanticCastToInt(_X))=>#Exists{K,K}(#SemanticCastToK(Y),#Equals{K,K}(#SemanticCastToK(?_I),#SemanticCastToK(Y))) requires #token(\"true\",\"Bool\")"
+        ]
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn exists_binder_variable_agrees_under_checked_inference() {
+    // The reference's Z3 encoder declares every variable and sort parameter over the datatype
+    // of real sorts (TypeInferencer.isRealSort: no parser sort except K, KItem and KLabel, plus
+    // Nat and parametric sorts), so the bound variable Y and the sort parameters of #Exists and
+    // #Equals never range over KList; one maximal model, at K.
+    assert_test_passes_under_checked_inference("reference_exists_binder_variable_is_inferred_at_k");
+}
+
