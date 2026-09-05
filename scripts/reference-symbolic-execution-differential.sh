@@ -137,7 +137,7 @@ for name in "${runnable[@]}"; do
 
   reference_definition="$work/$name/reference-kompiled"
   echo "[$name] compiling and verifying the reference Haskell definition"
-  run_reference_tool "$kompile" "$source" \
+  run_reference_backend "$kompile" "$source" \
     --backend haskell \
     --main-module "$main_module" \
     --output-definition "$reference_definition" \

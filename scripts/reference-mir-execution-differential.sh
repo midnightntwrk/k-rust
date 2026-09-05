@@ -61,9 +61,12 @@ initial="$work/main-a-b-c.initial.kore"
 reference_result="$work/main-a-b-c.reference.kore"
 rust_result="$work/main-a-b-c.rust.kore"
 
+# The reference Haskell kompile (its kore-exec validation) and krun default to a
+# single capability, as the compile gate scopes GHCRTS to its Haskell backend.
 echo "[mir] compiling the pinned concrete Haskell definition"
 (
   export K_OPTS="$reference_k_opts"
+  export GHCRTS=${GHCRTS:--N1}
   "$kompile" "$source_path" \
     --backend haskell \
     --main-module KMIR \
@@ -94,6 +97,7 @@ echo "[mir] generating one shared raw initial KORE pattern from pinned SMIR"
 echo "[mir] executing the shared pattern with the pinned Haskell backend"
 (
   export K_OPTS="$reference_k_opts"
+  export GHCRTS=${GHCRTS:--N1}
   "$krun" "$initial" \
     --definition "$reference_definition" \
     --term \
