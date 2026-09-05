@@ -260,7 +260,9 @@ fn conformance_driver_forwards_kompile_warning_flags_and_md_selectors() {
     // D1-14 documented the driver dropping `-w2e -w all` (checkWarns) and D1-04's
     // markdownSelectors row exposed that krust's per-run recompilation never saw the
     // kompile recipe's `--md-selector`. The translations are pure functions of the
-    // recipe, so they are checked without the reference toolchain.
+    // recipe, so they are checked without the reference toolchain. The recipe is a
+    // ktest-fail one: `-w2e` is forwarded only where the reference's rejection depends
+    // on it (see conformance_driver_forwards_w2e_only_where_the_reference_rejects_on_it).
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"
 import json, sys
@@ -271,7 +273,7 @@ recipe = run.split_recipe(
     "/kbin/kompile -w2e -w all --md-selector '(k|keep) & !discard' --backend haskell"
     " test.md --output-definition ./test-kompiled"
 )
-kompile, why, info = run.krust_kompile_args(case, recipe)
+kompile, why, info = run.krust_kompile_args(case, recipe, expect_fail=True)
 def call(name, *args):
     function = getattr(run, name, None)
     return function(*args) if function else None
@@ -333,6 +335,99 @@ print(json.dumps({
         "{krun:?}"
     );
     assert_eq!(krun[1..4], ["krun", "test.md", "1.test"], "{krun:?}");
+}
+
+#[test]
+fn conformance_driver_forwards_w2e_only_where_the_reference_rejects_on_it() {
+    // Host ratchet run 16: werrorCategory (`kompile -w2e -Wno missing-syntax-module`, ktest)
+    // fell below its stage-1 floor and prelude-warnings (`-w all -w2e`, ktest) from match to
+    // krust-error, because 2828e95 forwarded `-w2e` as `--warnings-to-errors` while dropping
+    // the per-category `-Wno` krust cannot express, and because krust's extension warnings
+    // (D1-05 UnadmittedHookNamespace) are promoted where the reference emits nothing. The
+    // warning contract is forwarded whole or not at all: `-w2e` reaches krust only for a
+    // ktest-fail recipe without `-W`/`-Wno`; every other form is dropped and recorded.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import run
+def translate(recipe, expect_fail):
+    case = run.Case("warnings")
+    args, why, info = run.krust_kompile_args(case, run.split_recipe(recipe), expect_fail=expect_fail)
+    return {"args": args, "why": why, "dropped": info["dropped"] if info else None}
+tail = " --no-exc-wrap --type-inference-mode checked --backend llvm test.k --output-definition ./test-kompiled"
+print(json.dumps({
+    "werrorCategory": translate("/kbin/kompile -w2e -Wno missing-syntax-module" + tail, False),
+    "prelude-warnings": translate("/kbin/kompile -w all -w2e" + tail, False),
+    "checkWarns": translate("/kbin/kompile -w2e -w all" + tail, True),
+    "fail-with-Wno": translate("/kbin/kompile -w2e -w all -Wno useless-rule" + tail, True),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let translated: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let strings = |recipe: &str, key: &str| -> Vec<String> {
+        translated[recipe][key]
+            .as_array()
+            .unwrap_or_else(|| panic!("{recipe}.{key} is not translated: {translated}"))
+            .iter()
+            .map(|word| word.as_str().unwrap().to_owned())
+            .collect()
+    };
+    let promotes = |recipe: &str| {
+        strings(recipe, "args")
+            .iter()
+            .any(|w| w == "--warnings-to-errors")
+    };
+    let level = |recipe: &str, level: &str| {
+        strings(recipe, "args")
+            .windows(2)
+            .any(|pair| pair == ["--warnings", level])
+    };
+    let drops = |recipe: &str, prefix: &str| {
+        strings(recipe, "dropped")
+            .iter()
+            .any(|flag| flag == prefix || flag.starts_with(&format!("{prefix} ")))
+    };
+
+    // ktest-fail without a per-category flag: the reference rejects because of -w2e.
+    assert!(promotes("checkWarns"), "{translated}");
+    assert!(level("checkWarns", "all"), "{translated}");
+    assert_eq!(
+        strings("checkWarns", "dropped"),
+        Vec::<String>::new(),
+        "{translated}"
+    );
+
+    // ktest with a per-category disable krust cannot express: neither half is forwarded.
+    assert!(!promotes("werrorCategory"), "{translated}");
+    assert!(
+        drops("werrorCategory", "-Wno missing-syntax-module"),
+        "{translated}"
+    );
+    assert!(drops("werrorCategory", "-w2e"), "{translated}");
+
+    // ktest that the reference accepts: the level is forwarded, the promotion is not.
+    assert!(level("prelude-warnings", "all"), "{translated}");
+    assert!(!promotes("prelude-warnings"), "{translated}");
+    assert!(drops("prelude-warnings", "-w2e"), "{translated}");
+    assert!(!drops("prelude-warnings", "-w"), "{translated}");
+
+    // ktest-fail with a per-category disable: still not forwarded in part.
+    assert!(!promotes("fail-with-Wno"), "{translated}");
+    assert!(level("fail-with-Wno", "all"), "{translated}");
+    assert!(drops("fail-with-Wno", "-Wno useless-rule"), "{translated}");
+    assert!(drops("fail-with-Wno", "-w2e"), "{translated}");
 }
 
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
