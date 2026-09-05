@@ -734,6 +734,178 @@ fn execution_comparator_allows_only_marked_gotstuck_stop_leaves() {
 }
 
 #[test]
+fn execution_comparator_pairs_reference_remainders_with_port_remainders() {
+    // Reference shape (kore-exec at --depth 2 on the C1-01 map fixture): the rewritten branch
+    // nests its term inside a second \and, the remainder carries \not(\exists ...) over the rule
+    // variables with the NewUnifier's AC remainder VarAC1'Unds'1 left free, and conjunctions are
+    // right-nested with a duplicated conjunct.
+    let reference = parse_pattern(concat!(
+        r"\or{S{}}(",
+        r"\and{S{}}(\and{S{}}(top{}(done{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), VarAC1'Unds'1:Map{}))), ",
+        r#"\and{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(Var'Unds'K:KI{}, VarAC1'Unds'1:Map{})), "#,
+        r#"\and{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), VarAC1'Unds'1:Map{})), "#,
+        r"\not{S{}}(\equals{KI{}, S{}}(Var'Unds'K:KI{}, k1{}()))))), ",
+        r"\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(Var'Unds'K:KI{}, Var'Unds'V:KI{}), VarAC1'Unds'1:Map{}))), ",
+        r"\and{S{}}(top{}(go{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), VarM:Map{}))), ",
+        r#"\and{S{}}(\not{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), VarM:Map{}))), "#,
+        r"\not{S{}}(\exists{S{}}(Var'Unds'K:KI{}, \exists{S{}}(Var'Unds'V:KI{}, ",
+        r#"\and{S{}}(\and{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(Var'Unds'K:KI{}, VarAC1'Unds'1:Map{})), "#,
+        r#"\and{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), VarAC1'Unds'1:Map{})), "#,
+        r"\not{S{}}(\equals{KI{}, S{}}(Var'Unds'K:KI{}, k1{}())))), ",
+        r#"\and{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(Var'Unds'K:KI{}, VarAC1'Unds'1:Map{})), "#,
+        r"\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(Var'Unds'K:KI{}, Var'Unds'V:KI{}), VarAC1'Unds'1:Map{})))))))))",
+        r")",
+    ))
+    .unwrap();
+    // Port shape (krust kore-exec): flat conjunctions, the externalized fresh names ExFrame0 and
+    // ExVar'Unds'K1, and the frame quantified inside the negated existential.
+    let actual = parse_pattern(concat!(
+        r"\or{S{}}(",
+        r"\and{S{}}(top{}(go{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), VarM:Map{}))), ",
+        r#"\and{S{}}(\not{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), VarM:Map{}))), "#,
+        r"\not{S{}}(\exists{S{}}(ExVar'Unds'K1:KI{}, \exists{S{}}(ExVar'Unds'V2:KI{}, \exists{S{}}(ExFrame0:Map{}, ",
+        r"\and{S{}}(\not{S{}}(\equals{KI{}, S{}}(ExVar'Unds'K1:KI{}, k1{}())), ",
+        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(ExVar'Unds'K1:KI{}, ExFrame0:Map{})), "#,
+        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), ExFrame0:Map{})), "#,
+        r"\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(ExVar'Unds'K1:KI{}, ExVar'Unds'V2:KI{}), ExFrame0:Map{})))))))))), ",
+        r"\and{S{}}(top{}(done{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), ExFrame0:Map{}))), ",
+        r"\and{S{}}(\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(ExVar'Unds'K1:KI{}, ExVar'Unds'V2:KI{}), ExFrame0:Map{})), ",
+        r"\not{S{}}(\equals{KI{}, S{}}(ExVar'Unds'K1:KI{}, k1{}())), ",
+        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(ExVar'Unds'K1:KI{}, ExFrame0:Map{})), "#,
+        r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), ExFrame0:Map{}))))"#,
+        r")",
+    ))
+    .unwrap();
+    let initial =
+        parse_pattern(r"top{}(go{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), VarM:Map{})))")
+            .unwrap();
+    let reference = normalize_execution_pattern_fixing(reference, &initial);
+    let actual = normalize_execution_pattern_fixing(actual, &initial);
+    let rendered = actual.to_string();
+    parse_pattern(&rendered)
+        .unwrap_or_else(|error| panic!("normalized KORE must reparse ({error}): {rendered}"));
+    assert_eq!(
+        reference, actual,
+        "both branch sets must normalize to the same pattern"
+    );
+    compare_execution_modulo_implication(&reference, &actual, None, "TEST")
+        .expect("the reference and port branch multisets pair structurally");
+
+    // A port that drops the remainder is a genuine branch-set difference.
+    let Pattern::Or { sort, arguments } = &actual else {
+        panic!("normalized disjunction");
+    };
+    let rewritten_only = Pattern::Or {
+        sort: sort.clone(),
+        arguments: arguments
+            .iter()
+            .filter(|disjunct| !disjunct.to_string().contains("go{}()"))
+            .cloned()
+            .collect(),
+    };
+    assert_eq!(execution_disjuncts(&rewritten_only).len(), 1);
+    let error = compare_execution_modulo_implication(&reference, &rewritten_only, None, "TEST")
+        .expect_err("a missing remainder branch must still fail");
+    assert!(error.contains("unpaired disjunct"), "{error}");
+}
+
+#[test]
+fn execution_normalizer_canonicalizes_rule_variables_absent_from_the_initial_pattern() {
+    // C1-03 fixture: kore-exec leaves the rule variable I free (VarI), krust prints ExVarI0.
+    let reference = parse_pattern(concat!(
+        r"\or{S{}}(",
+        r"\and{S{}}(top{}(inj{Exp{}, KI{}}(bar{}(VarI:Int{}))), \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(VarI:Int{}))), ",
+        r"\and{S{}}(top{}(inj{Exp{}, KI{}}(VarE:Exp{})), \not{S{}}(\exists{S{}}(VarI:Int{}, \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(VarI:Int{}))))))",
+    ))
+    .unwrap();
+    let actual = parse_pattern(concat!(
+        r"\or{S{}}(",
+        r"\and{S{}}(top{}(inj{Exp{}, KI{}}(VarE:Exp{})), \not{S{}}(\exists{S{}}(ExVarI0:Int{}, \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(ExVarI0:Int{}))))), ",
+        r"\and{S{}}(top{}(inj{Exp{}, KI{}}(bar{}(ExVarI0:Int{}))), \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(ExVarI0:Int{}))))",
+    ))
+    .unwrap();
+    let initial = parse_pattern(r"top{}(inj{Exp{}, KI{}}(VarE:Exp{}))").unwrap();
+
+    // Without the initial pattern only the generated shapes are renamed: VarI is a user name.
+    let error = compare_execution_modulo_implication(
+        &normalize_execution_pattern(reference.clone()),
+        &normalize_execution_pattern(actual.clone()),
+        None,
+        "TEST",
+    )
+    .expect_err("VarI is not a generated shape");
+    assert!(error.contains("unpaired disjunct"), "{error}");
+
+    let reference = normalize_execution_pattern_fixing(reference, &initial);
+    let actual = normalize_execution_pattern_fixing(actual, &initial);
+    assert_eq!(reference, actual);
+    // The initial pattern's own variable keeps its name and sort.
+    assert!(reference.to_string().contains("VarE:Exp{}"), "{reference}");
+    assert!(!reference.to_string().contains("VarI:"), "{reference}");
+}
+
+#[test]
+fn execution_normalizer_preserves_sorts_and_distinctness_of_generated_variables() {
+    let reference = parse_pattern(
+        r"\and{S{}}(f{}(VarAC1'Unds'1:Map{}, VarAC2'Unds'1:Set{}), \equals{Map{}, S{}}(VarAC1'Unds'1:Map{}, g{}(VarAC2'Unds'1:Set{})))",
+    )
+    .unwrap();
+    let actual = parse_pattern(
+        r"\and{S{}}(f{}(ExFrame0:Map{}, ExFrame1:Set{}), \equals{Map{}, S{}}(ExFrame0:Map{}, g{}(ExFrame1:Set{})))",
+    )
+    .unwrap();
+    assert_eq!(
+        normalize_execution_pattern(reference),
+        normalize_execution_pattern(actual)
+    );
+
+    let collapsed = parse_pattern(
+        r"\and{S{}}(f{}(ExFrame0:Map{}, ExFrame0:Set{}), \equals{Map{}, S{}}(ExFrame0:Map{}, g{}(ExFrame0:Set{})))",
+    )
+    .unwrap();
+    let distinct = parse_pattern(
+        r"\and{S{}}(f{}(ExFrame0:Map{}, ExFrame1:Set{}), \equals{Map{}, S{}}(ExFrame0:Map{}, g{}(ExFrame1:Set{})))",
+    )
+    .unwrap();
+    assert_ne!(
+        normalize_execution_pattern(collapsed),
+        normalize_execution_pattern(distinct),
+        "two generated names of different sorts stay distinct from one name"
+    );
+}
+
+#[test]
+fn execution_predicate_recognizer_matches_the_kore_predicate_constructors() {
+    // haskell-backend Kore/Internal/Predicate.hs PredicateF: And, Bottom, Ceil, Equals, Exists,
+    // Floor, Forall, Iff, Implies, In, Not, Or, Top.
+    for source in [
+        r"\not{S{}}(\exists{S{}}(VarX:T{}, \equals{T{}, S{}}(VarX:T{}, a{}())))",
+        r"\forall{S{}}(VarX:T{}, \ceil{T{}, S{}}(f{}(VarX:T{})))",
+        r"\implies{S{}}(\top{S{}}(), \floor{T{}, S{}}(a{}()))",
+        r"\iff{S{}}(\in{T{}, S{}}(a{}(), b{}()), \bottom{S{}}())",
+        r"\or{S{}}(\equals{T{}, S{}}(a{}(), b{}()), \and{S{}}(\top{S{}}(), \equals{T{}, S{}}(a{}(), b{}())))",
+    ] {
+        let pattern = parse_pattern(source).unwrap();
+        assert!(is_predicate_pattern(&pattern), "{source}");
+    }
+    for source in [
+        r"\exists{S{}}(VarX:T{}, f{}(VarX:T{}))",
+        r"\and{S{}}(a{}(), \top{S{}}())",
+        r"\next{S{}}(\top{S{}}())",
+    ] {
+        let pattern = parse_pattern(source).unwrap();
+        assert!(!is_predicate_pattern(&pattern), "{source}");
+    }
+    let disjunct = parse_pattern(
+        r"\and{S{}}(t{}(), \not{S{}}(\exists{S{}}(VarX:T{}, \equals{T{}, S{}}(VarX:T{}, a{}()))))",
+    )
+    .unwrap();
+    let (term, constraints) = split_constrained(&disjunct);
+    assert_eq!(term.to_string(), "t{}()");
+    assert_eq!(constraints.len(), 1);
+}
+
+#[test]
 fn implication_fallback_checks_both_directions_and_requires_valid() {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
