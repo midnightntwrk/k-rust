@@ -31,8 +31,9 @@ usage: scripts/conformance-ratchet.sh --label LABEL (--all | --cases NAME... | -
 
 Measure selected K regression-new cases, append their per-case ranks to the
 standing ratchet, and fail with status 3 if a non-excluded rank decreases
-against the previous measurement with the same driver version or falls below
-the case's stage-1 floor (its entry-0 rank) under any driver version.
+against the previous measurement with the same driver version or if any
+non-excluded measured case is below its stage-1 floor (its entry-0 rank),
+whatever the driver version and whether or not this run lowered it.
 --audit reads the log alone and lists every case below its floor.
 
 Options:

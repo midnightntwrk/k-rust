@@ -113,6 +113,7 @@ def render_entry(run: dict) -> str:
     lines.append(f"counts = {inline_counts(run['counts'])}")
     for key in [
         "regressions",
+        "below_floor",
         "improvements",
         "driver_deltas",
         "oracle_changes",
@@ -226,7 +227,7 @@ def first_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict | 
     return None, None
 
 
-def below_floor(rank: int, floor_rank: int) -> bool:
+def is_below_floor(rank: int, floor_rank: int) -> bool:
     return rank >= 0 and floor_rank >= 0 and rank < floor_rank
 
 
@@ -255,7 +256,7 @@ def classify_delta(
         return previous_rank, floor_rank, "oracle-changed", False
     if rank > previous_rank:
         return previous_rank, floor_rank, "improvement", driver_changed
-    if below_floor(rank, floor_rank):
+    if is_below_floor(rank, floor_rank):
         return previous_rank, floor_rank, "regression", driver_changed
     if driver_changed:
         return previous_rank, floor_rank, "driver-delta", True
@@ -284,6 +285,7 @@ def build_run(
 ) -> dict:
     rows = []
     regressions = []
+    below_floor = []
     improvements = []
     driver_deltas = []
     oracle_changes = []
@@ -304,6 +306,8 @@ def build_run(
         tickets = list(expectation.get("tickets", []))
         if delta == "regression" and not exclusion:
             regressions.append(name)
+        if is_below_floor(rank, floor_rank) and not exclusion:
+            below_floor.append(name)
         if delta == "improvement":
             improvements.append(name)
         if driver_changed:
@@ -359,6 +363,7 @@ def build_run(
         "peak_rss_mib": peak_rss_mib,
         "counts": Counter(result["verdict"] for result in results),
         "regressions": regressions,
+        "below_floor": below_floor,
         "improvements": improvements,
         "driver_deltas": driver_deltas,
         "oracle_changes": oracle_changes,
@@ -384,16 +389,7 @@ def print_pr_block(run: dict) -> None:
         )
     print()
     print(f"regressions: {len(run['regressions'])}")
-    print(
-        "below stage-1 floor: "
-        + string_array(
-            [
-                case["name"]
-                for case in run["case"]
-                if below_floor(case["rank"], case["floor_rank"])
-            ]
-        )
-    )
+    print(f"below stage-1 floor: {string_array(run['below_floor'])}")
     print(f"improvements: {len(run['improvements'])}")
     print(f"driver deltas: {len(run['driver_deltas'])}")
     print(f"oracle changes: {len(run['oracle_changes'])}")
@@ -462,7 +458,7 @@ def command_append(args: argparse.Namespace) -> int:
     )
     append_log(args.log, render_entry(run))
     print_pr_block(run)
-    return 3 if run["regressions"] else 0
+    return 3 if run["regressions"] or run["below_floor"] else 0
 
 
 def command_select(args: argparse.Namespace) -> int:
@@ -513,7 +509,7 @@ def command_audit(args: argparse.Namespace) -> int:
         run, case = latest[name]
         _, floor_case = first_measurement(runs, name)
         floor_rank = floor_case["rank"] if floor_case is not None else -1
-        if below_floor(case["rank"], floor_rank):
+        if is_below_floor(case["rank"], floor_rank):
             rows.append((name, floor_rank, run, case))
     scope = f"run {args.sequence}" if args.sequence is not None else "latest measurement per case"
     print(f"### Conformance stage-1 floor audit ({scope}, {len(latest)} cases)")
