@@ -1080,6 +1080,162 @@ fn nested_local_functions_scope_closures_to_their_own_patterns() {
 }
 
 #[test]
+fn matching_patterns_bind_their_anonymous_variables_instead_of_closing_over_them() {
+    // regression-new/equals-pattern: `rule baz(A:KItem) => #fun(baz(B) => baz(bar(_)) :=K
+    // baz(B))(baz(A))`. K's ComputeUnboundVariables visits the left child of `:=K`/`:/=K` with
+    // isInKLhs set, so nothing in a matching pattern is a closure variable: the reference
+    // declares `#lambda_baz(_)_..._(KItem)` with one parameter and the rule
+    // `#lambda_baz(baz(bar(_Gen0))) => true` binds the anonymous variable in its own pattern.
+    let variable = |name: &str, sort: &str| Term::Variable {
+        name: name.into(),
+        sort: Some(Sort::new(sort)),
+    };
+    let anonymous = || Term::Variable {
+        name: "_".into(),
+        sort: None,
+    };
+    let baz = |argument: Term| application("baz", vec![argument]);
+    let bar = |argument: Term| application("bar", vec![argument]);
+    let matching = application(
+        "_:=K_",
+        vec![baz(bar(anonymous())), baz(variable("B", "KItem"))],
+    );
+    let local = application(
+        "#fun2",
+        vec![
+            rewrite(baz(variable("B", "KItem")), matching),
+            baz(variable("A", "KItem")),
+        ],
+    );
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("KItem"),
+                    attributes: Attributes::default(),
+                },
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Int"),
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("baz")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("KItem"),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("KItem"),
+                        name: None,
+                    }],
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("bar")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("KItem"),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("Int"),
+                        name: None,
+                    }],
+                    attributes: Attributes::default(),
+                },
+                rule(
+                    rewrite(baz(variable("A", "KItem")), local),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let resolved = resolve_fun(&definition).unwrap();
+    let sentences = &resolved.main_module().unwrap().local_sentences;
+    let lambda_arities = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                ..
+            } if label.name.starts_with("#lambda") => Some((
+                label.name.clone(),
+                items
+                    .iter()
+                    .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                    .count(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lambda_arities
+            .iter()
+            .map(|(_, arity)| *arity)
+            .collect::<Vec<_>>(),
+        vec![1, 1],
+        "neither the local function nor the matching predicate closes over the anonymous variable: {lambda_arities:?}"
+    );
+
+    let mut generated_rules = 0;
+    for sentence in sentences {
+        let Sentence::Rule { body, .. } = sentence else {
+            continue;
+        };
+        let Term::Rewrite { left, right } = body.unannotated() else {
+            continue;
+        };
+        let Term::Apply { label, arguments } = left.unannotated() else {
+            continue;
+        };
+        if !label.name.starts_with("#lambda") {
+            // The original rule calls the local function with its argument alone.
+            let Term::Apply {
+                label: call,
+                arguments: call_arguments,
+            } = right.unannotated()
+            else {
+                panic!("the rule's RHS is the local-function call");
+            };
+            assert!(call.name.starts_with("#lambda"), "{}", call.name);
+            assert_eq!(
+                call_arguments.len(),
+                1,
+                "{}",
+                Printer::new().print_term(body)
+            );
+            continue;
+        }
+        generated_rules += 1;
+        assert_eq!(arguments.len(), 1, "{}", Printer::new().print_term(body));
+        let mut lhs = BTreeSet::new();
+        left.visit_preorder(&mut |term| {
+            if let Term::Variable { name, .. } = term {
+                assert_ne!(name, "_", "{}", Printer::new().print_term(body));
+                lhs.insert(name.clone());
+            }
+        });
+        let mut rhs = BTreeSet::new();
+        right.visit_preorder(&mut |term| {
+            if let Term::Variable { name, .. } = term {
+                rhs.insert(name.clone());
+            }
+        });
+        assert!(
+            rhs.is_subset(&lhs),
+            "generated {label} rule has unbound RHS variables: {:?}",
+            rhs.difference(&lhs).collect::<Vec<_>>()
+        );
+    }
+    assert_eq!(
+        generated_rules, 3,
+        "outer lambda rule, matching rule, owise rule"
+    );
+}
+
+#[test]
 fn local_function_variable_patterns_keep_the_k_parameter_sort() {
     let b = Sort::new("B");
     let local_function = application(
