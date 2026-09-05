@@ -89,6 +89,7 @@ fn part_b_manifest_schema_is_complete() {
         "exists-anon",
         "undefined-sort",
         "cast-inner",
+        "let-list-binder",
     ] {
         assert!(
             manifest["compile"]

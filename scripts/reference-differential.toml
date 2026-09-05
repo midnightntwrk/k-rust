@@ -399,6 +399,15 @@ pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
 
 [[compile]]
+name = "let-list-binder"
+requires = ["reference-toolchain"]
+constructs = ["local-function", "user-list"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/let-list-binder/test.k"
+main-module = "LET-LIST-BINDER"
+pairings = ["haskell/rust"]
+comparisons = ["semantic-kore"]
+
+[[compile]]
 name = "casted-chain"
 requires = ["reference-toolchain"]
 constructs = ["associativity", "semantic-cast", "large-packed-forest"]
