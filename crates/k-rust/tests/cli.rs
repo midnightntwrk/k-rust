@@ -2112,6 +2112,106 @@ fn search_flag_combinations_are_validated() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Kore/Parser/Lexer.x:57-58: `@ident = [a-zA-Z][a-zA-Z0-9'\-]*`, set variables prefixed by `@`.
+fn is_kore_identifier(name: &str) -> bool {
+    let name = name.strip_prefix('@').unwrap_or(name);
+    let mut characters = name.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && characters.all(|character| character.is_ascii_alphanumeric() || "'-".contains(character))
+}
+
+fn variable_names(pattern: &Pattern, names: &mut Vec<String>) {
+    match pattern {
+        Pattern::Variable(variable) => names.push(variable.name.clone()),
+        Pattern::Exists { variable, body, .. } | Pattern::Forall { variable, body, .. } => {
+            names.push(variable.name.clone());
+            variable_names(body, names);
+        }
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. } => {
+            for argument in arguments {
+                variable_names(argument, names);
+            }
+        }
+        Pattern::Not { argument, .. } | Pattern::Ceil { argument, .. } => {
+            variable_names(argument, names);
+        }
+        Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. }
+        | Pattern::Implies { left, right, .. } => {
+            variable_names(left, names);
+            variable_names(right, names);
+        }
+        _ => {}
+    }
+}
+
+/// C1-01's frame narrowing mints `Ex#Frame!0`; the reference prints its own remainder as
+/// `VarAC1'Unds'1:SortMap{}` (kore-exec on the same fixture), a plain KORE identifier.
+#[test]
+fn kore_exec_prints_fresh_remainder_names_as_kore_identifiers() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/matching/map");
+    let (root, _) = fixture();
+    let compiled = root.join("map-kompiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "TEST",
+            "--syntax-module",
+            "TEST",
+            "--backend",
+            "rust",
+            "--output-directory",
+            compiled.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let execute = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            compiled.join("definition.kore").to_str().unwrap(),
+            "--module",
+            "TEST",
+            "--pattern",
+            fixtures.join("pgm-map.kore").to_str().unwrap(),
+            "--depth",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        execute.status.success(),
+        "{}",
+        String::from_utf8_lossy(&execute.stderr)
+    );
+    let output = String::from_utf8(execute.stdout).unwrap();
+    let parsed = parse_pattern(&output).unwrap_or_else(|error| panic!("{output}\n{error:?}"));
+    let mut names = Vec::new();
+    variable_names(&parsed, &mut names);
+    names.sort();
+    names.dedup();
+    assert!(
+        names.iter().all(|name| is_kore_identifier(name)),
+        "{names:?}"
+    );
+    assert!(names.contains(&"ExFrame0".to_owned()), "{names:?}");
+    assert!(names.contains(&"VarM".to_owned()), "{names:?}");
+    assert_eq!(parse_pattern(&parsed.to_string()).unwrap(), parsed);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kore_exec_runs_a_compiled_definition_and_searches_it() {
     let (root, _) = fixture();
