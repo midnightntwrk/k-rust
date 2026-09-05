@@ -719,6 +719,52 @@ endmodule
 }
 
 #[test]
+fn krun_runs_a_definition_that_declares_no_program_variable() {
+    // K regression-new issue-946: `krun --definition test-kompiled` with no positional
+    // argument runs a configuration without `$PGM`; the reference builds the initial
+    // configuration from an empty variable map instead of reading standard input.
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax KItem ::= "start" [symbol(start)]
+  configuration <k> start </k> <env> 1 </env>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "KItem",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Lblstart{}()"), "{stdout}");
+    assert!(stdout.contains("\\dv{SortInt{}}(\"1\")"), "{stdout}");
+    assert!(
+        !stdout.contains("\\bottom{SortGeneratedTopCell{}}("),
+        "{stdout}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn installed_cli_uses_embedded_pinned_builtins_by_default() {
     let (root, definition) = fixture();
     fs::write(
