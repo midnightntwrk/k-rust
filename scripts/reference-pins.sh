@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # the pins are consumed by the scripts that source this file
 
 reference_scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 reference_manifest_json=$("$reference_scripts/reference-manifest.py")
-readonly K_REFERENCE_REVISION=$(jq -r '.reference.k.revision' <<<"$reference_manifest_json")
-readonly K_REFERENCE_VERSION=$(jq -r '.reference.k.version' <<<"$reference_manifest_json")
-readonly IMP_REFERENCE_REVISION=$(jq -r '.reference.imp.revision' <<<"$reference_manifest_json")
-readonly WASM_REFERENCE_REVISION=$(jq -r '.reference.wasm.revision' <<<"$reference_manifest_json")
-readonly EVM_EQUIVALENCE_REFERENCE_REVISION=$(jq -r '.reference["evm-equivalence"].revision' <<<"$reference_manifest_json")
-readonly EVM_SEMANTICS_REFERENCE_REVISION=$(jq -r '.reference.kevm.revision' <<<"$reference_manifest_json")
-readonly EVM_PLUGIN_REFERENCE_REVISION=$(jq -r '.reference["kevm-plugin"].revision' <<<"$reference_manifest_json")
-readonly MIR_REFERENCE_REVISION=$(jq -r '.reference.mir.revision' <<<"$reference_manifest_json")
+K_REFERENCE_REVISION=$(jq -r '.reference.k.revision' <<<"$reference_manifest_json")
+K_REFERENCE_VERSION=$(jq -r '.reference.k.version' <<<"$reference_manifest_json")
+IMP_REFERENCE_REVISION=$(jq -r '.reference.imp.revision' <<<"$reference_manifest_json")
+WASM_REFERENCE_REVISION=$(jq -r '.reference.wasm.revision' <<<"$reference_manifest_json")
+EVM_EQUIVALENCE_REFERENCE_REVISION=$(jq -r '.reference["evm-equivalence"].revision' <<<"$reference_manifest_json")
+EVM_SEMANTICS_REFERENCE_REVISION=$(jq -r '.reference.kevm.revision' <<<"$reference_manifest_json")
+EVM_PLUGIN_REFERENCE_REVISION=$(jq -r '.reference["kevm-plugin"].revision' <<<"$reference_manifest_json")
+MIR_REFERENCE_REVISION=$(jq -r '.reference.mir.revision' <<<"$reference_manifest_json")
+readonly K_REFERENCE_REVISION K_REFERENCE_VERSION IMP_REFERENCE_REVISION WASM_REFERENCE_REVISION EVM_EQUIVALENCE_REFERENCE_REVISION EVM_SEMANTICS_REFERENCE_REVISION EVM_PLUGIN_REFERENCE_REVISION MIR_REFERENCE_REVISION
 
 reference_require_git_pin() {
   local name=$1
