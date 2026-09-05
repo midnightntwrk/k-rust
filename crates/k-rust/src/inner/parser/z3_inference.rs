@@ -201,6 +201,86 @@ impl Grammar {
         }
     }
 
+    /// The function or macro left-hand side that bounds the first child of a top-sort node, as
+    /// `getFunction` (TypeInferencer.java:380-404) finds it: brackets are stripped, a `#KRewrite`
+    /// contributes its left-hand side, and the rule wrappers are not looked through. A top-sort
+    /// node is one whose result is `#RuleContent` or `#RuleBody` (TypeInferencer.java:592-593),
+    /// so `#withConfig` bounds its rewrite exactly as `#RuleContent` bounds a bare rewrite. The
+    /// returned path locates the left-hand side relative to `child_path`.
+    fn body_function_lhs<'t>(
+        &self,
+        child: &'t ParsedTerm,
+        child_path: &str,
+    ) -> Option<(&'t ParsedTerm, String)> {
+        let mut path = child_path.to_owned();
+        let mut term = self.strip_brackets_with_path(child, &mut path);
+        if let ParsedTerm::Production {
+            production,
+            children,
+            ..
+        } = term
+            && self.productions[*production]
+                .label
+                .as_ref()
+                .is_some_and(|label| label.name == "#KRewrite")
+            && children.len() == 2
+        {
+            path.push_str("_c0");
+            term = self.strip_brackets_with_path(&children[0], &mut path);
+        }
+        let ParsedTerm::Production { production, .. } = term else {
+            return None;
+        };
+        let production = &self.productions[*production];
+        (production.function || production.macro_like).then_some((term, path))
+    }
+
+    fn strip_brackets_with_path<'t>(
+        &self,
+        mut term: &'t ParsedTerm,
+        path: &mut String,
+    ) -> &'t ParsedTerm {
+        while let ParsedTerm::Production {
+            production,
+            children,
+            ..
+        } = term
+            && self.productions[*production].bracket
+            && children.len() == 1
+        {
+            path.push_str("_c0");
+            term = &children[0];
+        }
+        term
+    }
+
+    /// The packed twin of [`Grammar::body_function_lhs`]; an ambiguity stops the search as in
+    /// `getFunction`.
+    fn packed_body_function_lhs<'t>(
+        &self,
+        child: &'t Rc<PackedTerm>,
+    ) -> Option<&'t Rc<PackedTerm>> {
+        let mut term = strip_packed_brackets(self, child);
+        if let PackedNode::Production {
+            production,
+            children,
+            ..
+        } = &term.node
+            && self.productions[*production]
+                .label
+                .as_ref()
+                .is_some_and(|label| label.name == "#KRewrite")
+            && children.len() == 2
+        {
+            term = strip_packed_brackets(self, &children[0]);
+        }
+        let PackedNode::Production { production, .. } = &term.node else {
+            return None;
+        };
+        let production = &self.productions[*production];
+        (production.function || production.macro_like).then_some(term)
+    }
+
     pub(super) fn infer_sorts_z3(
         &self,
         term: ParsedTerm,
@@ -492,14 +572,11 @@ impl<'a> Encoding<'a> {
                     children.iter().zip(expected_children).enumerate()
                 {
                     let child_path = format!("{path}_c{index}");
-                    let function_child_sort =
-                        if index == 0 && descriptor.result.name == "#RuleContent" {
-                            self.grammar.function_lhs(child)
-                        } else {
-                            None
-                        };
-                    let child_expected = if let Some(lhs) = function_child_sort {
-                        self.actual_sort(lhs, &format!("{child_path}_c0"))?
+                    let function_child_sort = (index == 0 && is_top_sort_production(descriptor))
+                        .then(|| self.grammar.body_function_lhs(child, &child_path))
+                        .flatten();
+                    let child_expected = if let Some((lhs, lhs_path)) = &function_child_sort {
+                        self.actual_sort(lhs, lhs_path)?
                     } else if self.anywhere
                         && self.top_rewrite_paths.contains(path)
                         && descriptor
@@ -660,8 +737,8 @@ impl<'a> Encoding<'a> {
                 for (index, (child, child_sort)) in
                     children.iter().zip(expected_children).enumerate()
                 {
-                    let function_lhs = (index == 0 && descriptor.result.name == "#RuleContent")
-                        .then(|| self.grammar.packed_function_lhs(child))
+                    let function_lhs = (index == 0 && is_top_sort_production(descriptor))
+                        .then(|| self.grammar.packed_body_function_lhs(child))
                         .flatten();
                     let child_expected = if let Some(lhs) = function_lhs {
                         self.actual_packed_sort(lhs)?
@@ -1592,11 +1669,11 @@ impl<'a> Encoding<'a> {
                         .is_some_and(|label| label.name == "#KRewrite")
                     && children.len() == 2)
                     .then(|| self.declared_packed_model_sort(&children[0], model));
-                let function_body_sort = (descriptor.result.name == "#RuleContent")
+                let function_body_sort = is_top_sort_production(descriptor)
                     .then(|| {
                         children.first().and_then(|child| {
                             self.grammar
-                                .packed_function_lhs(child)
+                                .packed_body_function_lhs(child)
                                 .map(|lhs| self.declared_packed_model_sort(lhs, model))
                         })
                     })
@@ -1885,17 +1962,14 @@ impl<'a> Encoding<'a> {
                             &format!("{path}_c0"),
                         )
                     });
-                let function_body_sort = (descriptor.result.name == "#RuleContent")
+                let function_body_sort = is_top_sort_production(descriptor)
                     .then(|| {
                         children.first().and_then(|child| {
-                            self.grammar.function_lhs(child).map(|lhs| {
-                                declared_model_sort(
-                                    self.grammar,
-                                    lhs,
-                                    model,
-                                    &format!("{path}_c0_c0"),
-                                )
-                            })
+                            self.grammar
+                                .body_function_lhs(child, &format!("{path}_c0"))
+                                .map(|(lhs, lhs_path)| {
+                                    declared_model_sort(self.grammar, lhs, model, &lhs_path)
+                                })
                         })
                     })
                     .flatten();
@@ -2393,6 +2467,17 @@ fn is_real_sort<'a>(sort: &Sort, formals: impl Iterator<Item = &'a Sort>) -> boo
         return true;
     }
     is_real_ground_sort(sort)
+}
+
+/// Whether a production's first child is bounded by a function left-hand side: the reference
+/// treats a node expected at `#RuleContent` or `#RuleBody` as a top-sort node
+/// (TypeInferencer.java:592-593, :640). k-rust's forest collapses `#RuleBody ::= K`, so the
+/// `#RuleBody`-sorted node that survives is `#withConfig`.
+fn is_top_sort_production(production: &Production) -> bool {
+    matches!(
+        production.result.name.as_str(),
+        "#RuleContent" | "#RuleBody"
+    )
 }
 
 fn is_real_ground_sort(sort: &Sort) -> bool {
