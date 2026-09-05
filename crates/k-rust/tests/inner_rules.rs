@@ -2409,3 +2409,91 @@ fn resolves_an_element_of_an_overloaded_user_list() {
     #[cfg(not(feature = "z3-inference"))]
     assert_ambiguity_requires_z3(source);
 }
+
+fn load_with_prelude(
+    source: &'static str,
+    name: &str,
+    main_module: &str,
+) -> Result<k_rust::outer::LoadedDefinition, k_rust::outer::LoadError> {
+    let prelude = k_rust::builtin::embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    load_with_options(
+        ResolvedSource::new(name, source),
+        main_module,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            ..LoadOptions::default()
+        },
+    )
+}
+
+fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
+    loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn mint_literal_width_comes_from_the_token_text() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module CHECKMINTLITERAL --syntax-module CHECKMINTLITERAL --output-definition ref-kompiled (exit 113)
+    // EarleyParser substitutes the digits after the first `p`/`P` of a MINT.literal token into
+    // the parametric production, so `0p32` is an `MInt{32}` even when the `MInt{6}` instantiation
+    // scanned it, and the ordinary `<=Sort` check against `foo(MInt{6})` then fails.
+    let source = include_str!("fixtures/reference/inner/mint3/test.k");
+    let Err(error) = load_with_prelude(source, "checkMIntLiteral.k", "CHECKMINTLITERAL") else {
+        panic!(
+            "the reference rejects foo(0p32) over foo(MInt{{6}}); krust accepted the definition"
+        );
+    };
+    let message = error.to_string();
+    assert!(message.contains("Unexpected sort MInt{32}"), "{message}");
+    assert!(message.contains("Expected: MInt{6}"), "{message}");
+}
+
+#[test]
+fn matching_mint_literal_width_is_accepted() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module CHECKMINTLITERAL --syntax-module CHECKMINTLITERAL --output-definition ref-kompiled (exit 0)
+    let source = include_str!("fixtures/reference/inner/mint2/test.k");
+    let loaded = load_with_prelude(source, "checkMIntLiteral.k", "CHECKMINTLITERAL")
+        .expect("the reference accepts foo(0p6) over foo(MInt{6})");
+    let bodies = rule_bodies(&loaded);
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert!(
+        bodies[0].contains("#token(\"0p6\",\"MInt{6}\")"),
+        "{}",
+        bodies[0]
+    );
+}
+
+#[test]
+fn declared_mint_instances_get_the_kitem_subsort_and_casts() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled (exit 0)
+    // RuleGrammarGenerator builds `KItem ::= MInt{8}` and the `MInt{8}` casts from
+    // Module.allSorts, which contains every declared instantiation of a parametric sort.
+    let source = include_str!("fixtures/reference/inner/mintcast/test.k");
+    let loaded = load_with_prelude(source, "mintcast.k", "TEST")
+        .expect("every MInt{8} rule shape of mint-llvm/test.k is accepted by the reference");
+    let bodies = rule_bodies(&loaded);
+    assert_eq!(bodies.len(), 5, "{bodies:?}");
+    let semantic_casts = bodies
+        .iter()
+        .filter(|body| body.contains("#SemanticCastToMInt{8}"))
+        .count();
+    assert!(semantic_casts >= 1, "{bodies:?}");
+    // `{term}:>MInt{8}` lowers to the projection generated for the cast sort (TreeNodesToKORE).
+    assert!(
+        bodies.iter().any(|body| body.contains("project:MInt{8}")),
+        "{bodies:?}"
+    );
+}
