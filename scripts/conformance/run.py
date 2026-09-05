@@ -205,6 +205,7 @@ class Case:
         self.pgm_sort = None
         self.config_sorts = {}
         self.def_file = None
+        self.md_selectors = []
         self.custom_targets = []
 
     def remaining(self):
@@ -462,13 +463,26 @@ def krust_kompile_args(case, rec, force_syntax_module=False):
             "--output-directory", "krust-kompiled", "-I", ".", "--builtin-directory", BUILTIN]
     if syn or force_syntax_module:
         args += ["--syntax-module", syn or gs]
-    for s in opts.get("--md-selector", []): args += ["--md-selector", s]
+    # krust recompiles the definition on every krun/kast/kprove step, so the kompile
+    # recipe's Markdown selection must reach those steps too (regression-new markdownSelectors).
+    case.md_selectors = list(opts.get("--md-selector", []))
+    if case.def_file is None: case.def_file = src
+    if not case.main_module: case.main_module = main
+    if not case.syntax_module: case.syntax_module = syn or gs
+    for s in case.md_selectors: args += ["--md-selector", s]
     for d in opts.get("-I", []): args += ["-I", d]
     if "--no-prelude" in flags: args.append("--no-prelude")
     if "--emit-json" in flags: args.append("--emit-json")
-    dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap")]
+    # `-w LEVEL`/`--warnings LEVEL` and `-w2e` are the warning-policy half of D1-14 that krust
+    # implements (`--warnings all|normal|none`, `--warnings-to-errors`); per-category `-W`/`-Wno`
+    # stay dropped.
+    warning_level = (opts.get("-w") or opts.get("--warnings") or [None])[-1]
+    if warning_level in ("all", "normal", "none"): args += ["--warnings", warning_level]
+    if "-w2e" in flags or "--warnings-to-errors" in flags: args.append("--warnings-to-errors")
+    dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap", "-w2e", "--warnings-to-errors")]
     inference_mode = (opts.get("--type-inference-mode") or [None])[-1]
     for k in opts:
+        if k in ("-w", "--warnings") and warning_level in ("all", "normal", "none"): continue
         if k not in ("--backend", "--main-module", "--syntax-module", "--output-definition", "--md-selector", "-I", "--type-inference-mode"):
             dropped.append(f"{k} {' '.join(opts[k])}")
     if inference_mode not in (None, "simplesub", "checked"):
@@ -598,11 +612,24 @@ def program_sort_fallback(case, prog_path, stdin_path):
     return None
 
 
-def run_krust_program(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
+def md_selector_args(case, opts=None):
+    """The kompile recipe's Markdown selection, unless the step's own recipe selects."""
+    if opts and opts.get("--md-selector"): return []
+    args = []
+    for selector in case.md_selectors: args += ["--md-selector", selector]
+    return args
+
+
+def krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module):
     args = [KRUST, "krun", case.def_file, "--main-module", case.main_module, "--syntax-module", syntax_module,
-            "--sort", sort, "-I", ".", "--builtin-directory", BUILTIN] + extra
+            "--sort", sort, "-I", ".", "--builtin-directory", BUILTIN] + md_selector_args(case) + extra
     if prog: args.insert(3, prog)
     elif stdin_path: args.insert(3, "-")
+    return args
+
+
+def run_krust_program(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
+    args = krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
     rc, out, err, secs, to = sh(args, case.dir, case.remaining(), stdin_path=stdin_path)
     return args, rc, out, err, secs, to
 
@@ -749,6 +776,14 @@ def do_krun(case, rec, search_file=False):
     return step_record(case, **step)
 
 
+def krust_kast_args(case, module, sort, outfmt, expr, prog):
+    args = [KRUST, "kast", case.def_file, "--module", module, "--sort", sort, "-I", ".", "--builtin-directory", BUILTIN,
+            "-o", "json" if outfmt == "json" else "text"] + md_selector_args(case)
+    if expr is not None: args += ["-e", expr]
+    elif prog: args.append(prog)
+    return args
+
+
 def do_kast(case, rec):
     pos, opts, flags = parse_opts(rec["args"], KAST_VALUE_OPTS)
     prog = pos[0] if pos else None
@@ -768,11 +803,8 @@ def do_kast(case, rec):
     unsupported = [u for u in unsupported if u not in ("--expand-macros", "--no-substitution-filtering")]
     sort = (opts.get("--sort") or opts.get("-s") or [case.pgm_sort or "KItem"])[-1]
     module = (opts.get("--module") or opts.get("-m") or [case.syntax_module])[-1]
-    args = [KRUST, "kast", case.def_file, "--module", module, "--sort", sort, "-I", ".", "--builtin-directory", BUILTIN,
-            "-o", "json" if outfmt == "json" else "text"]
     expr = (opts.get("--expression") or opts.get("-e") or [None])[-1]
-    if expr is not None: args += ["-e", expr]
-    elif prog: args.append(prog)
+    args = krust_kast_args(case, module, sort, outfmt, expr, prog)
     step["krust_cmd"] = " ".join(shlex.quote(a) for a in args)
     if unsupported:
         step.update(verdict="krust-unsupported", reason="reference kast flags with no krust equivalent: " + " ".join(unsupported))
@@ -880,7 +912,7 @@ def do_kprove(case, rec):
     with open(f"{case.dir}/{wrapped}", "w") as f:
         f.write(f'requires "{rel_def}"\n' + open(f"{case.dir}/{spec}", errors="replace").read())
     args = [KRUST, "kprove", wrapped, "--main-module", spec_module, "--definition-module", def_module, "-I", ".",
-            "--builtin-directory", BUILTIN] + extra
+            "--builtin-directory", BUILTIN] + md_selector_args(case, opts) + extra
     inference_mode = (opts.get("--type-inference-mode") or [None])[-1]
     krust_env = ({"KRUST_TYPE_INFERENCE_MODE": "checked"}
                  if inference_mode == "checked" else None)
