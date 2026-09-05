@@ -232,7 +232,7 @@ baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["A1-02", "A1-03", "I1-07", "A2-01", "A3-08"]
 exclusion = ""
-reason = "see the per-definition table in I1-07; invalidPrec.k is A2-01 territory; checkMIntLiteral.k (MInt{W} literal width and the undeclared-width type error) is A3-08"
+reason = "see the per-definition table in I1-07; invalidPrec.k is A2-01 territory; checkMIntLiteral.k matches since A3-08 (both reject the undeclared MInt{32} width); the remaining non-matching step is checkFuncWithContext.k, which krust rejects and the reference accepts already at 9df67d2"
 
 [[case]]
 name = "concrete-function"
@@ -1579,7 +1579,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08"]
 exclusion = ""
-reason = "`::MInt{8}` cast and MInt literals in rules: parametric MInt{W} sorts unsupported in the rule grammar (see I1-07 fix shape)"
+reason = "kompile matches since A3-08 (`::MInt{8}` cast and MInt literals in rules); every krun step fails with `unsupported hook 'MINT.integer' on constructor-like arguments`, fixed-width machine integer evaluation being unimplemented in the backend (hook-capabilities.toml), which no ticket owns yet"
 unexplained = true
 
 [[case]]
@@ -1588,7 +1588,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08"]
 exclusion = ""
-reason = "MInt literal `0p64`"
+reason = "MInt literal `0p64` parses since A3-08; kompile now fails in definition checks with `Illegal function symbol m64()_TEST_MInt on LHS of rule` for `rule m64() => 0p64` over `syntax MInt64 ::= m64() [function]`, the generated symbol of a function production whose result sort is a parametric instance, which no ticket owns yet"
 unexplained = true
 
 [[case]]
@@ -1597,7 +1597,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08"]
 exclusion = ""
-reason = "MInt literal `0p64`"
+reason = "MInt literal `0p64` parses since A3-08; kompile now fails in definition checks with `Illegal function symbol m64()_TEST_MInt on LHS of rule` for `rule m64() => 0p64` over `syntax MInt64 ::= m64() [function]`, the generated symbol of a function production whose result sort is a parametric instance, which no ticket owns yet"
 unexplained = true
 
 [[case]]
@@ -1606,7 +1606,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08"]
 exclusion = ""
-reason = "MInt literals in a List"
+reason = "MInt literals in a List; inner parse still fails at test.k:59 (`{bytesString2[2p64]}:>MInt{64}`) with `cannot record inferred sort MInt{K}: missing semantic-cast production`, the MInt{K} bridge sort reaching cast recording, which no ticket owns yet"
 unexplained = true
 
 [[case]]
@@ -1896,8 +1896,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08"]
 exclusion = ""
-reason = "`::MInt{8}` cast (MInt class)"
-unexplained = true
+reason = "matches since A3-08: `rule I:Int => Int2MInt(I)::MInt{8}` needs the KItem ::= MInt{8} subsort and the MInt{8} casts of the rule grammar"
 
 [[case]]
 name = "profile"
