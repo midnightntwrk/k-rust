@@ -4,7 +4,7 @@ use std::{
     collections::BTreeMap,
     ops::Range,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use serde_json::{Value, json};
@@ -376,6 +376,85 @@ fn link_value(link: &ProvenanceLink) -> Value {
     }
 }
 
+/// A sentence's compiler-only origin receipt.
+///
+/// Kompile passes store the structured record, so every generated sentence of one module shares
+/// one origin set instead of materializing its own JSON copy; definitions loaded from JSON keep
+/// the raw receipt value. Either form derives the other lazily, once, for the lifetime of the
+/// shared receipt.
+#[derive(Debug)]
+pub struct OriginReceipt {
+    record: Option<OriginRecord>,
+    value: OnceLock<Value>,
+}
+
+impl OriginReceipt {
+    pub fn from_record(record: OriginRecord) -> Self {
+        Self {
+            record: Some(record),
+            value: OnceLock::new(),
+        }
+    }
+
+    pub fn from_value(value: Value) -> Self {
+        Self {
+            record: None,
+            value: OnceLock::from(value),
+        }
+    }
+
+    pub fn record(&self) -> Option<&OriginRecord> {
+        self.record.as_ref()
+    }
+
+    /// The JSON form of the receipt, rendered at most once per shared receipt.
+    pub fn value(&self) -> &Value {
+        self.value.get_or_init(|| self.expect_record().to_value())
+    }
+
+    pub fn into_value(self) -> Value {
+        let Self { record, value } = self;
+        match value.into_inner() {
+            Some(value) => value,
+            None => record
+                .expect("an origin receipt holds a record or a value")
+                .to_value(),
+        }
+    }
+
+    /// The derivation links the receipt records, in stored order.
+    pub fn origin_links(&self) -> Vec<ProvenanceLink> {
+        match &self.record {
+            Some(record) => record.origins.to_vec(),
+            None => origin_links_from_value(self.value()),
+        }
+    }
+
+    /// The origin set of a structured receipt, shared rather than copied.
+    pub(crate) fn shared_origins(&self) -> Option<Arc<[ProvenanceLink]>> {
+        self.record
+            .as_ref()
+            .map(|record| Arc::clone(&record.origins))
+    }
+
+    fn expect_record(&self) -> &OriginRecord {
+        self.record
+            .as_ref()
+            .expect("an origin receipt holds a record or a value")
+    }
+}
+
+impl PartialEq for OriginReceipt {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.record, &other.record) {
+            (Some(left), Some(right)) => left == right,
+            _ => self.value() == other.value(),
+        }
+    }
+}
+
+impl Eq for OriginReceipt {}
+
 /// Attach one pass's receipts without changing semantic term equality or ordering.
 pub fn record_generated_origins(
     before: &Definition,
@@ -389,7 +468,10 @@ pub fn record_generated_origins(
             .find(|candidate| candidate.name == module.name)
             .map(|candidate| candidate.local_sentences.as_slice())
             .unwrap_or_default();
-        let module_origins = module_origin_links(before_sentences, pass);
+        // One module-wide origin set per pass, shared by every generated sentence that has no
+        // narrower derivation of its own.
+        let module_origins: Arc<[ProvenanceLink]> =
+            module_origin_links(before_sentences, pass).into();
         let counterparts = sentence_counterparts(before_sentences, &module.local_sentences);
         for (sentence_offset, sentence) in module.local_sentences.iter_mut().enumerate() {
             let sentence_index =
@@ -398,19 +480,7 @@ pub fn record_generated_origins(
                 counterparts[sentence_offset].map(|index| &before_sentences[index]);
             let generated = before_sentence.is_none_or(|candidate| candidate != sentence);
             let sentence_name = sentence_name(sentence, sentence_offset);
-            let mut origins = before_sentence
-                .map(sentence_origin_links)
-                .unwrap_or_default();
-            if origins.is_empty() {
-                origins = stored_sentence_origin_links(sentence);
-            }
-            if origins.is_empty() {
-                origins = sentence_source_links(sentence);
-            }
-            if origins.is_empty() {
-                origins.clone_from(&module_origins);
-            }
-            let origins: Arc<[ProvenanceLink]> = origins.into();
+            let origins = sentence_origins(before_sentence, sentence, &module_origins);
             if generated {
                 let record = OriginRecord {
                     pass,
@@ -422,7 +492,7 @@ pub fn record_generated_origins(
                         path: Vec::new(),
                     }),
                 };
-                sentence.attributes_mut().set_origin(record.to_value());
+                sentence.attributes_mut().set_origin_record(record);
             }
             annotate_sentence_terms(
                 sentence,
@@ -436,6 +506,33 @@ pub fn record_generated_origins(
         }
     }
     after
+}
+
+/// The origin set of one sentence after a pass: its counterpart's derivation when there is one,
+/// else its own stored receipt, else its source spans, else the module-wide set. Stored sets are
+/// shared, not copied, so a receipt carried through many passes stays one allocation.
+fn sentence_origins(
+    before: Option<&Sentence>,
+    after: &Sentence,
+    module_origins: &Arc<[ProvenanceLink]>,
+) -> Arc<[ProvenanceLink]> {
+    if let Some(shared) = before.and_then(stored_sentence_origins) {
+        return shared;
+    }
+    let mut origins = before.map(sentence_origin_links).unwrap_or_default();
+    if origins.is_empty() {
+        if let Some(shared) = stored_sentence_origins(after) {
+            return shared;
+        }
+        origins = stored_sentence_origin_links(after);
+    }
+    if origins.is_empty() {
+        origins = sentence_source_links(after);
+    }
+    if origins.is_empty() {
+        return Arc::clone(module_origins);
+    }
+    origins.into()
 }
 
 fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
@@ -566,8 +663,23 @@ fn sentence_source_span(sentence: &Sentence) -> Option<TermSpan> {
 fn stored_sentence_origin_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
     sentence
         .attributes()
-        .get(ORIGIN_ATTRIBUTE)
-        .and_then(|record| record.get("origins"))
+        .origin_receipt()
+        .map(OriginReceipt::origin_links)
+        .unwrap_or_default()
+}
+
+/// The non-empty shared origin set of a structured stored receipt.
+fn stored_sentence_origins(sentence: &Sentence) -> Option<Arc<[ProvenanceLink]>> {
+    sentence
+        .attributes()
+        .origin_receipt()
+        .and_then(OriginReceipt::shared_origins)
+        .filter(|origins| !origins.is_empty())
+}
+
+fn origin_links_from_value(record: &Value) -> Vec<ProvenanceLink> {
+    record
+        .get("origins")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -592,14 +704,11 @@ pub(crate) fn seed_generated_sentence_origin(
     pass: GeneratingPass,
     origins: Vec<ProvenanceLink>,
 ) {
-    sentence.attributes_mut().set_origin(
-        OriginRecord {
-            pass,
-            origins: origins.into(),
-            destination: None,
-        }
-        .to_value(),
-    );
+    sentence.attributes_mut().set_origin_record(OriginRecord {
+        pass,
+        origins: origins.into(),
+        destination: None,
+    });
 }
 
 fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> Vec<ProvenanceLink> {

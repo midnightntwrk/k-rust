@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::kast::json::JsonLabel;
 use crate::kast::{Label, Sort, Term};
-use crate::provenance::{ORIGIN_ATTRIBUTE, SourceId};
+use crate::provenance::{ORIGIN_ATTRIBUTE, OriginReceipt, OriginRecord, SourceId};
 
 pub const LOCATION_ATTRIBUTE: &str = "org.kframework.attributes.Location";
 pub const SOURCE_ATTRIBUTE: &str = "org.kframework.attributes.Source";
@@ -42,8 +42,10 @@ pub struct Location {
 #[derive(Default)]
 pub struct Attributes {
     entries: BTreeMap<String, Value>,
-    // Generated receipts can contain a module-wide origin set and must remain cheap to carry through the definition clones made by the kompile pipeline.
-    origin: Option<Arc<Value>>,
+    // Generated receipts can contain a module-wide origin set and must remain cheap to carry
+    // through the definition clones made by the kompile pipeline; the structured receipt shares
+    // that set and renders its JSON form only for consumers of the public map view.
+    origin: Option<Arc<OriginReceipt>>,
     // Preserve the public map view without materializing the shared receipt in semantic consumers.
     materialized_entries: OnceLock<BTreeMap<String, Value>>,
 }
@@ -114,7 +116,9 @@ impl fmt::Debug for Attributes {
 
 impl Attributes {
     pub fn new(mut entries: BTreeMap<String, Value>) -> Self {
-        let origin = entries.remove(ORIGIN_ATTRIBUTE).map(Arc::new);
+        let origin = entries
+            .remove(ORIGIN_ATTRIBUTE)
+            .map(|value| Arc::new(OriginReceipt::from_value(value)));
         Self {
             entries,
             origin,
@@ -128,14 +132,14 @@ impl Attributes {
         };
         self.materialized_entries.get_or_init(|| {
             let mut entries = self.entries.clone();
-            entries.insert(ORIGIN_ATTRIBUTE.into(), origin.as_ref().clone());
+            entries.insert(ORIGIN_ATTRIBUTE.into(), origin.value().clone());
             entries
         })
     }
 
     pub fn get(&self, key: &str) -> Option<&Value> {
         if key == ORIGIN_ATTRIBUTE {
-            self.origin.as_deref()
+            self.origin.as_deref().map(OriginReceipt::value)
         } else {
             self.entries.get(key)
         }
@@ -159,7 +163,9 @@ impl Attributes {
         let key = key.into();
         self.invalidate_materialized_entries();
         if key == ORIGIN_ATTRIBUTE {
-            self.origin.replace(Arc::new(value)).map(unwrap_or_clone)
+            self.origin
+                .replace(Arc::new(OriginReceipt::from_value(value)))
+                .map(receipt_into_value)
         } else {
             self.entries.insert(key, value)
         }
@@ -168,7 +174,7 @@ impl Attributes {
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         self.invalidate_materialized_entries();
         if key == ORIGIN_ATTRIBUTE {
-            self.origin.take().map(unwrap_or_clone)
+            self.origin.take().map(receipt_into_value)
         } else {
             self.entries.remove(key)
         }
@@ -190,7 +196,7 @@ impl Attributes {
         attributes: impl IntoIterator<Item = &'a Self>,
     ) -> Result<Self, AttributeMergeError> {
         let mut values = BTreeMap::<String, Vec<Value>>::new();
-        let mut origin = None::<Arc<Value>>;
+        let mut origin = None::<Arc<OriginReceipt>>;
         let mut conflicting_origin = false;
         for attributes in attributes {
             for (key, value) in &attributes.entries {
@@ -200,10 +206,9 @@ impl Attributes {
                 }
             }
             if let Some(candidate) = &attributes.origin {
-                if origin
-                    .as_ref()
-                    .is_some_and(|existing| existing.as_ref() != candidate.as_ref())
-                {
+                if origin.as_ref().is_some_and(|existing| {
+                    !Arc::ptr_eq(existing, candidate) && existing.as_ref() != candidate.as_ref()
+                }) {
                     conflicting_origin = true;
                 } else if origin.is_none() {
                     origin = Some(Arc::clone(candidate));
@@ -260,7 +265,22 @@ impl Attributes {
 
     pub(crate) fn set_origin(&mut self, value: Value) {
         self.invalidate_materialized_entries();
-        self.origin = Some(Arc::new(value));
+        self.origin = Some(Arc::new(OriginReceipt::from_value(value)));
+    }
+
+    /// Store a structured receipt; its JSON form is rendered only when a map view asks for it.
+    pub(crate) fn set_origin_record(&mut self, record: OriginRecord) {
+        self.invalidate_materialized_entries();
+        self.origin = Some(Arc::new(OriginReceipt::from_record(record)));
+    }
+
+    pub(crate) fn origin_receipt(&self) -> Option<&OriginReceipt> {
+        self.origin.as_deref()
+    }
+
+    /// The structured receipt written by a kompile pass, if this sentence carries one.
+    pub fn origin_record(&self) -> Option<&OriginRecord> {
+        self.origin_receipt().and_then(OriginReceipt::record)
     }
 
     pub(crate) fn inherit_origin(&mut self, source: &Self) {
@@ -276,8 +296,10 @@ impl Attributes {
     }
 }
 
-fn unwrap_or_clone(value: Arc<Value>) -> Value {
-    Arc::try_unwrap(value).unwrap_or_else(|value| value.as_ref().clone())
+fn receipt_into_value(receipt: Arc<OriginReceipt>) -> Value {
+    Arc::try_unwrap(receipt)
+        .map(OriginReceipt::into_value)
+        .unwrap_or_else(|receipt| receipt.value().clone())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
