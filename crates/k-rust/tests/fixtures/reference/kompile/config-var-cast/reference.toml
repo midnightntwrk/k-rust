@@ -1,0 +1,89 @@
+case = "config-var-cast"
+subsystem = "kompile"
+source_ticket = "A3-03"
+harvested_from = "k/k-distribution/tests/regression-new/mutable-bytes/default/test.k at 4a46d1231473b599c699160132fd6e76a5c46406, reduced by hand as draft/fable51-review/fixtures/stage12-followup/config-var-cast (stage-12 conformance ratchet finding: mutable-bytes/default kompile mismatch on the initKCell UNIQUE_ID)"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "verify.exit"
+command = 'set +e; kompile test.k --backend haskell --main-module CONFIG-VAR-CAST --syntax-module CONFIG-VAR-CAST --output-definition ref && kore-parser ref/definition.kore >/dev/null && kompile test-bare-cell.k --backend haskell --main-module CONFIG-VAR-INT --syntax-module CONFIG-VAR-INT --output-definition ref-bare && kore-parser ref-bare/definition.kore >/dev/null; rc=$?; printf "%s\n" "$rc" > verify.exit; exit "$rc"'
+tool = "kore-parser"
+exit_code = 0
+sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+
+# UNIQUE_ID of every generated cell initializer axiom of ref/definition.kore and
+# ref-bare/definition.kore, keyed by the initializer label. K's TypeInferenceVisitor wraps a bare
+# configuration variable in #SemanticCastTo<inferred sort> (KConfigVar constants are variables,
+# TypeInferenceVisitor.java:221-233, SortInferencer.java:228 and :563), so
+# GenerateSentencesFromConfigDecl.getLeafInitializer hashes
+# `initKCell(Init) => <k> #SemanticCastToK(project:KItem(Init[$PGM])) </k>`; initNCell ($N:Int,
+# an explicit cast) is the control. The bare `<p> $P </p>` cell takes content sort K from that
+# cast (`symbol Lbl'-LT-'p'-GT-'{}(SortK{}) : SortPCell{}`), and configVars.sh declares every
+# bare variable at KItem (CompiledDefinition.java:110-112 maps K to KItem).
+
+[[initializer]]
+file = "test.k"
+label = "initKCell"
+unique_id = "888ac40929773fd17d5b9fd1e9d0be94791665a663f07907d894c31dccc871a5"
+
+[[initializer]]
+file = "test.k"
+label = "initNCell"
+unique_id = "f8e0a95f425f30ebba6da709e156aeb9c5db2807f758849cb6aa472232f98346"
+
+[[initializer]]
+file = "test.k"
+label = "initTestCell"
+unique_id = "fcc528b21faf231a38205fe2ffd3afb5981a5155a4bbc0bd77af1aacf01c5cb9"
+
+[[initializer]]
+file = "test-bare-cell.k"
+label = "initKCell"
+unique_id = "888ac40929773fd17d5b9fd1e9d0be94791665a663f07907d894c31dccc871a5"
+
+[[initializer]]
+file = "test-bare-cell.k"
+label = "initNCell"
+unique_id = "f8e0a95f425f30ebba6da709e156aeb9c5db2807f758849cb6aa472232f98346"
+
+[[initializer]]
+file = "test-bare-cell.k"
+label = "initPCell"
+unique_id = "3e275e5f9cf342833a4d3b4ab4c17799b3510d4f15a0141d882a016430761a90"
+
+[[initializer]]
+file = "test-bare-cell.k"
+label = "initMCell"
+unique_id = "725c1f4e365dc4abc0d02834262dd3df025c819bbcb85a550e7660bdd9c2e773"
+
+[[initializer]]
+file = "test-bare-cell.k"
+label = "initTestCell"
+unique_id = "38791cdcfdc7dc12e2bea8a25d606fe4d808abcf403b200da95dd28a90c32855"
+
+[[cell]]
+file = "test-bare-cell.k"
+symbol = "Lbl'-LT-'p'-GT-'"
+argument_sorts = ["SortK{}"]
+
+[[cell]]
+file = "test-bare-cell.k"
+symbol = "Lbl'-LT-'n'-GT-'"
+argument_sorts = ["SortInt{}"]
+
+# declaredConfigVar_<name> of configVars.sh for test-bare-cell.k.
+[[config_var]]
+file = "test-bare-cell.k"
+name = "PGM"
+sort = "KItem"
+
+[[config_var]]
+file = "test-bare-cell.k"
+name = "N"
+sort = "Int"
+
+[[config_var]]
+file = "test-bare-cell.k"
+name = "P"
+sort = "KItem"

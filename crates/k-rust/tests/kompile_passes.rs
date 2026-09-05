@@ -174,6 +174,163 @@ fn reference_rewrite_list_singleton_rule_ids_match() {
 }
 
 #[derive(Deserialize)]
+struct ConfigVarCastOracle {
+    initializer: Vec<InitializerId>,
+    cell: Vec<CellSymbolSorts>,
+    config_var: Vec<ConfigVarSort>,
+}
+
+#[derive(Deserialize)]
+struct InitializerId {
+    file: String,
+    label: String,
+    unique_id: String,
+}
+
+#[derive(Deserialize)]
+struct CellSymbolSorts {
+    file: String,
+    symbol: String,
+    argument_sorts: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ConfigVarSort {
+    file: String,
+    name: String,
+    sort: String,
+}
+
+/// Compile a reference fixture through the whole kompile pipeline.
+fn compile_fixture(
+    file_name: &str,
+    source: &str,
+    main_module: &str,
+) -> k_rust::kompile::CompiledKoreArtifacts {
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new(file_name, source),
+        main_module,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("reference fixture should load");
+    compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect("reference fixture should compile")
+}
+
+/// UNIQUE_ID of every generated cell-initializer axiom of an emitted definition.kore, keyed by
+/// the initializer label (`initKCell`). Each axiom is written as one `  axiom` block whose first
+/// `Lblinit...Cell{}(` occurrence is the initializer being defined.
+fn initializer_ids(definition_kore: &str) -> BTreeMap<String, String> {
+    definition_kore
+        .split("\n  axiom")
+        .skip(1)
+        .filter_map(|axiom| {
+            let start = axiom.find("Lblinit")?;
+            let label = &axiom[start + "Lbl".len()..];
+            let label = &label[..label.find('{')?];
+            let id = axiom.split("UNIQUE'Unds'ID{}(\"").nth(1)?;
+            let id = &id[..id.find('"')?];
+            Some((label.to_owned(), id.to_owned()))
+        })
+        .collect()
+}
+
+/// The argument sorts of a cell symbol declaration (`symbol Lbl'-LT-'p'-GT-'{}(SortK{}) : ...`).
+fn cell_symbol_argument_sorts(definition_kore: &str, symbol: &str) -> Option<Vec<String>> {
+    let declaration = format!("symbol {symbol}{{}}(");
+    let arguments = definition_kore
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix(&declaration))?;
+    let arguments = &arguments[..arguments.find(')')?];
+    Some(
+        arguments
+            .split(',')
+            .map(|sort| sort.trim().to_owned())
+            .filter(|sort| !sort.is_empty())
+            .collect(),
+    )
+}
+
+#[test]
+fn reference_config_var_cast_initializer_ids_match() {
+    // reference: k/result/bin/kompile --backend haskell --main-module CONFIG-VAR-CAST --syntax-module CONFIG-VAR-CAST test.k
+    //   and --main-module CONFIG-VAR-INT --syntax-module CONFIG-VAR-INT test-bare-cell.k
+    //
+    // A3-03 follow-up (stage-12 conformance ratchet finding on mutable-bytes/default): the
+    // reference's inference wraps a bare configuration variable in #SemanticCastTo<inferred
+    // sort> (a KConfigVar constant is a variable, TypeInferenceVisitor.java:221-233), so
+    // GenerateSentencesFromConfigDecl.getLeafInitializer hashes
+    // `initKCell(Init) => <k> #SemanticCastToK(project:KItem(Init[$PGM])) </k>` and a bare
+    // `<p> $P </p>` cell takes content sort K from that cast. initNCell (`$N:Int`) and the
+    // literal initMCell are the controls; configVars.sh keeps declaring bare variables at KItem.
+    let oracle: ConfigVarCastOracle = toml::from_str(include_str!(
+        "fixtures/reference/kompile/config-var-cast/reference.toml"
+    ))
+    .expect("reference oracle should parse");
+    let fixtures = [
+        (
+            "test.k",
+            include_str!("fixtures/reference/kompile/config-var-cast/test.k"),
+            "CONFIG-VAR-CAST",
+        ),
+        (
+            "test-bare-cell.k",
+            include_str!("fixtures/reference/kompile/config-var-cast/test-bare-cell.k"),
+            "CONFIG-VAR-INT",
+        ),
+    ];
+    for (file_name, source, main_module) in fixtures {
+        let artifacts = compile_fixture(file_name, source, main_module);
+        let actual = initializer_ids(&artifacts.definition_kore);
+        let expected = oracle
+            .initializer
+            .iter()
+            .filter(|row| row.file == file_name)
+            .map(|row| (row.label.clone(), row.unique_id.clone()))
+            .collect::<BTreeMap<_, _>>();
+        assert!(!expected.is_empty(), "{file_name} has oracle rows");
+        for (label, unique_id) in &expected {
+            assert_eq!(
+                actual.get(label),
+                Some(unique_id),
+                "{file_name}: UNIQUE_ID of {label} (all initializers: {actual:?})"
+            );
+        }
+        for row in oracle.cell.iter().filter(|row| row.file == file_name) {
+            assert_eq!(
+                cell_symbol_argument_sorts(&artifacts.definition_kore, &row.symbol).as_ref(),
+                Some(&row.argument_sorts),
+                "{file_name}: argument sorts of {}",
+                row.symbol
+            );
+        }
+        let expected_config_vars = oracle
+            .config_var
+            .iter()
+            .filter(|row| row.file == file_name)
+            .map(|row| (row.name.clone(), Sort::new(&row.sort)))
+            .collect::<BTreeMap<_, _>>();
+        if !expected_config_vars.is_empty() {
+            assert_eq!(
+                artifacts.configuration_variables, expected_config_vars,
+                "{file_name}: declared configuration variable sorts"
+            );
+        }
+    }
+}
+
+#[derive(Deserialize)]
 struct LambdaSortOracle {
     lambda: Vec<LambdaSignature>,
 }
