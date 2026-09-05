@@ -430,6 +430,143 @@ print(json.dumps({
     assert!(drops("fail-with-Wno", "-w2e"), "{translated}");
 }
 
+#[test]
+fn conformance_driver_classifies_a_kprove_compiler_rejection_by_its_diagnostic_lines() {
+    // checkClaimError/rule-spec.k.out is `[Error] Compiler: Only claims and simplification
+    // rules are allowed in proof modules.` followed by K's tab-indented Source, Location and
+    // quoted source line (`6 |	    rule <k> doIt(foo) => doIt(0) ... </k>`). kprove_verdicts
+    // searched the whole file for `<k>` and read the quoted rule as a not-proven
+    // counterexample, so krust's matching Error[ProofModuleRule] rejection was recorded as
+    // krust-error (host ratchet runs 3, 4 and 16). The verdict kinds are a pure function of
+    // the .out text and krust's output, so they are checked without the reference toolchain.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r##"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import run
+rejection = (
+    "[Error] Compiler: Only claims and simplification rules are allowed in proof modules.\n"
+    "\tSource(rule-spec.k)\n"
+    "\tLocation(6,10,6,43)\n"
+    "\t6 |\t    rule <k> doIt(foo) => doIt(0) ... </k>\n"
+    "\t  .\t         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+    "[Error] Compiler: Had 1 structural errors.\n"
+)
+krust_rejection = "rule-spec.krust-wrapped.k:7:5: Error[ProofModuleRule]: Only claims and simplification rules are allowed in proof modules.\n"
+counterexample = (
+    "[Error] Prover: the following claims could not be proved:\n"
+    "#Not ( #Ceil ( doIt ( 0 ) ) )\n"
+    "<generatedTop>\n"
+    "  <k>\n"
+    "    doIt ( 0 ) ~> .K\n"
+    "  </k>\n"
+    "</generatedTop>\n"
+)
+print(json.dumps({
+    "rejection": run.kprove_verdicts(rejection, "", krust_rejection, 1)[:4],
+    "rejection-proven": run.kprove_verdicts(rejection, "claim #1: proven (4 states, 0 unexplored)\n", "", 0)[:4],
+    "counterexample": run.kprove_verdicts(counterexample, "", "1 claims were not proven\n", 1)[:4],
+    "proven": run.kprove_verdicts("#Top\n", "claim #1: proven (4 states, 0 unexplored)\n", "", 0)[:4],
+}))
+"##;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let verdicts: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let kinds = |name: &str| -> Vec<String> {
+        verdicts[name]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        kinds("rejection")[..3],
+        ["error", "error", "match"],
+        "{verdicts}"
+    );
+    assert_eq!(
+        kinds("rejection-proven")[..3],
+        ["error", "proven", "mismatch"],
+        "{verdicts}"
+    );
+    assert_eq!(
+        kinds("counterexample")[..3],
+        ["not-proven", "not-proven", "match"],
+        "{verdicts}"
+    );
+    assert_eq!(
+        kinds("proven")[..3],
+        ["proven", "proven", "match"],
+        "{verdicts}"
+    );
+}
+
+#[test]
+fn conformance_driver_treats_a_default_kast_parser_script_as_the_default_program_parse() {
+    // star-multiplicity's recipe is `krun 1.test --parser ./test-parser` where test-parser is
+    // `cat "$1" | kast - --output kore`: K's own default program parser (krun invokes kparse
+    // on the program file and reads KORE; kast without --sort or --module parses the program
+    // at the $PGM sort with the main syntax module). krust's krun parses the program the same
+    // way by default, so that flag has an exact equivalent; the driver recorded
+    // krust-unsupported instead (host ratchet run 16, rank 2 above the kompile match). A
+    // parser that is not the default parse (`cat`, a KORE program; a kast with --sort or
+    // --module) stays unsupported.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+case = run.Case("star-multiplicity")
+case.dir = tempfile.mkdtemp()
+def probe(name, text):
+    if text is not None:
+        with open(os.path.join(case.dir, name), "w") as f: f.write(text)
+    return run.default_parser_script(case, name)
+print(json.dumps({
+    "cat-kast": probe("./test-parser", 'cat "$1" | kast - --output kore\n'),
+    "shebang": probe("./with-shebang", '#!/bin/sh\n# parse the program\nkast "$1" -o kore\n'),
+    "sorted": probe("./sorted", 'kast --sort Foo "$1" --output kore\n'),
+    "module": probe("./module", 'cat "$1" | kast - --module OTHER --output kore\n'),
+    "two-commands": probe("./two", 'kast "$1" --output kore\necho done\n'),
+    "cat": probe("cat", None),
+    "missing": probe("./missing", None),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let translated: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let equivalent = |name: &str| translated[name].as_str().map(str::to_owned);
+    assert!(
+        equivalent("cat-kast").is_some_and(|note| note.contains("kast")),
+        "{translated}"
+    );
+    assert!(equivalent("shebang").is_some(), "{translated}");
+    for other in ["sorted", "module", "two-commands", "cat", "missing"] {
+        assert!(translated[other].is_null(), "{other}: {translated}");
+    }
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),
