@@ -1572,23 +1572,34 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     emit_diagnostics(&compiled.diagnostics);
 
+    let available_config_vars = &compiled.configuration_variables;
+    // K's krun (krun:484-489, :506-521) reads a program only when one is passed; a
+    // definition without `$PGM` runs from the configuration variables alone and never
+    // touches standard input.
+    let program_supplied = options.expression.is_some() || options.program_file.is_some();
     let program_uses_stdin = options.expression.is_none()
         && options
             .program_file
             .as_deref()
             .is_none_or(|path| path == Path::new("-"));
-    let source = read_program_source(options.expression, options.program_file)?;
-    let start_sort = parse_sort(&options.sort)?;
-    let program_parser = ProgramParser::from_resolved(&loaded.resolved, &syntax_module.name)?;
-    let program = program_parser.parse(&start_sort, &source)?;
-    let program = expand_macros_in_term(&loaded.definition, &syntax_module.name, program)?;
-    // Parser annotations refer to the source definition's production catalog. Perform
-    // production-sensitive conversion there, before crossing into the transformed definition.
-    let program_injector = SortInjector::new(&loaded.resolved, &syntax_module.name)?;
-    let program_sort = program_injector.term_sort(&program, None)?;
-    let program = program_injector.inject_at_top(&program)?;
-    let program = term_to_kore_from_resolved(&loaded.resolved, &syntax_module.name, &program)?;
-    let available_config_vars = &compiled.configuration_variables;
+    let program = if program_supplied || available_config_vars.contains_key("PGM") {
+        let source = read_program_source(options.expression, options.program_file)?;
+        let start_sort = parse_sort(&options.sort)?;
+        let program_parser = ProgramParser::from_resolved(&loaded.resolved, &syntax_module.name)?;
+        let program = program_parser.parse(&start_sort, &source)?;
+        let program = expand_macros_in_term(&loaded.definition, &syntax_module.name, program)?;
+        // Parser annotations refer to the source definition's production catalog. Perform
+        // production-sensitive conversion there, before crossing into the transformed
+        // definition.
+        let program_injector = SortInjector::new(&loaded.resolved, &syntax_module.name)?;
+        let program_sort = program_injector.term_sort(&program, None)?;
+        let program = program_injector.inject_at_top(&program)?;
+        let program = term_to_kore_from_resolved(&loaded.resolved, &syntax_module.name, &program)?;
+        Some((program, encode_kore_sort(&program_sort)))
+    } else {
+        None
+    };
+    let program_uses_stdin = program_uses_stdin && program.is_some();
     let config_parser_modules =
         configuration_variable_parser_modules(&loaded.resolved, &options.common.module)?;
     let mut config_parsers = BTreeMap::new();
@@ -1718,7 +1729,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         )
         .into());
     }
-    let initial = top_cell_initializer(program, encode_kore_sort(&program_sort), config_vars);
+    let initial = top_cell_initializer(program, config_vars);
 
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
 
@@ -3294,22 +3305,30 @@ fn configuration_variable_parser_modules(
     Ok(modules)
 }
 
+/// Build the `initGeneratedTopCell` application the way `llvm-krun` does from krun's `-c`
+/// list: one `_|->_` entry per supplied variable, `$PGM` first when a program was parsed.
+/// A definition whose configuration mentions no variable declares the initializer without
+/// the `Map` parameter (`GenerateSentencesFromConfigDecl`), so no entries means a nullary
+/// application.
 fn top_cell_initializer(
-    program: KorePattern,
-    program_sort: KoreSort,
+    program: Option<(KorePattern, KoreSort)>,
     config_vars: Vec<(String, KorePattern, KoreSort)>,
 ) -> KorePattern {
     let mut entries = Vec::with_capacity(config_vars.len() + 1);
-    entries.push(("$PGM".to_owned(), program, program_sort));
+    if let Some((program, program_sort)) = program {
+        entries.push(("$PGM".to_owned(), program, program_sort));
+    }
     entries.extend(config_vars);
     let mut entries = entries
         .into_iter()
         .map(|(name, value, value_sort)| configuration_map_entry(&name, value, value_sort));
-    let first = entries.next().expect("$PGM always supplies one entry");
-    let config = entries.fold(first, |left, right| {
-        kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right])
-    });
-    kore_application("LblinitGeneratedTopCell", Vec::new(), vec![config])
+    let arguments = match entries.next() {
+        Some(first) => vec![entries.fold(first, |left, right| {
+            kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right])
+        })],
+        None => Vec::new(),
+    };
+    kore_application("LblinitGeneratedTopCell", Vec::new(), arguments)
 }
 
 fn configuration_map_entry(name: &str, value: KorePattern, value_sort: KoreSort) -> KorePattern {
@@ -3465,11 +3484,13 @@ mod tests {
     #[test]
     fn top_initializer_combines_program_and_configuration_bindings() {
         let initial = top_cell_initializer(
-            KorePattern::DomainValue {
-                sort: kore_sort("SortExp"),
-                value: "program".into(),
-            },
-            kore_sort("SortExp"),
+            Some((
+                KorePattern::DomainValue {
+                    sort: kore_sort("SortExp"),
+                    value: "program".into(),
+                },
+                kore_sort("SortExp"),
+            )),
             vec![(
                 "$ENV".into(),
                 kore_application("Lbl'Dot'Map", Vec::new(), Vec::new()),
@@ -3485,6 +3506,14 @@ mod tests {
             rendered.contains("inj{SortMap{}, SortKItem{}}"),
             "{rendered}"
         );
+    }
+
+    #[test]
+    fn top_initializer_without_any_binding_is_nullary() {
+        let initial = top_cell_initializer(None, Vec::new());
+        let rendered = KorePrinter::compact().print_pattern(&initial);
+
+        assert_eq!(rendered, "LblinitGeneratedTopCell{}()");
     }
 
     fn deeply_nested_kore_pattern(depth: usize) -> KorePattern {
