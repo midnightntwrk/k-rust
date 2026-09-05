@@ -1309,6 +1309,63 @@ fn comparator_skips_ids_of_multi_alias_freezer_axioms() {
 }
 
 #[test]
+fn comparator_ignores_which_multi_alias_freezer_suffix_each_context_receives() {
+    // ResolveContexts.getUniqueFreezerLabel names the first freezer of a hint `_` and the
+    // second `_2`, and meets the contexts of a multi-alias group in Scala HashSet order
+    // (decision D13-3, design 07). The suffix a context receives is therefore not
+    // portable: the heat rules of the two aliases swap freezer symbols between the
+    // reference and the port while everything else is equal.
+    let definition = |first: &str, second: &str| {
+        parse_definition(&format!(
+            r#"[]
+            module TEST
+              sort S{{}} []
+              symbol Lbla{{}}() : S{{}} []
+              symbol Lblb{{}}() : S{{}} []
+              symbol Lbl'Hash'freezerfoo'Unds'0'Unds'{{}}() : S{{}} []
+              symbol Lbl'Hash'freezerfoo'Unds'0'Unds'2{{}}() : S{{}} []
+              axiom{{}} \equals{{S{{}}, S{{}}}}(Lbla{{}}(), {first}{{}}()) [UNIQUE'Unds'ID{{}}("{first}")]
+              axiom{{}} \equals{{S{{}}, S{{}}}}(Lblb{{}}(), {second}{{}}()) [UNIQUE'Unds'ID{{}}("{second}")]
+            endmodule []"#,
+        ))
+        .unwrap()
+    };
+    let unsuffixed = "Lbl'Hash'freezerfoo'Unds'0'Unds'";
+    let second = "Lbl'Hash'freezerfoo'Unds'0'Unds'2";
+
+    let report = compare_definitions_with(
+        definition(unsuffixed, second),
+        definition(second, unsuffixed),
+        CompareOptions::default(),
+    );
+    assert_eq!(report.verdict, CompareVerdict::Equal);
+    assert_eq!(report.multi_alias_axioms, 2);
+
+    // A hint with a single freezer is not a multi-alias group: its symbol keeps its
+    // identity and a swapped use stays a difference.
+    let single = |target: &str| {
+        parse_definition(&format!(
+            r#"[]
+            module TEST
+              sort S{{}} []
+              symbol Lbla{{}}() : S{{}} []
+              symbol Lblb{{}}() : S{{}} []
+              symbol Lbl'Hash'freezerfoo'Unds'0'Unds'{{}}() : S{{}} []
+              axiom{{}} \equals{{S{{}}, S{{}}}}({target}{{}}(), Lbl'Hash'freezerfoo'Unds'0'Unds'{{}}()) []
+            endmodule []"#,
+        ))
+        .unwrap()
+    };
+    let report =
+        compare_definitions_with(single("Lbla"), single("Lblb"), CompareOptions::default());
+    assert!(
+        matches!(report.verdict, CompareVerdict::Differs(_)),
+        "a single freezer must keep its identity"
+    );
+    assert_eq!(report.multi_alias_axioms, 0);
+}
+
+#[test]
 fn comparator_keeps_distinct_generated_variables_distinct() {
     let distinct =
         differential_definition(r"axiom{} \and{S{}}(Var'Unds'X1:S{}, Var'Unds'X2:S{}) []");
