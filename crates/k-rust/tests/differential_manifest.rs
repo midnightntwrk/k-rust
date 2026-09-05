@@ -162,16 +162,27 @@ fn part_b_pending_and_special_case_schema_is_complete() {
             })
             .collect::<Vec<_>>()
     };
-    // The three symbolic C1 cases stay pending on C1-01: the fresh remainder names now externalize
-    // as KORE identifiers (`ExFrame0:SortMap{}`), but the comparison still fails on harness shape
-    // (kore-exec's depth counting, `\not(\exists ...)` constraints, generated-name canonicalization;
-    // see the manifest comment above the c1-map case).
+    // The three symbolic C1 cases compare one rewrite step against kore-exec. The reference's
+    // `--depth N` output lists the leaves that are stuck within N steps and drops the leaves that
+    // merely reached the limit whenever a stuck leaf exists (GraphTraversal.checkLeftUnproven:
+    // GotStuck wins over Stopped), so `--depth 1` prints only the unrewritten remainder and the
+    // rewritten branches of the tickets' contracts are observable from `--depth 2` on.
     for name in ["c1-map", "c1-t2", "c1-t3"] {
+        let entry = case("symbolic", name);
         assert_eq!(
-            ticket_requirements(&case("symbolic", name)),
-            ["C1-01"],
-            "symbolic case {name} must stay pending on the fresh-name owner C1-01"
+            ticket_requirements(&entry),
+            Vec::<String>::new(),
+            "symbolic case {name} is verified against the reference and must run by default"
         );
+        for pattern in entry["pattern"].as_array().expect("symbolic patterns") {
+            assert_eq!(
+                pattern["depth"].as_integer(),
+                Some(2),
+                "{name}:{} must pin the depth at which kore-exec prints the stuck rewritten branches",
+                pattern["name"].as_str().unwrap_or("?")
+            );
+            assert_eq!(pattern["mode"].as_str(), Some("exec"));
+        }
     }
     // Every case whose owning tickets are verified and which passed the opt-in stage-12 run
     // must run in the default protocol: no ticket: requirement may remain.
@@ -211,12 +222,8 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         still_pending,
-        BTreeSet::from([
-            "symbolic/c1-map".to_owned(),
-            "symbolic/c1-t2".to_owned(),
-            "symbolic/c1-t3".to_owned(),
-        ]),
-        "only the C1-01 symbolic cases may stay ticket-gated"
+        BTreeSet::new(),
+        "no manifest case may stay ticket-gated after the C1 symbolic cases were verified"
     );
 
     for entry in manifest["proof"].as_array().expect("proof cases") {
@@ -400,6 +407,14 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
         assert!(script.contains("K_DIFFERENTIAL_DEFINITION"));
         assert!(script.contains("K_DIFFERENTIAL_MODULE"));
     }
+    // N4: the symbolic and MIR gates start from a pattern file, so the comparator can tell the
+    // initial pattern's variables from the engine-chosen rule and remainder names.
+    for script in [MIR_EXECUTION_SCRIPT, &symbolic] {
+        assert!(
+            script.contains("K_DIFFERENTIAL_INITIAL_PATTERN="),
+            "pattern-driven execution gates must hand the initial pattern to the comparator"
+        );
+    }
     assert!(EXECUTION_SCRIPT.contains("oracle-exception"));
     assert!(EXECUTION_SCRIPT.contains("expected_exit_code"));
     assert!(EXECUTION_SCRIPT.contains("rust_status != expected_exit_code"));
@@ -502,14 +517,36 @@ fn every_gate_normalisation_is_registered() {
         .iter()
         .map(|row| row["id"].as_str().expect("normalisation id"))
         .collect::<BTreeSet<_>>();
-    let expected = (1..=20)
+    let expected = (1..=22)
         .filter(|id| *id != 2)
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1 and N3 through N20 after B2-03 deletes N2"
+        "the gate register must contain N1 and N3 through N22 after B2-03 deletes N2"
+    );
+    let row = |id: &str| {
+        rows.iter()
+            .find(|row| row["id"].as_str() == Some(id))
+            .unwrap_or_else(|| panic!("missing normalisation {id}"))
+    };
+    // N4 covers every engine-chosen name the execution gates meet: the frontend's
+    // Var'Unds'<stem>N, the NewUnifier's VarAC<n>'Unds'N remainder, the port's externalized
+    // Ex/Eq/Rule marker names, and, given the initial pattern, every variable that is not free in it.
+    for needle in ["VarAC", "Ex", "K_DIFFERENTIAL_INITIAL_PATTERN", "sort"] {
+        assert!(
+            row("N4")["rule"].as_str().unwrap().contains(needle),
+            "N4 must describe the {needle} case"
+        );
+    }
+    assert_eq!(
+        row("N21")["anchor_symbol"].as_str(),
+        Some("normalize_conjunctions")
+    );
+    assert_eq!(
+        row("N22")["anchor_symbol"].as_str(),
+        Some("canonicalize_remainder_existentials")
     );
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut registered_symbols = BTreeSet::new();
