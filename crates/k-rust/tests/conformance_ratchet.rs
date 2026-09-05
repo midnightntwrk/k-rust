@@ -183,12 +183,27 @@ cp "$FAKE_RESULTS" "$results"
     }
 
     fn run(&self, label: &str, results: &Path, selection: &[&str]) -> Output {
+        self.run_with_driver(label, results, selection, "fixture-driver-v1")
+    }
+
+    fn run_with_driver(
+        &self,
+        label: &str,
+        results: &Path,
+        selection: &[&str],
+        driver_version: &str,
+    ) -> Output {
         self.wrapper()
             .args(["--label", label])
             .args(selection)
             .env("FAKE_RESULTS", results)
+            .env("CONFORMANCE_DRIVER_VERSION", driver_version)
             .output()
             .unwrap()
+    }
+
+    fn audit(&self) -> Output {
+        self.wrapper().arg("--audit").output().unwrap()
     }
 
     fn document(&self) -> Value {
@@ -378,20 +393,29 @@ fn conformance_ratchet_records_improvements_and_fails_on_regression() {
 }
 
 #[test]
-fn conformance_ratchet_reports_driver_deltas_without_failing() {
+fn conformance_ratchet_reports_driver_deltas_above_the_floor_without_failing() {
+    // Entry 0 is the stage-1 floor: a case that a later driver raised above it may fall back
+    // to the floor under yet another driver version without failing the run.
     let fixture = Fixture::new();
     let baseline = fixture.results("baseline", &baseline_cases());
     assert!(fixture.seed(&baseline).status.success());
-    let changed = fixture.results(
-        "driver-change",
+    let raised = fixture.results(
+        "raised",
         &[
-            ("a", "mismatch", "krun"),
+            ("a", "match", "krun"),
             ("b", "match", "search"),
             ("c", "match", "kompile"),
             ("d", "krust-unsupported", "kast"),
         ],
     );
-    let output = fixture.run("driver-change", &changed, &["--all"]);
+    let output = fixture.run_with_driver("raised", &raised, &["--all"], "fixture-driver-v1");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lowered = fixture.results("lowered", &baseline_cases());
+    let output = fixture.run_with_driver("lowered", &lowered, &["--all"], "fixture-driver-v2");
     assert!(
         output.status.success(),
         "{}",
@@ -400,8 +424,167 @@ fn conformance_ratchet_reports_driver_deltas_without_failing() {
     let document = fixture.document();
     let run = document["run"].as_array().unwrap().last().unwrap();
     assert_eq!(run["regressions"].as_array().unwrap().len(), 0);
-    assert_eq!(run["driver_deltas"].as_array().unwrap().len(), 2);
-    assert_eq!(run_cases(run)["a"]["delta"].as_str(), Some("driver-delta"));
+    assert_eq!(
+        run["driver_deltas"].as_array().unwrap(),
+        &[Value::from("b")],
+        "only the case whose rank changed across driver versions is annotated"
+    );
+    let b = run_cases(run)["b"];
+    assert_eq!(b["delta"].as_str(), Some("driver-delta"));
+    assert_eq!(b["previous_rank"].as_integer(), Some(3));
+    assert_eq!(b["floor_rank"].as_integer(), Some(1));
+    assert_eq!(b["rank"].as_integer(), Some(1));
+}
+
+#[test]
+fn conformance_ratchet_fails_below_the_stage_1_floor_across_driver_versions() {
+    let fixture = Fixture::new();
+    let baseline = fixture.results("baseline", &baseline_cases());
+    assert!(fixture.seed(&baseline).status.success());
+    let changed = fixture.results(
+        "driver-change",
+        &[
+            ("a", "mismatch", "krun"),
+            ("b", "mismatch", "search"),
+            ("c", "match", "kompile"),
+            ("d", "krust-unsupported", "kast"),
+        ],
+    );
+    let output =
+        fixture.run_with_driver("driver-change", &changed, &["--all"], "fixture-driver-v1");
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "a rank below the entry-0 floor must fail even across driver versions: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let document = fixture.document();
+    let run = document["run"].as_array().unwrap().last().unwrap();
+    assert_eq!(run["regressions"].as_array().unwrap(), &[Value::from("a")]);
+    assert_eq!(
+        run["driver_deltas"].as_array().unwrap(),
+        &[Value::from("a")],
+        "the driver change still annotates the row"
+    );
+    let a = run_cases(run)["a"];
+    assert_eq!(a["delta"].as_str(), Some("regression"));
+    assert_eq!(a["previous_rank"].as_integer(), Some(3));
+    assert_eq!(a["floor_rank"].as_integer(), Some(3));
+    assert_eq!(a["rank"].as_integer(), Some(1));
+}
+
+#[test]
+fn conformance_ratchet_counts_improvements_across_driver_versions() {
+    let fixture = Fixture::new();
+    let baseline = fixture.results("baseline", &baseline_cases());
+    assert!(fixture.seed(&baseline).status.success());
+    let improved = fixture.results(
+        "improved",
+        &[
+            ("a", "match", "krun"),
+            ("b", "match", "search"),
+            ("c", "match", "kompile"),
+            ("d", "krust-unsupported", "kast"),
+        ],
+    );
+    let output = fixture.run_with_driver("improved", &improved, &["--all"], "fixture-driver-v1");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document = fixture.document();
+    let run = document["run"].as_array().unwrap().last().unwrap();
+    assert_eq!(run["improvements"].as_array().unwrap(), &[Value::from("b")]);
+    assert_eq!(
+        run["driver_deltas"].as_array().unwrap(),
+        &[Value::from("b")]
+    );
+    assert_eq!(run_cases(run)["b"]["delta"].as_str(), Some("improvement"));
+}
+
+#[test]
+fn conformance_ratchet_never_fails_on_excluded_cases_across_driver_versions() {
+    let fixture = Fixture::new();
+    let baseline = fixture.results("baseline", &baseline_cases());
+    assert!(fixture.seed(&baseline).status.success());
+    let excluded_drop = fixture.results(
+        "excluded-drop",
+        &[
+            ("a", "match", "krun"),
+            ("b", "mismatch", "search"),
+            ("c", "krust-error", "kompile"),
+            ("d", "krust-unsupported", "kast"),
+        ],
+    );
+    let output = fixture.run_with_driver(
+        "excluded-drop",
+        &excluded_drop,
+        &["--all"],
+        "fixture-driver-v1",
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document = fixture.document();
+    let run = document["run"].as_array().unwrap().last().unwrap();
+    assert_eq!(run["regressions"].as_array().unwrap().len(), 0);
+    assert_eq!(run["excluded"].as_array().unwrap(), &[Value::from("c")]);
+    let c = run_cases(run)["c"];
+    assert_eq!(c["delta"].as_str(), Some("regression"));
+    assert_eq!(c["floor_rank"].as_integer(), Some(3));
+}
+
+#[test]
+fn conformance_ratchet_audit_lists_cases_below_the_stage_1_floor() {
+    let fixture = Fixture::new();
+    let baseline = fixture.results("baseline", &baseline_cases());
+    assert!(fixture.seed(&baseline).status.success());
+    let clean = fixture.audit();
+    assert!(
+        clean.status.success(),
+        "{}",
+        String::from_utf8_lossy(&clean.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&clean.stdout).contains("below floor: 0"),
+        "{}",
+        String::from_utf8_lossy(&clean.stdout)
+    );
+    let changed = fixture.results(
+        "driver-change",
+        &[
+            ("a", "mismatch", "krun"),
+            ("b", "mismatch", "search"),
+            ("c", "krust-error", "kompile"),
+            ("d", "krust-unsupported", "kast"),
+        ],
+    );
+    assert_eq!(
+        fixture
+            .run_with_driver("driver-change", &changed, &["--all"], "fixture-driver-v1")
+            .status
+            .code(),
+        Some(3)
+    );
+    let output = fixture.audit();
+    assert_eq!(output.status.code(), Some(3), "the audit fails like a run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("| a | 3 | 1 | 1 | mismatch | A1-01 |  |"),
+        "audit table lists the non-excluded case: {stdout}"
+    );
+    assert!(
+        stdout.contains("| c | 3 | 0 | 1 | krust-error |  | fixture-exclusion |"),
+        "audit table lists the excluded case with its exclusion: {stdout}"
+    );
+    assert!(!stdout.contains("| b |"), "b is at its floor: {stdout}");
+    assert!(
+        stdout.contains("below floor: 2 (1 non-excluded)"),
+        "{stdout}"
+    );
 }
 
 #[test]
