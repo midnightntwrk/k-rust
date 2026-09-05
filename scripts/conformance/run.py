@@ -632,6 +632,28 @@ def md_selector_args(case, opts=None):
     return args
 
 
+def default_parser_script(case, value):
+    """The note for a krun `--parser VALUE` that is K's default program parse, else None.
+
+    krun hands the program file to the parser command and reads KORE (krun script,
+    parser_PGM); the default is kparse on that file, and `kast` without --sort or --module
+    parses it the same way: at the $PGM sort with the main syntax module. A script that is
+    exactly that (optionally `cat "$1" |` into `kast -`, optionally `--output kore`) is what
+    krust krun does by default. `cat` (a KORE program) and every other parser stay unsupported.
+    """
+    path = os.path.join(case.dir, value)
+    if not os.path.isfile(path): return None
+    lines = [l.strip() for l in open(path, errors="replace").read().splitlines()]
+    commands = [l for l in lines if l and not l.startswith("#")]
+    if len(commands) != 1: return None
+    match = re.fullmatch(r'(?:cat\s+"?\$1"?\s*\|\s*)?kast\s+(.*)', commands[0])
+    if not match: return None
+    words = match.group(1).split()
+    if words[:1] not in (["-"], ["$1"], ['"$1"']): return None
+    if words[1:] not in ([], ["--output", "kore"], ["-o", "kore"]): return None
+    return f"{value} is `{commands[0]}`, K's default program parse (kast at the $PGM sort with the main syntax module); krust krun parses the program the same way by default"
+
+
 def krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module):
     args = [KRUST, "krun", case.def_file, "--main-module", case.main_module, "--syntax-module", syntax_module,
             "--sort", sort, "-I", ".", "--builtin-directory", BUILTIN] + md_selector_args(case) + extra
@@ -734,6 +756,10 @@ def do_krun(case, rec, search_file=False):
             else: unsupported.append(f"{k} {v}")
         elif k == "-I":
             for d in vs: extra += ["-I", d]
+        elif k == "--parser":
+            equivalent = default_parser_script(case, v)
+            if equivalent: step["parser"] = equivalent
+            else: unsupported.append(f"{k} {v}")
         else: unsupported.append(f"{k} {v}")
     if search_file: extra.append("--search-all")
     if unsupported:
@@ -876,9 +902,13 @@ def do_kast(case, rec):
 def kprove_verdicts(expected, out, err, rc):
     """Return (expected_kind, krust_kind, verdict, note, claims). Kinds: proven | not-proven | error."""
     body = "\n".join(l for l in expected.splitlines() if not re.match(r"\s*(kore-exec: \[|\s*$)", l) and not l.startswith("    ")).strip()
+    # K prints the detail of a diagnostic (Source, Location, the quoted source line and its
+    # caret) tab-indented under the [Error] line; a quoted rule may contain `<k>`, so the
+    # verdict is read from the diagnostic lines alone.
+    diagnostic = "\n".join(l for l in expected.splitlines() if not l.startswith("\t"))
     if body == "#Top" or (body == "" and "#Top" in expected): exp = "proven"
-    elif re.search(r"\[Error\] Prover|#Not|#Ceil|#Equals|<generatedTop>|<k>", expected): exp = "not-proven"
-    elif "[Error]" in expected: exp = "error"
+    elif re.search(r"\[Error\] Prover|#Not|#Ceil|#Equals|<generatedTop>|<k>", diagnostic): exp = "not-proven"
+    elif "[Error]" in diagnostic: exp = "error"
     elif body == "": exp = "empty"
     else: exp = "not-proven"
     claims = re.findall(r"^claim [^:\n]+: (\w[\w-]*)", out, re.M)
