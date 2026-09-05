@@ -1521,6 +1521,13 @@ depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
+name = "pgm-L"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-L.kore"
+mode = "exec"
+depth = 2
+oracle-exclusion = ""
+
+[[symbolic.pattern]]
 name = "pgm-M2"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-M2.kore"
 mode = "exec"
