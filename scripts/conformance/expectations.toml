@@ -517,7 +517,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "outer-parse"
 tickets = ["A1-07"]
 exclusion = ""
-reason = "malformed Markdown annotation is a hard error"
+reason = "A1-07's hard error on the malformed Markdown annotation is gone: kompile matches (host run 16). Re-established 2026-09-06 under the 8 GiB user scope: the pinned reference reproduces both checked-in .out files exactly (kompile --gen-glr-bison-parser --enable-search; krun --search div.imp </dev/null and spawn.imp <spawn.imp.in, diff exit 0), so the pass-2 reference-error verdict was the 12 GiB RLIMIT_AS fallback aborting the reference re-run with empty output, not a stale oracle. Two krust divergences remain, neither A1-07's: (1) div.imp search mismatches only on the <input> cell: the reference krun script builds $STDIN from `$(</dev/stdin)` through a bash here-string, which strips trailing newlines and appends one (`#buffer(\"\\n\")` on empty stdin, `\"23\\n\"` on spawn.imp.in; k-distribution krun:553-563), while krust passes stdin verbatim (`\"\"`); reduced input `int x; x = 1;` with empty stdin, D1 krun config-variable population; (2) spawn.imp search: krust exceeds the 300 s case budget on the three-thread interleaving search where the reference answers within the probe. Handoff."
 
 [[case]]
 name = "imp-haskell"
@@ -549,7 +549,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06"]
 exclusion = ""
-reason = "kompile matches (the I1-06 `left` attribute is gone); krun collatz.imp: krust's concrete execution grows without bound (standalone on 2026-09-06: killed at 900 s with 56580 MiB peak RSS; under the 12 GiB fallback it dies at 145 s with `memory allocation of 613120 bytes failed`), primes.imp times out and sum.imp is never reached in the 300 s budget. Not the deferred per-run recompilation (about 2 s here): a rewrite-loop memory defect, handoff to the quality-and-performance run. Re-measured 2026-09-06 at HEAD 855cc25."
+reason = "kompile matches (the I1-06 `left` attribute is gone); krun collatz.imp: krust's concrete execution grows without bound (standalone on 2026-09-06: killed at 900 s with 56580 MiB peak RSS; under the 12 GiB fallback it dies at 145 s with `memory allocation of 613120 bytes failed`), primes.imp times out and sum.imp is never reached in the 300 s budget. Not the deferred per-run recompilation (about 2 s here). Characterized 2026-09-06 under an 8 GiB scope and 300 s (draft/fable51-review/conformance-host/fixtures/collatz-memory/measurements.toml): the growth is exponential in the number of `strict` heatings with two unevaluated arguments (`q+q`, `n+n+n`), not in the step count. krun runs the backend with ExecutionBranchMode::ExploreAll (main.rs:2283-2285), so both heating orders of an `Id + Id` are enqueued and explored while the printed state stays one 11-14 KB term without constraints; collatz --depth 400 takes 5.4 s / 200 MiB, 600 44 s / 652 MiB, 693 156 s / 5.1 GiB, 700 does not finish; a 100-iteration loop with one unevaluated argument per `+` takes 2.7 s / 200 MiB, while 16 straight-line copies of `s = a + a;` take 85 s / 2.7 GiB and 20 exceed 8 GiB (reduced fixture strict2-K.imp). No deferred.toml or area-index row records this, so it is not excluded: handoff to the quality-and-performance run (C area rewrite loop, krun branch mode)."
 [[case]]
 name = "imp-outer-json"
 baseline_verdict = "krust-error"
@@ -1752,7 +1752,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06"]
 exclusion = ""
-reason = "kompile matches; krun tests/collatz.imp dies with `memory allocation of 633856 bytes failed` under the 12 GiB fallback at 144 s and primes.imp times out (same unbounded memory growth as imp-llvm, 56.6 GiB peak RSS standalone). Handoff to the quality-and-performance run. Re-measured 2026-09-06 at HEAD 855cc25."
+reason = "kompile matches; krun tests/collatz.imp dies with `memory allocation of 633856 bytes failed` under the 12 GiB fallback at 144 s and primes.imp times out (same unbounded memory growth as imp-llvm, 56.6 GiB peak RSS standalone). Same mechanism as imp-llvm (characterized 2026-09-06: exponential fan-out of the ExploreAll krun over the two heating orders of each `Id + Id`, see draft/fable51-review/conformance-host/fixtures/collatz-memory/measurements.toml); no document defers it, so it stays a handoff to the quality-and-performance run."
 [[case]]
 name = "pl-tutorial/1_k/3_lambda++/lesson_5"
 baseline_verdict = "skipped-with-reason"
