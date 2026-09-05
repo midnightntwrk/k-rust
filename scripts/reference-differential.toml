@@ -13,12 +13,16 @@ version = 1
 #
 # scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner
 # scripts/reference-differential.sh fun-int-list-config
+# scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2
 # REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence
 # scripts/reference-kast-differential.sh wasm mir evm-equivalence
 # scripts/reference-non-imp-execution-differential.sh imp collections hooks-c2
+# scripts/reference-non-imp-execution-differential.sh c3-search c3-br c3-co c3-tr
 # scripts/reference-proof-differential.sh mini-proof
+# scripts/reference-proof-differential.sh c4-split c4-lemma c4-trivial
 # scripts/reference-rpc-differential.sh imp
 # scripts/reference-rpc-differential.sh bounded-search
+# scripts/reference-rpc-differential.sh c3-tr-rpc
 # scripts/reference-mir-execution-differential.sh
 # scripts/reference-symbolic-execution-differential.sh c3-sd-symbolic c3-sy
 # scripts/conformance-ratchet.sh --label <landing> --ticket <ticket>
@@ -134,7 +138,7 @@ comparisons = [
 
 [[compile]]
 name = "imp"
-requires = ["reference-toolchain", "ticket:A3-06"]
+requires = ["reference-toolchain"]
 constructs = []
 source = "${imp}/src/kimp/kdist/imp-semantics/imp.k"
 main-module = "IMP"
@@ -304,7 +308,7 @@ comparisons = [
 
 [[compile]]
 name = "fresh-name-collision"
-requires = ["reference-toolchain", "ticket:A3-06"]
+requires = ["reference-toolchain"]
 constructs = ["fresh-variable"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/fresh-name-collision/test.k"
 main-module = "TEST"
@@ -330,7 +334,7 @@ comparisons = [
 
 [[compile]]
 name = "parametric"
-requires = ["reference-toolchain", "ticket:B2-03"]
+requires = ["reference-toolchain"]
 constructs = ["parametric-label"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/parametric/test.k"
 main-module = "PARAMETRIC"
@@ -343,7 +347,7 @@ comparisons = [
 
 [[compile]]
 name = "assoc-strict"
-requires = ["reference-toolchain", "ticket:A3-06", "ticket:I1-06"]
+requires = ["reference-toolchain"]
 constructs = ["associativity", "strictness"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/assoc-strict/test.k"
 main-module = "ASSOC-STRICT"
@@ -383,7 +387,7 @@ comparisons = [
 
 [[compile]]
 name = "undefined-sort"
-requires = ["reference-toolchain", "ticket:A1-02"]
+requires = ["reference-toolchain"]
 constructs = ["undefined-sort"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/outer/undefined-sort/test.k"
 main-module = "UNDEFINED-SORT"
@@ -481,7 +485,7 @@ expect = "reject"
 
 [[compile]]
 name = "semcast2"
-requires = ["reference-toolchain", "ticket:A3-07"]
+requires = ["reference-toolchain"]
 constructs = ["sort-inference", "portable-parametric-origin", "semantic-cast"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast2/test.k"
 main-module = "TEST"
@@ -1173,7 +1177,7 @@ programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/deep.term"]
 
 [[execution]]
 name = "c3-search"
-requires = ["reference-toolchain", "ticket:C3-01"]
+requires = ["reference-toolchain"]
 constructs = ["bounded-search"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sd/test.k"
 main-module = "SD"
@@ -1189,7 +1193,7 @@ depth = 2
 
 [[execution]]
 name = "c3-br"
-requires = ["reference-toolchain", "ticket:C3-01", "ticket:C3-02"]
+requires = ["reference-toolchain"]
 constructs = ["branching", "bounded-search"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/br/test.k"
 main-module = "BR"
@@ -1208,7 +1212,7 @@ depth = 1
 
 [[execution]]
 name = "c3-co"
-requires = ["reference-toolchain", "ticket:C3-03"]
+requires = ["reference-toolchain"]
 constructs = ["concrete-symbolic-rule"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/co/test.k"
 main-module = "CO"
@@ -1221,7 +1225,7 @@ programs = [
 
 [[execution]]
 name = "c3-tr"
-requires = ["reference-toolchain", "ticket:C3-05"]
+requires = ["reference-toolchain"]
 constructs = ["trivial-branch"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/test.k"
 main-module = "TR"
@@ -1356,7 +1360,7 @@ failure-claim = "claim-refuted"
 
 [[proof]]
 name = "c4-split"
-requires = ["reference-toolchain", "ticket:C4-01"]
+requires = ["reference-toolchain"]
 constructs = ["one-path-proof"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
 main-module = "SPLIT"
@@ -1370,7 +1374,7 @@ failure-claim = "ONEPATH-SPEC.c1"
 
 [[proof]]
 name = "c4-lemma"
-requires = ["reference-toolchain", "ticket:C4-02"]
+requires = ["reference-toolchain"]
 constructs = ["proof-lemma"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
 main-module = "SPLIT"
@@ -1384,7 +1388,7 @@ failure-claim = "LEMMA-SPEC.ca"
 
 [[proof]]
 name = "c4-trivial"
-requires = ["reference-toolchain", "ticket:C4-03"]
+requires = ["reference-toolchain"]
 constructs = ["trivial-proof-leaf"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
 main-module = "SPLIT"
@@ -1452,7 +1456,7 @@ responses = [
 
 [[rpc]]
 name = "c3-tr-rpc"
-requires = ["reference-toolchain", "ticket:C3-05"]
+requires = ["reference-toolchain"]
 constructs = ["trivial-branch"]
 oracle = "kore-rpc-booster"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/test.k"
@@ -1465,6 +1469,9 @@ configuration = []
 state-depth = 0
 responses = ["execute-trivial"]
 
+# The three C1 symbolic cases stay pending on C1-01: k-rust's kore-exec prints fresh remainder
+# names such as Ex#Frame!0:SortMap{} that are not KORE identifiers, so the branch-multiset comparison
+# cannot parse its output (stage 12). Drop the requirement when C1-01 emits valid KORE variables.
 [[symbolic]]
 name = "c1-map"
 requires = ["reference-toolchain", "ticket:C1-01"]
@@ -1525,7 +1532,7 @@ oracle-exclusion = ""
 
 [[symbolic]]
 name = "c1-t3"
-requires = ["reference-toolchain", "ticket:C1-03"]
+requires = ["reference-toolchain", "ticket:C1-01"]
 constructs = ["injection-narrowing"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t3/test.k"
 main-module = "TEST3"
