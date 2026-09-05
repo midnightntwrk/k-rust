@@ -45,6 +45,11 @@ id = "supported-superset"
 decided_by = "bucket 10 decision 10-1"
 meaning = "The port intentionally supports anywhere rules that the K Haskell frontend rejects."
 
+[[category]]
+id = "declined-capability"
+arbiter = 15
+meaning = "The step needs a K CLI-shape capability arbiter row 15 declined (the kompiled-directory contract, K-only kompile and krun flags); the driver has no krust equivalent to translate to."
+
 [[case]]
 name = "amb-rew"
 baseline_verdict = "match"
@@ -221,11 +226,10 @@ baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-07", "D1-14"]
 exclusion = ""
-reason = "warnings-as-errors"
+reason = "15 of 16 ktest-fail steps agree since fix(I1-03) 2828e95 forwards `-w2e -w all` as `--warnings all --warnings-to-errors`; existsLHSBoundPass.k stays mismatch: under `--type-inference-mode checked` krust rejects `rule foo(_X) => #Exists Y . { ?_I #Equals Y }` with `portable and Z3 sort inference produced different terms` (A3-03 checked mode, handoff). Re-measured 2026-09-06 at HEAD 2e30c6f."
 step_exclusions = [
   { out = "checkHaskellAnywhere.k.out", exclusion = "supported-superset", reason = "Decision 10-1 keeps anywhere rules executable by default; K's Haskell-only rejection is not the port contract." },
 ]
-
 [[case]]
 name = "checks"
 baseline_verdict = "mismatch"
@@ -275,9 +279,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06"]
 exclusion = ""
-reason = "kompile: `left` attribute; krun: `configuration variable $PGM is used at both sort Int and KItem` (D1 config-var sort discovery, no ticket)"
-unexplained = true
-
+reason = "match since the A3-03 configuration-variable cast fix (6ba0e88) and D1-02 Q3 (`$PGM` at Int and KItem: the concrete sort supersedes the generic one); the I1-06 `left` attribute is gone. Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "constant-folding"
 baseline_verdict = "krust-error"
@@ -292,16 +294,14 @@ baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["B2-03", "I1-06"]
 exclusion = ""
-reason = "kompile-stage: generated heat rule ids and attributes"
-
+reason = "kompile matched only after I1-02's multi-alias freezer exclusion (decision D13-3) was made to recognise the reference's `_`/`_2` names and to collapse the swapped freezer symbols (2e30c6f); all 18 krun steps match. Re-measured 2026-09-06 at HEAD 2e30c6f: whole-case match."
 [[case]]
 name = "context-alias-2"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "Baseline first divergence is attributed to D1-04."
-
+reason = "match since D1-04 (`$PGM:KItem` programs parse at KItem); the five search steps match. Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "context-alias-3"
 baseline_verdict = "match"
@@ -372,9 +372,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "kompile: `left`; krun 1/2: KItem start sort; krun 6/7: externalized variable named `Eq#VarROOT` (`#` is not a KORE identifier character; C3/C4 externalize side, no ticket)"
-unexplained = true
-
+reason = "kompile: six owise axioms (`rule stuff(K) => 10 requires StringLiteral(...) :/=K K ...`) carry one more `\\exists` binder in krust than in the reference (`#KDiffBound1`, B2 emission of anonymous variables under `\\not \\or`); krun 6/7 (`baz(bar(0))`, `baz(foo(0))`): krust leaves `#lambda_baz(_)_...(baz(bar(0)))` unevaluated under a `#Ceil` where the reference prints `true`/`false` (ResolveFun `#fun(baz(B) => baz(bar(_)) :=K baz(B))` with an anonymous variable in the matching pattern, B1/C area); under the 12 GiB fallback the oracle re-run aborts (`mmap(): Cannot allocate memory` in the LLVM interpreter), which records reference-error. krun 1-5, 8, 9 match. Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "excludedModuleAtts/haskell"
 baseline_verdict = "mismatch"
@@ -551,16 +549,14 @@ baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06"]
 exclusion = ""
-reason = "kompile: `left`; krun collatz timed out at 300 s (D1 deferred: krun recompiles per run; quality+performance run)"
-
+reason = "kompile matches (the I1-06 `left` attribute is gone); krun collatz.imp: krust's concrete execution grows without bound (standalone on 2026-09-06: killed at 900 s with 56580 MiB peak RSS; under the 12 GiB fallback it dies at 145 s with `memory allocation of 613120 bytes failed`), primes.imp times out and sum.imp is never reached in the 300 s budget. Not the deferred per-run recompilation (about 2 s here): a rewrite-loop memory defect, handoff to the quality-and-performance run. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "imp-outer-json"
 baseline_verdict = "krust-error"
 baseline_stage = "outer-parse"
 tickets = ["D1-14"]
-exclusion = ""
-reason = "`--outer-parsed-json` input has no krust equivalent"
-
+exclusion = "declined-capability"
+reason = "`--outer-parsed-json` input: kompile flag declined under arbiter row 15 (D1/index.toml:337 `rejected`); the driver has no krust equivalent. Re-measured 2026-09-06 at HEAD 855cc25: kompile krust-unsupported, the three krun steps fail on the JSON definition."
 [[case]]
 name = "int-llvm"
 baseline_verdict = "mismatch"
@@ -582,9 +578,8 @@ name = "io-llvm"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["D1-02", "C2-05"]
-exclusion = ""
-reason = "1.test: `#open` IO hook unimplemented, printed with a `#Ceil`; 2.test timed out"
-
+exclusion = "llvm-only"
+reason = "IO.open, IO.system and IO.mkstemp are LLVM-backend hooks neither Kore engine evaluates (C2/index.toml:221 `IO.* (other)`: unsupported-and-silent, C2-05 class); C2-05 now halts every krun step with `unsupported hook 'IO.<name>' on constructor-like arguments`. Kompile matches. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "issue-1088"
 baseline_verdict = "krust-unsupported"
@@ -705,8 +700,7 @@ baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["D1-02"]
 exclusion = ""
-reason = "`$IO` not supplied; `#Bottom` at depth 0 (C2 index :239-241)"
-
+reason = "match since D1-02 supplies `$IO` (and the A3-03 recheck at 6ba0e88). Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "issue-1472-unboundVars"
 baseline_verdict = "match"
@@ -729,9 +723,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "kompile: `left`; krun: KItem start sort, fallback still mismatches"
-unexplained = true
-
+reason = "kompile only: the `#lambda__`/`#lambda__2` suffixes of the three `#fun` rules are assigned in `module.rules()` HashSet order by ResolveFun.java:73-77 and in declaration order by resolve_fun.rs, so the two generated symbols swap bodies (the same oracle-side order class as decision D13-3, which covers freezers only); all three krun steps match. Handoff (comparator or decision). Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "issue-1545-func-in-simplification"
 baseline_verdict = "match"
@@ -794,8 +786,10 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-02"]
 exclusion = ""
-reason = "configuration variable `$A` not discovered (source-rule scan)"
-
+reason = "kompile matches; krun 1.test is a both-reject (missing `$Foo` versus undeclared `$A` reported first, see step_exclusions); D1-02 discovers `$Foo` from the transformed main module as CompiledDefinition.java:82-139 does. Re-measured 2026-09-06 at HEAD 855cc25."
+step_exclusions = [
+  { test = "1.test", exclusion = "both-reject", reason = "Both reject the run: the reference checks the missing `$Foo` first (`Configuration variable missing: $Foo`), krust the undeclared `-cA` first (`definition has no configuration variable `$A`; available variables: $Foo`); the recipe diffs the error text and the driver compares krust stdout only, so an expected error can never match." },
+]
 [[case]]
 name = "issue-1760"
 baseline_verdict = "match"
@@ -867,10 +861,8 @@ name = "issue-2075-2"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-14"]
-exclusion = ""
-reason = "`--top-cell` not ported (B1 index); same two-configuration shape"
-unexplained = true
-
+exclusion = "declined-capability"
+reason = "`--top-cell` manual override declined under arbiter row 15 (D1/index.toml:337 `rejected`; B1/index.toml:161 `not ported`); without it krust reports `Too many top cells for module TEST: BarCell, KCell` (resolve fresh constants). Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "issue-2114"
 baseline_verdict = "match"
@@ -912,8 +904,10 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "Baseline first divergence is attributed to D1-04."
-
+reason = "kompile and krun tests/1.a match since D1-04; the kast step is a both-reject (unknown start sort `Foo`, see step_exclusions). Re-measured 2026-09-06 at HEAD 855cc25."
+step_exclusions = [
+  { test = "tests/kast-in1.kast", exclusion = "both-reject", reason = "kast --sort Foo names a sort the definition does not declare: the reference answers `Could not find start symbol: Foo provided to kast CLI --sort`, krust `could not parse program as Foo`; the driver compares krust stdout only, so an expected error can never match." },
+]
 [[case]]
 name = "issue-2287-simpl-rules-in-kprovex"
 baseline_verdict = "krust-error"
@@ -996,8 +990,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "Baseline first divergence is attributed to D1-04."
-
+reason = "kompile: under `--type-inference-mode checked` krust rejects `rule foo() => bar() [anywhere, priority(20)]` with `portable and Z3 sort inference produced different terms` (portable Foo, Z3 K; A3-03 checked mode); krun 1.test: krust rewrites `foo()` with the plain rule to `baz()` where the LLVM reference applies the anywhere rule first and prints `bar()` (anywhere rules must apply before the rewrite step, C area); the oracle re-run aborts under the 12 GiB fallback (`mmap(): Cannot allocate memory`). Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "issue-3035-antileft/haskell"
 baseline_verdict = "krust-error"
@@ -1149,8 +1142,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "Baseline first divergence is attributed to D1-04."
-
+reason = "The definition declares no `$PGM` and the recipe runs `krun` without a program; krust read empty standard input as the program until fix(D1-02) 1366836 (nullary initGeneratedTopCell). Re-measured 2026-09-06 at HEAD 2e30c6f: whole-case match."
 [[case]]
 name = "issue-999"
 baseline_verdict = "match"
@@ -1260,17 +1252,15 @@ name = "kompiled-directory/default"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04", "D1-14"]
-exclusion = ""
-reason = "fallback mismatch: kompiled-directory contract"
-
+exclusion = "declined-capability"
+reason = "`#kompiledDirectory()` (KREFLECTION.kompiledDir) needs the kompiled-directory contract arbiter row 15 declines; C2-05 reports the hook as unsupported on constructor-like arguments (kompile matches). Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "kompiled-directory/nested"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04", "D1-14"]
-exclusion = ""
-reason = "Baseline first divergence is attributed to D1-04, D1-14."
-
+exclusion = "declined-capability"
+reason = "`#kompiledDirectory()` (KREFLECTION.kompiledDir) needs the kompiled-directory contract arbiter row 15 declines; C2-05 reports the hook as unsupported on constructor-like arguments (kompile matches). Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "kore-brackets"
 baseline_verdict = "match"
@@ -1375,9 +1365,8 @@ name = "krun-deserialize"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-06"]
-exclusion = ""
-reason = "kompile: `left`; krun `--parser cat` unsupported"
-
+exclusion = "declined-capability"
+reason = "krun `--parser cat` (a pre-parsed KORE `$PGM`) declined under arbiter row 15 (D1/index.toml:193 `-pNAME=CMD / --parser CMD / --term` rejected). Kompile matches since I1-06; the krun step is krust-unsupported. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "let-priority"
 baseline_verdict = "krust-error"
@@ -1392,9 +1381,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "fallback still errors"
-unexplained = true
-
+reason = "kompile only: `#lambda__`/`#lambda__3` suffix assignment follows ResolveFun.java's HashSet order (see issue-1528); krun 1.test matches. Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "list-in-bug"
 baseline_verdict = "match"
@@ -1441,28 +1428,22 @@ name = "locations"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
-exclusion = ""
-reason = "fallback mismatch (klabel deprecation warning path)"
-unexplained = true
-
+exclusion = "llvm-only"
+reason = "Bison/LLVM-only definition (`--gen-bison-parser`, `[locations]`, K-LOCATIONS): the reference's own definition.kore is rejected by `kore-parser --verify` (`Cannot define constructor Lbl'Hash'location with variable result sort`, sentence at definition.kore 89:10), so the Haskell backend the port follows cannot load it; krust rejects the same symbol (`Constructor result sort must not be a sort variable`). Re-measured 2026-09-06 at HEAD 855cc25 (arbiter row 13)."
 [[case]]
 name = "locations2"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
-exclusion = ""
-reason = "same"
-unexplained = true
-
+exclusion = "llvm-only"
+reason = "Bison/LLVM-only definition (`--gen-bison-parser`, `[locations]`, K-LOCATIONS): the reference's own definition.kore is rejected by `kore-parser --verify` (`Cannot define constructor Lbl'Hash'location with variable result sort`, sentence at definition.kore 90:10), so the Haskell backend the port follows cannot load it; krust rejects the same symbol (`Constructor result sort must not be a sort variable`). Re-measured 2026-09-06 at HEAD 855cc25 (arbiter row 13)."
 [[case]]
 name = "locations3"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["I1-06"]
-exclusion = ""
-reason = "kompile: `left` plus missing `<generated>` sources; krun: krust panics `called Result::unwrap() on Err ParseError { offset: 354 }` (B3/D1 area, no ticket)"
-unexplained = true
-
+exclusion = "llvm-only"
+reason = "Bison/LLVM-only definition (`--gen-bison-parser`, `[locations]`, K-LOCATIONS): the reference's own definition.kore is rejected by `kore-parser --verify` (`Cannot define constructor Lbl'Hash'location with variable result sort`, sentence at definition.kore 91:10), so the Haskell backend the port follows cannot load it; krust rejects the same symbol (`Constructor result sort must not be a sort variable`). Re-measured 2026-09-06 at HEAD 855cc25 (arbiter row 13)."
 [[case]]
 name = "lub"
 baseline_verdict = "match"
@@ -1562,9 +1543,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "fallback mismatch"
-unexplained = true
-
+reason = "The driver forwarded the kompile `--md-selector '(k|keep) & !discard'` only to kcompile, so krust krun recompiled the default `k` blocks (0 where the reference prints 2); fix(I1-03) 2828e95 carries it into every krust step. Re-measured 2026-09-06 at HEAD 2e30c6f: whole-case match (kprove step matched before)."
 [[case]]
 name = "minimization-issue"
 baseline_verdict = "match"
@@ -1639,17 +1618,14 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "fallback mismatch"
-unexplained = true
-
+reason = "krun 1.test: krust prints `<k> false </k>` alone where the reference keeps the residual constraint `{ true #Equals size(ListItem(?X) ?L) >=Int -1 }`: krust discharges the list-size bound that Kore leaves unevaluated (C2/C4 simplification completeness; oracle confirmed under the systemd scope on 2026-09-06). Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "no-pattern"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
-exclusion = ""
-reason = "Baseline first divergence is attributed to D1-04."
-
+exclusion = "llvm-only"
+reason = "`kompile --enable-search` and `krun --search-final --no-pattern` are llvm-krun search features (D1/index.toml:337 lists `--enable-search` as rejected): with `--no-pattern` the reference prints the bare configurations `<k> 1 </k> #Or <k> 2 </k>` while krust prints the same two disjuncts under the default `{ Result #Equals ... }` binding it prints for every search (context-alias-2 matches with that shape). The disjunct set is equal; the rendering is LLVM-only. Re-measured 2026-09-06 at HEAD 2e30c6f (systemd scope: oracle confirmed)."
 [[case]]
 name = "nomain"
 baseline_verdict = "match"
@@ -1727,9 +1703,8 @@ name = "parse-c"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-06"]
-exclusion = ""
-reason = "Baseline first divergence is attributed to I1-06 (shape shared, unverified)."
-
+exclusion = "llvm-only"
+reason = "GLR-bison parser case (`--bison-lists --gen-glr-bison-parser`, `cparse`): the reference definition.kore is rejected by `kore-parser --verify` (`Cannot define constructor Lblamb with variable result sort`, definition.kore 395:10), so it is outside the Haskell-backend semantics (arbiter row 13); the earlier I1-06 `left` attribution was never the first divergence. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "parseNonPgm"
 baseline_verdict = "mismatch"
@@ -1777,8 +1752,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06"]
 exclusion = ""
-reason = "krun collatz timed out"
-
+reason = "kompile matches; krun tests/collatz.imp dies with `memory allocation of 633856 bytes failed` under the 12 GiB fallback at 144 s and primes.imp times out (same unbounded memory growth as imp-llvm, 56.6 GiB peak RSS standalone). Handoff to the quality-and-performance run. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "pl-tutorial/1_k/3_lambda++/lesson_5"
 baseline_verdict = "skipped-with-reason"
@@ -1951,18 +1925,16 @@ name = "rand"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["C2-05"]
-exclusion = ""
-reason = "INT.rand unimplemented; timed out"
-
+exclusion = "llvm-only"
+reason = "INT.srand/INT.rand are LLVM-backend hooks; Kore raises notImplemented (C2/index.toml:84); C2-05 halts the krun step with `unsupported hook 'INT.srand'`. Kompile matches. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "rangemap-tests-llvm"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["C2-05", "D1-04"]
-exclusion = ""
-reason = "RANGEMAP hooks unimplemented; KItem start sort; 66 steps undriven"
+exclusion = "llvm-only"
+reason = "RANGEMAP.* hooks are LLVM-backend only (C2/index.toml:221: neither Kore engine evaluates them); C2-05 halts all 66 krun steps with `unsupported hook 'RANGEMAP.elementRng'`/`'RANGEMAP.unit'`. Kompile matches; the `$PGM:KItem` start sort parses since D1-04. Re-measured 2026-09-06 at HEAD 855cc25."
 budget = 1800
-
 [[case]]
 name = "rat/defined/haskell"
 baseline_verdict = "krust-error"
@@ -1994,9 +1966,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "3/4.test fallback still errors"
-unexplained = true
-
+reason = "kompile: `#lambdaF_test(_,_,_)_..._`/`_2` suffix order (see issue-1528); krun 1/2: krust leaves `#lambdaF_test(...)(test(2,0,1))` unevaluated where the reference prints `test(2,1,1)` (ResolveFun on a record-update pattern `#fun(test(... foo: N => N +Int 1))(F)`, B1 area); krun 3/4: the programs `foo(test(5,10,15))`/`bar(...)` use record-field projection functions the reference generates for named arguments and krust's program grammar lacks (A1/A3 area). Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "regex-prec"
 baseline_verdict = "krust-unsupported"
@@ -2027,8 +1997,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "Baseline first divergence is attributed to I1-06, D1-04."
-
+reason = "match: the I1-06/D1-04 attribution was stale. Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "set-symbolic-tests"
 baseline_verdict = "skipped-with-reason"
@@ -2172,10 +2141,8 @@ name = "trace"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
-exclusion = ""
-reason = "fallback still errors"
-unexplained = true
-
+exclusion = "llvm-only"
+reason = "`#trace` (IO.traceTerm) is an LLVM-backend debugging hook (C2/index.toml:221 `IO.* (other)`); C2-05 halts the krun step at depth 1 with `unsupported hook 'IO.traceTerm'`. Kompile matches. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "unification-lemmas"
 baseline_verdict = "match"
@@ -2205,10 +2172,8 @@ name = "unparseKORE"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
-exclusion = ""
-reason = "fallback mismatch"
-unexplained = true
-
+exclusion = "llvm-only"
+reason = "`#unparseKORE` (KREFLECTION.printKORE) is an LLVM-backend hook (C2/index.toml:221 `KREFLECTION.*`); C2-05 halts the krun step with `unsupported hook 'KREFLECTION.printKORE'`. Kompile matches. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "useless"
 baseline_verdict = "mismatch"
@@ -2231,25 +2196,21 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "Baseline first divergence is attributed to D1-04."
-
+reason = "match since D1-04 (KItem start sort) and the generated-variable ordering delta closed. Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "withConfig-llvm"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "Baseline first divergence is attributed to D1-04."
-
+reason = "match since D1-04 (KItem start sort). Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "withConfig2"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
 exclusion = ""
-reason = "fallback still errors"
-unexplained = true
-
+reason = "krun 1.test (`5`) times out at the 300 s budget: `rule freshIntx() => !_I:Int` is a function rule with a fresh constant; krust keeps `!I` as the existential `EqVar'BangUnds'I` and case-splits on it (`--depth 3` shows three symbolic branches) instead of ResolveFreshConstants/ResolveFunctionWithConfig threading `#Fresh` and the generated counter through the function, where the reference prints `0`. 2.test untested (budget). Handoff (B1 area). Re-measured 2026-09-06 at HEAD 855cc25."
 [[expected_delta]]
 tickets = ["C2-01"]
 delta = 10
