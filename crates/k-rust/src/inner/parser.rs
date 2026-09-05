@@ -30,6 +30,20 @@ pub(crate) use self::parametric::is_parser_sort;
 pub(super) use self::scanner::Scanner;
 use self::scanner::{Item, Layout, compile_item};
 
+/// The name under which sort inference treats a leaf as a variable: a `#KVariable` token, or a
+/// `KConfigVar` token such as `$PGM`, which both reference engines treat exactly like a variable
+/// (SortInferencer.java:228 and :563, TypeInferencer.java:636 and :677,
+/// TypeInferenceVisitor.java:221-233) and wrap in `#SemanticCastTo<inferred sort>`.
+pub(crate) fn inferred_variable_name(term: &Term) -> Option<&str> {
+    match term.unannotated() {
+        Term::Variable { name, .. } => Some(name),
+        Term::Token { token, sort } if sort.name == "KConfigVar" && sort.parameters.is_empty() => {
+            Some(token)
+        }
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ParseProvenance {
     source: SourceId,

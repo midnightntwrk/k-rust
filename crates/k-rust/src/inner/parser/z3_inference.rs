@@ -12,7 +12,7 @@ use crate::kast::{Sort, Term};
 
 use super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
-    cmp_packed_structurally, packed_terms_in_structural_order,
+    cmp_packed_structurally, inferred_variable_name, packed_terms_in_structural_order,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -511,15 +511,15 @@ impl<'a> Encoding<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(or_all(&constraints))
             }
-            ParsedTerm::Term(term) => match term.unannotated() {
-                Term::Variable { name, .. } => {
+            ParsedTerm::Term(term) => match (inferred_variable_name(term), term.unannotated()) {
+                (Some(name), _) => {
                     let variable = self.term_variable(term, name, path);
                     self.variable_constraint(variable, name, expected, cast_context)
                 }
-                Term::Token { sort, .. } => {
+                (None, Term::Token { sort, .. }) => {
                     self.token_constraint(term, sort, expected, cast_context)
                 }
-                _ => Err(z3_error(
+                (None, _) => Err(z3_error(
                     "unexpected lowered KAST node in the concrete parse forest",
                 )),
             },
@@ -601,7 +601,7 @@ impl<'a> Encoding<'a> {
                         // that variable's exact sort. The reference inferencer emits equality
                         // for this shape, while semantic casts around compound terms remain
                         // ordinary subsort constraints.
-                        CastContext::Semantic if matches!(child, ParsedTerm::Term(term) if matches!(term.unannotated(), Term::Variable { .. })) => {
+                        CastContext::Semantic if matches!(child, ParsedTerm::Term(term) if inferred_variable_name(term).is_some()) => {
                             CastContext::Strict
                         }
                         CastContext::None if function_child_sort.is_some() => CastContext::None,
@@ -678,15 +678,15 @@ impl<'a> Encoding<'a> {
                 }
                 Ok(or_all(&constraints))
             }
-            PackedNode::Term(leaf) => match leaf.unannotated() {
-                Term::Variable { name, .. } => {
+            PackedNode::Term(leaf) => match (inferred_variable_name(leaf), leaf.unannotated()) {
+                (Some(name), _) => {
                     let variable = self.packed_term_variable(leaf, name, identity);
                     self.variable_constraint(variable, name, expected, cast_context)
                 }
-                Term::Token { sort, .. } => {
+                (None, Term::Token { sort, .. }) => {
                     self.token_constraint(leaf, sort, expected, cast_context)
                 }
-                _ => Err(z3_error(
+                (None, _) => Err(z3_error(
                     "unexpected lowered KAST node in the packed parse forest",
                 )),
             },
@@ -762,7 +762,7 @@ impl<'a> Encoding<'a> {
                         .as_ref()
                         .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
-                        CastContext::Semantic if matches!(&child.node, PackedNode::Term(term) if matches!(term.unannotated(), Term::Variable { .. })) => {
+                        CastContext::Semantic if matches!(&child.node, PackedNode::Term(term) if inferred_variable_name(term).is_some()) => {
                             CastContext::Strict
                         }
                         CastContext::None if function_lhs.is_some() => CastContext::None,
@@ -804,12 +804,10 @@ impl<'a> Encoding<'a> {
                 );
                 self.sort_value(production_result(descriptor), &parameters)
             }
-            PackedNode::Term(leaf) => match leaf.unannotated() {
-                Term::Token { sort, .. } => self.sort_value(sort, &BTreeMap::new()),
-                Term::Variable { name, .. } => {
-                    Ok(self.packed_term_variable(leaf, name, Rc::as_ptr(term)))
-                }
-                _ => Err(z3_error("cannot determine the sort of this KAST node")),
+            PackedNode::Term(leaf) => match (inferred_variable_name(leaf), leaf.unannotated()) {
+                (Some(name), _) => Ok(self.packed_term_variable(leaf, name, Rc::as_ptr(term))),
+                (None, Term::Token { sort, .. }) => self.sort_value(sort, &BTreeMap::new()),
+                (None, _) => Err(z3_error("cannot determine the sort of this KAST node")),
             },
             PackedNode::Ambiguity(_) => Err(z3_error(
                 "cannot determine one declared sort for an ambiguous rewrite left-hand side",
@@ -884,10 +882,10 @@ impl<'a> Encoding<'a> {
                     self.production_parameters(*production, descriptor, metadata, path);
                 self.sort_value(production_result(descriptor), &parameters)
             }
-            ParsedTerm::Term(term) => match term.unannotated() {
-                Term::Token { sort, .. } => self.sort_value(sort, &BTreeMap::new()),
-                Term::Variable { name, .. } => Ok(self.term_variable(term, name, path)),
-                _ => Err(z3_error("cannot determine the sort of this KAST node")),
+            ParsedTerm::Term(term) => match (inferred_variable_name(term), term.unannotated()) {
+                (Some(name), _) => Ok(self.term_variable(term, name, path)),
+                (None, Term::Token { sort, .. }) => self.sort_value(sort, &BTreeMap::new()),
+                (None, _) => Err(z3_error("cannot determine the sort of this KAST node")),
             },
             ParsedTerm::Ambiguity(_) => Err(z3_error(
                 "cannot determine one declared sort for an ambiguous rewrite left-hand side",
@@ -1618,8 +1616,8 @@ impl<'a> Encoding<'a> {
                     Ok(PackedTerm::ambiguity(retained))
                 }
             }
-            PackedNode::Term(leaf) if matches!(leaf.unannotated(), Term::Variable { .. }) => {
-                let Term::Variable { name, .. } = leaf.unannotated() else {
+            PackedNode::Term(leaf) if inferred_variable_name(leaf).is_some() => {
+                let Some(name) = inferred_variable_name(leaf) else {
                     unreachable!()
                 };
                 let key = packed_inference_variable_key(leaf, name, self.packed_id(identity));
@@ -1824,9 +1822,9 @@ impl<'a> Encoding<'a> {
                     .unwrap_or_default();
                 substitute_sort(production_result(descriptor), &parameters)
             }
-            PackedNode::Term(leaf) => match leaf.unannotated() {
-                Term::Token { sort, .. } => sort.clone(),
-                Term::Variable { name, .. } => model
+            PackedNode::Term(leaf) => match (inferred_variable_name(leaf), leaf.unannotated()) {
+                (None, Term::Token { sort, .. }) => sort.clone(),
+                (Some(name), _) => model
                     .get(&packed_inference_variable_key(
                         leaf,
                         name,
@@ -1909,8 +1907,8 @@ impl<'a> Encoding<'a> {
                     _ => Ok(ParsedTerm::Ambiguity(retained)),
                 }
             }
-            ParsedTerm::Term(ref leaf) if matches!(leaf.unannotated(), Term::Variable { .. }) => {
-                let Term::Variable { name, .. } = leaf.unannotated() else {
+            ParsedTerm::Term(ref leaf) if inferred_variable_name(leaf).is_some() => {
+                let Some(name) = inferred_variable_name(leaf) else {
                     unreachable!()
                 };
                 let key = inference_variable_key(leaf, name, path);
@@ -2233,13 +2231,13 @@ fn declared_model_sort(
                 .unwrap_or_default();
             substitute_sort(production_result(descriptor), &parameters)
         }
-        ParsedTerm::Term(term) => match term.unannotated() {
-            Term::Token { sort, .. } => sort.clone(),
-            Term::Variable { name, .. } => {
+        ParsedTerm::Term(term) => match (inferred_variable_name(term), term.unannotated()) {
+            (None, Term::Token { sort, .. }) => sort.clone(),
+            (Some(name), _) => {
                 let key = inference_variable_key(term, name, path);
                 model.get(&key).cloned().unwrap_or_else(|| Sort::new("K"))
             }
-            _ => Sort::new("K"),
+            (None, _) => Sort::new("K"),
         },
         ParsedTerm::InstantiatedProduction { production, .. } => {
             grammar.productions[*production].result.clone()

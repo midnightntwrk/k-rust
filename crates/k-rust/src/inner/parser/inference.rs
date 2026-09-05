@@ -6,7 +6,10 @@ use std::rc::Rc;
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{Sort, Term};
 
-use super::{Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production};
+use super::{
+    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
+    inferred_variable_name,
+};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum SortRef {
@@ -334,8 +337,8 @@ impl Grammar {
         path: &str,
     ) -> Result<ParsedTerm, ParseError> {
         match term {
-            ParsedTerm::Term(ref leaf) if matches!(leaf.unannotated(), Term::Variable { .. }) => {
-                let Term::Variable { name, .. } = leaf.unannotated() else {
+            ParsedTerm::Term(ref leaf) if inferred_variable_name(leaf).is_some() => {
+                let Some(name) = inferred_variable_name(leaf) else {
                     unreachable!()
                 };
                 let id = variable_id(name, next_anonymous);
@@ -444,10 +447,10 @@ impl<'a> Solver<'a> {
             ParsedTerm::Ambiguity(_) => Err(inference_error(
                 "portable sort inference does not support ambiguous parse forests",
             )),
-            ParsedTerm::Term(term) => match term.unannotated() {
-                Term::Variable { name, .. } => self.variable(name),
-                Term::Token { sort, .. } => Ok(SortRef::Concrete(sort.clone())),
-                _ => Err(inference_error(
+            ParsedTerm::Term(term) => match (inferred_variable_name(term), term.unannotated()) {
+                (Some(name), _) => self.variable(name),
+                (None, Term::Token { sort, .. }) => Ok(SortRef::Concrete(sort.clone())),
+                (None, _) => Err(inference_error(
                     "unexpected lowered KAST node in the concrete parse forest",
                 )),
             },
