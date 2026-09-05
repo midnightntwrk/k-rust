@@ -370,7 +370,7 @@ comparisons = [
 
 [[compile]]
 name = "fun-int-list-config"
-requires = ["reference-toolchain", "ticket:B1-02"]
+requires = ["reference-toolchain"]
 constructs = ["local-function", "user-list"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/kompile/fun-int-list-config/test.k"
 main-module = "FUN-INT-LIST-CONFIG"
