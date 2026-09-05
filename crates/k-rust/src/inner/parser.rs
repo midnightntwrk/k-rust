@@ -1800,6 +1800,82 @@ impl<'c, 'a> SourceLinks<'c, 'a> {
     }
 }
 
+/// `GenerateSortProjections.gen(Production)` as `RuleGrammarGenerator.getCombinedGrammar`
+/// (RuleGrammarGenerator.java:400-401) applies it to every production of a parsing module,
+/// rules and programs alike: one function production `Field ::= name "(" Sort ")"` labelled
+/// `project:<klabel>:<name>` per named nonterminal of a labelled production that is neither a
+/// function nor a macro, unless the module already defines one of those labels itself. The
+/// projection rules are the kompile pass's; a parsing grammar needs only the syntax.
+pub(super) fn named_projection_productions<'a>(
+    sentences: impl IntoIterator<Item = &'a Sentence>,
+) -> Vec<Sentence> {
+    let sentences = sentences.into_iter().collect::<Vec<_>>();
+    let defined = sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.as_str()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mut generated = Vec::new();
+    for sentence in &sentences {
+        let Sentence::Production {
+            label: Some(label),
+            sort,
+            items,
+            attributes,
+            ..
+        } = sentence
+        else {
+            continue;
+        };
+        if attributes.get("function").is_some() || crate::definition::catalog::is_macro(attributes)
+        {
+            continue;
+        }
+        let fields = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal {
+                    sort,
+                    name: Some(name),
+                } => Some((sort, name)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if fields.is_empty()
+            || fields.iter().any(|(_, name)| {
+                defined.contains(format!("project:{}:{name}", label.name).as_str())
+            })
+        {
+            continue;
+        }
+        for (field_sort, name) in fields {
+            let mut generated_attributes = Attributes::default();
+            generated_attributes.insert("function", serde_json::json!(""));
+            generated_attributes.insert("generatedRuleSyntax", serde_json::json!(""));
+            generated.push(Sentence::Production {
+                label: Some(Label::new(format!("project:{}:{name}", label.name))),
+                parameters: Vec::new(),
+                sort: field_sort.clone(),
+                items: vec![
+                    ProductionItem::Terminal(name.clone()),
+                    ProductionItem::Terminal("(".into()),
+                    ProductionItem::NonTerminal {
+                        sort: sort.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(")".into()),
+                ],
+                attributes: generated_attributes,
+            });
+        }
+    }
+    generated
+}
+
 fn catalog_production(
     catalog: &ProductionCatalog<'_>,
     sentence: &Sentence,

@@ -18,7 +18,7 @@ use k_rust::{
     },
     definition::{CheckMode, Sentence, checks::check_definition, json as definition_json},
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel},
-    inner::{ProgramParser, parse_program_for_presentation},
+    inner::{ProgramParser, definition_with_named_projections, parse_program_for_presentation},
     kast::{
         Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
     },
@@ -1582,26 +1582,32 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             .program_file
             .as_deref()
             .is_none_or(|path| path == Path::new("-"));
+    // Programs are parsed with the reference's program grammar, which declares the named-field
+    // projections of every production (RuleGrammarGenerator.getCombinedGrammar); the source
+    // definition gains the same productions so that a projection a program applies has a
+    // production for sort injection and KORE conversion.
+    let program_definition = definition_with_named_projections(&loaded.definition);
+    let program_resolved = k_rust::definition::ResolvedDefinition::resolve(&program_definition)?;
     let program = if program_supplied || available_config_vars.contains_key("PGM") {
         let source = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
-        let program_parser = ProgramParser::from_resolved(&loaded.resolved, &syntax_module.name)?;
+        let program_parser = ProgramParser::from_resolved(&program_resolved, &syntax_module.name)?;
         let program = program_parser.parse(&start_sort, &source)?;
-        let program = expand_macros_in_term(&loaded.definition, &syntax_module.name, program)?;
+        let program = expand_macros_in_term(&program_definition, &syntax_module.name, program)?;
         // Parser annotations refer to the source definition's production catalog. Perform
         // production-sensitive conversion there, before crossing into the transformed
         // definition.
-        let program_injector = SortInjector::new(&loaded.resolved, &syntax_module.name)?;
+        let program_injector = SortInjector::new(&program_resolved, &syntax_module.name)?;
         let program_sort = program_injector.term_sort(&program, None)?;
         let program = program_injector.inject_at_top(&program)?;
-        let program = term_to_kore_from_resolved(&loaded.resolved, &syntax_module.name, &program)?;
+        let program = term_to_kore_from_resolved(&program_resolved, &syntax_module.name, &program)?;
         Some((program, encode_kore_sort(&program_sort)))
     } else {
         None
     };
     let program_uses_stdin = program_uses_stdin && program.is_some();
     let config_parser_modules =
-        configuration_variable_parser_modules(&loaded.resolved, &options.common.module)?;
+        configuration_variable_parser_modules(&program_resolved, &options.common.module)?;
     let mut config_parsers = BTreeMap::new();
     let mut config_injectors = BTreeMap::new();
     let mut seen_config_vars = BTreeSet::new();
@@ -1646,7 +1652,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             }
             None => &options.common.module,
         };
-        if loaded.resolved.module_id(parser_module).is_none() {
+        if program_resolved.module_id(parser_module).is_none() {
             return Err(format!(
                 "parser module `{parser_module}` for configuration variable `${name}` was not found"
             )
@@ -1655,11 +1661,11 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         if !config_parsers.contains_key(parser_module) {
             config_parsers.insert(
                 parser_module.to_owned(),
-                ProgramParser::from_resolved(&loaded.resolved, parser_module)?,
+                ProgramParser::from_resolved(&program_resolved, parser_module)?,
             );
             config_injectors.insert(
                 parser_module.to_owned(),
-                SortInjector::new(&loaded.resolved, parser_module)?,
+                SortInjector::new(&program_resolved, parser_module)?,
             );
         }
         let parser = config_parsers
@@ -1676,10 +1682,10 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let value = parser.parse(&parse_sort, source).map_err(|error| {
             format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
         })?;
-        let value = expand_macros_in_term(&loaded.definition, parser_module, value)?;
+        let value = expand_macros_in_term(&program_definition, parser_module, value)?;
         let value_sort = injector.term_sort(&value, None)?;
         let value = injector.inject_at_top(&value)?;
-        let value = term_to_kore_from_resolved(&loaded.resolved, parser_module, &value)?;
+        let value = term_to_kore_from_resolved(&program_resolved, parser_module, &value)?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
     let io = options.io.unwrap_or(options.search.is_none());
