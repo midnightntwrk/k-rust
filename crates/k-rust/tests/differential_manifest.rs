@@ -132,23 +132,54 @@ fn part_b_manifest_schema_is_complete() {
             .as_array()
             .expect("assoc-strict requirements")
             .iter()
-            .any(|requirement| requirement.as_str() == Some("ticket:A3-06")),
-        "assoc-strict currently reaches the A3-06 verifier collision before I1-06",
+            .all(|requirement| requirement.as_str() == Some("reference-toolchain")),
+        "A3-06 and I1-06 are verified, so assoc-strict runs in the default protocol",
     );
 }
 
 #[test]
 fn part_b_pending_and_special_case_schema_is_complete() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
-    let expected_pending = BTreeSet::from([
+    let case = |section: &str, name: &str| {
+        manifest[section]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing {section} section"))
+            .iter()
+            .find(|entry| entry["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("missing {section} case {name}"))
+            .clone()
+    };
+    let ticket_requirements = |entry: &Value| {
+        entry["requires"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|requirement| {
+                requirement
+                    .as_str()
+                    .and_then(|value| value.strip_prefix("ticket:"))
+                    .map(str::to_owned)
+            })
+            .collect::<Vec<_>>()
+    };
+    // The three symbolic C1 cases stay pending on C1-01, which owns the fresh remainder names
+    // (`Ex#Frame!0:SortMap{}`) that k-rust's kore-exec prints as non-KORE identifiers.
+    for name in ["c1-map", "c1-t2", "c1-t3"] {
+        assert_eq!(
+            ticket_requirements(&case("symbolic", name)),
+            ["C1-01"],
+            "symbolic case {name} must stay pending on the fresh-name owner C1-01"
+        );
+    }
+    // Every case whose owning tickets are verified and which passed the opt-in stage-12 run
+    // must run in the default protocol: no ticket: requirement may remain.
+    let expected_unblocked = [
         ("compile", "fresh-name-collision"),
         ("compile", "imp"),
         ("compile", "parametric"),
         ("compile", "assoc-strict"),
         ("compile", "undefined-sort"),
-        ("symbolic", "c1-map"),
-        ("symbolic", "c1-t2"),
-        ("symbolic", "c1-t3"),
+        ("compile", "semcast2"),
         ("execution", "c3-search"),
         ("execution", "c3-br"),
         ("execution", "c3-co"),
@@ -157,25 +188,34 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         ("proof", "c4-lemma"),
         ("proof", "c4-trivial"),
         ("rpc", "c3-tr-rpc"),
-    ]);
-    for (section, name) in expected_pending {
-        let entry = manifest[section]
-            .as_array()
-            .unwrap_or_else(|| panic!("missing {section} section"))
-            .iter()
-            .find(|entry| entry["name"].as_str() == Some(name))
-            .unwrap_or_else(|| panic!("missing pending {section} case {name}"));
-        assert!(
-            entry["requires"]
+    ];
+    for (section, name) in expected_unblocked {
+        assert_eq!(
+            ticket_requirements(&case(section, name)),
+            Vec::<String>::new(),
+            "{section} case {name} carries a stale ticket: requirement"
+        );
+    }
+    let still_pending = SECTIONS
+        .iter()
+        .flat_map(|&section| {
+            manifest[section]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|requirement| requirement
-                    .as_str()
-                    .is_some_and(|value| value.starts_with("ticket:"))),
-            "{section} case {name} must name its blocking ticket"
-        );
-    }
+                .filter(|entry| !ticket_requirements(entry).is_empty())
+                .map(move |entry| format!("{section}/{}", entry["name"].as_str().unwrap()))
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        still_pending,
+        BTreeSet::from([
+            "symbolic/c1-map".to_owned(),
+            "symbolic/c1-t2".to_owned(),
+            "symbolic/c1-t3".to_owned(),
+        ]),
+        "only the C1-01 symbolic cases may stay ticket-gated"
+    );
 
     for entry in manifest["proof"].as_array().expect("proof cases") {
         let name = entry["name"].as_str().expect("proof name");
@@ -378,55 +418,66 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
 #[test]
 fn pending_only_selection_does_not_require_reference_tools() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for (script_path, case_name, ticket) in [
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    // Every ticket-gated case of each section, so the check follows the manifest as
+    // requirements are dropped when their tickets land.
+    let mut exercised = 0;
+    for (section, script_path) in [
+        ("compile", "scripts/reference-differential.sh"),
         (
-            "scripts/reference-differential.sh",
-            "fresh-name-collision",
-            "A3-06",
-        ),
-        (
+            "execution",
             "scripts/reference-non-imp-execution-differential.sh",
-            "c3-search",
-            "C3-01",
         ),
+        ("proof", "scripts/reference-proof-differential.sh"),
+        ("rpc", "scripts/reference-rpc-differential.sh"),
         (
-            "scripts/reference-proof-differential.sh",
-            "c4-split",
-            "C4-01",
-        ),
-        (
-            "scripts/reference-rpc-differential.sh",
-            "c3-tr-rpc",
-            "C3-05",
-        ),
-        (
+            "symbolic",
             "scripts/reference-symbolic-execution-differential.sh",
-            "c1-map",
-            "C1-01",
         ),
     ] {
-        let script_path = workspace.join(script_path);
-        let output = Command::new("bash")
-            .arg(&script_path)
-            .arg(case_name)
-            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
-            .env("K_KOMPILE", workspace.join("missing-reference-kompile"))
-            .output()
-            .unwrap_or_else(|error| panic!("run {}: {error}", script_path.display()));
-        assert!(
-            output.status.success(),
-            "{} validated unavailable reference tools before skipping {case_name}: {}",
-            script_path.display(),
-            String::from_utf8_lossy(&output.stderr),
-        );
-        assert!(
-            String::from_utf8_lossy(&output.stdout)
-                .contains(&format!("[{case_name}] pending: blocked by {ticket}")),
-            "{} did not name the blocking ticket: {}",
-            script_path.display(),
-            String::from_utf8_lossy(&output.stdout),
-        );
+        for entry in manifest[section].as_array().expect("section cases") {
+            let tickets = entry["requires"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|requirement| {
+                    requirement
+                        .as_str()
+                        .and_then(|value| value.strip_prefix("ticket:"))
+                })
+                .collect::<Vec<_>>();
+            if tickets.is_empty() {
+                continue;
+            }
+            exercised += 1;
+            let case_name = entry["name"].as_str().expect("case name");
+            let script_path = workspace.join(script_path);
+            let output = Command::new("bash")
+                .arg(&script_path)
+                .arg(case_name)
+                .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+                .env("K_KOMPILE", workspace.join("missing-reference-kompile"))
+                .output()
+                .unwrap_or_else(|error| panic!("run {}: {error}", script_path.display()));
+            assert!(
+                output.status.success(),
+                "{} validated unavailable reference tools before skipping {case_name}: {}",
+                script_path.display(),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            let expected = format!("[{case_name}] pending: blocked by {}", tickets.join(", "));
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains(&expected),
+                "{} did not name the blocking ticket(s) `{expected}`: {}",
+                script_path.display(),
+                String::from_utf8_lossy(&output.stdout),
+            );
+        }
     }
+    assert!(
+        exercised > 0,
+        "the manifest must keep at least one ticket-gated case to exercise the skip path"
+    );
 
     let compile_validation = "if [[ -z \"$kompile\" ]]";
     assert!(
@@ -790,12 +841,17 @@ fn excluded_cases_have_complete_oracle_dispositions() {
 fn manual_certification_protocol_names_part_b_green_gates() {
     for command in [
         "# scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner",
+        "# scripts/reference-differential.sh fun-int-list-config",
+        "# scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2",
         "# REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence",
         "# scripts/reference-kast-differential.sh wasm mir evm-equivalence",
         "# scripts/reference-non-imp-execution-differential.sh imp collections hooks-c2",
+        "# scripts/reference-non-imp-execution-differential.sh c3-search c3-br c3-co c3-tr",
         "# scripts/reference-proof-differential.sh mini-proof",
+        "# scripts/reference-proof-differential.sh c4-split c4-lemma c4-trivial",
         "# scripts/reference-rpc-differential.sh imp",
         "# scripts/reference-rpc-differential.sh bounded-search",
+        "# scripts/reference-rpc-differential.sh c3-tr-rpc",
         "# scripts/reference-mir-execution-differential.sh",
         "# scripts/reference-symbolic-execution-differential.sh c3-sd-symbolic c3-sy",
         "# scripts/conformance-ratchet.sh --label <landing> --ticket <ticket>",
