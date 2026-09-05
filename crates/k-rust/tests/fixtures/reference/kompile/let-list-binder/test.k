@@ -10,13 +10,13 @@ module LET-LIST-BINDER
   syntax Chunks ::= concat(Chunks, Int) [function, total]
   rule concat(.Chunks, _) => .Chunks
   rule concat(chunk(I) REST, N) => #let SUB = mk(I, N) #in SUB concat(REST, N -Int 1) requires N >Int 0
-  syntax Chunks ::= letInferred(Chunks, Int) [function, total]
-  rule letInferred(.Chunks, _) => .Chunks
-  rule letInferred(chunk(I) _, N) => #let SUB = mk(I, N) #in letInferred(SUB, N -Int 1) requires N >Int 0
-  syntax Chunks ::= funInferred(Chunks, Int) [function, total]
-  rule funInferred(.Chunks, _) => .Chunks
-  rule funInferred(chunk(I) _, N) => #fun(SUB => funInferred(SUB, N -Int 1))(mk(I, N)) requires N >Int 0
-  syntax Chunks ::= letCast(Chunks, Int) [function, total]
-  rule letCast(.Chunks, _) => .Chunks
-  rule letCast(chunk(I) _, N) => #let SUB:Chunks = mk(I, N) #in letCast(SUB, N -Int 1) requires N >Int 0
+  syntax Chunks ::= letInferred(Chunks, Chunks, Int) [function, total]
+  rule letInferred(.Chunks, _, _) => .Chunks
+  rule letInferred(chunk(_) _, LETARG, N) => #let SUB = LETARG #in letInferred(SUB, .Chunks, N -Int 1) requires N >Int 0
+  syntax Chunks ::= funInferred(Chunks, Chunks, Int) [function, total]
+  rule funInferred(.Chunks, _, _) => .Chunks
+  rule funInferred(chunk(_) _, FUNARG, N) => #fun(SUB => funInferred(SUB, .Chunks, N -Int 1))(FUNARG) requires N >Int 0
+  syntax Chunks ::= letCast(Chunks, Chunks, Int) [function, total]
+  rule letCast(.Chunks, _, _) => .Chunks
+  rule letCast(chunk(_) _, CASTARG, N) => #let SUB:Chunks = CASTARG #in letCast(SUB, .Chunks, N -Int 1) requires N >Int 0
 endmodule
