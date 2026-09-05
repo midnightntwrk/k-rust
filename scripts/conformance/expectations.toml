@@ -218,7 +218,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kprove"
 tickets = ["I1-07"]
 exclusion = ""
-reason = "proof-module content checks; syntax-spec.k is proven by krust"
+reason = "krust rejects rule-spec.k (Error[ProofModuleRule]) and syntax-spec.k (Error[ProofModuleSyntax]) as the reference does and proves claim-spec.k; the krust-error verdict of runs 3-16 was the driver reading the quoted `rule <k> ... </k>` line of rule-spec.k.out as a counterexample, fixed in I1-03 ec91476 (verdicts from the diagnostic lines). Match in host run 18 (2026-09-06)."
 
 [[case]]
 name = "checkWarns"
@@ -226,7 +226,7 @@ baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-07", "D1-14"]
 exclusion = ""
-reason = "15 of 16 ktest-fail steps agree since fix(I1-03) 2828e95 forwards `-w2e -w all` as `--warnings all --warnings-to-errors`; existsLHSBoundPass.k stays mismatch: under `--type-inference-mode checked` krust rejects `rule foo(_X) => #Exists Y . { ?_I #Equals Y }` with `portable and Z3 sort inference produced different terms` (A3-03 checked mode, handoff). Re-measured 2026-09-06 at HEAD 2e30c6f."
+reason = "15 of 16 ktest-fail steps agree since fix(I1-03) 2828e95 forwards `-w2e -w all` as `--warnings all --warnings-to-errors`; existsLHSBoundPass.k (`rule foo(_X) => #Exists Y . { ?_I #Equals Y }`) was rejected under checked inference because the Z3 engine let the bound variable and the #Exists/#Equals parameters take KList; A3-03 3769711 restricts inference variables and parameters to the reference's real sorts (TypeInferencer.isRealSort). All 16 steps agree since 2026-09-06."
 step_exclusions = [
   { out = "checkHaskellAnywhere.k.out", exclusion = "supported-superset", reason = "Decision 10-1 keeps anywhere rules executable by default; K's Haskell-only rejection is not the port contract." },
 ]
@@ -1966,7 +1966,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "kompile: `#lambdaF_test(_,_,_)_..._`/`_2` suffix order (see issue-1528); krun 1/2: krust leaves `#lambdaF_test(...)(test(2,0,1))` unevaluated where the reference prints `test(2,1,1)` (ResolveFun on a record-update pattern `#fun(test(... foo: N => N +Int 1))(F)`, B1 area); krun 3/4: the programs `foo(test(5,10,15))`/`bar(...)` use record-field projection functions the reference generates for named arguments and krust's program grammar lacks (A1/A3 area). Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
+reason = "kompile: `#lambdaF_test(_,_,_)_..._`/`_2` suffix order (see issue-1528), the remaining mismatch; krun 1/2 match since B1-01 23c47f5; krun 3/4 (`foo(test(5,10,15))`/`bar(...)`, the named-field projections of `test(Int, foo: Int, bar: Int)`) match since D1-04 422a86f declares the projections in the rule and program grammars as RuleGrammarGenerator.getCombinedGrammar does. Re-measured 2026-09-06."
 [[case]]
 name = "regex-prec"
 baseline_verdict = "krust-unsupported"
@@ -2092,7 +2092,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A2-01"]
 exclusion = ""
-reason = "rule `<k> #putCells => .K ... </k>`: `#putCells` terminal vs the `#`-prefixed KLabel regex"
+reason = "kompile matches since the A2-01 landing (the `#putCells` terminal beats the `#`-prefixed KLabel regex as in K's scanner); the krun step `--parser ./test-parser` (`cat \"$1\" | kast - --output kore`, K's default program parse) was krust-unsupported until I1-03 ec91476 translated it to krust's default parse. Match in host run 18 (2026-09-06)."
 
 [[case]]
 name = "star-multiplicity-concat"
