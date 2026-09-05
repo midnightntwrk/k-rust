@@ -570,6 +570,40 @@ mod tests {
     use super::*;
     use crate::definition::BackendDefinition;
 
+    /// Kore/Parser/Lexer.x:57 admits `[a-zA-Z][a-zA-Z0-9'\-]*` as an identifier. Booster keeps
+    /// the `Ex#`/`Rule#` provenance markers internally and externalizes them by dropping the `#`
+    /// (Booster/Pattern/Util.hs externaliseRuleMarker); Kore externalizes a fresh name's counter
+    /// by appending its digits to the base (Kore/Syntax/Variable.hs externalizeFreshVariableName).
+    #[test]
+    fn fresh_and_marked_variable_names_externalize_as_kore_identifiers() {
+        let map = Sort::simple("SortMap");
+        let item = Sort::simple("SortKItem");
+        let cases = [
+            (Variable::new("Ex#Frame!0", map.clone()), "ExFrame0"),
+            (
+                Variable::new("Ex#Var'Unds'K!1", item.clone()),
+                "ExVar'Unds'K1",
+            ),
+            (Variable::new("Eq#VarROOT", item.clone()), "EqVarROOT"),
+            (Variable::new("Rule#X", item.clone()), "RuleX"),
+            (Variable::new("VarM", map), "VarM"),
+            (Variable::new("Var'Unds'Gen0", item), "Var'Unds'Gen0"),
+        ];
+        for (variable, expected) in cases {
+            let external = term(&Term::variable(variable.clone()));
+            let kore::Pattern::Variable(external_variable) = &external else {
+                panic!("a variable externalizes as a variable: {external:?}");
+            };
+            assert_eq!(external_variable.name, expected, "{}", variable.name);
+            let printed = external.to_string();
+            assert_eq!(
+                parse_pattern(&printed).unwrap_or_else(|error| panic!("{printed}: {error:?}")),
+                external,
+                "{printed} round-trips through the KORE parser"
+            );
+        }
+    }
+
     #[test]
     fn internal_terms_round_trip_through_external_kore() {
         let syntax = parse_definition(
