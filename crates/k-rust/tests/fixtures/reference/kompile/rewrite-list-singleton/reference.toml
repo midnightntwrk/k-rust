@@ -1,0 +1,35 @@
+case = "rewrite-list-singleton"
+subsystem = "kompile"
+source_ticket = "B1-02"
+harvested_from = "k/k-distribution/tests/regression-new/issue-1573/test.k at 4a46d1231473b599c699160132fd6e76a5c46406, reduced by hand (stage-12 conformance ratchet finding: issue-1573 kompile mismatch on one UNIQUE_ID)"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "verify.exit"
+command = 'set +e; kompile test.k --backend haskell --main-module REWRITE-LIST-SINGLETON --syntax-module REWRITE-LIST-SINGLETON --output-definition ref && kore-parser ref/definition.kore >/dev/null; rc=$?; printf "%s\n" "$rc" > verify.exit; exit "$rc"'
+tool = "kore-parser"
+exit_code = 0
+sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+
+# UNIQUE_ID of every source rule of ref/definition.kore, keyed by the rule's Location line.
+# NumberSentences hashes the rule right after ResolveContexts, so the id records how the
+# parser's AddEmptyLists completed each rule: line 24 (`<v> 1 => foo(1) </v>`) hashes
+# `___(1 => foo(1), .IntList)`, the rewrite instantiated at lub(Int, Int) = Int inside one
+# user-list singleton; lines 21 and 27 are the controls where a side is a variable or a list.
+
+[[rule]]
+line = 19
+unique_id = "bc408b082d7358d1efd34b724738e590219386637805ce932119864588eed7f2"
+
+[[rule]]
+line = 21
+unique_id = "08c100435b79df4e96dc31a94559a30ca8e6952d8b5acfdb8933d501f3ff4a84"
+
+[[rule]]
+line = 24
+unique_id = "96c60640fc5ee3a06620b5568f0d83d0838404141a6f701de9ac84d8f999f1f3"
+
+[[rule]]
+line = 27
+unique_id = "e142b0e6b7ccad7833b2b8f8af740bf8c5232ef57c5204a559a0db6424bcb0c0"
