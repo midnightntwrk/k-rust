@@ -5,7 +5,7 @@ use std::fmt;
 
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
-    Sentence,
+    Sentence, SortCatalog,
 };
 use crate::kast::{Label, Sort, Term};
 use crate::provenance::SourceId;
@@ -574,6 +574,17 @@ fn sort_projection_production(sort: &Sort) -> Sentence {
 }
 
 fn concrete_sorts(sentences: &[&Sentence]) -> BTreeSet<Sort> {
+    // `Module.allSorts` (outer.scala:413) holds every declared instantiation of a parametric
+    // sort, such as `MInt{8}` from `syntax MInt{8}`, next to the nullary sorts, and
+    // RuleGrammarGenerator derives the `KItem ::= MInt{8}` subsort, the `MInt{8}` casts, and the
+    // sort predicate and projection from it. Sort-variable shapes such as `MInt{Width}` are not
+    // instantiations and stay excluded.
+    let instantiations = SortCatalog::from_visible(sentences.iter().copied())
+        .instantiations()
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<BTreeSet<_>>();
     sentences
         .iter()
         .flat_map(|sentence| match sentence {
@@ -587,7 +598,7 @@ fn concrete_sorts(sentences: &[&Sentence]) -> BTreeSet<Sort> {
             _ => Vec::new(),
         })
         .filter(|sort| {
-            sort.parameters.is_empty()
+            (sort.parameters.is_empty() || instantiations.contains(sort))
                 && !sort.name.starts_with('#')
                 && !matches!(
                     sort.name.as_str(),

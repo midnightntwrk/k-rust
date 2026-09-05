@@ -310,7 +310,26 @@ struct Production {
     /// Production identity retained in the parse forest after a temporary grammar production
     /// recognizes its input. Java's Earley parser uses `originalPrd` for this same boundary.
     term_production: Option<usize>,
+    /// The `hook` attribute of the declaring sentence; a case-2 instantiation carries its
+    /// parametric origin's hook (`EarleyParser.EarleyProduction.isMInt`).
+    hook: Option<String>,
 }
+
+impl Production {
+    /// Whether the production recognizes machine-integer literals, whose sort parameter is the
+    /// width spelled after the `p`/`P` of the token text rather than the instantiation that
+    /// scanned it (`EarleyParser.java:343-359`).
+    fn is_mint_literal(&self) -> bool {
+        self.token
+            && (self.hook.as_deref() == Some(MINT_LITERAL_HOOK)
+                || self
+                    .parametric_origin
+                    .as_ref()
+                    .is_some_and(|origin| origin.hook() == Some(MINT_LITERAL_HOOK)))
+    }
+}
+
+const MINT_LITERAL_HOOK: &str = "MINT.literal";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ParametricOrigin {
@@ -320,6 +339,12 @@ struct ParametricOrigin {
     items: Vec<ProductionItem>,
     attributes: Attributes,
     substitution: BTreeMap<Sort, Sort>,
+}
+
+impl ParametricOrigin {
+    fn hook(&self) -> Option<&str> {
+        self.attributes.get_str("hook")
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -357,6 +382,7 @@ struct ProductionOptions<'a> {
     user_list: bool,
     user_list_nonempty: bool,
     precedence: Option<&'a str>,
+    hook: Option<&'a str>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -1047,6 +1073,7 @@ impl Grammar {
                     user_list: attributes.get("userList").is_some(),
                     user_list_nonempty: attributes.get_str("userList") == Some("+"),
                     precedence: attributes.get_str("prec"),
+                    hook: attributes.get_str("hook"),
                 },
                 &lexical,
             )?;
@@ -1704,6 +1731,7 @@ impl Grammar {
             record: None,
             parametric_origin: None,
             term_production: None,
+            hook: options.hook.map(str::to_owned),
         });
         self.by_result.entry(result).or_default().push(index);
         Ok(())
@@ -2351,10 +2379,19 @@ fn build_packed_term(
                 )),
             );
         }
+        let token = &input[start..end];
+        // EarleyParser substitutes the digits after the first `p`/`P` of a MINT.literal token
+        // into the parametric production, so `0p32` is an `MInt{32}` whichever declared
+        // instantiation scanned it; the metadata still names the scanning production.
+        let sort = if production.is_mint_literal() {
+            mint_literal_sort(&production.result, token)
+        } else {
+            production.result.clone()
+        };
         return PackedTerm::leaf(
             Term::Token {
-                token: input[start..end].to_owned(),
-                sort: production.result.clone(),
+                token: token.to_owned(),
+                sort,
             }
             .with_metadata(term_metadata(
                 production,
@@ -2380,6 +2417,15 @@ fn build_packed_term(
             provenance.base_offset + start,
             provenance.base_offset + end,
         ),
+    )
+}
+
+/// `EarleyParser.java:347-358`: the width of a machine-integer literal is the text after its
+/// first `p`/`P`; a token without one keeps the scanning instantiation's sort.
+fn mint_literal_sort(result: &Sort, token: &str) -> Sort {
+    token.find(['p', 'P']).map_or_else(
+        || result.clone(),
+        |index| Sort::with_parameters(result.name.clone(), vec![Sort::new(&token[index + 1..])]),
     )
 }
 
