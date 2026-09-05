@@ -968,3 +968,56 @@ fn rejects_private_syntax_from_an_imported_module() {
         "{error:?}"
     );
 }
+
+#[test]
+fn reference_named_field_projections_parse_in_programs() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled && k/result/bin/kast --definition ref-kompiled --output kast 3.test
+    // kast: `project:test(_,_,_)_TEST_Foo_Int_Int_Int:foo`(`test(_,_,_)_TEST_Foo_Int_Int_Int`(#token("5","Int"),#token("10","Int"),#token("15","Int")))
+    // Reduced from regression-new/record-llvm 3.test and 4.test (`foo(test(5, 10, 15))`,
+    // `bar(test(5, 10, 15))`): RuleGrammarGenerator.getProgramsGrammar reaches
+    // getCombinedGrammar, which adds GenerateSortProjections.gen(p) for every production, so
+    // the program grammar has the field projections of every record-shaped production; the
+    // `project:Sort` projections are added only with SORT-PREDICATES, which programs do not
+    // import.
+    let prelude = k_rust::builtin::embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = k_rust::outer::load_with_options(
+        k_rust::outer::ResolvedSource::new(
+            "test.k",
+            include_str!("fixtures/reference/inner/record-projection/test.k"),
+        ),
+        "TEST",
+        &mut resolver,
+        &k_rust::outer::LoadOptions {
+            implicit_sources: vec![prelude],
+            ..k_rust::outer::LoadOptions::default()
+        },
+    )
+    .expect("the definition loads with the prelude");
+    let parser =
+        ProgramParser::new(&loaded.definition, "TEST").expect("program grammar should build");
+    let foo = parser
+        .parse(&Sort::new("KItem"), "foo(test(5, 10, 15))")
+        .expect("the foo projection is program syntax");
+    assert_eq!(
+        foo.to_string(),
+        "`project:test(_,_,_)_TEST_Foo_Int_Int_Int:foo`(`test(_,_,_)_TEST_Foo_Int_Int_Int`(#token(\"5\",\"Int\"),#token(\"10\",\"Int\"),#token(\"15\",\"Int\")))"
+    );
+    let bar = parser
+        .parse(&Sort::new("Int"), "bar(test(5, 10, 15))")
+        .expect("the bar projection parses at its field sort");
+    assert!(
+        bar.to_string()
+            .starts_with("`project:test(_,_,_)_TEST_Foo_Int_Int_Int:bar`("),
+        "{bar}"
+    );
+    let error = parser
+        .parse(&Sort::new("KItem"), "project:Foo(test(5, 10, 15))")
+        .expect_err("sort projections are not program syntax");
+    assert!(
+        matches!(*error.error, ParseError::NoParse { .. }),
+        "{error:?}"
+    );
+}
