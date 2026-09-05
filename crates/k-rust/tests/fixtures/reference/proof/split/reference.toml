@@ -11,3 +11,38 @@ command = "kompile split.k --backend haskell --main-module SPLIT --syntax-module
 tool = "kprove"
 exit_code = 1
 sha256 = "eb9fc05e37f1d3670fadc5887af6cd2fd147f73fe86aa1d04ed1ce558d9d8ac6"
+
+# Reference verdicts for imported-spec.k (C4-02 follow-up, 2026-09-06): the claims live in
+# SPLIT-LEMMAS, which IMPORTED-SPEC imports, so ModuleToKORE.convertSpecificationModule emits
+# them through `spec.sentencesExcept(definition)`. Same kompiled `ref` as the artifact above;
+# each row is `kprove imported-spec.k --definition ref --depth 10 --output none --warnings none`
+# plus the listed flags.
+[[verdict]]
+specification = "imported-spec.k"
+flags = "--exclude SPLIT-LEMMAS.fail1 --exclude SPLIT-LEMMAS.fail2"
+exit_code = 0
+output = "#Top"
+
+[[verdict]]
+specification = "imported-spec.k"
+flags = "--trusted SPLIT-LEMMAS.fail1 --trusted SPLIT-LEMMAS.fail2"
+exit_code = 0
+output = "#Top"
+
+[[verdict]]
+specification = "imported-spec.k"
+flags = "--claims SPLIT-LEMMAS.pass"
+exit_code = 0
+output = "#Top"
+
+[[verdict]]
+specification = "imported-spec.k"
+flags = ""
+exit_code = 1
+output = "WarnStuckClaimState at imported-spec.k:5:18-5:33 (fail1); [Error] Prover: backend terminated because the configuration cannot be rewritten further"
+
+[[verdict]]
+specification = "imported-spec.k"
+flags = "--exclude SPLIT-LEMMAS.pass --exclude SPLIT-LEMMAS.fail1 --exclude SPLIT-LEMMAS.fail2"
+exit_code = 113
+output = "kore-exec ErrorException: Unexpected empty set of claims. (src/Kore/Exec.hs:989)"

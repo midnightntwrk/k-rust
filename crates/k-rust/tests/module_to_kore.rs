@@ -1,6 +1,6 @@
 use indoc::indoc;
 use k_rust::builtin::embedded;
-use k_rust::definition::ResolvedDefinition;
+use k_rust::definition::{CheckMode, ResolvedDefinition};
 use k_rust::kompile::{
     CompilationBackend, CompileOptions, compile_loaded_definition, declaration_modules,
     declaration_modules_from_resolved_with_options, encode_kore_identifier, encode_kore_label,
@@ -1201,4 +1201,85 @@ fn encodes_labels_and_parametric_sorts() {
         encode_kore_sort(&sort).to_string(),
         "SortMap{SortKey{}, SortValue{}}"
     );
+}
+
+/// `ModuleToKORE.convertSpecificationModule` emits `spec.sentencesExcept(definition)`: every
+/// claim visible from the specification module that the definition module does not already
+/// contain, not only the specification module's local claims.
+#[test]
+fn emits_claims_imported_into_the_specification_module() {
+    let source = indoc!(
+        r#"
+        module DEF
+          syntax State ::= "a" [symbol(a)]
+                         | "b" [symbol(b)]
+          configuration <k> $PGM:State </k>
+          rule <k> a => b </k>
+        endmodule
+
+        module LEMMAS
+          imports DEF
+          claim [reach]: <k> a => b </k>
+        endmodule
+
+        module SPEC
+          imports LEMMAS
+        endmodule
+        "#
+    );
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("spec.k", source),
+        "SPEC",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("two-module specification should load");
+    let artifacts = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            default_claims_to_all_path: true,
+            check_mode: CheckMode::Proof {
+                definition_module: "DEF".into(),
+            },
+            ..CompileOptions::default()
+        },
+    )
+    .expect("two-module specification should compile");
+    let definition =
+        parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse");
+
+    let spec = definition
+        .modules
+        .iter()
+        .find(|module| module.name == "SPEC")
+        .expect("the specification module should be emitted");
+    let claim_labels = spec
+        .sentences
+        .iter()
+        .filter_map(|sentence| {
+            let Sentence::Claim { attributes, .. } = sentence else {
+                return None;
+            };
+            attributes.0.iter().find_map(|attribute| match attribute {
+                Pattern::Application { symbol, arguments } if symbol.name == "label" => {
+                    let [Pattern::String(label)] = arguments.as_slice() else {
+                        return None;
+                    };
+                    Some(label.clone())
+                }
+                _ => None,
+            })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(claim_labels, ["LEMMAS.reach"]);
 }

@@ -3124,6 +3124,102 @@ fn kprove_claim_selection_does_not_use_unselected_lemmas() {
 }
 
 #[test]
+fn kprove_filters_claims_imported_into_the_specification_module() {
+    // reference (k/result/bin, split.k kompiled with --backend haskell, imported-spec.k with
+    // --depth 10): --exclude SPLIT-LEMMAS.fail1 --exclude SPLIT-LEMMAS.fail2 exits 0 (#Top);
+    // --trusted SPLIT-LEMMAS.fail1 --trusted SPLIT-LEMMAS.fail2 exits 0 (#Top); no flags exits 1
+    // stuck on fail1 (imported-spec.k:5); excluding all three claims exits 113 with kore-exec's
+    // "Unexpected empty set of claims." (Kore/Exec.hs:989). Recorded in split/reference.toml.
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
+    let specification = fixtures.join("imported-spec.k");
+    let common = [
+        "kprove",
+        specification.to_str().unwrap(),
+        "--main-module",
+        "IMPORTED-SPEC",
+        "--definition-module",
+        "SPLIT",
+        "--depth",
+        "10",
+    ];
+
+    let excluded = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(common)
+        .args(["--exclude", "fail1", "--exclude", "SPLIT-LEMMAS.fail2"])
+        .output()
+        .unwrap();
+    assert!(
+        excluded.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&excluded.stdout),
+        String::from_utf8_lossy(&excluded.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(excluded.stdout).unwrap(),
+        "claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n"
+    );
+
+    let trusted = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(common)
+        .args(["--trusted", "fail1", "--trusted", "fail2"])
+        .output()
+        .unwrap();
+    assert!(
+        trusted.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&trusted.stdout),
+        String::from_utf8_lossy(&trusted.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(trusted.stdout).unwrap(),
+        "claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n\
+         claim SPLIT-LEMMAS.fail1: proven (trusted)\n\
+         claim SPLIT-LEMMAS.fail2: proven (trusted)\n"
+    );
+
+    // Control: without filtering every imported claim is attempted.
+    let batch = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(common)
+        .output()
+        .unwrap();
+    let batch_stdout = String::from_utf8(batch.stdout).unwrap();
+    assert!(!batch.status.success(), "{batch_stdout}");
+    assert!(
+        batch_stdout.contains("claim SPLIT-LEMMAS.pass: proven"),
+        "{batch_stdout}"
+    );
+    for claim in ["SPLIT-LEMMAS.fail1", "SPLIT-LEMMAS.fail2"] {
+        assert!(
+            batch_stdout.contains(&format!("claim {claim}: disproved")),
+            "{batch_stdout}"
+        );
+    }
+
+    // Excluding every claim leaves the reference backend with an empty claim set, an error.
+    let emptied = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(common)
+        .args([
+            "--exclude",
+            "pass",
+            "--exclude",
+            "fail1",
+            "--exclude",
+            "fail2",
+        ])
+        .output()
+        .unwrap();
+    assert!(!emptied.status.success());
+    assert_eq!(String::from_utf8(emptied.stdout).unwrap(), "");
+    assert!(
+        String::from_utf8_lossy(&emptied.stderr)
+            .contains("the selected module contains no modal reachability claims"),
+        "{}",
+        String::from_utf8_lossy(&emptied.stderr)
+    );
+}
+
+#[test]
 fn kprove_one_path_claim_fails_on_the_uncovered_case() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
