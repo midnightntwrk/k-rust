@@ -422,7 +422,7 @@ fn decode_attribute_sources(
     }
     if let Some(origin) = attributes.get(ORIGIN_ATTRIBUTE).cloned() {
         let origin = decode_origin(serde_json::from_value(origin)?, source_table)?;
-        attributes.set_origin(origin.to_value());
+        attributes.set_origin_record(origin);
     }
     Ok(())
 }
