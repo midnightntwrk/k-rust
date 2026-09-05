@@ -10,7 +10,7 @@ use crate::definition::{
 use crate::kast::{Sort, Term};
 use crate::provenance::SourceId;
 
-use super::parser::{Grammar, ParseError, is_parser_sort};
+use super::parser::{Grammar, ParseError, is_parser_sort, named_projection_productions};
 
 const PROGRAM_PARSING_POSTFIX: &str = "-PROGRAM-PARSING";
 
@@ -81,7 +81,9 @@ impl ProgramParser {
         let module_id = definition
             .module_id(module)
             .ok_or_else(|| ProgramError::MissingModule(module.to_owned()))?;
-        let sentences = with_kitem_subsorts(program_sentences(definition, module_id));
+        let mut sentences = program_sentences(definition, module_id);
+        sentences.extend(named_projection_productions(&sentences));
+        let sentences = with_kitem_subsorts(sentences);
         let source_catalog = definition.production_catalog(module_id);
         let grammar =
             Grammar::from_program_sentences(&sentences, &source_catalog).map_err(|error| {
@@ -130,6 +132,20 @@ impl ProgramParser {
                 error: Box::new(error),
             })
     }
+}
+
+/// The definition against which a parsed program is converted: every module gains the
+/// named-field projection productions of its own productions, as the parsing grammars declare
+/// them (`named_projection_productions`), so that the projection applied by a program has a
+/// production, a signature and a KORE symbol before the kompile pass adds its rules. The
+/// compiled definition already carries the same productions from `generate_sort_projections`.
+pub fn definition_with_named_projections(definition: &Definition) -> Definition {
+    let mut output = definition.clone();
+    for module in &mut output.modules {
+        let generated = named_projection_productions(&module.local_sentences);
+        append_unique(&mut module.local_sentences, generated.iter());
+    }
+    output
 }
 
 fn without_source_spans(term: Term) -> Term {

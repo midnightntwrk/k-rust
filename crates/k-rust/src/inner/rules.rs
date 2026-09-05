@@ -14,7 +14,9 @@ use super::config::{
     BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort, nonterminal,
     truth,
 };
-use super::parser::{Grammar, ParseError, Scanner, TokenPrecedenceDeclaration};
+use super::parser::{
+    Grammar, ParseError, Scanner, TokenPrecedenceDeclaration, named_projection_productions,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuleError {
@@ -440,6 +442,7 @@ fn rule_grammar(
         }))
         .then(|| sort_projection_production(sort))
     }));
+    parsing_sentences.extend(named_projection_productions(visible.iter().copied()));
     if !parsing_sentences
         .iter()
         .any(|sentence| matches!(sentence, Sentence::SyntaxSort { sort, .. } if sort.name == "Bag"))
