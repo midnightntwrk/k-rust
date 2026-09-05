@@ -3,7 +3,9 @@
 // it, so it is not an entry module of the parsed definition and its Range never generates isRange.
 module RANGE-RULES
   syntax Range ::= "r" | "s"
-  rule s => r
+                 | flip(Range) [function, total]
+  rule flip(r) => s
+  rule flip(s) => r
 endmodule
 
 module ISSORTPREDICATEBUBBLEMODULE
