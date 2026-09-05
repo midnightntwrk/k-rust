@@ -950,6 +950,18 @@ impl<'a> Encoding<'a> {
         expected: &Datatype,
         cast_context: CastContext,
     ) -> Result<Bool, ParseError> {
+        // The reference grammar reaches a variable under rule scaffolding only through
+        // `#RuleBody ::= K` (kast.md:343), a production k-rust's forest collapses, so the
+        // scaffolding sort bounds the variable by `K` (TypeInferencer.java:644 with that
+        // production's nonterminal; InferenceDriver.java:49-53 for SimpleSub).
+        let scaffolding_bound = (cast_context == CastContext::Parser)
+            .then(|| self.scaffolding_variable_bound())
+            .transpose()?
+            .flatten();
+        let (expected, cast_context) = match &scaffolding_bound {
+            Some(bound) => (bound, CastContext::None),
+            None => (expected, cast_context),
+        };
         let constraint = match (is_anonymous(name), cast_context) {
             // Anonymous occurrences are independent variables, but each one has the
             // exact sort demanded by its context in the reference inferencer.
@@ -970,6 +982,16 @@ impl<'a> Encoding<'a> {
             );
         }
         Ok(constraint)
+    }
+
+    /// The `K` value that bounds a variable expected at a scaffolding sort, when the grammar
+    /// declares `K` at all (hand-built test grammars may not).
+    fn scaffolding_variable_bound(&self) -> Result<Option<Datatype>, ParseError> {
+        let k = Sort::new("K");
+        if !self.head_indexes.contains_key(&SortHead::from(&k)) {
+            return Ok(None);
+        }
+        self.sort_value(&k, &BTreeMap::new()).map(Some)
     }
 
     fn token_constraint(
