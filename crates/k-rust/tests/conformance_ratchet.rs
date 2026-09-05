@@ -538,6 +538,59 @@ fn conformance_ratchet_never_fails_on_excluded_cases_across_driver_versions() {
 }
 
 #[test]
+fn conformance_ratchet_fails_while_a_case_stays_below_the_stage_1_floor() {
+    // The exit criterion is "no case below its stage-1 rank": a case that already fell below
+    // its floor keeps failing every run that measures it until it is raised, even when its
+    // rank is unchanged against the previous measurement; excluded cases never count.
+    let fixture = Fixture::new();
+    let baseline = fixture.results("baseline", &baseline_cases());
+    assert!(fixture.seed(&baseline).status.success());
+    let dropped = fixture.results(
+        "dropped",
+        &[
+            ("a", "mismatch", "krun"),
+            ("b", "mismatch", "search"),
+            ("c", "krust-error", "kompile"),
+            ("d", "krust-unsupported", "kast"),
+        ],
+    );
+    assert_eq!(
+        fixture.run("dropped", &dropped, &["--all"]).status.code(),
+        Some(3)
+    );
+    let unchanged = fixture.results("unchanged", &[("a", "mismatch", "krun")]);
+    let output = fixture.run("unchanged", &unchanged, &["--cases", "a"]);
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "a case still below its floor must fail the run: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let document = fixture.document();
+    let run = document["run"].as_array().unwrap().last().unwrap();
+    assert_eq!(run["regressions"].as_array().unwrap().len(), 0);
+    assert_eq!(run["below_floor"].as_array().unwrap(), &[Value::from("a")]);
+    assert_eq!(run_cases(run)["a"]["delta"].as_str(), Some("same"));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("below stage-1 floor: [\"a\"]"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let excluded_only = fixture.results("excluded-only", &[("c", "krust-error", "kompile")]);
+    let output = fixture.run("excluded-only", &excluded_only, &["--cases", "c"]);
+    assert!(
+        output.status.success(),
+        "an excluded case below its floor never fails: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document = fixture.document();
+    let run = document["run"].as_array().unwrap().last().unwrap();
+    assert_eq!(run["below_floor"].as_array().unwrap().len(), 0);
+    assert_eq!(run["excluded"].as_array().unwrap(), &[Value::from("c")]);
+}
+
+#[test]
 fn conformance_ratchet_audit_lists_cases_below_the_stage_1_floor() {
     let fixture = Fixture::new();
     let baseline = fixture.results("baseline", &baseline_cases());
