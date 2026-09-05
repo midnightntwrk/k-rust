@@ -6,7 +6,9 @@ use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{Sort, Term};
 
 use super::parametric::substitute_sort;
-use super::{Grammar, Item, ParseError, ParsedTerm, ParserRole, ProductionOptions};
+use super::{
+    Grammar, Item, ParametricOrigin, ParseError, ParsedTerm, ParserRole, ProductionOptions,
+};
 
 #[derive(Clone, Debug)]
 pub(super) struct UserList {
@@ -303,7 +305,7 @@ impl Grammar {
     fn add_empty_lists_with_order(
         &self,
         term: ParsedTerm,
-        _expected: &Sort,
+        expected: &Sort,
         subsorts: &PartialOrder<Sort>,
     ) -> Result<ParsedTerm, ParseError> {
         match term {
@@ -312,7 +314,7 @@ impl Grammar {
                 alternatives
                     .into_iter()
                     .map(|alternative| {
-                        self.add_empty_lists_with_order(alternative, _expected, subsorts)
+                        self.add_empty_lists_with_order(alternative, expected, subsorts)
                     })
                     .collect::<Result<_, _>>()?,
             )),
@@ -380,27 +382,25 @@ impl Grammar {
                 metadata,
             } => {
                 let descriptor = &self.productions[production];
+                // Java's `AddEmptyLists.apply` completes children against the production that
+                // `AddSortInjections.substituteProd` instantiates from the node's expected sort
+                // and its children's sorts, not against the parser's inferred parameters. The
+                // two differ for a binder position such as `#let X = e #in ...`: inference
+                // leaves the child-only `Sort2` at `K`, while the reference instantiates it to
+                // `lub(sort(X), sort(e))`, so an element-sorted `X` bound to a user list is
+                // completed to the singleton list `X .Xs` before ResolveFun reads the binder.
                 let expected_children = descriptor
                     .parametric_origin
                     .as_ref()
                     .map(|origin| {
-                        let substitution = origin
-                            .parameters
-                            .iter()
-                            .cloned()
-                            .zip(parameters.iter().cloned())
-                            .collect::<BTreeMap<_, _>>();
-                        origin
-                            .items
-                            .iter()
-                            .filter_map(|item| match item {
-                                ProductionItem::NonTerminal { sort, .. } => {
-                                    Some(substitute_sort(sort, &substitution))
-                                }
-                                ProductionItem::Terminal(_)
-                                | ProductionItem::RegexTerminal { .. } => None,
-                            })
-                            .collect::<Vec<_>>()
+                        self.list_instantiation(
+                            origin,
+                            &parameters,
+                            Some(expected),
+                            &children,
+                            subsorts,
+                        )
+                        .0
                     })
                     .unwrap_or_else(|| {
                         nonterminal_sorts(descriptor).into_iter().cloned().collect()
@@ -455,7 +455,7 @@ impl Grammar {
         if !self.user_lists.contains_key(expected) {
             return Ok(child);
         }
-        let child_sort = parsed_sort(self, &child);
+        let child_sort = self.list_sort(&child, Some(expected), subsorts);
         if self.user_lists.contains_key(&child_sort) && subsorts.less_than_eq(&child_sort, expected)
         {
             return Ok(child);
@@ -521,6 +521,189 @@ impl Grammar {
             metadata: super::TermMetadata::default(),
         })
     }
+}
+
+impl Grammar {
+    /// Port of `AddSortInjections.substituteProd` as `AddEmptyLists` uses it: instantiate a
+    /// parametric production from the expected sort of its node and the sorts of its children.
+    /// A parameter that neither the expected sort nor any child constrains keeps the parser's
+    /// inferred instantiation, where Java would keep a fresh sort parameter; so does a parameter
+    /// whose bounds have no unique least upper bound, where Java reports an internal error.
+    /// Returns the instantiated nonterminal sorts and the instantiated result sort.
+    fn list_instantiation(
+        &self,
+        origin: &ParametricOrigin,
+        inferred: &[Sort],
+        expected: Option<&Sort>,
+        children: &[ParsedTerm],
+        subsorts: &PartialOrder<Sort>,
+    ) -> (Vec<Sort>, Sort) {
+        let fresh = origin
+            .parameters
+            .iter()
+            .map(|parameter| {
+                (*parameter == origin.result)
+                    .then(|| expected.cloned())
+                    .flatten()
+            })
+            .collect::<Vec<_>>();
+        let fresh_substitution = origin
+            .parameters
+            .iter()
+            .zip(&fresh)
+            .filter_map(|(parameter, sort)| Some((parameter.clone(), sort.clone()?)))
+            .collect::<BTreeMap<_, _>>();
+        let declared = origin
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        let mut bounds = BTreeMap::<Sort, Vec<Sort>>::new();
+        for (declared_sort, child) in declared.iter().zip(children) {
+            let child_expected = substitute_sort(declared_sort, &fresh_substitution);
+            let child_expected = (!mentions_parameter(&child_expected, &origin.parameters))
+                .then_some(child_expected);
+            let actual = self.list_sort(child, child_expected.as_ref(), subsorts);
+            match_parameters(origin, declared_sort, &actual, &mut bounds, subsorts);
+        }
+        let result_only_parameter = origin.parameters.iter().any(|parameter| {
+            let parameter = std::slice::from_ref(parameter);
+            mentions_parameter(&origin.result, parameter)
+                && !declared
+                    .iter()
+                    .any(|sort| mentions_parameter(sort, parameter))
+        });
+        if result_only_parameter && let Some(expected) = expected {
+            match_parameters(origin, &origin.result, expected, &mut bounds, subsorts);
+        }
+        let arguments = origin
+            .parameters
+            .iter()
+            .zip(&fresh)
+            .enumerate()
+            .map(|(index, (parameter, fresh))| {
+                let mut entries = bounds.get(parameter).cloned().unwrap_or_default();
+                entries.extend(fresh.clone());
+                if entries.is_empty() {
+                    None
+                } else {
+                    least_upper_bound(&entries, subsorts)
+                }
+                .or_else(|| inferred.get(index).cloned())
+                .unwrap_or_else(|| parameter.clone())
+            })
+            .collect::<Vec<_>>();
+        let instantiation = origin
+            .parameters
+            .iter()
+            .cloned()
+            .zip(arguments)
+            .collect::<BTreeMap<_, _>>();
+        (
+            declared
+                .iter()
+                .map(|sort| substitute_sort(sort, &instantiation))
+                .collect(),
+            substitute_sort(&origin.result, &instantiation),
+        )
+    }
+
+    /// Port of `AddEmptyLists.getSort`: the sort of a parse node as the completion pass sees
+    /// it, instantiating a parametric node against its expected sort.
+    fn list_sort(
+        &self,
+        term: &ParsedTerm,
+        expected: Option<&Sort>,
+        subsorts: &PartialOrder<Sort>,
+    ) -> Sort {
+        let k = Sort::new("K");
+        let expected = expected.map(|sort| {
+            if subsorts.greater_than(sort, &k) {
+                &k
+            } else {
+                sort
+            }
+        });
+        match term {
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                ..
+            } => match &self.productions[*production].parametric_origin {
+                Some(origin) => {
+                    self.list_instantiation(origin, parameters, expected, children, subsorts)
+                        .1
+                }
+                None => self.productions[*production].result.clone(),
+            },
+            _ => parsed_sort(self, term),
+        }
+    }
+}
+
+/// Port of `AddSortInjections.match`: record which concrete sorts flow into each parameter of
+/// `origin` when a nonterminal declared as `declared` holds a child of sort `actual`.
+fn match_parameters(
+    origin: &ParametricOrigin,
+    declared: &Sort,
+    actual: &Sort,
+    bounds: &mut BTreeMap<Sort, Vec<Sort>>,
+    subsorts: &PartialOrder<Sort>,
+) {
+    if origin.parameters.contains(declared) {
+        bounds
+            .entry(declared.clone())
+            .or_default()
+            .push(actual.clone());
+        return;
+    }
+    if declared.parameters.is_empty() {
+        return;
+    }
+    let candidates = std::iter::once(actual.clone())
+        .chain(subsorts.lower_bounds([actual]))
+        .collect::<BTreeSet<_>>();
+    for candidate in candidates {
+        if candidate.name == declared.name
+            && candidate.parameters.len() == declared.parameters.len()
+        {
+            for (declared, actual) in declared.parameters.iter().zip(&candidate.parameters) {
+                match_parameters(origin, declared, actual, bounds, subsorts);
+            }
+        }
+    }
+}
+
+fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
+    parameters.contains(sort)
+        || sort
+            .parameters
+            .iter()
+            .any(|parameter| mentions_parameter(parameter, parameters))
+}
+
+/// Port of `AddSortInjections.lub` over the parser's subsort order: the unique minimal common
+/// upper bound that is neither below `KBott` nor above `K`.
+fn least_upper_bound(sorts: &[Sort], subsorts: &PartialOrder<Sort>) -> Option<Sort> {
+    let unique = sorts.iter().cloned().collect::<BTreeSet<_>>();
+    if unique.len() == 1 {
+        return unique.into_iter().next();
+    }
+    let k = Sort::new("K");
+    let k_bottom = Sort::new("KBott");
+    let bounds = subsorts
+        .upper_bounds(unique.iter())
+        .into_iter()
+        .filter(|bound| {
+            !subsorts.less_than_eq(bound, &k_bottom) && !subsorts.greater_than(bound, &k)
+        })
+        .collect::<BTreeSet<_>>();
+    let minimal = subsorts.minimal(bounds.iter());
+    (minimal.len() == 1).then(|| minimal.into_iter().next().expect("one minimum"))
 }
 
 fn has_visible_terminal(production: &super::Production) -> bool {
