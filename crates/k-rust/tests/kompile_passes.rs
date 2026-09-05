@@ -136,6 +136,148 @@ fn reference_parametric_fixture_rule_ids_match() {
     assert_eq!(actual, expected);
 }
 
+#[derive(Deserialize)]
+struct LambdaSortOracle {
+    lambda: Vec<LambdaSignature>,
+}
+
+#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+struct LambdaSignature {
+    line: usize,
+    arguments: Vec<String>,
+    total: bool,
+}
+
+#[test]
+fn reference_let_list_binder_lambda_parameter_sorts_match() {
+    // reference: k/result/bin/kompile --backend haskell --main-module LET-LIST-BINDER --syntax-module LET-LIST-BINDER test.k
+    //
+    // B1-02 follow-up (stage-12 finding on the wasm haskell/rust semantic comparator): the
+    // generated `#lambda` production of a `#let`/`#fun` binder must take the same argument
+    // sorts as the reference for a binder whose sort is only known by inference, including the
+    // wasm-data/sparse-bytes.k:82-84 shape where the bound variable is a user-list element
+    // (line 12, reference `(Chunks, Chunks, Int)`, not total), and the explicit-cast control
+    // (line 21) must keep today's output.
+    let source = include_str!("fixtures/reference/kompile/let-list-binder/test.k");
+    let oracle: LambdaSortOracle = toml::from_str(include_str!(
+        "fixtures/reference/kompile/let-list-binder/reference.toml"
+    ))
+    .expect("reference lambda oracle should parse");
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("let-list-binder.k", source),
+        "LET-LIST-BINDER",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("reference fixture should load");
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect("reference fixture should compile");
+    let definition =
+        parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse");
+    let sentences = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .collect::<Vec<_>>();
+
+    let attribute = |attributes: &k_rust::kore::ast::Attributes, name: &str| {
+        attributes.0.iter().find_map(|attribute| match attribute {
+            KorePattern::Application { symbol, arguments } if symbol.name == name => {
+                match arguments.as_slice() {
+                    [KorePattern::String(value)] => Some(value.clone()),
+                    [] => Some(String::new()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+    };
+    // Attribute each generated `#lambda` symbol to the source line of the rule that calls it:
+    // the call-site axiom carries the rule's Location in both frontends, whereas only the
+    // reference copies the local-function expression's Location onto the generated rule.
+    let lambda_lines = sentences
+        .iter()
+        .filter_map(|sentence| {
+            let KoreSentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } = sentence
+            else {
+                return None;
+            };
+            let line = attribute(
+                attributes,
+                "org'Stop'kframework'Stop'attributes'Stop'Location",
+            )?
+            .strip_prefix("Location(")?
+            .split(',')
+            .next()?
+            .parse::<usize>()
+            .ok()?;
+            Some((format!("{pattern:?}"), line))
+        })
+        .fold(
+            BTreeMap::<String, usize>::new(),
+            |mut lines, (rendered, line)| {
+                for (start, _) in rendered.match_indices("\"Lbl'Hash'lambda") {
+                    let name = rendered[start + 1..]
+                        .split('"')
+                        .next()
+                        .expect("a rendered symbol name closes its quote");
+                    let entry = lines.entry(name.to_owned()).or_insert(line);
+                    *entry = (*entry).min(line);
+                }
+                lines
+            },
+        );
+    let actual = sentences
+        .iter()
+        .filter_map(|sentence| {
+            let KoreSentence::SymbolDeclaration {
+                symbol,
+                argument_sorts,
+                attributes,
+                ..
+            } = sentence
+            else {
+                return None;
+            };
+            let line = *lambda_lines.get(&symbol.name)?;
+            let arguments = argument_sorts
+                .iter()
+                .map(|sort| match sort {
+                    k_rust::kore::ast::Sort::Application { name, .. } => {
+                        name.strip_prefix("Sort").unwrap_or(name).to_owned()
+                    }
+                    k_rust::kore::ast::Sort::Variable(name) => name.clone(),
+                })
+                .collect();
+            Some(LambdaSignature {
+                line,
+                arguments,
+                total: attribute(attributes, "total").is_some(),
+            })
+        })
+        .collect::<BTreeSet<_>>();
+    let expected = oracle.lambda.into_iter().collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        actual, expected,
+        "generated #lambda productions (line, argument sorts, total) differ from the reference"
+    );
+}
+
 fn snapshot_attributes(attributes: &Attributes) -> BTreeMap<String, Value> {
     attributes
         .entries()
