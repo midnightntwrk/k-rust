@@ -153,7 +153,7 @@ pub fn check_definition_with_options(
     let mut diagnostics = Vec::new();
     diagnostics.extend(check_claims_in_definition(definition, &options));
     diagnostics.extend(check_proof_module(definition, &options));
-    diagnostics.extend(check_is_sort_predicates(definition));
+    diagnostics.extend(check_is_sort_predicates(definition, &options));
     for (module_id, module) in definition.modules() {
         let visible = definition.sentences(module_id);
         let sort_catalog = definition.sort_catalog(module_id);
