@@ -255,6 +255,86 @@ fn conformance_driver_mirrors_the_ratchet_ranks() {
     }
 }
 
+#[test]
+fn conformance_driver_forwards_kompile_warning_flags_and_md_selectors() {
+    // D1-14 documented the driver dropping `-w2e -w all` (checkWarns) and D1-04's
+    // markdownSelectors row exposed that krust's per-run recompilation never saw the
+    // kompile recipe's `--md-selector`. The translations are pure functions of the
+    // recipe, so they are checked without the reference toolchain.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import run
+case = run.Case("markdownSelectors")
+recipe = run.split_recipe(
+    "/kbin/kompile -w2e -w all --md-selector '(k|keep) & !discard' --backend haskell"
+    " test.md --output-definition ./test-kompiled"
+)
+kompile, why, info = run.krust_kompile_args(case, recipe)
+def call(name, *args):
+    function = getattr(run, name, None)
+    return function(*args) if function else None
+print(json.dumps({
+    "kompile": kompile,
+    "why": why,
+    "dropped": info["dropped"] if info else None,
+    "krun": call("krust_krun_args", case, "1.test", None, ["--depth", "3"], "KItem", "TEST-SYNTAX"),
+    "kast": call("krust_kast_args", case, "TEST-SYNTAX", "KItem", "kast", None, "1.test"),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let translated: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let words = |key: &str| -> Vec<String> {
+        translated[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("{key} is not translated: {translated}"))
+            .iter()
+            .map(|word| word.as_str().unwrap().to_owned())
+            .collect()
+    };
+    let kompile = words("kompile");
+    assert!(
+        kompile.windows(2).any(|pair| pair == ["--warnings", "all"]),
+        "kompile forwards -w all: {kompile:?}"
+    );
+    assert!(
+        kompile.iter().any(|word| word == "--warnings-to-errors"),
+        "kompile forwards -w2e: {kompile:?}"
+    );
+    assert_eq!(
+        translated["dropped"],
+        serde_json::Value::Array(Vec::new()),
+        "no kompile flag is dropped: {translated}"
+    );
+    for tool in ["krun", "kast"] {
+        let args = words(tool);
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--md-selector", "(k|keep) & !discard"]),
+            "{tool} carries the kompile md-selector: {args:?}"
+        );
+        assert_eq!(args[0], "/krust");
+    }
+    let krun = words("krun");
+    assert!(
+        krun.windows(2).any(|pair| pair == ["--depth", "3"]),
+        "{krun:?}"
+    );
+    assert_eq!(krun[1..4], ["krun", "test.md", "1.test"], "{krun:?}");
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),
