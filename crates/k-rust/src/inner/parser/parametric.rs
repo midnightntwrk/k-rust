@@ -269,6 +269,7 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         user_list: attributes.get("userList").is_some(),
         user_list_nonempty: attributes.get_str("userList") == Some("+"),
         precedence: attributes.get_str("prec"),
+        hook: attributes.get_str("hook"),
     }
 }
 

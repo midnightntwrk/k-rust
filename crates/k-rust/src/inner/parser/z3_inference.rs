@@ -42,6 +42,39 @@ struct Encoding<'a> {
     anywhere: bool,
     top_rewrite_paths: HashSet<String>,
     top_rewrite_ids: HashSet<*const PackedTerm>,
+    /// Numeric sort names declared by the grammar as parameters of an instantiated parametric
+    /// sort (`Module.definedSorts` keeps the Nat heads of `definedInstantiations`).
+    declared_nat_sorts: BTreeSet<String>,
+    /// Whether a token leaf was constrained against a ground sort it cannot satisfy, so a term
+    /// without variables must still be solved and rejected.
+    ill_sorted_ground: bool,
+    /// `ExpectedSortsVisitor.isIncremental`: after an unsat check the constraints are rebuilt
+    /// one alternative per ambiguity and replayed singly to name the offending term.
+    incremental: bool,
+    replay: Vec<ReplayConstraint>,
+}
+
+const UNSAT_MESSAGE: &str = "no well-sorted parse or variable assignment exists";
+
+/// One constraint of the incremental replay (`TypeInferencer.Constraint`).
+struct ReplayConstraint {
+    constraint: Bool,
+    subject: ReplaySubject,
+    expected: Datatype,
+}
+
+enum ReplaySubject {
+    Variable {
+        name: String,
+        variable: Datatype,
+    },
+    Term {
+        /// The actual sort value, evaluated in the last satisfiable model; `None` when the
+        /// sort is an undeclared Nat instantiation, which `eval` returns unchanged.
+        actual: Option<Datatype>,
+        undeclared: Option<Sort>,
+        production: String,
+    },
 }
 
 type PackedConstraintKey = (*const PackedTerm, Datatype, CastContext);
@@ -76,9 +109,7 @@ impl Grammar {
         let seed = encoding.seed_model(&solver)?;
         match solver.check() {
             SatResult::Unsat => {
-                return Err(z3_error(
-                    "no well-sorted parse or variable assignment exists",
-                ));
+                return Err(encoding.explain_unsat_packed(&term, &expected, root_context));
             }
             SatResult::Unknown => {
                 return Err(z3_error(format!(
@@ -186,7 +217,7 @@ impl Grammar {
             CastContext::None
         };
         let constraint = encoding.constraint(&term, &expected, root_context, "root")?;
-        if encoding.variables.is_empty() {
+        if encoding.variables.is_empty() && !encoding.ill_sorted_ground {
             return Ok(term);
         }
 
@@ -196,9 +227,7 @@ impl Grammar {
         let seed = encoding.seed_model(&solver)?;
         match solver.check() {
             SatResult::Unsat => {
-                return Err(z3_error(
-                    "no well-sorted parse or variable assignment exists",
-                ));
+                return Err(encoding.explain_unsat(&term, &expected, root_context));
             }
             SatResult::Unknown => {
                 return Err(z3_error(format!(
@@ -296,6 +325,22 @@ impl<'a> Encoding<'a> {
                 }
             }
         }
+        // Only the grammar declares sorts; a `MInt{32}` token must not declare its own width.
+        let mut declared_nat_sorts = BTreeSet::new();
+        for production in &grammar.productions {
+            collect_declared_nats(&production.result, &[], &mut declared_nat_sorts);
+            for sort in nonterminal_sorts(production) {
+                collect_declared_nats(sort, &[], &mut declared_nat_sorts);
+            }
+            if let Some(origin) = &production.parametric_origin {
+                collect_declared_nats(&origin.result, &origin.parameters, &mut declared_nat_sorts);
+                for item in &origin.items {
+                    if let crate::definition::ProductionItem::NonTerminal { sort, .. } = item {
+                        collect_declared_nats(sort, &origin.parameters, &mut declared_nat_sorts);
+                    }
+                }
+            }
+        }
         collect_terms(&mut heads, &mut ground_sorts);
         if heads.is_empty() {
             heads.insert(SortHead::nullary("K"));
@@ -343,6 +388,10 @@ impl<'a> Encoding<'a> {
             anywhere,
             top_rewrite_paths: HashSet::new(),
             top_rewrite_ids: HashSet::new(),
+            declared_nat_sorts,
+            ill_sorted_ground: false,
+            incremental: false,
+            replay: Vec::new(),
         };
         for sort in encoding.ground_sorts.iter() {
             encoding.sort_value(sort, &BTreeMap::new())?;
@@ -361,8 +410,15 @@ impl<'a> Encoding<'a> {
     ) -> Result<Bool, ParseError> {
         match term {
             ParsedTerm::Ambiguity(alternatives) => {
+                // Incremental mode explains one branch of an ambiguity, as the reference does.
+                let considered = if self.incremental {
+                    1
+                } else {
+                    alternatives.len()
+                };
                 let constraints = alternatives
                     .iter()
+                    .take(considered)
                     .enumerate()
                     .map(|(index, alternative)| {
                         self.constraint(
@@ -378,25 +434,10 @@ impl<'a> Encoding<'a> {
             ParsedTerm::Term(term) => match term.unannotated() {
                 Term::Variable { name, .. } => {
                     let variable = self.term_variable(term, name, path);
-                    Ok(match (is_anonymous(name), cast_context) {
-                        // Anonymous occurrences are independent variables, but each one has the
-                        // exact sort demanded by its context in the reference inferencer.
-                        (true, _) | (_, CastContext::Strict) => variable.eq(expected),
-                        (false, CastContext::Parser) => Bool::from_bool(true),
-                        (false, CastContext::None | CastContext::Semantic) => {
-                            self.less_than_eq(&variable, expected, false)?
-                        }
-                    })
+                    self.variable_constraint(variable, name, expected, cast_context)
                 }
                 Term::Token { sort, .. } => {
-                    let actual = self.sort_value(sort, &BTreeMap::new())?;
-                    Ok(match cast_context {
-                        CastContext::Strict => actual.eq(expected),
-                        CastContext::Parser => Bool::from_bool(true),
-                        CastContext::None | CastContext::Semantic => {
-                            self.less_than_eq(&actual, expected, false)?
-                        }
-                    })
+                    self.token_constraint(term, sort, expected, cast_context)
                 }
                 _ => Err(z3_error(
                     "unexpected lowered KAST node in the concrete parse forest",
@@ -421,11 +462,21 @@ impl<'a> Encoding<'a> {
                             .parametric_origin
                             .as_ref()
                             .is_some_and(|origin| origin.parameters.contains(&origin.result));
-                    constraints.push(if strict {
+                    let constraint = if strict {
                         actual.eq(expected)
                     } else {
                         self.less_than_eq(&actual, expected, false)?
-                    });
+                    };
+                    self.record_replay(
+                        &constraint,
+                        ReplaySubject::Term {
+                            actual: Some(actual.clone()),
+                            undeclared: None,
+                            production: production_text(descriptor),
+                        },
+                        expected,
+                    );
+                    constraints.push(constraint);
                 }
 
                 let expected_children = production_nonterminals(descriptor);
@@ -511,7 +562,11 @@ impl<'a> Encoding<'a> {
         }
         let result = (|| match &term.node {
             PackedNode::Ambiguity(alternatives) => {
-                let alternatives = packed_terms_in_structural_order(alternatives);
+                let mut alternatives = packed_terms_in_structural_order(alternatives);
+                if self.incremental {
+                    // Incremental mode explains one branch of an ambiguity, as the reference does.
+                    alternatives.truncate(1);
+                }
                 let constraints = alternatives
                     .iter()
                     .map(|alternative| {
@@ -528,7 +583,9 @@ impl<'a> Encoding<'a> {
                         self.grammar.productions[*production].source_production
                     })
                     .collect::<Option<Vec<_>>>();
-                if let Some(overloads) = overloads {
+                if let Some(overloads) = overloads
+                    && !self.incremental
+                {
                     let productions = overloads.iter().copied().collect::<BTreeSet<_>>();
                     let minimal = self.grammar.overloads.minimal(productions.iter());
                     if minimal.len() < productions.len() {
@@ -547,23 +604,10 @@ impl<'a> Encoding<'a> {
             PackedNode::Term(leaf) => match leaf.unannotated() {
                 Term::Variable { name, .. } => {
                     let variable = self.packed_term_variable(leaf, name, identity);
-                    Ok(match (is_anonymous(name), cast_context) {
-                        (true, _) | (_, CastContext::Strict) => variable.eq(expected),
-                        (false, CastContext::Parser) => Bool::from_bool(true),
-                        (false, CastContext::None | CastContext::Semantic) => {
-                            self.less_than_eq(&variable, expected, false)?
-                        }
-                    })
+                    self.variable_constraint(variable, name, expected, cast_context)
                 }
                 Term::Token { sort, .. } => {
-                    let actual = self.sort_value(sort, &BTreeMap::new())?;
-                    Ok(match cast_context {
-                        CastContext::Strict => actual.eq(expected),
-                        CastContext::Parser => Bool::from_bool(true),
-                        CastContext::None | CastContext::Semantic => {
-                            self.less_than_eq(&actual, expected, false)?
-                        }
-                    })
+                    self.token_constraint(leaf, sort, expected, cast_context)
                 }
                 _ => Err(z3_error(
                     "unexpected lowered KAST node in the packed parse forest",
@@ -588,11 +632,21 @@ impl<'a> Encoding<'a> {
                             .parametric_origin
                             .as_ref()
                             .is_some_and(|origin| origin.parameters.contains(&origin.result));
-                    constraints.push(if strict {
+                    let constraint = if strict {
                         actual.eq(expected)
                     } else {
                         self.less_than_eq(&actual, expected, false)?
-                    });
+                    };
+                    self.record_replay(
+                        &constraint,
+                        ReplaySubject::Term {
+                            actual: Some(actual.clone()),
+                            undeclared: None,
+                            production: production_text(descriptor),
+                        },
+                        expected,
+                    );
+                    constraints.push(constraint);
                 }
                 let expected_children = production_nonterminals(descriptor);
                 if expected_children.len() != children.len() {
@@ -800,6 +854,246 @@ impl<'a> Encoding<'a> {
             .entry(key.clone())
             .or_insert_with(|| Datatype::new_const(key, &self.datatype.sort))
             .clone()
+    }
+
+    /// `TypeInferencer.isBadNatSort`: a numeric sort name the grammar never declared as a
+    /// parameter of an instantiated sort, at any depth.
+    fn is_bad_nat_sort(&self, sort: &Sort) -> bool {
+        (sort.name.parse::<u64>().is_ok() && !self.declared_nat_sorts.contains(&sort.name))
+            || sort
+                .parameters
+                .iter()
+                .any(|parameter| self.is_bad_nat_sort(parameter))
+    }
+
+    fn variable_constraint(
+        &mut self,
+        variable: Datatype,
+        name: &str,
+        expected: &Datatype,
+        cast_context: CastContext,
+    ) -> Result<Bool, ParseError> {
+        let constraint = match (is_anonymous(name), cast_context) {
+            // Anonymous occurrences are independent variables, but each one has the
+            // exact sort demanded by its context in the reference inferencer.
+            (true, _) | (_, CastContext::Strict) => variable.eq(expected),
+            (false, CastContext::Parser) => Bool::from_bool(true),
+            (false, CastContext::None | CastContext::Semantic) => {
+                self.less_than_eq(&variable, expected, false)?
+            }
+        };
+        if is_anonymous(name) || cast_context != CastContext::Parser {
+            self.record_replay(
+                &constraint,
+                ReplaySubject::Variable {
+                    name: name.to_owned(),
+                    variable,
+                },
+                expected,
+            );
+        }
+        Ok(constraint)
+    }
+
+    fn token_constraint(
+        &mut self,
+        leaf: &Term,
+        sort: &Sort,
+        expected: &Datatype,
+        cast_context: CastContext,
+    ) -> Result<Bool, ParseError> {
+        if self.is_bad_nat_sort(sort) {
+            // `pushConstraint` writes `false` for an undeclared Nat instantiation before any
+            // cast context applies (TypeInferencer.java:729-731).
+            self.ill_sorted_ground = true;
+            let constraint = Bool::from_bool(false);
+            self.record_replay(
+                &constraint,
+                ReplaySubject::Term {
+                    actual: None,
+                    undeclared: Some(sort.clone()),
+                    production: self.token_production_text(leaf, sort),
+                },
+                expected,
+            );
+            return Ok(constraint);
+        }
+        let actual = self.sort_value(sort, &BTreeMap::new())?;
+        let constraint = match cast_context {
+            CastContext::Strict => actual.eq(expected),
+            CastContext::Parser => Bool::from_bool(true),
+            CastContext::None | CastContext::Semantic => {
+                self.less_than_eq(&actual, expected, false)?
+            }
+        };
+        if !self.ground_token_fits(sort, expected, cast_context) {
+            self.ill_sorted_ground = true;
+        }
+        if cast_context != CastContext::Parser {
+            self.record_replay(
+                &constraint,
+                ReplaySubject::Term {
+                    actual: Some(actual),
+                    undeclared: None,
+                    production: self.token_production_text(leaf, sort),
+                },
+                expected,
+            );
+        }
+        Ok(constraint)
+    }
+
+    /// Whether a token of a ground sort satisfies a ground expected sort; a symbolic expected
+    /// sort is left to the solver.
+    fn ground_token_fits(&self, actual: &Sort, expected: &Datatype, context: CastContext) -> bool {
+        let Ok(expected) = self.decode_sort(expected) else {
+            return true;
+        };
+        match context {
+            CastContext::Parser => true,
+            CastContext::Strict => actual == &expected,
+            CastContext::None | CastContext::Semantic => {
+                actual == &expected || self.semantic.less_than_eq(actual, &expected)
+            }
+        }
+    }
+
+    fn record_replay(&mut self, constraint: &Bool, subject: ReplaySubject, expected: &Datatype) {
+        if self.incremental {
+            self.replay.push(ReplayConstraint {
+                constraint: constraint.clone(),
+                subject,
+                expected: expected.clone(),
+            });
+        }
+    }
+
+    /// The production text the reference prints for a token leaf: the MINT.literal
+    /// instantiation substituted with the leaf's width, otherwise the declaring production.
+    fn token_production_text(&self, leaf: &Term, sort: &Sort) -> String {
+        let production = leaf
+            .metadata()
+            .and_then(|metadata| metadata.production)
+            .and_then(|id| {
+                self.grammar.productions.iter().find(|production| {
+                    production.token
+                        && production
+                            .source_production
+                            .is_some_and(|source| source.0 == id.0)
+                })
+            });
+        match production {
+            Some(production) => match &production.parametric_origin {
+                Some(origin) => {
+                    super::render_production(&crate::definition::Sentence::Production {
+                        label: origin.label.clone(),
+                        parameters: Vec::new(),
+                        sort: sort.clone(),
+                        items: origin.items.clone(),
+                        attributes: origin.attributes.clone(),
+                    })
+                    .unwrap_or_else(|| production_text(production))
+                }
+                None => production_text(production),
+            },
+            None => format!("syntax {sort} ::= <token>"),
+        }
+    }
+
+    fn explain_unsat_packed(
+        &mut self,
+        term: &Rc<PackedTerm>,
+        expected: &Datatype,
+        root_context: CastContext,
+    ) -> ParseError {
+        self.incremental = true;
+        self.replay.clear();
+        let explained = self
+            .constraint_packed(term, expected, root_context, &mut HashMap::new())
+            .and_then(|_| self.replay_constraints());
+        self.incremental = false;
+        explained.unwrap_or_else(|_| z3_error(UNSAT_MESSAGE))
+    }
+
+    fn explain_unsat(
+        &mut self,
+        term: &ParsedTerm,
+        expected: &Datatype,
+        root_context: CastContext,
+    ) -> ParseError {
+        self.incremental = true;
+        self.replay.clear();
+        let explained = self
+            .constraint(term, expected, root_context, "root")
+            .and_then(|_| self.replay_constraints());
+        self.incremental = false;
+        explained.unwrap_or_else(|_| z3_error(UNSAT_MESSAGE))
+    }
+
+    /// `TypeInferencer.push`/`replayConstraints`: assert the recorded constraints one at a time,
+    /// variable bounds first, and name the first one that is unsatisfiable together with the
+    /// sorts of the last satisfiable model.
+    fn replay_constraints(&self) -> Result<ParseError, ParseError> {
+        let solver = Solver::new();
+        self.exclude_klabel_parameters(&solver)?;
+        let mut constraints = self.replay.iter().collect::<Vec<_>>();
+        constraints.sort_by_key(|constraint| {
+            !matches!(constraint.subject, ReplaySubject::Variable { .. })
+        });
+        for constraint in constraints {
+            solver.push();
+            solver.assert(&constraint.constraint);
+            match solver.check() {
+                SatResult::Sat => {
+                    solver.pop(1);
+                    solver.assert(&constraint.constraint);
+                }
+                SatResult::Unknown => {
+                    return Err(z3_error("Could not solve sort constraints."));
+                }
+                SatResult::Unsat => {
+                    solver.pop(1);
+                    if !matches!(solver.check(), SatResult::Sat) {
+                        return Err(z3_error("Unknown sort inference error."));
+                    }
+                    let model = solver
+                        .get_model()
+                        .ok_or_else(|| z3_error("Z3 produced no model for the replay"))?;
+                    let expected = self.eval_sort(&model, &constraint.expected)?;
+                    let message = match &constraint.subject {
+                        ReplaySubject::Variable { name, variable } => format!(
+                            "Unexpected sort {} for variable {name}. Expected: {expected}",
+                            self.eval_sort(&model, variable)?
+                        ),
+                        ReplaySubject::Term {
+                            actual,
+                            undeclared,
+                            production,
+                        } => {
+                            let actual = match (undeclared, actual) {
+                                (Some(sort), _) => sort.clone(),
+                                (None, Some(actual)) => self.eval_sort(&model, actual)?,
+                                (None, None) => {
+                                    return Err(z3_error("replay constraint without a sort"));
+                                }
+                            };
+                            format!(
+                                "Unexpected sort {actual} for term parsed as production {production}. Expected: {expected}"
+                            )
+                        }
+                    };
+                    return Ok(z3_error(message));
+                }
+            }
+        }
+        Err(z3_error("Unknown sort inference error."))
+    }
+
+    fn eval_sort(&self, model: &Model, value: &Datatype) -> Result<Sort, ParseError> {
+        let value = model
+            .eval(value, true)
+            .ok_or_else(|| z3_error("Z3 omitted a sort value in the replay model"))?;
+        self.decode_sort(&value)
     }
 
     fn sort_value(
@@ -1701,6 +1995,11 @@ impl<'a> Encoding<'a> {
         expected: &Sort,
         context: CastContext,
     ) -> Result<(), ParseError> {
+        if self.is_bad_nat_sort(actual) {
+            return Err(z3_error(format!(
+                "Unexpected sort {actual}: its numeric sort parameter is not declared by the module"
+            )));
+        }
         let valid = match context {
             CastContext::Parser => true,
             CastContext::Strict => actual == expected,
@@ -1869,6 +2168,34 @@ fn collect_parametric_sort(sort: &Sort, formals: &[Sort], heads: &mut BTreeSet<S
     for parameter in &sort.parameters {
         collect_parametric_sort(parameter, formals, heads);
     }
+}
+
+/// Numeric sort names used as parameters of a declared instantiation such as `MInt{6}`; sort
+/// variables of a parametric origin are skipped.
+fn collect_declared_nats(sort: &Sort, formals: &[Sort], declared: &mut BTreeSet<String>) {
+    if formals.contains(sort) {
+        return;
+    }
+    if sort.name.parse::<u64>().is_ok() {
+        declared.insert(sort.name.clone());
+    }
+    for parameter in &sort.parameters {
+        collect_declared_nats(parameter, formals, declared);
+    }
+}
+
+fn production_text(production: &Production) -> String {
+    production
+        .source_production_text
+        .clone()
+        .unwrap_or_else(|| {
+            super::render_added_production(
+                &production.result,
+                &production.declared_items,
+                production.token,
+                None,
+            )
+        })
 }
 
 fn collect_term_sorts(
@@ -2248,7 +2575,8 @@ mod tests {
             .infer_sorts_z3(term, &Sort::new("K"), false)
             .expect_err("Big cast and Small use of X must conflict");
         assert!(
-            error.to_string().contains("no well-sorted parse")
+            error.to_string().contains("Unexpected sort")
+                || error.to_string().contains("no well-sorted parse")
                 || error.to_string().contains("unexpected sort"),
             "unexpected inference error: {error}"
         );
