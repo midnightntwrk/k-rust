@@ -52,21 +52,15 @@ struct ParametricRuleId {
     unique_id: String,
 }
 
-#[test]
-fn reference_parametric_fixture_rule_ids_match() {
-    // reference: k/result/bin/kompile --backend haskell --main-module PARAMETRIC test.k
-    let source = include_str!("fixtures/reference/kompile/parametric/test.k");
-    let oracle: ParametricIdOracle = toml::from_str(include_str!(
-        "fixtures/reference/kompile/parametric/reference.toml"
-    ))
-    .expect("reference id oracle should parse");
+/// UNIQUE_ID of every source rule of a compiled reference fixture, keyed by its Location line.
+fn fixture_rule_ids(file_name: &str, source: &str, main_module: &str) -> BTreeMap<usize, String> {
     let prelude = embedded("prelude.md").expect("embedded prelude should exist");
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
     let loaded = load_with_options(
-        ResolvedSource::new("parametric.k", source),
-        "PARAMETRIC",
+        ResolvedSource::new(file_name, source),
+        main_module,
         &mut resolver,
         &LoadOptions {
             implicit_sources: vec![prelude],
@@ -96,7 +90,8 @@ fn reference_parametric_fixture_rule_ids_match() {
             _ => None,
         })
     };
-    let actual = definition
+    let source_suffix = format!("{file_name})");
+    definition
         .modules
         .iter()
         .flat_map(|module| &module.sentences)
@@ -108,7 +103,7 @@ fn reference_parametric_fixture_rule_ids_match() {
                 attributes,
                 "org'Stop'kframework'Stop'attributes'Stop'Source",
             )?;
-            source.ends_with("parametric.k)").then(|| {
+            source.ends_with(&source_suffix).then(|| {
                 let location = attribute(
                     attributes,
                     "org'Stop'kframework'Stop'attributes'Stop'Location",
@@ -126,7 +121,49 @@ fn reference_parametric_fixture_rule_ids_match() {
                 )
             })
         })
+        .collect()
+}
+
+#[test]
+fn reference_parametric_fixture_rule_ids_match() {
+    // reference: k/result/bin/kompile --backend haskell --main-module PARAMETRIC test.k
+    let oracle: ParametricIdOracle = toml::from_str(include_str!(
+        "fixtures/reference/kompile/parametric/reference.toml"
+    ))
+    .expect("reference id oracle should parse");
+    let actual = fixture_rule_ids(
+        "parametric.k",
+        include_str!("fixtures/reference/kompile/parametric/test.k"),
+        "PARAMETRIC",
+    );
+    let expected = oracle
+        .rule
+        .into_iter()
+        .map(|rule| (rule.line, rule.unique_id))
         .collect::<BTreeMap<_, _>>();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn reference_rewrite_list_singleton_rule_ids_match() {
+    // reference: k/result/bin/kompile --backend haskell --main-module REWRITE-LIST-SINGLETON
+    //   --syntax-module REWRITE-LIST-SINGLETON test.k
+    //
+    // B1-02 follow-up (stage-12 conformance ratchet finding on issue-1573): NumberSentences
+    // hashes the rule as the parser completed it, so the UNIQUE_ID of `<v> 1 => foo(1) </v>`
+    // (line 24) records whether AddEmptyLists instantiated the `#KRewrite` at lub(Int, Int)
+    // and wrapped the whole rewrite in one IntList singleton, as the reference does, or
+    // wrapped each side separately. Lines 21 and 27 are the variable and list-side controls.
+    let oracle: ParametricIdOracle = toml::from_str(include_str!(
+        "fixtures/reference/kompile/rewrite-list-singleton/reference.toml"
+    ))
+    .expect("reference id oracle should parse");
+    let actual = fixture_rule_ids(
+        "rewrite-list-singleton.k",
+        include_str!("fixtures/reference/kompile/rewrite-list-singleton/test.k"),
+        "REWRITE-LIST-SINGLETON",
+    );
     let expected = oracle
         .rule
         .into_iter()
