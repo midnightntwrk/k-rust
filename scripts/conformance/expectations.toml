@@ -2253,7 +2253,14 @@ unexplained = true
 [[expected_delta]]
 tickets = ["C2-01"]
 delta = 10
-cases = ["domains-lemmas-no-smt", "concrete-haskell", "issue-2287-simpl-rules-in-kprovex", "rat/defined/haskell", "rat/defined/llvm", "set-symbolic-tests"]
+cases = [
+  "domains-lemmas-no-smt",
+  "concrete-haskell",
+  "issue-2287-simpl-rules-in-kprovex",
+  "rat/defined/haskell",
+  "rat/defined/llvm",
+  "set-symbolic-tests",
+]
 
 [[expected_delta]]
 tickets = ["C2-03"]
