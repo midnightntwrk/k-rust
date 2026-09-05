@@ -4,7 +4,7 @@ use std::{
     collections::BTreeSet,
     fs,
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -3987,6 +3987,88 @@ fn reference_proof_modules_reject_rules_and_new_syntax() {
         );
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+fn kcompile_checks_fixture(root: &Path, file: &str, module: &str, backend: &str) -> Output {
+    let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/checks")
+        .join(file);
+    Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            module,
+            "--syntax-module",
+            module,
+            "--backend",
+            backend,
+            "--output-directory",
+            root.join(file).with_extension("").to_str().unwrap(),
+            "--warnings",
+            "none",
+        ])
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn reference_is_sort_predicates_outside_the_parsed_definition_are_accepted() {
+    // reference: k/result/bin/kompile --backend haskell isSortPredicateOutsideClosure.k (exit 0)
+    // reference: k/result/bin/kompile --backend haskell isSortPredicateBubbleModule.k (exit 0)
+    let (root, _) = fixture();
+    for (file, module) in [
+        (
+            "isSortPredicateOutsideClosure.k",
+            "ISSORTPREDICATEOUTSIDECLOSURE",
+        ),
+        (
+            "isSortPredicateBubbleModule.k",
+            "ISSORTPREDICATEBUBBLEMODULE",
+        ),
+    ] {
+        let output = kcompile_checks_fixture(&root, file, module, "haskell");
+        assert!(
+            output.status.success(),
+            "{file}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reference_is_sort_predicate_conflicts_in_the_parsed_definition_are_rejected() {
+    // reference: k/result/bin/kompile -w none --backend llvm checkIsSort.k (exit 113)
+    // reference: k/result/bin/kompile --backend haskell isSortPredicateEntryModule.k (exit 113)
+    let (root, _) = fixture();
+    for (file, module, backend, predicates) in [
+        (
+            "checkIsSort.k",
+            "CHECKISSORT",
+            "llvm",
+            &["isNonAddr", "isFoo"][..],
+        ),
+        (
+            "isSortPredicateEntryModule.k",
+            "ISSORTPREDICATEENTRYMODULE",
+            "haskell",
+            &["isRange"][..],
+        ),
+    ] {
+        let output = kcompile_checks_fixture(&root, file, module, backend);
+        assert!(!output.status.success(), "{file}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        for predicate in predicates {
+            assert!(
+                stderr.contains(&format!(
+                    "Error[IsSortPredicateConflict]: Syntax declaration conflicts with automatically generated {predicate} predicate."
+                )),
+                "{file}: {stderr}"
+            );
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

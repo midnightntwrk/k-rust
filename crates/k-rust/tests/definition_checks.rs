@@ -305,6 +305,134 @@ fn is_sort_predicate_conflicts_match_kompile() {
     }));
 }
 
+fn i107_is_sort_predicate(name: &str, argument: &str) -> Sentence {
+    Sentence::Production {
+        label: Some(Label::new(name)),
+        parameters: Vec::new(),
+        sort: Sort::new("Bool"),
+        items: vec![
+            ProductionItem::Terminal(name.into()),
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::NonTerminal {
+                sort: Sort::new(argument),
+                name: None,
+            },
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes: attrs(&[("function", json!(""))]),
+    }
+}
+
+/// A module that declares `Range` and either carries a rule bubble or is syntax-only.
+fn i107_range_module(name: &str, with_rule: bool) -> FlatModule {
+    let mut local_sentences = vec![i107_syntax_sort("Range")];
+    if with_rule {
+        local_sentences.push(rule(located()));
+    }
+    FlatModule {
+        name: name.into(),
+        imports: Vec::new(),
+        local_sentences,
+        attributes: Attributes::default(),
+    }
+}
+
+/// The main module of the MIR shape: a user `isRange(Value)` predicate without a `Range` sort.
+fn i107_is_range_main(name: &str) -> FlatModule {
+    FlatModule {
+        name: name.into(),
+        imports: Vec::new(),
+        local_sentences: vec![
+            i107_syntax_sort("Bool"),
+            i107_syntax_sort("Value"),
+            i107_is_sort_predicate("isRange", "Value"),
+        ],
+        attributes: Attributes::default(),
+    }
+}
+
+fn i107_is_sort_conflicts(
+    definition: &k_rust::definition::ResolvedDefinition,
+    options: StructuralCheckOptions,
+) -> Vec<Diagnostic> {
+    k_rust::definition::check_definition_with_options(definition, options)
+        .unwrap()
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::IsSortPredicateConflict)
+        .collect()
+}
+
+#[test]
+fn is_sort_predicate_ignores_sorts_outside_the_parsed_definition() {
+    // reference: DefinitionParsing.parseDefinitionAndResolveBubbles retains the main closure and
+    // only entry modules whose visible sentences hold no bubble; Kompile.checkIsSortPredicates
+    // never sees a rule-bearing module that nothing imports (isSortPredicateBubbleModule.k and
+    // isSortPredicateOutsideClosure.k both exit 0 under k/result/bin/kompile).
+    let definition = resolved_definition(
+        "MAIN",
+        vec![
+            i107_range_module("RANGE-RULES", true),
+            i107_is_range_main("MAIN"),
+        ],
+    );
+    let conflicts = i107_is_sort_conflicts(&definition, StructuralCheckOptions::default());
+    assert_eq!(conflicts, Vec::new());
+}
+
+#[test]
+fn is_sort_predicate_sees_bubble_free_entry_modules() {
+    // reference: a syntax-only module that nothing imports is an entry module of the parsed
+    // definition, so its Range generates isRange (isSortPredicateEntryModule.k exits 113).
+    let definition = resolved_definition(
+        "MAIN",
+        vec![
+            i107_range_module("RANGE-SYNTAX", false),
+            i107_is_range_main("MAIN"),
+        ],
+    );
+    let conflicts = i107_is_sort_conflicts(&definition, StructuralCheckOptions::default());
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(
+        conflicts[0].message,
+        "Syntax declaration conflicts with automatically generated isRange predicate."
+    );
+}
+
+#[test]
+fn is_sort_predicate_sees_frontend_utility_modules() {
+    // reference: parseDefinitionAndResolveBubbles always retains K-REFLECTION, STDIN-STREAM,
+    // STDOUT-STREAM, and MAP with their import closures, bubbles or not.
+    for utility in ["K-REFLECTION", "STDIN-STREAM", "STDOUT-STREAM", "MAP"] {
+        let definition = resolved_definition(
+            "MAIN",
+            vec![i107_range_module(utility, true), i107_is_range_main("MAIN")],
+        );
+        let conflicts = i107_is_sort_conflicts(&definition, StructuralCheckOptions::default());
+        assert_eq!(conflicts.len(), 1, "{utility}");
+    }
+}
+
+#[test]
+fn is_sort_predicate_sees_the_definition_module_closure_in_proof_mode() {
+    // reference: ProofDefinitionBuilder.build passes the definition module's closure together
+    // with the specification module's closure to Kompile.structuralChecks.
+    let definition = resolved_definition(
+        "SPEC",
+        vec![i107_range_module("DEF", true), i107_is_range_main("SPEC")],
+    );
+    let proof = StructuralCheckOptions {
+        mode: CheckMode::Proof {
+            definition_module: "DEF".into(),
+        },
+        ..StructuralCheckOptions::default()
+    };
+    assert_eq!(i107_is_sort_conflicts(&definition, proof).len(), 1);
+    assert_eq!(
+        i107_is_sort_conflicts(&definition, StructuralCheckOptions::default()),
+        Vec::new()
+    );
+}
+
 #[test]
 fn unused_symbols_follow_check_klabels_exemptions() {
     let definition = resolved_definition(
