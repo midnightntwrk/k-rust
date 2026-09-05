@@ -2935,19 +2935,24 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             trusted: options.trusted_claims,
         },
     )?;
+    // `Kore.Exec.assertSomeClaims`: the reference aborts on a filtered module with no claims.
+    if kept.is_empty() {
+        return Err("the selected module contains no modal reachability claims".into());
+    }
     let circularities = kept.iter().collect::<Vec<_>>();
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     let mut all_proven = true;
     for (index, claim) in kept.iter().enumerate() {
-        if claim.attributes.trusted {
-            continue;
-        }
         let name = claim
             .attributes
             .label
             .as_deref()
             .map_or_else(|| format!("#{}", index + 1), str::to_owned);
+        if claim.attributes.trusted {
+            println!("claim {name}: proven (trusted)");
+            continue;
+        }
         if proven_ids.contains(&claim.attributes.unique_id) {
             println!("claim {name}: proven (saved)");
             timings.claims.push(ClaimTiming {
