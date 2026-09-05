@@ -106,6 +106,7 @@ impl Grammar {
         let solver = Solver::new();
         solver.assert(&constraint);
         encoding.exclude_klabel_parameters(&solver)?;
+        encoding.restrict_to_real_sorts(&solver);
         let seed = encoding.seed_model(&solver)?;
         match solver.check() {
             SatResult::Unsat => {
@@ -304,6 +305,7 @@ impl Grammar {
         let solver = Solver::new();
         solver.assert(&constraint);
         encoding.exclude_klabel_parameters(&solver)?;
+        encoding.restrict_to_real_sorts(&solver);
         let seed = encoding.seed_model(&solver)?;
         match solver.check() {
             SatResult::Unsat => {
@@ -1133,6 +1135,7 @@ impl<'a> Encoding<'a> {
     fn replay_constraints(&self) -> Result<ParseError, ParseError> {
         let solver = Solver::new();
         self.exclude_klabel_parameters(&solver)?;
+        self.restrict_to_real_sorts(&solver);
         let mut constraints = self.replay.iter().collect::<Vec<_>>();
         constraints.sort_by_key(|constraint| {
             !matches!(constraint.subject, ReplaySubject::Variable { .. })
@@ -1274,6 +1277,34 @@ impl<'a> Encoding<'a> {
             }
         }
         Ok(relation)
+    }
+
+    /// `TypeInferencer` declares its Z3 `Sort` datatype from the module's sorts filtered by
+    /// `isRealSort` (TypeInferencer.java:118-130: parametric heads, and no parser sort except
+    /// `K`, `KItem`, `KLabel` and the Nat sorts), and every variable and sort parameter is a
+    /// constant of that datatype, so a scaffolding sort such as `KList` is never their value.
+    /// k-rust's datatype also carries the grammar's scaffolding sorts, which the production
+    /// constraints need as ground values, so the variables and parameters are restricted here.
+    fn restrict_to_real_sorts(&self, solver: &Solver) {
+        let unreal = self
+            .heads
+            .iter()
+            .enumerate()
+            .filter(|(_, head)| {
+                head.parameters() == 0 && !is_real_ground_sort(&Sort::new(head.as_str()))
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        for value in self.variables.values() {
+            for index in &unreal {
+                let is_unreal = self.datatype.variants[*index]
+                    .tester
+                    .apply(&[value])
+                    .as_bool()
+                    .expect("a datatype tester returns a Bool");
+                solver.assert(is_unreal.not());
+            }
+        }
     }
 
     fn exclude_klabel_parameters(&self, solver: &Solver) -> Result<(), ParseError> {
