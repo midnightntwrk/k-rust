@@ -2,8 +2,18 @@
 # Every hook in prelude.md and its transitive requires must occur exactly once.
 version = 1
 backend_namespaces = [
-  "BOOL", "BYTES", "HASH", "INT", "IO", "KEQUAL", "KRYPTO", "LIST", "MAP",
-  "SECP256K1", "SET", "STRING",
+  "BOOL",
+  "BYTES",
+  "HASH",
+  "INT",
+  "IO",
+  "KEQUAL",
+  "KRYPTO",
+  "LIST",
+  "MAP",
+  "SECP256K1",
+  "SET",
+  "STRING",
 ]
 
 implemented = [
@@ -182,9 +192,19 @@ hooks = [
 [[unsupported]]
 reason = "WASM-unused arbitrary-precision, transcendental, remainder, and exponent hooks are not implemented"
 hooks = [
-  "FLOAT.acos", "FLOAT.asin", "FLOAT.atan", "FLOAT.atan2", "FLOAT.cos",
-  "FLOAT.exp", "FLOAT.exponent", "FLOAT.log", "FLOAT.minValue", "FLOAT.pow",
-  "FLOAT.rem", "FLOAT.sin", "FLOAT.tan",
+  "FLOAT.acos",
+  "FLOAT.asin",
+  "FLOAT.atan",
+  "FLOAT.atan2",
+  "FLOAT.cos",
+  "FLOAT.exp",
+  "FLOAT.exponent",
+  "FLOAT.log",
+  "FLOAT.minValue",
+  "FLOAT.pow",
+  "FLOAT.rem",
+  "FLOAT.sin",
+  "FLOAT.tan",
 ]
 
 [[unsupported]]
@@ -194,23 +214,49 @@ hooks = ["INT.bitRange", "INT.rand", "INT.signExtendBitRange", "INT.srand"]
 [[unsupported]]
 reason = "host filesystem, process, clock, and stream effects are not exposed by the backend"
 hooks = [
-  "IO.accept", "IO.close", "IO.getc", "IO.lock", "IO.log", "IO.mkstemp",
-  "IO.open", "IO.putc", "IO.read", "IO.remove", "IO.seek", "IO.seekEnd",
-  "IO.shutdownWrite", "IO.system", "IO.tell", "IO.time", "IO.traceTerm",
-  "IO.unlock", "IO.write",
+  "IO.accept",
+  "IO.close",
+  "IO.getc",
+  "IO.lock",
+  "IO.log",
+  "IO.mkstemp",
+  "IO.open",
+  "IO.putc",
+  "IO.read",
+  "IO.remove",
+  "IO.seek",
+  "IO.seekEnd",
+  "IO.shutdownWrite",
+  "IO.system",
+  "IO.tell",
+  "IO.time",
+  "IO.traceTerm",
+  "IO.unlock",
+  "IO.write",
 ]
 
 [[unsupported]]
 reason = "compiler and process reflection services are not exposed by the backend"
 hooks = [
-  "KREFLECTION.argv", "KREFLECTION.configuration", "KREFLECTION.fresh",
-  "KREFLECTION.getKLabel", "KREFLECTION.getenv", "KREFLECTION.kompiledDir",
-  "KREFLECTION.printKORE", "KREFLECTION.sort",
+  "KREFLECTION.argv",
+  "KREFLECTION.configuration",
+  "KREFLECTION.fresh",
+  "KREFLECTION.getKLabel",
+  "KREFLECTION.getenv",
+  "KREFLECTION.kompiledDir",
+  "KREFLECTION.printKORE",
+  "KREFLECTION.sort",
 ]
 
 [[unsupported]]
 reason = "MInt-specialized and deque-like list operations are not implemented"
-hooks = ["LIST.fill", "LIST.getMInt", "LIST.push", "LIST.sizeMInt", "LIST.updateMInt"]
+hooks = [
+  "LIST.fill",
+  "LIST.getMInt",
+  "LIST.push",
+  "LIST.sizeMInt",
+  "LIST.updateMInt",
+]
 
 [[unsupported]]
 reason = "nondeterministic choice and map difference are not implemented"
@@ -219,25 +265,68 @@ hooks = ["MAP.choice", "MAP.difference"]
 [[unsupported]]
 reason = "fixed-width machine integer evaluation is not implemented"
 hooks = [
-  "MINT.MInt2bytes", "MINT.add", "MINT.and", "MINT.ashr", "MINT.bitwidth",
-  "MINT.bytes2MInt", "MINT.eq", "MINT.integer", "MINT.literal", "MINT.lshr",
-  "MINT.mul", "MINT.ne", "MINT.neg", "MINT.not", "MINT.or", "MINT.pow",
-  "MINT.round", "MINT.sdiv", "MINT.sext", "MINT.sge", "MINT.sgt",
-  "MINT.shl", "MINT.sle", "MINT.slt", "MINT.smax", "MINT.smin",
-  "MINT.srem", "MINT.sub", "MINT.svalue", "MINT.udiv", "MINT.uge",
-  "MINT.ugt", "MINT.ule", "MINT.ult", "MINT.umax", "MINT.umin",
-  "MINT.urem", "MINT.uvalue", "MINT.xor",
+  "MINT.MInt2bytes",
+  "MINT.add",
+  "MINT.and",
+  "MINT.ashr",
+  "MINT.bitwidth",
+  "MINT.bytes2MInt",
+  "MINT.eq",
+  "MINT.integer",
+  "MINT.literal",
+  "MINT.lshr",
+  "MINT.mul",
+  "MINT.ne",
+  "MINT.neg",
+  "MINT.not",
+  "MINT.or",
+  "MINT.pow",
+  "MINT.round",
+  "MINT.sdiv",
+  "MINT.sext",
+  "MINT.sge",
+  "MINT.sgt",
+  "MINT.shl",
+  "MINT.sle",
+  "MINT.slt",
+  "MINT.smax",
+  "MINT.smin",
+  "MINT.srem",
+  "MINT.sub",
+  "MINT.svalue",
+  "MINT.udiv",
+  "MINT.uge",
+  "MINT.ugt",
+  "MINT.ule",
+  "MINT.ult",
+  "MINT.umax",
+  "MINT.umin",
+  "MINT.urem",
+  "MINT.uvalue",
+  "MINT.xor",
 ]
 
 [[unsupported]]
 reason = "range-map values have no in-process backend representation"
 hooks = [
-  "RANGEMAP.choice", "RANGEMAP.concat", "RANGEMAP.difference",
-  "RANGEMAP.elementRng", "RANGEMAP.find_range", "RANGEMAP.in_keys",
-  "RANGEMAP.inclusion", "RANGEMAP.keys", "RANGEMAP.keys_list",
-  "RANGEMAP.lookup", "RANGEMAP.lookupOrDefault", "RANGEMAP.removeAll",
-  "RANGEMAP.removeRng", "RANGEMAP.size", "RANGEMAP.unit",
-  "RANGEMAP.updateAll", "RANGEMAP.updateRng", "RANGEMAP.values",
+  "RANGEMAP.choice",
+  "RANGEMAP.concat",
+  "RANGEMAP.difference",
+  "RANGEMAP.elementRng",
+  "RANGEMAP.find_range",
+  "RANGEMAP.in_keys",
+  "RANGEMAP.inclusion",
+  "RANGEMAP.keys",
+  "RANGEMAP.keys_list",
+  "RANGEMAP.lookup",
+  "RANGEMAP.lookupOrDefault",
+  "RANGEMAP.removeAll",
+  "RANGEMAP.removeRng",
+  "RANGEMAP.size",
+  "RANGEMAP.unit",
+  "RANGEMAP.updateAll",
+  "RANGEMAP.updateRng",
+  "RANGEMAP.values",
 ]
 
 [[unsupported]]
@@ -247,10 +336,19 @@ hooks = ["SET.choice", "SET.union"]
 [[unsupported]]
 reason = "Unicode properties, replacement utilities, floating conversion, and UUID generation are not implemented"
 hooks = [
-  "STRING.category", "STRING.countAllOccurrences", "STRING.directionality",
-  "STRING.findChar", "STRING.float2string", "STRING.floatFormat", "STRING.replace",
-  "STRING.replaceAll", "STRING.replaceFirst", "STRING.rfind", "STRING.rfindChar",
-  "STRING.string2float", "STRING.uuid",
+  "STRING.category",
+  "STRING.countAllOccurrences",
+  "STRING.directionality",
+  "STRING.findChar",
+  "STRING.float2string",
+  "STRING.floatFormat",
+  "STRING.replace",
+  "STRING.replaceAll",
+  "STRING.replaceFirst",
+  "STRING.rfind",
+  "STRING.rfindChar",
+  "STRING.string2float",
+  "STRING.uuid",
 ]
 
 # Crypto evaluators in the K v7.1.337 reference stack come from its pinned
@@ -337,9 +435,14 @@ implemented = [
 [[crypto.unsupported]]
 reason = "the reference plugin's remaining hash algorithms and raw forms have no in-process evaluator"
 hooks = [
-  "KRYPTO.blake2b256", "KRYPTO.blake2b256raw", "KRYPTO.blake2compress",
-  "KRYPTO.sha3", "KRYPTO.sha3raw",
-  "KRYPTO.sha512", "KRYPTO.sha512_256", "KRYPTO.sha512raw",
+  "KRYPTO.blake2b256",
+  "KRYPTO.blake2b256raw",
+  "KRYPTO.blake2compress",
+  "KRYPTO.sha3",
+  "KRYPTO.sha3raw",
+  "KRYPTO.sha512",
+  "KRYPTO.sha512_256",
+  "KRYPTO.sha512raw",
 ]
 
 [[crypto.unsupported]]
@@ -349,10 +452,18 @@ hooks = ["KRYPTO.ecdsaSign", "KRYPTO.ed25519verify", "KRYPTO.p256verify"]
 [[crypto.unsupported]]
 reason = "BLS12-381 curve operations are not implemented by the in-process backend"
 hooks = [
-  "KRYPTO.bls12G1Add", "KRYPTO.bls12G1InSubgroup", "KRYPTO.bls12G1Msm",
-  "KRYPTO.bls12G1Mul", "KRYPTO.bls12G1OnCurve", "KRYPTO.bls12G2Add",
-  "KRYPTO.bls12G2InSubgroup", "KRYPTO.bls12G2Msm", "KRYPTO.bls12G2Mul",
-  "KRYPTO.bls12G2OnCurve", "KRYPTO.bls12MapFp2ToG2", "KRYPTO.bls12MapFpToG1",
+  "KRYPTO.bls12G1Add",
+  "KRYPTO.bls12G1InSubgroup",
+  "KRYPTO.bls12G1Msm",
+  "KRYPTO.bls12G1Mul",
+  "KRYPTO.bls12G1OnCurve",
+  "KRYPTO.bls12G2Add",
+  "KRYPTO.bls12G2InSubgroup",
+  "KRYPTO.bls12G2Msm",
+  "KRYPTO.bls12G2Mul",
+  "KRYPTO.bls12G2OnCurve",
+  "KRYPTO.bls12MapFp2ToG2",
+  "KRYPTO.bls12MapFpToG1",
   "KRYPTO.bls12PairingCheck",
 ]
 
