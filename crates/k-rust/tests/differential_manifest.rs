@@ -491,17 +491,28 @@ fn pending_only_selection_does_not_require_reference_tools() {
             );
         }
     }
-    assert!(
-        exercised > 0,
-        "the manifest must keep at least one ticket-gated case to exercise the skip path"
-    );
-
+    // Since the C1 symbolic cases were verified no manifest case is ticket-gated, so the dynamic
+    // check above runs nothing; the static order check keeps the skip path ahead of the
+    // reference-tool validation in every gate until a case is gated again.
     let compile_validation = "if [[ -z \"$kompile\" ]]";
-    assert!(
-        KAST_SCRIPT.find("pending: blocked by").unwrap()
-            < KAST_SCRIPT.find(compile_validation).unwrap(),
-        "the KAST gate must select and skip pending cases before validating reference tools",
-    );
+    let symbolic = fs::read_to_string(workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH))
+        .expect("symbolic differential script");
+    for (name, script) in [
+        ("compile", COMPILE_SCRIPT),
+        ("KAST", KAST_SCRIPT),
+        ("execution", EXECUTION_SCRIPT),
+        ("proof", PROOF_SCRIPT),
+        ("rpc", RPC_SCRIPT),
+        ("symbolic", symbolic.as_str()),
+    ] {
+        assert!(
+            script.find("pending: blocked by").unwrap() < script.find(compile_validation).unwrap(),
+            "the {name} gate must select and skip pending cases before validating reference tools",
+        );
+    }
+    if exercised == 0 {
+        eprintln!("no ticket-gated manifest case; the skip path was checked statically only");
+    }
 }
 
 #[test]

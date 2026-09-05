@@ -1469,17 +1469,16 @@ configuration = []
 state-depth = 0
 responses = ["execute-trivial"]
 
-# The three C1 symbolic cases stay pending on C1-01. Since the stage-12 follow-up k-rust's kore-exec
-# prints fresh remainder names as KORE identifiers (ExFrame0:SortMap{}) and the comparison runs, but
-# it still fails on harness shape, not on branches: at `depth = 1` kore-exec prints only the
-# unrewritten remainder disjunct (its rewritten branches appear at --depth 2, where the pgm-map
-# branch set equals k-rust's), the comparator does not split a disjunct whose constraints contain
-# \not(\exists ...) into term and constraints (is_predicate_pattern), and it canonicalizes only
-# Var'Unds'<stem><digits> generated names (the reference's VarAC1'Unds'1 and k-rust's Ex... names
-# stay distinct). Drop the requirement once the harness handles those three points.
+# The three C1 symbolic cases compare one rewrite step of a symbolic collection or injection
+# configuration against kore-exec. kore-exec's --depth N lists the leaves that are stuck within N
+# steps; whenever a stuck leaf exists it drops the leaves that merely reached the limit
+# (Kore/Exec/GraphTraversal.hs checkLeftUnproven prefers GotStuck over Stopped), so --depth 1
+# prints only the unrewritten remainder and the rewritten branches of the tickets' contracts are
+# observable from --depth 2 on, where every branch is stuck. The comparator hands the initial
+# pattern to the normaliser (N4) and pairs the reference's remainder shape (N21, N22).
 [[symbolic]]
 name = "c1-map"
-requires = ["reference-toolchain", "ticket:C1-01"]
+requires = ["reference-toolchain"]
 constructs = ["collections", "symbolic-frame"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/map/test.k"
 main-module = "TEST"
@@ -1489,19 +1488,19 @@ definition = "reference"
 name = "pgm-map"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/map/pgm-map.kore"
 mode = "exec"
-depth = 1
+depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
 name = "pgm-set"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/map/pgm-set.kore"
 mode = "exec"
-depth = 1
+depth = 2
 oracle-exclusion = ""
 
 [[symbolic]]
 name = "c1-t2"
-requires = ["reference-toolchain", "ticket:C1-01"]
+requires = ["reference-toolchain"]
 constructs = ["collections", "symbolic-frame", "injection-narrowing"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/test.k"
 main-module = "TEST2"
@@ -1511,33 +1510,33 @@ definition = "reference"
 name = "pgm-I"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-I.kore"
 mode = "exec"
-depth = 1
+depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
 name = "pgm-S"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-S.kore"
 mode = "exec"
-depth = 1
+depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
 name = "pgm-M2"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-M2.kore"
 mode = "exec"
-depth = 1
+depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
 name = "pgm-M3"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-M3.kore"
 mode = "exec"
-depth = 1
+depth = 2
 oracle-exclusion = ""
 
 [[symbolic]]
 name = "c1-t3"
-requires = ["reference-toolchain", "ticket:C1-01"]
+requires = ["reference-toolchain"]
 constructs = ["injection-narrowing"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t3/test.k"
 main-module = "TEST3"
@@ -1547,7 +1546,7 @@ definition = "reference"
 name = "pgm-E"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t3/pgm-E.kore"
 mode = "exec"
-depth = 1
+depth = 2
 oracle-exclusion = ""
 
 [[symbolic]]

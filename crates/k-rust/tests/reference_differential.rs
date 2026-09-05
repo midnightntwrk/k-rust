@@ -605,8 +605,20 @@ fn executed_kore_matches_the_reference_backend() {
     let actual_path = env::var("K_RUST_EXECUTION").expect("K_RUST_EXECUTION is required");
     let reference_source = fs::read_to_string(&reference_path).unwrap();
     let actual_source = fs::read_to_string(&actual_path).unwrap();
-    let reference = normalize_execution_pattern(parse_pattern(&reference_source).unwrap());
-    let actual = normalize_execution_pattern(parse_pattern(&actual_source).unwrap());
+    // N4: with the initial pattern at hand every result variable that is not free in it carries an
+    // engine-chosen name (rule variables the reference leaves free, AC remainders, the port's
+    // externalized fresh names); without it only the generated name shapes are canonicalized.
+    let initial = env::var_os("K_DIFFERENTIAL_INITIAL_PATTERN").map(|path| {
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", Path::new(&path).display()));
+        parse_pattern(&source).unwrap()
+    });
+    let names = initial
+        .as_ref()
+        .map_or_else(GeneratedNames::shapes, GeneratedNames::fixing);
+    let reference =
+        normalize_execution_pattern_with(parse_pattern(&reference_source).unwrap(), &names);
+    let actual = normalize_execution_pattern_with(parse_pattern(&actual_source).unwrap(), &names);
 
     let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
@@ -767,7 +779,7 @@ fn execution_comparator_pairs_reference_remainders_with_port_remainders() {
         r"\and{S{}}(\not{S{}}(\equals{KI{}, S{}}(ExVar'Unds'K1:KI{}, k1{}())), ",
         r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(ExVar'Unds'K1:KI{}, ExFrame0:Map{})), "#,
         r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), inkeys{}(k1{}(), ExFrame0:Map{})), "#,
-        r"\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(ExVar'Unds'K1:KI{}, ExVar'Unds'V2:KI{}), ExFrame0:Map{})))))))))), ",
+        r"\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(ExVar'Unds'K1:KI{}, ExVar'Unds'V2:KI{}), ExFrame0:Map{}))))))))), ",
         r"\and{S{}}(top{}(done{}(), m{}(concat{}(entry{}(k1{}(), v2{}()), ExFrame0:Map{}))), ",
         r"\and{S{}}(\equals{Map{}, S{}}(VarM:Map{}, concat{}(entry{}(ExVar'Unds'K1:KI{}, ExVar'Unds'V2:KI{}), ExFrame0:Map{})), ",
         r"\not{S{}}(\equals{KI{}, S{}}(ExVar'Unds'K1:KI{}, k1{}())), ",
@@ -826,7 +838,8 @@ fn execution_normalizer_canonicalizes_rule_variables_absent_from_the_initial_pat
     .unwrap();
     let initial = parse_pattern(r"top{}(inj{Exp{}, KI{}}(VarE:Exp{}))").unwrap();
 
-    // Without the initial pattern only the generated shapes are renamed: VarI is a user name.
+    // Without the initial pattern only the generated shapes are renamed: VarI is a user name, so
+    // the rewritten branch stays unpaired and the remainder's constraints differ.
     let error = compare_execution_modulo_implication(
         &normalize_execution_pattern(reference.clone()),
         &normalize_execution_pattern(actual.clone()),
@@ -834,7 +847,10 @@ fn execution_normalizer_canonicalizes_rule_variables_absent_from_the_initial_pat
         "TEST",
     )
     .expect_err("VarI is not a generated shape");
-    assert!(error.contains("unpaired disjunct"), "{error}");
+    assert!(
+        error.contains("unpaired disjunct") || error.contains("constraints differ"),
+        "{error}"
+    );
 
     let reference = normalize_execution_pattern_fixing(reference, &initial);
     let actual = normalize_execution_pattern_fixing(actual, &initial);
@@ -906,6 +922,83 @@ fn execution_predicate_recognizer_matches_the_kore_predicate_constructors() {
 }
 
 #[test]
+fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names() {
+    // The two conjuncts of each remainder are spelled differently (the reference's \ceil against
+    // the port's \not(true = in(...))), so N4's first-occurrence indices diverge: the reference
+    // names its Map variable first, the port its KItem variable. Pairing must try the bijection
+    // that maps the port's constraint-only variables onto the reference's names per sort.
+    let reference = normalize_execution_pattern(
+        parse_pattern(concat!(
+            r"\and{S{}}(t{}(), \not{S{}}(\exists{S{}}(Var'Unds'A1:KI{}, \exists{S{}}(Var'Unds'B1:Map{}, ",
+            r#"\and{S{}}(\ceil{Map{}, S{}}(g{}(Var'Unds'B1:Map{})), \equals{Bool{}, S{}}(\dv{Bool{}}("false"), q{}(Var'Unds'A1:KI{})))))))"#,
+        ))
+        .unwrap(),
+    );
+    let actual = normalize_execution_pattern(
+        parse_pattern(concat!(
+            r"\and{S{}}(t{}(), \not{S{}}(\exists{S{}}(ExA0:KI{}, \exists{S{}}(ExB0:Map{}, ",
+            r#"\and{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), q{}(ExA0:KI{})), \not{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("true"), in{}(ExB0:Map{}))))))))"#,
+        ))
+        .unwrap(),
+    );
+    let aligned_chain = r"\exists{S{}}(Var'Hash'KDiff0:Map{}, \exists{S{}}(Var'Hash'KDiff1:KI{}";
+    assert!(reference.to_string().contains(aligned_chain), "{reference}");
+    assert!(!actual.to_string().contains(aligned_chain), "{actual}");
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-alignment-fake-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).unwrap();
+    let calls = directory.join("calls");
+    let needle = directory.join("needle");
+    fs::write(&needle, aligned_chain).unwrap();
+    let oracle = directory.join("aligned-only-krust");
+    // Valid only when both sides carry the reference's binder chain.
+    fs::write(
+        &oracle,
+        format!(
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\nwhile (($#)); do case $1 in --antecedent) a=$2;; --consequent) c=$2;; esac; shift; done\nif grep -qFf {needle} \"$a\" && grep -qFf {needle} \"$c\"; then printf '{{\"status\":\"valid\"}}\\n'; else printf '{{\"status\":\"invalid\"}}\\n'; fi\n",
+            calls = calls.display(),
+            needle = needle.display(),
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&oracle).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&oracle, permissions).unwrap();
+    }
+    let definition = directory.join("definition.kore");
+    fs::write(&definition, "[]").unwrap();
+    let previous = env::var_os("K_RUST_KRUST");
+    // SAFETY: the differential tests run single-threaded per process invocation of this test;
+    // the variable is restored below.
+    unsafe { env::set_var("K_RUST_KRUST", &oracle) };
+    let result =
+        compare_execution_modulo_implication(&reference, &actual, Some(&definition), "TEST");
+    unsafe {
+        match previous {
+            Some(value) => env::set_var("K_RUST_KRUST", value),
+            None => env::remove_var("K_RUST_KRUST"),
+        }
+    }
+    result.expect("the aligned bijection pairs the remainders");
+    let calls = fs::read_to_string(&calls).unwrap();
+    assert!(
+        calls.lines().count() >= 3,
+        "the identity candidate fails before the aligned one succeeds: {calls}"
+    );
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn implication_fallback_checks_both_directions_and_requires_valid() {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -972,31 +1065,478 @@ fn implication_fallback_checks_both_directions_and_requires_valid() {
 }
 
 fn normalize_execution_pattern(pattern: Pattern) -> Pattern {
+    normalize_execution_pattern_with(pattern, &GeneratedNames::shapes())
+}
+
+/// Normalize a result whose fixed variable names are the free variables of `initial`.
+fn normalize_execution_pattern_fixing(pattern: Pattern, initial: &Pattern) -> Pattern {
+    normalize_execution_pattern_with(pattern, &GeneratedNames::fixing(initial))
+}
+
+fn normalize_execution_pattern_with(pattern: Pattern, names: &GeneratedNames) -> Pattern {
     let pattern = normalize_execution_structure(pattern);
     match &pattern {
-        Pattern::Or { sort, arguments } => Pattern::Or {
-            sort: sort.clone(),
+        Pattern::Or { sort, arguments } => {
             // D1-06 / arbiter row 12: disjunction order is semantically empty, so execution
             // gates compare a sorted multiset. C3-02 requires retaining multiplicity here:
             // duplicate final configurations are a backend defect, not a gate normalization.
-            arguments: arguments
+            let mut arguments = arguments
                 .iter()
                 .cloned()
-                .map(normalize_execution_disjunct)
-                .collect(),
-        },
-        _ => normalize_execution_disjunct(pattern),
+                .map(|disjunct| normalize_execution_disjunct(disjunct, names))
+                .collect::<Vec<_>>();
+            arguments.sort();
+            Pattern::Or {
+                sort: sort.clone(),
+                arguments,
+            }
+        }
+        _ => normalize_execution_disjunct(pattern, names),
     }
 }
 
-fn normalize_execution_disjunct(mut pattern: Pattern) -> Pattern {
+fn normalize_execution_disjunct(mut pattern: Pattern, names: &GeneratedNames) -> Pattern {
     // N16: reference execution can leave an AC remainder variable free while
     // the port quantifies its corresponding generated variable.
     while let Pattern::Exists { body, .. } = &mut pattern {
         pattern = std::mem::replace(body.as_mut(), Pattern::String(String::new()));
     }
-    rename_generated_variables(&mut pattern);
+    normalize_conjunctions(&mut pattern);
+    canonicalize_remainder_existentials(&mut pattern, names);
+    rename_execution_variables(&mut pattern, names);
     pattern
+}
+
+type KoreVariable = k_rust::kore::ast::Variable;
+
+/// N4 for execution results: which result variables carry an engine-chosen name.
+///
+/// Kore prints a rule variable that survives into a result under its rule name (`VarI`,
+/// `Var'Unds'K`), the NewUnifier's AC remainder as `VarAC<n>'Unds'<counter>`
+/// (NewUnifier.hs:1302, externalizeFreshVariableName) and the port prints the same variables
+/// as `Ex`/`Eq`/`Rule` marker names with the fresh counter appended (externalize.rs). Only the
+/// free variables of the initial pattern are fixed names shared by both engines.
+struct GeneratedNames {
+    fixed: Option<BTreeSet<String>>,
+}
+
+impl GeneratedNames {
+    /// Recognize generated names by their shape only (no initial pattern available).
+    fn shapes() -> Self {
+        Self { fixed: None }
+    }
+
+    /// Every variable that is not free in `initial` is generated.
+    fn fixing(initial: &Pattern) -> Self {
+        let mut free = BTreeSet::new();
+        k_rust::backend::collect_free_kore_variables(initial, &mut BTreeSet::new(), &mut free);
+        Self {
+            fixed: Some(free.into_iter().map(|variable| variable.name).collect()),
+        }
+    }
+
+    fn is_generated(&self, variable: &KoreVariable) -> bool {
+        if variable.name.contains(CANONICAL_NAME) {
+            return false;
+        }
+        match &self.fixed {
+            Some(fixed) => !fixed.contains(&variable.name),
+            None => execution_generated_name(&variable.name),
+        }
+    }
+}
+
+const CANONICAL_NAME: &str = "Var'Hash'KDiff";
+
+fn execution_generated_name(name: &str) -> bool {
+    if generated_stem(name).is_some() {
+        return true;
+    }
+    // Kore/Unification/NewUnifier.hs:1302: generatedId "VarAC<n>'Unds'" plus the fresh counter.
+    if let Some((index, counter)) = name
+        .strip_prefix("VarAC")
+        .and_then(|rest| rest.split_once("'Unds'"))
+    {
+        let digits =
+            |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+        if digits(index) && digits(counter) {
+            return true;
+        }
+    }
+    // externalize::external_variable_name: the Ex#/Eq#/Rule# markers of Booster/Pattern/Util.hs
+    // lose their `#`; K never emits a user variable without the `Var` prefix.
+    ["Ex", "Eq", "Rule"].iter().any(|marker| {
+        name.strip_prefix(marker)
+            .is_some_and(|rest| rest.starts_with(|character: char| character.is_ascii_uppercase()))
+    })
+}
+
+/// N21: flatten nested same-sort conjunctions and drop duplicated conjuncts.
+///
+/// Kore prints a rewritten branch as `\and(\and(term, predicate), substitution)` with
+/// right-nested predicate conjunctions that may repeat a conjunct (the remainder repeats the
+/// `in_keys` condition of the AC solution), while the port prints one flat conjunction.
+fn normalize_conjunctions(pattern: &mut Pattern) {
+    match pattern {
+        Pattern::And { sort, arguments } => {
+            let mut flattened = Vec::new();
+            for mut argument in std::mem::take(arguments) {
+                normalize_conjunctions(&mut argument);
+                let nested = match &mut argument {
+                    Pattern::And {
+                        sort: nested_sort,
+                        arguments: nested,
+                    } if *nested_sort == *sort => Some(std::mem::take(nested)),
+                    _ => None,
+                };
+                if let Some(mut nested) = nested {
+                    flattened.append(&mut nested);
+                } else {
+                    flattened.push(argument);
+                }
+            }
+            let mut deduplicated: Vec<Pattern> = Vec::with_capacity(flattened.len());
+            for argument in flattened {
+                if !deduplicated.contains(&argument) {
+                    deduplicated.push(argument);
+                }
+            }
+            *arguments = deduplicated;
+        }
+        Pattern::Application { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                normalize_conjunctions(argument);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => normalize_conjunctions(argument),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            normalize_conjunctions(left);
+            normalize_conjunctions(right);
+        }
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => normalize_conjunctions(body),
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
+}
+
+/// N22: quantify a generated variable that is local to a negated existential.
+///
+/// Kore's remainder `\not(\exists rule variables. solution)` quantifies only the rule variables
+/// (Kore/Rewrite/Remainder.hs existentiallyQuantifyRuleVariables) and leaves the fresh AC
+/// remainder of the unification solution free although it occurs nowhere else in the disjunct;
+/// the port quantifies that variable inside the negation, which is the reading under which the
+/// remainder excludes every instance of the rule.
+fn canonicalize_remainder_existentials(pattern: &mut Pattern, names: &GeneratedNames) {
+    let conjuncts: Vec<&Pattern> = match &*pattern {
+        Pattern::And { arguments, .. } => arguments.iter().collect(),
+        single => vec![single],
+    };
+    let free_of = |pattern: &Pattern| {
+        let mut free = BTreeSet::new();
+        k_rust::backend::collect_free_kore_variables(pattern, &mut BTreeSet::new(), &mut free);
+        free
+    };
+    let free_per_conjunct = conjuncts
+        .iter()
+        .map(|conjunct| free_of(conjunct))
+        .collect::<Vec<_>>();
+    let mut additions = Vec::new();
+    for (index, conjunct) in conjuncts.iter().enumerate() {
+        let Pattern::Not { argument, .. } = conjunct else {
+            continue;
+        };
+        if !matches!(**argument, Pattern::Exists { .. }) {
+            continue;
+        }
+        let local = free_per_conjunct[index]
+            .iter()
+            .filter(|variable| names.is_generated(variable))
+            .filter(|variable| {
+                free_per_conjunct
+                    .iter()
+                    .enumerate()
+                    .all(|(other, free)| other == index || !free.contains(*variable))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if !local.is_empty() {
+            additions.push((index, local));
+        }
+    }
+    if additions.is_empty() {
+        return;
+    }
+    let conjuncts: Vec<&mut Pattern> = match pattern {
+        Pattern::And { arguments, .. } => arguments.iter_mut().collect(),
+        pattern => vec![pattern],
+    };
+    for (conjunct, (_, local)) in
+        conjuncts
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, conjunct)| {
+                additions
+                    .iter()
+                    .find(|(added, _)| *added == index)
+                    .map(|addition| (conjunct, addition))
+            })
+    {
+        let Pattern::Not { argument, .. } = conjunct else {
+            unreachable!("recorded above");
+        };
+        let mut innermost: &mut Pattern = argument;
+        let mut sort = None;
+        while let Pattern::Exists {
+            sort: chain_sort,
+            body,
+            ..
+        } = innermost
+        {
+            sort = Some(chain_sort.clone());
+            innermost = body;
+        }
+        let sort = sort.expect("recorded as an existential");
+        let body = std::mem::replace(innermost, Pattern::String(String::new()));
+        *innermost = local
+            .iter()
+            .rev()
+            .fold(body, |body, variable| Pattern::Exists {
+                sort: sort.clone(),
+                variable: variable.clone(),
+                body: Box::new(body),
+            });
+    }
+}
+
+/// N4 for execution results: rename generated variables by first occurrence in a canonical
+/// traversal (term before constraints, conjuncts ordered by their name-erased rendering,
+/// quantifier chains ordered by the renamed binder), preserving each variable's sort.
+fn rename_execution_variables(pattern: &mut Pattern, names: &GeneratedNames) {
+    fn erased_key(pattern: &Pattern, names: &GeneratedNames) -> String {
+        fn erase(pattern: &mut Pattern, names: &GeneratedNames) {
+            match pattern {
+                Pattern::Application { arguments, .. }
+                | Pattern::And { arguments, .. }
+                | Pattern::Or { arguments, .. }
+                | Pattern::AssociativeApplication { arguments, .. } => {
+                    for argument in arguments {
+                        erase(argument, names);
+                    }
+                }
+                Pattern::Not { argument, .. }
+                | Pattern::Next { argument, .. }
+                | Pattern::Ceil { argument, .. }
+                | Pattern::Floor { argument, .. } => erase(argument, names),
+                Pattern::Implies { left, right, .. }
+                | Pattern::Iff { left, right, .. }
+                | Pattern::Rewrites { left, right, .. }
+                | Pattern::Equals { left, right, .. }
+                | Pattern::In { left, right, .. } => {
+                    erase(left, names);
+                    erase(right, names);
+                }
+                Pattern::Exists { variable, body, .. }
+                | Pattern::Forall { variable, body, .. }
+                | Pattern::Mu { variable, body }
+                | Pattern::Nu { variable, body } => {
+                    if names.is_generated(variable) {
+                        variable.name = CANONICAL_NAME.to_owned();
+                    }
+                    erase(body, names);
+                }
+                Pattern::Variable(variable) => {
+                    if names.is_generated(variable) {
+                        variable.name = CANONICAL_NAME.to_owned();
+                    }
+                }
+                Pattern::String(_)
+                | Pattern::Top { .. }
+                | Pattern::Bottom { .. }
+                | Pattern::DomainValue { .. } => {}
+            }
+        }
+        let mut erased = pattern.clone();
+        erase(&mut erased, names);
+        erased.to_string()
+    }
+
+    fn order_conjuncts(pattern: &mut Pattern, names: &GeneratedNames) {
+        match pattern {
+            Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
+                for argument in arguments.iter_mut() {
+                    order_conjuncts(argument, names);
+                }
+                // The term of a constrained pattern leads so that its variables take the
+                // first indices on both sides; constraints follow in name-erased order.
+                arguments.sort_by_cached_key(|argument| {
+                    (is_predicate_pattern(argument), erased_key(argument, names))
+                });
+            }
+            Pattern::Application { arguments, .. }
+            | Pattern::AssociativeApplication { arguments, .. } => {
+                for argument in arguments {
+                    order_conjuncts(argument, names);
+                }
+            }
+            Pattern::Not { argument, .. }
+            | Pattern::Next { argument, .. }
+            | Pattern::Ceil { argument, .. }
+            | Pattern::Floor { argument, .. } => order_conjuncts(argument, names),
+            Pattern::Implies { left, right, .. }
+            | Pattern::Iff { left, right, .. }
+            | Pattern::Rewrites { left, right, .. }
+            | Pattern::Equals { left, right, .. }
+            | Pattern::In { left, right, .. } => {
+                order_conjuncts(left, names);
+                order_conjuncts(right, names);
+            }
+            Pattern::Exists { body, .. }
+            | Pattern::Forall { body, .. }
+            | Pattern::Mu { body, .. }
+            | Pattern::Nu { body, .. } => order_conjuncts(body, names),
+            Pattern::String(_)
+            | Pattern::Variable(_)
+            | Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::DomainValue { .. } => {}
+        }
+    }
+
+    fn rename(
+        variable: &mut KoreVariable,
+        names: &GeneratedNames,
+        indices: &mut BTreeMap<String, usize>,
+    ) {
+        if !names.is_generated(variable) {
+            return;
+        }
+        let next = indices.len();
+        let index = *indices.entry(variable.name.clone()).or_insert(next);
+        variable.name = format!("{CANONICAL_NAME}{index}");
+    }
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Quantifier {
+        Exists,
+        Forall,
+    }
+
+    fn assign(
+        pattern: &mut Pattern,
+        names: &GeneratedNames,
+        indices: &mut BTreeMap<String, usize>,
+    ) {
+        match pattern {
+            Pattern::Application { arguments, .. }
+            | Pattern::And { arguments, .. }
+            | Pattern::Or { arguments, .. }
+            | Pattern::AssociativeApplication { arguments, .. } => {
+                for argument in arguments {
+                    assign(argument, names, indices);
+                }
+            }
+            Pattern::Not { argument, .. }
+            | Pattern::Next { argument, .. }
+            | Pattern::Ceil { argument, .. }
+            | Pattern::Floor { argument, .. } => assign(argument, names, indices),
+            Pattern::Implies { left, right, .. }
+            | Pattern::Iff { left, right, .. }
+            | Pattern::Rewrites { left, right, .. }
+            | Pattern::Equals { left, right, .. }
+            | Pattern::In { left, right, .. } => {
+                assign(left, names, indices);
+                assign(right, names, indices);
+            }
+            Pattern::Exists { .. } | Pattern::Forall { .. } => {
+                let quantifier = if matches!(pattern, Pattern::Exists { .. }) {
+                    Quantifier::Exists
+                } else {
+                    Quantifier::Forall
+                };
+                let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
+                let mut binders = Vec::new();
+                loop {
+                    let fields = match (quantifier, &mut current) {
+                        (
+                            Quantifier::Exists,
+                            Pattern::Exists {
+                                sort,
+                                variable,
+                                body,
+                            },
+                        )
+                        | (
+                            Quantifier::Forall,
+                            Pattern::Forall {
+                                sort,
+                                variable,
+                                body,
+                            },
+                        ) => Some((
+                            sort.clone(),
+                            variable.clone(),
+                            std::mem::replace(body.as_mut(), Pattern::String(String::new())),
+                        )),
+                        _ => None,
+                    };
+                    let Some((sort, variable, body)) = fields else {
+                        break;
+                    };
+                    binders.push((sort, variable));
+                    current = body;
+                }
+                // Binders take their index from the body so that the chain order, which the
+                // engines choose differently, does not influence the canonical names.
+                assign(&mut current, names, indices);
+                for (_, variable) in &mut binders {
+                    rename(variable, names, indices);
+                }
+                binders.sort_by(|(_, left), (_, right)| left.cmp(right));
+                *pattern = binders
+                    .into_iter()
+                    .rev()
+                    .fold(current, |body, (sort, variable)| match quantifier {
+                        Quantifier::Exists => Pattern::Exists {
+                            sort,
+                            variable,
+                            body: Box::new(body),
+                        },
+                        Quantifier::Forall => Pattern::Forall {
+                            sort,
+                            variable,
+                            body: Box::new(body),
+                        },
+                    });
+            }
+            Pattern::Mu { variable, body } | Pattern::Nu { variable, body } => {
+                rename(variable, names, indices);
+                assign(body, names, indices);
+            }
+            Pattern::Variable(variable) => rename(variable, names, indices),
+            Pattern::String(_)
+            | Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::DomainValue { .. } => {}
+        }
+    }
+
+    order_conjuncts(pattern, names);
+    assign(pattern, names, &mut BTreeMap::new());
 }
 
 fn normalize_execution_structure(pattern: Pattern) -> Pattern {
@@ -1243,18 +1783,14 @@ fn compare_execution_disjuncts(
             return Err(format!("unpaired disjunct: {reference_term}"));
         };
         paired_actual[actual_index] = true;
-        let (_, mut actual_constraints) = split_constrained(actual_disjunct);
         reference_constraints.sort();
-        actual_constraints.sort();
-        if reference_constraints == actual_constraints {
-            continue;
-        }
-        let Some(definition) = definition else {
-            return Err(format!(
-                "constraints differ for paired disjunct {reference_term}; K_DIFFERENTIAL_DEFINITION is not set"
-            ));
-        };
-        prove_implication_both_ways(reference_disjunct, actual_disjunct, definition, module)?;
+        compare_paired_constraints(
+            reference_disjunct,
+            &reference_constraints,
+            actual_disjunct,
+            definition,
+            module,
+        )?;
     }
     let unpaired_actual = paired_actual
         .iter()
@@ -1289,6 +1825,307 @@ fn compare_execution_disjuncts(
     Ok(())
 }
 
+/// Compare the constraints of two disjuncts whose terms paired.
+///
+/// N4 names generated variables by first occurrence, which the term anchors for every variable
+/// it mentions; a variable that occurs only in the constraints (the rule variables and the AC
+/// remainder of a negated existential) takes its index from the conjunct order, and the two
+/// engines spell the same conjunct differently (`false = t` against `\not(true = t)`, `\ceil`
+/// of a set concatenation against `\not(true = in(...))`). So the constraint sets are compared
+/// modulo a bijection of those variables within each sort: structurally first, then through the
+/// implication oracle (N15), identity first. The search is bounded; a larger group reports the
+/// identity failure.
+fn compare_paired_constraints(
+    reference_disjunct: &Pattern,
+    reference_constraints: &[Pattern],
+    actual_disjunct: &Pattern,
+    definition: Option<&Path>,
+    module: &str,
+) -> Result<(), String> {
+    let (actual_term, _) = split_constrained(actual_disjunct);
+    let mut candidates = vec![actual_disjunct.clone()];
+    for renaming in constraint_variable_renamings(reference_disjunct, actual_disjunct, actual_term)
+    {
+        if renaming.is_empty() {
+            continue;
+        }
+        let mut candidate = actual_disjunct.clone();
+        apply_variable_renaming(&mut candidate, &renaming);
+        canonicalize_quantifier_chains(&mut candidate);
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    for candidate in &candidates {
+        let (_, mut candidate_constraints) = split_constrained(candidate);
+        candidate_constraints.sort();
+        if reference_constraints == candidate_constraints.as_slice() {
+            return Ok(());
+        }
+    }
+    let Some(definition) = definition else {
+        return Err(format!(
+            "constraints differ for paired disjunct {}; K_DIFFERENTIAL_DEFINITION is not set",
+            split_constrained(reference_disjunct).0
+        ));
+    };
+    let mut last_error = None;
+    for candidate in &candidates {
+        match prove_implication_both_ways(reference_disjunct, candidate, definition, module) {
+            Ok(()) => return Ok(()),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.expect("the identity candidate is always tried"))
+}
+
+const CONSTRAINT_RENAMING_LIMIT: usize = 24;
+
+/// Every bijection from the canonical generated variables that occur in the actual disjunct
+/// but not in its term onto the reference's such variables of the same kind and sort; none
+/// when the groups differ in size or the search would exceed `CONSTRAINT_RENAMING_LIMIT`
+/// candidates. The caller tries the identity first.
+fn constraint_variable_renamings(
+    reference_disjunct: &Pattern,
+    actual_disjunct: &Pattern,
+    actual_term: &Pattern,
+) -> Vec<BTreeMap<KoreVariable, String>> {
+    fn collect(pattern: &Pattern, output: &mut BTreeSet<KoreVariable>) {
+        match pattern {
+            Pattern::Application { arguments, .. }
+            | Pattern::And { arguments, .. }
+            | Pattern::Or { arguments, .. }
+            | Pattern::AssociativeApplication { arguments, .. } => {
+                for argument in arguments {
+                    collect(argument, output);
+                }
+            }
+            Pattern::Not { argument, .. }
+            | Pattern::Next { argument, .. }
+            | Pattern::Ceil { argument, .. }
+            | Pattern::Floor { argument, .. } => collect(argument, output),
+            Pattern::Implies { left, right, .. }
+            | Pattern::Iff { left, right, .. }
+            | Pattern::Rewrites { left, right, .. }
+            | Pattern::Equals { left, right, .. }
+            | Pattern::In { left, right, .. } => {
+                collect(left, output);
+                collect(right, output);
+            }
+            Pattern::Exists { variable, body, .. }
+            | Pattern::Forall { variable, body, .. }
+            | Pattern::Mu { variable, body }
+            | Pattern::Nu { variable, body } => {
+                if variable.name.starts_with(CANONICAL_NAME) {
+                    output.insert(variable.clone());
+                }
+                collect(body, output);
+            }
+            Pattern::Variable(variable) => {
+                if variable.name.starts_with(CANONICAL_NAME) {
+                    output.insert(variable.clone());
+                }
+            }
+            Pattern::String(_)
+            | Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::DomainValue { .. } => {}
+        }
+    }
+    let no_candidates = Vec::new();
+    let mut in_term = BTreeSet::new();
+    collect(actual_term, &mut in_term);
+    let mut actual_variables = BTreeSet::new();
+    collect(actual_disjunct, &mut actual_variables);
+    let mut reference_variables = BTreeSet::new();
+    collect(reference_disjunct, &mut reference_variables);
+    let group = |variables: &BTreeSet<KoreVariable>| {
+        let mut groups: BTreeMap<_, Vec<KoreVariable>> = BTreeMap::new();
+        for variable in variables.difference(&in_term) {
+            groups
+                .entry((variable.kind, variable.sort.clone()))
+                .or_default()
+                .push(variable.clone());
+        }
+        groups
+    };
+    let actual_groups = group(&actual_variables);
+    let reference_groups = group(&reference_variables);
+    let mut renamings = vec![BTreeMap::new()];
+    for (key, sources) in actual_groups {
+        let Some(targets) = reference_groups.get(&key) else {
+            return no_candidates;
+        };
+        if targets.len() != sources.len() {
+            return no_candidates;
+        }
+        let permutations = permutations(targets);
+        if renamings.len() * permutations.len() > CONSTRAINT_RENAMING_LIMIT {
+            return no_candidates;
+        }
+        let mut extended = Vec::with_capacity(renamings.len() * permutations.len());
+        for base in &renamings {
+            for permutation in &permutations {
+                let mut renaming = base.clone();
+                for (from, to) in sources.iter().zip(permutation) {
+                    if from.name != to.name {
+                        renaming.insert(from.clone(), to.name.clone());
+                    }
+                }
+                extended.push(renaming);
+            }
+        }
+        renamings = extended;
+    }
+    renamings
+}
+
+/// All orderings of `items`, the given order first.
+fn permutations<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
+    if items.len() <= 1 {
+        return vec![items.to_vec()];
+    }
+    let mut output = Vec::new();
+    for (index, head) in items.iter().enumerate() {
+        let mut rest = items.to_vec();
+        rest.remove(index);
+        for mut tail in permutations(&rest) {
+            tail.insert(0, head.clone());
+            output.push(tail);
+        }
+    }
+    output
+}
+
+/// Order every chain of same-kind quantifiers by its (renamed) binder, as N4's renaming does.
+fn canonicalize_quantifier_chains(pattern: &mut Pattern) {
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                canonicalize_quantifier_chains(argument);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => canonicalize_quantifier_chains(argument),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            canonicalize_quantifier_chains(left);
+            canonicalize_quantifier_chains(right);
+        }
+        Pattern::Mu { body, .. } | Pattern::Nu { body, .. } => canonicalize_quantifier_chains(body),
+        Pattern::Exists { .. } | Pattern::Forall { .. } => {
+            let exists = matches!(pattern, Pattern::Exists { .. });
+            let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
+            let mut binders = Vec::new();
+            loop {
+                let fields = match (exists, &mut current) {
+                    (
+                        true,
+                        Pattern::Exists {
+                            sort,
+                            variable,
+                            body,
+                        },
+                    )
+                    | (
+                        false,
+                        Pattern::Forall {
+                            sort,
+                            variable,
+                            body,
+                        },
+                    ) => Some((
+                        sort.clone(),
+                        variable.clone(),
+                        std::mem::replace(body.as_mut(), Pattern::String(String::new())),
+                    )),
+                    _ => None,
+                };
+                let Some((sort, variable, body)) = fields else {
+                    break;
+                };
+                binders.push((sort, variable));
+                current = body;
+            }
+            canonicalize_quantifier_chains(&mut current);
+            binders.sort_by(|(_, left), (_, right)| left.cmp(right));
+            *pattern = binders
+                .into_iter()
+                .rev()
+                .fold(current, |body, (sort, variable)| {
+                    if exists {
+                        Pattern::Exists {
+                            sort,
+                            variable,
+                            body: Box::new(body),
+                        }
+                    } else {
+                        Pattern::Forall {
+                            sort,
+                            variable,
+                            body: Box::new(body),
+                        }
+                    }
+                });
+        }
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
+}
+
+fn apply_variable_renaming(pattern: &mut Pattern, renaming: &BTreeMap<KoreVariable, String>) {
+    let rename = |variable: &mut KoreVariable| {
+        if let Some(name) = renaming.get(variable) {
+            variable.name.clone_from(name);
+        }
+    };
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                apply_variable_renaming(argument, renaming);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => apply_variable_renaming(argument, renaming),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            apply_variable_renaming(left, renaming);
+            apply_variable_renaming(right, renaming);
+        }
+        Pattern::Exists { variable, body, .. }
+        | Pattern::Forall { variable, body, .. }
+        | Pattern::Mu { variable, body }
+        | Pattern::Nu { variable, body } => {
+            rename(variable);
+            apply_variable_renaming(body, renaming);
+        }
+        Pattern::Variable(variable) => rename(variable),
+        Pattern::String(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
+}
+
 fn is_empty_disjunction(pattern: &Pattern) -> bool {
     matches!(pattern, Pattern::Or { arguments, .. } if arguments.is_empty())
 }
@@ -1321,6 +2158,9 @@ fn split_constrained(pattern: &Pattern) -> (&Pattern, Vec<Pattern>) {
     (term, constraints)
 }
 
+/// The predicate shapes of Kore/Internal/Predicate.hs (PredicateF): top, bottom, ceil, floor,
+/// equals, in, and the connectives and quantifiers over predicates. A remainder branch
+/// constrains its term with `\not(\exists rule variables. solution)`.
 fn is_predicate_pattern(pattern: &Pattern) -> bool {
     match pattern {
         Pattern::Top { .. }
@@ -1330,6 +2170,10 @@ fn is_predicate_pattern(pattern: &Pattern) -> bool {
         | Pattern::Equals { .. }
         | Pattern::In { .. } => true,
         Pattern::Not { argument, .. } => is_predicate_pattern(argument),
+        Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => is_predicate_pattern(body),
+        Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => {
+            is_predicate_pattern(left) && is_predicate_pattern(right)
+        }
         Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
             arguments.iter().all(is_predicate_pattern)
         }
@@ -1427,8 +2271,11 @@ fn prove_implication(
         )
     })?;
     if response["status"] != "valid" {
+        let antecedent = fs::read_to_string(antecedent).unwrap_or_default();
+        let consequent = fs::read_to_string(consequent).unwrap_or_default();
         return Err(format!(
-            "constraint implication {direction} is not valid: {response}"
+            "constraint implication {direction} is not valid (status {}):\n  antecedent: {antecedent}\n  consequent: {consequent}",
+            response["status"]
         ));
     }
     Ok(())

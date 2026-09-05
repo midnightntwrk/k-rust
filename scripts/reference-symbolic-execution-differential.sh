@@ -287,6 +287,7 @@ for name in "${runnable[@]}"; do
         K_RUST_EXECUTION="$stem.rust.kore"
         K_DIFFERENTIAL_DEFINITION="$definition"
         K_DIFFERENTIAL_MODULE="$main_module"
+        K_DIFFERENTIAL_INITIAL_PATTERN="$pattern"
         K_RUST_KRUST="$krust"
       )
       if [[ -n "$oracle_exclusion" ]]; then
