@@ -117,6 +117,7 @@ K_REFERENCE_EXECUTION="$reference_result" \
   K_RUST_EXECUTION="$rust_result" \
   K_DIFFERENTIAL_DEFINITION="$reference_definition/definition.kore" \
   K_DIFFERENTIAL_MODULE=KMIR \
+  K_DIFFERENTIAL_INITIAL_PATTERN="$initial" \
   cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
     -p k-rust --test reference_differential -- --ignored --exact \
     executed_kore_matches_the_reference_backend

@@ -29,8 +29,19 @@ id = "N4"
 gate = "compile and execution"
 anchor = "crates/k-rust/tests/reference_differential.rs:rename_generated_variables"
 anchor_symbol = "rename_generated_variables"
-rule = "Rename generated variables by the first-occurrence index of each original name, preserving distinct-name multiplicity."
-justification = "Alpha-renaming is irrelevant, but collapsing two names into one changes the pattern."
+anchor_helpers = [
+  "generated_stem",
+  "rename_execution_variables",
+  "execution_generated_name",
+  "GeneratedNames",
+  "normalize_execution_pattern_with",
+  "normalize_execution_pattern_fixing",
+  "compare_paired_constraints",
+  "constraint_variable_renamings",
+  "canonicalize_quantifier_chains",
+]
+rule = "Rename generated variables by the first-occurrence index of each original name, preserving each variable's sort and distinct-name multiplicity. Definitions rename the frontend's Var'Unds'<stem>N names and keep the stem. Execution results rename, in a canonical traversal (term first, conjuncts in name-erased order, quantifier chains by renamed binder), the Var'Unds'<stem>N names, the NewUnifier's VarAC<n>'Unds'<counter> remainder, the port's externalized Ex/Eq/Rule marker names and, when K_DIFFERENTIAL_INITIAL_PATTERN names the initial pattern, every variable that is not free in it (rule variables Kore leaves free in a result)."
+justification = "Alpha-renaming is irrelevant, but collapsing two names into one changes the pattern; the reference and the port choose different names for the same rule and remainder variables (VarAC1'Unds'1 versus ExFrame0, VarI versus ExVarI0), and only the initial pattern's variables are names both engines share."
 fate = "modify"
 
 [[normalisation]]
@@ -215,3 +226,21 @@ justification = "Counterexample framing is not the proof verdict."
 id = "C6"
 rule = "Record dropped K flags and classify untranslatable flags as unsupported."
 justification = "Arbiter row 15 assigns K-to-krust flag translation to the driver."
+
+[[normalisation]]
+id = "N21"
+gate = "execution, symbolic execution, and MIR execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_conjunctions"
+anchor_symbol = "normalize_conjunctions"
+rule = "Flatten nested same-sort conjunctions of a result disjunct and drop duplicated conjuncts before splitting it into term and constraints."
+justification = "Kore prints a rewritten branch as \\and(\\and(term, predicate), substitution) with right-nested predicate conjunctions that repeat the AC solution's in_keys condition; conjunction is associative, commutative and idempotent."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N22"
+gate = "symbolic execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_remainder_existentials"
+anchor_symbol = "canonicalize_remainder_existentials"
+rule = "Quantify, inside a negated existential constraint, every generated variable that is free in it and occurs nowhere else in the disjunct."
+justification = "Kore/Rewrite/Remainder.hs existentiallyQuantifyRuleVariables quantifies only the rule variables of a unification solution and leaves the NewUnifier's fresh AC remainder free in the printed remainder; the port quantifies it, which is the reading under which the remainder excludes every instance of the rule."
+fate = "keep-with-comment"
