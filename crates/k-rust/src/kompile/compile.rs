@@ -256,6 +256,10 @@ pub fn compile_loaded_definition(
                 generate_map_ceil_axioms: options.backend == CompilationBackend::Rust,
                 default_claims_to_all_path: options.default_claims_to_all_path,
                 hook_namespaces,
+                definition_module: match &options.check_mode {
+                    CheckMode::Proof { definition_module } => Some(definition_module.clone()),
+                    CheckMode::Definition => None,
+                },
             },
         ),
     )?;

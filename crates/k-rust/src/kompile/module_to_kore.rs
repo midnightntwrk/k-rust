@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::definition::{
     AssociativityRelations, Attributes as KAttributes, Definition as KDefinition,
     LOCATION_ATTRIBUTE, LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog,
-    ProductionId, ProductionItem, RelationError, ResolveError, ResolvedDefinition,
+    ProductionId, ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog,
     SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead, match_rule_label, sentence_equivalent,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term};
@@ -94,6 +94,12 @@ pub struct ModuleToKoreOptions {
     /// Plugin hook namespaces admitted as hooked symbols in addition to K's builtin set, the
     /// counterpart of `kompile --hook-namespaces`.
     pub hook_namespaces: Vec<String>,
+    /// The kompiled definition module of a proof compilation. Java's
+    /// `ModuleToKORE.convertSpecificationModule` emits `spec.sentencesExcept(definition)`, so
+    /// the claims of every module the specification imports are emitted unless the definition
+    /// module's import closure already contains that module; without a definition module (or
+    /// when it is the emitted module itself) only the module's local claims are emitted.
+    pub definition_module: Option<String>,
 }
 
 impl Default for ModuleToKoreOptions {
@@ -103,6 +109,7 @@ impl Default for ModuleToKoreOptions {
             generate_map_ceil_axioms: false,
             default_claims_to_all_path: false,
             hook_namespaces: rust_backend_hook_namespaces(),
+            definition_module: None,
         }
     }
 }
@@ -743,12 +750,34 @@ pub fn module_to_kore_from_resolved_with_options(
             modules.semantics.sentences.push(emitted);
         }
     }
-    for (_, claim) in rules.local_claims() {
+    for claim in specification_claims(
+        definition,
+        module_id,
+        &rules,
+        options.definition_module.as_deref(),
+    ) {
         if is_macro_rule(claim) {
             return Err(ModuleToKoreError::UnsupportedRuleKind {
                 kind: "macro claim".into(),
             });
         }
+        let owner = sentence_owner(definition, claim).unwrap_or(module_id);
+        let rebased;
+        let claim = if owner == module_id {
+            claim
+        } else {
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                production_rebases.entry(owner)
+            {
+                entry.insert(production_rebase(definition, owner, &productions)?);
+            }
+            rebased = rebase_sentence_metadata(
+                &definition.module(owner).name,
+                &production_rebases[&owner],
+                claim.clone(),
+            )?;
+            &rebased
+        };
         let emitted = emit_rule_or_claim(
             claim,
             true,
@@ -763,6 +792,40 @@ pub fn module_to_kore_from_resolved_with_options(
         modules.semantics.sentences.push(emitted);
     }
     Ok(modules)
+}
+
+/// Scala's `Module.sentencesExcept(definition)` restricted to claims: the module's local claims
+/// plus the local claims of every transitively imported module outside the definition module's
+/// import closure. Without a distinct definition module every import is inside that closure and
+/// only the local claims remain.
+fn specification_claims<'a>(
+    definition: &ResolvedDefinition,
+    module_id: ModuleId,
+    rules: &RuleCatalog<'a>,
+    definition_module: Option<&str>,
+) -> Vec<&'a Sentence> {
+    let definition_closure = definition_module
+        .and_then(|name| definition.module_id(name))
+        .filter(|definition_module| *definition_module != module_id)
+        .map(|definition_module| {
+            let mut closure = definition
+                .transitive_imports(definition_module)
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            closure.insert(definition_module);
+            closure
+        });
+    match definition_closure {
+        Some(closure) => rules
+            .claims()
+            .filter(|(_, claim)| {
+                sentence_owner(definition, claim)
+                    .is_none_or(|owner| owner == module_id || !closure.contains(&owner))
+            })
+            .map(|(_, claim)| claim)
+            .collect(),
+        None => rules.local_claims().map(|(_, claim)| claim).collect(),
+    }
 }
 
 fn describe_source_sentence(sentence: &Sentence) -> String {
@@ -988,6 +1051,17 @@ fn rebase_sentence_metadata(
             ensures,
             attributes,
         } => Ok(Sentence::Rule {
+            body: rebase(body)?,
+            requires: rebase(requires)?,
+            ensures: rebase(ensures)?,
+            attributes,
+        }),
+        Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } => Ok(Sentence::Claim {
             body: rebase(body)?,
             requires: rebase(requires)?,
             ensures: rebase(ensures)?,
