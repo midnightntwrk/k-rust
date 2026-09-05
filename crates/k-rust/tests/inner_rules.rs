@@ -2497,3 +2497,151 @@ fn declared_mint_instances_get_the_kitem_subsort_and_casts() {
         "{bodies:?}"
     );
 }
+
+/// Bodies and conditions of the rule-like sentences the main module declares in `name`, in
+/// declaration order, as `body requires requires` text.
+fn rule_like_texts(loaded: &k_rust::outer::LoadedDefinition, name: &str) -> Vec<String> {
+    loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                attributes,
+                ..
+            }
+            | Sentence::Context {
+                body,
+                requires,
+                attributes,
+            }
+            | Sentence::ContextAlias {
+                body,
+                requires,
+                attributes,
+            } if attributes.source() == Some(name) => Some(format!("{body} requires {requires}")),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Re-run one test of this binary under the hidden `checked` inference mode, which the
+/// conformance driver uses (`ktest.mak` passes `--type-inference-mode checked`): every rule is
+/// inferred by both the portable and the Z3 engine and the definition is rejected when they
+/// disagree. The child process owns the environment variable, so no other test observes it.
+#[cfg(feature = "z3-inference")]
+fn assert_test_passes_under_checked_inference(test_name: &str) {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "--nocapture", test_name])
+        .env("KRUST_TYPE_INFERENCE_MODE", "checked")
+        .output()
+        .expect("the test binary re-runs itself");
+    assert!(
+        output.status.success(),
+        "{test_name} fails under KRUST_TYPE_INFERENCE_MODE=checked:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn reference_withconfig_function_rule_casts_the_variable_at_the_function_sort() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
+    // parsed.txt: rule #withConfig(`foo(_)_TEST_Int_Int`(#token("0","Int"))=>#SemanticCastToInt(I),`<bar>`(#noDots(.KList),#SemanticCastToInt(I),#noDots(.KList))) requires #token("true","Bool") ensures #token("true","Bool")
+    // Reduced from regression-new/issue-1436 (test.k:20); configuration-composition
+    // (config-comp.k:40), unification-lemmas2 (with-config.k:30) and fun-llvm (fun-test.k:58)
+    // have the same shape: a function rule whose rewrite sits under `#withConfig`.
+    let source = include_str!("fixtures/reference/inner/withconfig-fn/test.k");
+    let loaded = load_with_prelude(source, "test.k", "TEST")
+        .expect("the reference accepts the function rule with a configuration context");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        [
+            "#withConfig(`foo(_)_TEST_Int_Int`(#token(\"0\",\"Int\"))=>#SemanticCastToInt(I),`<bar>`(#noDots(.KList),#SemanticCastToInt(I),#noDots(.KList))) requires #token(\"true\",\"Bool\")"
+        ]
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn withconfig_function_rule_agrees_under_checked_inference() {
+    // TypeInferencer.java:592 treats a `#RuleBody`-expected node as a top-sort node, so at :640
+    // the `#withConfig` production bounds its rewrite child by the function sort exactly as
+    // `#RuleContent` does for a bare rewrite; both engines must instantiate the rewrite at Int.
+    assert_test_passes_under_checked_inference(
+        "reference_withconfig_function_rule_casts_the_variable_at_the_function_sort",
+    );
+}
+
+#[test]
+fn reference_function_rule_without_configuration_casts_the_variable_at_the_function_sort() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
+    // parsed.txt: rule `foo(_)_TEST_Int_Int`(#SemanticCastToInt(I))=>`_+Int_`(#SemanticCastToInt(I),#token("1","Int")) requires `_>Int_`(#SemanticCastToInt(I),#token("0","Int")) ensures #token("true","Bool")
+    // Control: the same function rule without `#withConfig` already agrees between the engines.
+    let source = include_str!("fixtures/reference/inner/withconfig-fn-control/test.k");
+    let loaded = load_with_prelude(source, "test.k", "TEST")
+        .expect("the reference accepts the plain function rule");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        [
+            "`foo(_)_TEST_Int_Int`(#SemanticCastToInt(I))=>`_+Int_`(#SemanticCastToInt(I),#token(\"1\",\"Int\")) requires `_>Int_`(#SemanticCastToInt(I),#token(\"0\",\"Int\"))"
+        ]
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn function_rule_without_configuration_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "reference_function_rule_without_configuration_casts_the_variable_at_the_function_sort",
+    );
+}
+
+#[test]
+fn reference_bare_variable_alias_body_is_cast_to_k() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
+    // parsed.txt: context alias #SemanticCastToK(HERE) requires isFoo(#SemanticCastToK(HOLE)) [label(foo), ...]
+    // Reduced from regression-new/context-alias-3 (test.k:7): the rule body is a bare variable,
+    // which the reference grammar reaches through `#RuleBody ::= K` (kast.md:343).
+    let source = include_str!("fixtures/reference/inner/alias-bare-variable/test.k");
+    let loaded = load_with_prelude(source, "test.k", "TEST")
+        .expect("the reference accepts a context alias whose body is a bare variable");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        ["#SemanticCastToK(HERE) requires isFoo(#SemanticCastToK(HOLE))"]
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn bare_variable_alias_body_agrees_under_checked_inference() {
+    // The reference's Z3 encoder bounds HERE by K through the `#RuleBody ::= K` production
+    // (TypeInferencer.java:644 `expectedSort = nt.sort()` for that node), and SimpleSub bounds
+    // every variable by K on creation (InferenceDriver.java:49-53); one solution, cast to K.
+    assert_test_passes_under_checked_inference("reference_bare_variable_alias_body_is_cast_to_k");
+}
+
+#[test]
+fn reference_alias_variable_under_a_production_is_cast_at_the_argument_sort() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
+    // parsed.txt: context alias `foo(_)_TEST_Foo_Int`(#SemanticCastToInt(HERE)) requires isFoo(#SemanticCastToK(HOLE)) [label(foo), ...]
+    // Control: HERE under a real-sorted nonterminal already agrees between the engines.
+    let source = include_str!("fixtures/reference/inner/alias-bare-variable-control/test.k");
+    let loaded = load_with_prelude(source, "test.k", "TEST")
+        .expect("the reference accepts the context alias");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        ["`foo(_)_TEST_Foo_Int`(#SemanticCastToInt(HERE)) requires isFoo(#SemanticCastToK(HOLE))"]
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn alias_variable_under_a_production_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "reference_alias_variable_under_a_production_is_cast_at_the_argument_sort",
+    );
+}
