@@ -13,6 +13,8 @@ runs_dir="$workspace/draft/fable51-review/conformance/runs"
 jobs=2
 label=
 seed=
+audit=false
+audit_sequence=
 all=false
 force=false
 dry_run=false
@@ -25,9 +27,13 @@ usage() {
   cat <<'EOF'
 usage: scripts/conformance-ratchet.sh --label LABEL (--all | --cases NAME... | --ticket ID | --stage STAGE) [OPTIONS]
        scripts/conformance-ratchet.sh --seed RESULTS --label LABEL [OPTIONS]
+       scripts/conformance-ratchet.sh --audit [--sequence N] [--log PATH]
 
 Measure selected K regression-new cases, append their per-case ranks to the
-standing ratchet, and fail with status 3 if a non-excluded rank decreases.
+standing ratchet, and fail with status 3 if a non-excluded rank decreases
+against the previous measurement with the same driver version or falls below
+the case's stage-1 floor (its entry-0 rank) under any driver version.
+--audit reads the log alone and lists every case below its floor.
 
 Options:
   --jobs N
@@ -85,6 +91,15 @@ while (($#)); do
       all=true
       shift
       ;;
+    --audit)
+      audit=true
+      shift
+      ;;
+    --sequence)
+      require_value "$@"
+      audit_sequence=$2
+      shift 2
+      ;;
     --jobs)
       require_value "$@"
       jobs=$2
@@ -127,6 +142,20 @@ while (($#)); do
       ;;
   esac
 done
+
+if [[ "$audit" == true ]]; then
+  [[ -z "$label" && -z "$seed" && "$all" == false && ${#cases[@]} -eq 0 && ${#tickets[@]} -eq 0 && ${#stages[@]} -eq 0 ]] || \
+    die "--audit cannot be combined with a label, a seed, or a run selection"
+  [[ -f "$helper" ]] || die "missing ratchet helper: $helper"
+  [[ -f "$log" ]] || die "missing ratchet log: $log"
+  command -v python3 >/dev/null || die "python3 is required"
+  audit_args=(--log "$log")
+  if [[ -n "$audit_sequence" ]]; then
+    [[ "$audit_sequence" =~ ^[0-9]+$ ]] || die "--sequence must be a non-negative integer"
+    audit_args+=(--sequence "$audit_sequence")
+  fi
+  exec python3 "$helper" audit "${audit_args[@]}"
+fi
 
 [[ -n "$label" ]] || die "--label is required"
 [[ "$label" != *$'\n'* ]] || die "--label must be one line"

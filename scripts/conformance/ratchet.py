@@ -132,6 +132,7 @@ def render_entry(run: dict) -> str:
             f"fallback_verdict = {json.dumps(case['fallback_verdict'])}",
             f"rank = {case['rank']}",
             f"previous_rank = {case['previous_rank']}",
+            f"floor_rank = {case['floor_rank']}",
             f"delta = {json.dumps(case['delta'])}",
             f"tickets = {string_array(case['tickets'])}",
             f"exclusion = {json.dumps(case['exclusion'], ensure_ascii=False)}",
@@ -216,25 +217,49 @@ def previous_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict
     return None, None
 
 
+def first_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict | None]:
+    """The stage-1 floor of a case: entry 0 when it measured the case, else its first entry."""
+    for run in runs:
+        for case in run.get("case", []):
+            if case.get("name") == name:
+                return run, case
+    return None, None
+
+
+def below_floor(rank: int, floor_rank: int) -> bool:
+    return rank >= 0 and floor_rank >= 0 and rank < floor_rank
+
+
 def classify_delta(
     previous_run: dict | None,
     previous_case: dict | None,
+    floor_case: dict | None,
     verdict: str,
     driver_version: str,
-) -> tuple[int, str]:
+) -> tuple[int, int, str, bool]:
+    """Classify a measurement against the previous one and the stage-1 floor.
+
+    Returns (previous_rank, floor_rank, delta, driver_changed). A decrease below the floor
+    is a regression whatever the driver version; a decrease that stays at or above the
+    floor is a driver-delta when the previous measurement used another driver version.
+    """
     if previous_case is None or previous_run is None:
-        return -1, "new"
+        return -1, -1, "new", False
     previous_rank = previous_case["rank"]
+    floor_rank = floor_case["rank"] if floor_case is not None else previous_rank
     rank = RANK[verdict]
+    driver_changed = previous_run.get("driver_version") != driver_version
     if previous_rank == rank:
-        return previous_rank, "same"
+        return previous_rank, floor_rank, "same", False
     if previous_rank == -1 or rank == -1:
-        return previous_rank, "oracle-changed"
-    if previous_run.get("driver_version") != driver_version:
-        return previous_rank, "driver-delta"
+        return previous_rank, floor_rank, "oracle-changed", False
     if rank > previous_rank:
-        return previous_rank, "improvement"
-    return previous_rank, "regression"
+        return previous_rank, floor_rank, "improvement", driver_changed
+    if below_floor(rank, floor_rank):
+        return previous_rank, floor_rank, "regression", driver_changed
+    if driver_changed:
+        return previous_rank, floor_rank, "driver-delta", True
+    return previous_rank, floor_rank, "regression", False
 
 
 def build_run(
@@ -271,8 +296,9 @@ def build_run(
         verdict = result["verdict"]
         rank = RANK[verdict]
         previous_run, previous_case = previous_measurement(previous_runs, name)
-        previous_rank, delta = classify_delta(
-            previous_run, previous_case, verdict, driver_version
+        _, floor_case = first_measurement(previous_runs, name)
+        previous_rank, floor_rank, delta, driver_changed = classify_delta(
+            previous_run, previous_case, floor_case, verdict, driver_version
         )
         exclusion = matching_step_exclusion(result, expectation)
         tickets = list(expectation.get("tickets", []))
@@ -280,7 +306,7 @@ def build_run(
             regressions.append(name)
         if delta == "improvement":
             improvements.append(name)
-        if delta == "driver-delta":
+        if driver_changed:
             driver_deltas.append(name)
         if delta == "oracle-changed":
             oracle_changes.append(name)
@@ -311,6 +337,7 @@ def build_run(
                 "fallback_verdict": result.get("fallback_verdict", ""),
                 "rank": rank,
                 "previous_rank": previous_rank,
+                "floor_rank": floor_rank,
                 "delta": delta,
                 "tickets": tickets,
                 "exclusion": exclusion,
@@ -346,17 +373,27 @@ def build_run(
 def print_pr_block(run: dict) -> None:
     print("### Conformance ratchet")
     print()
-    print("| case | previous | now | delta | tickets |")
-    print("|---|---:|---:|---|---|")
+    print("| case | floor | previous | now | delta | tickets |")
+    print("|---|---:|---:|---:|---|---|")
     for case in run["case"]:
         tickets = ", ".join(case["tickets"])
         exclusion = f" (excluded: {case['exclusion']})" if case["exclusion"] else ""
         print(
-            f"| {case['name']} | {case['previous_rank']} | {case['rank']} | "
-            f"{case['delta']}{exclusion} | {tickets} |"
+            f"| {case['name']} | {case['floor_rank']} | {case['previous_rank']} | "
+            f"{case['rank']} | {case['delta']}{exclusion} | {tickets} |"
         )
     print()
     print(f"regressions: {len(run['regressions'])}")
+    print(
+        "below stage-1 floor: "
+        + string_array(
+            [
+                case["name"]
+                for case in run["case"]
+                if below_floor(case["rank"], case["floor_rank"])
+            ]
+        )
+    )
     print(f"improvements: {len(run['improvements'])}")
     print(f"driver deltas: {len(run['driver_deltas'])}")
     print(f"oracle changes: {len(run['oracle_changes'])}")
@@ -455,6 +492,49 @@ def command_select(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_audit(args: argparse.Namespace) -> int:
+    """List every case whose latest measurement is below its stage-1 (first) rank."""
+    document = load_toml(args.log, "ratchet log")
+    if document.get("version") != 1:
+        raise RatchetError(f"ratchet log does not declare version 1: {args.log}")
+    runs = document.get("run", [])
+    if args.sequence is not None:
+        selected = [run for run in runs if run.get("sequence") == args.sequence]
+        if not selected:
+            raise RatchetError(f"ratchet log has no run with sequence {args.sequence}")
+        latest = {case["name"]: (selected[0], case) for case in selected[0].get("case", [])}
+    else:
+        latest = {}
+        for run in runs:
+            for case in run.get("case", []):
+                latest[case["name"]] = (run, case)
+    rows = []
+    for name in sorted(latest):
+        run, case = latest[name]
+        _, floor_case = first_measurement(runs, name)
+        floor_rank = floor_case["rank"] if floor_case is not None else -1
+        if below_floor(case["rank"], floor_rank):
+            rows.append((name, floor_rank, run, case))
+    scope = f"run {args.sequence}" if args.sequence is not None else "latest measurement per case"
+    print(f"### Conformance stage-1 floor audit ({scope}, {len(latest)} cases)")
+    print()
+    print("| case | floor | rank | run | verdict | tickets | exclusion |")
+    print("|---|---:|---:|---:|---|---|---|")
+    failing = 0
+    for name, floor_rank, run, case in rows:
+        tickets = ", ".join(case.get("tickets", []))
+        exclusion = case.get("exclusion", "")
+        if not exclusion:
+            failing += 1
+        print(
+            f"| {name} | {floor_rank} | {case['rank']} | {run.get('sequence')} | "
+            f"{case['verdict']} | {tickets} | {exclusion} |"
+        )
+    print()
+    print(f"below floor: {len(rows)} ({failing} non-excluded)")
+    return 3 if failing else 0
+
+
 def command_next_sequence(args: argparse.Namespace) -> int:
     document = load_toml(args.log, "ratchet log")
     if document.get("version") != 1:
@@ -499,6 +579,11 @@ def parser() -> argparse.ArgumentParser:
     select.add_argument("--stage", action="append", default=[])
     select.add_argument("--all", action="store_true")
     select.set_defaults(run=command_select)
+
+    audit = subparsers.add_parser("audit")
+    audit.add_argument("--log", type=Path, required=True)
+    audit.add_argument("--sequence", type=int)
+    audit.set_defaults(run=command_audit)
 
     sequence = subparsers.add_parser("next-sequence")
     sequence.add_argument("--log", type=Path, required=True)
