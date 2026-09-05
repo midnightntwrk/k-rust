@@ -2255,6 +2255,49 @@ mod tests {
     }
 
     #[test]
+    fn undeclared_mint_width_is_ill_sorted() {
+        // TypeInferencer.isBadNatSort: a numeric parameter sort whose head the module does not
+        // define is written to Z3 as `false`, so `foo(0p32)` over `foo(MInt{6})` is unsat even
+        // though no variable takes part (checks/checkMIntLiteral.k).
+        fn mint(width: &str) -> Sort {
+            Sort::with_parameters("MInt", vec![Sort::new(width)])
+        }
+        let mut grammar = Grammar::default();
+        let foo = grammar.productions.len();
+        grammar
+            .add(
+                Sort::new("KItem"),
+                vec![ProductionItem::NonTerminal {
+                    sort: mint("6"),
+                    name: None,
+                }],
+                Some(Label::new("foo")),
+                false,
+                false,
+            )
+            .unwrap();
+        let application = |width: &str| ParsedTerm::Production {
+            production: foo,
+            children: vec![ParsedTerm::Term(Term::Token {
+                token: format!("0p{width}"),
+                sort: mint(width),
+            })],
+            metadata: Default::default(),
+        };
+
+        grammar
+            .infer_sorts_z3(application("6"), &Sort::new("KItem"), false)
+            .expect("the declared width MInt{6} is well-sorted");
+        let error = grammar
+            .infer_sorts_z3(application("32"), &Sort::new("KItem"), false)
+            .expect_err("MInt{32} is not declared by the grammar");
+        assert!(
+            error.to_string().contains("Unexpected sort MInt{32}"),
+            "unexpected inference error: {error}"
+        );
+    }
+
+    #[test]
     fn top_rewrite_path_tracks_transparent_brackets() {
         let mut grammar = Grammar::default();
         let rewrite = grammar.productions.len();
