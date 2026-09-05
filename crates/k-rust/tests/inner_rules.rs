@@ -2693,3 +2693,60 @@ fn reference_rule_applies_a_named_field_projection() {
         ]
     );
 }
+
+/// `load_with_prelude` with the module attributes `kcompile --backend llvm` excludes
+/// (`symbolic`), the module set the conformance driver compiles ktest cases with.
+fn load_with_prelude_for_llvm(
+    source: &'static str,
+    name: &str,
+    main_module: &str,
+) -> Result<k_rust::outer::LoadedDefinition, k_rust::outer::LoadError> {
+    let prelude = k_rust::builtin::embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    load_with_options(
+        ResolvedSource::new(name, source),
+        main_module,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec!["symbolic".into()],
+            ..LoadOptions::default()
+        },
+    )
+}
+
+#[test]
+fn reference_top_rewrite_over_a_bare_variable_keeps_its_parameter_at_k() {
+    // reference: k/result/bin/kompile checkStrictBOOLInclusion.k --backend llvm --syntax-module CHECKSTRICTBOOLINCLUSION-SYNTAX --type-inference-mode checked (regression-new/checks, ktest-fail recipe, exit 0: the reference accepts)
+    // regression-new/checks checkStrictBOOLInclusion.k, verbatim: `rule mytrue myand B2 => B2`
+    // under the llvm module set. Both engines instantiate the top #KRewrite at K, the sort the
+    // portable engine assigns; k-rust renders the parameter.
+    let source = include_str!("fixtures/reference/inner/strict-bool-inclusion/test.k");
+    let loaded = load_with_prelude_for_llvm(source, "test.k", "CHECKSTRICTBOOLINCLUSION")
+        .expect("the reference accepts the strictness definition");
+    let bodies = rule_like_texts(&loaded, "test.k");
+    assert_eq!(bodies.len(), 2, "{bodies:?}");
+    assert!(
+        bodies[0].starts_with("`_myand__CHECKSTRICTBOOLINCLUSION-SYNTAX_BExp_BExp_BExp`("),
+        "{bodies:?}"
+    );
+    assert!(
+        bodies[0].contains("=>#SemanticCastToBExp(B2)") && !bodies[0].contains("{KItem}"),
+        "{bodies:?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn top_rewrite_over_a_bare_variable_agrees_under_checked_inference() {
+    // Host ratchet run 20: with the Z3 domain restricted to real sorts (3769711) the seed model
+    // still prefers K for the #KRewrite parameter, but the maximality climb over the real
+    // variables re-reads every constant from an unconstrained model and the parameter came back
+    // as KItem, which checked mode reported against the portable engine's K. The parameter
+    // preference of the seed must survive the climb.
+    assert_test_passes_under_checked_inference(
+        "reference_top_rewrite_over_a_bare_variable_keeps_its_parameter_at_k",
+    );
+}
