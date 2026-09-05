@@ -1254,6 +1254,214 @@ printf 'cargo-%s|%s\n' "${{1:-missing}}" "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
     fs::remove_dir_all(fixture).expect("remove environment fixture");
 }
 
+/// Write a fake executable that appends `label|<GHCRTS state>` to `$ENVIRONMENT_CALLS`.
+///
+/// `label` is expanded by the shell, so `cargo-${1:-missing}` records the cargo subcommand.
+/// `prologue` runs before the record and may create the artifacts the script expects.
+fn write_environment_probe(path: &Path, label: &str, prologue: &str) {
+    fs::write(
+        path,
+        format!(
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${{GHCRTS+x}} != x ]]; then
+  ghcrts_state='<unset>'
+elif [[ -z "$GHCRTS" ]]; then
+  ghcrts_state='<empty>'
+else
+  ghcrts_state=$GHCRTS
+fi
+{prologue}
+printf '%s|%s\n' "{label}" "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
+"#
+        ),
+    )
+    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path)
+            .expect("fake executable metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("make fixture executable");
+    }
+}
+
+/// A fake `kompile` prologue: create the requested output definition like the real frontend.
+const FAKE_KOMPILE_PROLOGUE: &str = r#"
+while (($#)); do
+  if [[ "$1" == --output-definition ]]; then
+    mkdir -p "$2"
+    : >"$2/definition.kore"
+    shift 2
+  else
+    shift
+  fi
+done
+"#;
+
+fn environment_fixture(name: &str) -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time after Unix epoch")
+        .as_nanos();
+    let fixture =
+        std::env::temp_dir().join(format!("k-rust-{name}-{}-{unique}", std::process::id()));
+    fs::create_dir(&fixture).expect("create environment fixture");
+    fixture
+}
+
+#[test]
+fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("symbolic-environment");
+    let calls = fixture.join("calls");
+    let fake_kompile = fixture.join("kompile");
+    let fake_kore_parser = fixture.join("kore-parser");
+    let fake_kore_exec = fixture.join("kore-exec");
+    let fake_cargo = fixture.join("cargo");
+    let target = fixture.join("target");
+    let fake_krust = target.join("release/krust");
+    fs::create_dir_all(fake_krust.parent().unwrap()).expect("create fake release directory");
+    write_environment_probe(&fake_kompile, "kompile", FAKE_KOMPILE_PROLOGUE);
+    write_environment_probe(&fake_kore_parser, "parser", "");
+    write_environment_probe(&fake_kore_exec, "kore-exec", "");
+    write_environment_probe(&fake_cargo, "cargo-${1:-missing}", "");
+    write_environment_probe(&fake_krust, "krust-${1:-missing}", "");
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let script = workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH);
+    let run = |ghcrts: Option<&str>| {
+        fs::write(&calls, "").expect("clear environment call log");
+        let mut command = Command::new("bash");
+        command
+            .arg(&script)
+            .arg("c3-sy")
+            .env("PATH", &path)
+            .env("ENVIRONMENT_CALLS", &calls)
+            .env("K_KOMPILE", &fake_kompile)
+            .env("K_KORE_PARSER", &fake_kore_parser)
+            .env("K_KORE_EXEC", &fake_kore_exec)
+            .env("CARGO_TARGET_DIR", &target)
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as");
+        match ghcrts {
+            Some(value) => {
+                command.env("GHCRTS", value);
+            }
+            None => {
+                command.env_remove("GHCRTS");
+            }
+        }
+        let output = command.output().expect("run symbolic environment fixture");
+        assert!(
+            output.status.success(),
+            "fixture control failed with GHCRTS={ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        fs::read_to_string(&calls).expect("environment call log")
+    };
+
+    let default = run(None);
+    let overridden = run(Some("-N3"));
+
+    assert_eq!(
+        default,
+        "cargo-build|<unset>\nkompile|-N1\nparser|<empty>\nparser|<empty>\nkore-exec|-N1\nkrust-kore-exec|<unset>\ncargo-test|<unset>\n",
+        "the default must make the reference Haskell frontend and backend single-capability and leave the parsers and Rust side alone",
+    );
+    assert_eq!(
+        overridden,
+        "cargo-build|-N3\nkompile|-N3\nparser|<empty>\nparser|<empty>\nkore-exec|-N3\nkrust-kore-exec|-N3\ncargo-test|-N3\n",
+        "a caller Haskell override must reach kompile and kore-exec while parsers remain compatible",
+    );
+
+    fs::remove_dir_all(fixture).expect("remove symbolic environment fixture");
+}
+
+#[test]
+fn mir_execution_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("mir-environment");
+    let calls = fixture.join("calls");
+    let fake_kompile = fixture.join("kompile");
+    let fake_krun = fixture.join("krun");
+    let fake_cargo = fixture.join("cargo");
+    let fake_kmir_python = fixture.join("kmir-python");
+    let mir_checkout = fixture.join("mir-semantics");
+    let source = mir_checkout.join("kmir/src/kmir/kdist/mir-semantics/kmir.md");
+    let smir = mir_checkout
+        .join("kmir/src/tests/integration/data/exec-smir/main-a-b-c/main-a-b-c.smir.json");
+    for pinned in [&source, &smir] {
+        fs::create_dir_all(pinned.parent().unwrap()).expect("create fake MIR checkout");
+        fs::write(pinned, "").expect("write fake MIR input");
+    }
+    write_environment_probe(&fake_kompile, "kompile", FAKE_KOMPILE_PROLOGUE);
+    write_environment_probe(&fake_krun, "krun", "");
+    write_environment_probe(&fake_cargo, "cargo-${1:-missing}", "");
+    // reference-mir-initial.py receives (definition, smir, initial); the fake writes the pattern.
+    write_environment_probe(&fake_kmir_python, "kmir-python", ": >\"$4\"\n");
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let script = workspace.join("scripts/reference-mir-execution-differential.sh");
+    let run = |ghcrts: Option<&str>| {
+        fs::write(&calls, "").expect("clear environment call log");
+        let mut command = Command::new("bash");
+        command
+            .arg(&script)
+            .env("PATH", &path)
+            .env("ENVIRONMENT_CALLS", &calls)
+            .env("K_KOMPILE", &fake_kompile)
+            .env("K_KRUN", &fake_krun)
+            .env("KMIR_PYTHON", &fake_kmir_python)
+            .env("MIR_SEMANTICS_CHECKOUT", &mir_checkout)
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as");
+        match ghcrts {
+            Some(value) => {
+                command.env("GHCRTS", value);
+            }
+            None => {
+                command.env_remove("GHCRTS");
+            }
+        }
+        let output = command.output().expect("run MIR environment fixture");
+        assert!(
+            output.status.success(),
+            "fixture control failed with GHCRTS={ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        fs::read_to_string(&calls).expect("environment call log")
+    };
+
+    let default = run(None);
+    let overridden = run(Some("-N3"));
+
+    assert_eq!(
+        default,
+        "kompile|-N1\ncargo-run|<unset>\nkmir-python|<unset>\nkrun|-N1\ncargo-run|<unset>\ncargo-test|<unset>\n",
+        "the default must make the reference Haskell kompile and krun single-capability and leave the Rust side alone",
+    );
+    assert_eq!(
+        overridden,
+        "kompile|-N3\ncargo-run|-N3\nkmir-python|-N3\nkrun|-N3\ncargo-run|-N3\ncargo-test|-N3\n",
+        "a caller Haskell override must reach the reference kompile and krun",
+    );
+
+    fs::remove_dir_all(fixture).expect("remove MIR environment fixture");
+}
+
 fn collect_workspace_paths(value: &Value, output: &mut BTreeSet<PathBuf>) {
     match value {
         Value::String(value) => {
