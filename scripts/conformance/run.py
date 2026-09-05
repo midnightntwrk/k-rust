@@ -449,7 +449,8 @@ def step_record(case, **kw):
     return kw
 
 
-def krust_kompile_args(case, rec, force_syntax_module=False):
+def krust_kompile_args(case, rec, expect_fail=False):
+    """Translate a reference kompile recipe; `expect_fail` marks a ktest-fail recipe."""
     pos, opts, flags = parse_opts(rec["args"], KOMPILE_VALUE_OPTS)
     src = next((p for p in pos if re.search(r"\.(k|md|json)$", p)), None)
     if src is None:
@@ -461,7 +462,7 @@ def krust_kompile_args(case, rec, force_syntax_module=False):
     main = main or gm
     args = [KRUST, "kcompile", src, "--main-module", main, "--backend", "llvm" if backend == "llvm" else "rust",
             "--output-directory", "krust-kompiled", "-I", ".", "--builtin-directory", BUILTIN]
-    if syn or force_syntax_module:
+    if syn or expect_fail:
         args += ["--syntax-module", syn or gs]
     # krust recompiles the definition on every krun/kast/kprove step, so the kompile
     # recipe's Markdown selection must reach those steps too (regression-new markdownSelectors).
@@ -473,13 +474,24 @@ def krust_kompile_args(case, rec, force_syntax_module=False):
     for d in opts.get("-I", []): args += ["-I", d]
     if "--no-prelude" in flags: args.append("--no-prelude")
     if "--emit-json" in flags: args.append("--emit-json")
-    # `-w LEVEL`/`--warnings LEVEL` and `-w2e` are the warning-policy half of D1-14 that krust
-    # implements (`--warnings all|normal|none`, `--warnings-to-errors`); per-category `-W`/`-Wno`
-    # stay dropped.
+    # Warning policy, the -w/-w2e half of D1-14 that krust implements (`--warnings LEVEL`,
+    # `--warnings-to-errors`). The contract is forwarded whole or not at all: `-w2e` reaches krust
+    # only for a ktest-fail recipe (the reference's rejection depends on it) that carries no
+    # per-category `-W`/`-Wno`, which krust cannot express. Forwarding it next to a dropped `-Wno`
+    # promotes a warning the reference disabled (werrorCategory), and forwarding it on a recipe the
+    # reference accepts promotes krust's extension warnings that K never emits (prelude-warnings,
+    # D1-05 UnadmittedHookNamespace); both are spurious krust-errors, not conformance divergences.
     warning_level = (opts.get("-w") or opts.get("--warnings") or [None])[-1]
     if warning_level in ("all", "normal", "none"): args += ["--warnings", warning_level]
-    if "-w2e" in flags or "--warnings-to-errors" in flags: args.append("--warnings-to-errors")
+    per_category = [f"{k} {v}" for k in ("-W", "-Wno") for v in opts.get(k, [])]
+    w2e = [f for f in flags if f in ("-w2e", "--warnings-to-errors")]
     dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap", "-w2e", "--warnings-to-errors")]
+    if w2e and per_category:
+        dropped.append(f"{w2e[-1]} (not forwarded next to {' '.join(per_category)}: krust has no per-category warning control, and a partial contract would promote warnings the reference disabled)")
+    elif w2e and not expect_fail:
+        dropped.append(f"{w2e[-1]} (not forwarded: the reference accepts this recipe, and krust's extension warnings would be promoted)")
+    elif w2e:
+        args.append("--warnings-to-errors")
     inference_mode = (opts.get("--type-inference-mode") or [None])[-1]
     for k in opts:
         if k in ("-w", "--warnings") and warning_level in ("all", "normal", "none"): continue
@@ -508,7 +520,7 @@ def do_kompile(case, rec, expect_fail):
             step.update(verdict="reference-error", reason=f"reference kompile exit {rc}", divergence=(out + err)[-1500:])
             return step_record(case, **step)
         if kompiled and os.path.isdir(f"{case.dir}/{kompiled}"): read_kompiled(case, f"{case.dir}/{kompiled}")
-    args, why, info = krust_kompile_args(case, rec, force_syntax_module=expect_fail)
+    args, why, info = krust_kompile_args(case, rec, expect_fail=expect_fail)
     if args is None:
         step.update(verdict="krust-unsupported", reason=why); return step_record(case, **step)
     krust_env = ({"KRUST_TYPE_INFERENCE_MODE": "checked"}
