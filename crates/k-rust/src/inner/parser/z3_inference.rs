@@ -1327,7 +1327,9 @@ impl<'a> Encoding<'a> {
     /// The cardinality assertion is scoped to this first model. Maximal-model enumeration runs
     /// after the pop with only hard constraints, so an incomparable model with fewer preferred
     /// assignments cannot be pruned.
-    fn seed_model(&self, solver: &Solver) -> Result<Option<BTreeMap<String, Sort>>, ParseError> {
+    /// The reference's soft `K`/`KItem`/`Bag` preferences (TypeInferencer.java:364-370) for the
+    /// selected inference constants.
+    fn top_preferences(&self, select: impl Fn(&str) -> bool) -> Result<Vec<Bool>, ParseError> {
         let mut constraints = Vec::new();
         for preferred in ["K", "KItem", "Bag"] {
             let sort = Sort::new(preferred);
@@ -1335,10 +1337,17 @@ impl<'a> Encoding<'a> {
                 continue;
             }
             let preferred = self.sort_value(&sort, &BTreeMap::new())?;
-            for variable in self.variables.values() {
-                constraints.push(self.less_than_eq(&preferred, variable, false)?);
+            for (name, variable) in &self.variables {
+                if select(name) {
+                    constraints.push(self.less_than_eq(&preferred, variable, false)?);
+                }
             }
         }
+        Ok(constraints)
+    }
+
+    fn seed_model(&self, solver: &Solver) -> Result<Option<BTreeMap<String, Sort>>, ParseError> {
+        let constraints = self.top_preferences(|_| true)?;
         if constraints.is_empty() {
             return Ok(None);
         }
@@ -1367,6 +1376,9 @@ impl<'a> Encoding<'a> {
     /// Assert that the largest satisfiable number of `preferences` holds and return that count.
     /// The caller scopes the assertion with `push`/`pop`.
     fn assert_preferred(&self, solver: &Solver, preferences: &[Bool]) -> Result<usize, ParseError> {
+        if preferences.is_empty() {
+            return Ok(0);
+        }
         let weighted = preferences
             .iter()
             .map(|constraint| (constraint, 1))
@@ -1393,20 +1405,25 @@ impl<'a> Encoding<'a> {
         Ok(low)
     }
 
-    /// Re-select the formal parameters of a maximal model so that as many overload-minimal
-    /// function-LHS branches as possible stay well-sorted.
+    /// Re-select the formal parameters of a maximal model: first so that as many
+    /// overload-minimal function-LHS branches as possible stay well-sorted, then so that as many
+    /// parameters as possible sit at the seed's `K`/`KItem`/`Bag` preferences.
     ///
     /// A packed ambiguity can share a formal parameter between overload branches that bind it to
     /// different sorts. Model application discards the branch the arbitrary Z3 value contradicts
-    /// before the post-inference overload filter can select it. The real variables are pinned to
-    /// their maximal values, so only formal parameters move, and the assertions are popped before
-    /// enumeration continues with hard constraints alone.
-    fn prefer_overload_branches(
+    /// before the post-inference overload filter can select it. The maximality climb over the
+    /// real variables likewise re-reads every parameter from an unconstrained model, so a
+    /// parameter the seed placed at `K` (a top rewrite over a bare variable) can come back at any
+    /// satisfying sort. The real variables are pinned to their maximal values, so only formal
+    /// parameters move, and the assertions are popped before enumeration continues with hard
+    /// constraints alone.
+    fn prefer_parameters(
         &self,
         solver: &Solver,
         values: &mut BTreeMap<String, Sort>,
     ) -> Result<(), ParseError> {
-        if self.packed_overload_preferences.is_empty() {
+        let top_preferences = self.top_preferences(|name| self.parameters.contains(name))?;
+        if self.packed_overload_preferences.is_empty() && top_preferences.is_empty() {
             return Ok(());
         }
         solver.push();
@@ -1423,7 +1440,9 @@ impl<'a> Encoding<'a> {
                 )?;
                 solver.assert(variable.eq(&current));
             }
-            if self.assert_preferred(solver, &self.packed_overload_preferences)? == 0 {
+            let overloads = self.assert_preferred(solver, &self.packed_overload_preferences)?;
+            let tops = self.assert_preferred(solver, &top_preferences)?;
+            if overloads == 0 && tops == 0 {
                 return Ok(None);
             }
             match solver.check() {
@@ -1534,7 +1553,7 @@ impl<'a> Encoding<'a> {
                     }
                 }
             }
-            self.prefer_overload_branches(solver, &mut values)?;
+            self.prefer_parameters(solver, &mut values)?;
             let dominated = real_variables
                 .iter()
                 .map(|name| {
