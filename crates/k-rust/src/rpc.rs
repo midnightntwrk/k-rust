@@ -1925,21 +1925,11 @@ fn externalize_rule_substitution(
     state_substitution: &Substitution,
     result_sort: &BackendSort,
 ) -> Option<KorePattern> {
+    // `externalize::external_variable_name` drops the `Rule#`/`Ex#` markers the way Booster's
+    // externaliseRuleMarker does when the bindings are emitted below.
     let substitution = substitution
         .iter()
-        .map(|(variable, value)| {
-            let name = if let Some(name) = variable.name.strip_prefix("Rule#") {
-                format!("Rule{name}")
-            } else if let Some(name) = variable.name.strip_prefix("Ex#") {
-                format!("Ex{name}")
-            } else {
-                variable.name.to_string()
-            };
-            (
-                variable.with_name(name),
-                substitute(value, state_substitution),
-            )
-        })
+        .map(|(variable, value)| (variable.clone(), substitute(value, state_substitution)))
         .collect();
     super::model_substitution(&substitution, result_sort).map(left_associate_conjunction)
 }
