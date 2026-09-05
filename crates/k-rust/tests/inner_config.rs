@@ -61,6 +61,45 @@ fn parses_nested_cells_properties_casts_and_ensures() {
 }
 
 #[test]
+fn bare_configuration_variable_is_cast_to_its_inferred_sort() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module CONFIG-VAR-CAST --syntax-module CONFIG-VAR-CAST --output-definition ref (exit 0)
+    // parsed.txt: rule initKCell(_0)=>`<k>`(#noDots(.KList),#SemanticCastToK(`project:KItem`(`Map:lookup`(_0,#token("$PGM","KConfigVar")))),#noDots(.KList)) ...
+    // A KConfigVar constant is a variable to both reference inference engines
+    // (SortInferencer.java:228 and :563, TypeInferenceVisitor.java:221-233), so the bare `$PGM`
+    // under `<k>` is cast to its inferred sort K before configuration generation reads it.
+    let source = "<k> $PGM </k>";
+    let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
+    let Sentence::Configuration { body, .. } =
+        &transformed.main_module().unwrap().local_sentences[1]
+    else {
+        panic!("the bubble should resolve to a configuration");
+    };
+
+    assert_eq!(
+        body.to_string(),
+        "#configCell(#token(\"k\",\"#CellName\"),#cellPropertyListTerminator(.KList),#SemanticCastToK(#token(\"$PGM\",\"KConfigVar\")),#token(\"k\",\"#CellName\"))"
+    );
+}
+
+#[test]
+fn explicitly_cast_configuration_variable_keeps_its_single_cast() {
+    // Control for the inferred cast: `$PGM:Int` already carries its cast and must not be wrapped
+    // again (SortInferencer.insertCasts skips a constant under an existing cast).
+    let source = "<k> $PGM:Int </k>";
+    let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
+    let Sentence::Configuration { body, .. } =
+        &transformed.main_module().unwrap().local_sentences[1]
+    else {
+        panic!("the bubble should resolve to a configuration");
+    };
+
+    assert_eq!(
+        body.to_string(),
+        "#configCell(#token(\"k\",\"#CellName\"),#cellPropertyListTerminator(.KList),#SemanticCastToInt(#token(\"$PGM\",\"KConfigVar\")),#token(\"k\",\"#CellName\"))"
+    );
+}
+
+#[test]
 fn declared_kconfigvar_does_not_create_a_reflexive_subsort_bridge() {
     let mut input = definition("<k> $PGM:Int </k>");
     input.modules[0].local_sentences.insert(
