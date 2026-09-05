@@ -534,9 +534,61 @@ fn variable_pattern(variable: &Variable) -> kore::Variable {
             crate::term::VariableKind::Element => kore::VariableKind::Element,
             crate::term::VariableKind::Set => kore::VariableKind::Set,
         },
-        name: variable.name.to_string(),
+        name: external_variable_name(&variable.name),
         sort: sort(&variable.sort),
     }
+}
+
+/// The provenance markers the backend prefixes to rule-side variable names.
+const PROVENANCE_MARKERS: [&str; 3] = ["Rule#", "Ex#", "Eq#"];
+
+/// Externalize an internal variable name as the KORE identifier the reference engines print.
+///
+/// Booster keeps the `Rule#`/`Ex#` provenance markers internally and drops the `#` when it
+/// externalizes them (`Booster.Pattern.Util.externaliseRuleMarker`); the backend's `Eq#` equation
+/// marker follows the same rule. Kore stores a fresh name as a base plus a counter and appends the
+/// counter's digits to the base on output (`Kore.Syntax.Variable.externalizeFreshVariableName`);
+/// `fresh_variable` writes that counter as `!N`, so `Ex#Frame!0` externalizes as `ExFrame0`. Any
+/// other character outside the identifier grammar of `Kore/Parser/Lexer.x` (`[a-zA-Z0-9'-]`, a
+/// leading `@` for set variables) is written as the apostrophe-delimited word K's identifier
+/// encoding uses, so the result always lexes. Like the reference's, the mapping is not injective;
+/// the K frontend never produces names starting with `Rule`, `Ex` or `Eq` without the `Var`
+/// prefix, so externalized names do not collide with user variables.
+pub fn external_variable_name(name: &str) -> String {
+    let (marker, rest) = PROVENANCE_MARKERS
+        .iter()
+        .find_map(|marker| {
+            name.strip_prefix(marker)
+                .map(|rest| (&marker[..marker.len() - 1], rest))
+        })
+        .unwrap_or(("", name));
+    let (base, counter) = match rest.rsplit_once('!') {
+        Some((base, counter))
+            if !counter.is_empty() && counter.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            (base, counter)
+        }
+        _ => (rest, ""),
+    };
+    let mut external = String::with_capacity(name.len());
+    for (index, character) in marker
+        .chars()
+        .chain(base.chars())
+        .chain(counter.chars())
+        .enumerate()
+    {
+        match character {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '\'' | '-' => external.push(character),
+            '@' if index == 0 => external.push(character),
+            '#' => external.push_str("'Hash'"),
+            '!' => external.push_str("'Bang'"),
+            other => {
+                use std::fmt::Write;
+                write!(external, "'{:04x}'", u32::from(other)).expect("writing to a string");
+            }
+        }
+    }
+    external
 }
 
 fn application(

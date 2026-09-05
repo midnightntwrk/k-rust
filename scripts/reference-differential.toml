@@ -1469,9 +1469,14 @@ configuration = []
 state-depth = 0
 responses = ["execute-trivial"]
 
-# The three C1 symbolic cases stay pending on C1-01: k-rust's kore-exec prints fresh remainder
-# names such as Ex#Frame!0:SortMap{} that are not KORE identifiers, so the branch-multiset comparison
-# cannot parse its output (stage 12). Drop the requirement when C1-01 emits valid KORE variables.
+# The three C1 symbolic cases stay pending on C1-01. Since the stage-12 follow-up k-rust's kore-exec
+# prints fresh remainder names as KORE identifiers (ExFrame0:SortMap{}) and the comparison runs, but
+# it still fails on harness shape, not on branches: at `depth = 1` kore-exec prints only the
+# unrewritten remainder disjunct (its rewritten branches appear at --depth 2, where the pgm-map
+# branch set equals k-rust's), the comparator does not split a disjunct whose constraints contain
+# \not(\exists ...) into term and constraints (is_predicate_pattern), and it canonicalizes only
+# Var'Unds'<stem><digits> generated names (the reference's VarAC1'Unds'1 and k-rust's Ex... names
+# stay distinct). Drop the requirement once the harness handles those three points.
 [[symbolic]]
 name = "c1-map"
 requires = ["reference-toolchain", "ticket:C1-01"]

@@ -162,8 +162,10 @@ fn part_b_pending_and_special_case_schema_is_complete() {
             })
             .collect::<Vec<_>>()
     };
-    // The three symbolic C1 cases stay pending on C1-01, which owns the fresh remainder names
-    // (`Ex#Frame!0:SortMap{}`) that k-rust's kore-exec prints as non-KORE identifiers.
+    // The three symbolic C1 cases stay pending on C1-01: the fresh remainder names now externalize
+    // as KORE identifiers (`ExFrame0:SortMap{}`), but the comparison still fails on harness shape
+    // (kore-exec's depth counting, `\not(\exists ...)` constraints, generated-name canonicalization;
+    // see the manifest comment above the c1-map case).
     for name in ["c1-map", "c1-t2", "c1-t3"] {
         assert_eq!(
             ticket_requirements(&case("symbolic", name)),
