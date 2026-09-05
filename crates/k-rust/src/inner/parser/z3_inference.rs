@@ -36,6 +36,8 @@ struct Encoding<'a> {
     syntactic_relation: Vec<(Datatype, Datatype)>,
     variables: BTreeMap<String, Datatype>,
     parameters: BTreeSet<String>,
+    /// Soft per-ambiguity preferences for the overload-minimal function-LHS branches.
+    packed_overload_preferences: Vec<Bool>,
     packed_ids: HashMap<*const PackedTerm, usize>,
     anywhere: bool,
     top_rewrite_paths: HashSet<String>,
@@ -336,6 +338,7 @@ impl<'a> Encoding<'a> {
             syntactic_relation: Vec::new(),
             variables: BTreeMap::new(),
             parameters: BTreeSet::new(),
+            packed_overload_preferences: Vec::new(),
             packed_ids: HashMap::new(),
             anywhere,
             top_rewrite_paths: HashSet::new(),
@@ -508,12 +511,37 @@ impl<'a> Encoding<'a> {
         }
         let result = (|| match &term.node {
             PackedNode::Ambiguity(alternatives) => {
-                let constraints = packed_terms_in_structural_order(alternatives)
-                    .into_iter()
+                let alternatives = packed_terms_in_structural_order(alternatives);
+                let constraints = alternatives
+                    .iter()
                     .map(|alternative| {
-                        self.constraint_packed(&alternative, expected, cast_context, memo)
+                        self.constraint_packed(alternative, expected, cast_context, memo)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                let overloads = alternatives
+                    .iter()
+                    .map(|alternative| {
+                        let lhs = self.grammar.packed_function_lhs(alternative)?;
+                        let PackedNode::Production { production, .. } = &lhs.node else {
+                            return None;
+                        };
+                        self.grammar.productions[*production].source_production
+                    })
+                    .collect::<Option<Vec<_>>>();
+                if let Some(overloads) = overloads {
+                    let productions = overloads.iter().copied().collect::<BTreeSet<_>>();
+                    let minimal = self.grammar.overloads.minimal(productions.iter());
+                    if minimal.len() < productions.len() {
+                        let preferred = constraints
+                            .iter()
+                            .zip(overloads)
+                            .filter_map(|(constraint, production)| {
+                                minimal.contains(&production).then_some(constraint.clone())
+                            })
+                            .collect::<Vec<_>>();
+                        self.packed_overload_preferences.push(or_all(&preferred));
+                    }
+                }
                 Ok(or_all(&constraints))
             }
             PackedNode::Term(leaf) => match leaf.unannotated() {
@@ -895,29 +923,7 @@ impl<'a> Encoding<'a> {
 
         solver.push();
         let seed = (|| {
-            let weighted = constraints
-                .iter()
-                .map(|constraint| (constraint, 1))
-                .collect::<Vec<_>>();
-            let mut low = 0;
-            let mut high = constraints.len();
-            while low < high {
-                let candidate = low + (high - low).div_ceil(2);
-                solver.push();
-                solver.assert(Bool::pb_ge(&weighted, candidate as i32));
-                let status = solver.check();
-                solver.pop(1);
-                match status {
-                    SatResult::Sat => low = candidate,
-                    SatResult::Unsat => high = candidate - 1,
-                    SatResult::Unknown => {
-                        return Err(z3_error(
-                            "Z3 returned unknown while applying sort-inference preferences",
-                        ));
-                    }
-                }
-            }
-            solver.assert(Bool::pb_ge(&weighted, low as i32));
+            self.assert_preferred(solver, &constraints)?;
             match solver.check() {
                 SatResult::Sat => self
                     .read_model(
@@ -934,6 +940,87 @@ impl<'a> Encoding<'a> {
         })();
         solver.pop(1);
         seed
+    }
+
+    /// Assert that the largest satisfiable number of `preferences` holds and return that count.
+    /// The caller scopes the assertion with `push`/`pop`.
+    fn assert_preferred(&self, solver: &Solver, preferences: &[Bool]) -> Result<usize, ParseError> {
+        let weighted = preferences
+            .iter()
+            .map(|constraint| (constraint, 1))
+            .collect::<Vec<_>>();
+        let mut low = 0;
+        let mut high = preferences.len();
+        while low < high {
+            let candidate = low + (high - low).div_ceil(2);
+            solver.push();
+            solver.assert(Bool::pb_ge(&weighted, candidate as i32));
+            let status = solver.check();
+            solver.pop(1);
+            match status {
+                SatResult::Sat => low = candidate,
+                SatResult::Unsat => high = candidate - 1,
+                SatResult::Unknown => {
+                    return Err(z3_error(
+                        "Z3 returned unknown while applying sort-inference preferences",
+                    ));
+                }
+            }
+        }
+        solver.assert(Bool::pb_ge(&weighted, low as i32));
+        Ok(low)
+    }
+
+    /// Re-select the formal parameters of a maximal model so that as many overload-minimal
+    /// function-LHS branches as possible stay well-sorted.
+    ///
+    /// A packed ambiguity can share a formal parameter between overload branches that bind it to
+    /// different sorts. Model application discards the branch the arbitrary Z3 value contradicts
+    /// before the post-inference overload filter can select it. The real variables are pinned to
+    /// their maximal values, so only formal parameters move, and the assertions are popped before
+    /// enumeration continues with hard constraints alone.
+    fn prefer_overload_branches(
+        &self,
+        solver: &Solver,
+        values: &mut BTreeMap<String, Sort>,
+    ) -> Result<(), ParseError> {
+        if self.packed_overload_preferences.is_empty() {
+            return Ok(());
+        }
+        solver.push();
+        let preferred = (|| {
+            for (name, variable) in &self.variables {
+                if self.parameters.contains(name) {
+                    continue;
+                }
+                let current = self.sort_value(
+                    values
+                        .get(name)
+                        .expect("all inference variables have model values"),
+                    &BTreeMap::new(),
+                )?;
+                solver.assert(variable.eq(&current));
+            }
+            if self.assert_preferred(solver, &self.packed_overload_preferences)? == 0 {
+                return Ok(None);
+            }
+            match solver.check() {
+                SatResult::Sat => self
+                    .read_model(&solver.get_model().ok_or_else(|| {
+                        z3_error("Z3 returned sat without an overload branch model")
+                    })?)
+                    .map(Some),
+                SatResult::Unsat => Ok(None),
+                SatResult::Unknown => Err(z3_error(
+                    "Z3 returned unknown while selecting overload branch parameters",
+                )),
+            }
+        })();
+        solver.pop(1);
+        if let Some(preferred) = preferred? {
+            *values = preferred;
+        }
+        Ok(())
     }
 
     fn maximal_models(
@@ -1025,6 +1112,7 @@ impl<'a> Encoding<'a> {
                     }
                 }
             }
+            self.prefer_overload_branches(solver, &mut values)?;
             let dominated = real_variables
                 .iter()
                 .map(|name| {
