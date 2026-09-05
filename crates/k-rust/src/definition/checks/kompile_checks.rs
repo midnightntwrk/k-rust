@@ -86,12 +86,23 @@ pub fn check_proof_module(
     diagnostics
 }
 
-pub fn check_is_sort_predicates(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
-    let generated = definition
-        .modules()
-        .flat_map(|(module, _)| {
+/// `Kompile.checkIsSortPredicates` over the module set of the parsed definition.
+///
+/// The reference runs the check on the definition that
+/// `DefinitionParsing.parseDefinitionAndResolveBubbles` trims (and, for `kprove`, on the module
+/// set `Kompile.parseModules` hands to `ProofDefinitionBuilder.build`), not on every loaded
+/// module: a prelude module such as `RANGEMAP` that nothing in the main closure imports, and
+/// whose own import closure carries rules, never contributes a generated `is<Sort>` name.
+pub fn check_is_sort_predicates(
+    definition: &ResolvedDefinition,
+    options: &StructuralCheckOptions,
+) -> Vec<Diagnostic> {
+    let checked_modules = parsed_definition_modules(definition, options);
+    let generated = checked_modules
+        .iter()
+        .flat_map(|module| {
             definition
-                .sort_catalog(module)
+                .sort_catalog(*module)
                 .defined_heads()
                 .iter()
                 .map(|sort| format!("is{}", sort.as_str()))
@@ -99,8 +110,8 @@ pub fn check_is_sort_predicates(definition: &ResolvedDefinition) -> Vec<Diagnost
         })
         .collect::<BTreeSet<_>>();
     let mut diagnostics = Vec::new();
-    for (_, module) in definition.modules() {
-        for sentence in &module.local_sentences {
+    for module in checked_modules {
+        for sentence in &definition.module(module).local_sentences {
             let Sentence::Production { sort, items, .. } = sentence else {
                 continue;
             };
@@ -124,6 +135,69 @@ pub fn check_is_sort_predicates(definition: &ResolvedDefinition) -> Vec<Diagnost
         }
     }
     diagnostics
+}
+
+/// Modules `DefinitionParsing.parseDefinitionAndResolveBubbles` always retains, bubbles or not.
+const FRONTEND_UTILITY_MODULES: [&str; 4] =
+    ["K-REFLECTION", "STDIN-STREAM", "STDOUT-STREAM", "MAP"];
+
+/// The module set of the parsed definition the reference checks: the import closures of the
+/// main module (and of the definition module in proof mode, as `ProofDefinitionBuilder.build`
+/// passes it), of the frontend utility modules, and of every loaded module whose visible
+/// sentences held no bubble before inner parsing. Backend-tag exclusion has already removed
+/// modules at load time.
+///
+/// The syntax module closure the reference also retains is not known to the checker; the CLI's
+/// `parsed_definition_for_json` reproduces the same set with it for `parsed.json`.
+fn parsed_definition_modules(
+    definition: &ResolvedDefinition,
+    options: &StructuralCheckOptions,
+) -> BTreeSet<ModuleId> {
+    let mut seeds = vec![definition.main_module_id()];
+    if let CheckMode::Proof { definition_module } = &options.mode {
+        seeds.extend(definition.module_id(definition_module));
+    }
+    seeds.extend(
+        FRONTEND_UTILITY_MODULES
+            .iter()
+            .filter_map(|name| definition.module_id(name)),
+    );
+    // `Module.sentences` is local plus transitively imported sentences; dependency order lists
+    // every import before its importer, so one pass propagates visible bubbles.
+    let mut with_visible_bubbles = BTreeSet::new();
+    for module in definition.dependency_order().iter().copied() {
+        let local_bubble = definition
+            .module(module)
+            .local_sentences
+            .iter()
+            .any(is_bubble_sentence);
+        let imported_bubble = definition
+            .direct_imports(module)
+            .iter()
+            .any(|import| with_visible_bubbles.contains(&import.module));
+        if local_bubble || imported_bubble {
+            with_visible_bubbles.insert(module);
+        } else {
+            seeds.push(module);
+        }
+    }
+    seeds
+        .into_iter()
+        .flat_map(|seed| module_closure(definition, seed))
+        .collect()
+}
+
+/// Sentences the outer parser produces as bubbles, before or after inner parsing.
+fn is_bubble_sentence(sentence: &Sentence) -> bool {
+    matches!(
+        sentence,
+        Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Context { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. }
+    )
 }
 
 fn module_closure(definition: &ResolvedDefinition, module: ModuleId) -> BTreeSet<ModuleId> {
