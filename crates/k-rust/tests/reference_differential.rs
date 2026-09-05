@@ -2227,32 +2227,54 @@ fn strip_source_metadata(definition: &mut Definition) {
     }
 }
 
+/// Decision D13-3: the freezers of a multi-alias context group are named `_`, `_2`, ... in
+/// the order `ResolveContexts` meets the aliases, which is Scala HashSet order in the
+/// reference and declaration order in the port. Collapse every freezer of such a group onto
+/// the group's unsuffixed name (declarations and uses alike) and drop the UNIQUE_ID of the
+/// axioms that mention them, so that only the derived identifiers leave the comparison.
+/// Returns the number of axioms touched.
 fn strip_multi_alias_freezer_ids(definition: &mut Definition) -> usize {
     let mut stripped = 0;
     for module in &mut definition.modules {
-        let freezers = multi_alias_freezer(module);
-        if freezers.is_empty() {
+        let renames = multi_alias_freezer(module);
+        if renames.is_empty() {
             continue;
         }
+        let freezers = renames.keys().cloned().collect::<BTreeSet<_>>();
         for sentence in &mut module.sentences {
-            let Sentence::Axiom {
-                pattern,
-                attributes,
-                ..
-            } = sentence
-            else {
-                continue;
-            };
-            if pattern_mentions_any_symbol(pattern, &freezers) {
-                strip_unique_id_attributes(attributes);
-                stripped += 1;
+            match sentence {
+                Sentence::SymbolDeclaration { symbol, .. } => {
+                    if let Some(canonical) = renames.get(&symbol.name) {
+                        symbol.name = canonical.clone();
+                    }
+                }
+                Sentence::Axiom {
+                    pattern,
+                    attributes,
+                    ..
+                }
+                | Sentence::Claim {
+                    pattern,
+                    attributes,
+                    ..
+                } => {
+                    if pattern_mentions_any_symbol(pattern, &freezers) {
+                        rename_symbols(pattern, &renames);
+                        strip_unique_id_attributes(attributes);
+                        stripped += 1;
+                    }
+                }
+                Sentence::Import { .. }
+                | Sentence::SortDeclaration { .. }
+                | Sentence::AliasDeclaration { .. } => {}
             }
         }
     }
     stripped
 }
 
-fn multi_alias_freezer(module: &k_rust::kore::ast::Module) -> BTreeSet<String> {
+/// Every freezer symbol of a multi-alias group mapped to the group's canonical name.
+fn multi_alias_freezer(module: &k_rust::kore::ast::Module) -> BTreeMap<String, String> {
     let mut by_hint = BTreeMap::<String, Vec<String>>::new();
     for sentence in &module.sentences {
         let Sentence::SymbolDeclaration { symbol, .. } = sentence else {
@@ -2267,17 +2289,63 @@ fn multi_alias_freezer(module: &k_rust::kore::ast::Module) -> BTreeSet<String> {
             .push(symbol.name.clone());
     }
     by_hint
-        .into_values()
-        .filter(|names| names.len() > 1)
-        .flatten()
+        .into_iter()
+        .filter(|(_, names)| names.len() > 1)
+        .flat_map(|(hint, names)| {
+            let canonical = format!("Lbl'Hash'freezer{hint}'Unds'");
+            names.into_iter().map(move |name| (name, canonical.clone()))
+        })
         .collect()
 }
 
+/// `ResolveContexts.getUniqueFreezerLabel`: `#freezer<hint>_` for the first context of a
+/// hint, `#freezer<hint>_<n>` (n >= 2) for the following ones.
 fn multi_alias_freezer_hint(name: &str) -> Option<&str> {
     let suffix = name.strip_prefix("Lbl'Hash'freezer")?;
     let (hint, number) = suffix.rsplit_once("'Unds'")?;
-    (!hint.is_empty() && !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
-        .then_some(hint)
+    (!hint.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())).then_some(hint)
+}
+
+fn rename_symbols(pattern: &mut Pattern, renames: &BTreeMap<String, String>) {
+    match pattern {
+        Pattern::Application { symbol, arguments }
+        | Pattern::AssociativeApplication {
+            symbol, arguments, ..
+        } => {
+            if let Some(canonical) = renames.get(&symbol.name) {
+                symbol.name = canonical.clone();
+            }
+            for argument in arguments {
+                rename_symbols(argument, renames);
+            }
+        }
+        Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
+            for argument in arguments {
+                rename_symbols(argument, renames);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => rename_symbols(argument, renames),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            rename_symbols(left, renames);
+            rename_symbols(right, renames);
+        }
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => rename_symbols(body, renames),
+        Pattern::Variable(_)
+        | Pattern::String(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
 }
 
 fn pattern_mentions_any_symbol(pattern: &Pattern, symbols: &BTreeSet<String>) -> bool {
