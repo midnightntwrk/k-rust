@@ -356,8 +356,8 @@ if [[ "$name" == imp ]]; then
       --no-print-definition >"$work/state.json"
   )
 else
-  generate_state "$program" start
-  generate_state "$stuck_program" done
+  generate_state "$program" "start"
+  generate_state "$stuck_program" "done"
 fi
 
 jq -n '{
