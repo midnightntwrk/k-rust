@@ -201,11 +201,13 @@ krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2'
 krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 ```
 
-Execution explores every rewrite branch by default. Pass `--execute-to-branch` to return the
-configuration at the first branch point instead. Pass `--strategy any` for ordered,
-first-applicable rewriting instead of the default `--strategy all`. Pass `--breadth N` to cap the
-live frontier: execution returns that frontier when the bound is exceeded, while search reports
-that it is incomplete.
+Execution follows one successor per step by default (`--strategy any`: the first applicable rule
+by priority and definition order, the single path K's krun takes), so a `strict` production with
+several unevaluated arguments is heated in one order, not every order. Pass `--strategy all` to
+explore every applicable rule (kore-exec's default, and the mode every `--search-*` run uses), and
+`--execute-to-branch` to return the configuration at the first branch point instead. Pass
+`--breadth N` to cap the live frontier: execution returns that frontier when the bound is exceeded,
+while search reports that it is incomplete.
 
 Bounded execution, search, and proof operations allow 100 simplifier iterations per step by default.
 Pass `--max-simplification-iterations N` to `krun`, `kore-exec`, or `kprove` to select a request-specific bound; exhaustion is reported as a simplification iteration-limit stop.
