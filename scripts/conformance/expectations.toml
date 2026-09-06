@@ -546,9 +546,9 @@ reason = ""
 name = "imp-llvm"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
-tickets = ["I1-06"]
+tickets = ["I1-06", "C3-02"]
 exclusion = ""
-reason = "kompile matches (the I1-06 `left` attribute is gone); krun collatz.imp: krust's concrete execution grows without bound (standalone on 2026-09-06: killed at 900 s with 56580 MiB peak RSS; under the 12 GiB fallback it dies at 145 s with `memory allocation of 613120 bytes failed`), primes.imp times out and sum.imp is never reached in the 300 s budget. Not the deferred per-run recompilation (about 2 s here). Characterized 2026-09-06 under an 8 GiB scope and 300 s (draft/fable51-review/conformance-host/fixtures/collatz-memory/measurements.toml): the growth is exponential in the number of `strict` heatings with two unevaluated arguments (`q+q`, `n+n+n`), not in the step count. krun runs the backend with ExecutionBranchMode::ExploreAll (main.rs:2283-2285), so both heating orders of an `Id + Id` are enqueued and explored while the printed state stays one 11-14 KB term without constraints; collatz --depth 400 takes 5.4 s / 200 MiB, 600 44 s / 652 MiB, 693 156 s / 5.1 GiB, 700 does not finish; a 100-iteration loop with one unevaluated argument per `+` takes 2.7 s / 200 MiB, while 16 straight-line copies of `s = a + a;` take 85 s / 2.7 GiB and 20 exceed 8 GiB (reduced fixture strict2-K.imp). No deferred.toml or area-index row records this, so it is not excluded: handoff to the quality-and-performance run (C area rewrite loop, krun branch mode)."
+reason = "kompile matches (the I1-06 `left` attribute is gone). krun: fixed by C3-02 cb6393e (test ffa3c45): plain `krust krun` ran the backend with `--strategy all` under ExploreAll, so both heating orders of every two-argument `strict` heating (`q+q`, `n+n+n`) were enqueued and the frontier doubled per heating (collatz.imp 56.6 GiB unguarded; 16 copies of `s = a + a;` 85 s / 2.7 GiB, 20 beyond 8 GiB; conformance-host/fixtures/collatz-memory/measurements.toml). K's krun takes one successor per step (LLVM decision tree; kore-exec `--strategy any`, Kore/Rewrite.hs:250-253 applyRewriteRulesSequence; the K test suite's imp-haskell twin declares `seqstrict` because kore-exec's `all` explores every order), so krun now defaults to `--strategy any` and `--search` stays explore-all. Guarded re-measurement with the fixed release binary under the 8 GiB user scope: collatz.imp 3.3 s / 203 MiB, primes.imp 3.4 s, sum.imp 3.1 s, strict2-20.imp 2.8 s / 203 MiB, one final configuration each."
 [[case]]
 name = "imp-outer-json"
 baseline_verdict = "krust-error"
@@ -913,7 +913,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kprove"
 tickets = ["C2-01", "C4-04", "I1-10", "C4-05"]
 exclusion = ""
-reason = "a1: ConflictingResults; a2: both reject; a3: existential witness + inj equality; a4/a5: ML connectives in term positions"
+reason = "a1: ConflictingResults; a2: both reject (a match since the I1-03 classifier fix: the reference's `[Error] Compiler: Simplification rules expect function/functional/mlOp symbols at the top of the left hand side term.` and krust's `Error[InvalidSimplification]` at the same rule are classified by their diagnostic lines; host ratchet run 26, 6 of 7 steps match); a3: existential witness + inj equality; a4/a5: ML connectives in term positions. a5-spec.k at 824d1fb: expected proven, krust `Indeterminate(Implication) at depth 1` on `<k> 2 </k>` against the target `2 #And n +Int n`, whose simplification `n +Int n => #Top` rewrites an Int term to an ML top inside the cell (C4-05 internalises it, the implication check does not apply it: completeness, C4-04/C4-05 handoff)."
 
 [[case]]
 name = "issue-2315-id-quotes"
@@ -987,9 +987,9 @@ step_exclusions = [
 name = "issue-2909-allow-anywhere-haskell/llvm"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-tickets = ["D1-04"]
-exclusion = ""
-reason = "kompile: under `--type-inference-mode checked` krust rejects `rule foo() => bar() [anywhere, priority(20)]` with `portable and Z3 sort inference produced different terms` (portable Foo, Z3 K; A3-03 checked mode); krun 1.test: krust rewrites `foo()` with the plain rule to `baz()` where the LLVM reference applies the anywhere rule first and prints `bar()` (anywhere rules must apply before the rewrite step, C area); the oracle re-run aborts under the 12 GiB fallback (`mmap(): Cannot allocate memory`). Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
+tickets = ["A3-03"]
+exclusion = "llvm-only"
+reason = "krun 1.test: krust applies the anywhere equation before the rewrite step exactly as the reference does (`--depth 0` prints `bar()`: the reference emits `foo()` as an `anywhere{}(), functional{}()` symbol with the equation `foo() = bar()` and krust evaluates it at the initial simplification, Kore's `[Begin, Simplify, Rewrite, Simplify]`). The residual divergence is the rewrite rule `foo() => baz()` whose left-hand side is the anywhere symbol: Kore unifies two function-like terms through `\\equals(foo(), bar())` (Kore/Simplify/AndTerms.hs:951-963 functionAnd) and evaluation makes the condition true, so kore-exec would also rewrite the normalised `bar()` to `baz()`; the LLVM backend matches rewrite rules syntactically on the normalised term, where `foo()` never exists, and prints `bar()`. The K frontend removes anywhere rules for the Haskell backend (`check` subcase: `Removed anywhere rule for Haskell backend execution; this may change the behavior of your code`), so the LLVM reading is undefined for the backend the port follows: arbiter row 13. Still open at kompile: `KRUST_TYPE_INFERENCE_MODE=checked` rejects `rule foo() => bar() [anywhere, priority(20)]` with `portable and Z3 sort inference produced different terms` (portable Foo, Z3 K; reproduced at cb6393e, /tmp/k-rust-backend-residue/unit2), A3-03 handoff; the driver's default-mode kompile matches."
 [[case]]
 name = "issue-3035-antileft/haskell"
 baseline_verdict = "krust-error"
@@ -1611,9 +1611,9 @@ reason = ""
 name = "no-junk-macro"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-tickets = ["D1-04"]
-exclusion = ""
-reason = "krun 1.test: krust prints `<k> false </k>` alone where the reference keeps the residual constraint `{ true #Equals size(ListItem(?X) ?L) >=Int -1 }`: krust discharges the list-size bound that Kore leaves unevaluated (C2/C4 simplification completeness; oracle confirmed under the systemd scope on 2026-09-06). Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
+tickets = []
+exclusion = "presentation-only"
+reason = "krun 1.test: krust prints `<k> false </k>` alone where the reference keeps `{ true #Equals size(ListItem(?X) ?L) >=Int -1 }`. Mechanism (rewrite.rs:2599): the requires `I >=Int -1` of `rule I:Int => false requires I >=Int -1` on `I = size(ListItem(?X) ?L)` is undecidable syntactically, krust asks Z3 whether it is valid under the path condition with the definition's `smt-lemma` `size(L) >=Int 0` asserted, gets Valid and drops it; kore-exec only prunes unsatisfiable conditions (Kore/Rewrite/RewriteStep.hs:308-322, SMT.Evaluator.filterMultiOr) and never discharges a valid one, so it stays in the output. The constraint is entailed by the definition's own lemma, so the two final configurations are semantically equal and differ only in text: presentation-only, in the sense of the concrete-function disposition (decisions.toml pair `C2 deferred concrete-function`). Oracle confirmed under the systemd scope on 2026-09-06."
 [[case]]
 name = "no-pattern"
 baseline_verdict = "krust-error"
@@ -1745,9 +1745,9 @@ unexplained = true
 name = "pl-tutorial/1_k/2_imp/lesson_4"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
-tickets = ["I1-06"]
+tickets = ["I1-06", "C3-02"]
 exclusion = ""
-reason = "kompile matches; krun tests/collatz.imp dies with `memory allocation of 633856 bytes failed` under the 12 GiB fallback at 144 s and primes.imp times out (same unbounded memory growth as imp-llvm, 56.6 GiB peak RSS standalone). Same mechanism as imp-llvm (characterized 2026-09-06: exponential fan-out of the ExploreAll krun over the two heating orders of each `Id + Id`, see draft/fable51-review/conformance-host/fixtures/collatz-memory/measurements.toml); no document defers it, so it stays a handoff to the quality-and-performance run."
+reason = "kompile matches; krun tests/collatz.imp and primes.imp: same mechanism and same fix as imp-llvm (C3-02 cb6393e: plain krun follows one successor per step, `--strategy any`); guarded re-measurement with the fixed release binary under the 8 GiB user scope: collatz.imp 3.3 s / 203 MiB, one final configuration."
 [[case]]
 name = "pl-tutorial/1_k/3_lambda++/lesson_5"
 baseline_verdict = "skipped-with-reason"
@@ -2058,7 +2058,7 @@ baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["C1-01", "C1-02"]
 exclusion = ""
-reason = "stuck at depth 2 with a Set frame `_Set_(?_Gen0, _DotVar1)` against `SetItem(I +Int 1) ...`"
+reason = "claim #1 disproved at depth 2 (cb6393e). Reduced 2026-09-06 (/tmp/k-rust-backend-residue/unit4): the Set-frame unification is not the cause (`SetItem(I +Int 1)` without `?_:Set`, the frames-only claim and the unchanged-set claim all prove); the existential set frame `?_:Set` on the trusted claim's right-hand side is (`<set>... SetItem(I) (.Set => ?_:Set) ...</set>` alone reproduces). After the trusted claim applies, the state carries the claim's own frame `_DotVar1!claim9` next to the subject's `_DotVar1` (`SetItem(I) _Set_(?_Gen0!claim8, _DotVar1!claim9)`) with no equality between them, so the implication's existential obligation cannot equate the two frames and the verdict is a spurious refutation; the proof loop (proof.rs:209-215) neither substitutes nor retains the variable-equality conditions that bind_subject_variables produces, unlike the execution loop (rewrite.rs normalize_pattern_substitution / retain_substitution_predicates). Claim handling (C4-01/C4-03 side), handoff with the reduced spec."
 
 [[case]]
 name = "simp-haskell"
@@ -2074,7 +2074,7 @@ baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["I1-11"]
 exclusion = ""
-reason = "def02: claim requires narrowing; def61/def81: krust proves what the reference refutes (suspects C4-03, C1 index `ceil_term` note); def62: stuck at depth 1"
+reason = "def02: claim requires narrowing (I1-11). def032 at cb6393e: `mid Y -Int 1` unifies with `mid X` under `X = Y + -1`; the claim remainder `\\\\not(\\\\exists Y. X = Y + -1)` is unsatisfiable, Kore prunes an UNSAT remainder before it becomes a state (RewriteStep.hs:308-322) while apply_claim pushed it and the proof loop reported the bottom state vacuous at depth 1 (fixed under I1-11, see the ledger). def61/def81: krust proves what the reference refutes (reference incompleteness per parts 6 and 8 of the test plan, step exclusions below). def62: stuck at depth 1: the trusted claim `binop (Y2 +Int (incPos(Y1) -Int Y1 -Int 1)) incPos(Y2)` against `binop (X2 +Int -1) X2` needs the earlier pair's binding (`Y1 := X1`, `X1 >=Int 0`) applied and `incPos(Y1) -Int Y1 -Int 1` evaluated to 0 under the path condition before `Y2 := X2 -Int 1` and `incPos(Y2) = X2` can be solved; krust's claim matching does not evaluate function terms under the accumulating constraint (the swapped argument order def61 succeeds), completeness of C1/C2 unification with evaluation under constraints, unowned."
 unexplained = true
 step_exclusions = [
   { test = "def61-spec.k", exclusion = "reference-incomplete-port-proves", reason = "Part 6 of regression-new's test plan documents reference substitution-orientation incompleteness; the trusted claim applies under the path condition, so the port's proof is sound." },
@@ -2203,9 +2203,9 @@ reason = "match since D1-04 (KItem start sort). Re-measured 2026-09-06 at HEAD 8
 name = "withConfig2"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-tickets = ["D1-04"]
-exclusion = ""
-reason = "krun 1.test (`5`) times out at the 300 s budget: `rule freshIntx() => !_I:Int` is a function rule with a fresh constant; krust keeps `!I` as the existential `EqVar'BangUnds'I` and case-splits on it (`--depth 3` shows three symbolic branches) instead of ResolveFreshConstants/ResolveFunctionWithConfig threading `#Fresh` and the generated counter through the function, where the reference prints `0`. 2.test untested (budget). Handoff (B1 area). Re-measured 2026-09-06 at HEAD 855cc25."
+tickets = []
+exclusion = "llvm-only"
+reason = "krun 1.test (`5`): `rule freshIntx() => !_I:Int` is a function rule with a fresh constant. Neither frontend transforms it: ResolveFreshConstants.java:93-106 returns a rule whose LHS label is a function unchanged and krust's resolve_fresh_constants (rule_defines_function) does the same, so both definition.kore files carry the identical equation `freshIntx(Config) = Var'BangUnds'I` with a free right-hand variable (kompile matches). The LLVM backend implements `!X` in function rules with its own runtime fresh counter (guarded probe 2026-09-06, /tmp/k-rust-backend-residue/unit1/llvm: `rule freshIntx() => !_I:Int +Int 10` prints 10 for one call and `10 ~> 11` for two calls in one rewrite), which is how 1.test.out reads `0`. The Haskell backend does not define it: the pinned kompile --backend haskell accepts the definition and `krun 1.test` runs until the 240 s timeout (`Backend crashed during rewriting with exit code 143`, /tmp/k-rust-backend-residue/logs/unit1-ref-haskell.log; 2.test prints 7), the same case split on the free variable krust performs (`--depth 3` shows three symbolic branches). LLVM-backend-only behaviour under arbiter row 13; no krust pass diverges. 2.test matches (7)."
 [[expected_delta]]
 tickets = ["C2-01"]
 delta = 10
