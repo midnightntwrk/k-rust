@@ -1663,6 +1663,55 @@ mod tests {
         assert_eq!(bound, &expected, "{condition:#?}");
     }
 
+    fn top_simplification_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol wrap{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol plus{}(SortInt{}, SortInt{}) : SortInt{} [function{}()]
+                symbol n{}() : SortInt{} [function{}(), total{}(), no-evaluators{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortInt{}, R}(
+                        plus{}(n{}(), n{}()),
+                        \and{SortInt{}}(\top{SortInt{}}(), \top{SortInt{}}())
+                    )
+                ) [label{}("n-plus-n"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// regression-new issue-2287-simpl-rules-in-kprovex a5: `claim <k> c => 2 #And n +Int n </k>`
+    /// with `rule n +Int n => #Top [simplification]`. Kore simplifies a claim's right-hand side
+    /// with the definition's equations under the left-hand side's condition before checking the
+    /// implication (Kore/Reachability/Claim.hs simplifyRightHandSide, Pattern.makeEvaluate), so
+    /// `2 #And \top` is `2` and the reference proves the claim (#Top).
+    #[test]
+    fn simplifies_the_consequent_with_the_definition_before_matching() {
+        let definition = top_simplification_definition();
+        let antecedent = pattern(&definition, r#"wrap{}(\dv{SortInt{}}("2"))"#);
+        let consequent = pattern(
+            &definition,
+            r#"wrap{}(\and{SortInt{}}(\dv{SortInt{}}("2"), plus{}(n{}(), n{}())))"#,
+        );
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::new(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+    }
+
     #[test]
     fn eliminates_existential_witnesses_by_substitution() {
         let definition = definition();
