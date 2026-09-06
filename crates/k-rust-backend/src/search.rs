@@ -1,6 +1,6 @@
 //! Reachability search over the symbolic execution tree.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -352,6 +352,13 @@ fn search_graph_using(
     let mut effects = Vec::new();
     let mut incomplete = Vec::new();
     let mut fresh_counter = 0;
+    // Kore's execution graph recombines branches that reach the same configuration at the same
+    // step (Strategy.hs, constructExecutionGraph), and the LLVM backend's search drops any
+    // configuration it has already visited: the search is over states, not over paths. Two
+    // work states with one simplified pattern at one depth have the same successors, so the
+    // second is dropped here, which bounds the work per step by the number of distinct
+    // configurations rather than by the number of interleavings that reach them.
+    let mut expanded: HashSet<(u64, Pattern)> = HashSet::new();
 
     if options.max_breadth == Some(0) {
         incomplete.push(IncompleteSearch::BreadthBound(
@@ -448,6 +455,9 @@ fn search_graph_using(
         // Kore's Simplify primitive turns a false-constrained configuration into a Bottom node,
         // which has no program state and cannot be selected by a search strategy.
         if predicates_truth(&state.pattern.constraints) == Truth::False {
+            continue;
+        }
+        if !expanded.insert((state.depth, state.pattern.clone())) {
             continue;
         }
         let at_depth_bound = state.depth >= options.max_depth;
