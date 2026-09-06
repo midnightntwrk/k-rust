@@ -2835,7 +2835,7 @@ impl Matcher<'_> {
 /// sort injections. Such an occurrence makes a finite constructor term cyclic and therefore
 /// unsatisfiable. Occurrences below functions or internal collections may disappear during
 /// simplification, so implication matching retains those as equality conditions instead.
-fn occurs_below_only_constructors(variable: &Variable, term: &Term) -> bool {
+pub(crate) fn occurs_below_only_constructors(variable: &Variable, term: &Term) -> bool {
     match term.kind() {
         TermKind::Variable(found) => found == variable,
         TermKind::Injection { term, .. } => occurs_below_only_constructors(variable, term),

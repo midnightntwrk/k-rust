@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 
 use crate::{
     definition::BackendDefinition,
+    matching::occurs_below_only_constructors,
     rule::Predicate,
     substitution::{Substitution, compose, substitute},
     term::{SymbolType, Term, TermKind, Variable},
@@ -267,7 +268,15 @@ impl Unifier<'_> {
     fn bind(&mut self, variable: Variable, term: Term) -> Result<(), UnificationFailure> {
         let term = substitute(&term, &self.substitution);
         if term.attributes().variables.contains(&variable) {
-            return Err(UnificationFailure::VariableRecursion(variable, term));
+            if occurs_below_only_constructors(&variable, &term) {
+                return Err(UnificationFailure::VariableRecursion(variable, term));
+            }
+            // A cycle through a function symbol or a collection is a simplifiable cycle
+            // (Kore/Unification/SubstitutionNormalization.hs simplifiableCycle): kept as an
+            // equality that evaluation may discharge, not a substitution and not bottom.
+            self.constraints
+                .push(Predicate::Equals(Term::variable(variable), term));
+            return Ok(());
         }
         let binding = Substitution::from([(variable, term)]);
         self.substitution = compose(&binding, &self.substitution);
