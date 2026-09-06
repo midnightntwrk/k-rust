@@ -433,6 +433,9 @@ fn solve_collection_pair(
         (TermKind::Set { .. }, TermKind::Set { .. }) => {
             solve_set_pair(mode, definition, &pattern, &subject, solution, narrowing)
         }
+        (TermKind::Application { .. }, TermKind::Set { .. }) if set_parts(&pattern).is_some() => {
+            solve_set_pair(mode, definition, &pattern, &subject, solution, narrowing)
+        }
         (TermKind::List { .. }, TermKind::List { .. }) => solve_list_pair(
             mode,
             definition,
@@ -1082,6 +1085,54 @@ impl MapCollectionProblem<'_> {
     }
 }
 
+/// A collection term: an internal collection, or an opaque concatenation of collection
+/// symbols, which `Term::set` and its siblings leave as the bare application when it carries no
+/// element.
+pub(crate) fn is_collection_term(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => true,
+        TermKind::Application { symbol, .. } => {
+            symbol
+                .attributes
+                .collection
+                .as_ref()
+                .is_some_and(|collection| match collection {
+                    crate::term::CollectionMetadata::Map(definition) => {
+                        definition.symbols.concat == symbol.name
+                    }
+                    crate::term::CollectionMetadata::List(definition) => {
+                        definition.symbols.concat == symbol.name
+                    }
+                    crate::term::CollectionMetadata::Set(definition) => {
+                        definition.symbols.concat == symbol.name
+                    }
+                })
+        }
+        _ => false,
+    }
+}
+
+/// The parts of a Set term: an internal set, or an opaque concatenation viewed as a set with no
+/// element and that concatenation as its rest.
+fn set_parts(term: &Term) -> Option<(Arc<crate::term::SetDefinition>, Vec<Term>, Option<Term>)> {
+    match term.kind() {
+        TermKind::Set {
+            definition,
+            elements,
+            rest,
+        } => Some((definition.clone(), elements.clone(), rest.clone())),
+        TermKind::Application { symbol, .. } => match &symbol.attributes.collection {
+            Some(crate::term::CollectionMetadata::Set(definition))
+                if definition.symbols.concat == symbol.name =>
+            {
+                Some((definition.clone(), Vec::new(), Some(term.clone())))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn solve_set_pair(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -1091,17 +1142,9 @@ fn solve_set_pair(
     narrowing: &mut Option<&mut Narrowing<'_>>,
 ) -> Option<Vec<CollectionSolution>> {
     let (
-        TermKind::Set {
-            definition: pattern_definition,
-            elements: pattern_elements,
-            rest: pattern_rest,
-        },
-        TermKind::Set {
-            definition: subject_definition,
-            elements: subject_elements,
-            rest: subject_rest,
-        },
-    ) = (pattern.kind(), subject.kind())
+        Some((pattern_definition, pattern_elements, pattern_rest)),
+        Some((subject_definition, subject_elements, subject_rest)),
+    ) = (set_parts(pattern), set_parts(subject))
     else {
         unreachable!()
     };
@@ -1109,8 +1152,8 @@ fn solve_set_pair(
         return Some(Vec::new());
     }
     let (pattern_rest, subject_rest) = cancel_common_opaque_chunks(
-        pattern_rest.clone(),
-        subject_rest.clone(),
+        pattern_rest,
+        subject_rest,
         &pattern_definition.symbols.concat,
     );
     let mut pattern_elements = pattern_elements.iter().cloned().collect::<BTreeSet<_>>();
