@@ -1233,8 +1233,7 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
-#[test]
-fn krun_exits_111_on_divergent_exit_values() {
+fn divergent_exit_fixture() -> (PathBuf, PathBuf) {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -1248,7 +1247,11 @@ endmodule
 "#,
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+    (root, definition)
+}
+
+fn divergent_exit_krun(definition: &Path, extra: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "krun",
             definition.to_str().unwrap(),
@@ -1261,13 +1264,36 @@ endmodule
             "--expression",
             "7",
         ])
+        .args(extra)
         .output()
-        .unwrap();
+        .unwrap()
+}
+
+#[test]
+fn krun_exits_111_on_divergent_exit_values_when_exploring_all_rules() {
+    let (root, definition) = divergent_exit_fixture();
+    let output = divergent_exit_krun(&definition, &["--strategy", "all"]);
 
     assert_eq!(output.status.code(), Some(111));
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains(r#"\dv{SortInt{}}("7")"#), "{stdout}");
     assert!(stdout.contains(r#"\dv{SortInt{}}("8")"#), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_exits_with_the_first_rules_exit_value_by_default() {
+    // K's krun follows one successor per step: the first applicable rule by priority and
+    // definition order (the LLVM backend's choice; kore-exec `--strategy any`), so the second
+    // rule never fires and the exit cell holds the first rule's value.
+    let (root, definition) = divergent_exit_fixture();
+    let output = divergent_exit_krun(&definition, &[]);
+
+    assert_eq!(output.status.code(), Some(7));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#"\dv{SortInt{}}("7")"#), "{stdout}");
+    assert!(!stdout.contains(r#"\dv{SortInt{}}("8")"#), "{stdout}");
+    assert!(!stdout.contains("\\or{"), "{stdout}");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -1403,71 +1429,49 @@ endmodule
 }
 
 #[test]
-fn krun_explores_by_default_and_can_stop_at_a_branch_point() {
-    let (root, definition) = fixture();
-    fs::write(
-        &definition,
-        r#"
-module MAIN
-  syntax State ::= "a" | "b" | "c" | "d" | "e"
-  configuration <k> $PGM:State </k>
-  rule a => b
-  rule b => c
-  rule c => d
-  rule c => e
-endmodule
-"#,
-    )
-    .unwrap();
+fn krun_follows_the_first_rule_by_default_and_explores_with_strategy_all() {
+    let (root, definition) = branching_search_fixture();
+    let krun = |extra: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "State",
+                "--expression",
+                "a",
+                "--depth",
+                "10",
+            ])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
 
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
-            "--sort",
-            "State",
-            "--expression",
-            "a",
-            "--depth",
-            "10",
-        ])
-        .output()
-        .unwrap();
-
+    // Default: one successor per step, the first rule `c => d` by definition order.
+    let output = krun(&[]);
+    assert!(output.contains("Lbld'Unds'MAIN'Unds'State{}()"), "{output}");
     assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+        !output.contains("Lble'Unds'MAIN'Unds'State{}()"),
+        "{output}"
     );
-    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.contains("\\or{"), "{output}");
+
+    // `--strategy all` explores both rules and prints both final configurations.
+    let output = krun(&["--strategy", "all"]);
     assert!(output.contains("Lbld'Unds'MAIN'Unds'State{}()"), "{output}");
     assert!(output.contains("Lble'Unds'MAIN'Unds'State{}()"), "{output}");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "krun",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "MAIN",
-            "--sort",
-            "State",
-            "--expression",
-            "a",
-            "--depth",
-            "10",
-            "--execute-to-branch",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let output = String::from_utf8(output.stdout).unwrap();
+    // `--execute-to-branch` stops at the branch point that `--strategy all` exposes.
+    let output = krun(&["--strategy", "all", "--execute-to-branch"]);
     assert!(output.contains("Lblc'Unds'MAIN'Unds'State{}()"), "{output}");
     assert!(
         !output.contains("Lbld'Unds'MAIN'Unds'State{}()"),
@@ -1477,6 +1481,79 @@ endmodule
         !output.contains("Lble'Unds'MAIN'Unds'State{}()"),
         "{output}"
     );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_heats_a_strict_production_in_one_order_by_default_and_search_enumerates_both() {
+    // Two unevaluated arguments of a `strict` production have two heating rules with equal
+    // priority. K's krun (LLVM backend; kore-exec `--strategy any`) heats the first argument
+    // and follows that single successor, so the pending frontier stays one state per step;
+    // exploring both orders is exponential in the number of such heatings and is what
+    // `--search` is for.
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module STRICT-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int | Exp "+" Exp [strict] | "(" Exp ")" [bracket]
+endmodule
+
+module STRICT
+  imports STRICT-SYNTAX
+  imports INT
+  syntax KResult ::= Int
+  configuration <k> $PGM:Exp </k>
+  rule I1:Int + I2:Int => I1 +Int I2
+endmodule
+"#,
+    )
+    .unwrap();
+    let krun = |extra: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "STRICT",
+                "--syntax-module",
+                "STRICT-SYNTAX",
+                "--sort",
+                "Exp",
+                "--expression",
+                "(1 + 2) + (3 + 4)",
+            ])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let first_argument_heated = "'Unds'Exp0'Unds'{}(";
+    let second_argument_heated = "'Unds'Exp1'Unds'{}(";
+
+    // One step: exactly one configuration, the left argument heated (its freezer holds `3 + 4`).
+    let output = krun(&["--depth", "1"]);
+    assert!(!output.contains("\\or{"), "{output}");
+    assert!(output.contains(first_argument_heated), "{output}");
+    assert!(!output.contains(second_argument_heated), "{output}");
+
+    // The whole run reaches the single final value.
+    let output = krun(&[]);
+    assert!(!output.contains("\\or{"), "{output}");
+    assert!(output.contains(r#"\dv{SortInt{}}("10")"#), "{output}");
+
+    // Control: search still enumerates both heating orders.
+    let output = krun(&["--search-one-step"]);
+    assert!(output.contains("\\or{"), "{output}");
+    assert!(output.contains(first_argument_heated), "{output}");
+    assert!(output.contains(second_argument_heated), "{output}");
 
     fs::remove_dir_all(root).unwrap();
 }
