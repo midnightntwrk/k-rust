@@ -1520,6 +1520,77 @@ mod tests {
         );
     }
 
+    fn set_frame_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortSet{}
+                    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+                sort SortS{} []
+                sort SortCfg{} []
+                hooked-symbol setUnit{}() : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.unit")]
+                hooked-symbol setItem{}(SortInt{}) : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.element")]
+                hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                    [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+                hooked-symbol setIn{}(SortInt{}, SortSet{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("SET.in")]
+                symbol end{}() : SortS{} [constructor{}()]
+                symbol cfg{}(SortS{}, SortSet{}) : SortCfg{} [constructor{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// Reduced from regression-new set_unification: the state `SetItem(I) (G2 F)` reached
+    /// through a trusted claim must imply the destination `?G F`. Kore's AC unifier cancels the
+    /// opaque frame F shared by both sides and binds the sole remaining opaque variable ?G to the
+    /// leftover `SetItem(I) G2` (AssociativeCommutative.hs matchUnifyEqualsNormalizedAc); the
+    /// existential frame is a witness found by collection solving, not by an equality conjunct.
+    #[test]
+    fn solves_an_existential_set_frame_against_the_shared_subject_frame() {
+        let definition = set_frame_definition();
+        let g = crate::term::Variable::new("G", Sort::simple("SortSet"));
+        let consequent = pattern(
+            &definition,
+            "cfg{}(end{}(), setConcat{}(G:SortSet{}, F:SortSet{}))",
+        );
+        let antecedent = pattern(
+            &definition,
+            "cfg{}(end{}(), setConcat{}(setItem{}(I:SortInt{}), setConcat{}(G2:SortSet{}, F:SortSet{})))",
+        );
+
+        let result = check_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::from([g.clone()]),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        let condition = result
+            .condition
+            .expect("a valid implication carries its condition");
+        assert!(condition.predicates.is_empty(), "{condition:#?}");
+        let expected = term(
+            &definition,
+            "setConcat{}(setItem{}(I:SortInt{}), G2:SortSet{})",
+        );
+        let bound = condition
+            .substitution
+            .get(&g)
+            .or_else(|| condition.witnesses.get(&g))
+            .expect("the existential frame is bound");
+        assert_eq!(bound, &expected, "{condition:#?}");
+    }
+
     #[test]
     fn eliminates_existential_witnesses_by_substitution() {
         let definition = definition();
