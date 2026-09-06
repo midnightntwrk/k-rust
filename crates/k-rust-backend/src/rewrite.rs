@@ -36,7 +36,7 @@ use crate::{
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Pattern {
     pub term: Term,
     pub constraints: Vec<Predicate>,
