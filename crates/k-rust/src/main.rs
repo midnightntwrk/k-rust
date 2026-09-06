@@ -420,7 +420,8 @@ struct KrunArgs {
     #[arg(short = 'c', long = "config-var", value_name = "NAME=VALUE")]
     config_vars: Vec<String>,
 
-    /// Enable real input/output for stream cells. `off` buffers standard input into `$STDIN`.
+    /// Enable real input/output for stream cells. `off` buffers standard input into `$STDIN`
+    /// with its trailing newlines replaced by exactly one, as K's krun does.
     /// Defaults to `on` for execution and `off` for search.
     #[arg(long, value_enum, value_name = "on|off")]
     io: Option<IoArg>,
@@ -1705,7 +1706,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let input = if io || program_uses_stdin {
             String::new()
         } else {
-            read_stdin_for_stream()?
+            buffered_stdin_text(read_stdin_for_stream()?)
         };
         config_vars.push((
             "$STDIN".into(),
@@ -3400,6 +3401,18 @@ fn read_stdin_for_stream() -> io::Result<String> {
     })
 }
 
+/// The text K's krun buffers into `$STDIN` under `--io off` (krun:557-558): standard input is
+/// read by a command substitution, which drops every trailing newline, and fed through a bash
+/// here-string, which appends one, to the escaping awk script, which emits every record with
+/// `ORS`. The buffer therefore ends in exactly one newline, also when standard input is empty
+/// (`#buffer("\n")`); interior newlines and every other byte are kept.
+fn buffered_stdin_text(mut input: String) -> String {
+    let trimmed = input.trim_end_matches('\n').len();
+    input.truncate(trimmed);
+    input.push('\n');
+    input
+}
+
 fn emit_diagnostics(diagnostics: &[Diagnostic]) {
     for diagnostic in diagnostics {
         let location = match (&diagnostic.source, diagnostic.location) {
@@ -3420,6 +3433,17 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn buffered_stdin_ends_in_exactly_one_newline() {
+        assert_eq!(buffered_stdin_text(String::new()), "\n");
+        assert_eq!(buffered_stdin_text("ab".into()), "ab\n");
+        assert_eq!(buffered_stdin_text("ab\n".into()), "ab\n");
+        assert_eq!(buffered_stdin_text("ab\n\n\n".into()), "ab\n");
+        assert_eq!(buffered_stdin_text("\n\n".into()), "\n");
+        assert_eq!(buffered_stdin_text("a\r\n\nb\r\n".into()), "a\r\n\nb\r\n");
+        assert_eq!(buffered_stdin_text("x\u{80}".into()), "x\u{80}\n");
+    }
 
     #[test]
     fn exit_code_maps_reference_integer_values() {
