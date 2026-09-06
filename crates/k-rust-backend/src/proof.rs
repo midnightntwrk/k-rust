@@ -1439,6 +1439,108 @@ mod tests {
         );
     }
 
+    /// Reduced from regression-new set_unification (host ratchet runs 13 to 26): the trusted
+    /// claim's left-hand side `SetItem(I) F'` unifies with the subject `SetItem(I) F` by binding
+    /// the subject frame `F` to the claim frame `F'`. Kore applies the unifier's whole
+    /// substitution to the claim's right-hand side and keeps the configuration-variable binding
+    /// in the result's condition (RewriteStep.hs:105-190 finalizeAppliedRule, :271
+    /// resetResultPattern), so the successor is expressed over the subject's frame and the outer
+    /// claim's destination `?_ F` covers it. Dropping the binding leaves the freshened claim
+    /// frame free next to the subject frame and refutes the outer claim.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn applies_a_subject_variable_binding_to_the_claim_successor() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortSet{}
+                    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+                sort SortS{} []
+                sort SortCfg{} []
+                hooked-symbol setUnit{}() : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.unit")]
+                hooked-symbol setItem{}(SortInt{}) : SortSet{}
+                    [function{}(), total{}(), hook{}("SET.element")]
+                hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{}
+                    [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+                hooked-symbol setIn{}(SortInt{}, SortSet{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("SET.in")]
+                symbol start{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol mid{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol end{}() : SortS{} [constructor{}()]
+                symbol cfg{}(SortS{}, SortSet{}) : SortCfg{} [constructor{}()]
+                alias weakExistsFinally{S}(S) : S
+                    where weakExistsFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortCfg{}}(
+                    \and{SortCfg{}}(cfg{}(start{}(I:SortInt{}), F:SortSet{}), \top{SortCfg{}}()),
+                    cfg{}(mid{}(I:SortInt{}), setConcat{}(setItem{}(I:SortInt{}), F:SortSet{}))
+                ) [label{}("start")]
+                claim{} \implies{SortCfg{}}(
+                    \and{SortCfg{}}(cfg{}(start{}(I:SortInt{}), F:SortSet{}), \top{SortCfg{}}()),
+                    weakExistsFinally{SortCfg{}}(
+                        \exists{SortCfg{}}(
+                            G:SortSet{},
+                            \and{SortCfg{}}(
+                                cfg{}(end{}(), setConcat{}(G:SortSet{}, F:SortSet{})),
+                                \top{SortCfg{}}()
+                            )
+                        )
+                    )
+                ) [label{}("main")]
+                claim{} \implies{SortCfg{}}(
+                    \and{SortCfg{}}(
+                        cfg{}(mid{}(J:SortInt{}), setConcat{}(setItem{}(J:SortInt{}), H:SortSet{})),
+                        \top{SortCfg{}}()
+                    ),
+                    weakExistsFinally{SortCfg{}}(
+                        \exists{SortCfg{}}(
+                            G:SortSet{},
+                            \and{SortCfg{}}(
+                                cfg{}(
+                                    end{}(),
+                                    setConcat{}(
+                                        setItem{}(J:SortInt{}),
+                                        setConcat{}(G:SortSet{}, H:SortSet{})
+                                    )
+                                ),
+                                \top{SortCfg{}}()
+                            )
+                        )
+                    )
+                ) [label{}("finish"), trusted{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        let set_sort = crate::term::Sort::simple("SortSet");
+        let subject_frame = crate::term::Variable::new("F", set_sort.clone());
+        for leaf in &result.leaves {
+            assert!(
+                leaf.pattern
+                    .term
+                    .attributes()
+                    .variables
+                    .iter()
+                    .all(|variable| variable.sort != set_sort || variable == &subject_frame),
+                "the claim successor must be expressed over the subject frame: {leaf:#?}"
+            );
+        }
+    }
+
     #[cfg(feature = "z3")]
     #[test]
     fn proves_a_destination_covered_by_complementary_branches() {
