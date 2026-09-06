@@ -397,6 +397,11 @@ struct ProductionOptions<'a> {
     user_list_nonempty: bool,
     precedence: Option<&'a str>,
     hook: Option<&'a str>,
+    /// `RuleGrammarGenerator.java:629-637`: the `MInt{K} ::= MInt{64}` bridge between a declared
+    /// instantiation and the placeholder sort exists in the parsing module only; it is added after
+    /// `disambProds` is captured (:627), so the disambiguation module's subsort relations, which
+    /// the sort inferencers and the priority and empty-list passes read, never contain it.
+    parsing_only_subsort: bool,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -1088,6 +1093,7 @@ impl Grammar {
                     user_list_nonempty: attributes.get_str("userList") == Some("+"),
                     precedence: attributes.get_str("prec"),
                     hook: attributes.get_str("hook"),
+                    parsing_only_subsort: false,
                 },
                 &lexical,
             )?;
@@ -1711,12 +1717,14 @@ impl Grammar {
             .transpose()?;
         if label.is_none()
             && syntactic_subsort
+            && !options.parsing_only_subsort
             && let [Item::NonTerminal(child)] = items.as_slice()
         {
             self.subsort_relations
                 .insert((child.clone(), result.clone()));
         }
         if !options.bracket
+            && !options.parsing_only_subsort
             && let [Item::NonTerminal(child)] = items.as_slice()
         {
             self.syntactic_subsort_relations

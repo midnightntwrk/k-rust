@@ -2789,14 +2789,16 @@ fn nullary_function_with_a_parametric_instance_result_sort_agrees_under_checked_
 #[test]
 fn reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled (exit 0; draft/fable51-review/fixtures/design-09-host/mint-bridge/ref.log)
-    // parsed.txt: rule `testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p64","MInt{64}")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token("2","Int")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p256","MInt{256}")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token("2","Int"))))))) requires #token("true","Bool") ensures #token("true","Bool")
+    // parsed.txt: rule `testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{64}(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p64","MInt{64}")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`{64}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token("2","Int")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{256}(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p256","MInt{256}")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`{256}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token("2","Int"))))))) requires #token("true","Bool") ensures #token("true","Bool")
     //             rule `testBytesGetBare_TEST_Bool`(.KList)=>#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token("2p64","MInt{64}"))),#token("0p64","MInt{64}"))) requires #token("true","Bool") ensures #token("true","Bool")
     // The rule grammar instantiates `{Width} Bool ::= MInt{Width} "==MInt" MInt{Width}` with the
     // placeholder `MInt{K}` and bridges it with `MInt{K} ::= MInt{64}` (RuleGrammarGenerator
     // :629-637), but that bridge is added to the parsing module only, after disambProds is
     // captured (:627): the TypeInferencer's `<=Sort` relation has no `MInt{64} <= MInt{K}` pair,
     // so the widths of `bytesString2[2p64]` and `Int2MInt(...)` are forced to the declared
-    // instance the token or cast anchors, never to `K`.
+    // instance the token or cast anchors, never to `K`. k-rust's printer also renders the
+    // inferred label parameters (`{64}`, `{256}`) the reference's parsed.txt omits; the KORE
+    // emission of mint-llvm-4 instantiates the symbols' `{SortWidth}` from them.
     let source = include_str!("fixtures/reference/inner/mint-bridge/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts a parametric result in the MInt{K} slot of ==MInt");
@@ -2807,8 +2809,8 @@ fn reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width()
     assert_eq!(
         bodies,
         [
-            "`testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p256\",\"MInt{256}\")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\"))))))) requires #token(\"true\",\"Bool\")",
-            "`testBytesGetBare_TEST_Bool`(.KList)=>#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\"))),#token(\"0p64\",\"MInt{64}\"))) requires #token(\"true\",\"Bool\")",
+            "`testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{64}(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`{64}(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`{64}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{256}(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`{256}(`bytesString2_TEST_Bytes`(.KList),#token(\"2p256\",\"MInt{256}\")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`{256}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\"))))))) requires #token(\"true\",\"Bool\")",
+            "`testBytesGetBare_TEST_Bool`(.KList)=>#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{64}(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`{64}(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\"))),#token(\"0p64\",\"MInt{64}\"))) requires #token(\"true\",\"Bool\")",
         ]
     );
 }
