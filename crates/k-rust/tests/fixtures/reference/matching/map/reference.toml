@@ -1,7 +1,6 @@
 case = "map"
 subsystem = "matching"
-source_ticket = "C1-01"
-harvested_from = "draft/fable51-review/fixtures/c1/map"
+harvested_from = "hand-written matching probe: an unbound Map binding and a closed Set pattern"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

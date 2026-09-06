@@ -1,7 +1,6 @@
 case = "bytes"
 subsystem = "kore-syntax"
-source_ticket = "B3-01"
-harvested_from = "draft/fable51-review/fixtures/b3-probe/bytes.kore"
+harvested_from = "hand-written KORE parser probe over binary and text string literals"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

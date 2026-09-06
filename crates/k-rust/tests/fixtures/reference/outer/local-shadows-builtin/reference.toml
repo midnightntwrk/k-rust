@@ -1,7 +1,6 @@
 case = "local-shadows-builtin"
 subsystem = "outer"
-source_ticket = "A1-12"
-harvested_from = "draft/fable51-review/fixtures/a1-fixtures/local-shadows-builtin"
+harvested_from = "hand-written outer-parser probe: a local module shadowing the builtin JSON module"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 
@@ -14,10 +13,10 @@ sha256 = "74441f6a34264955f4957dbc996f551de2323bff09048e9b486e8eb92add3bb4"
 
 [[input]]
 file = "test.k"
-source = "draft/fable51-review/fixtures/a1-fixtures/local-shadows-builtin/test.k"
+source = "hand-written definition importing the local JSON module"
 sha256 = "4a23d45234e89f747ec63979fb76f03a2af513403d21454a297679f44e89ab3f"
 
 [[input]]
 file = "json.md"
-source = "draft/fable51-review/fixtures/a1-fixtures/local-shadows-builtin/json.md"
+source = "hand-written literate module that shadows the builtin JSON module"
 sha256 = "645eeac8ce458602d44cdf68a08aa8e36fcf5d017679beda87904673f9f369c6"

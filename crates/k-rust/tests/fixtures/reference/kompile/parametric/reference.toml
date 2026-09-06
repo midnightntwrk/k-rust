@@ -1,7 +1,6 @@
 case = "parametric"
 subsystem = "kompile"
-source_ticket = "B2-03"
-harvested_from = "draft/fable51-review/fixtures/b2-fixtures/parametric"
+harvested_from = "hand-written kompile probe: a parametric {S} production and the UNIQUE_IDs of its rules"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

@@ -1,7 +1,6 @@
 case = "pg"
 subsystem = "hooks"
-source_ticket = "C2-03"
-harvested_from = "draft/fable51-review/fixtures/c2/hk/pg.k"
+harvested_from = "hand-written builtin-hook probe over the domains signature"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

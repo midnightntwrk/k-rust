@@ -1,12 +1,12 @@
 version = 1
-source = "draft/fable51-review/I1/I1-03-conformance-ratchet.md case-to-ticket map (2026-09-02), with the bucket-13 corrections and later decided exclusions applied."
+source = "case-to-work-item map recorded 2026-09-02, with later corrections and decided exclusions applied."
 
 [baseline]
 timestamp_utc = "2026-09-02T08:17:59Z"
 workspace_revision = "e12f1908f8e814b54f7eed11d9353241d30cadbe"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 driver_version = "00-baseline"
-artifacts = "draft/fable51-review/00-baseline/conformance"
+artifacts = "00-baseline/conformance"
 case_count = 256
 results_sha256 = "e16bdcb635b94eb9fffe93de765afddfcf8febf8c996218d8551ea174d411489"
 

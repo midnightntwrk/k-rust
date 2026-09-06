@@ -1,7 +1,6 @@
 case = "cfg"
 subsystem = "cli"
-source_ticket = "D1-03"
-harvested_from = "draft/fable51-review/fixtures/d1-fixtures/cfg"
+harvested_from = "hand-written krun CLI probe: -cENV configuration variables and a parser= attribute on a configuration cell"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

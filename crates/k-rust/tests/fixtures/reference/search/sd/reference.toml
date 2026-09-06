@@ -1,7 +1,6 @@
 case = "sd"
 subsystem = "search"
-source_ticket = "C3-01"
-harvested_from = "draft/fable51-review/fixtures/c3/sd.kore"
+harvested_from = "hand-written symbolic search probe: a depth-bounded kore-exec run over a symbolic initial configuration"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

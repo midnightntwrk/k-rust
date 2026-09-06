@@ -1261,14 +1261,12 @@ program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.hooks"
 expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.expected.kore"
 reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.reference.kore"
 reason = "Arbiter row 4: Kore STRING.find searches the suffix without rebasing the returned index; domains.md defines the index in the original haystack."
-ticket = "C2-04"
 
 [[execution.oracle-exception]]
 program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.hooks"
 expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.expected.kore"
 reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.reference.kore"
 reason = "Arbiter row 4: Kore BYTES.replaceAt checks only the start index; domains.md requires the complete replacement range to fit."
-ticket = "C2-04"
 
 [[excluded]]
 name = "ecdsa-invalid-execution"
@@ -1416,8 +1414,7 @@ responses = ["execute", "simplify", "implies", "model", "add-module", "error"]
 oracle = "kore-rpc-booster"
 response = "implies"
 expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-implies.json"
-reason = "D1-08: Booster echoes the initializer-form request in the implication payload while k-rust reports the equivalent simplified configuration."
-ticket = "D1-08"
+reason = "Booster echoes the initializer-form request in the implication payload while k-rust reports the equivalent simplified configuration."
 
 [[rpc]]
 name = "bounded-search"

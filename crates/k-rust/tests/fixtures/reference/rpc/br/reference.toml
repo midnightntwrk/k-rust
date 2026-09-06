@@ -1,7 +1,6 @@
 case = "br"
 subsystem = "rpc"
-source_ticket = "D1-07"
-harvested_from = "draft/fable51-review/fixtures/d1-fixtures/br/ref-cancel_in_batch.json"
+harvested_from = "hand-written kore-rpc-booster probe: a cancel request inside a batch"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

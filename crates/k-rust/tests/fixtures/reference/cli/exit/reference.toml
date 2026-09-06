@@ -1,7 +1,6 @@
 case = "exit"
 subsystem = "cli"
-source_ticket = "D1-01"
-harvested_from = "draft/fable51-review/fixtures/d1-fixtures/exit"
+harvested_from = "hand-written krun CLI probe: exit-code propagation through a cell carrying the exit attribute"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

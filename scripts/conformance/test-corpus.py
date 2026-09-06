@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -88,8 +89,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=repository / "draft/fable51-review/test-corpus.toml",
-        help="TOML output path",
+        help="TOML output path (default: stdout)",
     )
     return parser.parse_args()
 
@@ -281,10 +281,14 @@ def render(workspace: Path, rows: list[dict[str, object]]) -> str:
 def main() -> None:
     args = arguments()
     workspace = args.workspace.resolve()
-    output = args.output.resolve()
     rows = collect(workspace)
+    census = render(workspace, rows)
+    if args.output is None:
+        sys.stdout.write(census)
+        return
+    output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render(workspace, rows))
+    output.write_text(census)
     print(
         f"{len(rows)} tests; "
         f"{sum(bool(row['reference_marked']) for row in rows)} reference-marked; "

@@ -1,6 +1,5 @@
 case = "cell-association"
 subsystem = "inner"
-source_ticket = "B2-03 follow-up"
 harvested_from = "/tmp/stage12-final/tmp/k-rust-reference-differential.Lp3Fxl/cell-map/kore-llvm/reference/kompiled/parsed.json"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"

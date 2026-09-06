@@ -1,7 +1,6 @@
 case = "priority-unknown-tag"
 subsystem = "outer"
-source_ticket = "A1-06"
-harvested_from = "draft/fable51-review/fixtures/a1-fixtures/priority-unknown-tag"
+harvested_from = "hand-written outer-parser probe: a syntax priority block referring to an undeclared tag"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 
@@ -14,5 +13,5 @@ sha256 = "c94f1b1eb478bf3ec91eee1db9c1d44abf97eb70ae2849de8a25f230a9a3f0c3"
 
 [[input]]
 file = "test.k"
-source = "draft/fable51-review/fixtures/a1-fixtures/priority-unknown-tag/test.k"
+source = "hand-written priority block over an undeclared tag"
 sha256 = "68542715d9f70cb84ce2870b92ac10bdf3ef8daaff1581c145eeca460f4798c0"
