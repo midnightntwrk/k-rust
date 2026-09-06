@@ -816,6 +816,12 @@ fn apply_claim(
         }
         Some(negated)
     };
+    // Kore evaluates the remainder predicate and prunes an unsatisfiable remainder before it
+    // becomes a state (RewriteStep.hs:308-322): the claim then covers the whole subject, and no
+    // bottom successor is left for the vacuity check to reject.
+    let complement = complement.filter(|negated| {
+        !remainder_is_unsatisfiable(definition, subject, negated, simplification, solver)
+    });
     let mut covered_knowledge = subject.constraints.clone();
     extend_unique(&mut covered_knowledge, conditions);
 
@@ -848,6 +854,37 @@ fn apply_claim(
             .collect(),
         remainder,
     }
+}
+
+/// The remainder of a claim application is the subject under the negated, quantified match
+/// condition. It is unsatisfiable when that condition simplifies to false or the solver refutes
+/// it together with the subject's constraints; an undecided or unavailable solver keeps it.
+fn remainder_is_unsatisfiable(
+    definition: &BackendDefinition,
+    subject: &Pattern,
+    negated: &crate::rule::Predicate,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> bool {
+    let simplified = match simplify_predicates_with_solver(
+        definition,
+        std::slice::from_ref(negated),
+        &subject.constraints,
+        options,
+        solver,
+    ) {
+        Ok(simplified) => simplified,
+        Err(_) => return false,
+    };
+    if predicates_truth(&simplified) == Truth::False {
+        return true;
+    }
+    let mut constraints = subject.constraints.clone();
+    extend_unique(&mut constraints, simplified);
+    matches!(
+        solver.is_sat(&constraints, &Substitution::new()),
+        Ok(Satisfiability::Unsat)
+    )
 }
 
 /// Unification may bind variables of the subject rather than of the claim. Such bindings are
@@ -1392,9 +1429,12 @@ mod tests {
             "the unsatisfiable remainder must be pruned, not explored: {result:#?}"
         );
         assert!(
-            result.leaves.iter().any(|leaf| leaf.trace.iter().any(|entry| {
-                entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("shift")
-            })),
+            result
+                .leaves
+                .iter()
+                .any(|leaf| leaf.trace.iter().any(|entry| {
+                    entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("shift")
+                })),
             "{result:#?}"
         );
     }
