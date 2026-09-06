@@ -4252,7 +4252,11 @@ fn marks_cool_like_rules_of_imported_modules_through_the_main_module() {
         .filter(|(_, cool_like)| *cool_like)
         .map(|(body, _)| body.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(cool_like.len(), 1, "exactly the variable-headed rule: {rules:#?}");
+    assert_eq!(
+        cool_like.len(),
+        1,
+        "exactly the variable-headed rule: {rules:#?}"
+    );
     assert!(cool_like[0].contains("``I=>foo(I)``~>"), "{rules:#?}");
 }
 
