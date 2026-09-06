@@ -1097,8 +1097,63 @@ fn krun_io_off_preserves_non_utf8_stdin_bytes() {
     assert!(
         String::from_utf8(output.stdout)
             .unwrap()
-            .contains(r#"\dv{SortString{}}("x\x80")"#)
+            .contains(r#"\dv{SortString{}}("x\x80\n")"#)
     );
+}
+
+/// K's krun builds `$STDIN` under `--io off` from `$(</dev/stdin)` fed through a bash
+/// here-string into its escaping awk script (krun:557-558): the command substitution strips
+/// every trailing newline, the here-string appends one, and awk emits every record with `ORS`.
+/// The buffered text is therefore standard input with its trailing newlines replaced by exactly
+/// one, also when standard input is empty (`#buffer("\n")` in regression-new/imp++-llvm
+/// div.imp.out; `printf 'ab' | krun ... --io off` gives `"ab\n"` in
+/// tests/fixtures/reference/cli/io/off.kore). Interior newlines and other bytes are kept.
+#[test]
+fn krun_io_off_buffers_stdin_in_the_reference_here_string_shape() {
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
+    let cases: [(&[u8], &[&str], &str); 5] = [
+        (b"", &["--io", "off"], r#"\dv{SortString{}}("\n")"#),
+        (b"", &["--search-final"], r#"\dv{SortString{}}("\n")"#),
+        (b"ab", &["--io", "off"], r#"\dv{SortString{}}("ab\n")"#),
+        (
+            b"ab\n\n\n",
+            &["--io", "off"],
+            r#"\dv{SortString{}}("ab\n")"#,
+        ),
+        (
+            b"a\r\n\nb\n",
+            &["--io", "off"],
+            r#"\dv{SortString{}}("a\r\n\nb\n")"#,
+        ),
+    ];
+    for (input, mode, expected) in cases {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "krun",
+            fixtures.join("io.k").to_str().unwrap(),
+            fixtures.join("program.pgm").to_str().unwrap(),
+            "--main-module",
+            "IO",
+            "--sort",
+            "Int",
+            "--depth",
+            "0",
+        ]);
+        command.args(mode);
+        let output = output_with_stdin(&mut command, input);
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            stdout.contains(expected),
+            "stdin {input:?} under {mode:?} must buffer {expected}:\n{stdout}"
+        );
+    }
 }
 
 #[test]
