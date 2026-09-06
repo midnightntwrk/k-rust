@@ -7,7 +7,7 @@ use crate::{
     ite::{IteSplit, split_ite_pair},
     matching::{
         FailReason, MatchMode, MatchResult, SortError, expand_closed_map_implication_remainders,
-        match_terms_in_definition,
+        is_collection_term, match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::Predicate,
@@ -582,13 +582,26 @@ fn discharge_consequent(
 ) -> Result<ImplicationResult, ImplicationError> {
     let source = antecedent;
     let antecedent = source.pattern;
+    let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
+        definition,
+        substitution,
+        remainder,
+        consequent.existentials,
+    );
     let had_match_remainder = !remainder.is_empty();
-    let obligations = implication_obligation_branches(
+    let mut obligations = implication_obligation_branches(
         consequent.pattern,
         &substitution,
         remainder,
         &antecedent.constraints,
     );
+    for branch in &mut obligations {
+        for predicate in &solved_constraints {
+            if !branch.contains(predicate) && !antecedent.constraints.contains(predicate) {
+                branch.push(predicate.clone());
+            }
+        }
+    }
     let obligations = match eliminate_and_quantify_obligation_branches(
         definition,
         obligations,
@@ -855,6 +868,63 @@ fn combine_obligation_branches(mut branches: Vec<Obligations>) -> Obligations {
             }
         }
     }
+}
+
+/// Solve the collection pairs of a match remainder with the collection solver that rule
+/// application uses (C1-01/C1-02 `solve_collection_pairs_in_definition`): common opaque chunks
+/// cancel and a destination frame is bound to the subject's leftover, as Kore's AC unifier binds
+/// the sole remaining opaque variable (AssociativeCommutative.hs matchUnifyEqualsNormalizedAc).
+/// A solution is taken only when it is unique and binds destination existentials alone; any
+/// other outcome leaves the pairs as equality obligations.
+fn solve_collection_remainder_pairs(
+    definition: &BackendDefinition,
+    substitution: Substitution,
+    remainder: Vec<(crate::term::Term, crate::term::Term)>,
+    existentials: &BTreeSet<Variable>,
+) -> (
+    Substitution,
+    Vec<(crate::term::Term, crate::term::Term)>,
+    Vec<Predicate>,
+) {
+    let collections = remainder
+        .iter()
+        .filter(|(left, right)| is_collection_pair(left, right))
+        .cloned()
+        .collect::<Vec<_>>();
+    if collections.is_empty() {
+        return (substitution, remainder, Vec::new());
+    }
+    let solutions = solve_collection_pairs_in_definition(
+        MatchMode::Implies,
+        definition,
+        substitution.clone(),
+        &collections,
+        None,
+    );
+    let Some([solution]) = solutions.as_deref() else {
+        return (substitution, remainder, Vec::new());
+    };
+    let binds_only_existentials = solution
+        .substitution
+        .keys()
+        .filter(|variable| !substitution.contains_key(*variable))
+        .all(|variable| existentials.contains(variable));
+    if !binds_only_existentials {
+        return (substitution, remainder, Vec::new());
+    }
+    let remainder = remainder
+        .into_iter()
+        .filter(|pair| !collections.contains(pair))
+        .collect();
+    (
+        solution.substitution.clone(),
+        remainder,
+        solution.constraints.clone(),
+    )
+}
+
+fn is_collection_pair(left: &crate::term::Term, right: &crate::term::Term) -> bool {
+    is_collection_term(left) && is_collection_term(right)
 }
 
 fn implication_obligation_branches(
@@ -1583,11 +1653,13 @@ mod tests {
             &definition,
             "setConcat{}(setItem{}(I:SortInt{}), G2:SortSet{})",
         );
-        let bound = condition
+        let (variable, bound) = condition
             .substitution
-            .get(&g)
-            .or_else(|| condition.witnesses.get(&g))
-            .expect("the existential frame is bound");
+            .iter()
+            .chain(condition.witnesses.iter())
+            .find(|(variable, _)| variable.name.starts_with(g.name.as_ref()))
+            .expect("the refreshed existential frame is bound");
+        assert_eq!(variable.sort, g.sort, "{condition:#?}");
         assert_eq!(bound, &expected, "{condition:#?}");
     }
 
