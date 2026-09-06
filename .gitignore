@@ -1,6 +1,9 @@
 target/
 .z3-trace
 
+# generated Python bytecode from the scripts/ helpers
+__pycache__/
+
 # generated Node-API artifacts
 crates/k-rust-napi/node_modules/
 crates/k-rust-napi/dist/
