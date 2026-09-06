@@ -4204,6 +4204,59 @@ fn marks_variable_headed_main_cell_sequences_as_cool_like() {
 }
 
 #[test]
+fn marks_cool_like_rules_of_imported_modules_through_the_main_module() {
+    // KoreBackend applies `new AddCoolLikeAtt(d.mainModule())` to every module's sentences, so
+    // the `maincell` lookup goes through the main module's productions even for a rule declared
+    // in an imported module that does not see the configuration itself (regression-new
+    // equals-pattern: `rule I:Int => ...` in TEST-SYNTAX, the configuration generated in TEST).
+    let source = indoc! {r#"
+        module MAIN-SYNTAX
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KItem ::= foo(Int) [symbol(foo)]
+          rule I:Int => foo(I)
+          rule foo(0) => 1
+          syntax K
+          syntax Map
+        endmodule
+
+        module MAIN
+          imports MAIN-SYNTAX
+          configuration <k> 0 </k>
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let definition = concretize_cells(&definition).unwrap();
+    let definition = add_cool_like_attributes(&definition);
+    let syntax_module = definition
+        .modules
+        .iter()
+        .find(|module| module.name == "MAIN-SYNTAX")
+        .unwrap();
+    let rules = syntax_module
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } => Some((
+                Printer::new().print_term(body),
+                attributes.get("cool-like").is_some(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let cool_like = rules
+        .iter()
+        .filter(|(_, cool_like)| *cool_like)
+        .map(|(body, _)| body.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(cool_like.len(), 1, "exactly the variable-headed rule: {rules:#?}");
+    assert!(cool_like[0].contains("``I=>foo(I)``~>"), "{rules:#?}");
+}
+
+#[test]
 fn generates_left_to_right_seqstrict_contexts_and_imports_bool() {
     let source = indoc! {r#"
         module BOOL
