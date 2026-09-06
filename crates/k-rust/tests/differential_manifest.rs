@@ -432,6 +432,66 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
     }
 }
 
+/// Every `krust krun` invocation of the execution gate, from `krun "$source"` to the redirect
+/// that captures its output.
+fn execution_gate_krust_krun_invocations(script: &str) -> Vec<&str> {
+    script
+        .match_indices("krun \"$source\"")
+        .map(|(start, _)| {
+            let rest = &script[start..];
+            let end = rest
+                .find(">\"$work/")
+                .expect("krust krun invocation redirects its output under $work");
+            &rest[..end]
+        })
+        .collect()
+}
+
+/// The execution gate pairs krust with the reference Haskell backend: `kompile --backend
+/// haskell`, then the reference `krun`, which runs kore-exec in its default `--strategy all`
+/// and prints every successor of a branching configuration (c3-br: `rule a => b` and
+/// `rule a => c` give `\or(b, c)` at depth 1). Plain `krust krun` follows one successor per
+/// step (`--strategy any`, the bucket-05 amendment under C3-02), so a Haskell-paired execution
+/// comparison must ask krust for the Haskell-equivalent branching: the krust side of every
+/// `[[execution]]` program and search passes `--strategy all`, and the reference side keeps
+/// kore-exec's default.
+#[test]
+fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
+    assert!(
+        EXECUTION_SCRIPT.contains("--backend haskell"),
+        "the execution gate compiles the reference definition with the Haskell backend"
+    );
+    let invocations = execution_gate_krust_krun_invocations(EXECUTION_SCRIPT);
+    assert_eq!(
+        invocations.len(),
+        2,
+        "one krust krun invocation for the programs and one for the searches"
+    );
+    for invocation in invocations {
+        assert!(
+            invocation.contains("--strategy all"),
+            "a Haskell-paired krust krun must explore every applicable rule:\n{invocation}"
+        );
+    }
+    let reference_invocations = EXECUTION_SCRIPT
+        .split("run_reference_krun ")
+        .skip(1)
+        .map(|call| {
+            let end = call
+                .find("--output kore")
+                .expect("reference krun invocation ends with --output kore");
+            &call[..end]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(reference_invocations.len(), 2);
+    for invocation in reference_invocations {
+        assert!(
+            !invocation.contains("--strategy"),
+            "the reference krun keeps kore-exec's default strategy:\n{invocation}"
+        );
+    }
+}
+
 #[test]
 fn pending_only_selection_does_not_require_reference_tools() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
