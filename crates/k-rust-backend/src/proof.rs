@@ -1317,6 +1317,88 @@ mod tests {
         assert_eq!(finish(vec![leaf], 1, 0).status, ProofStatus::Disproved);
     }
 
+    /// spec-rule-application def032: the trusted claim `mid(Y -Int 1) => end(Y)` unifies with
+    /// `mid(X)` under the condition `X = Y + -1` whose complement, once the claim variable `Y`
+    /// is quantified, is `\not(\exists Y. X = Y + -1)`: unsatisfiable over the integers. Kore
+    /// evaluates the remainder predicate and prunes an UNSAT remainder before it becomes a
+    /// state (RewriteStep.hs:308-322), so the reference proves the claim; an unsatisfiable
+    /// remainder must not surface as a vacuous leaf that fails the proof.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn prunes_an_unsatisfiable_claim_remainder_instead_of_reporting_it_vacuous() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortS{} []
+                hooked-symbol plusInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                symbol start{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol mid{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol end{}(SortInt{}) : SortS{} [constructor{}()]
+                alias weakExistsFinally{S}(S) : S
+                    where weakExistsFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(X:SortInt{}), \top{SortS{}}()),
+                    mid{}(X:SortInt{})
+                ) [label{}("start")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(start{}(X:SortInt{}), \top{SortS{}}()),
+                    weakExistsFinally{SortS{}}(
+                        \exists{SortS{}}(
+                            Z:SortInt{},
+                            \and{SortS{}}(end{}(Z:SortInt{}), \top{SortS{}}())
+                        )
+                    )
+                ) [label{}("main")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(
+                        mid{}(plusInt{}(Y:SortInt{}, \dv{SortInt{}}("-1"))),
+                        \top{SortS{}}()
+                    ),
+                    weakExistsFinally{SortS{}}(
+                        \and{SortS{}}(end{}(Y:SortInt{}), \top{SortS{}}())
+                    )
+                ) [label{}("shift"), trusted{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert!(
+            !result
+                .leaves
+                .iter()
+                .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Vacuous)),
+            "{result:#?}"
+        );
+        assert!(
+            !result.leaves.iter().any(|leaf| leaf
+                .trace
+                .iter()
+                .any(|entry| entry.kind == TraceKind::Remainder
+                    && entry.unique_id.starts_with("claim:"))),
+            "the unsatisfiable remainder must be pruned, not explored: {result:#?}"
+        );
+        assert!(
+            result.leaves.iter().any(|leaf| leaf.trace.iter().any(|entry| {
+                entry.kind == TraceKind::Claim && entry.label.as_deref() == Some("shift")
+            })),
+            "{result:#?}"
+        );
+    }
+
     #[cfg(feature = "z3")]
     #[test]
     fn proves_a_destination_covered_by_complementary_branches() {
