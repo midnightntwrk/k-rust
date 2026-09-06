@@ -2752,6 +2752,39 @@ fn top_rewrite_over_a_bare_variable_agrees_under_checked_inference() {
 }
 
 #[test]
+fn reference_anywhere_rule_over_a_nullary_constructor_is_instantiated_at_its_sort() {
+    // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST --type-inference-mode checked --allow-anywhere-haskell -w none --output-definition ref-kompiled (regression-new/issue-2909-allow-anywhere-haskell/llvm, verbatim, exit 0)
+    // parsed.txt: rule `foo()_TEST_Foo`(.KList)=>`bar()_TEST_Foo`(.KList) requires #token("true","Bool") ensures #token("true","Bool") [anywhere, ..., priority(20)]
+    //             rule `foo()_TEST_Foo`(.KList)=>`baz()_TEST_Foo`(.KList) requires #token("true","Bool") ensures #token("true","Bool")
+    // For an anywhere rule `isFunction(t, isAnywhere)` (TypeInferencer.java:413-421) holds
+    // regardless of the left-hand side's production, so at :640 the `#RuleContent` node bounds
+    // its rewrite child by `getFunctionSort` (:429), the sort of `foo()`: the rewrite is
+    // instantiated at Foo, as the portable engine's anywhere bound already does.
+    let source = include_str!("fixtures/reference/inner/anywhere-nullary/test.k");
+    let loaded = load_with_prelude_for_llvm(source, "test.k", "TEST")
+        .expect("the reference accepts the anywhere rule over a nullary constructor");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        [
+            "`foo()_TEST_Foo`(.KList)=>`bar()_TEST_Foo`(.KList) requires #token(\"true\",\"Bool\")",
+            "`foo()_TEST_Foo`(.KList)=>`baz()_TEST_Foo`(.KList) requires #token(\"true\",\"Bool\")",
+        ]
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn anywhere_rule_over_a_nullary_constructor_agrees_under_checked_inference() {
+    // Host ratchet runs 16 to 26 (issue-2909-allow-anywhere-haskell/llvm, kompile step): the Z3
+    // engine bounded only the rewrite's right-hand side by the anywhere left-hand side and left
+    // the #KRewrite parameter at the seed's K, while the portable engine and the reference bound
+    // the rewrite itself by the left-hand side's sort (Foo).
+    assert_test_passes_under_checked_inference(
+        "reference_anywhere_rule_over_a_nullary_constructor_is_instantiated_at_its_sort",
+    );
+}
+
+#[test]
 fn reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare() {
     // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST (regression-new/mint-llvm-2, exit 0)
     // parsed.txt: rule `m64()_TEST_MInt`(.KList)=>#token("0p64","MInt{64}") requires #token("true","Bool") ensures #token("true","Bool")
