@@ -2750,3 +2750,38 @@ fn top_rewrite_over_a_bare_variable_agrees_under_checked_inference() {
         "reference_top_rewrite_over_a_bare_variable_keeps_its_parameter_at_k",
     );
 }
+
+#[test]
+fn reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare() {
+    // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST (regression-new/mint-llvm-2, exit 0)
+    // parsed.txt: rule `m64()_TEST_MInt`(.KList)=>#token("0p64","MInt{64}") requires #token("true","Bool") ensures #token("true","Bool")
+    //             rule `m32()_TEST_MInt`(.KList)=>#token("0p32","MInt{32}") requires #token("true","Bool") ensures #token("true","Bool")
+    // `syntax MInt{64} ::= m64() [function]` has no sort parameters, so TypeInferenceVisitor:278
+    // (`pr.production().params().nonEmpty() && hasParametricSort(...)`) adds no cast around it
+    // and CheckFunctions sees the function at the top of the LHS.
+    let source = include_str!("fixtures/reference/inner/mint-fn/test.k");
+    let loaded = load_with_prelude(source, "test.k", "TEST")
+        .expect("the reference accepts a nullary function returning a declared MInt instance");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        [
+            "`m64()_TEST_MInt`(.KList)=>#token(\"0p64\",\"MInt{64}\") requires #token(\"true\",\"Bool\")",
+            "`m32()_TEST_MInt`(.KList)=>#token(\"0p32\",\"MInt{32}\") requires #token(\"true\",\"Bool\")",
+        ]
+    );
+    let diagnostics = k_rust::definition::check_definition(&loaded.resolved)
+        .expect("definition checks run on the loaded definition");
+    assert!(
+        diagnostics.iter().all(|diagnostic| diagnostic.code
+            != k_rust::diagnostic::DiagnosticCode::IllegalFunctionOnLhs),
+        "{diagnostics:?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn nullary_function_with_a_parametric_instance_result_sort_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare",
+    );
+}
