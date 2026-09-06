@@ -2605,6 +2605,7 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
 #[derive(Clone, Copy, Debug)]
 struct CompareOptions {
     skip_multi_alias_ids: bool,
+    skip_multi_suffix_lambda_ids: bool,
 }
 
 impl Default for CompareOptions {
@@ -2614,6 +2615,9 @@ impl Default for CompareOptions {
             // follow Scala HashSet iteration in the oracle. Keep the port's declaration
             // order and exclude only those derived identifiers permanently.
             skip_multi_alias_ids: true,
+            // Decision row 20 extends D13-3 to the `#lambda` suffixes ResolveFun assigns in
+            // the same HashSet order (N23).
+            skip_multi_suffix_lambda_ids: true,
         }
     }
 }
@@ -2628,11 +2632,16 @@ enum CompareVerdict {
 struct CompareReport {
     verdict: CompareVerdict,
     multi_alias_axioms: usize,
+    multi_suffix_lambda_axioms: usize,
 }
 
 fn compare_definitions(reference: Definition, actual: Definition) {
     let report = compare_definitions_with(reference, actual, CompareOptions::default());
     println!("multi-alias freezer axioms: {}", report.multi_alias_axioms);
+    println!(
+        "multi-suffix lambda axioms: {}",
+        report.multi_suffix_lambda_axioms
+    );
     if let CompareVerdict::Differs(message) = report.verdict {
         panic!("{message}");
     }
@@ -2654,6 +2663,13 @@ fn compare_definitions_with(
     } else {
         0
     };
+    let multi_suffix_lambda_axioms = if options.skip_multi_suffix_lambda_ids {
+        let reference_count = strip_multi_suffix_lambda_ids(&mut reference);
+        let actual_count = strip_multi_suffix_lambda_ids(&mut actual);
+        reference_count.max(actual_count)
+    } else {
+        0
+    };
     let verdict = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compare_stripped_definitions(reference, actual, &raw_reference, &raw_actual)
     })) {
@@ -2663,6 +2679,7 @@ fn compare_definitions_with(
     CompareReport {
         verdict,
         multi_alias_axioms,
+        multi_suffix_lambda_axioms,
     }
 }
 
@@ -3337,9 +3354,31 @@ fn strip_source_metadata(definition: &mut Definition) {
 /// axioms that mention them, so that only the derived identifiers leave the comparison.
 /// Returns the number of axioms touched.
 fn strip_multi_alias_freezer_ids(definition: &mut Definition) -> usize {
+    strip_symbol_family_ids(definition, multi_alias_freezer)
+}
+
+/// `ResolveFun.getUniqueLambdaLabel` names the first `#fun`/`#let`/`:=K`/`:/=K` of a name hint
+/// `#lambda<h1>_<h2>_` and the following ones `_2`, `_3`, ... in the order
+/// `stream(m.localSentences())` meets the sentences, which is Scala HashSet order over hashes
+/// that include the Source attribute: the pinned reference assigns the suffixes differently
+/// from two checkout paths. Decision row 20 extends D13-3 (N3) to these families (N23):
+/// collapse every lambda of a multi-suffix family onto the unsuffixed name, in declarations and
+/// uses alike, and drop the UNIQUE_IDs derived from those names. Returns the number of axioms
+/// touched.
+fn strip_multi_suffix_lambda_ids(definition: &mut Definition) -> usize {
+    strip_symbol_family_ids(definition, multi_suffix_lambda)
+}
+
+/// Collapse the symbol families `families` reports for each module (member name to canonical
+/// name) in declarations and patterns, dropping the UNIQUE_ID of every axiom or claim that
+/// mentions a member. Returns the number of axioms touched.
+fn strip_symbol_family_ids(
+    definition: &mut Definition,
+    families: fn(&k_rust::kore::ast::Module) -> BTreeMap<String, String>,
+) -> usize {
     let mut stripped = 0;
     for module in &mut definition.modules {
-        let renames = multi_alias_freezer(module);
+        let renames = families(module);
         if renames.is_empty() {
             continue;
         }
@@ -3407,6 +3446,39 @@ fn multi_alias_freezer_hint(name: &str) -> Option<&str> {
     let suffix = name.strip_prefix("Lbl'Hash'freezer")?;
     let (hint, number) = suffix.rsplit_once("'Unds'")?;
     (!hint.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())).then_some(hint)
+}
+
+/// Every `#lambda` symbol of a multi-suffix family mapped to the family's unsuffixed name.
+fn multi_suffix_lambda(module: &k_rust::kore::ast::Module) -> BTreeMap<String, String> {
+    let mut by_family = BTreeMap::<String, Vec<String>>::new();
+    for sentence in &module.sentences {
+        let Sentence::SymbolDeclaration { symbol, .. } = sentence else {
+            continue;
+        };
+        let Some(family) = multi_suffix_lambda_family(&symbol.name) else {
+            continue;
+        };
+        by_family
+            .entry(family.into())
+            .or_default()
+            .push(symbol.name.clone());
+    }
+    by_family
+        .into_iter()
+        .filter(|(_, names)| names.len() > 1)
+        .flat_map(|(family, names)| names.into_iter().map(move |name| (name, family.clone())))
+        .collect()
+}
+
+/// `ResolveFun.getUniqueLambdaLabel`: `#lambda<h1>_<h2>_` for the first lambda of a hint pair,
+/// `#lambda<h1>_<h2>_<n>` (n >= 2) for the following ones. The KORE encoding folds the trailing
+/// `_` into the last quoted run (`'Unds'`, `'UndsUnds'`, `'LParUndsRParUnds'`), so the family
+/// is the name without its trailing suffix digits, and that name ends in `Unds'`; a hint ending
+/// in a digit (`#lambdaF2__`) keeps its digit inside the quoted run.
+fn multi_suffix_lambda_family(name: &str) -> Option<&str> {
+    name.strip_prefix("Lbl'Hash'lambda")?;
+    let family = name.trim_end_matches(|character: char| character.is_ascii_digit());
+    family.ends_with("Unds'").then_some(family)
 }
 
 fn rename_symbols(pattern: &mut Pattern, renames: &BTreeMap<String, String>) {
