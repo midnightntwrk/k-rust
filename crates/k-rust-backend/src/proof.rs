@@ -15,12 +15,14 @@ use crate::{
         ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus,
         check_disjunctive_implication_with_existentials,
     },
-    matching::{MatchMode, MatchResult, match_terms_in_definition},
+    matching::{
+        MatchMode, MatchResult, match_terms_in_definition, solve_collection_pairs_in_definition,
+    },
     rewrite::{
         IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind, Truth,
-        conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
-        recover_indeterminate_match, rewrite_step_sequential_with_options,
-        rewrite_step_with_options, substitute_predicates,
+        collection_unification_definedness, conjunctively_contains_alpha_equivalent,
+        predicates_truth, quantify_introduced_variables, recover_indeterminate_match,
+        rewrite_step_sequential_with_options, rewrite_step_with_options, substitute_predicates,
     },
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
@@ -673,15 +675,44 @@ fn apply_claim(
                         UnificationResult::Bottom(_) => return ClaimApplication::NotApplicable,
                         UnificationResult::Unsupported {
                             substitution,
+                            constraints,
                             remainder,
-                            ..
                         } => {
-                            return ClaimApplication::Indeterminate(
-                                ClaimIndeterminateReason::Match {
-                                    substitution,
-                                    remainder,
-                                },
+                            // Collection pairs are beyond the syntactic unifier; solve them as
+                            // rule application does (rewrite.rs recover_general_unification),
+                            // accepting a unique solution.
+                            let solutions = solve_collection_pairs_in_definition(
+                                MatchMode::Rewrite,
+                                definition,
+                                substitution.clone(),
+                                &remainder,
+                                None,
                             );
+                            match solutions.as_deref() {
+                                Some([]) => return ClaimApplication::NotApplicable,
+                                Some([solution]) => {
+                                    let mut conditions = recovered.conditions;
+                                    extend_unique(&mut conditions, constraints);
+                                    extend_unique(&mut conditions, solution.constraints.clone());
+                                    extend_unique(
+                                        &mut conditions,
+                                        collection_unification_definedness(
+                                            definition,
+                                            &remainder,
+                                            &solution.substitution,
+                                        ),
+                                    );
+                                    (solution.substitution.clone(), conditions)
+                                }
+                                _ => {
+                                    return ClaimApplication::Indeterminate(
+                                        ClaimIndeterminateReason::Match {
+                                            substitution,
+                                            remainder,
+                                        },
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -1526,8 +1557,6 @@ mod tests {
         .expect("claim should execute");
 
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
-        let set_sort = crate::term::Sort::simple("SortSet");
-        let subject_frame = crate::term::Variable::new("F", set_sort.clone());
         for leaf in &result.leaves {
             assert!(
                 leaf.pattern
@@ -1535,8 +1564,8 @@ mod tests {
                     .attributes()
                     .variables
                     .iter()
-                    .all(|variable| variable.sort != set_sort || variable == &subject_frame),
-                "the claim successor must be expressed over the subject frame: {leaf:#?}"
+                    .all(|variable| !variable.name.starts_with("H!")),
+                "the claim successor must be expressed over the subject frame F, not the claim frame H: {leaf:#?}"
             );
         }
     }

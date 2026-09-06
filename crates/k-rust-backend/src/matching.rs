@@ -262,15 +262,12 @@ pub(crate) fn match_term_pairs_in_definition(
         .collect::<BTreeSet<_>>();
     if mode != MatchMode::Implies && !shared_variables.is_empty() {
         return match mode {
+            // Matching binds pattern variables only; a variable on both sides needs
+            // unification. The pairs themselves are the remainder, so that the caller can
+            // unify them or solve them as collections.
             MatchMode::Rewrite => MatchResult::Indeterminate {
                 substitution: Substitution::new(),
-                remainder: shared_variables
-                    .into_iter()
-                    .map(|variable| {
-                        let term = Term::variable(variable);
-                        (term.clone(), term)
-                    })
-                    .collect(),
+                remainder: pairs,
             },
             MatchMode::Evaluate => {
                 MatchResult::Failed(FailReason::SharedVariables(shared_variables))
@@ -320,15 +317,11 @@ fn match_terms_with_context(
         .collect::<BTreeSet<_>>();
     if mode != MatchMode::Implies && !shared_variables.is_empty() {
         return match mode {
+            // As in `match_term_pairs_in_definition`: the pair is the remainder, not a
+            // placeholder over the shared variables, which would drop the pair.
             MatchMode::Rewrite => MatchResult::Indeterminate {
                 substitution: Substitution::new(),
-                remainder: shared_variables
-                    .into_iter()
-                    .map(|variable| {
-                        let term = Term::variable(variable);
-                        (term.clone(), term)
-                    })
-                    .collect(),
+                remainder: vec![(pattern.clone(), subject.clone())],
             },
             MatchMode::Evaluate => {
                 MatchResult::Failed(FailReason::SharedVariables(shared_variables))

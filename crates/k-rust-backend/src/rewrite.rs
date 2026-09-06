@@ -1825,7 +1825,7 @@ fn finalize_general_unification(
         .collect()
 }
 
-fn collection_unification_definedness(
+pub(crate) fn collection_unification_definedness(
     definition: &BackendDefinition,
     pairs: &[(Term, Term)],
     substitution: &Substitution,
