@@ -372,7 +372,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "kompile: six owise axioms (`rule stuff(K) => 10 requires StringLiteral(...) :/=K K ...`) carry one more `\\exists` binder in krust than in the reference (`#KDiffBound1`, B2 emission of anonymous variables under `\\not \\or`); krun 6/7 (`baz(bar(0))`, `baz(foo(0))`): krust leaves `#lambda_baz(_)_...(baz(bar(0)))` unevaluated under a `#Ceil` where the reference prints `true`/`false` (ResolveFun `#fun(baz(B) => baz(bar(_)) :=K baz(B))` with an anonymous variable in the matching pattern, B1/C area); under the 12 GiB fallback the oracle re-run aborts (`mmap(): Cannot allocate memory` in the LLVM interpreter), which records reference-error. krun 1-5, 8, 9 match. Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
+reason = "match since fix(B2-03) 3b33b24 and fix(I1-02) 8de680b (host ratchet run 23): the owise `\\exists` binder surplus of the six `stuff` axioms was the anonymous variable closed over by the `#lambdaK_StringLiteral` predicates and left with B1-01 23c47f5; the remaining kompile residue was the `#lambda_foo(_)_TEST-SYNTAX_KItem_Int_`/`_2` suffix swap (decision row 20, normalisation N23, 26 collapsed axioms) and one missing `cool-like` attribute on `rule I:Int => foo(_) :=K foo(I)` (a rule of TEST-SYNTAX, marked through the main module's cells since 3b33b24); all nine krun programs match since B1-01 23c47f5."
 [[case]]
 name = "excludedModuleAtts/haskell"
 baseline_verdict = "mismatch"
@@ -460,8 +460,7 @@ baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["B1-01", "B1-02"]
 exclusion = ""
-reason = "kompile and most programs: closure and parameter sort; funSort/funSort2: externalized `#` variable names as in equals-pattern"
-unexplained = true
+reason = "match since fix(I1-02) 8de680b (host ratchet run 23): the closure and parameter sorts of the 20 generated lambdas agree with the reference since B1-01 23c47f5 and B1-02 0b3fcff (identical signature multisets); the 60 missing / 60 extra FUN-TEST sentences of runs 16-22 were the `#lambda__` .. `#lambda__19` suffix assignment (decision row 20, normalisation N23, 56 collapsed axioms); all eleven krun programs match."
 
 [[case]]
 name = "glr"
@@ -723,7 +722,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "kompile only: the `#lambda__`/`#lambda__2` suffixes of the three `#fun` rules are assigned in `module.rules()` HashSet order by ResolveFun.java:73-77 and in declaration order by resolve_fun.rs, so the two generated symbols swap bodies (the same oracle-side order class as decision D13-3, which covers freezers only); all three krun steps match. Handoff (comparator or decision). Re-measured 2026-09-06 at HEAD 855cc25."
+reason = "match since fix(I1-02) 8de680b (host ratchet run 23): the `#lambda__` .. `#lambda__5` suffixes follow ResolveFun.java's `stream(m.localSentences())` HashSet order, which the pinned reference assigns differently from two checkout paths (Source is part of the sentence hash), and declaration order in resolve_fun.rs; decision row 20 extends D13-3 to generated lambdas and normalisation N23 collapses the family in the comparator (13 collapsed axioms); all three krun steps match."
 [[case]]
 name = "issue-1545-func-in-simplification"
 baseline_verdict = "match"
@@ -1381,7 +1380,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "kompile only: `#lambda__`/`#lambda__3` suffix assignment follows ResolveFun.java's HashSet order (see issue-1528); krun 1.test matches. Handoff. Re-measured 2026-09-06 at HEAD 855cc25."
+reason = "match since fix(I1-02) 8de680b (host ratchet run 23): `#lambda__`/`#lambda__2`/`#lambda__3` rotate with the checkout path in the reference (see issue-1528, decision row 20, normalisation N23, 9 collapsed axioms); krun 1.test matches."
 [[case]]
 name = "list-in-bug"
 baseline_verdict = "match"
@@ -1966,7 +1965,7 @@ baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
 exclusion = ""
-reason = "kompile: `#lambdaF_test(_,_,_)_..._`/`_2` suffix order (see issue-1528), the remaining mismatch; krun 1/2 match since B1-01 23c47f5; krun 3/4 (`foo(test(5,10,15))`/`bar(...)`, the named-field projections of `test(Int, foo: Int, bar: Int)`) match since D1-04 422a86f declares the projections in the rule and program grammars as RuleGrammarGenerator.getCombinedGrammar does. Re-measured 2026-09-06."
+reason = "match since fix(I1-02) 8de680b (host ratchet run 23): `#lambdaF_test(_,_,_)_..._`/`_2` swap with the checkout path in the reference (see issue-1528, decision row 20, normalisation N23, 4 collapsed axioms); krun 1/2 match since B1-01 23c47f5; krun 3/4 (`foo(test(5,10,15))`/`bar(...)`, the named-field projections of `test(Int, foo: Int, bar: Int)`) match since D1-04 422a86f declares the projections in the rule and program grammars as RuleGrammarGenerator.getCombinedGrammar does."
 [[case]]
 name = "regex-prec"
 baseline_verdict = "krust-unsupported"
