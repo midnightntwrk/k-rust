@@ -1749,6 +1749,73 @@ mod tests {
             .expect("diamond definition should internalize")
     }
 
+    /// Three threads that each advance a private counter three times, in any interleaving; every
+    /// step logs one line. The state graph is the 4 x 4 x 4 lattice of counter values (64
+    /// configurations, 144 edges), while the tree of interleavings has 5247 edges.
+    fn interleaving_definition() -> BackendDefinition {
+        let mut module = String::from(
+            r#"[]
+            module INTERLEAVING
+                sort SortS{} []
+                sort SortK{} []
+                sort SortString{} [hasDomainValues{}()]
+                symbol state{}(SortS{}, SortS{}, SortS{}) : SortS{} [constructor{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                hooked-symbol log{}(SortString{}) : SortK{}
+                    [function{}(), total{}(), hook{}("IO.logString")]
+                symbol tick{}(SortK{}, SortS{}) : SortS{} [function{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        tick{}(dotk{}(), X:SortS{}),
+                        \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                    )
+                ) [label{}("tick"), simplification{}()]
+"#,
+        );
+        for thread in ["a", "b", "c"] {
+            for step in 0..4 {
+                module.push_str(&format!(
+                    "symbol {thread}{step}{{}}() : SortS{{}} [constructor{{}}()]\n"
+                ));
+            }
+        }
+        for (thread, before, after) in [
+            (
+                "a",
+                "state{}(a0{}(), Y:SortS{}, Z:SortS{})",
+                "state{}(NEXT, Y:SortS{}, Z:SortS{})",
+            ),
+            (
+                "b",
+                "state{}(X:SortS{}, b0{}(), Z:SortS{})",
+                "state{}(X:SortS{}, NEXT, Z:SortS{})",
+            ),
+            (
+                "c",
+                "state{}(X:SortS{}, Y:SortS{}, c0{}())",
+                "state{}(X:SortS{}, Y:SortS{}, NEXT)",
+            ),
+        ] {
+            for step in 0..3 {
+                let from = format!("{thread}{step}{{}}()");
+                let next = format!(
+                    "tick{{}}(log{{}}(\\dv{{SortString{{}}}}(\"{thread}{step}\")), {thread}{}{{}}())",
+                    step + 1
+                );
+                let left = before.replace(&format!("{thread}0{{}}()"), &from);
+                let right = after.replace("NEXT", &next);
+                module.push_str(&format!(
+                    "axiom{{}} \\rewrites{{SortS{{}}}}(\\and{{SortS{{}}}}({left}, \\top{{SortS{{}}}}()), {right}) [label{{}}(\"{thread}{step}\")]\n"
+                ));
+            }
+        }
+        module.push_str("endmodule []");
+        let syntax = parse_definition(&module).expect("interleaving definition should parse");
+        BackendDefinition::internalize(&syntax, "INTERLEAVING")
+            .expect("interleaving definition should internalize")
+    }
+
     fn rewrite_simplification_failure_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
@@ -2899,6 +2966,63 @@ mod tests {
             );
             assert!(result.states.is_empty(), "{search_type:?}");
         }
+    }
+
+    #[test]
+    fn search_frontier_recombines_paths_that_reach_a_configuration_at_the_same_depth() {
+        // Kore's execution graph recombines branches that converge to the same configuration
+        // at the same step (Strategy.hs, constructExecutionGraph), and the LLVM backend's search
+        // keeps a visited set; either way a configuration is expanded once per depth, so the
+        // work per step is bounded by the number of distinct configurations, not by the
+        // number of interleavings that reach them.
+        let definition = interleaving_definition();
+        let initial = pattern(&definition, "state{}(a0{}(), b0{}(), c0{}())");
+
+        // Within six steps: 54 configurations, each rule application is one of the 114 edges
+        // of the state graph below the cut, and the cut holds each of its ten configurations
+        // once (510 interleavings reach them).
+        let result = search_graph(
+            &definition,
+            initial.clone(),
+            SearchOptions {
+                search_type: SearchType::Star,
+                max_depth: 6,
+                ..SearchOptions::default()
+            },
+        );
+        assert_eq!(result.states.len(), 54);
+        let cut = result
+            .incomplete
+            .iter()
+            .map(|entry| match entry {
+                IncompleteSearch::DepthBound(state) => &state.pattern.term,
+                other => panic!("expected a depth-bound report, found {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(cut.iter().collect::<BTreeSet<_>>().len(), 10);
+        assert_eq!(cut.len(), 10);
+        assert_eq!(result.effects.len(), 114);
+
+        // The complete final search: one final configuration reached by 144 rule applications,
+        // the edges of the lattice, not the 5247 edges of the interleaving tree.
+        let result = search_graph(
+            &definition,
+            initial,
+            SearchOptions {
+                search_type: SearchType::Final,
+                ..SearchOptions::default()
+            },
+        );
+        assert_eq!(
+            result
+                .states
+                .iter()
+                .map(|state| state.pattern.term.clone())
+                .collect::<Vec<_>>(),
+            vec![pattern(&definition, "state{}(a3{}(), b3{}(), c3{}())").term]
+        );
+        assert!(result.incomplete.is_empty(), "{:?}", result.incomplete);
+        assert_eq!(result.effects.len(), 144);
     }
 
     #[test]
