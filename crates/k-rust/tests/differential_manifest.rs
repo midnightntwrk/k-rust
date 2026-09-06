@@ -528,14 +528,14 @@ fn every_gate_normalisation_is_registered() {
         .iter()
         .map(|row| row["id"].as_str().expect("normalisation id"))
         .collect::<BTreeSet<_>>();
-    let expected = (1..=22)
+    let expected = (1..=23)
         .filter(|id| *id != 2)
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1 and N3 through N22 after B2-03 deletes N2"
+        "the gate register must contain N1 and N3 through N23 after B2-03 deletes N2"
     );
     let row = |id: &str| {
         rows.iter()
@@ -559,6 +559,18 @@ fn every_gate_normalisation_is_registered() {
         row("N22")["anchor_symbol"].as_str(),
         Some("canonicalize_remainder_existentials")
     );
+    // N23 is the decision-row-20 extension of D13-3 to generated `#lambda` suffixes.
+    assert_eq!(
+        row("N23")["anchor_symbol"].as_str(),
+        Some("strip_multi_suffix_lambda_ids")
+    );
+    for needle in ["#lambda", "D13-3", "20"] {
+        assert!(
+            row("N23")["justification"].as_str().unwrap().contains(needle)
+                || row("N23")["rule"].as_str().unwrap().contains(needle),
+            "N23 must cite {needle}"
+        );
+    }
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut registered_symbols = BTreeSet::new();
     for row in rows {

@@ -2385,6 +2385,90 @@ fn comparator_ignores_which_multi_alias_freezer_suffix_each_context_receives() {
 }
 
 #[test]
+fn comparator_ignores_which_lambda_suffix_each_local_function_receives() {
+    // ResolveFun.getUniqueLambdaLabel names the first `#fun`/`#let`/`:=K` of a name hint
+    // `#lambda<h1>_<h2>_` and the following ones `_2`, `_3`, ... in the order the module's
+    // sentences are met, which is Scala HashSet order in the reference (decision row 20,
+    // extending D13-3 from freezers to generated lambdas): the same definition compiled from
+    // two directories assigns the suffixes differently. The port numbers in declaration
+    // order. Collapse every lambda of a multi-suffix family onto the unsuffixed name and
+    // drop the UNIQUE_IDs derived from it, so that the bodies and signatures still compare.
+    let definition = |first: &str, second: &str| {
+        parse_definition(&format!(
+            r#"[]
+            module TEST
+              sort S{{}} []
+              sort T{{}} []
+              symbol Lbla{{}}() : S{{}} []
+              symbol Lblb{{}}() : T{{}} []
+              symbol {first}{{}}(S{{}}) : S{{}} [function{{}}()]
+              symbol {second}{{}}(S{{}}, T{{}}) : T{{}} [function{{}}()]
+              axiom{{}} \equals{{S{{}}, S{{}}}}({first}{{}}(Lbla{{}}()), Lbla{{}}()) [UNIQUE'Unds'ID{{}}("{first}")]
+              axiom{{}} \equals{{T{{}}, T{{}}}}({second}{{}}(Lbla{{}}(), Lblb{{}}()), Lblb{{}}()) [UNIQUE'Unds'ID{{}}("{second}")]
+            endmodule []"#,
+        ))
+        .unwrap()
+    };
+    let unsuffixed = "Lbl'Hash'lambda'UndsUnds'";
+    let second = "Lbl'Hash'lambda'UndsUnds'2";
+
+    let report = compare_definitions_with(
+        definition(unsuffixed, second),
+        definition(second, unsuffixed),
+        CompareOptions::default(),
+    );
+    assert_eq!(report.verdict, CompareVerdict::Equal);
+    assert_eq!(report.multi_suffix_lambda_axioms, 2);
+    assert_eq!(report.multi_alias_axioms, 0);
+
+    // The family key is the name without its trailing suffix digits: a hint ending in a
+    // digit (`#lambdaF2__`) or carrying encoded punctuation (`#lambdaF_test(_,_,_)_..._`)
+    // is one family with its `_2` twin.
+    let record = "Lbl'Hash'lambdaF'Unds'test'LParUndsCommUndsCommUndsRParUnds'TEST'Unds'Foo'Unds'";
+    let report = compare_definitions_with(
+        definition(record, &format!("{record}2")),
+        definition(&format!("{record}2"), record),
+        CompareOptions::default(),
+    );
+    assert_eq!(report.verdict, CompareVerdict::Equal);
+    assert_eq!(report.multi_suffix_lambda_axioms, 2);
+
+    // A hint with a single lambda is not a family: its symbol keeps its identity, a
+    // swapped use stays a difference, and a hint ending in a digit is not a suffix.
+    let single = |target: &str| {
+        parse_definition(&format!(
+            r#"[]
+            module TEST
+              sort S{{}} []
+              symbol Lbla{{}}() : S{{}} []
+              symbol Lblb{{}}() : S{{}} []
+              symbol Lbl'Hash'lambdaF2'UndsUnds'{{}}(S{{}}) : S{{}} [function{{}}()]
+              axiom{{}} \equals{{S{{}}, S{{}}}}({target}{{}}(), Lbl'Hash'lambdaF2'UndsUnds'{{}}(Lbla{{}}())) []
+            endmodule []"#,
+        ))
+        .unwrap()
+    };
+    let report =
+        compare_definitions_with(single("Lbla"), single("Lblb"), CompareOptions::default());
+    assert!(
+        matches!(report.verdict, CompareVerdict::Differs(_)),
+        "a single lambda must keep its identity"
+    );
+    assert_eq!(report.multi_suffix_lambda_axioms, 0);
+
+    // The exclusion is opt-out: without it the swapped family is a difference.
+    let report = compare_definitions_with(
+        definition(unsuffixed, second),
+        definition(second, unsuffixed),
+        CompareOptions {
+            skip_multi_suffix_lambda_ids: false,
+            ..CompareOptions::default()
+        },
+    );
+    assert!(matches!(report.verdict, CompareVerdict::Differs(_)));
+}
+
+#[test]
 fn comparator_keeps_distinct_generated_variables_distinct() {
     let distinct =
         differential_definition(r"axiom{} \and{S{}}(Var'Unds'X1:S{}, Var'Unds'X2:S{}) []");
