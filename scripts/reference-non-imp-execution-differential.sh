@@ -185,6 +185,9 @@ for name in "${selected[@]}"; do
       --warnings none
   )
 
+  # The oracle is the Haskell backend's krun (kore-exec in its default --strategy all:
+  # every applicable rule is explored), so krust runs with --strategy all as well; plain
+  # krust krun follows one successor per step (bucket-05 amendment under C3-02).
   mapfile -t programs < <(jq -r '(.programs // [])[]' <<<"$suite")
   for program in "${programs[@]}"; do
     if [[ ! -f "$program" ]]; then
@@ -216,6 +219,7 @@ for name in "${selected[@]}"; do
         "$program" \
         "${configuration_args[@]}" \
         --depth "$execution_depth" \
+        --strategy all \
         --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
         >"$work/$name-$program_name.rust.kore"
     )
@@ -315,6 +319,7 @@ for name in "${selected[@]}"; do
         "$mode" \
         "${depth_args[@]}" \
         "${rust_result_bound_args[@]}" \
+        --strategy all \
         --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
         >"$work/$name-$search_name.rust.kore"
     )
