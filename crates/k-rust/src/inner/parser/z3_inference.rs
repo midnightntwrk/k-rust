@@ -206,12 +206,17 @@ impl Grammar {
     /// `getFunction` (TypeInferencer.java:380-404) finds it: brackets are stripped, a `#KRewrite`
     /// contributes its left-hand side, and the rule wrappers are not looked through. A top-sort
     /// node is one whose result is `#RuleContent` or `#RuleBody` (TypeInferencer.java:592-593),
-    /// so `#withConfig` bounds its rewrite exactly as `#RuleContent` bounds a bare rewrite. The
-    /// returned path locates the left-hand side relative to `child_path`.
+    /// so `#withConfig` bounds its rewrite exactly as `#RuleContent` bounds a bare rewrite. For an
+    /// anywhere rule `isFunction(t, isAnywhere)` (TypeInferencer.java:413-421) holds for every
+    /// left-hand side `getFunction` returns, so a constructor such as `foo()` or a token such as
+    /// `1` (a `Constant` is a `ProductionReference`) bounds the rewrite by its own sort
+    /// (`getFunctionSort`, :429); a variable left-hand side keeps the ordinary bound. The returned
+    /// path locates the left-hand side relative to `child_path`.
     fn body_function_lhs<'t>(
         &self,
         child: &'t ParsedTerm,
         child_path: &str,
+        anywhere: bool,
     ) -> Option<(&'t ParsedTerm, String)> {
         let mut path = child_path.to_owned();
         let mut term = self.strip_brackets_with_path(child, &mut path);
@@ -229,11 +234,14 @@ impl Grammar {
             path.push_str("_c0");
             term = self.strip_brackets_with_path(&children[0], &mut path);
         }
-        let ParsedTerm::Production { production, .. } = term else {
-            return None;
-        };
-        let production = &self.productions[*production];
-        (production.function || production.macro_like).then_some((term, path))
+        match term {
+            ParsedTerm::Production { production, .. } => {
+                let production = &self.productions[*production];
+                (anywhere || production.function || production.macro_like).then_some((term, path))
+            }
+            ParsedTerm::Term(leaf) => (anywhere && is_token_leaf(leaf)).then_some((term, path)),
+            ParsedTerm::Ambiguity(_) | ParsedTerm::InstantiatedProduction { .. } => None,
+        }
     }
 
     fn strip_brackets_with_path<'t>(
@@ -260,6 +268,7 @@ impl Grammar {
     fn packed_body_function_lhs<'t>(
         &self,
         child: &'t Rc<PackedTerm>,
+        anywhere: bool,
     ) -> Option<&'t Rc<PackedTerm>> {
         let mut term = strip_packed_brackets(self, child);
         if let PackedNode::Production {
@@ -275,11 +284,14 @@ impl Grammar {
         {
             term = strip_packed_brackets(self, &children[0]);
         }
-        let PackedNode::Production { production, .. } = &term.node else {
-            return None;
-        };
-        let production = &self.productions[*production];
-        (production.function || production.macro_like).then_some(term)
+        match &term.node {
+            PackedNode::Production { production, .. } => {
+                let production = &self.productions[*production];
+                (anywhere || production.function || production.macro_like).then_some(term)
+            }
+            PackedNode::Term(leaf) => (anywhere && is_token_leaf(leaf)).then_some(term),
+            PackedNode::Ambiguity(_) | PackedNode::InstantiatedProduction { .. } => None,
+        }
     }
 
     pub(super) fn infer_sorts_z3(
@@ -575,7 +587,10 @@ impl<'a> Encoding<'a> {
                 {
                     let child_path = format!("{path}_c{index}");
                     let function_child_sort = (index == 0 && is_top_sort_production(descriptor))
-                        .then(|| self.grammar.body_function_lhs(child, &child_path))
+                        .then(|| {
+                            self.grammar
+                                .body_function_lhs(child, &child_path, self.anywhere)
+                        })
                         .flatten();
                     let child_expected = if let Some((lhs, lhs_path)) = &function_child_sort {
                         self.actual_sort(lhs, lhs_path)?
@@ -740,7 +755,7 @@ impl<'a> Encoding<'a> {
                     children.iter().zip(expected_children).enumerate()
                 {
                     let function_lhs = (index == 0 && is_top_sort_production(descriptor))
-                        .then(|| self.grammar.packed_body_function_lhs(child))
+                        .then(|| self.grammar.packed_body_function_lhs(child, self.anywhere))
                         .flatten();
                     let child_expected = if let Some(lhs) = function_lhs {
                         self.actual_packed_sort(lhs)?
@@ -1743,7 +1758,7 @@ impl<'a> Encoding<'a> {
                     .then(|| {
                         children.first().and_then(|child| {
                             self.grammar
-                                .packed_body_function_lhs(child)
+                                .packed_body_function_lhs(child, self.anywhere)
                                 .map(|lhs| self.declared_packed_model_sort(lhs, model))
                         })
                     })
@@ -2030,7 +2045,7 @@ impl<'a> Encoding<'a> {
                     .then(|| {
                         children.first().and_then(|child| {
                             self.grammar
-                                .body_function_lhs(child, &format!("{path}_c0"))
+                                .body_function_lhs(child, &format!("{path}_c0"), self.anywhere)
                                 .map(|(lhs, lhs_path)| {
                                     declared_model_sort(self.grammar, lhs, model, &lhs_path)
                                 })
@@ -2545,6 +2560,11 @@ fn is_real_sort<'a>(sort: &Sort, formals: impl Iterator<Item = &'a Sort>) -> boo
 /// treats a node expected at `#RuleContent` or `#RuleBody` as a top-sort node
 /// (TypeInferencer.java:592-593, :640). k-rust's forest collapses `#RuleBody ::= K`, so the
 /// `#RuleBody`-sorted node that survives is `#withConfig`.
+/// A token leaf that is not a variable: the only leaf `getFunction` can return with a real sort.
+fn is_token_leaf(leaf: &Term) -> bool {
+    inferred_variable_name(leaf).is_none() && matches!(leaf.unannotated(), Term::Token { .. })
+}
+
 fn is_top_sort_production(production: &Production) -> bool {
     matches!(
         production.result.name.as_str(),
