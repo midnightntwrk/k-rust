@@ -391,6 +391,28 @@ mod tests {
         ));
     }
 
+    /// regression-new spec-rule-application def62: after `Y2 := X2 -Int 1` the deferred pair
+    /// `incPos(Y2) ~ X2` becomes `X2 ~ incPos(X2 -Int 1)`, a cycle through a function symbol.
+    /// Kore's substitution normalization keeps such a "simplifiable" cycle as a denormalized
+    /// predicate (Kore/Unification/SubstitutionNormalization.hs simplifiableCycle) that
+    /// evaluation later discharges (`incPos(X2 -Int 1)` is `X2`); only a cycle through
+    /// constructors is bottom (mixedCtorCycle).
+    #[test]
+    fn retains_a_function_cycle_as_an_equality() {
+        let cycle = function("f", vec![var("X")]);
+        let result = unify_term_pairs(
+            &definition(),
+            Substitution::new(),
+            [(var("X"), cycle.clone())],
+        );
+
+        let UnificationResult::Unified(result) = result else {
+            panic!("a cycle through a function symbol is a predicate, not bottom: {result:?}");
+        };
+        assert!(result.substitution.is_empty(), "{result:?}");
+        assert_eq!(result.constraints, [Predicate::Equals(var("X"), cycle)]);
+    }
+
     #[test]
     fn decomposes_conjunctions_before_binding_variables() {
         let a = constructor("a", Vec::new());
