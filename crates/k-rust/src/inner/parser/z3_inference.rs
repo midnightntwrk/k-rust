@@ -1816,13 +1816,7 @@ impl<'a> Encoding<'a> {
                 } else {
                     PackedTerm::production(*production, transformed_children, metadata.clone())
                 };
-                if descriptor.parametric_origin.is_some()
-                    && (!actual.parameters.is_empty()
-                        || production_nonterminals(descriptor)
-                            .iter()
-                            .any(|sort| !sort.parameters.is_empty()))
-                    && cast_context != CastContext::Semantic
-                {
+                if declares_parametric_sort(descriptor) && cast_context != CastContext::Semantic {
                     self.wrap_with_packed_cast(transformed, &actual)
                 } else {
                     Ok(transformed)
@@ -2115,13 +2109,7 @@ impl<'a> Encoding<'a> {
                         metadata,
                     }
                 };
-                if descriptor.parametric_origin.is_some()
-                    && (!actual.parameters.is_empty()
-                        || production_nonterminals(descriptor)
-                            .iter()
-                            .any(|sort| !sort.parameters.is_empty()))
-                    && cast_context != CastContext::Semantic
-                {
+                if declares_parametric_sort(descriptor) && cast_context != CastContext::Semantic {
                     self.wrap_with_cast(result, &actual)
                 } else {
                     Ok(result)
@@ -2198,6 +2186,20 @@ fn production_result(production: &Production) -> &Sort {
         .parametric_origin
         .as_ref()
         .map_or(&production.result, |origin| &origin.result)
+}
+
+/// TypeInferenceVisitor.java:278-293 (`hasParametricSort`): a parametric production is wrapped
+/// in the cast of its instantiated sort only when the *original* production declares a
+/// parametric-headed sort as its result or as a nonterminal (`{Width} MInt{Width} ::= ...`,
+/// `{Width} Bool ::= MInt{Width} "==MInt" MInt{Width}`). The instantiated result of a sort-variable
+/// production such as `{Sort} Sort ::= Sort "=>" Sort` does not count even when the model
+/// instantiates it at a parametric instance like `MInt{64}`.
+fn declares_parametric_sort(production: &Production) -> bool {
+    production.parametric_origin.is_some()
+        && (!production_result(production).parameters.is_empty()
+            || production_nonterminals(production)
+                .iter()
+                .any(|sort| !sort.parameters.is_empty()))
 }
 
 fn production_nonterminals(production: &Production) -> Vec<&Sort> {
