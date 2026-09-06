@@ -566,7 +566,10 @@ fn every_gate_normalisation_is_registered() {
     );
     for needle in ["#lambda", "D13-3", "20"] {
         assert!(
-            row("N23")["justification"].as_str().unwrap().contains(needle)
+            row("N23")["justification"]
+                .as_str()
+                .unwrap()
+                .contains(needle)
                 || row("N23")["rule"].as_str().unwrap().contains(needle),
             "N23 must cite {needle}"
         );
