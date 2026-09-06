@@ -434,6 +434,7 @@ fn check_implication_with_existentials_and_options_and_policy(
 ) -> Result<ImplicationResult, ImplicationError> {
     let (consequent, consequent_existentials) =
         freshen_existentials(antecedent, consequent, consequent_existentials);
+    let consequent = simplify_consequent(definition, antecedent, consequent, options, solver);
     let antecedent_variables = free_variables(antecedent)
         .difference(antecedent_existentials)
         .cloned()
@@ -531,6 +532,37 @@ fn check_implication_with_existentials_and_options_and_policy(
                 );
             }
         }
+    }
+}
+
+/// Simplify the destination with the definition's equations under the antecedent's constraints
+/// before matching, as Kore's reachability Simplify step does for a claim's right-hand side
+/// (Kore/Reachability/Claim.hs simplify', simplifyRightHandSide: Pattern.makeEvaluate under the
+/// left-hand side's side condition). A top equation result erases its conjunction operand, so
+/// `2 #And n +Int n` with `n +Int n = \top` becomes `2`. A simplification failure keeps the
+/// destination as written; the check then proceeds exactly as before.
+fn simplify_consequent(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    consequent: Pattern,
+    options: ImplicationCheckOptions,
+    solver: &dyn SmtSolver,
+) -> Pattern {
+    if consequent.term.attributes().evaluated {
+        return consequent;
+    }
+    match simplify_with_solver(
+        definition,
+        &consequent.term,
+        &antecedent.constraints,
+        options.simplification,
+        solver,
+    ) {
+        Ok(simplified) => Pattern {
+            term: simplified.term,
+            constraints: merge_predicates(consequent.constraints, simplified.constraints),
+        },
+        Err(_) => consequent,
     }
 }
 
