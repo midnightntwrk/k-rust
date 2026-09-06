@@ -19,7 +19,11 @@ id = "N3"
 gate = "compile semantic KORE"
 anchor = "crates/k-rust/tests/reference_differential.rs:multi_alias_freezer"
 anchor_symbol = "multi_alias_freezer"
-anchor_helpers = ["strip_multi_alias_freezer_ids", "strip_unique_id_attributes"]
+anchor_helpers = [
+  "strip_multi_alias_freezer_ids",
+  "strip_symbol_family_ids",
+  "strip_unique_id_attributes",
+]
 rule = "Ignore UNIQUE_ID only for freezer axioms whose shared hint has multiple generated suffixes."
 justification = "Decisions 07-1 and 13-3 make the Scala HashSet-derived suffix a permanent oracle-side exclusion; the port retains deterministic declaration order."
 fate = "keep-with-comment"
@@ -243,4 +247,19 @@ anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_remainder_e
 anchor_symbol = "canonicalize_remainder_existentials"
 rule = "Quantify, inside a negated existential constraint, every generated variable that is free in it and occurs nowhere else in the disjunct."
 justification = "Kore/Rewrite/Remainder.hs existentiallyQuantifyRuleVariables quantifies only the rule variables of a unification solution and leaves the NewUnifier's fresh AC remainder free in the printed remainder; the port quantifies it, which is the reading under which the remainder excludes every instance of the rule."
+fate = "keep-with-comment"
+
+[[normalisation]]
+id = "N23"
+gate = "compile and conformance kompile"
+anchor = "crates/k-rust/tests/reference_differential.rs:strip_multi_suffix_lambda_ids"
+anchor_symbol = "strip_multi_suffix_lambda_ids"
+anchor_helpers = [
+  "multi_suffix_lambda",
+  "multi_suffix_lambda_family",
+  "strip_symbol_family_ids",
+  "strip_unique_id_attributes",
+]
+rule = "Collapse every generated `#lambda<h1>_<h2>_<n>` symbol of a multi-suffix family onto the family's unsuffixed name, in declarations and uses alike, and ignore UNIQUE_ID only for the axioms that mention such a family; single-suffix hints keep their identity. The collapsed axiom count is printed per case."
+justification = "Decision row 20 extends D13-3: ResolveFun.getUniqueLambdaLabel numbers identical hints in `stream(m.localSentences())` order, a Scala HashSet order over sentence hashes that include the Source path, and the pinned reference assigns the suffixes differently from two checkout paths (issue-1528, let-test, record-llvm); the port keeps deterministic declaration order. The collapsed sentence multiset still compares every lambda's signature and rule body."
 fate = "keep-with-comment"
