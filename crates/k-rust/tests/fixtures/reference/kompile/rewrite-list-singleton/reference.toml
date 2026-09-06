@@ -1,6 +1,5 @@
 case = "rewrite-list-singleton"
 subsystem = "kompile"
-source_ticket = "B1-02"
 harvested_from = "k/k-distribution/tests/regression-new/issue-1573/test.k at 4a46d1231473b599c699160132fd6e76a5c46406, reduced by hand (stage-12 conformance ratchet finding: issue-1573 kompile mismatch on one UNIQUE_ID)"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"

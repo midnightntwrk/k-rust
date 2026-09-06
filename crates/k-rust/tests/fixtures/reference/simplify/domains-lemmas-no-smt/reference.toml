@@ -1,7 +1,6 @@
 case = "domains-lemmas-no-smt"
 subsystem = "simplify"
-source_ticket = "C2-01"
-harvested_from = "draft/fable51-review/fixtures/c2/dl"
+harvested_from = "k/k-distribution/tests/regression-new/domains-lemmas-no-smt at the pinned k_revision; the two .k sources here are byte-identical to it"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

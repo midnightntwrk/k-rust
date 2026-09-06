@@ -1,7 +1,6 @@
 case = "casted-chain"
 subsystem = "inner"
-source_ticket = "A2-02"
-harvested_from = "draft/fable51-review/A2/A2-02-casted-chain-exponential-forest.md"
+harvested_from = "hand-written inner-parser probe: an 80-term left-associative chain whose ambiguous parse forest grows exponentially"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 
@@ -14,5 +13,5 @@ sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
 
 [[input]]
 file = "test.k"
-source = "draft/fable51-review/A2/A2-02-casted-chain-exponential-forest.md"
+source = "hand-written 80-term casted chain"
 sha256 = "5a72af40b3e2a6661e1d8a32f7748f7e95eca1cbd9876b57bac6a9839d6754be"

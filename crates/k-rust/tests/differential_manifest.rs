@@ -120,14 +120,6 @@ fn part_b_manifest_schema_is_complete() {
         "K accepts an anonymous binder in requires only for its Haskell backend",
     );
     assert!(
-        compile_case("exists-anon")["requires"]
-            .as_array()
-            .expect("exists-anon requirements")
-            .iter()
-            .all(|requirement| requirement.as_str() != Some("ticket:B2-02")),
-        "I1-07 and A3-07 make the B2-02 integration fixture directly runnable",
-    );
-    assert!(
         compile_case("assoc-strict")["requires"]
             .as_array()
             .expect("assoc-strict requirements")
@@ -149,31 +141,13 @@ fn part_b_pending_and_special_case_schema_is_complete() {
             .unwrap_or_else(|| panic!("missing {section} case {name}"))
             .clone()
     };
-    let ticket_requirements = |entry: &Value| {
-        entry["requires"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|requirement| {
-                requirement
-                    .as_str()
-                    .and_then(|value| value.strip_prefix("ticket:"))
-                    .map(str::to_owned)
-            })
-            .collect::<Vec<_>>()
-    };
     // The three symbolic C1 cases compare one rewrite step against kore-exec. The reference's
     // `--depth N` output lists the leaves that are stuck within N steps and drops the leaves that
     // merely reached the limit whenever a stuck leaf exists (GraphTraversal.checkLeftUnproven:
     // GotStuck wins over Stopped), so `--depth 1` prints only the unrewritten remainder and the
-    // rewritten branches of the tickets' contracts are observable from `--depth 2` on.
+    // rewritten branches are observable from `--depth 2` on.
     for name in ["c1-map", "c1-t2", "c1-t3"] {
         let entry = case("symbolic", name);
-        assert_eq!(
-            ticket_requirements(&entry),
-            Vec::<String>::new(),
-            "symbolic case {name} is verified against the reference and must run by default"
-        );
         for pattern in entry["pattern"].as_array().expect("symbolic patterns") {
             assert_eq!(
                 pattern["depth"].as_integer(),
@@ -184,48 +158,6 @@ fn part_b_pending_and_special_case_schema_is_complete() {
             assert_eq!(pattern["mode"].as_str(), Some("exec"));
         }
     }
-    // Every case whose owning tickets are verified and which passed the opt-in stage-12 run
-    // must run in the default protocol: no ticket: requirement may remain.
-    let expected_unblocked = [
-        ("compile", "fresh-name-collision"),
-        ("compile", "imp"),
-        ("compile", "parametric"),
-        ("compile", "assoc-strict"),
-        ("compile", "undefined-sort"),
-        ("compile", "semcast2"),
-        ("execution", "c3-search"),
-        ("execution", "c3-br"),
-        ("execution", "c3-co"),
-        ("execution", "c3-tr"),
-        ("proof", "c4-split"),
-        ("proof", "c4-lemma"),
-        ("proof", "c4-trivial"),
-        ("rpc", "c3-tr-rpc"),
-    ];
-    for (section, name) in expected_unblocked {
-        assert_eq!(
-            ticket_requirements(&case(section, name)),
-            Vec::<String>::new(),
-            "{section} case {name} carries a stale ticket: requirement"
-        );
-    }
-    let still_pending = SECTIONS
-        .iter()
-        .flat_map(|&section| {
-            manifest[section]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|entry| !ticket_requirements(entry).is_empty())
-                .map(move |entry| format!("{section}/{}", entry["name"].as_str().unwrap()))
-        })
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        still_pending,
-        BTreeSet::new(),
-        "no manifest case may stay ticket-gated after the C1 symbolic cases were verified"
-    );
-
     for entry in manifest["proof"].as_array().expect("proof cases") {
         let name = entry["name"].as_str().expect("proof name");
         assert!(
@@ -283,7 +215,7 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         "STRING.find and BYTES.replaceAt exceptions"
     );
     for exception in hook_exceptions {
-        for field in ["program", "expected", "reference", "reason", "ticket"] {
+        for field in ["program", "expected", "reference", "reason"] {
             assert!(
                 exception[field]
                     .as_str()
@@ -312,7 +244,7 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         "only the measured IMP implication payload diverges from Booster",
     );
     for exception in rpc_exceptions {
-        for field in ["oracle", "response", "expected", "reason", "ticket"] {
+        for field in ["oracle", "response", "expected", "reason"] {
             assert!(
                 exception[field]
                     .as_str()
@@ -322,7 +254,6 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         }
         assert_eq!(exception["oracle"].as_str(), Some("kore-rpc-booster"));
         assert_eq!(exception["response"].as_str(), Some("implies"));
-        assert_eq!(exception["ticket"].as_str(), Some("D1-08"));
     }
 
     for entry in manifest["symbolic"].as_array().expect("symbolic cases") {
@@ -493,67 +424,8 @@ fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
 }
 
 #[test]
-fn pending_only_selection_does_not_require_reference_tools() {
+fn every_gate_skips_unrunnable_cases_before_validating_reference_tools() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
-    // Every ticket-gated case of each section, so the check follows the manifest as
-    // requirements are dropped when their tickets land.
-    let mut exercised = 0;
-    for (section, script_path) in [
-        ("compile", "scripts/reference-differential.sh"),
-        (
-            "execution",
-            "scripts/reference-non-imp-execution-differential.sh",
-        ),
-        ("proof", "scripts/reference-proof-differential.sh"),
-        ("rpc", "scripts/reference-rpc-differential.sh"),
-        (
-            "symbolic",
-            "scripts/reference-symbolic-execution-differential.sh",
-        ),
-    ] {
-        for entry in manifest[section].as_array().expect("section cases") {
-            let tickets = entry["requires"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|requirement| {
-                    requirement
-                        .as_str()
-                        .and_then(|value| value.strip_prefix("ticket:"))
-                })
-                .collect::<Vec<_>>();
-            if tickets.is_empty() {
-                continue;
-            }
-            exercised += 1;
-            let case_name = entry["name"].as_str().expect("case name");
-            let script_path = workspace.join(script_path);
-            let output = Command::new("bash")
-                .arg(&script_path)
-                .arg(case_name)
-                .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
-                .env("K_KOMPILE", workspace.join("missing-reference-kompile"))
-                .output()
-                .unwrap_or_else(|error| panic!("run {}: {error}", script_path.display()));
-            assert!(
-                output.status.success(),
-                "{} validated unavailable reference tools before skipping {case_name}: {}",
-                script_path.display(),
-                String::from_utf8_lossy(&output.stderr),
-            );
-            let expected = format!("[{case_name}] pending: blocked by {}", tickets.join(", "));
-            assert!(
-                String::from_utf8_lossy(&output.stdout).contains(&expected),
-                "{} did not name the blocking ticket(s) `{expected}`: {}",
-                script_path.display(),
-                String::from_utf8_lossy(&output.stdout),
-            );
-        }
-    }
-    // Since the C1 symbolic cases were verified no manifest case is ticket-gated, so the dynamic
-    // check above runs nothing; the static order check keeps the skip path ahead of the
-    // reference-tool validation in every gate until a case is gated again.
     let compile_validation = "if [[ -z \"$kompile\" ]]";
     let symbolic = fs::read_to_string(workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH))
         .expect("symbolic differential script");
@@ -569,9 +441,6 @@ fn pending_only_selection_does_not_require_reference_tools() {
             script.find("pending: blocked by").unwrap() < script.find(compile_validation).unwrap(),
             "the {name} gate must select and skip pending cases before validating reference tools",
         );
-    }
-    if exercised == 0 {
-        eprintln!("no ticket-gated manifest case; the skip path was checked statically only");
     }
 }
 
@@ -736,20 +605,7 @@ fn differential_manifest_is_complete_and_unambiguous() {
     );
 
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let status_path = workspace.join("draft/fable51-review/implementation-status.toml");
-    let known_tickets = status_path.exists().then(|| {
-        let status = fs::read_to_string(&status_path).expect("read implementation-status ledger");
-        let status = status
-            .parse::<Value>()
-            .expect("valid implementation-status TOML");
-        status["ticket"]
-            .as_array()
-            .expect("implementation-status ticket rows")
-            .iter()
-            .map(|ticket| ticket["id"].as_str().expect("ticket id").to_owned())
-            .collect::<BTreeSet<_>>()
-    });
-    let allowed_requirements = BTreeSet::from(["reference-toolchain"]);
+    let allowed_requirements = BTreeSet::from(["reference-toolchain", "semantics-support"]);
     for section in SECTIONS {
         let entries = manifest[section].as_array().expect("coverage array");
         assert!(!entries.is_empty(), "{section} coverage must not be empty");
@@ -764,18 +620,10 @@ fn differential_manifest_is_complete_and_unambiguous() {
             );
             for requirement in requirements {
                 let requirement = requirement.as_str().expect("string requirement");
-                if allowed_requirements.contains(requirement) {
-                    continue;
-                }
-                let ticket = ticket_requirement(requirement).unwrap_or_else(|| {
-                    panic!("unknown requirement {requirement} on {section} case {name}")
-                });
-                if let Some(known_tickets) = &known_tickets {
-                    assert!(
-                        known_tickets.contains(ticket),
-                        "unknown ticket {ticket} on {section} case {name}"
-                    );
-                }
+                assert!(
+                    allowed_requirements.contains(requirement),
+                    "unknown requirement {requirement} on {section} case {name}"
+                );
             }
             assert!(
                 entry["constructs"].as_array().is_some(),
@@ -843,20 +691,6 @@ fn differential_manifest_is_complete_and_unambiguous() {
         missing.is_empty(),
         "missing runnable corpus constructs: {missing:?}"
     );
-}
-
-fn ticket_requirement(requirement: &str) -> Option<&str> {
-    let ticket = requirement.strip_prefix("ticket:")?;
-    let (area, number) = ticket.split_once('-')?;
-    let mut area = area.bytes();
-    if !area.next().is_some_and(|byte| byte.is_ascii_uppercase())
-        || !area.all(|byte| byte.is_ascii_digit())
-        || number.len() != 2
-        || !number.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return None;
-    }
-    Some(ticket)
 }
 
 #[test]

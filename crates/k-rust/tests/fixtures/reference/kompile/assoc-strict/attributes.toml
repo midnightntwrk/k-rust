@@ -1,6 +1,5 @@
 case = "assoc-strict"
 subsystem = "kompile"
-source_ticket = "I1-06"
 harvested_from = "k/result/bin/kompile --backend haskell"
 
 heat_labels = [

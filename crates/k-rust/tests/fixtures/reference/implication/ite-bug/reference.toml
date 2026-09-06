@@ -1,7 +1,6 @@
 case = "ite-bug"
 subsystem = "implication"
-source_ticket = "I1-08"
-harvested_from = "draft/fable51-review/fixtures/c2/ite/ref.log"
+harvested_from = "k/k-distribution/tests/regression-new/ite-bug at the pinned k_revision; the four .k sources here are byte-identical to it"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

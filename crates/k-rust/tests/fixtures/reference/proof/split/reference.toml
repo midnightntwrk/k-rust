@@ -1,7 +1,6 @@
 case = "split"
 subsystem = "proof"
-source_ticket = "C4-01"
-harvested_from = "draft/fable51-review/fixtures/c4/f1/stuck.kore"
+harvested_from = "hand-written kprove probe: claim selection through --claims, --exclude and --trusted, including claims reached through an imported module"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

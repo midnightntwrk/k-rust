@@ -1,7 +1,6 @@
 case = "grammar"
 subsystem = "kore-syntax"
-source_ticket = "B3-04"
-harvested_from = "draft/fable51-review/design/11-kore-syntax-and-stack-safety.md B3-04 probes"
+harvested_from = "hand-written KORE grammar acceptance and rejection probes; each [[input]] names its own case"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

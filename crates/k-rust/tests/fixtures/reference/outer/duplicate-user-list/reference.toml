@@ -1,7 +1,6 @@
 case = "duplicate-user-list"
 subsystem = "outer"
-source_ticket = "A1-02"
-harvested_from = "draft/fable51-review/fixtures/a1-fixtures/duplicate-user-list"
+harvested_from = "hand-written outer-parser probe: two imported modules declaring the same user list sort with different separators"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 
@@ -14,5 +13,5 @@ sha256 = "66aeb535b7163075d306030a2cf86b6ec3b2affb80a411f985f37061346df0f7"
 
 [[input]]
 file = "test.k"
-source = "draft/fable51-review/fixtures/a1-fixtures/duplicate-user-list/test.k"
+source = "hand-written duplicate user-list definition"
 sha256 = "be40bd8ed552082c62abe8c3adeb2a905927f4779aea6d578400dfea6728da56"

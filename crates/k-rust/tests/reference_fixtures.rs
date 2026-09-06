@@ -231,13 +231,7 @@ fn check_manifest(root: &Path, subsystem: &str, path: &Path) {
         "{} case must match its directory",
         path.display()
     );
-    for field in [
-        "case",
-        "source_ticket",
-        "harvested_from",
-        "k_revision",
-        "haskell_backend",
-    ] {
+    for field in ["case", "harvested_from", "k_revision", "haskell_backend"] {
         assert!(
             manifest[field]
                 .as_str()

@@ -1,7 +1,6 @@
 case = "pc"
 subsystem = "hooks"
-source_ticket = "C2-04"
-harvested_from = "draft/fable51-review/fixtures/c2/hk/pc.k"
+harvested_from = "hand-written STRING hook probe: substrString and findString at out-of-range indices"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 oracle_exception = true

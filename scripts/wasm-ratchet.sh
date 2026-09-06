@@ -6,7 +6,7 @@ source "$workspace/scripts/reference-pins.sh"
 
 k_checkout=${K_CHECKOUT:-"$workspace/k"}
 wasm_checkout=${WASM_SEMANTICS_CHECKOUT:-"$workspace/wasm-semantics"}
-log=${WASM_RATCHET_LOG:-"$workspace/draft/roadmap-tickets/phase-1/wasm-ratchet.log"}
+log=${WASM_RATCHET_LOG:-}
 timeout_seconds=${WASM_RATCHET_TIMEOUT_SECONDS:-1800}
 memory_limit_kib=${WASM_RATCHET_MEMORY_KIB:-${REFERENCE_DIFFERENTIAL_MEMORY_KIB:-6291456}}
 rss_tolerance_percent=${WASM_RATCHET_RSS_TOLERANCE_PERCENT:-50}
@@ -16,7 +16,7 @@ depth=
 
 usage() {
   cat <<'EOF'
-usage: scripts/wasm-ratchet.sh --label LABEL --stage EXPECTED_FAILURE_STAGE --depth N [--log PATH]
+usage: scripts/wasm-ratchet.sh --label LABEL --stage EXPECTED_FAILURE_STAGE --depth N --log PATH
 
 Run the pinned WASM test.md through the k-rust LLVM frontend and append a
 machine-readable measurement to the Phase 1 ratchet log.
@@ -76,6 +76,7 @@ while (($#)); do
   esac
 done
 
+[[ -n "$log" ]] || die "--log is required (or set WASM_RATCHET_LOG)"
 [[ -n "$label" ]] || die "--label is required"
 [[ "$label" != *$'\n'* ]] || die "--label must be one line"
 [[ -n "$stage" ]] || die "--stage is required for a failing probe"

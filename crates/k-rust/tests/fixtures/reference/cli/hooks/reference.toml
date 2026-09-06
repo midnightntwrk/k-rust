@@ -1,7 +1,6 @@
 case = "hooks"
 subsystem = "cli"
-source_ticket = "D1-05"
-harvested_from = "draft/fable51-review/fixtures/d1-fixtures/hooks"
+harvested_from = "hand-written kompile CLI probe: --hook-namespaces gating of hook(...) attributes"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

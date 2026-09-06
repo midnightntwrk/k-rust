@@ -7,9 +7,9 @@ measure="$workspace/scripts/conformance/measure.py"
 summarize="$workspace/scripts/conformance/summarize.py"
 driver=${CONFORMANCE_DRIVER:-"$workspace/scripts/conformance/run.py"}
 expectations="$workspace/scripts/conformance/expectations.toml"
-status="$workspace/draft/fable51-review/implementation-status.toml"
-log="$workspace/draft/fable51-review/conformance-ratchet.toml"
-runs_dir="$workspace/draft/fable51-review/conformance/runs"
+status=${CONFORMANCE_RATCHET_STATUS:-}
+log=${CONFORMANCE_RATCHET_LOG:-}
+runs_dir=${CONFORMANCE_RATCHET_RUNS_DIR:-}
 jobs=2
 label=
 seed=
@@ -38,10 +38,10 @@ whatever the driver version and whether or not this run lowered it.
 
 Options:
   --jobs N
-  --log PATH
-  --runs-dir PATH
+  --log PATH          required; standing ratchet log (or CONFORMANCE_RATCHET_LOG)
+  --runs-dir PATH     required when measuring (or CONFORMANCE_RATCHET_RUNS_DIR)
   --expectations PATH
-  --status PATH
+  --status PATH       optional ticket-state ledger (or CONFORMANCE_RATCHET_STATUS)
   --force
   --dry-run
 EOF
@@ -144,6 +144,8 @@ while (($#)); do
   esac
 done
 
+[[ -n "$log" ]] || die "--log is required (or set CONFORMANCE_RATCHET_LOG)"
+
 if [[ "$audit" == true ]]; then
   [[ -z "$label" && -z "$seed" && "$all" == false && ${#cases[@]} -eq 0 && ${#tickets[@]} -eq 0 && ${#stages[@]} -eq 0 ]] || \
     die "--audit cannot be combined with a label, a seed, or a run selection"
@@ -198,6 +200,7 @@ fi
 if [[ "$all" == false && ${#cases[@]} -eq 0 && ${#tickets[@]} -eq 0 && ${#stages[@]} -eq 0 ]]; then
   die "select cases with --all, --cases, --ticket, or --stage"
 fi
+[[ -n "$runs_dir" ]] || die "--runs-dir is required (or set CONFORMANCE_RATCHET_RUNS_DIR)"
 
 selection_args=(--expectations "$expectations")
 if [[ "$all" == true ]]; then
@@ -352,11 +355,15 @@ peak_rss_mib=$(sed -n 's/^peak_rss_mib = //p' "$run_dir/driver.meta.toml")
 [[ "$wall_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "measurement has no wall_seconds"
 [[ "$peak_rss_mib" =~ ^[0-9]+$ ]] || die "measurement has no peak_rss_mib"
 
+status_args=()
+if [[ -n "$status" ]]; then
+  status_args=(--status "$status")
+fi
 append_status=0
 python3 "$helper" append \
   --results "$results" \
   --expectations "$expectations" \
-  --status "$status" \
+  "${status_args[@]}" \
   --log "$log" \
   --label "$label" \
   --workspace-revision "$workspace_revision" \

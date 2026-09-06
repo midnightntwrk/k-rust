@@ -1,7 +1,6 @@
 case = "config-var-cast"
 subsystem = "kompile"
-source_ticket = "A3-03"
-harvested_from = "k/k-distribution/tests/regression-new/mutable-bytes/default/test.k at 4a46d1231473b599c699160132fd6e76a5c46406, reduced by hand as draft/fable51-review/fixtures/stage12-followup/config-var-cast (stage-12 conformance ratchet finding: mutable-bytes/default kompile mismatch on the initKCell UNIQUE_ID)"
+harvested_from = "k/k-distribution/tests/regression-new/mutable-bytes/default/test.k at 4a46d1231473b599c699160132fd6e76a5c46406, reduced by hand after a conformance-ratchet finding: a mutable-bytes/default kompile mismatch on the initKCell UNIQUE_ID"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

@@ -1,8 +1,7 @@
 schema = 1
 case = "deep-70"
 subsystem = "kast-json"
-source_ticket = "B3-06"
-harvested_from = "draft/fable51-review/fixtures/b3-kast"
+harvested_from = "hand-written deeply-nested expression probe for the KAST JSON printer"
 k_version = "7.1.337"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 
