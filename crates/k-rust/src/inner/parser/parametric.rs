@@ -150,20 +150,26 @@ impl Grammar {
         }
 
         // Connect concrete instances such as `MInt{6}` to the placeholder
-        // `MInt{K}` used by parameters which lack parse-time sort information.
+        // `MInt{K}` used by parameters which lack parse-time sort information. The bridge is a
+        // parsing-module production only (RuleGrammarGenerator.java:627-637): the inferencers
+        // must not see `MInt{6} <= MInt{K}`, or a production parameter constrained by that slot
+        // could be inferred as `K` instead of the declared width its token or cast anchors.
         for instances in catalog.instantiations().values() {
             for concrete in instances {
                 let placeholder =
                     Sort::with_parameters(concrete.name.clone(), vec![Sort::new("K")]);
-                self.add(
+                self.add_production_with_lexical(
                     placeholder,
-                    vec![ProductionItem::NonTerminal {
+                    &[ProductionItem::NonTerminal {
                         sort: concrete.clone(),
                         name: None,
                     }],
                     None,
-                    false,
-                    false,
+                    ProductionOptions {
+                        parsing_only_subsort: true,
+                        ..ProductionOptions::default()
+                    },
+                    &BTreeMap::new(),
                 )?;
             }
         }
@@ -270,6 +276,7 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         user_list_nonempty: attributes.get_str("userList") == Some("+"),
         precedence: attributes.get_str("prec"),
         hook: attributes.get_str("hook"),
+        parsing_only_subsort: false,
     }
 }
 
