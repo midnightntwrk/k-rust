@@ -61,16 +61,17 @@ pub fn add_semantics_module(definition: &Definition) -> Definition {
 }
 
 /// Mark rules and contexts whose left side begins with a variable in a main-cell K sequence.
+///
+/// `KoreBackend` applies `new AddCoolLikeAtt(d.mainModule())` to every module's sentences, so the
+/// `maincell` attribute is looked up in the main module's productions for every rule, including
+/// the rules of an imported module that does not see the generated configuration itself.
 pub fn add_cool_like_attributes(definition: &Definition) -> Definition {
     let Ok(resolved) = ResolvedDefinition::resolve(definition) else {
         return definition.clone();
     };
+    let productions = resolved.production_catalog(resolved.main_module_id());
     let mut output = definition.clone();
     for module in &mut output.modules {
-        let Some(module_id) = resolved.module_id(&module.name) else {
-            continue;
-        };
-        let productions = resolved.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
             let body = match sentence {
                 Sentence::Rule { body, .. }
