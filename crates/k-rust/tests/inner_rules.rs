@@ -2785,6 +2785,29 @@ fn anywhere_rule_over_a_nullary_constructor_agrees_under_checked_inference() {
 }
 
 #[test]
+fn reference_anywhere_rule_over_a_token_is_instantiated_at_the_token_sort() {
+    // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --allow-anywhere-haskell -w none --output-definition ref-kompiled (regression-new/issue-2909-allow-anywhere-haskell/check, verbatim, exit 0; with -w2e -w all the same kompile exits 113 at the later `Removed anywhere rule for Haskell backend execution` check, after parsing)
+    // parsed.txt: rule #token("1","Int")=>#token("2","Int") requires #token("true","Bool") ensures #token("true","Bool") [anywhere, ...]
+    // `getFunction` (TypeInferencer.java:380-404) returns the token `1` itself: a `Constant` is a
+    // `ProductionReference`, so the rewrite of an anywhere rule is bounded by the token's sort.
+    let source = include_str!("fixtures/reference/inner/anywhere-token/test.k");
+    let loaded = load_with_prelude(source, "test.k", "TEST")
+        .expect("the reference parses the anywhere rule over a token");
+    assert_eq!(
+        rule_like_texts(&loaded, "test.k"),
+        ["#token(\"1\",\"Int\")=>#token(\"2\",\"Int\") requires #token(\"true\",\"Bool\")"]
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn anywhere_rule_over_a_token_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "reference_anywhere_rule_over_a_token_is_instantiated_at_the_token_sort",
+    );
+}
+
+#[test]
 fn reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare() {
     // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST (regression-new/mint-llvm-2, exit 0)
     // parsed.txt: rule `m64()_TEST_MInt`(.KList)=>#token("0p64","MInt{64}") requires #token("true","Bool") ensures #token("true","Bool")
