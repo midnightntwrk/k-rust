@@ -234,6 +234,189 @@ fn preserves_nullable_derivations() {
 }
 
 #[test]
+fn prediction_reuse_completes_early_and_late_nullable_callers() {
+    let sentences = vec![
+        production(
+            "Start",
+            vec![
+                nonterminal("Empty"),
+                ProductionItem::Terminal("early".into()),
+            ],
+            Some("early"),
+            Attributes::default(),
+        ),
+        production(
+            "Start",
+            vec![
+                nonterminal("Prefix"),
+                nonterminal("Empty"),
+                ProductionItem::Terminal("late".into()),
+            ],
+            Some("late"),
+            Attributes::default(),
+        ),
+        production("Empty", vec![], Some("empty"), Attributes::default()),
+        production(
+            "Prefix",
+            vec![nonterminal("Unit")],
+            Some("prefix"),
+            Attributes::default(),
+        ),
+        production("Unit", vec![], Some("unit"), Attributes::default()),
+    ];
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+    // Empty finishes before Prefix creates the second caller waiting for Empty.
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "late").unwrap(),
+        Term::apply(
+            "late",
+            vec![
+                Term::apply("prefix", vec![Term::apply("unit", vec![])]),
+                Term::apply("empty", vec![])
+            ]
+        ),
+    );
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "early").unwrap(),
+        Term::apply("early", vec![Term::apply("empty", vec![])]),
+    );
+}
+
+#[test]
+#[cfg(feature = "z3-inference")]
+fn prediction_reuse_propagates_later_nullable_alternatives() {
+    let sentences = vec![
+        production(
+            "Start",
+            vec![nonterminal("Empty"), ProductionItem::Terminal("ok".into())],
+            Some("start"),
+            Attributes::default(),
+        ),
+        production("Empty", vec![], Some("early"), Attributes::default()),
+        production(
+            "Empty",
+            vec![nonterminal("Unit")],
+            Some("late"),
+            Attributes::default(),
+        ),
+        production("Unit", vec![], Some("unit"), Attributes::default()),
+    ];
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+    let ParseError::Ambiguous {
+        parses,
+        alternatives,
+        ..
+    } = grammar.parse(&Sort::new("Start"), "ok").unwrap_err()
+    else {
+        panic!("both nullable derivations must survive");
+    };
+    assert_eq!(parses, 2);
+    assert_eq!(
+        alternatives
+            .into_iter()
+            .map(|alternative| alternative.term)
+            .collect::<Vec<_>>(),
+        vec![
+            Term::apply("early", vec![]).to_string(),
+            Term::apply("late", vec![Term::apply("unit", vec![])]).to_string()
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "z3-inference")]
+fn prediction_reuse_distinguishes_full_parameterized_sorts() {
+    let mut sentences = Vec::new();
+    for (parameter, suffix) in [("Int", "bad"), ("Bool", "ok")] {
+        let sort = Sort::with_parameters("Box", vec![Sort::new(parameter)]);
+        sentences.push(production(
+            "Start",
+            vec![
+                ProductionItem::NonTerminal {
+                    sort: sort.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal(suffix.into()),
+            ],
+            Some(suffix),
+            Attributes::default(),
+        ));
+        sentences.push(Sentence::Production {
+            label: Some(Label::new(parameter)),
+            parameters: vec![],
+            sort,
+            items: vec![ProductionItem::Terminal("x".into())],
+            attributes: Attributes::default(),
+        });
+    }
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+    for (parameter, suffix) in [("Bool", "ok"), ("Int", "bad")] {
+        assert_eq!(
+            grammar
+                .parse(&Sort::new("Start"), &format!("x {suffix}"))
+                .unwrap(),
+            Term::apply(suffix, vec![Term::apply(parameter, vec![])]),
+        );
+    }
+}
+
+#[test]
+fn prediction_reuse_preserves_layout_positions_provenance_and_rejection() {
+    use k_rust::kast::{ResolvedProductionId, TermSpan};
+    use k_rust::provenance::SourceId;
+
+    let sentences = vec![
+        production(
+            "Start",
+            vec![
+                nonterminal("Empty"),
+                ProductionItem::Terminal("x".into()),
+                nonterminal("Empty"),
+                ProductionItem::Terminal("x".into()),
+                nonterminal("Empty"),
+            ],
+            Some("start"),
+            Attributes::default(),
+        ),
+        production("Empty", vec![], Some("empty"), Attributes::default()),
+    ];
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+    let input = " \tx \n x // tail";
+    let source = SourceId(7);
+    let offset = 100;
+    let parsed = grammar
+        .parse_with_provenance(&Sort::new("Start"), input, source, offset)
+        .unwrap();
+    let Term::Apply { arguments, .. } = parsed.unannotated() else {
+        panic!("expected the start constructor");
+    };
+    assert_eq!(arguments.len(), 3);
+    for (child, position) in arguments.iter().zip([
+        input.find('x').unwrap(),
+        input.rfind('x').unwrap(),
+        input.len(),
+    ]) {
+        let metadata = child.metadata().expect("nullable child retains metadata");
+        assert_eq!(
+            metadata.span,
+            Some(TermSpan {
+                source,
+                start: offset + position,
+                end: offset + position
+            })
+        );
+        assert_eq!(metadata.production, Some(ResolvedProductionId(1)));
+    }
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "x y"),
+        Err(ParseError::NoParse {
+            position: 2,
+            expected: vec!["\"x\"".into(), "Empty".into()]
+        }),
+    );
+}
+
+#[test]
 fn reports_real_tree_ambiguity() {
     let sentences = vec![
         production(

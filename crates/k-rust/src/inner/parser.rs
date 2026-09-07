@@ -459,6 +459,7 @@ thread_local! {
     static PACKED_APPLICATION_RESOLUTIONS: Cell<usize> = const { Cell::new(0) };
     static PACKED_PRIORITY_COMPUTATIONS: Cell<usize> = const { Cell::new(0) };
     static CHART_COMPLETION_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+    static CHART_PREDICTION_ATTEMPTS: Cell<usize> = const { Cell::new(0) };
 }
 
 impl PartialEq for PackedTerm {
@@ -1174,6 +1175,7 @@ impl Grammar {
                 [Vec::new()],
             )?;
         }
+        charts[start_position].predicted.insert(start.clone());
         let mut first_violation = None;
 
         for position in start_position..=input.len() {
@@ -1190,16 +1192,20 @@ impl Grammar {
 
                 match production.items.get(state.dot) {
                     Some(Item::NonTerminal(sort)) => {
-                        for predicted in self.productions_for(sort) {
-                            self.add_chart_state(
-                                &mut charts[position],
-                                State {
-                                    production: predicted,
-                                    dot: 0,
-                                    origin: position,
-                                },
-                                [Vec::new()],
-                            )?;
+                        if charts[position].predicted.insert(sort.clone()) {
+                            for predicted in self.productions_for(sort) {
+                                #[cfg(test)]
+                                CHART_PREDICTION_ATTEMPTS.set(CHART_PREDICTION_ATTEMPTS.get() + 1);
+                                self.add_chart_state(
+                                    &mut charts[position],
+                                    State {
+                                        production: predicted,
+                                        dot: 0,
+                                        origin: position,
+                                    },
+                                    [Vec::new()],
+                                )?;
+                            }
                         }
 
                         // Aycock/Horspool nullable fix: a completed nullable
@@ -2071,6 +2077,9 @@ type CompletedNodeResult = (BTreeSet<Rc<PackedTerm>>, Option<ParseError>);
 #[derive(Clone, Debug)]
 struct Chart {
     states: BTreeMap<State, Derivations>,
+    // Initial production states have a fixed empty derivation, so inserting their bucket once
+    // suffices for this chart position. Caller-specific nullable completion must still run.
+    predicted: BTreeSet<Sort>,
     waiting: BTreeMap<Sort, Vec<State>>,
     completed: BTreeMap<Sort, Vec<State>>,
     agenda: VecDeque<State>,
@@ -2083,6 +2092,7 @@ impl Default for Chart {
     fn default() -> Self {
         Self {
             states: BTreeMap::new(),
+            predicted: BTreeSet::new(),
             waiting: BTreeMap::new(),
             completed: BTreeMap::new(),
             agenda: VecDeque::new(),
@@ -2595,6 +2605,49 @@ fn kstring_token(term: &Term) -> Option<&str> {
 #[cfg(test)]
 mod chart_tests {
     use super::*;
+
+    #[test]
+    fn predicts_a_shared_sort_bucket_once_per_parse() {
+        let mut grammar = Grammar::default();
+        for index in 0..32 {
+            grammar
+                .add(
+                    Sort::new("Start"),
+                    vec![
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Empty"),
+                            name: None,
+                        },
+                        ProductionItem::Terminal(format!("end{index}")),
+                    ],
+                    Some(Label::new(format!("start{index}"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+            .add(
+                Sort::new("Empty"),
+                vec![],
+                Some(Label::new("empty")),
+                false,
+                false,
+            )
+            .unwrap();
+
+        for index in [0, 31] {
+            CHART_PREDICTION_ATTEMPTS.set(0);
+            assert_eq!(
+                grammar
+                    .parse(&Sort::new("Start"), &format!("end{index}"))
+                    .unwrap(),
+                Term::apply(format!("start{index}"), vec![Term::apply("empty", vec![])]),
+            );
+            // All 32 callers request Empty at byte zero; only one insertion is needed.
+            assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 1);
+        }
+    }
 
     fn variable(name: &str) -> ParsedTerm {
         ParsedTerm::Term(Term::Variable {
