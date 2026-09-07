@@ -16,6 +16,9 @@ use crate::{
 use super::{MarkdownError, extract_fenced_k_code_with_map};
 use super::{ParseError, SourceFile, Span, lower::lower_files, parse};
 
+mod selection;
+pub use selection::{SyntaxModule, resolve_syntax_module};
+
 /// Source text returned by a host resolver.
 ///
 /// `source` is both the diagnostic name and the canonical identity used for
@@ -119,6 +122,11 @@ pub enum LoadError {
         module: String,
         attribute: String,
     },
+    ExcludedSyntaxModule {
+        module: String,
+        attribute: String,
+    },
+    MissingSyntaxModule(String),
     MissingConfigurationModule(String),
     SourceDiagnostics(Vec<Diagnostic>),
     DefinitionResolution(ResolveError),
@@ -168,6 +176,14 @@ impl fmt::Display for LoadError {
                     "definition has no configuration module `{module}`"
                 )
             }
+            Self::ExcludedSyntaxModule { module, attribute } => write!(
+                formatter,
+                "syntax module {module} has excluded attribute [{attribute}]"
+            ),
+            Self::MissingSyntaxModule(module) => write!(
+                formatter,
+                "Could not find main syntax module with name {module} in definition."
+            ),
             Self::SourceDiagnostics(diagnostics) => {
                 write!(
                     formatter,
@@ -215,7 +231,36 @@ pub fn load_with_options(
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
-    load_impl(entry, main_module, resolver, options, None, &[])
+    load_impl(entry, main_module, resolver, options, None, &[], None).map(|(loaded, _)| loaded)
+}
+
+/// Load a fresh compilation using the semantic/syntax import closures, frontend utility
+/// roots, and entry modules without visible bubbles.
+///
+/// Selection follows full outer validation and precedes backend exclusion and inner parsing.
+/// Generic, structured, and prepared-definition loading retain their separate policies.
+/// The returned syntax name was resolved before backend exclusion; its fallback warning is
+/// included in the loaded diagnostics under the supplied diagnostic policy.
+pub fn load_for_compilation(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    syntax_module: Option<&str>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+) -> Result<(LoadedDefinition, String), LoadError> {
+    let (loaded, syntax) = load_impl(
+        entry,
+        main_module,
+        resolver,
+        options,
+        None,
+        &[],
+        Some(selection::CompilationSelection { syntax_module }),
+    )?;
+    Ok((
+        loaded,
+        syntax.expect("compilation loading selects a syntax module"),
+    ))
 }
 
 /// Load a new source graph against an already parsed definition.
@@ -238,7 +283,9 @@ pub fn load_with_base(
         options,
         Some(base),
         provided_sources,
+        None,
     )
+    .map(|(loaded, _)| loaded)
 }
 
 fn load_impl(
@@ -248,7 +295,8 @@ fn load_impl(
     options: &LoadOptions,
     base: Option<&Definition>,
     provided_sources: &[String],
-) -> Result<LoadedDefinition, LoadError> {
+    compilation: Option<selection::CompilationSelection<'_>>,
+) -> Result<(LoadedDefinition, Option<String>), LoadError> {
     let main_module = main_module.into();
     let mut loader = Loader {
         resolver,
@@ -291,6 +339,7 @@ fn load_impl(
         loader.diagnostics,
         options,
         false,
+        compilation,
     )
 }
 
@@ -334,7 +383,9 @@ pub fn load_structured(
         loader.diagnostics,
         options,
         true,
+        None,
     )
+    .map(|(loaded, _)| loaded)
 }
 
 fn finish_load(
@@ -344,7 +395,8 @@ fn finish_load(
     diagnostics: Vec<Diagnostic>,
     options: &LoadOptions,
     remove_unused_default_configuration: bool,
-) -> Result<LoadedDefinition, LoadError> {
+    compilation: Option<selection::CompilationSelection<'_>>,
+) -> Result<(LoadedDefinition, Option<String>), LoadError> {
     let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
     let resolved =
         ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
@@ -360,6 +412,17 @@ fn finish_load(
         ));
     }
 
+    let (definition, syntax_module) = if let Some(compilation) = compilation {
+        let syntax = resolve_syntax_module(&resolved, compilation.syntax_module)?;
+        if let Some(warning) = syntax.fallback_warning {
+            diagnostics.push(warning);
+        }
+        let definition = selection::select_modules(definition, &resolved, &syntax.name, options)?;
+        (definition, Some(syntax.name))
+    } else {
+        (definition, None)
+    };
+    drop(resolved);
     let mut definition =
         exclude_modules_by_attributes(definition, &options.excluded_module_attributes)?;
     if remove_unused_default_configuration {
@@ -403,13 +466,16 @@ fn finish_load(
     {
         return Err(LoadError::SourceDiagnostics(diagnostics));
     }
-    Ok(LoadedDefinition {
-        files,
-        source_table,
-        definition,
-        resolved,
-        diagnostics,
-    })
+    Ok((
+        LoadedDefinition {
+            files,
+            source_table,
+            definition,
+            resolved,
+            diagnostics,
+        },
+        syntax_module,
+    ))
 }
 
 fn remove_temporary_cell_sort_declarations(definition: &mut Definition) {

@@ -17,7 +17,7 @@ use k_rust::{
         strip_exists,
     },
     definition::{CheckMode, Sentence, checks::check_definition, json as definition_json},
-    diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel},
+    diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, definition_with_named_projections, parse_program_for_presentation},
     kast::{
         Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
@@ -40,7 +40,10 @@ use k_rust::{
         printer::Printer as KorePrinter,
     },
     native::FileResolver,
-    outer::{LoadOptions, SourceResolver, load_with_base, load_with_options},
+    outer::{
+        LoadOptions, SourceResolver, SyntaxModule, load_for_compilation, load_with_base,
+        load_with_options, resolve_syntax_module,
+    },
 };
 use k_rust_backend::{
     builtin::BuiltinEffect,
@@ -1239,6 +1242,15 @@ fn load_definition(
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
+    load_definition_impl(options, backend, configuration_module, None).map(|(loaded, _)| loaded)
+}
+
+fn load_definition_impl(
+    options: &CommonOptions,
+    backend: Option<CompilationBackend>,
+    configuration_module: Option<&str>,
+    compilation_syntax: Option<Option<&str>>,
+) -> Result<(k_rust::outer::LoadedDefinition, Option<String>), Box<dyn Error>> {
     let builtin_directory = options.configured_builtin_directory();
     let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
     if let Some(directory) = builtin_directory {
@@ -1254,67 +1266,24 @@ fn load_definition(
                 .map_err(|message| io::Error::new(io::ErrorKind::NotFound, message))?,
         ]
     };
-    let loaded = load_with_options(
-        entry,
-        &options.module,
-        &mut resolver,
-        &LoadOptions {
-            markdown_selector: options.markdown_selector.clone(),
-            implicit_sources,
-            excluded_module_attributes: backend
-                .map(|backend| vec![backend.excluded_module_attribute().into()])
-                .unwrap_or_default(),
-            configuration_module: configuration_module.map(str::to_owned),
-            project_root: None,
-            diagnostics: options.diagnostics,
-        },
-    )?;
-    Ok(loaded)
-}
-
-struct SyntaxModule {
-    name: String,
-    fallback_warning: Option<Diagnostic>,
-}
-
-/// Resolve `KompileOptions.syntaxModule` using `ParserUtils`' missing-default fallback.
-fn resolve_syntax_module(
-    definition: &k_rust::definition::ResolvedDefinition,
-    explicit: Option<&str>,
-) -> Result<SyntaxModule, Box<dyn Error>> {
-    let main = definition.main_module();
-    if let Some(name) = explicit {
-        if definition.module_id(name).is_none() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Could not find main syntax module with name {name} in definition."),
-            )
-            .into());
-        }
-        return Ok(SyntaxModule {
-            name: name.to_owned(),
-            fallback_warning: None,
-        });
+    let load_options = LoadOptions {
+        markdown_selector: options.markdown_selector.clone(),
+        implicit_sources,
+        excluded_module_attributes: backend
+            .map(|backend| vec![backend.excluded_module_attribute().into()])
+            .unwrap_or_default(),
+        configuration_module: configuration_module.map(str::to_owned),
+        project_root: None,
+        diagnostics: options.diagnostics,
+    };
+    if let Some(syntax) = compilation_syntax {
+        let (loaded, syntax) =
+            load_for_compilation(entry, &options.module, syntax, &mut resolver, &load_options)?;
+        Ok((loaded, Some(syntax)))
+    } else {
+        let loaded = load_with_options(entry, &options.module, &mut resolver, &load_options)?;
+        Ok((loaded, None))
     }
-
-    let default = format!("{}-SYNTAX", main.name);
-    if definition.module_id(&default).is_some() {
-        return Ok(SyntaxModule {
-            name: default,
-            fallback_warning: None,
-        });
-    }
-    Ok(SyntaxModule {
-        name: main.name.clone(),
-        fallback_warning: Some(Diagnostic::warning_at(
-            DiagnosticCode::MissingSyntaxModule,
-            format!(
-                "Could not find main syntax module with name {default} in definition.  Use --syntax-module to specify one. Using {} as default.",
-                main.name
-            ),
-            &main.attributes,
-        )),
-    })
 }
 
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
@@ -1327,17 +1296,30 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             .as_deref()
             .unwrap_or(&options.common.module)
     });
-    let mut loaded = if let Some(prepared) = &options.compiled_definition {
-        load_definition_against_prepared(
+    let (mut loaded, syntax_module) = if let Some(prepared) = &options.compiled_definition {
+        let loaded = load_definition_against_prepared(
             &options.common,
             configuration_module.expect("--compiled-definition requires --for-proving"),
             prepared,
-        )?
+        )?;
+        let syntax = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
+        (loaded, syntax)
     } else {
-        load_definition(&options.common, Some(options.backend), configuration_module)?
+        let (loaded, syntax) = load_definition_impl(
+            &options.common,
+            Some(options.backend),
+            configuration_module,
+            Some(options.syntax_module.as_deref()),
+        )?;
+        (
+            loaded,
+            SyntaxModule {
+                name: syntax.expect("fresh compilation selects syntax"),
+                fallback_warning: None,
+            },
+        )
     };
     let builtin_source_prefixes = options.common.builtin_source_prefixes();
-    let syntax_module = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
     if let Some(warning) = syntax_module.fallback_warning {
         loaded
             .diagnostics
@@ -1368,7 +1350,18 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     emit_diagnostics(&artifacts.diagnostics);
     fs::create_dir_all(&options.output_directory)?;
     if options.emit_json || options.for_proving {
-        let definition = parsed_definition_for_json(&loaded, &syntax_module.name)?;
+        let definition = if options.compiled_definition.is_some() {
+            parsed_definition_for_json(&loaded, &syntax_module.name)?
+        } else {
+            // Fresh compilation already selected its modules before parsing. Keep that exact
+            // graph, including any distinct configuration root, in the parsed artifact.
+            let mut definition = loaded.definition.clone();
+            definition.attributes.insert(
+                "syntaxModule",
+                serde_json::Value::String(syntax_module.name.clone()),
+            );
+            definition
+        };
         fs::write(
             options.output_directory.join("parsed.json"),
             definition_json::to_string_pretty(&definition)?,

@@ -11,8 +11,9 @@ mod virtual_path;
 pub use ast::*;
 pub use checks::{check_brackets, check_list_declarations};
 pub use loader::{
-    LoadError, LoadOptions, LoadedDefinition, ResolvedSource, SourceResolver, load,
-    load_structured, load_with_base, load_with_options,
+    LoadError, LoadOptions, LoadedDefinition, ResolvedSource, SourceResolver, SyntaxModule, load,
+    load_for_compilation, load_structured, load_with_base, load_with_options,
+    resolve_syntax_module,
 };
 pub use lower::lower;
 pub use markdown::{
