@@ -4172,6 +4172,39 @@ fn kcompile_rejects_missing_user_syntax_module_and_warns_on_missing_default() {
         String::from_utf8_lossy(&default.stderr)
     );
 
+    let warning = "Could not find main syntax module with name MAIN-SYNTAX";
+    let default_stderr = String::from_utf8_lossy(&default.stderr);
+    assert_eq!(
+        default_stderr.matches(warning).count(),
+        1,
+        "{default_stderr}"
+    );
+    assert!(
+        default_stderr.contains("Error[MissingSyntaxModule]"),
+        "{default_stderr}"
+    );
+
+    let normal = run("normal", &[]);
+    let normal_stderr = String::from_utf8_lossy(&normal.stderr);
+    assert!(normal.status.success(), "{normal_stderr}");
+    assert_eq!(normal_stderr.matches(warning).count(), 1, "{normal_stderr}");
+    assert!(
+        normal_stderr.contains("Warning[MissingSyntaxModule]"),
+        "{normal_stderr}"
+    );
+
+    let suppressed = run(
+        "suppressed",
+        &["--warnings", "none", "--warnings-to-errors"],
+    );
+    let suppressed_stderr = String::from_utf8_lossy(&suppressed.stderr);
+    assert!(suppressed.status.success(), "{suppressed_stderr}");
+    assert!(
+        !suppressed_stderr.contains("MissingSyntaxModule"),
+        "{suppressed_stderr}"
+    );
+    assert!(!suppressed_stderr.contains(warning), "{suppressed_stderr}");
+
     fs::remove_dir_all(root).unwrap();
 }
 

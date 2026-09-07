@@ -1278,7 +1278,12 @@ fn load_definition_impl(
     };
     if let Some(syntax) = compilation_syntax {
         let (loaded, syntax) =
-            load_for_compilation(entry, &options.module, syntax, &mut resolver, &load_options)?;
+            load_for_compilation(entry, &options.module, syntax, &mut resolver, &load_options)
+                .inspect_err(|error| {
+                    if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {
+                        emit_diagnostics(diagnostics);
+                    }
+                })?;
         Ok((loaded, Some(syntax)))
     } else {
         let loaded = load_with_options(entry, &options.module, &mut resolver, &load_options)?;
