@@ -1638,25 +1638,25 @@ reason = "Both toolchains report the unbound right-hand-side variable."
 
 [[case]]
 name = "kprove-macro-exp"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "kprove"
+accepted_basis = "Complete pinned compilation and proof comparison pass after rebasing imported macro production identities and metadata affected by strictness BOOL imports; protected by imported_macro_expansion_preserves_template_and_caller_production_identity and strictness_bool_import_rebases_existing_production_metadata."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
 exclusion = ""
 reason = "emit KORE: `cannot use production #32 for equation emission: its label does not match \"_andBool_\"` (same class as bison-glr-bug)"
-unexplained = true
 
 [[case]]
 name = "kprove-macro-exp-productions"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "kprove"
+accepted_basis = "Complete pinned compilation and proof comparison pass after rebasing imported macro production identities and metadata affected by strictness BOOL imports; protected by imported_macro_expansion_preserves_template_and_caller_production_identity and strictness_bool_import_rebases_existing_production_metadata."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
 exclusion = ""
 reason = "same as kprove-macro-exp"
-unexplained = true
 
 [[case]]
 name = "kprove-markdown"

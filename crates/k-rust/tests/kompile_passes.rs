@@ -2535,6 +2535,77 @@ fn expands_nested_macros_child_first_in_priority_order() {
 }
 
 #[test]
+fn imported_macro_expansion_preserves_template_and_caller_production_identity() {
+    // The same label has two productions. An imported macro must keep its own
+    // production, while a substituted argument keeps the caller's production.
+    let source = indoc! {r#"
+        module A-EXTRA
+          syntax Other ::= "other" [symbol(other)]
+                         | "otherBox(" Other ")" [symbol(box)]
+        endmodule
+        module DATA
+          syntax Exp ::= "a" [symbol(a)]
+                       | "box(" Exp ")" [symbol(box)]
+                       | "m(" Exp ")" [macro, symbol(m)]
+          rule m(X:Exp) => box(X:Exp)
+          rule box(m(a)) => a [label(local)]
+        endmodule
+        module MAIN
+          imports A-EXTRA
+          imports DATA
+          syntax Exp ::= "caller" [symbol(caller)]
+          rule box(m(caller)) => a [label(imported)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let transformed = expand_macros(&definition).unwrap();
+    let resolved = ResolvedDefinition::resolve(&transformed).unwrap();
+    for (module_name, rule_label, argument_label) in
+        [("DATA", "local", "a"), ("MAIN", "imported", "caller")]
+    {
+        let module_id = resolved.module_id(module_name).unwrap();
+        let catalog = resolved.production_catalog(module_id);
+        let body = resolved
+            .module(module_id)
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule {
+                    body, attributes, ..
+                } if attributes.get_str("label") == Some(rule_label) => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        let Term::Rewrite { left, .. } = body.unannotated() else {
+            panic!("expected rewrite")
+        };
+        let Term::Apply { arguments, .. } = left.unannotated() else {
+            panic!("expected outer box")
+        };
+        let expanded = &arguments[0];
+        let Term::Apply { label, arguments } = expanded.unannotated() else {
+            panic!("expected expanded box")
+        };
+        assert_eq!(label.name, "box");
+        let production = expanded.metadata().unwrap().production.unwrap();
+        assert!(
+            matches!(catalog.production(ProductionId(production.0)),
+            Sentence::Production { label: Some(label), sort, .. }
+                if label.name == "box" && sort == &Sort::new("Exp")),
+            "{module_name}: expanded macro must retain the Exp overload"
+        );
+        let argument = &arguments[0];
+        let production = argument.metadata().unwrap().production.unwrap();
+        assert!(
+            matches!(catalog.production(ProductionId(production.0)),
+            Sentence::Production { label: Some(label), .. } if label.name == argument_label),
+            "{module_name}: substitution must retain its caller's production"
+        );
+    }
+}
+
+#[test]
 fn macro_expansion_combines_call_site_and_macro_rule_sources() {
     let source = indoc! {r#"
         module MAIN
@@ -4283,6 +4354,52 @@ fn marks_cool_like_rules_of_imported_modules_through_the_main_module() {
         "exactly the variable-headed rule: {rules:#?}"
     );
     assert!(cool_like[0].contains("``I=>foo(I)``~>"), "{rules:#?}");
+}
+
+#[test]
+fn strictness_bool_import_rebases_existing_production_metadata() {
+    for import in ["", "imports BOOL"] {
+        let source = indoc! {r#"
+            module BOOL
+              syntax Bool ::= "true" [symbol(true)]
+            endmodule
+            module MAIN
+              IMPORT
+              syntax Exp ::= "a" [symbol(a)]
+                           | "f(" Exp ")" [strict, function, symbol(f)]
+              rule f(a) => a
+            endmodule
+        "#}
+        .replace("IMPORT", import);
+        let original = parsed(&source);
+        let original_resolved = ResolvedDefinition::resolve(&original).unwrap();
+        let original_catalog =
+            original_resolved.production_catalog(original_resolved.main_module_id());
+        let transformed = resolve_strict(&original).unwrap();
+        let resolved = ResolvedDefinition::resolve(&transformed).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        let left = transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule { body, .. } => match body.unannotated() {
+                    Term::Rewrite { left, .. } => Some(left),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap();
+        let id = left.metadata().unwrap().production.unwrap();
+        let expected = original_catalog.productions_for(&LabelHead::new("f"))[0];
+        assert_eq!(
+            catalog.production(ProductionId(id.0)),
+            original_catalog.production(expected),
+            "strictness must retain the original production when BOOL is newly or already imported"
+        );
+        module_to_kore(&transformed, "MAIN").expect("rebased equation must emit");
+    }
 }
 
 #[test]

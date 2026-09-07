@@ -111,7 +111,11 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
     }
 
     if diagnostics.is_empty() {
-        Ok(output)
+        // The private BOOL import changes this module's visible production catalog,
+        // even though strictness itself does not add any productions.
+        super::rebase_local_metadata(definition, output).map_err(|message| ResolveStrictError {
+            diagnostics: vec![plain_error(message)],
+        })
     } else {
         diagnostics.sort();
         diagnostics.dedup();
