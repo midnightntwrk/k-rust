@@ -1,9 +1,14 @@
+// Standard-prelude fixtures require native Z3 inference; their semantic assertions are
+// feature-gated below. inner_rules::portable_build_rejects_the_standard_prelude covers
+// the portable boundary instead of duplicating that rejection for each fixture.
+
 use indoc::indoc;
 use k_rust::definition::{Sentence, StructuralCheckOptions, check_rhs_variables};
 use k_rust::inner::{ParseError, RuleError, resolve_rule_bubbles};
 use k_rust::kast::{Sort, Term, TermSpan};
 use k_rust::outer::{LoadOptions, ResolvedSource, load, load_with_options};
 use k_rust::provenance::SourceTable;
+#[cfg(feature = "z3-inference")]
 use serde::Deserialize;
 
 #[derive(Debug)]
@@ -26,16 +31,19 @@ struct MetadataSummary<'a> {
     production: Option<usize>,
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct CellAssociationOracle {
     rule: Vec<CellAssociationRule>,
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct CellAssociationRule {
     shape: String,
 }
 
+#[cfg(feature = "z3-inference")]
 fn cell_association_shape(term: &Term) -> Option<String> {
     let Term::Apply { label, arguments } = term.unannotated() else {
         return None;
@@ -53,6 +61,7 @@ fn cell_association_shape(term: &Term) -> Option<String> {
     ))
 }
 
+#[cfg(feature = "z3-inference")]
 fn cell_leaves<'a>(term: &'a Term, leaves: &mut Vec<&'a str>) {
     let Term::Apply { label, arguments } = term.unannotated() else {
         return;
@@ -439,40 +448,49 @@ fn rejects_non_function_rewrite_siblings_that_remain_ambiguous() {
     "#};
     let error = resolve_rule_bubbles(&lowered(source))
         .expect_err("rewrite siblings must not silently select mapWriteRange");
-    let rendered = error.to_string();
-    assert!(rendered.starts_with("rules.k:8:8:"), "{rendered}");
-    assert!(rendered.contains("\n1: syntax "), "{rendered}");
-    assert!(rendered.contains("\n2: syntax "), "{rendered}");
-    assert!(!rendered.contains("<generated production>"), "{rendered}");
-    let RuleError::Parse(error) = error else {
-        panic!("expected a parse error, got {error:?}")
-    };
-    let ParseError::Ambiguous {
-        parses,
-        alternatives,
-        span,
-    } = error.error
-    else {
-        panic!("expected an ambiguity, got {:?}", error.error)
-    };
+    #[cfg(not(feature = "z3-inference"))]
+    assert!(
+        matches!(&error, RuleError::Parse(error)
+            if matches!(error.error, ParseError::Z3InferenceRequired { ambiguity: true, .. })),
+        "{error:?}"
+    );
+    #[cfg(feature = "z3-inference")]
+    {
+        let rendered = error.to_string();
+        assert!(rendered.starts_with("rules.k:8:8:"), "{rendered}");
+        assert!(rendered.contains("\n1: syntax "), "{rendered}");
+        assert!(rendered.contains("\n2: syntax "), "{rendered}");
+        assert!(!rendered.contains("<generated production>"), "{rendered}");
+        let RuleError::Parse(error) = error else {
+            panic!("expected a parse error, got {error:?}")
+        };
+        let ParseError::Ambiguous {
+            parses,
+            alternatives,
+            span,
+        } = error.error
+        else {
+            panic!("expected an ambiguity, got {:?}", error.error)
+        };
 
-    assert_eq!(parses, 2);
-    assert!(span.is_some());
-    assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
-    assert!(alternatives[0].term.contains("mapWriteRange"));
-    assert!(alternatives[1].term.contains("setWordStack"));
-    assert!(
-        alternatives
-            .iter()
-            .any(|alternative| alternative.term.contains("mapWriteRange")),
-        "{alternatives:#?}"
-    );
-    assert!(
-        alternatives
-            .iter()
-            .any(|alternative| alternative.term.contains("setWordStack")),
-        "{alternatives:#?}"
-    );
+        assert_eq!(parses, 2);
+        assert!(span.is_some());
+        assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
+        assert!(alternatives[0].term.contains("mapWriteRange"));
+        assert!(alternatives[1].term.contains("setWordStack"));
+        assert!(
+            alternatives
+                .iter()
+                .any(|alternative| alternative.term.contains("mapWriteRange")),
+            "{alternatives:#?}"
+        );
+        assert!(
+            alternatives
+                .iter()
+                .any(|alternative| alternative.term.contains("setWordStack")),
+            "{alternatives:#?}"
+        );
+    }
 }
 
 #[test]
@@ -490,6 +508,13 @@ endmodule
         );
         let error = resolve_rule_bubbles(&lowered(&source))
             .expect_err("unrelated result sorts must remain ambiguous");
+        #[cfg(not(feature = "z3-inference"))]
+        assert!(
+            matches!(&error, RuleError::Parse(error)
+                if matches!(error.error, ParseError::Z3InferenceRequired { ambiguity: true, .. })),
+            "{left}: {error:?}"
+        );
+        #[cfg(feature = "z3-inference")]
         assert!(
             matches!(
                 error,
@@ -786,6 +811,7 @@ fn loader_parses_rules_against_generated_rule_cells() {
     });
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_three_sibling_rule_cells_associate_left() {
     // reference: k/result/bin/kompile test.k --backend kore --main-module TEST --emit-json
@@ -2234,7 +2260,7 @@ rule_snapshot!(
 
 #[cfg(not(feature = "z3-inference"))]
 #[test]
-fn portable_inference_prunes_ill_typed_overloaded_generic_applications() {
+fn portable_build_reports_overloaded_generic_application_inference_boundary() {
     let source = indoc! {r#"
         module MAIN
           syntax A ::= "a" [symbol(a)]
@@ -2244,18 +2270,8 @@ fn portable_inference_prunes_ill_typed_overloaded_generic_applications() {
           rule pick(a) => a
         endmodule
     "#};
-    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
-    let body = resolved
-        .main_module()
-        .unwrap()
-        .local_sentences
-        .iter()
-        .find_map(|sentence| match sentence {
-            Sentence::Rule { body, .. } => Some(body),
-            _ => None,
-        })
-        .expect("the portable parser should retain the well-typed rule");
-    assert_eq!(body.to_string(), "pick(a(.KList))=>a(.KList)");
+    // Pruning this ambiguity needs native inference even though only one typing survives.
+    assert_ambiguity_requires_z3(source);
 }
 
 #[test]
@@ -2410,6 +2426,18 @@ fn resolves_an_element_of_an_overloaded_user_list() {
     assert_ambiguity_requires_z3(source);
 }
 
+#[cfg(not(feature = "z3-inference"))]
+#[test]
+fn portable_build_rejects_the_standard_prelude() {
+    let error = load_with_prelude("module MAIN endmodule", "test.k", "MAIN")
+        .expect_err("the standard prelude requires native Z3 inference");
+    assert!(
+        matches!(&error, k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error))
+            if matches!(error.error, ParseError::Z3InferenceRequired { ambiguity: true, .. })),
+        "{error:?}"
+    );
+}
+
 fn load_with_prelude(
     source: &'static str,
     name: &str,
@@ -2430,6 +2458,7 @@ fn load_with_prelude(
     )
 }
 
+#[cfg(feature = "z3-inference")]
 fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
     loaded
         .definition
@@ -2444,6 +2473,7 @@ fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
         .collect()
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn mint_literal_width_comes_from_the_token_text() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module CHECKMINTLITERAL --syntax-module CHECKMINTLITERAL --output-definition ref-kompiled (exit 113)
@@ -2461,6 +2491,7 @@ fn mint_literal_width_comes_from_the_token_text() {
     assert!(message.contains("Expected: MInt{6}"), "{message}");
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn matching_mint_literal_width_is_accepted() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module CHECKMINTLITERAL --syntax-module CHECKMINTLITERAL --output-definition ref-kompiled (exit 0)
@@ -2476,6 +2507,7 @@ fn matching_mint_literal_width_is_accepted() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn declared_mint_instances_get_the_kitem_subsort_and_casts() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled (exit 0)
@@ -2500,6 +2532,7 @@ fn declared_mint_instances_get_the_kitem_subsort_and_casts() {
 
 /// Bodies and conditions of the rule-like sentences the main module declares in `name`, in
 /// declaration order, as `body requires requires` text.
+#[cfg(feature = "z3-inference")]
 fn rule_like_texts(loaded: &k_rust::outer::LoadedDefinition, name: &str) -> Vec<String> {
     loaded
         .definition
@@ -2547,6 +2580,7 @@ fn assert_test_passes_under_checked_inference(test_name: &str) {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_withconfig_function_rule_casts_the_variable_at_the_function_sort() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
@@ -2576,6 +2610,7 @@ fn withconfig_function_rule_agrees_under_checked_inference() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_function_rule_without_configuration_casts_the_variable_at_the_function_sort() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
@@ -2600,6 +2635,7 @@ fn function_rule_without_configuration_agrees_under_checked_inference() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_bare_variable_alias_body_is_cast_to_k() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
@@ -2624,6 +2660,7 @@ fn bare_variable_alias_body_agrees_under_checked_inference() {
     assert_test_passes_under_checked_inference("reference_bare_variable_alias_body_is_cast_to_k");
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_alias_variable_under_a_production_is_cast_at_the_argument_sort() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
@@ -2646,6 +2683,7 @@ fn alias_variable_under_a_production_agrees_under_checked_inference() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_exists_binder_variable_is_inferred_at_k() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
@@ -2675,6 +2713,7 @@ fn exists_binder_variable_agrees_under_checked_inference() {
     assert_test_passes_under_checked_inference("reference_exists_binder_variable_is_inferred_at_k");
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_rule_applies_a_named_field_projection() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --output-definition ref-kompiled (exit 0)
@@ -2696,6 +2735,7 @@ fn reference_rule_applies_a_named_field_projection() {
 
 /// `load_with_prelude` with the module attributes `kcompile --backend llvm` excludes
 /// (`symbolic`), the module set the conformance driver compiles ktest cases with.
+#[cfg(feature = "z3-inference")]
 fn load_with_prelude_for_llvm(
     source: &'static str,
     name: &str,
@@ -2717,6 +2757,7 @@ fn load_with_prelude_for_llvm(
     )
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_top_rewrite_over_a_bare_variable_keeps_its_parameter_at_k() {
     // reference: k/result/bin/kompile checkStrictBOOLInclusion.k --backend llvm --syntax-module CHECKSTRICTBOOLINCLUSION-SYNTAX --type-inference-mode checked (regression-new/checks, ktest-fail recipe, exit 0: the reference accepts)
@@ -2751,6 +2792,7 @@ fn top_rewrite_over_a_bare_variable_agrees_under_checked_inference() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_anywhere_rule_over_a_nullary_constructor_is_instantiated_at_its_sort() {
     // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST --type-inference-mode checked --allow-anywhere-haskell -w none --output-definition ref-kompiled (regression-new/issue-2909-allow-anywhere-haskell/llvm, verbatim, exit 0)
@@ -2784,6 +2826,7 @@ fn anywhere_rule_over_a_nullary_constructor_agrees_under_checked_inference() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_anywhere_rule_over_a_token_is_instantiated_at_the_token_sort() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --type-inference-mode checked --allow-anywhere-haskell -w none --output-definition ref-kompiled (regression-new/issue-2909-allow-anywhere-haskell/check, verbatim, exit 0; with -w2e -w all the same kompile exits 113 at the later `Removed anywhere rule for Haskell backend execution` check, after parsing)
@@ -2807,6 +2850,7 @@ fn anywhere_rule_over_a_token_agrees_under_checked_inference() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare() {
     // reference: k/result/bin/kompile test.k --backend llvm --main-module TEST --syntax-module TEST (regression-new/mint-llvm-2, exit 0)
@@ -2842,6 +2886,7 @@ fn nullary_function_with_a_parametric_instance_result_sort_agrees_under_checked_
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled (exit 0)

@@ -2023,7 +2023,12 @@ mod tests {
             })
             .expect("budget exhaustion should be represented as a proof result");
 
-        assert_eq!(result.status, "disproved", "{result:#?}");
+        // Without SMT, an exhausted side condition remains indeterminate rather than
+        // producing the native solver's disproved verdict. Neither may establish the claim.
+        assert!(
+            matches!(result.status.as_str(), "disproved" | "indeterminate"),
+            "{result:#?}"
+        );
         assert!(
             result
                 .leaves
@@ -2031,6 +2036,13 @@ mod tests {
                 .all(|leaf| !leaf.outcome.contains("IterationLimit")),
             "{result:#?}"
         );
+        let completed = backend
+            .prove(ProveRequest {
+                max_simplification_iterations: 256,
+                ..ProveRequest::default()
+            })
+            .unwrap();
+        assert_eq!(completed.status, "proven", "{completed:#?}");
     }
 
     #[test]

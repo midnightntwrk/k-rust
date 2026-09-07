@@ -1,3 +1,7 @@
+// Standard-prelude fixtures require native Z3 inference; their semantic assertions are
+// feature-gated below. inner_rules::portable_build_rejects_the_standard_prelude covers
+// the portable boundary instead of duplicating that rejection for each fixture.
+
 use indoc::indoc;
 use k_rust::definition::{Definition, LabelHead, ResolvedDefinition};
 use k_rust::inner::{ParseError, ProgramError, ProgramParser, parse_program};
@@ -969,6 +973,7 @@ fn rejects_private_syntax_from_an_imported_module() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_named_field_projections_parse_in_programs() {
     // reference: k/result/bin/kompile test.k --backend haskell --main-module TEST --syntax-module TEST --output-definition ref-kompiled && k/result/bin/kast --definition ref-kompiled --output kast 3.test

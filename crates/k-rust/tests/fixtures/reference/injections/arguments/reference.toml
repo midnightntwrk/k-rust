@@ -1,0 +1,24 @@
+case = "arguments"
+subsystem = "injections"
+harvested_from = "minimal declared subsort argument and exact-sort control"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "subsort.kore"
+command = "GHCRTS=-N1 kompile test.k --main-module MAIN --syntax-module MAIN --backend haskell --output-definition ref && kast --definition ref --module MAIN --sort Box --output kore -e 'box(small)' > subsort.kore"
+tool = "kast"
+exit_code = 0
+sha256 = "803412f0de141edcc51ea97bce171023397e7ab97a69373ca76463aacccc6f86"
+
+[[artifact]]
+file = "exact-sort.kore"
+command = "kast --definition ref --module MAIN --sort Box --output kore -e 'box(large)' > exact-sort.kore"
+tool = "kast"
+exit_code = 0
+sha256 = "390c453bda898f607f71b5151f8473cf47c8fd1d3a495acecd9658afd52b2f2e"
+
+[[input]]
+file = "test.k"
+source = "hand-written subsort argument contract"
+sha256 = "352287f9153d8bb7096bfd92c8ba0b1c6f71989fd5f27888d7c9d5607287be9b"

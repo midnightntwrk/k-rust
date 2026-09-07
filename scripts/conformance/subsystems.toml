@@ -1,0 +1,68 @@
+version = 1
+# Canonical subsystem ownership shared by the test census and fixture validation.
+# fixture_homes name directories, not additional subsystems.
+
+[[subsystem]]
+name = "outer"
+source_pattern = "k-rust/src/outer/|tests/outer_|tests/lexer\\.rs|tests/string\\.rs"
+fixture_homes = ["outer"]
+
+[[subsystem]]
+name = "inner"
+source_pattern = "k-rust/src/inner/|tests/inner_"
+fixture_homes = ["inner"]
+
+[[subsystem]]
+name = "definition"
+source_pattern = "k-rust/src/definition/|tests/definition_|tests/partial_order|tests/provenance_manifest|src/provenance\\.rs|src/builtin\\.rs|tests/hook_capabilities|tests/structured_definition_conformance"
+fixture_homes = []
+
+[[subsystem]]
+name = "kompile-passes"
+source_pattern = "k-rust/src/kompile/passes/|k-rust/src/kompile/compile\\.rs|tests/kompile_passes"
+fixture_homes = ["kompile"]
+
+[[subsystem]]
+name = "injections"
+source_pattern = "tests/sort_injections|injection"
+fixture_homes = ["injections"]
+
+[[subsystem]]
+name = "module_to_kore"
+source_pattern = "module_to_kore|tests/term_to_kore"
+fixture_homes = []
+
+[[subsystem]]
+name = "kore-crate"
+source_pattern = "k-rust-kore/|tests/kore_"
+fixture_homes = ["kore-syntax"]
+
+[[subsystem]]
+name = "kast"
+source_pattern = "k-rust/src/kast/|tests/kast_"
+fixture_homes = []
+
+[[subsystem]]
+name = "backend-matching"
+source_pattern = "k-rust-backend/src/(matching|unification|substitution|term|definedness|alias|rule|definition)\\.rs"
+fixture_homes = ["matching"]
+
+[[subsystem]]
+name = "backend-simplify-builtins"
+source_pattern = "k-rust-backend/src/(simplify|builtin|smt|externalize|binary)|tests/simplification_budget"
+fixture_homes = ["simplify", "hooks"]
+
+[[subsystem]]
+name = "backend-rewrite-search"
+source_pattern = "k-rust-backend/src/(rewrite|search|session|timeout|cancellation)\\.rs"
+fixture_homes = ["execution", "search"]
+
+[[subsystem]]
+name = "backend-proof"
+source_pattern = "k-rust-backend/src/(proof|implication|claim)\\.rs"
+fixture_homes = ["implication", "proof"]
+
+[[subsystem]]
+name = "cli-rpc"
+source_pattern = "k-rust/src/main\\.rs|k-rust/src/rpc\\.rs|k-rust/src/backend\\.rs|k-rust/src/native\\.rs|tests/cli\\.rs|k-rust-wasm/|k-rust-napi/|tests/z3_acquisition|tests/differential_manifest|tests/reference_differential|tests/reference_fixtures|tests/conformance_ratchet|tests/wasm_ratchet"
+fixture_homes = ["rpc", "cli"]

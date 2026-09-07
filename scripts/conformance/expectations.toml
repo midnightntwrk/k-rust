@@ -10,6 +10,15 @@ artifacts = "00-baseline/conformance"
 case_count = 256
 results_sha256 = "e16bdcb635b94eb9fffe93de765afddfcf8febf8c996218d8551ea174d411489"
 
+[acceptance]
+timestamp_utc = "2026-09-06T07:01:44Z"
+workspace_revision = "35ab56541eeadd6651d75ccc60247c92b04ed358"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+driver_version = "4b08e0be0ed56a5e8c9ec5505bc3f0a97094152a"
+case_count = 256
+results_sha256 = "c8c992f9de8f35104dbb86787582c7a8bd6b3782c2d14cf87d32e15ce8294d8d"
+meaning = "Recorded acceptance floor from the last complete certification. Update individual accepted verdicts only after measuring and reviewing the change; local log resets and driver changes must not discard this progress."
+
 [[category]]
 id = "llvm-only"
 arbiter = 13
@@ -52,6 +61,8 @@ meaning = "The step needs a K CLI-shape capability arbiter row 15 declined (the 
 
 [[case]]
 name = "amb-rew"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -60,6 +71,8 @@ reason = ""
 
 [[case]]
 name = "append"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -68,6 +81,8 @@ reason = ""
 
 [[case]]
 name = "array-haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -76,6 +91,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "bad-bytes-literal"
+accepted_verdict = "match"
+accepted_stage = "inner-parse"
 baseline_verdict = "match"
 baseline_stage = "inner-parse"
 tickets = []
@@ -84,6 +101,8 @@ reason = ""
 
 [[case]]
 name = "bad-flags"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -92,6 +111,8 @@ reason = ""
 
 [[case]]
 name = "bison-glr-bug"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -101,6 +122,8 @@ unexplained = true
 
 [[case]]
 name = "bison-parser-library"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -109,6 +132,8 @@ reason = ""
 
 [[case]]
 name = "bit-range-llvm"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -117,6 +142,8 @@ reason = ""
 
 [[case]]
 name = "boundary-cells-opt/bc-none"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -125,6 +152,8 @@ reason = ""
 
 [[case]]
 name = "bracket-priority"
+accepted_verdict = "krust-error"
+accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -134,6 +163,8 @@ unexplained = true
 
 [[case]]
 name = "bytes-coverage"
+accepted_verdict = "mismatch"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["D1-14"]
@@ -142,6 +173,8 @@ reason = "--coverage is LLVM-only instrumentation and the translated command dro
 
 [[case]]
 name = "bytes-haskell"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -150,6 +183,8 @@ reason = ""
 
 [[case]]
 name = "bytes-literal"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -158,6 +193,8 @@ reason = ""
 
 [[case]]
 name = "bytes-llvm"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -166,6 +203,8 @@ reason = ""
 
 [[case]]
 name = "bytes-memset"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["C2-05"]
@@ -174,6 +213,8 @@ reason = "memsetBytes is LLVM-only; C2-05 owns the port's explicit unsupported-h
 
 [[case]]
 name = "cast"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -182,6 +223,8 @@ reason = ""
 
 [[case]]
 name = "cast-kitem"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -190,6 +233,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "cell-bag-sort-llvm"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "inner-parse"
 tickets = []
@@ -198,6 +243,8 @@ reason = ""
 
 [[case]]
 name = "cell-sort-haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -206,6 +253,8 @@ reason = ""
 
 [[case]]
 name = "cell_map"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -214,6 +263,8 @@ reason = ""
 
 [[case]]
 name = "checkClaimError"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "krust-error"
 baseline_stage = "kprove"
 tickets = ["I1-07"]
@@ -222,6 +273,8 @@ reason = "krust rejects rule-spec.k (Error[ProofModuleRule]) and syntax-spec.k (
 
 [[case]]
 name = "checkWarns"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-07", "D1-14"]
@@ -232,6 +285,8 @@ step_exclusions = [
 ]
 [[case]]
 name = "checks"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["A1-02", "A1-03", "I1-07", "A2-01", "A3-08"]
@@ -240,6 +295,8 @@ reason = "see the per-definition table in I1-07; invalidPrec.k is A2-01 territor
 
 [[case]]
 name = "concrete-function"
+accepted_verdict = "mismatch"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = []
@@ -248,6 +305,8 @@ reason = "The outputs are semantically equal but place the ceil obligation diffe
 
 [[case]]
 name = "concrete-function-cache"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -259,6 +318,8 @@ step_exclusions = [
 
 [[case]]
 name = "concrete-haskell"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["C2-01"]
@@ -267,6 +328,8 @@ reason = "ConflictingResults"
 
 [[case]]
 name = "configuration-composition"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -275,6 +338,8 @@ reason = ""
 
 [[case]]
 name = "configuration-formatting"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06"]
@@ -282,6 +347,8 @@ exclusion = ""
 reason = "match since the A3-03 configuration-variable cast fix (6ba0e88) and D1-02 Q3 (`$PGM` at Int and KItem: the concrete sort supersedes the generic one); the I1-06 `left` attribute is gone. Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "constant-folding"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -290,6 +357,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "context-alias"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["B2-03", "I1-06"]
@@ -297,6 +366,8 @@ exclusion = ""
 reason = "kompile matched only after I1-02's multi-alias freezer exclusion (decision D13-3) was made to recognise the reference's `_`/`_2` names and to collapse the swapped freezer symbols (2e30c6f); all 18 krun steps match. Re-measured 2026-09-06 at HEAD 2e30c6f: whole-case match."
 [[case]]
 name = "context-alias-2"
+accepted_verdict = "match"
+accepted_stage = "search"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -304,6 +375,8 @@ exclusion = ""
 reason = "match since D1-04 (`$PGM:KItem` programs parse at KItem); the five search steps match. Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "context-alias-3"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -312,6 +385,8 @@ reason = ""
 
 [[case]]
 name = "context-cell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -320,6 +395,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "context-labels"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -328,6 +405,8 @@ reason = ""
 
 [[case]]
 name = "coverage"
+accepted_verdict = "mismatch"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["D1-14"]
@@ -336,6 +415,8 @@ reason = "--coverage is LLVM-only instrumentation and the translated command dro
 
 [[case]]
 name = "domains-lemmas-no-smt"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["C2-01"]
@@ -344,6 +425,8 @@ reason = "Baseline first divergence is attributed to C2-01."
 
 [[case]]
 name = "domains-lemmas-smt"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -352,6 +435,8 @@ reason = ""
 
 [[case]]
 name = "doubleinj"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -360,6 +445,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "equals-formatting"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -368,6 +455,8 @@ reason = ""
 
 [[case]]
 name = "equals-pattern"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06", "D1-04"]
@@ -375,6 +464,8 @@ exclusion = ""
 reason = "match since fix(B2-03) 3b33b24 and fix(I1-02) 8de680b (host ratchet run 23): the owise `\\exists` binder surplus of the six `stuff` axioms was the anonymous variable closed over by the `#lambdaK_StringLiteral` predicates and left with B1-01 23c47f5; the remaining kompile residue was the `#lambda_foo(_)_TEST-SYNTAX_KItem_Int_`/`_2` suffix swap (decision row 20, normalisation N23, 26 collapsed axioms) and one missing `cool-like` attribute on `rule I:Int => foo(_) :=K foo(I)` (a rule of TEST-SYNTAX, marked through the main module's cells since 3b33b24); all nine krun programs match since B1-01 23c47f5."
 [[case]]
 name = "excludedModuleAtts/haskell"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-07"]
@@ -383,6 +474,8 @@ reason = "K rejects an excluded attribute on the syntax module; the port checks 
 
 [[case]]
 name = "excludedModuleAtts/llvm"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-07"]
@@ -391,6 +484,8 @@ reason = "K rejects an excluded attribute on the syntax module; the port checks 
 
 [[case]]
 name = "exit-code-no-gen-top"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -399,6 +494,8 @@ reason = ""
 
 [[case]]
 name = "f32-mul"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -407,6 +504,8 @@ reason = ""
 
 [[case]]
 name = "fatalWarnings"
+accepted_verdict = "match"
+accepted_stage = "inner-parse"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -415,6 +514,8 @@ reason = ""
 
 [[case]]
 name = "ffi-llvm"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -423,6 +524,8 @@ reason = ""
 
 [[case]]
 name = "float-id"
+accepted_verdict = "mismatch"
+accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = []
@@ -432,6 +535,8 @@ unexplained = true
 
 [[case]]
 name = "fresh1"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -440,6 +545,8 @@ reason = ""
 
 [[case]]
 name = "fresh2"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -448,6 +555,8 @@ reason = ""
 
 [[case]]
 name = "fresh3"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -456,6 +565,8 @@ reason = ""
 
 [[case]]
 name = "fun-llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["B1-01", "B1-02"]
@@ -464,6 +575,8 @@ reason = "match since fix(I1-02) 8de680b (host ratchet run 23): the closure and 
 
 [[case]]
 name = "glr"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -472,6 +585,8 @@ reason = ""
 
 [[case]]
 name = "glr2"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -480,6 +595,8 @@ reason = ""
 
 [[case]]
 name = "glr3"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -488,6 +605,8 @@ reason = ""
 
 [[case]]
 name = "glr4"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -496,6 +615,8 @@ reason = ""
 
 [[case]]
 name = "group"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -504,6 +625,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "help"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -512,6 +635,8 @@ reason = ""
 
 [[case]]
 name = "imp++-llvm"
+accepted_verdict = "match"
+accepted_stage = "search"
 baseline_verdict = "krust-error"
 baseline_stage = "outer-parse"
 tickets = ["A1-07"]
@@ -520,6 +645,8 @@ reason = "A1-07's hard error on the malformed Markdown annotation is gone: kompi
 
 [[case]]
 name = "imp-haskell"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["I1-06"]
@@ -528,6 +655,8 @@ reason = "Baseline first divergence is attributed to I1-06."
 
 [[case]]
 name = "imp-json"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-06"]
@@ -536,6 +665,8 @@ reason = "Baseline first divergence is attributed to I1-06."
 
 [[case]]
 name = "imp-kore"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -544,6 +675,8 @@ reason = ""
 
 [[case]]
 name = "imp-llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06", "C3-02"]
@@ -551,6 +684,8 @@ exclusion = ""
 reason = "kompile matches (the I1-06 `left` attribute is gone). krun: fixed by C3-02 cb6393e (test ffa3c45): plain `krust krun` ran the backend with `--strategy all` under ExploreAll, so both heating orders of every two-argument `strict` heating (`q+q`, `n+n+n`) were enqueued and the frontier doubled per heating (collatz.imp 56.6 GiB unguarded; 16 copies of `s = a + a;` 85 s / 2.7 GiB, 20 beyond 8 GiB; conformance-host/fixtures/collatz-memory/measurements.toml). K's krun takes one successor per step (LLVM decision tree; kore-exec `--strategy any`, Kore/Rewrite.hs:250-253 applyRewriteRulesSequence; the K test suite's imp-haskell twin declares `seqstrict` because kore-exec's `all` explores every order), so krun now defaults to `--strategy any` and `--search` stays explore-all. Guarded re-measurement with the fixed release binary under the 8 GiB user scope: collatz.imp 3.3 s / 203 MiB, primes.imp 3.4 s, sum.imp 3.1 s, strict2-20.imp 2.8 s / 203 MiB, one final configuration each."
 [[case]]
 name = "imp-outer-json"
+accepted_verdict = "krust-error"
+accepted_stage = "outer-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "outer-parse"
 tickets = ["D1-14"]
@@ -558,6 +693,8 @@ exclusion = "declined-capability"
 reason = "`--outer-parsed-json` input: kompile flag declined under arbiter row 15 (D1/index.toml:337 `rejected`); the driver has no krust equivalent. Re-measured 2026-09-06 at HEAD 855cc25: kompile krust-unsupported, the three krun steps fail on the JSON definition."
 [[case]]
 name = "int-llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["C2-03"]
@@ -566,6 +703,8 @@ reason = "`+3` printed verbatim"
 
 [[case]]
 name = "int2bytes-no-len"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -574,6 +713,8 @@ reason = ""
 
 [[case]]
 name = "io-llvm"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["D1-02", "C2-05"]
@@ -581,6 +722,8 @@ exclusion = "llvm-only"
 reason = "IO.open, IO.system and IO.mkstemp are LLVM-backend hooks neither Kore engine evaluates (C2/index.toml:221 `IO.* (other)`: unsupported-and-silent, C2-05 class); C2-05 now halts every krun step with `unsupported hook 'IO.<name>' on constructor-like arguments`. Kompile matches. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "issue-1088"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -589,6 +732,8 @@ reason = ""
 
 [[case]]
 name = "issue-1090"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -597,6 +742,8 @@ reason = ""
 
 [[case]]
 name = "issue-1098"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -605,6 +752,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "issue-1145"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -613,6 +762,8 @@ reason = ""
 
 [[case]]
 name = "issue-1169"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "kompile"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "kompile"
 tickets = []
@@ -621,6 +772,8 @@ reason = ""
 
 [[case]]
 name = "issue-1175"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -629,6 +782,8 @@ reason = "Both toolchains reject the broken rule; only their error presentation 
 
 [[case]]
 name = "issue-1184"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -638,6 +793,8 @@ unexplained = true
 
 [[case]]
 name = "issue-1186"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -646,6 +803,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "issue-1193"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -654,6 +813,8 @@ reason = ""
 
 [[case]]
 name = "issue-1263"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -662,15 +823,18 @@ reason = ""
 
 [[case]]
 name = "issue-1273"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
 exclusion = ""
 reason = "rule `foo(FI) => 1FInt(one(FI))`: token `1FInt` not scanned (A2 area, no ticket; same as issue-1879)"
-unexplained = true
 
 [[case]]
 name = "issue-1372"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -679,6 +843,8 @@ reason = ""
 
 [[case]]
 name = "issue-1384"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -687,6 +853,8 @@ reason = ""
 
 [[case]]
 name = "issue-1388"
+accepted_verdict = "mismatch"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["D1-14"]
@@ -695,6 +863,8 @@ reason = "--coverage is LLVM-only instrumentation and the translated command dro
 
 [[case]]
 name = "issue-1436"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["D1-02"]
@@ -702,6 +872,8 @@ exclusion = ""
 reason = "match since D1-02 supplies `$IO` (and the A3-03 recheck at 6ba0e88). Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "issue-1472-unboundVars"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -710,6 +882,8 @@ reason = ""
 
 [[case]]
 name = "issue-1489-claimLoc"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -718,6 +892,8 @@ reason = ""
 
 [[case]]
 name = "issue-1528"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
@@ -725,6 +901,8 @@ exclusion = ""
 reason = "match since fix(I1-02) 8de680b (host ratchet run 23): the `#lambda__` .. `#lambda__5` suffixes follow ResolveFun.java's `stream(m.localSentences())` HashSet order, which the pinned reference assigns differently from two checkout paths (Source is part of the sentence hash), and declaration order in resolve_fun.rs; decision row 20 extends D13-3 to generated lambdas and normalisation N23 collapses the family in the comparator (13 collapsed axioms); all three krun steps match."
 [[case]]
 name = "issue-1545-func-in-simplification"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -733,6 +911,8 @@ reason = ""
 
 [[case]]
 name = "issue-1572"
+accepted_verdict = "mismatch"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = []
@@ -741,6 +921,8 @@ reason = "--gen-bison-parser's not-lr1 warning is a bison/LLVM frontend feature.
 
 [[case]]
 name = "issue-1573"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -749,6 +931,8 @@ reason = ""
 
 [[case]]
 name = "issue-1602"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "kompile"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "kompile"
 tickets = []
@@ -757,6 +941,8 @@ reason = ""
 
 [[case]]
 name = "issue-1633"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -765,6 +951,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "issue-1676-koreBytes"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -773,6 +961,8 @@ reason = ""
 
 [[case]]
 name = "issue-1682-korePrettyPrint"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "krun"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "krun"
 tickets = []
@@ -781,6 +971,8 @@ reason = ""
 
 [[case]]
 name = "issue-1683-cfgVarsWarns"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-02"]
@@ -791,6 +983,8 @@ step_exclusions = [
 ]
 [[case]]
 name = "issue-1760"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -799,6 +993,8 @@ reason = ""
 
 [[case]]
 name = "issue-1789-rhsOr/haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["C3-04"]
@@ -807,6 +1003,8 @@ reason = "Baseline first divergence is attributed to C3-04."
 
 [[case]]
 name = "issue-1789-rhsOr/llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["C3-04"]
@@ -815,6 +1013,8 @@ reason = "Baseline first divergence is attributed to C3-04."
 
 [[case]]
 name = "issue-1844-noPGM/haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04", "D1-12"]
@@ -823,6 +1023,8 @@ reason = "stdin program at sort KItem"
 
 [[case]]
 name = "issue-1844-noPGM/llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04", "D1-12"]
@@ -831,15 +1033,18 @@ reason = "Baseline first divergence is attributed to D1-04, D1-12."
 
 [[case]]
 name = "issue-1879-kproveTrans/haskell"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
 exclusion = ""
 reason = "rule `rdiv(FI1, FI2) => 0FInt(one(FI1))`: token `0FInt` (A2 area, no ticket; same as issue-1273)"
-unexplained = true
 
 [[case]]
 name = "issue-1952"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -848,6 +1053,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "issue-2075"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -857,6 +1064,8 @@ unexplained = true
 
 [[case]]
 name = "issue-2075-2"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-14"]
@@ -864,6 +1073,8 @@ exclusion = "declined-capability"
 reason = "`--top-cell` manual override declined under arbiter row 15 (D1/index.toml:337 `rejected`; B1/index.toml:161 `not ported`); without it krust reports `Too many top cells for module TEST: BarCell, KCell` (resolve fresh constants). Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "issue-2114"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -872,6 +1083,8 @@ reason = ""
 
 [[case]]
 name = "issue-2142-markConcrete"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -883,6 +1096,8 @@ step_exclusions = [
 
 [[case]]
 name = "issue-2146-duplicateModules"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -891,6 +1106,8 @@ reason = ""
 
 [[case]]
 name = "issue-2174-kprovexParseError"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -899,6 +1116,8 @@ reason = "Both toolchains reject the broken claim; only their error presentation
 
 [[case]]
 name = "issue-2273"
+accepted_verdict = "krust-error"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -909,6 +1128,8 @@ step_exclusions = [
 ]
 [[case]]
 name = "issue-2287-simpl-rules-in-kprovex"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "krust-error"
 baseline_stage = "kprove"
 tickets = ["C2-01", "C4-04", "I1-10", "C4-05"]
@@ -917,6 +1138,8 @@ reason = "a1: ConflictingResults; a2: both reject (a match since the I1-03 class
 
 [[case]]
 name = "issue-2315-id-quotes"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -925,6 +1148,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "issue-2321-kprovexCrash"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -933,6 +1158,8 @@ reason = ""
 
 [[case]]
 name = "issue-2356-koreDecode"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "krun"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "krun"
 tickets = []
@@ -941,15 +1168,18 @@ reason = ""
 
 [[case]]
 name = "issue-2812-kprove-filter-claims/claims"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
 exclusion = ""
 reason = "`the selected module contains no modal reachability claims` with `--claims` filtering (D1-15 flag mapping suspect)"
-unexplained = true
 
 [[case]]
 name = "issue-2812-kprove-filter-claims/exclude"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -958,6 +1188,8 @@ reason = ""
 
 [[case]]
 name = "issue-2812-kprove-filter-claims/trusted"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -966,6 +1198,8 @@ reason = ""
 
 [[case]]
 name = "issue-2909-allow-anywhere-haskell/check"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -974,6 +1208,8 @@ reason = ""
 
 [[case]]
 name = "issue-2909-allow-anywhere-haskell/haskell"
+accepted_verdict = "mismatch"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04", "D1-14"]
@@ -985,6 +1221,8 @@ step_exclusions = [
 
 [[case]]
 name = "issue-2909-allow-anywhere-haskell/llvm"
+accepted_verdict = "mismatch"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["A3-03"]
@@ -992,6 +1230,8 @@ exclusion = "llvm-only"
 reason = "krun 1.test: krust applies the anywhere equation before the rewrite step exactly as the reference does (`--depth 0` prints `bar()`: the reference emits `foo()` as an `anywhere{}(), functional{}()` symbol with the equation `foo() = bar()` and krust evaluates it at the initial simplification, Kore's `[Begin, Simplify, Rewrite, Simplify]`). The residual divergence is the rewrite rule `foo() => baz()` whose left-hand side is the anywhere symbol: Kore unifies two function-like terms through `\\equals(foo(), bar())` (Kore/Simplify/AndTerms.hs:951-963 functionAnd) and evaluation makes the condition true, so kore-exec would also rewrite the normalised `bar()` to `baz()`; the LLVM backend matches rewrite rules syntactically on the normalised term, where `foo()` never exists, and prints `bar()`. The K frontend removes anywhere rules for the Haskell backend (`check` subcase: `Removed anywhere rule for Haskell backend execution; this may change the behavior of your code`), so the LLVM reading is undefined for the backend the port follows: arbiter row 13. The kompile step's checked-mode rejection of `rule foo() => bar() [anywhere, priority(20)]` (portable Foo, Z3 K) is RESOLVED 2026-09-06 (final-residue follow-up, A3-03 tests d5cfe46 and 8f5ca2a / fix 746bbb8): the Z3 engine now bounds an anywhere rule's rewrite by its left-hand side's sort as TypeInferencer.isFunction(t, isAnywhere) does (:413-421, :640); the case stays excluded llvm-only at krun."
 [[case]]
 name = "issue-3035-antileft/haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1000,6 +1240,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "issue-3035-antileft/llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1008,6 +1250,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "issue-313"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "inner-parse"
 tickets = []
@@ -1016,6 +1260,8 @@ reason = ""
 
 [[case]]
 name = "issue-3385"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1024,6 +1270,8 @@ reason = ""
 
 [[case]]
 name = "issue-3446"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "kompile"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "kompile"
 tickets = []
@@ -1032,6 +1280,8 @@ reason = ""
 
 [[case]]
 name = "issue-3450-kprove-fresh"
+accepted_verdict = "krust-error"
+accepted_stage = "kprove"
 baseline_verdict = "krust-error"
 baseline_stage = "kprove"
 tickets = []
@@ -1041,6 +1291,8 @@ unexplained = true
 
 [[case]]
 name = "issue-3520-freshConfig"
+accepted_verdict = "mismatch"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["D1-14"]
@@ -1049,6 +1301,8 @@ reason = "--enable-search changes LLVM configuration generation and has no port 
 
 [[case]]
 name = "issue-3604-counterCell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1057,6 +1311,8 @@ reason = ""
 
 [[case]]
 name = "issue-3647-debugTokens"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1065,6 +1321,8 @@ reason = ""
 
 [[case]]
 name = "issue-3672-debugParse"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1073,6 +1331,8 @@ reason = ""
 
 [[case]]
 name = "issue-3996-unary-symbol-list"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1081,6 +1341,8 @@ reason = ""
 
 [[case]]
 name = "issue-4114-overload-injection"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1089,6 +1351,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "issue-4142-no-symbol-overload"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = []
@@ -1097,6 +1361,8 @@ reason = "kore-exec returns both branches; the checked-in output records the LLV
 
 [[case]]
 name = "issue-4153-missing-module"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-07", "D1-14"]
@@ -1105,6 +1371,8 @@ reason = "missing main syntax module check"
 
 [[case]]
 name = "issue-425"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1113,6 +1381,8 @@ reason = ""
 
 [[case]]
 name = "issue-4380-regex-range"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1121,6 +1391,8 @@ reason = ""
 
 [[case]]
 name = "issue-4683"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1129,6 +1401,8 @@ reason = ""
 
 [[case]]
 name = "issue-582"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1137,6 +1411,8 @@ reason = ""
 
 [[case]]
 name = "issue-946"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1144,6 +1420,8 @@ exclusion = ""
 reason = "The definition declares no `$PGM` and the recipe runs `krun` without a program; krust read empty standard input as the program until fix(D1-02) 1366836 (nullary initGeneratedTopCell). Re-measured 2026-09-06 at HEAD 2e30c6f: whole-case match."
 [[case]]
 name = "issue-999"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1152,6 +1430,8 @@ reason = ""
 
 [[case]]
 name = "ite-bug"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["I1-08"]
@@ -1160,6 +1440,8 @@ reason = "Baseline first divergence is attributed to I1-08."
 
 [[case]]
 name = "itp/nat-assoc"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -1168,6 +1450,8 @@ reason = ""
 
 [[case]]
 name = "itp/nth-ancestor"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["I1-09"]
@@ -1176,6 +1460,8 @@ reason = "Baseline first divergence is attributed to I1-09."
 
 [[case]]
 name = "json-input"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1184,6 +1470,8 @@ reason = ""
 
 [[case]]
 name = "kast-bison"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1192,6 +1480,8 @@ reason = ""
 
 [[case]]
 name = "kast-bison-bytes"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1200,6 +1490,8 @@ reason = ""
 
 [[case]]
 name = "kast-default-output"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kast"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kast"
 tickets = []
@@ -1208,6 +1500,8 @@ reason = ""
 
 [[case]]
 name = "kast-input"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1216,6 +1510,8 @@ reason = ""
 
 [[case]]
 name = "kast-kore-input"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1224,6 +1520,8 @@ reason = ""
 
 [[case]]
 name = "kast-rule"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1232,6 +1530,8 @@ reason = ""
 
 [[case]]
 name = "kdep-options/remake-depend"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "none"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 tickets = []
@@ -1240,6 +1540,8 @@ reason = ""
 
 [[case]]
 name = "kdep-options/simple"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "none"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 tickets = []
@@ -1248,6 +1550,8 @@ reason = ""
 
 [[case]]
 name = "kompiled-directory/default"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04", "D1-14"]
@@ -1255,6 +1559,8 @@ exclusion = "declined-capability"
 reason = "`#kompiledDirectory()` (KREFLECTION.kompiledDir) needs the kompiled-directory contract arbiter row 15 declines; C2-05 reports the hook as unsupported on constructor-like arguments (kompile matches). Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "kompiled-directory/nested"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "none"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04", "D1-14"]
@@ -1262,6 +1568,8 @@ exclusion = "declined-capability"
 reason = "`#kompiledDirectory()` (KREFLECTION.kompiledDir) needs the kompiled-directory contract arbiter row 15 declines; C2-05 reports the hook as unsupported on constructor-like arguments (kompile matches). Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "kore-brackets"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1270,6 +1578,8 @@ reason = ""
 
 [[case]]
 name = "kore-issue-2253"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1278,6 +1588,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "kprove-append"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -1286,6 +1598,8 @@ reason = ""
 
 [[case]]
 name = "kprove-branchingAllowed"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1294,6 +1608,8 @@ reason = ""
 
 [[case]]
 name = "kprove-error-status"
+accepted_verdict = "mismatch"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = []
@@ -1302,6 +1618,8 @@ reason = "The pinned reference backend crashes without producing an expected pro
 
 [[case]]
 name = "kprove-haskell"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -1310,6 +1628,8 @@ reason = ""
 
 [[case]]
 name = "kprove-java"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -1318,6 +1638,8 @@ reason = "Both toolchains report the unbound right-hand-side variable."
 
 [[case]]
 name = "kprove-macro-exp"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -1327,6 +1649,8 @@ unexplained = true
 
 [[case]]
 name = "kprove-macro-exp-productions"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -1336,6 +1660,8 @@ unexplained = true
 
 [[case]]
 name = "kprove-markdown"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -1345,6 +1671,8 @@ unexplained = true
 
 [[case]]
 name = "kprove-smt-lemma/haskell"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -1353,6 +1681,8 @@ reason = ""
 
 [[case]]
 name = "kprove-var-equals"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -1361,6 +1691,8 @@ reason = ""
 
 [[case]]
 name = "krun-deserialize"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-06"]
@@ -1368,6 +1700,8 @@ exclusion = "declined-capability"
 reason = "krun `--parser cat` (a pre-parsed KORE `$PGM`) declined under arbiter row 15 (D1/index.toml:193 `-pNAME=CMD / --parser CMD / --term` rejected). Kompile matches since I1-06; the krun step is krust-unsupported. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "let-priority"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1376,6 +1710,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "let-test"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
@@ -1383,6 +1719,8 @@ exclusion = ""
 reason = "match since fix(I1-02) 8de680b (host ratchet run 23): `#lambda__`/`#lambda__2`/`#lambda__3` rotate with the checkout path in the reference (see issue-1528, decision row 20, normalisation N23, 9 collapsed axioms); krun 1.test matches."
 [[case]]
 name = "list-in-bug"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1391,6 +1729,8 @@ reason = ""
 
 [[case]]
 name = "list-set"
+accepted_verdict = "krust-error"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = []
@@ -1400,6 +1740,8 @@ unexplained = true
 
 [[case]]
 name = "llvm-kompile-type"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "none"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 tickets = []
@@ -1408,6 +1750,8 @@ reason = ""
 
 [[case]]
 name = "llvm-krun"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1416,6 +1760,8 @@ reason = ""
 
 [[case]]
 name = "llvm-string2base"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1424,6 +1770,8 @@ reason = ""
 
 [[case]]
 name = "locations"
+accepted_verdict = "reference-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1431,6 +1779,8 @@ exclusion = "llvm-only"
 reason = "Bison/LLVM-only definition (`--gen-bison-parser`, `[locations]`, K-LOCATIONS): the reference's own definition.kore is rejected by `kore-parser --verify` (`Cannot define constructor Lbl'Hash'location with variable result sort`, sentence at definition.kore 89:10), so the Haskell backend the port follows cannot load it; krust rejects the same symbol (`Constructor result sort must not be a sort variable`). Re-measured 2026-09-06 at HEAD 855cc25 (arbiter row 13)."
 [[case]]
 name = "locations2"
+accepted_verdict = "reference-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1438,6 +1788,8 @@ exclusion = "llvm-only"
 reason = "Bison/LLVM-only definition (`--gen-bison-parser`, `[locations]`, K-LOCATIONS): the reference's own definition.kore is rejected by `kore-parser --verify` (`Cannot define constructor Lbl'Hash'location with variable result sort`, sentence at definition.kore 90:10), so the Haskell backend the port follows cannot load it; krust rejects the same symbol (`Constructor result sort must not be a sort variable`). Re-measured 2026-09-06 at HEAD 855cc25 (arbiter row 13)."
 [[case]]
 name = "locations3"
+accepted_verdict = "reference-error"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = ["I1-06"]
@@ -1445,6 +1797,8 @@ exclusion = "llvm-only"
 reason = "Bison/LLVM-only definition (`--gen-bison-parser`, `[locations]`, K-LOCATIONS): the reference's own definition.kore is rejected by `kore-parser --verify` (`Cannot define constructor Lbl'Hash'location with variable result sort`, sentence at definition.kore 91:10), so the Haskell backend the port follows cannot load it; krust rejects the same symbol (`Constructor result sort must not be a sort variable`). Re-measured 2026-09-06 at HEAD 855cc25 (arbiter row 13)."
 [[case]]
 name = "lub"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1453,6 +1807,8 @@ reason = ""
 
 [[case]]
 name = "lub2"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1461,6 +1817,8 @@ reason = ""
 
 [[case]]
 name = "macro-rewrite"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1469,6 +1827,8 @@ reason = ""
 
 [[case]]
 name = "macro_vars"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1477,6 +1837,8 @@ reason = ""
 
 [[case]]
 name = "macro_vars-productions"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1485,6 +1847,8 @@ reason = ""
 
 [[case]]
 name = "map-symbolic-tests-haskell"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "krust-error"
 baseline_stage = "kprove"
 tickets = ["C1-01"]
@@ -1538,6 +1902,8 @@ step_exclusions = [
 
 [[case]]
 name = "markdownSelectors"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1545,6 +1911,8 @@ exclusion = ""
 reason = "The driver forwarded the kompile `--md-selector '(k|keep) & !discard'` only to kcompile, so krust krun recompiled the default `k` blocks (0 where the reference prints 2); fix(I1-03) 2828e95 carries it into every krust step. Re-measured 2026-09-06 at HEAD 2e30c6f: whole-case match (kprove step matched before)."
 [[case]]
 name = "minimization-issue"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1553,6 +1921,8 @@ reason = ""
 
 [[case]]
 name = "mint-llvm"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08", "C2-05"]
@@ -1561,6 +1931,8 @@ reason = "kompile matches since A3-08 17c1b8b (`::MInt{8}` cast and MInt literal
 
 [[case]]
 name = "mint-llvm-2"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08"]
@@ -1569,6 +1941,8 @@ reason = "match since fix(A3-08) f6af649 (host ratchet run 24, 0 -> 3): the gene
 
 [[case]]
 name = "mint-llvm-3"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08"]
@@ -1577,6 +1951,8 @@ reason = "match since fix(A3-08) f6af649 (host ratchet run 24, 0 -> 3): same cas
 
 [[case]]
 name = "mint-llvm-4"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08", "C2-05"]
@@ -1585,6 +1961,8 @@ reason = "kompile matches since fix(A3-08) 8318662 (the `MInt{K} ::= MInt{64}` b
 
 [[case]]
 name = "mutable-bytes/default"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1593,6 +1971,8 @@ reason = ""
 
 [[case]]
 name = "mutable-bytes/mutable"
+accepted_verdict = "mismatch"
+accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = []
@@ -1601,6 +1981,8 @@ reason = "Mutable Bytes semantics are defined only by the LLVM backend."
 
 [[case]]
 name = "no-dup-rules"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1609,6 +1991,8 @@ reason = ""
 
 [[case]]
 name = "no-junk-macro"
+accepted_verdict = "mismatch"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -1616,6 +2000,8 @@ exclusion = "presentation-only"
 reason = "krun 1.test: krust prints `<k> false </k>` alone where the reference keeps `{ true #Equals size(ListItem(?X) ?L) >=Int -1 }`. Mechanism (rewrite.rs:2599): the requires `I >=Int -1` of `rule I:Int => false requires I >=Int -1` on `I = size(ListItem(?X) ?L)` is undecidable syntactically, krust asks Z3 whether it is valid under the path condition with the definition's `smt-lemma` `size(L) >=Int 0` asserted, gets Valid and drops it; kore-exec only prunes unsatisfiable conditions (Kore/Rewrite/RewriteStep.hs:308-322, SMT.Evaluator.filterMultiOr) and never discharges a valid one, so it stays in the output. The constraint is entailed by the definition's own lemma, so the two final configurations are semantically equal and differ only in text: presentation-only, in the sense of the concrete-function disposition (decisions.toml pair `C2 deferred concrete-function`). Oracle confirmed under the systemd scope on 2026-09-06."
 [[case]]
 name = "no-pattern"
+accepted_verdict = "mismatch"
+accepted_stage = "search"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1623,6 +2009,8 @@ exclusion = "llvm-only"
 reason = "`kompile --enable-search` and `krun --search-final --no-pattern` are llvm-krun search features (D1/index.toml:337 lists `--enable-search` as rejected): with `--no-pattern` the reference prints the bare configurations `<k> 1 </k> #Or <k> 2 </k>` while krust prints the same two disjuncts under the default `{ Result #Equals ... }` binding it prints for every search (context-alias-2 matches with that shape). The disjunct set is equal; the rendering is LLVM-only. Re-measured 2026-09-06 at HEAD 2e30c6f (systemd scope: oracle confirmed)."
 [[case]]
 name = "nomain"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1631,6 +2019,8 @@ reason = ""
 
 [[case]]
 name = "non-executable/haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["D1-04"]
@@ -1639,6 +2029,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "non-executable/llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["D1-04"]
@@ -1647,6 +2039,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "non-executable/rewrite-check"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1655,6 +2049,8 @@ reason = ""
 
 [[case]]
 name = "nonexhaustive"
+accepted_verdict = "mismatch"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = []
@@ -1663,6 +2059,8 @@ reason = "Decision-tree exhaustiveness diagnostics are LLVM-backend behavior."
 
 [[case]]
 name = "or-haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["C3-04", "D1-04"]
@@ -1671,6 +2069,8 @@ reason = "1-9: `\\or` in rule sides; 10/11: KItem start sort"
 
 [[case]]
 name = "or-llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["C3-04", "D1-04"]
@@ -1679,6 +2079,8 @@ reason = "Baseline first divergence is attributed to C3-04, D1-04."
 
 [[case]]
 name = "overload"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1687,6 +2089,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "owise-haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1695,6 +2099,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "parse-c"
+accepted_verdict = "reference-error"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-06"]
@@ -1702,6 +2108,8 @@ exclusion = "llvm-only"
 reason = "GLR-bison parser case (`--bison-lists --gen-glr-bison-parser`, `cparse`): the reference definition.kore is rejected by `kore-parser --verify` (`Cannot define constructor Lblamb with variable result sort`, definition.kore 395:10), so it is outside the Haskell-backend semantics (arbiter row 13); the earlier I1-06 `left` attribution was never the first divergence. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "parseNonPgm"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = ["I1-06"]
@@ -1710,6 +2118,8 @@ reason = "first difference at the `cool-like`/`label` attributes of a cool rule"
 
 [[case]]
 name = "pattern-macro"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["C3-04", "D1-04"]
@@ -1718,6 +2128,8 @@ reason = "1-4: `\\or` patterns; 5-7: KItem start sort"
 
 [[case]]
 name = "pattern-macro-productions"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["C3-04", "D1-04"]
@@ -1726,6 +2138,8 @@ reason = "Baseline first divergence is attributed to C3-04, D1-04."
 
 [[case]]
 name = "pedanticAttributes"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1734,6 +2148,8 @@ reason = ""
 
 [[case]]
 name = "pl-tutorial/1_k/1_lambda/lesson_8"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -1743,6 +2159,8 @@ unexplained = true
 
 [[case]]
 name = "pl-tutorial/1_k/2_imp/lesson_4"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["I1-06", "C3-02"]
@@ -1750,6 +2168,8 @@ exclusion = ""
 reason = "kompile matches; krun tests/collatz.imp and primes.imp: same mechanism and same fix as imp-llvm (C3-02 cb6393e: plain krun follows one successor per step, `--strategy any`); guarded re-measurement with the fixed release binary under the 8 GiB user scope: collatz.imp 3.3 s / 203 MiB, one final configuration."
 [[case]]
 name = "pl-tutorial/1_k/3_lambda++/lesson_5"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "none"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 tickets = []
@@ -1758,6 +2178,8 @@ reason = ""
 
 [[case]]
 name = "pl-tutorial/1_k/4_imp++/lesson_7"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "none"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 tickets = []
@@ -1766,6 +2188,8 @@ reason = ""
 
 [[case]]
 name = "pl-tutorial/1_k/5_types/lesson_6"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1774,6 +2198,8 @@ reason = ""
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/1_untyped"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -1783,6 +2209,8 @@ unexplained = true
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
@@ -1792,6 +2220,8 @@ unexplained = true
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic"
+accepted_verdict = "krust-error"
+accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -1801,6 +2231,8 @@ unexplained = true
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/1_untyped"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -1810,6 +2242,8 @@ unexplained = true
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"
+accepted_verdict = "krust-error"
+accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -1819,6 +2253,8 @@ unexplained = true
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -1828,6 +2264,8 @@ unexplained = true
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -1837,6 +2275,8 @@ unexplained = true
 
 [[case]]
 name = "poly-kitem"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -1845,6 +2285,8 @@ reason = ""
 
 [[case]]
 name = "poly-sort"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -1853,6 +2295,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "poly-unparsing"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1861,6 +2305,8 @@ reason = ""
 
 [[case]]
 name = "prelude-warnings"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A3-08"]
@@ -1869,6 +2315,8 @@ reason = "matches since A3-08: `rule I:Int => Int2MInt(I)::MInt{8}` needs the KI
 
 [[case]]
 name = "profile"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -1877,6 +2325,8 @@ reason = ""
 
 [[case]]
 name = "proof-instrumentation"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1885,6 +2335,8 @@ reason = ""
 
 [[case]]
 name = "proof-instrumentation-debug"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1893,6 +2345,8 @@ reason = ""
 
 [[case]]
 name = "proof-tests/deposit/spec"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "none"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 tickets = []
@@ -1901,6 +2355,8 @@ reason = ""
 
 [[case]]
 name = "proof-tests/deposit/test"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1909,6 +2365,8 @@ reason = ""
 
 [[case]]
 name = "quadratic-poly-unparsing"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-12"]
@@ -1917,6 +2375,8 @@ reason = "driver passes `--search-all` twice: search flag mapping"
 
 [[case]]
 name = "rand"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["C2-05"]
@@ -1924,6 +2384,8 @@ exclusion = "llvm-only"
 reason = "INT.srand/INT.rand are LLVM-backend hooks; Kore raises notImplemented (C2/index.toml:84); C2-05 halts the krun step with `unsupported hook 'INT.srand'`. Kompile matches. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "rangemap-tests-llvm"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["C2-05", "D1-04"]
@@ -1932,6 +2394,8 @@ reason = "RANGEMAP.* hooks are LLVM-backend only (C2/index.toml:221: neither Kor
 budget = 1800
 [[case]]
 name = "rat/defined/haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["C2-01"]
@@ -1940,6 +2404,8 @@ reason = "ConflictingResults"
 
 [[case]]
 name = "rat/defined/llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = ["C2-01"]
@@ -1948,15 +2414,19 @@ reason = "Baseline first divergence is attributed to C2-01."
 
 [[case]]
 name = "rat/undefined/haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
+accepted_basis = "Complete pinned rat/undefined/haskell compile and seven program comparisons pass after restoring equation-match definedness; protected by equations_require_defined_element_bindings_before_discarding_operands."
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
 tickets = []
 exclusion = ""
 reason = "`1 /Rat 0 ==Rat 1 /Rat 0` evaluates to `true` in krust; the reference leaves the undefined initial term; definedness of K-level partial functions under `==Rat` (C2 area, no ticket)"
-unexplained = true
 
 [[case]]
 name = "record-llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
@@ -1964,6 +2434,8 @@ exclusion = ""
 reason = "match since fix(I1-02) 8de680b (host ratchet run 23): `#lambdaF_test(_,_,_)_..._`/`_2` swap with the checkout path in the reference (see issue-1528, decision row 20, normalisation N23, 4 collapsed axioms); krun 1/2 match since B1-01 23c47f5; krun 3/4 (`foo(test(5,10,15))`/`bar(...)`, the named-field projections of `test(Int, foo: Int, bar: Int)`) match since D1-04 422a86f declares the projections in the rule and program grammars as RuleGrammarGenerator.getCombinedGrammar does."
 [[case]]
 name = "regex-prec"
+accepted_verdict = "krust-unsupported"
+accepted_stage = "kompile"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 tickets = []
@@ -1972,6 +2444,8 @@ reason = ""
 
 [[case]]
 name = "regex-unicode"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -1980,6 +2454,8 @@ reason = ""
 
 [[case]]
 name = "search-bound"
+accepted_verdict = "match"
+accepted_stage = "search"
 baseline_verdict = "mismatch"
 baseline_stage = "search"
 tickets = ["I1-05", "D1-06"]
@@ -1988,6 +2464,8 @@ reason = "`--bound` selection order"
 
 [[case]]
 name = "seqstrict-predicate"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["I1-06", "D1-04"]
@@ -1995,6 +2473,8 @@ exclusion = ""
 reason = "match: the I1-06/D1-04 attribution was stale. Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "set-symbolic-tests"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "kprove"
 tickets = []
@@ -2054,6 +2534,8 @@ step_exclusions = [
 
 [[case]]
 name = "set_unification"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["C1-01", "C1-02"]
@@ -2062,6 +2544,8 @@ reason = "claim #1 disproved at depth 2 (cb6393e). Reduced 2026-09-06 (/tmp/k-ru
 
 [[case]]
 name = "simp-haskell"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -2070,6 +2554,8 @@ reason = ""
 
 [[case]]
 name = "spec-rule-application"
+accepted_verdict = "mismatch"
+accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 tickets = ["I1-11"]
@@ -2083,6 +2569,8 @@ step_exclusions = [
 
 [[case]]
 name = "star-multiplicity"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = ["A2-01"]
@@ -2091,6 +2579,8 @@ reason = "kompile matches since the A2-01 landing (the `#putCells` terminal beat
 
 [[case]]
 name = "star-multiplicity-concat"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "match"
 baseline_stage = "krun"
 tickets = []
@@ -2099,6 +2589,8 @@ reason = ""
 
 [[case]]
 name = "string_escape"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -2107,6 +2599,8 @@ reason = "Baseline first divergence is attributed to D1-04."
 
 [[case]]
 name = "stringbuffer-llvm"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -2115,6 +2609,8 @@ reason = ""
 
 [[case]]
 name = "synonym"
+accepted_verdict = "krust-error"
+accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
@@ -2124,15 +2620,18 @@ unexplained = true
 
 [[case]]
 name = "total-proj"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []
 exclusion = ""
 reason = "rule `X:Pgm2 => baz(X)`: cast to a sort whose name ends in a digit? (A3 cast productions, no ticket)"
-unexplained = true
 
 [[case]]
 name = "trace"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -2140,6 +2639,8 @@ exclusion = "llvm-only"
 reason = "`#trace` (IO.traceTerm) is an LLVM-backend debugging hook (C2/index.toml:221 `IO.* (other)`); C2-05 halts the krun step at depth 1 with `unsupported hook 'IO.traceTerm'`. Kompile matches. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "unification-lemmas"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -2148,6 +2649,8 @@ reason = ""
 
 [[case]]
 name = "unification-lemmas2"
+accepted_verdict = "match"
+accepted_stage = "kprove"
 baseline_verdict = "match"
 baseline_stage = "kprove"
 tickets = []
@@ -2156,6 +2659,8 @@ reason = ""
 
 [[case]]
 name = "union"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -2164,6 +2669,8 @@ reason = ""
 
 [[case]]
 name = "unparseKORE"
+accepted_verdict = "krust-error"
+accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -2171,6 +2678,8 @@ exclusion = "llvm-only"
 reason = "`#unparseKORE` (KREFLECTION.printKORE) is an LLVM-backend hook (C2/index.toml:221 `KREFLECTION.*`); C2-05 halts the krun step with `unsupported hook 'KREFLECTION.printKORE'`. Kompile matches. Re-measured 2026-09-06 at HEAD 855cc25."
 [[case]]
 name = "useless"
+accepted_verdict = "mismatch"
+accepted_stage = "kompile"
 baseline_verdict = "mismatch"
 baseline_stage = "kompile"
 tickets = []
@@ -2179,6 +2688,8 @@ reason = "Decision-tree useless-rule diagnostics are LLVM-backend behavior."
 
 [[case]]
 name = "werrorCategory"
+accepted_verdict = "match"
+accepted_stage = "kompile"
 baseline_verdict = "match"
 baseline_stage = "kompile"
 tickets = []
@@ -2187,6 +2698,8 @@ reason = ""
 
 [[case]]
 name = "withConfig"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -2194,6 +2707,8 @@ exclusion = ""
 reason = "match since D1-04 (KItem start sort) and the generated-variable ordering delta closed. Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "withConfig-llvm"
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = ["D1-04"]
@@ -2201,6 +2716,8 @@ exclusion = ""
 reason = "match since D1-04 (KItem start sort). Re-measured 2026-09-06 at HEAD 855cc25: whole-case match."
 [[case]]
 name = "withConfig2"
+accepted_verdict = "krust-error"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 tickets = []

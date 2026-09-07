@@ -9,30 +9,32 @@ use std::{
 use sha2::{Digest, Sha256};
 use toml::Value;
 
-const SUBSYSTEMS: [&str; 13] = [
-    "inner",
-    "kompile",
-    "kore-syntax",
-    "matching",
-    "execution",
-    "search",
-    "simplify",
-    "hooks",
-    "implication",
-    "proof",
-    "rpc",
-    "cli",
-    "outer",
-];
+const SUBSYSTEM_REGISTRY: &str = include_str!("../../../scripts/conformance/subsystems.toml");
 
 #[test]
 fn reference_fixture_manifests_are_consistent() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference");
     let mut found = BTreeSet::new();
+    let registry = SUBSYSTEM_REGISTRY.parse::<Value>().unwrap();
+    let mut owners = BTreeSet::new();
+    let mut homes = BTreeSet::new();
+    for row in registry["subsystem"].as_array().unwrap() {
+        assert!(
+            owners.insert(row["name"].as_str().unwrap()),
+            "duplicate subsystem owner"
+        );
+        assert!(!row["source_pattern"].as_str().unwrap().is_empty());
+        for home in row["fixture_homes"].as_array().unwrap() {
+            assert!(
+                homes.insert(home.as_str().unwrap()),
+                "fixture home has multiple default owners"
+            );
+        }
+    }
 
     assert!(root.join("README.md").is_file());
 
-    for subsystem in SUBSYSTEMS {
+    for &subsystem in &homes {
         let directory = root.join(subsystem);
         assert!(
             directory.join("README.md").is_file(),
@@ -49,7 +51,7 @@ fn reference_fixture_manifests_are_consistent() {
         }
     }
 
-    assert_eq!(found, BTreeSet::from(SUBSYSTEMS));
+    assert_eq!(found, homes);
     for definition in find_named(&root, "definition.kore") {
         let mut directory = definition.parent().unwrap();
         let manifest_path = loop {
@@ -127,6 +129,18 @@ fn reference_search_fixture_is_attributed_to_the_backend() {
         ),
     )
     .unwrap();
+    fs::write(
+        test_directory.join("module_to_kore.rs"),
+        concat!(
+            "#",
+            r#"[test]
+fn reference_emission_uses_a_shared_kompile_fixture() {
+    assert!("fixtures/reference/kompile/assoc-strict/attributes.toml".ends_with(".toml"));
+}
+"#
+        ),
+    )
+    .unwrap();
     let output_path = workspace.join("census.toml");
     let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -149,9 +163,9 @@ fn reference_search_fixture_is_attributed_to_the_backend() {
         .unwrap()
         .parse::<Value>()
         .unwrap();
-    assert_eq!(census["totals"]["tests"].as_integer(), Some(5));
-    assert_eq!(census["totals"]["reference_marked"].as_integer(), Some(3));
-    assert_eq!(census["totals"]["mentions_reference"].as_integer(), Some(4));
+    assert_eq!(census["totals"]["tests"].as_integer(), Some(6));
+    assert_eq!(census["totals"]["reference_marked"].as_integer(), Some(4));
+    assert_eq!(census["totals"]["mentions_reference"].as_integer(), Some(5));
     let cli = census["subsystem"]
         .as_array()
         .unwrap()
@@ -170,6 +184,13 @@ fn reference_search_fixture_is_attributed_to_the_backend() {
         .unwrap();
     assert_eq!(search["tests"].as_integer(), Some(1));
     assert_eq!(search["reference_marked"].as_integer(), Some(1));
+    let emission = census["subsystem"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"].as_str() == Some("module_to_kore"))
+        .unwrap();
+    assert_eq!(emission["reference_marked"].as_integer(), Some(1));
 
     fs::remove_dir_all(workspace).unwrap();
 }

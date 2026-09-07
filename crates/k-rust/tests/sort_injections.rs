@@ -72,6 +72,32 @@ macro_rules! injection_snapshot {
 }
 
 #[test]
+fn reference_constructor_arguments_inject_only_a_strict_subsort() {
+    // reference: kast --definition ref --module MAIN --sort Box --output kore -e 'box(small)'
+    let definition = lowered(include_str!(
+        "fixtures/reference/injections/arguments/test.k"
+    ));
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    for (argument, expected) in [
+        (
+            "small",
+            include_str!("fixtures/reference/injections/arguments/subsort.kore"),
+        ),
+        (
+            "large",
+            include_str!("fixtures/reference/injections/arguments/exact-sort.kore"),
+        ),
+    ] {
+        let term = Term::apply("box", vec![Term::apply(argument, vec![])]);
+        let injected = injector.inject_at_top(&term).unwrap();
+        let actual = term_to_kore_from_resolved(&resolved, "MAIN", &injected).unwrap();
+        let expected = k_rust::kore::parser::parse_pattern(expected).unwrap();
+        assert_eq!(actual, expected, "argument {argument}");
+    }
+}
+
+#[test]
 fn recovers_a_stale_catalog_identity_for_a_unique_label() {
     let definition = lowered(indoc! {r#"
         module MAIN

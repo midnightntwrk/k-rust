@@ -4532,6 +4532,23 @@ mod tests {
     }
 
     #[test]
+    fn get_model_without_a_predicate_reports_unknown() {
+        let mut service = service();
+        let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let response = request(&mut service, 1, "get-model", json!({ "state": state }));
+        assert_eq!(response["result"], json!({ "satisfiable": "Unknown" }));
+
+        // A state with an actual satisfiable predicate still reaches the solver.
+        let response = request(
+            &mut service,
+            2,
+            "get-model",
+            json!({ "state": trivial_model_state() }),
+        );
+        assert_eq!(response["result"], json!({ "satisfiable": "Sat" }));
+    }
+
+    #[test]
     fn dispatches_simplify_implies_and_get_model() {
         let mut service = service();
         let state = encode_kore(&KorePattern::Application {

@@ -28,7 +28,7 @@ use crate::{
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, substitute},
-    term::{Term, TermKind},
+    term::{Term, TermKind, VariableKind},
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -989,7 +989,7 @@ fn apply_ceil_equation(
         return Ok(EquationAttempt::NotApplicable);
     }
 
-    let requires = substitute_predicates(&rule.requires, &substitution);
+    let requires = equation_match_conditions(definition, &rule.requires, &substitution);
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
@@ -1061,7 +1061,7 @@ fn apply_predicate_equation(
         }
         PredicateMatch::Success(substitution) => substitution,
     };
-    let requires = substitute_predicates(&rule.requires, &substitution);
+    let requires = equation_match_conditions(definition, &rule.requires, &substitution);
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
@@ -1722,7 +1722,7 @@ fn matches_top_equation(
             {
                 continue;
             }
-            let requires = substitute_predicates(&rule.requires, &substitution);
+            let requires = equation_match_conditions(definition, &rule.requires, &substitution);
             if matches!(
                 evaluate_rule_condition(
                     definition,
@@ -2124,6 +2124,27 @@ fn scan_group<R, T>(
     })
 }
 
+/// Matching an element variable requires a defined value, even when an equation discards it.
+/// This is the predicate returned by Kore.Rewrite.Axiom.Matcher.isTermDefined; set variables
+/// may bind arbitrary patterns and do not impose this obligation.
+fn equation_match_conditions(
+    definition: &BackendDefinition,
+    requires: &[Predicate],
+    substitution: &Substitution,
+) -> Vec<Predicate> {
+    let mut conditions = substitute_predicates(requires, substitution);
+    for (variable, value) in substitution {
+        if variable.kind == VariableKind::Element {
+            for predicate in ceil_term(definition, value) {
+                if !conditions.contains(&predicate) {
+                    conditions.push(predicate);
+                }
+            }
+        }
+    }
+    conditions
+}
+
 fn apply_equation(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -2170,7 +2191,7 @@ fn apply_equation(
     if check_concreteness(rule, &substitution).is_some() {
         return Ok(EquationAttempt::NotApplicable);
     }
-    let requires = substitute_predicates(&rule.requires, &substitution);
+    let requires = equation_match_conditions(definition, &rule.requires, &substitution);
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
@@ -2559,6 +2580,69 @@ mod tests {
             )
         ) [label{}("identity"), simplification{}()]
     "#;
+
+    #[test]
+    fn equations_require_defined_element_bindings_before_discarding_operands() {
+        let definition = definition(
+            r#"
+            symbol discard{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                discard{}(X:SortS{}), \and{SortS{}}(\dv{SortS{}}("done"), \top{SortS{}}())
+            )) [label{}("discard"), simplification{}()]
+            axiom{R} \implies{R}(\top{R}(), \equals{R, R}(
+                \ceil{SortS{}, R}(f{}(\dv{SortS{}}("undefined"))), \and{R}(\bottom{R}(), \top{R}())
+            )) [simplification{}()]
+            axiom{R} \implies{R}(\top{R}(), \equals{R, R}(
+                \ceil{SortS{}, R}(f{}(\dv{SortS{}}("defined"))), \and{R}(\top{R}(), \top{R}())
+            )) [simplification{}()]
+            "#,
+        );
+        let done = term(&definition, r#"\dv{SortS{}}("done")"#);
+        for (operand, defined) in [
+            (r#"\dv{SortS{}}("value")"#, true),
+            (r#"f{}(\dv{SortS{}}("defined"))"#, true),
+            (r#"f{}(\dv{SortS{}}("undefined"))"#, false),
+            (r#"f{}(X:SortS{})"#, false),
+        ] {
+            let input = term(&definition, &format!("discard{{}}({operand})"));
+            let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+            assert_eq!(
+                result.term,
+                if defined { done.clone() } else { input },
+                "{operand}"
+            );
+            assert!(result.constraints.is_empty());
+        }
+
+        let operand = term(&definition, "f{}(X:SortS{})");
+        let input = term(&definition, "discard{}(f{}(X:SortS{}))");
+        let result = simplify_with_solver(
+            &definition,
+            &input,
+            &[Predicate::Ceil(operand)],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+        assert_eq!(result.term, done);
+        assert!(result.constraints.is_empty());
+    }
+
+    #[test]
+    fn equation_set_variable_bindings_do_not_require_definedness() {
+        let definition = definition(
+            r#"
+            symbol discard{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                discard{}(@X:SortS{}), \and{SortS{}}(\dv{SortS{}}("done"), \top{SortS{}}())
+            )) [simplification{}()]
+            "#,
+        );
+        let input = term(&definition, "discard{}(f{}(X:SortS{}))");
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
+        assert!(result.constraints.is_empty());
+    }
 
     #[test]
     fn evaluates_overload_axioms_before_the_overloaded_function() {

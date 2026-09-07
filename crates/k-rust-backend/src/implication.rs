@@ -2123,6 +2123,36 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "z3")]
+    #[test]
+    fn negated_existential_implication_is_invariant_under_bound_variable_renaming() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let constrained = |name: &str, value: &str| {
+            let mut result = pattern(&definition, r#"\dv{SortInt{}}("1")"#);
+            result
+                .constraints
+                .push(Predicate::Not(Box::new(Predicate::Exists(
+                    Variable::new(name, Sort::simple("SortInt")),
+                    Box::new(Predicate::Equals(
+                        term(&definition, &format!("opaque{{}}({name}:SortInt{{}})")),
+                        int(&definition, value),
+                    )),
+                ))));
+            result
+        };
+        let left = constrained("X", "0");
+        let renamed = constrained("Y", "0");
+        for (antecedent, consequent) in [(&left, &renamed), (&renamed, &left)] {
+            let result = check_implication(&definition, antecedent, consequent, &solver).unwrap();
+            assert_eq!(result.status, ImplicationStatus::Valid, "{result:?}");
+            assert!(!result.vacuous);
+        }
+        let different = constrained("Y", "1");
+        let result = check_implication(&definition, &left, &different, &solver).unwrap();
+        assert_ne!(result.status, ImplicationStatus::Valid, "{result:?}");
+    }
+
     #[test]
     fn complete_check_uses_smt_counterexamples_without_hiding_solver_uncertainty() {
         let definition = definition();

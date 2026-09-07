@@ -1,19 +1,24 @@
+// Standard-prelude fixtures require native Z3 inference; their semantic assertions are
+// feature-gated below. inner_rules::portable_build_rejects_the_standard_prelude covers
+// the portable boundary instead of duplicating that rejection for each fixture.
+
 use indoc::indoc;
-use k_rust::builtin::embedded;
-use k_rust::definition::{CheckMode, ResolvedDefinition};
+use k_rust::definition::ResolvedDefinition;
 use k_rust::kompile::{
-    CompilationBackend, CompileOptions, compile_loaded_definition, declaration_modules,
-    declaration_modules_from_resolved_with_options, encode_kore_identifier, encode_kore_label,
-    encode_kore_sort, module_to_kore,
+    declaration_modules, declaration_modules_from_resolved_with_options, encode_kore_identifier,
+    encode_kore_label, encode_kore_sort, module_to_kore,
 };
 use k_rust::kore::ast::{Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
 use k_rust::kore::printer::Printer;
+#[cfg(feature = "z3-inference")]
 use k_rust::{
-    kast,
-    kast::Label,
-    outer::{self, LoadOptions, ResolvedSource, load_with_options},
+    builtin::embedded,
+    definition::CheckMode,
+    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+    outer::{LoadOptions, ResolvedSource, load_with_options},
 };
+use k_rust::{kast, kast::Label, outer};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -27,6 +32,7 @@ fn rules(source: &str, main_module: &str) -> k_rust::definition::Definition {
         .expect("rule bubbles should resolve")
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct StrictnessAttributeOracle {
     heat_labels: Vec<String>,
@@ -35,6 +41,7 @@ struct StrictnessAttributeOracle {
     cool_attributes: Vec<String>,
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn strictness_rules_do_not_emit_frontend_only_production_attributes() {
     // reference: k/result/bin/kompile --backend haskell --main-module ASSOC-STRICT test.k
@@ -1206,6 +1213,7 @@ fn encodes_labels_and_parametric_sorts() {
 /// `ModuleToKORE.convertSpecificationModule` emits `spec.sentencesExcept(definition)`: every
 /// claim visible from the specification module that the definition module does not already
 /// contain, not only the specification module's local claims.
+#[cfg(feature = "z3-inference")]
 #[test]
 fn emits_claims_imported_into_the_specification_module() {
     let source = indoc!(

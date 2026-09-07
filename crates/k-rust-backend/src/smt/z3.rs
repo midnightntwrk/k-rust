@@ -284,6 +284,7 @@ mod tests {
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortS{} []
+                symbol opaque{}(SortInt{}) : SortInt{} [function{}()]
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
             endmodule []"#,
@@ -300,6 +301,145 @@ mod tests {
 
     fn x() -> Variable {
         Variable::new("X", crate::term::Sort::simple("SortInt"))
+    }
+
+    #[test]
+    fn quantified_opaque_terms_retain_their_bound_variable_dependence() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        // f(x) = x + 1 is a model; replacing f(x) by a constant would make this false.
+        let no_fixed_point = Predicate::Not(Box::new(Predicate::Exists(
+            x(),
+            Box::new(Predicate::Equals(
+                term(&definition, "opaque{}(X:SortInt{})"),
+                Term::variable(x()),
+            )),
+        )));
+        assert_eq!(
+            solver.is_sat(&[no_fixed_point], &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+    }
+
+    #[test]
+    fn quantified_opaque_predicates_can_hold_for_some_values_and_fail_for_others() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        for name in ["X", "Y"] {
+            let some_defined = Predicate::Exists(
+                x(),
+                Box::new(Predicate::Ceil(term(&definition, "opaque{}(X:SortInt{})"))),
+            );
+            let some_undefined = Predicate::Exists(
+                Variable::new(name, Sort::simple("SortInt")),
+                Box::new(Predicate::Not(Box::new(Predicate::Ceil(term(
+                    &definition,
+                    &format!("opaque{{}}({name}:SortInt{{}})"),
+                ))))),
+            );
+            assert_eq!(
+                solver.is_sat(&[some_defined, some_undefined], &Substitution::new()),
+                Ok(Satisfiability::Sat)
+            );
+        }
+    }
+
+    #[test]
+    fn alpha_equivalent_opaque_predicates_share_an_abstraction_without_capturing_free_variables() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let quantified = |bound: &str, free: &str| {
+            Predicate::Exists(
+                Variable::new(bound, Sort::simple("SortInt")),
+                Box::new(Predicate::In(
+                    Term::variable(Variable::new(bound, Sort::simple("SortInt"))),
+                    Term::variable(Variable::new(free, Sort::simple("SortInt"))),
+                )),
+            )
+        };
+        // Include the internal template prefix as a free backend variable name.
+        let left = quantified("X", "#SMT-bound-0");
+        let renamed = quantified("Y", "#SMT-bound-0");
+        let different = quantified("Y", "F");
+        assert_eq!(
+            solver.check_predicates(
+                std::slice::from_ref(&left),
+                &Substitution::new(),
+                &[renamed]
+            ),
+            Ok(Validity::Valid)
+        );
+        assert_eq!(
+            solver.check_predicates(&[left], &Substitution::new(), &[different]),
+            Ok(Validity::Indeterminate)
+        );
+    }
+
+    #[test]
+    fn nested_shadowing_restores_the_enclosing_and_free_variable_scopes() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let equals = |value: &str| {
+            Predicate::Equals(
+                Term::variable(x()),
+                Term::domain_value(Sort::simple("SortInt"), value),
+            )
+        };
+        let constraints = [
+            equals("7"),
+            Predicate::Exists(
+                x(),
+                Box::new(Predicate::And(vec![
+                    equals("1"),
+                    Predicate::Exists(x(), Box::new(equals("2"))),
+                    equals("1"),
+                ])),
+            ),
+            equals("7"),
+        ];
+        let model = solver
+            .get_model(&constraints, &Substitution::new())
+            .unwrap();
+        assert_eq!(
+            model,
+            ModelResult::Sat(Substitution::from([(
+                x(),
+                Term::domain_value(Sort::simple("SortInt"), "7")
+            )]))
+        );
+    }
+
+    #[test]
+    fn quantified_abstractions_follow_binder_order_and_shadowing() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let nested = |outer: &str, inner: &str| {
+            let outer = Variable::new(outer, Sort::simple("SortInt"));
+            let inner = Variable::new(inner, Sort::simple("SortInt"));
+            Predicate::Exists(
+                outer.clone(),
+                Box::new(Predicate::Forall(
+                    inner.clone(),
+                    Box::new(Predicate::In(Term::variable(outer), Term::variable(inner))),
+                )),
+            )
+        };
+        assert_eq!(
+            solver.check_predicates(
+                &[nested("X", "Y")],
+                &Substitution::new(),
+                &[nested("Y", "X")]
+            ),
+            Ok(Validity::Valid)
+        );
+        let diagonal = Predicate::Forall(
+            x(),
+            Box::new(Predicate::In(Term::variable(x()), Term::variable(x()))),
+        );
+        assert_eq!(
+            solver.check_predicates(&[nested("Y", "Y")], &Substitution::new(), &[diagonal]),
+            Ok(Validity::Valid)
+        );
     }
 
     #[test]

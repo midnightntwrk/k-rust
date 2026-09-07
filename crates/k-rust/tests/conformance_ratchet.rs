@@ -586,7 +586,7 @@ fn run_cases(run: &Value) -> BTreeMap<&str, &Value> {
 }
 
 #[test]
-fn conformance_expectations_cover_and_own_the_baseline() {
+fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() {
     let document = EXPECTATIONS
         .parse::<Value>()
         .expect("valid conformance expectations TOML");
@@ -606,12 +606,32 @@ fn conformance_expectations_cover_and_own_the_baseline() {
         .collect::<BTreeSet<_>>();
     let cases = document["case"].as_array().expect("case expectations");
     assert_eq!(cases.len(), 256, "entry 0 has 256 regression-new leaves");
+    assert_eq!(
+        document["acceptance"]["case_count"].as_integer(),
+        Some(cases.len() as i64)
+    );
     let mut names = BTreeSet::new();
     let mut verdicts = BTreeMap::<&str, usize>::new();
     for case in cases {
         let name = case["name"].as_str().expect("case name");
         assert!(names.insert(name), "duplicate expectation for {name}");
         let verdict = case["baseline_verdict"].as_str().expect("baseline verdict");
+        let accepted = case["accepted_verdict"].as_str().expect("accepted verdict");
+        assert!(matches!(
+            accepted,
+            "match"
+                | "mismatch"
+                | "krust-error"
+                | "krust-unsupported"
+                | "skipped-with-reason"
+                | "reference-error"
+        ));
+        assert!(
+            !case["accepted_stage"]
+                .as_str()
+                .expect("accepted stage")
+                .is_empty()
+        );
         *verdicts.entry(verdict).or_default() += 1;
         let tickets = case["tickets"].as_array().expect("ticket list");
         let exclusion = case["exclusion"].as_str().expect("exclusion string");
@@ -625,12 +645,12 @@ fn conformance_expectations_cover_and_own_the_baseline() {
                 "excluded case {name} needs a reason"
             );
         }
-        if matches!(verdict, "mismatch" | "krust-error") {
+        if matches!(accepted, "mismatch" | "krust-error") {
             assert!(
                 !tickets.is_empty()
                     || !exclusion.is_empty()
                     || case["unexplained"].as_bool() == Some(true),
-                "red baseline case {name} needs an owner, exclusion, or unexplained marker"
+                "accepted failure {name} needs an owner, exclusion, or unexplained marker"
             );
         }
     }
@@ -644,6 +664,71 @@ fn conformance_expectations_cover_and_own_the_baseline() {
             ("skipped-with-reason", 10),
         ])
     );
+}
+
+#[test]
+fn versioned_acceptance_survives_a_fresh_log_and_a_driver_change() {
+    let fixture = Fixture::new();
+    let source = fs::read_to_string(&fixture.expectations).unwrap();
+    fs::write(
+        &fixture.expectations,
+        source.replace(
+            "baseline_verdict = \"mismatch\"",
+            "baseline_verdict = \"mismatch\"\naccepted_verdict = \"match\"\naccepted_stage = \"search\"",
+        ),
+    )
+    .unwrap();
+    // A fresh measurement log must not erase progress recorded in the repository.
+    let old_baseline = fixture.results("old-baseline", &baseline_cases());
+    assert_eq!(fixture.seed(&old_baseline).status.code(), Some(3));
+    let unchanged = fixture.results("unchanged", &[("b", "mismatch", "search")]);
+    let output = fixture.run_with_driver("new-driver", &unchanged, &["--cases", "b"], "v2");
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(fixture.audit().status.code(), Some(3));
+    let document = fixture.document();
+    let run = document["run"].as_array().unwrap().last().unwrap();
+    assert_eq!(run_cases(run)["b"]["floor_rank"].as_integer(), Some(3));
+    let recovered = fixture.results("recovered", &[("b", "match", "search")]);
+    assert!(
+        fixture
+            .run("recovered", &recovered, &["--cases", "b"])
+            .status
+            .success()
+    );
+    assert!(fixture.audit().status.success());
+}
+
+#[test]
+fn versioned_acceptance_seeds_without_private_results_or_reference_tools() {
+    let fixture = Fixture::new();
+    fs::write(&fixture.expectations, EXPECTATIONS).unwrap();
+    let output = fixture
+        .wrapper()
+        .args(["--seed-acceptance", "--label", "accepted"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !fixture.args.exists(),
+        "seeding must not invoke the measurement driver"
+    );
+    let document = fixture.document();
+    let run = &document["run"].as_array().unwrap()[0];
+    assert_eq!(run["driver_version"].as_str(), Some("accepted-baseline"));
+    assert_eq!(run["case"].as_array().unwrap().len(), 256);
+    let expectations = EXPECTATIONS.parse::<Value>().unwrap();
+    for expected in expectations["case"].as_array().unwrap() {
+        let name = expected["name"].as_str().unwrap();
+        assert_eq!(
+            run_cases(run)[name]["verdict"],
+            expected["accepted_verdict"]
+        );
+    }
+    assert!(fixture.audit().status.success());
 }
 
 #[test]
@@ -884,7 +969,7 @@ fn conformance_ratchet_fails_while_a_case_stays_below_the_stage_1_floor() {
     assert_eq!(run["below_floor"].as_array().unwrap(), &[Value::from("a")]);
     assert_eq!(run_cases(run)["a"]["delta"].as_str(), Some("same"));
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("below stage-1 floor: [\"a\"]"),
+        String::from_utf8_lossy(&output.stdout).contains("below required floor: [\"a\"]"),
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
