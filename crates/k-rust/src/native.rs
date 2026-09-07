@@ -144,18 +144,22 @@ impl SourceResolver for FileResolver {
         for candidate in &candidates {
             match candidate {
                 Candidate::Path(path) => {
-                    let identity = fs::canonicalize(path)
-                        .map(|path| path.to_string_lossy().into_owned())
-                        .unwrap_or_else(|_| normalize_virtual_path(&self.working_directory.join(path)));
-                    if self.prepared_sources.contains(&identity) {
-                        return Ok(ResolvedSource::new(identity, ""));
+                    if !self.prepared_sources.is_empty() {
+                        let identity = fs::canonicalize(path)
+                            .map(|path| path.to_string_lossy().into_owned())
+                            .unwrap_or_else(|_| {
+                                normalize_virtual_path(&self.working_directory.join(path))
+                            });
+                        if self.prepared_sources.contains(&identity) {
+                            return Ok(ResolvedSource::new(identity, ""));
+                        }
                     }
                     match self.read(path) {
-                    Ok(source) => return Ok(source),
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                    Err(error) => {
-                        return Err(format!("could not read {}: {error}", path.display()));
-                    }
+                        Ok(source) => return Ok(source),
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                        Err(error) => {
+                            return Err(format!("could not read {}: {error}", path.display()));
+                        }
                     }
                 }
                 Candidate::Embedded => {
@@ -372,8 +376,8 @@ mod tests {
         let root = fs::canonicalize(root).unwrap();
         let local = root.join("shared.k");
         fs::write(&local, "new local source").unwrap();
-        let mut resolver =
-            FileResolver::new(&root, [root.join("first"), root.join("prepared")]).with_prepared_sources([root
+        let mut resolver = FileResolver::new(&root, [root.join("first"), root.join("prepared")])
+            .with_prepared_sources([root
                 .join("prepared/shared.k")
                 .to_string_lossy()
                 .into_owned()]);
@@ -383,6 +387,24 @@ mod tests {
         assert_eq!(source.source, local.to_string_lossy());
         assert_eq!(source.text, "new local source");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn prepared_first_include_keeps_priority_over_a_local_file() {
+        let fixture = ResolverFixture::new();
+        let local = fixture.write("shared.k", "local source");
+        let prepared = fixture
+            .0
+            .join("prepared/shared.k")
+            .to_string_lossy()
+            .into_owned();
+        let mut resolver = FileResolver::new(&fixture.0, [fixture.0.join("prepared")])
+            .with_prepared_sources([prepared.clone()]);
+        let source = resolver
+            .resolve(&local.to_string_lossy(), "shared.k")
+            .unwrap();
+        assert_eq!(source.source, prepared);
+        assert!(source.text.is_empty());
     }
 
     #[test]

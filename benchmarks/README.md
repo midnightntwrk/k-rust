@@ -103,6 +103,7 @@ instrumented proof. Its `proof_seconds` measures only calls to `prove_claim`; `i
 `internalize_seconds`, and `proof_setup_seconds` record input loading, backend internalization,
 and solver/claim setup separately. Per-claim durations and verdicts are included. This is one
 diagnostic sample, not the Hyperfine sample distribution, and excludes output and teardown.
+Trusted claims and claims restored from saved proofs appear with `trusted` and `saved` statuses and zero proof time.
 
 Only `prove` compares fresh-spec command latency: both tools receive a source spec and prepared
 semantics. Canonical `kprove` still compiles the spec, so comparing it to Rust's `execute` would
