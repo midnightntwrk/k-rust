@@ -11,8 +11,8 @@ use crate::kast::{Label, Sort, Term};
 use crate::provenance::SourceId;
 
 use super::config::{
-    BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort, nonterminal,
-    truth,
+    BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort,
+    add_synonym_casts, nonterminal, truth,
 };
 use super::parser::{
     Grammar, ParseError, Scanner, TokenPrecedenceDeclaration, named_projection_productions,
@@ -526,6 +526,7 @@ fn rule_grammar(
             add_casts(&mut grammar, Sort::new("K"), sort.clone(), sort.clone())?;
         }
     }
+    add_synonym_casts(&mut grammar, &visible)?;
 
     Ok(grammar)
 }

@@ -205,6 +205,7 @@ fn configuration_grammar(
             add_casts(&mut grammar, Sort::new("K"), sort.clone(), sort)?;
         }
     }
+    add_synonym_casts(&mut grammar, &visible)?;
 
     Ok(grammar)
 }
@@ -497,6 +498,23 @@ pub(super) fn add_subsort(
         false,
         true,
     )
+}
+
+/// RuleGrammarGenerator adds casts for visible synonyms separately from concrete sorts.
+/// Keep the alias in the source spelling and the target in semantic cast labels and operands.
+pub(super) fn add_synonym_casts(
+    grammar: &mut Grammar,
+    visible: &[&Sentence],
+) -> Result<(), ParseError> {
+    for sentence in visible {
+        if let Sentence::SortSynonym {
+            new_sort, old_sort, ..
+        } = sentence
+        {
+            add_casts(grammar, Sort::new("K"), new_sort.clone(), old_sort.clone())?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn add_casts(
