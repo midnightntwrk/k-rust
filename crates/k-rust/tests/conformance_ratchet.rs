@@ -16,7 +16,6 @@ struct Fixture {
     log: PathBuf,
     runs: PathBuf,
     expectations: PathBuf,
-    status: PathBuf,
     driver: PathBuf,
     fake_binary: PathBuf,
     args: PathBuf,
@@ -34,7 +33,6 @@ impl Fixture {
         let log = root.join("ratchet.toml");
         let runs = root.join("runs");
         let expectations = root.join("expectations.toml");
-        let status = root.join("implementation-status.toml");
         let driver = root.join("fake-driver");
         let fake_binary = root.join("fake-binary");
         let args = root.join("driver.args");
@@ -58,7 +56,6 @@ meaning = "Exercise the exclusion contract."
 name = "a"
 baseline_verdict = "match"
 baseline_stage = "krun"
-tickets = ["A1-01"]
 exclusion = ""
 reason = ""
 
@@ -66,15 +63,13 @@ reason = ""
 name = "b"
 baseline_verdict = "mismatch"
 baseline_stage = "search"
-tickets = ["A1-01"]
 exclusion = ""
-reason = "owned mismatch"
+reason = "measured mismatch"
 
 [[case]]
 name = "c"
 baseline_verdict = "match"
 baseline_stage = "kompile"
-tickets = []
 exclusion = "fixture-exclusion"
 reason = "adjudicated fixture exclusion"
 
@@ -82,21 +77,8 @@ reason = "adjudicated fixture exclusion"
 name = "d"
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kast"
-tickets = []
 exclusion = ""
 reason = ""
-unexplained = true
-"#,
-        )
-        .unwrap();
-        fs::write(
-            &status,
-            r#"schema = 1
-[[ticket]]
-id = "A1-01"
-state = "implemented"
-verification = "targeted"
-commits = ["fixture"]
 "#,
         )
         .unwrap();
@@ -136,7 +118,6 @@ cp "$FAKE_RESULTS" "$results"
             log,
             runs,
             expectations,
-            status,
             driver,
             fake_binary,
             args,
@@ -163,7 +144,6 @@ cp "$FAKE_RESULTS" "$results"
             .args(["--log", self.log.to_str().unwrap()])
             .args(["--runs-dir", self.runs.to_str().unwrap()])
             .args(["--expectations", self.expectations.to_str().unwrap()])
-            .args(["--status", self.status.to_str().unwrap()])
             .env("CONFORMANCE_DRIVER", &self.driver)
             .env("CONFORMANCE_KRUST", &self.fake_binary)
             .env("CONFORMANCE_TEST_BINARY", &self.fake_binary)
@@ -257,8 +237,8 @@ fn conformance_driver_mirrors_the_ratchet_ranks() {
 
 #[test]
 fn conformance_driver_forwards_kompile_warning_flags_and_md_selectors() {
-    // D1-14 documented the driver dropping `-w2e -w all` (checkWarns) and D1-04's
-    // markdownSelectors row exposed that krust's per-run recompilation never saw the
+    // checkWarns requires `-w2e -w all`, and markdownSelectors requires that
+    // krust's per-run recompilation receive the
     // kompile recipe's `--md-selector`. The translations are pure functions of the
     // recipe, so they are checked without the reference toolchain. The recipe is a
     // ktest-fail one: `-w2e` is forwarded only where the reference's rejection depends
@@ -339,11 +319,9 @@ print(json.dumps({
 
 #[test]
 fn conformance_driver_forwards_w2e_only_where_the_reference_rejects_on_it() {
-    // Host ratchet run 16: werrorCategory (`kompile -w2e -Wno missing-syntax-module`, ktest)
-    // fell below its stage-1 floor and prelude-warnings (`-w all -w2e`, ktest) from match to
-    // krust-error, because 2828e95 forwarded `-w2e` as `--warnings-to-errors` while dropping
-    // the per-category `-Wno` krust cannot express, and because krust's extension warnings
-    // (D1-05 UnadmittedHookNamespace) are promoted where the reference emits nothing. The
+    // Dropping `-Wno` while forwarding `-w2e` promotes warnings the reference disabled
+    // (werrorCategory); krust's UnadmittedHookNamespace extension warning can also turn
+    // an accepted reference recipe into a krust-error (prelude-warnings). The
     // warning contract is forwarded whole or not at all: `-w2e` reaches krust only for a
     // ktest-fail recipe without `-W`/`-Wno`; every other form is dropped and recorded.
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -597,9 +575,18 @@ fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() 
     let category_ids = categories
         .iter()
         .map(|category| {
+            let decision = category["decided_by"]
+                .as_str()
+                .expect("compatibility decision");
+            let (path, anchor) = decision.split_once('#').expect("decision section anchor");
+            assert_eq!(path, "docs/compatibility.md");
+            let compatibility = include_str!("../../../docs/compatibility.md");
             assert!(
-                category.get("arbiter").is_some() || category.get("decided_by").is_some(),
-                "exclusion category needs a recorded authority: {category:?}"
+                compatibility
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("## "))
+                    .any(|heading| heading.to_lowercase().replace(' ', "-") == anchor),
+                "unresolved compatibility decision: {decision}"
             );
             category["id"].as_str().unwrap()
         })
@@ -633,7 +620,7 @@ fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() 
                 .is_empty()
         );
         *verdicts.entry(verdict).or_default() += 1;
-        let tickets = case["tickets"].as_array().expect("ticket list");
+        assert!(case.get("tickets").is_none());
         let exclusion = case["exclusion"].as_str().expect("exclusion string");
         if !exclusion.is_empty() {
             assert!(
@@ -647,10 +634,8 @@ fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() 
         }
         if matches!(accepted, "mismatch" | "krust-error") {
             assert!(
-                !tickets.is_empty()
-                    || !exclusion.is_empty()
-                    || case["unexplained"].as_bool() == Some(true),
-                "accepted failure {name} needs an owner, exclusion, or unexplained marker"
+                !case["reason"].as_str().unwrap_or_default().is_empty(),
+                "accepted failure {name} needs a measured-behavior explanation"
             );
         }
     }
@@ -791,7 +776,7 @@ fn conformance_ratchet_records_improvements_and_fails_on_regression() {
 
 #[test]
 fn conformance_ratchet_reports_driver_deltas_above_the_floor_without_failing() {
-    // Entry 0 is the stage-1 floor: a case that a later driver raised above it may fall back
+    // Entry 0 is the initial measurement floor: a case that a later driver raised above it may fall back
     // to the floor under yet another driver version without failing the run.
     let fixture = Fixture::new();
     let baseline = fixture.results("baseline", &baseline_cases());
@@ -834,7 +819,7 @@ fn conformance_ratchet_reports_driver_deltas_above_the_floor_without_failing() {
 }
 
 #[test]
-fn conformance_ratchet_fails_below_the_stage_1_floor_across_driver_versions() {
+fn conformance_ratchet_fails_below_the_initial_measurement_floor_across_driver_versions() {
     let fixture = Fixture::new();
     let baseline = fixture.results("baseline", &baseline_cases());
     assert!(fixture.seed(&baseline).status.success());
@@ -935,8 +920,8 @@ fn conformance_ratchet_never_fails_on_excluded_cases_across_driver_versions() {
 }
 
 #[test]
-fn conformance_ratchet_fails_while_a_case_stays_below_the_stage_1_floor() {
-    // The exit criterion is "no case below its stage-1 rank": a case that already fell below
+fn conformance_ratchet_fails_while_a_case_stays_below_the_initial_measurement_floor() {
+    // The exit criterion is "no case below its initial measured rank": a case that already fell below
     // its floor keeps failing every run that measures it until it is raised, even when its
     // rank is unchanged against the previous measurement; excluded cases never count.
     let fixture = Fixture::new();
@@ -988,7 +973,7 @@ fn conformance_ratchet_fails_while_a_case_stays_below_the_stage_1_floor() {
 }
 
 #[test]
-fn conformance_ratchet_audit_lists_cases_below_the_stage_1_floor() {
+fn conformance_ratchet_audit_lists_cases_below_the_initial_measurement_floor() {
     let fixture = Fixture::new();
     let baseline = fixture.results("baseline", &baseline_cases());
     assert!(fixture.seed(&baseline).status.success());
@@ -1023,11 +1008,11 @@ fn conformance_ratchet_audit_lists_cases_below_the_stage_1_floor() {
     assert_eq!(output.status.code(), Some(3), "the audit fails like a run");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("| a | 3 | 1 | 1 | mismatch | A1-01 |  |"),
+        stdout.contains("| a | 3 | 1 | 1 | mismatch |  |"),
         "audit table lists the non-excluded case: {stdout}"
     );
     assert!(
-        stdout.contains("| c | 3 | 0 | 1 | krust-error |  | fixture-exclusion |"),
+        stdout.contains("| c | 3 | 0 | 1 | krust-error | fixture-exclusion |"),
         "audit table lists the excluded case with its exclusion: {stdout}"
     );
     assert!(!stdout.contains("| b |"), "b is at its floor: {stdout}");
@@ -1067,34 +1052,80 @@ fn conformance_ratchet_never_fails_on_excluded_cases() {
 }
 
 #[test]
-fn conformance_ratchet_reports_overdue_cases() {
+fn conformance_ratchet_reads_legacy_logs_without_weakening_the_floor() {
     let fixture = Fixture::new();
     let baseline = fixture.results("baseline", &baseline_cases());
     assert!(fixture.seed(&baseline).status.success());
-    let output = fixture.run("overdue", &baseline, &["--all"]);
+    let legacy = fs::read_to_string(&fixture.log)
+        .unwrap()
+        .replace(
+            "[[run.case]]",
+            "[[run.case]]\ntickets = [\"historical-owner\"]",
+        )
+        .replace(
+            "[[run]]",
+            "[[run]]\noverdue = [\"b\"]\npromotion_candidates = []",
+        );
+    fs::write(&fixture.log, &legacy).unwrap();
+    assert!(fixture.audit().status.success());
+    let dropped = fixture.results("dropped", &[("a", "mismatch", "krun")]);
+    let output = fixture.run("legacy-floor", &dropped, &["--cases", "a"]);
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(fixture.audit().status.code(), Some(3));
     assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+        fs::read_to_string(&fixture.log)
+            .unwrap()
+            .starts_with(legacy.trim_end())
     );
     let document = fixture.document();
     let run = document["run"].as_array().unwrap().last().unwrap();
-    assert_eq!(run["overdue"].as_array().unwrap()[0].as_str(), Some("b"));
+    assert_eq!(
+        run["below_floor"].as_array().unwrap()[0].as_str(),
+        Some("a")
+    );
+    for obsolete in ["overdue", "promotion_candidates"] {
+        assert!(run.get(obsolete).is_none());
+    }
+    assert!(run_cases(run)["a"].get("tickets").is_none());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("tickets"));
 }
 
 #[test]
-fn conformance_ratchet_selects_cases_by_ticket() {
+fn conformance_ratchet_selects_cases_by_name_and_baseline_stage() {
     let fixture = Fixture::new();
     let baseline = fixture.results("baseline", &baseline_cases());
     assert!(fixture.seed(&baseline).status.success());
-    let output = fixture.run("ticket", &baseline, &["--ticket", "A1-01"]);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let args = fs::read_to_string(&fixture.args).unwrap();
-    assert!(args.contains("--cases\na\nb\n"), "driver arguments: {args}");
+    for (label, selection, expected) in [
+        ("case", vec!["--cases", "b"], vec!["b"]),
+        ("stage", vec!["--stage", "krun"], vec!["a"]),
+        (
+            "union",
+            vec!["--cases", "b", "--stage", "krun"],
+            vec!["a", "b"],
+        ),
+    ] {
+        let cases: Vec<_> = baseline_cases()
+            .into_iter()
+            .filter(|(name, _, _)| expected.contains(name))
+            .collect();
+        let results = fixture.results(label, &cases);
+        let output = fixture.run(label, &results, &selection);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let args = fs::read_to_string(&fixture.args).unwrap();
+        let selected: Vec<_> = args
+            .lines()
+            .skip_while(|line| *line != "--cases")
+            .skip(1)
+            .collect();
+        assert_eq!(selected, expected, "driver arguments: {args}");
+        let document = fixture.document();
+        let run = document["run"].as_array().unwrap().last().unwrap();
+        assert_eq!(run_cases(run).keys().copied().collect::<Vec<_>>(), expected);
+    }
 }
 
 #[test]

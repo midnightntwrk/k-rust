@@ -1656,11 +1656,11 @@ fn krun_search_explores_an_unconditional_branch() {
 }
 
 #[test]
-fn reference_sd_symbolic_depth_two_leaves_match_modulo_gotstuck() {
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/search/sd");
+fn reference_symbolic_depth_two_leaves_match_modulo_gotstuck() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/search/symbolic-depth-bound");
     let (root, _) = fixture();
-    let compiled = root.join("sd-kompiled");
+    let compiled = root.join("symbolic-depth-bound-kompiled");
     let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "kcompile",
@@ -1726,8 +1726,8 @@ fn reference_sd_symbolic_depth_two_leaves_match_modulo_gotstuck() {
 
 #[test]
 fn kore_exec_applies_rewrite_rules_tagged_concrete_and_symbolic() {
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/execution/co");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/concrete-symbolic-rules");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "krun",
@@ -1738,7 +1738,7 @@ fn kore_exec_applies_rewrite_rules_tagged_concrete_and_symbolic() {
             "CO-SYNTAX",
             "--sort",
             "Pgm",
-            fixtures.join("f3.co").to_str().unwrap(),
+            fixtures.join("concrete-input.pgm").to_str().unwrap(),
             "--depth",
             "2",
         ])
@@ -1759,8 +1759,8 @@ fn kore_exec_applies_rewrite_rules_tagged_concrete_and_symbolic() {
 
 #[test]
 fn krun_search_final_reports_states_cut_by_the_depth_bound() {
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/search/sd");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/search/symbolic-depth-bound");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "krun",
@@ -1792,8 +1792,8 @@ fn krun_search_final_reports_states_cut_by_the_depth_bound() {
 
 #[test]
 fn kore_exec_merges_converging_final_states() {
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/execution/br");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/branching-execution");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "krun",
@@ -1804,7 +1804,7 @@ fn kore_exec_merges_converging_final_states() {
             "BR-SYNTAX",
             "--sort",
             "Pgm",
-            fixtures.join("a.br").to_str().unwrap(),
+            fixtures.join("start.pgm").to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -1821,8 +1821,8 @@ fn kore_exec_merges_converging_final_states() {
 
 #[test]
 fn krun_reports_bottom_when_the_only_matching_rule_has_a_false_ensures() {
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/execution/tr");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/trivial-result-execution");
     let run = |search: bool| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
         command.args([
@@ -1834,7 +1834,7 @@ fn krun_reports_bottom_when_the_only_matching_rule_has_a_false_ensures() {
             "TR-SYNTAX",
             "--sort",
             "Pgm",
-            fixtures.join("a.tr").to_str().unwrap(),
+            fixtures.join("false-ensures.pgm").to_str().unwrap(),
         ]);
         if search {
             command.arg("--search-final");
@@ -1862,20 +1862,23 @@ fn krun_reports_bottom_when_the_only_matching_rule_has_a_false_ensures() {
 }
 
 #[test]
-fn reference_hook_pc_findstring_follows_domains_md() {
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks/pc");
+fn reference_hook_string_index_boundaries_follow_domains_md() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/hooks/string-index-boundaries");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "krun",
-            fixtures.join("pc.k").to_str().unwrap(),
+            fixtures.join("string-index-boundaries.k").to_str().unwrap(),
             "--main-module",
             "HOOKS",
             "--syntax-module",
             "HOOKS-SYNTAX",
             "--sort",
             "Pgm",
-            fixtures.join("pc.hooks").to_str().unwrap(),
+            fixtures
+                .join("string-index-boundaries.hooks")
+                .to_str()
+                .unwrap(),
             "--depth",
             "10",
         ])
@@ -1909,16 +1912,16 @@ fn reference_hook_pc_findstring_follows_domains_md() {
 }
 
 #[test]
-fn krun_executes_hook_edges_to_the_adjudicated_results() {
+fn krun_executes_hook_edges_to_the_documented_results() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "krun",
-            fixtures.join("hooks-c2.k").to_str().unwrap(),
+            fixtures.join("hook-boundaries.k").to_str().unwrap(),
             "--main-module",
-            "HOOKS-C2",
+            "HOOK-BOUNDARIES",
             "--syntax-module",
-            "HOOKS-C2-SYNTAX",
+            "HOOK-BOUNDARIES-SYNTAX",
             "--sort",
             "Pgm",
             fixtures.join("edges.hooks").to_str().unwrap(),
@@ -1963,14 +1966,17 @@ fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
             "krun",
-            fixtures.join("hooks-c2.k").to_str().unwrap(),
+            fixtures.join("hook-boundaries.k").to_str().unwrap(),
             "--main-module",
-            "HOOKS-C2",
+            "HOOK-BOUNDARIES",
             "--syntax-module",
-            "HOOKS-C2-SYNTAX",
+            "HOOK-BOUNDARIES-SYNTAX",
             "--sort",
             "Pgm",
-            fixtures.join("y16.hooks").to_str().unwrap(),
+            fixtures
+                .join("unsupported-bytes-memset.hooks")
+                .to_str()
+                .unwrap(),
             "--depth",
             "10",
         ])
@@ -2089,8 +2095,8 @@ fn search_bound_truncation_is_reported_to_the_user() {
 
 #[test]
 fn krun_search_all_prints_disjuncts_in_a_deterministic_order() {
-    let definition =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/search/br-d1.k");
+    let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/search/branching-order.k");
     let run = |search_type: &str| {
         Command::new(env!("CARGO_BIN_EXE_krust"))
             .args([
@@ -2151,8 +2157,8 @@ fn krun_search_all_prints_disjuncts_in_a_deterministic_order() {
 
 #[test]
 fn krun_search_bound_returns_a_subset_of_the_unbounded_solutions() {
-    let definition =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/search/br-d1.k");
+    let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/search/branching-order.k");
     let run = |bound: Option<&str>| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
         command.args([
@@ -2327,7 +2333,7 @@ fn variable_names(pattern: &Pattern, names: &mut Vec<String>) {
     }
 }
 
-/// C1-01's frame narrowing mints `Ex#Frame!0`; the reference prints its own remainder as
+/// Symbolic collection frame narrowing mints `Ex#Frame!0`; the reference prints its own remainder as
 /// `VarAC1'Unds'1:SortMap{}` (kore-exec on the same fixture), a plain KORE identifier.
 #[test]
 fn kore_exec_prints_fresh_remainder_names_as_kore_identifiers() {

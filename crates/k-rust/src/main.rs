@@ -2782,9 +2782,9 @@ fn disjoin_outputs(solutions: Vec<KorePattern>, result_sort: &KoreSort) -> KoreP
     result
 }
 
-/// Arbiter row 12: print disjuncts in the structural order of their externalized KORE, never in
+/// Print disjuncts in the structural order of their externalized KORE, never in
 /// traversal order. Kore's internal term ordering is intentionally not reproduced; gates compare
-/// result sets.
+/// result multisets (docs/compatibility.md#search-results).
 fn order_disjuncts(mut solutions: Vec<KorePattern>) -> Vec<KorePattern> {
     solutions.sort();
     solutions

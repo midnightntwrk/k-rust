@@ -47,7 +47,7 @@ It does not establish completeness, and the census is an inventory rather than a
 
 `scripts/conformance/expectations.toml` records each case's historical `baseline_verdict` and the newer `accepted_verdict` and `accepted_stage` from certification.
 The acceptance metadata identifies the full certification that established the initial floor, including its measured revision and source-results digest.
-Per-case `accepted_basis` records later targeted promotions.
+Per-case `accepted_basis` records later measured increases to the acceptance floor.
 These are recorded measurements, not a claim that the current checkout has been recertified.
 
 Initialize a local log without private history or a reference installation:
@@ -62,6 +62,10 @@ After configuring the pinned reference tools, measure selected cases and retain 
 scripts/conformance-ratchet.sh --label change --cases append --log target/conformance/ratchet.toml --runs-dir target/conformance/runs
 scripts/conformance-ratchet.sh --audit --log target/conformance/ratchet.toml
 ```
+
+Selectors are combined as a union: `--cases NAME...` selects named cases, `--stage STAGE` selects their historical baseline stage, and `--all` selects every case.
+Stage selection uses `baseline_stage`, which stays stable as the implementation progresses; inspect current per-step results to identify the affected contract.
+Version-1 logs with historical ownership fields remain readable and retain their original entries, but new entries and reports contain only measurements, deltas, and exclusions.
 
 The required rank is at least the versioned acceptance rank and the local log's first measured rank.
 A fresh log or a different driver version must not lower the versioned floor.
@@ -79,7 +83,16 @@ Changes to CI coverage, frequency, or resource budgets require a separate cost d
 ## Comparator evidence
 
 `scripts/reference-normalisations.toml` records the permitted normalizations and exclusions.
+[Compatibility decisions](compatibility.md) explain the governing semantics and reference evidence; each conformance exclusion category points to the applicable policy.
 The execution comparator first compares normalized structures and may use k-rust implication in both directions to establish equivalence of remaining constraints.
 That fallback is supplementary evidence: it depends on the same Rust implication implementation being tested elsewhere and cannot independently validate it.
 Implication correctness must therefore have direct Rust contract tests, including variable-renaming invariance and negative controls.
 An unavailable or inconclusive equivalence check must not be counted as a successful comparison.
+
+## Durable regression descriptions
+
+Committed filenames, test names, fixture metadata, and comments must identify the behavior or scenario they describe.
+A contributor must be able to understand an expectation without private review notes, task ledgers, or temporary run directories.
+Keep upstream issue numbers and repository-defined normalization identifiers when they provide traceable evidence.
+Record lasting contracts and exception rationales in tracked documentation or fixture metadata; keep work assignment, completion history, and temporary investigation narratives in development history.
+A provenance record may identify a historical tool invocation, but local paths must not serve as the only explanation or as required inputs to a permanent check.

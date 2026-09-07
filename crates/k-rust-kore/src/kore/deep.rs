@@ -88,7 +88,7 @@ fn deep_patterns_survive_a_one_mebibyte_thread() {
         let value = json::to_value(&pattern).expect("deep KORE JSON value should build");
         assert_eq!(value["format"], json::FORMAT);
         // serde_json::Value retains recursive drop glue. The public capacity table documents
-        // that host-envelope residue; do not turn this syntax-layer test into that later ticket.
+        // that remaining host limit; this test measures codec capacity independently of Value drop.
         std::mem::forget(value);
 
         drop(pattern);

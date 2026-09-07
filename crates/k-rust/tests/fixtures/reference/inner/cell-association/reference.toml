@@ -1,6 +1,6 @@
 case = "cell-association"
 subsystem = "inner"
-harvested_from = "/tmp/stage12-final/tmp/k-rust-reference-differential.Lp3Fxl/cell-map/kore-llvm/reference/kompiled/parsed.json"
+harvested_from = "k/k-distribution/tests/regression-new/cell_map/test.k; cell association extracted from pinned kompile parsed.json with the command below"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 
@@ -8,7 +8,7 @@ haskell_backend = "0.1.155 (38afc81)"
 file = "association.toml"
 command = '''
 kompile test.k --backend kore --main-module TEST --output-definition ref --emit-json --warnings none &&
-jq -r 'def shape: if (.node == "KApply" and .label.name == "#cells") then "#cells(" + (.args[0] | shape) + ", " + (.args[1] | shape) + ")" elif .node == "KApply" then .label.name else .node end; [.term.modules[].localSentences[] | select(.node == "KRule") | select(.att.att["org.kframework.attributes.Source"] | strings | endswith("/cell_map/test.k")) | (.att.att["org.kframework.attributes.Location"][0]) as $line | select(($line == 20) or ($line == 34)) | "[[rule]]\nline = \($line)\nshape = \"\(.body | shape)\"\n"] | join("\n") | rtrimstr("\n")' ref/parsed.json > association.toml
+jq -r 'def shape: if (.node == "KApply" and .label.name == "#cells") then "#cells(" + (.args[0] | shape) + ", " + (.args[1] | shape) + ")" elif .node == "KApply" then .label.name else .node end; [.term.modules[].localSentences[] | select(.node == "KRule") | select(.att.att["org.kframework.attributes.Source"] | strings | (endswith("/cell_map/test.k") or endswith("/cell-association/test.k"))) ] | sort_by(.att.att["org.kframework.attributes.Location"][0]) | [.[] | (.att.att["org.kframework.attributes.Location"][0]) as $line | select(($line == 20) or ($line == 34)) | "[[rule]]\nline = \($line)\nshape = \"\(.body | shape)\"\n"] | join("\n") | rtrimstr("\n")' ref/parsed.json > association.toml
 '''
 tool = "kompile and jq"
 exit_code = 0

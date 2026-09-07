@@ -1,4 +1,4 @@
-case = "sd"
+case = "symbolic-depth-bound"
 subsystem = "search"
 harvested_from = "hand-written symbolic search probe: a depth-bounded kore-exec run over a symbolic initial configuration"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
@@ -6,7 +6,7 @@ haskell_backend = "0.1.155 (38afc81)"
 
 [[input]]
 file = "symbolic.kore"
-source = "hand-written symbolic initial configuration from the C3 live matrix"
+source = "hand-written symbolic counter configuration for bounded execution"
 sha256 = "e61af4fe7560f2992bae73d1bc057931e38ce4e7468427180b756cc993f07497"
 
 [[artifact]]

@@ -26,25 +26,13 @@ selected=("${available[@]}")
 if (($#)); then
   selected=("$@")
 fi
-runnable=()
 for name in "${selected[@]}"; do
   if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
     echo "error: unknown symbolic execution case: $name" >&2
     echo "available cases: ${available[*]}" >&2
     exit 2
   fi
-  suite=$(jq -c --arg name "$name" '.symbolic[] | select(.name == $name)' <<<"$manifest_json")
-  blocking_tickets=$(jq -r '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' <<<"$suite")
-  if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
-    echo "[$name] pending: blocked by $blocking_tickets"
-  else
-    runnable+=("$name")
-  fi
 done
-if ((${#runnable[@]} == 0)); then
-  echo "reference symbolic execution differential corpus passed"
-  exit 0
-fi
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -101,7 +89,7 @@ echo "[symbolic] building the Rust execution frontend"
 )
 krust="$cargo_target_dir/release/krust"
 
-for name in "${runnable[@]}"; do
+for name in "${selected[@]}"; do
   suite=$(jq -c --arg name "$name" '.symbolic[] | select(.name == $name)' <<<"$manifest_json")
   source=$(jq -r '.source' <<<"$suite")
   main_module=$(jq -r '.["main-module"]' <<<"$suite")

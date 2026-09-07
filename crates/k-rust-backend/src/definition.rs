@@ -1920,7 +1920,7 @@ mod tests {
     #[test]
     fn reference_accepts_reflexive_subsort_axioms() {
         BackendDefinition::internalize(&reference_definition_fixture("selfsub"), "M")
-            .expect("arbiter row 8 selects Kore's reflexive subsort acceptance");
+            .expect("reflexive subsorts must be accepted, as in Kore");
     }
 
     #[test]

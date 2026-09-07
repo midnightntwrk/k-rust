@@ -1,9 +1,9 @@
 version = 1
 
 # Manual real-semantics certification protocol (no CI job):
-# Run every command below after a landing that changes frontend, definition, kompile, or KORE emission behavior.
+# Run every command below after a change to frontend, definition, kompile, or KORE emission behavior.
 # The scripts must use the clean manifest-pinned checkouts and matching K release enforced by reference-pins.sh.
-# Record each named case's pass/fail result, wall time, and peak RSS in the landing PR description.
+# Record each named case's pass/fail result, wall time, and peak RSS in the change description.
 # Each Java-backed script re-executes its complete process tree in one user systemd scope before doing work.
 # REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB and REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB tune the equal 8 GiB aggregate thresholds.
 # Swap is disabled, and Rust frontends execute directly inside the aggregate scope instead of escaping into sibling scopes.
@@ -16,20 +16,20 @@ version = 1
 # scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2
 # REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence
 # scripts/reference-kast-differential.sh wasm mir evm-equivalence
-# scripts/reference-non-imp-execution-differential.sh imp collections hooks-c2
-# scripts/reference-non-imp-execution-differential.sh c3-search c3-br c3-co c3-tr
+# scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries
+# scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution
 # scripts/reference-proof-differential.sh mini-proof
-# scripts/reference-proof-differential.sh c4-split c4-lemma c4-trivial
+# scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof
 # scripts/reference-rpc-differential.sh imp
 # scripts/reference-rpc-differential.sh bounded-search
-# scripts/reference-rpc-differential.sh c3-tr-rpc
+# scripts/reference-rpc-differential.sh trivial-result-rpc
 # scripts/reference-mir-execution-differential.sh
-# scripts/reference-symbolic-execution-differential.sh c3-sd-symbolic c3-sy
-# scripts/conformance-ratchet.sh --label <landing> --ticket <ticket>
+# scripts/reference-symbolic-execution-differential.sh symbolic-depth-bound symbolic-owise
+# scripts/conformance-ratchet.sh --label change --cases append --log target/conformance/ratchet.toml --runs-dir target/conformance/runs
 #
 # PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):
 #   1. the gate lines above that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)
-#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label <branch> --ticket <ids named in the PR>` (or --all at a milestone)
+#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label change --cases <affected cases> --log target/conformance/ratchet.toml --runs-dir target/conformance/runs` (or --all for full certification)
 #   3. the permanent multi-alias oracle-exclusion count printed by scripts/reference-differential.sh
 
 [normalisations]
@@ -1176,10 +1176,10 @@ depth = 193
 programs = ["${workspace}/crates/k-rust/tests/fixtures/reference/deep.term"]
 
 [[execution]]
-name = "c3-search"
+name = "depth-bounded-search"
 requires = ["reference-toolchain"]
 constructs = ["bounded-search"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sd/test.k"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/symbolic-depth-bound/test.k"
 main-module = "SD"
 syntax-module = "SD-SYNTAX"
 sort = "Pgm"
@@ -1187,86 +1187,86 @@ depth = 2
 
 [[execution.search]]
 name = "final-depth-two"
-program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/sd/count5.sd"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/depth-bounded-search/count-five.pgm"
 mode = "--search-final"
 depth = 2
 
 [[execution]]
-name = "c3-br"
+name = "branching-execution"
 requires = ["reference-toolchain"]
 constructs = ["branching", "bounded-search"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/br/test.k"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/branching-execution/test.k"
 main-module = "BR"
 syntax-module = "BR-SYNTAX"
 sort = "Pgm"
 depth = 1
 programs = [
-  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/br/a.br",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/branching-execution/start.pgm",
 ]
 
 [[execution.search]]
 name = "final-depth-one"
-program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/br/a.br"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/branching-execution/start.pgm"
 mode = "--search-final"
 depth = 1
 
 [[execution]]
-name = "c3-co"
+name = "concrete-symbolic-rules"
 requires = ["reference-toolchain"]
 constructs = ["concrete-symbolic-rule"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/co/test.k"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/concrete-symbolic-rules/test.k"
 main-module = "CO"
 syntax-module = "CO-SYNTAX"
 sort = "Pgm"
 depth = 2
 programs = [
-  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/co/f3.co",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/concrete-symbolic-rules/concrete-input.pgm",
 ]
 
 [[execution]]
-name = "c3-tr"
+name = "trivial-result-execution"
 requires = ["reference-toolchain"]
 constructs = ["trivial-branch"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/test.k"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/test.k"
 main-module = "TR"
 syntax-module = "TR-SYNTAX"
 sort = "Pgm"
 depth = 2
 programs = [
-  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/a.tr",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/false-ensures.pgm",
 ]
 
 [[execution.search]]
 name = "final"
-program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/a.tr"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/false-ensures.pgm"
 mode = "--search-final"
 
 [[execution]]
-name = "hooks-c2"
+name = "hook-boundaries"
 requires = ["reference-toolchain"]
 constructs = ["hook-oracle-exception"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/hooks-c2.k"
-main-module = "HOOKS-C2"
-syntax-module = "HOOKS-C2-SYNTAX"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/hook-boundaries.k"
+main-module = "HOOK-BOUNDARIES"
+syntax-module = "HOOK-BOUNDARIES-SYNTAX"
 sort = "Pgm"
 depth = 1
 programs = [
-  "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.hooks",
-  "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.hooks",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/string-index-boundaries.hooks",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/bytes-replacement-range.hooks",
   "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/edges.hooks",
 ]
 
 [[execution.oracle-exception]]
-program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.hooks"
-expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.expected.kore"
-reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/pc.reference.kore"
-reason = "Arbiter row 4: Kore STRING.find searches the suffix without rebasing the returned index; domains.md defines the index in the original haystack."
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/string-index-boundaries.hooks"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/string-index-boundaries.expected.kore"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/string-index-boundaries.reference.kore"
+reason = "docs/compatibility.md#hook-specification-exceptions: Kore STRING.find searches the suffix without rebasing the returned index; domains.md defines the index in the original haystack."
 
 [[execution.oracle-exception]]
-program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.hooks"
-expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.expected.kore"
-reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/y14.reference.kore"
-reason = "Arbiter row 4: Kore BYTES.replaceAt checks only the start index; domains.md requires the complete replacement range to fit."
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/bytes-replacement-range.hooks"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/bytes-replacement-range.expected.kore"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/hooks/bytes-replacement-range.reference.kore"
+reason = "docs/compatibility.md#hook-specification-exceptions: Kore BYTES.replaceAt checks only the start index; domains.md requires the complete replacement range to fit."
 
 [[excluded]]
 name = "ecdsa-invalid-execution"
@@ -1357,7 +1357,7 @@ claims = ["claim-proven"]
 failure-claim = "claim-refuted"
 
 [[proof]]
-name = "c4-split"
+name = "split-proof"
 requires = ["reference-toolchain"]
 constructs = ["one-path-proof"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
@@ -1371,7 +1371,7 @@ claims = []
 failure-claim = "ONEPATH-SPEC.c1"
 
 [[proof]]
-name = "c4-lemma"
+name = "trusted-lemma-proof"
 requires = ["reference-toolchain"]
 constructs = ["proof-lemma"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
@@ -1385,7 +1385,7 @@ claims = []
 failure-claim = "LEMMA-SPEC.ca"
 
 [[proof]]
-name = "c4-trivial"
+name = "trivial-proof"
 requires = ["reference-toolchain"]
 constructs = ["trivial-proof-leaf"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/proof/split/split.k"
@@ -1452,13 +1452,13 @@ responses = [
 ]
 
 [[rpc]]
-name = "c3-tr-rpc"
+name = "trivial-result-rpc"
 requires = ["reference-toolchain"]
 constructs = ["trivial-branch"]
 oracle = "kore-rpc-booster"
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/test.k"
-program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/a.tr"
-stuck-program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/tr/c.tr"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/test.k"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/false-ensures.pgm"
+stuck-program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/stuck.pgm"
 main-module = "TR"
 syntax-module = "TR-SYNTAX"
 sort = "Pgm"
@@ -1466,15 +1466,15 @@ configuration = []
 state-depth = 0
 responses = ["execute-trivial"]
 
-# The three C1 symbolic cases compare one rewrite step of a symbolic collection or injection
+# The three symbolic collection and injection cases compare one rewrite step of a symbolic collection or injection
 # configuration against kore-exec. kore-exec's --depth N lists the leaves that are stuck within N
 # steps; whenever a stuck leaf exists it drops the leaves that merely reached the limit
 # (Kore/Exec/GraphTraversal.hs checkLeftUnproven prefers GotStuck over Stopped), so --depth 1
-# prints only the unrewritten remainder and the rewritten branches of the tickets' contracts are
+# prints only the unrewritten remainder and the rewritten branches are
 # observable from --depth 2 on, where every branch is stuck. The comparator hands the initial
 # pattern to the normaliser (N4) and pairs the reference's remainder shape (N21, N22).
 [[symbolic]]
-name = "c1-map"
+name = "symbolic-collection-frames"
 requires = ["reference-toolchain"]
 constructs = ["collections", "symbolic-frame"]
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/map/test.k"
@@ -1496,90 +1496,90 @@ depth = 2
 oracle-exclusion = ""
 
 [[symbolic]]
-name = "c1-t2"
+name = "collection-and-injection-narrowing"
 requires = ["reference-toolchain"]
 constructs = ["collections", "symbolic-frame", "injection-narrowing"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/test.k"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/collection-and-injection-narrowing/test.k"
 main-module = "TEST2"
 definition = "reference"
 
 [[symbolic.pattern]]
-name = "pgm-I"
-pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-I.kore"
+name = "constructor-injection"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/collection-and-injection-narrowing/constructor-injection.kore"
 mode = "exec"
 depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
-name = "pgm-S"
-pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-S.kore"
+name = "set-frame"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/collection-and-injection-narrowing/set-frame.kore"
 mode = "exec"
 depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
-name = "pgm-L"
-pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-L.kore"
+name = "list-frame"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/collection-and-injection-narrowing/list-frame.kore"
 mode = "exec"
 depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
-name = "pgm-M2"
-pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-M2.kore"
+name = "two-entry-map"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/collection-and-injection-narrowing/two-entry-map.kore"
 mode = "exec"
 depth = 2
 oracle-exclusion = ""
 
 [[symbolic.pattern]]
-name = "pgm-M3"
-pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t2/pgm-M3.kore"
+name = "map-frame"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/collection-and-injection-narrowing/map-frame.kore"
 mode = "exec"
 depth = 2
 oracle-exclusion = ""
 
 [[symbolic]]
-name = "c1-t3"
+name = "injected-variable-narrowing"
 requires = ["reference-toolchain"]
 constructs = ["injection-narrowing"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t3/test.k"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/injected-variable-narrowing/test.k"
 main-module = "TEST3"
 definition = "reference"
 
 [[symbolic.pattern]]
-name = "pgm-E"
-pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/t3/pgm-E.kore"
+name = "injected-variable"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/matching/injected-variable-narrowing/injected-variable.kore"
 mode = "exec"
 depth = 2
 oracle-exclusion = ""
 
 [[symbolic]]
-name = "c3-sd-symbolic"
+name = "symbolic-depth-bound"
 requires = ["reference-toolchain"]
 constructs = ["symbolic-execution", "depth-bound"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sd/test.k"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/symbolic-depth-bound/test.k"
 main-module = "SD"
 syntax-module = "SD-SYNTAX"
 definition = "reference"
 
 [[symbolic.pattern]]
 name = "count-X"
-pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sd/symbolic.kore"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/search/symbolic-depth-bound/symbolic.kore"
 mode = "exec"
 depth = 2
 oracle-exclusion = "gotstuck"
 
 [[symbolic]]
-name = "c3-sy"
+name = "symbolic-owise"
 requires = ["reference-toolchain"]
 constructs = ["symbolic-execution", "owise"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sy/test.k"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/search/symbolic-owise/test.k"
 main-module = "SY"
 syntax-module = "SY-SYNTAX"
 definition = "reference"
 
 [[symbolic.pattern]]
 name = "f-X"
-pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/search/sy/symbolic.kore"
+pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/search/symbolic-owise/symbolic.kore"
 mode = "exec"
 oracle-exclusion = ""

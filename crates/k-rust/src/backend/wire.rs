@@ -333,7 +333,7 @@ pub enum SearchFailureOutput {
         rule: String,
         predicates: Vec<Value>,
     },
-    /// Never emitted since C3-03; kept so older outputs still deserialize.
+    /// No longer emitted; retained so older concreteness-check outputs still deserialize.
     Concreteness {
         rule: String,
         variable: Value,

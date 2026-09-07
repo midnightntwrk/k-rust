@@ -164,7 +164,7 @@ fn reference_rewrite_list_singleton_rule_ids_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module REWRITE-LIST-SINGLETON
     //   --syntax-module REWRITE-LIST-SINGLETON test.k
     //
-    // B1-02 follow-up (stage-12 conformance ratchet finding on issue-1573): NumberSentences
+    // The issue-1573 regression: NumberSentences
     // hashes the rule as the parser completed it, so the UNIQUE_ID of `<v> 1 => foo(1) </v>`
     // (line 24) records whether AddEmptyLists instantiated the `#KRewrite` at lub(Int, Int)
     // and wrapped the whole rewrite in one IntList singleton, as the reference does, or
@@ -289,7 +289,7 @@ fn reference_config_var_cast_initializer_ids_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module CONFIG-VAR-CAST --syntax-module CONFIG-VAR-CAST test.k
     //   and --main-module CONFIG-VAR-INT --syntax-module CONFIG-VAR-INT test-bare-cell.k
     //
-    // A3-03 follow-up (stage-12 conformance ratchet finding on mutable-bytes/default): the
+    // The mutable-bytes/default regression: the
     // reference's inference wraps a bare configuration variable in #SemanticCastTo<inferred
     // sort> (a KConfigVar constant is a variable, TypeInferenceVisitor.java:221-233), so
     // GenerateSentencesFromConfigDecl.getLeafInitializer hashes
@@ -371,7 +371,7 @@ struct LambdaSignature {
 fn reference_let_list_binder_lambda_parameter_sorts_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module LET-LIST-BINDER --syntax-module LET-LIST-BINDER test.k
     //
-    // B1-02 follow-up (stage-12 finding on the wasm haskell/rust semantic comparator): the
+    // The WASM inferred-list-binder regression: the
     // generated `#lambda` production of a `#let`/`#fun` binder must take the same argument
     // sorts as the reference for a binder whose sort is only known by inference, including the
     // wasm-data/sparse-bytes.k:82-84 shape where the bound variable is a user-list element

@@ -21,8 +21,6 @@ manifest_json=$(
 )
 
 if (($#)); then
-  all_selected_pending=true
-  pending_messages=()
   for requested in "$@"; do
     selected_case=$(jq -c --arg name "$requested" \
       '.execution[] | select(.name == $name and ((.requires | index("semantics-support")) == null))' \
@@ -34,20 +32,7 @@ if (($#)); then
         join(" ")' <<<"$manifest_json")" >&2
       exit 2
     fi
-    blocking_tickets=$(jq -r \
-      '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' \
-      <<<"$selected_case")
-    if [[ -z "$blocking_tickets" || "${REFERENCE_DIFFERENTIAL_PENDING:-0}" == 1 ]]; then
-      all_selected_pending=false
-    else
-      pending_messages+=("[$requested] pending: blocked by $blocking_tickets")
-    fi
   done
-  if [[ "$all_selected_pending" == true ]]; then
-    printf '%s\n' "${pending_messages[@]}"
-    echo "reference local execution differential corpus passed"
-    exit 0
-  fi
 fi
 
 if [[ -z "$kompile" ]]; then
@@ -138,11 +123,6 @@ for name in "${selected[@]}"; do
     exit 2
   fi
   suite=$(jq -c --arg name "$name" '.execution[] | select(.name == $name)' <<<"$manifest_json")
-  blocking_tickets=$(jq -r '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' <<<"$suite")
-  if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
-    echo "[$name] pending: blocked by $blocking_tickets"
-    continue
-  fi
   source=$(jq -r '.source' <<<"$suite")
   main_module=$(jq -r '.["main-module"]' <<<"$suite")
   syntax_module=$(jq -r '.["syntax-module"]' <<<"$suite")
@@ -187,7 +167,7 @@ for name in "${selected[@]}"; do
 
   # The oracle is the Haskell backend's krun (kore-exec in its default --strategy all:
   # every applicable rule is explored), so krust runs with --strategy all as well; plain
-  # krust krun follows one successor per step (bucket-05 amendment under C3-02).
+  # krust krun follows one successor per step; see docs/compatibility.md#search-results.
   mapfile -t programs < <(jq -r '(.programs // [])[]' <<<"$suite")
   for program in "${programs[@]}"; do
     if [[ ! -f "$program" ]]; then
@@ -236,8 +216,7 @@ for name in "${selected[@]}"; do
       expected=$(jq -r '.expected' <<<"$oracle_exception")
       recorded_reference=$(jq -r '.reference' <<<"$oracle_exception")
       reason=$(jq -r '.reason' <<<"$oracle_exception")
-      ticket=$(jq -r '.ticket' <<<"$oracle_exception")
-      echo "[$name:$program_name] oracle-exception ($ticket): $reason"
+      echo "[$name:$program_name] oracle-exception: $reason"
       compare_execution \
         "$expected" \
         "$work/$name-$program_name.rust.kore" \

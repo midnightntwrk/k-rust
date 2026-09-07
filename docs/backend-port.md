@@ -96,5 +96,5 @@ part of the compatibility contract, and differential gates compare its disjuncts
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
 empty (an `ensures false` or bottom right-hand side). Lower priorities and `owise` do not see that
-sub-case. This follows kore-exec semantics and arbiter row 1; Booster's `OnlyTrivial` fall-through
-is intentionally not mirrored, and the RPC differential excludes that oracle-specific shape.
+sub-case. This follows kore-exec semantics; Booster's `OnlyTrivial` fall-through is excluded from the RPC differential for that shape.
+See [compatibility decisions](compatibility.md) for the source evidence, regression homes, and policies covering engine disagreements, supported frontend extensions, CLI scope, and reference exclusions.

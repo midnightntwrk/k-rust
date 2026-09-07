@@ -1,7 +1,7 @@
-// Reduced from k/k-distribution/tests/regression-new/issue-1573/test.k (stage-12 finding:
-// the `fun` rule's UNIQUE_ID differs from the reference because k-rust wraps each side of the
-// `1 => foo(1)` rewrite in the user-list singleton constructor separately, where K's
-// AddEmptyLists instantiates the rewrite at lub(Int, Int) = Int and wraps the whole rewrite).
+// Reduced from k/k-distribution/tests/regression-new/issue-1573/test.k (parser completion):
+// the `fun` rule UNIQUE_ID distinguishes wrapping the `1 => foo(1)` rewrite in one
+// user-list singleton from wrapping each side separately. K's AddEmptyLists instantiates
+// the rewrite at lub(Int, Int) = Int before inserting one singleton around the whole rewrite.
 module REWRITE-LIST-SINGLETON
   imports INT
 

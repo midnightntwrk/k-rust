@@ -3748,10 +3748,11 @@ mod tests {
     #[test]
     fn reference_rpc_cancel_in_batch_answers_32601() {
         let mut service = service();
-        let request = include_str!("../tests/fixtures/reference/rpc/br/cancel-request.json");
+        let request =
+            include_str!("../tests/fixtures/reference/rpc/cancel-in-batch/cancel-request.json");
         let response: Value = serde_json::from_str(&service.handle_line(request).unwrap()).unwrap();
         let expected: Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/reference/rpc/br/cancel-response.json"
+            "../tests/fixtures/reference/rpc/cancel-in-batch/cancel-response.json"
         ))
         .unwrap();
 

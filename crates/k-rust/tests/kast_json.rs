@@ -102,7 +102,7 @@ fn round_trips_a_deep_apply_chain_without_a_depth_limit() {
         (term, decoded)
     });
 
-    // Term retains recursive compiler-generated drop glue; this ticket covers its JSON codec.
+    // Term retains recursive compiler-generated drop glue; this test covers its JSON codec.
     on_stack(64 << 20, move || drop(terms));
 }
 

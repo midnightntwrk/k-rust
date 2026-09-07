@@ -1,4 +1,4 @@
-// reference: krun a.pgm --search-all --output kore -> a zz c b d (Kore order; port prints a b c d zz by arbiter row 12)
+// reference: krun a.pgm --search-all --output kore -> a zz c b d (Kore order; port prints a b c d zz by structural KORE order; docs/compatibility.md#search-results)
 module BR-SYNTAX
   syntax Pgm ::= "a" | "b" | "c" | "d" | "zz"
 endmodule

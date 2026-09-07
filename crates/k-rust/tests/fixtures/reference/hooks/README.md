@@ -1,3 +1,3 @@
 # Hook reference fixtures
 
-These cases pin builtin hook results and explicitly adjudicated oracle deviations.
+These cases pin builtin hook results and documented [hook oracle deviations](../../../../../../docs/compatibility.md#hook-specification-exceptions).

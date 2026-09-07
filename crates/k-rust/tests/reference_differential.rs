@@ -747,7 +747,7 @@ fn execution_comparator_allows_only_marked_gotstuck_stop_leaves() {
 
 #[test]
 fn execution_comparator_pairs_reference_remainders_with_port_remainders() {
-    // Reference shape (kore-exec at --depth 2 on the C1-01 map fixture): the rewritten branch
+    // Reference shape (kore-exec at --depth 2 on the symbolic collection-frame fixture): the rewritten branch
     // nests its term inside a second \and, the remainder carries \not(\exists ...) over the rule
     // variables with the NewUnifier's AC remainder VarAC1'Unds'1 left free, and conjunctions are
     // right-nested with a duplicated conjunct.
@@ -823,7 +823,7 @@ fn execution_comparator_pairs_reference_remainders_with_port_remainders() {
 
 #[test]
 fn execution_normalizer_canonicalizes_rule_variables_absent_from_the_initial_pattern() {
-    // C1-03 fixture: kore-exec leaves the rule variable I free (VarI), krust prints ExVarI0.
+    // Injection-narrowing fixture: kore-exec leaves the rule variable I free (VarI), krust prints ExVarI0.
     let reference = parse_pattern(concat!(
         r"\or{S{}}(",
         r"\and{S{}}(top{}(inj{Exp{}, KI{}}(bar{}(VarI:Int{}))), \equals{Exp{}, S{}}(VarE:Exp{}, inj{Int{}, Exp{}}(VarI:Int{}))), ",
@@ -1077,8 +1077,8 @@ fn normalize_execution_pattern_with(pattern: Pattern, names: &GeneratedNames) ->
     let pattern = normalize_execution_structure(pattern);
     match &pattern {
         Pattern::Or { sort, arguments } => {
-            // D1-06 / arbiter row 12: disjunction order is semantically empty, so execution
-            // gates compare a sorted multiset. C3-02 requires retaining multiplicity here:
+            // Disjunction order is semantically empty, so execution
+            // gates compare a sorted multiset and retain multiplicity:
             // duplicate final configurations are a backend defect, not a gate normalization.
             let mut arguments = arguments
                 .iter()
@@ -2331,7 +2331,7 @@ fn comparator_skips_ids_of_multi_alias_freezer_axioms() {
 fn comparator_ignores_which_multi_alias_freezer_suffix_each_context_receives() {
     // ResolveContexts.getUniqueFreezerLabel names the first freezer of a hint `_` and the
     // second `_2`, and meets the contexts of a multi-alias group in Scala HashSet order
-    // (decision D13-3, design 07). The suffix a context receives is therefore not
+    // (N3; docs/compatibility.md#comparison-contract). The suffix a context receives is not
     // portable: the heat rules of the two aliases swap freezer symbols between the
     // reference and the port while everything else is equal.
     let definition = |first: &str, second: &str| {
@@ -2388,8 +2388,8 @@ fn comparator_ignores_which_multi_alias_freezer_suffix_each_context_receives() {
 fn comparator_ignores_which_lambda_suffix_each_local_function_receives() {
     // ResolveFun.getUniqueLambdaLabel names the first `#fun`/`#let`/`:=K` of a name hint
     // `#lambda<h1>_<h2>_` and the following ones `_2`, `_3`, ... in the order the module's
-    // sentences are met, which is Scala HashSet order in the reference (decision row 20,
-    // extending D13-3 from freezers to generated lambdas): the same definition compiled from
+    // sentences are met, which is Scala HashSet order in the reference (N23;
+    // docs/compatibility.md#comparison-contract): the same definition compiled from
     // two directories assigns the suffixes differently. The port numbers in declaration
     // order. Collapse every lambda of a multi-suffix family onto the unsuffixed name and
     // drop the UNIQUE_IDs derived from it, so that the bodies and signatures still compare.
@@ -2611,12 +2611,12 @@ struct CompareOptions {
 impl Default for CompareOptions {
     fn default() -> Self {
         Self {
-            // Decisions 07-1 and 13-3: freezer suffixes for multi-alias context groups
+            // N3: freezer suffixes for multi-alias context groups
             // follow Scala HashSet iteration in the oracle. Keep the port's declaration
             // order and exclude only those derived identifiers permanently.
             skip_multi_alias_ids: true,
-            // Decision row 20 extends D13-3 to the `#lambda` suffixes ResolveFun assigns in
-            // the same HashSet order (N23).
+            // N23 covers the `#lambda` suffixes ResolveFun assigns in the same HashSet
+            // order; see docs/compatibility.md#comparison-contract for both policies.
             skip_multi_suffix_lambda_ids: true,
         }
     }
@@ -3347,7 +3347,7 @@ fn strip_source_metadata(definition: &mut Definition) {
     }
 }
 
-/// Decision D13-3: the freezers of a multi-alias context group are named `_`, `_2`, ... in
+/// N3: the freezers of a multi-alias context group are named `_`, `_2`, ... in
 /// the order `ResolveContexts` meets the aliases, which is Scala HashSet order in the
 /// reference and declaration order in the port. Collapse every freezer of such a group onto
 /// the group's unsuffixed name (declarations and uses alike) and drop the UNIQUE_ID of the
@@ -3361,7 +3361,7 @@ fn strip_multi_alias_freezer_ids(definition: &mut Definition) -> usize {
 /// `#lambda<h1>_<h2>_` and the following ones `_2`, `_3`, ... in the order
 /// `stream(m.localSentences())` meets the sentences, which is Scala HashSet order over hashes
 /// that include the Source attribute: the pinned reference assigns the suffixes differently
-/// from two checkout paths. Decision row 20 extends D13-3 (N3) to these families (N23):
+/// from two checkout paths. N23 (docs/compatibility.md#comparison-contract) covers these families:
 /// collapse every lambda of a multi-suffix family onto the unsuffixed name, in declarations and
 /// uses alike, and drop the UNIQUE_IDs derived from those names. Returns the number of axioms
 /// touched.

@@ -11,7 +11,7 @@ tool = "kprove"
 exit_code = 1
 sha256 = "eb9fc05e37f1d3670fadc5887af6cd2fd147f73fe86aa1d04ed1ce558d9d8ac6"
 
-# Reference verdicts for imported-spec.k (C4-02 follow-up, 2026-09-06): the claims live in
+# Reference verdicts for imported-spec.k (2026-09-06): the claims live in
 # SPLIT-LEMMAS, which IMPORTED-SPEC imports, so ModuleToKORE.convertSpecificationModule emits
 # them through `spec.sentencesExcept(definition)`. Same kompiled `ref` as the artifact above;
 # each row is `kprove imported-spec.k --definition ref --depth 10 --output none --warnings none`

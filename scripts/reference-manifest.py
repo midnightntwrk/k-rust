@@ -36,10 +36,26 @@ def expand(value: object) -> object:
     return value
 
 
+def validate_requirements(manifest: dict) -> None:
+    """Reject prerequisites the gates cannot enforce."""
+    allowed = {"reference-toolchain", "semantics-support"}
+    for section in ("compile", "kast", "execution", "proof", "rpc", "symbolic"):
+        for case in manifest.get(section, []):
+            requirements = case.get("requires")
+            if not isinstance(requirements, list) or not requirements:
+                raise ValueError(f"{section} case {case.get('name')} needs a requires array")
+            for requirement in requirements:
+                if not isinstance(requirement, str) or requirement not in allowed:
+                    raise ValueError(
+                        f"unknown requirement {requirement!r} on {section} case {case.get('name')}"
+                    )
+
+
 def main() -> int:
     try:
         with MANIFEST.open("rb") as source:
             manifest = expand(tomllib.load(source))
+        validate_requirements(manifest)
     except (OSError, tomllib.TOMLDecodeError, KeyError, ValueError) as error:
         print(f"error: invalid differential manifest: {error}", file=sys.stderr)
         return 2

@@ -27,8 +27,6 @@ manifest_json=$(
 )
 
 if (($#)); then
-  all_selected_pending=true
-  pending_messages=()
   for requested in "$@"; do
     selected_case=$(jq -c --arg name "$requested" \
       '.compile[] | select(.name == $name and ((.requires | index("semantics-support")) == null))' \
@@ -40,20 +38,7 @@ if (($#)); then
         join(" ")' <<<"$manifest_json")" >&2
       exit 2
     fi
-    blocking_tickets=$(jq -r \
-      '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' \
-      <<<"$selected_case")
-    if [[ -z "$blocking_tickets" || "${REFERENCE_DIFFERENTIAL_PENDING:-0}" == 1 ]]; then
-      all_selected_pending=false
-    else
-      pending_messages+=("[$requested] pending: blocked by $blocking_tickets")
-    fi
   done
-  if [[ "$all_selected_pending" == true ]]; then
-    printf '%s\n' "${pending_messages[@]}"
-    echo "reference differential corpus passed"
-    exit 0
-  fi
 fi
 
 if [[ -z "$kompile" ]]; then
@@ -137,15 +122,14 @@ mapfile -t cases < <(
     ((.["hook-namespaces"] // []) | join(" ")),
     ((.comparisons // []) | join(" ")),
     ((.pairings // ["kore/llvm", "haskell/rust"]) | join(" ")),
-    (.expect // "accept"),
-    ([.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", "))
+    (.expect // "accept")
   ] | join("\u001f")' <<<"$manifest_json"
 )
 selected_count=0
 
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces \
-    comparisons pairings expect blocking_tickets <<<"$fixture"
+    comparisons pairings expect <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -159,10 +143,6 @@ for fixture in "${cases[@]}"; do
     continue
   fi
   selected_count=$((selected_count + 1))
-  if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
-    echo "[$name] pending: blocked by $blocking_tickets"
-    continue
-  fi
   if [[ ! -f "$source" ]]; then
     echo "error: missing corpus source: $source" >&2
     exit 2

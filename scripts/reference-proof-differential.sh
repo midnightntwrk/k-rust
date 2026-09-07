@@ -20,8 +20,6 @@ manifest_json=$(
 )
 
 if (($#)); then
-  all_selected_pending=true
-  pending_messages=()
   for requested in "$@"; do
     selected_case=$(jq -c --arg name "$requested" \
       '.proof[] | select(.name == $name and ((.requires | index("semantics-support")) == null))' \
@@ -33,20 +31,7 @@ if (($#)); then
         join(" ")' <<<"$manifest_json")" >&2
       exit 2
     fi
-    blocking_tickets=$(jq -r \
-      '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' \
-      <<<"$selected_case")
-    if [[ -z "$blocking_tickets" || "${REFERENCE_DIFFERENTIAL_PENDING:-0}" == 1 ]]; then
-      all_selected_pending=false
-    else
-      pending_messages+=("[$requested] pending: blocked by $blocking_tickets")
-    fi
   done
-  if [[ "$all_selected_pending" == true ]]; then
-    printf '%s\n' "${pending_messages[@]}"
-    echo "reference local proof differential corpus passed"
-    exit 0
-  fi
 fi
 
 if [[ -z "$kompile" ]]; then
@@ -93,11 +78,6 @@ for name in "${selected[@]}"; do
     exit 2
   fi
   proof=$(jq -c --arg name "$name" '.proof[] | select(.name == $name)' <<<"$manifest_json")
-  blocking_tickets=$(jq -r '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' <<<"$proof")
-  if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
-    echo "[$name] pending: blocked by $blocking_tickets"
-    continue
-  fi
   semantics=$(jq -r '.source' <<<"$proof")
   main_module=$(jq -r '.["main-module"]' <<<"$proof")
   syntax_module=$(jq -r '.["syntax-module"]' <<<"$proof")

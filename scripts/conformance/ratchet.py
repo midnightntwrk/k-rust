@@ -121,9 +121,7 @@ def render_entry(run: dict) -> str:
         "improvements",
         "driver_deltas",
         "oracle_changes",
-        "overdue",
         "excluded",
-        "promotion_candidates",
     ]:
         lines.append(f"{key} = {string_array(run[key])}")
     lines.append(f"artifacts = {json.dumps(run['artifacts'], ensure_ascii=False)}")
@@ -139,7 +137,6 @@ def render_entry(run: dict) -> str:
             f"previous_rank = {case['previous_rank']}",
             f"floor_rank = {case['floor_rank']}",
             f"delta = {json.dumps(case['delta'])}",
-            f"tickets = {string_array(case['tickets'])}",
             f"exclusion = {json.dumps(case['exclusion'], ensure_ascii=False)}",
             "",
         ]
@@ -196,24 +193,6 @@ def matching_step_exclusion(result: dict, expectation: dict) -> str:
     return ""
 
 
-def ticket_states(path: Path | None) -> dict[str, str]:
-    if path is None or not path.is_file():
-        return {}
-    document = load_toml(path, "implementation status")
-    return {
-        row["id"]: row.get("state", "")
-        for row in document.get("ticket", [])
-        if isinstance(row.get("id"), str)
-    }
-
-
-def tickets_landed(tickets: list[str], states: dict[str, str]) -> bool:
-    return bool(tickets) and all(
-        states.get(ticket.split(":", 1)[0]) in {"implemented", "verified"}
-        for ticket in tickets
-    )
-
-
 def previous_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict | None]:
     for run in reversed(runs):
         for case in run.get("case", []):
@@ -223,7 +202,7 @@ def previous_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict
 
 
 def first_measurement(runs: list[dict], name: str) -> tuple[dict | None, dict | None]:
-    """The stage-1 floor of a case: entry 0 when it measured the case, else its first entry."""
+    """The initial measurement floor of a case: entry 0 when it measured the case, else its first entry."""
     for run in runs:
         for case in run.get("case", []):
             if case.get("name") == name:
@@ -284,7 +263,6 @@ def build_run(
     results: list[dict],
     expectations: dict[str, dict],
     previous_runs: list[dict],
-    states: dict[str, str],
     timestamp_utc: str | None = None,
 ) -> dict:
     rows = []
@@ -293,9 +271,7 @@ def build_run(
     improvements = []
     driver_deltas = []
     oracle_changes = []
-    overdue = []
     excluded = []
-    promotion_candidates = []
     for result in sorted(results, key=lambda row: row["name"]):
         name = result["name"]
         expectation = expectations[name]
@@ -311,7 +287,6 @@ def build_run(
         )
         floor_rank = max(floor_rank, accepted_rank)
         exclusion = matching_step_exclusion(result, expectation)
-        tickets = list(expectation.get("tickets", []))
         if delta == "regression" and not exclusion:
             regressions.append(name)
         if is_below_floor(rank, floor_rank) and not exclusion:
@@ -324,23 +299,6 @@ def build_run(
             oracle_changes.append(name)
         if exclusion:
             excluded.append(name)
-        if (
-            rank < RANK["match"]
-            and rank >= 0
-            and not exclusion
-            and expectation.get("unexplained") is not True
-            and tickets_landed(tickets, states)
-        ):
-            overdue.append(name)
-        if (
-            rank == RANK["match"]
-            and previous_case is not None
-            and previous_case.get("rank") == RANK["match"]
-            and not expectation.get("exclusion")
-            and not expectation.get("promoted_to")
-            and tickets_landed(tickets, states)
-        ):
-            promotion_candidates.append(name)
         rows.append(
             {
                 "name": name,
@@ -351,7 +309,6 @@ def build_run(
                 "previous_rank": previous_rank,
                 "floor_rank": floor_rank,
                 "delta": delta,
-                "tickets": tickets,
                 "exclusion": exclusion,
             }
         )
@@ -375,9 +332,7 @@ def build_run(
         "improvements": improvements,
         "driver_deltas": driver_deltas,
         "oracle_changes": oracle_changes,
-        "overdue": overdue,
         "excluded": excluded,
-        "promotion_candidates": promotion_candidates,
         "artifacts": artifacts,
         "case": rows,
     }
@@ -386,14 +341,13 @@ def build_run(
 def print_pr_block(run: dict) -> None:
     print("### Conformance ratchet")
     print()
-    print("| case | floor | previous | now | delta | tickets |")
-    print("|---|---:|---:|---:|---|---|")
+    print("| case | floor | previous | now | delta |")
+    print("|---|---:|---:|---:|---|")
     for case in run["case"]:
-        tickets = ", ".join(case["tickets"])
         exclusion = f" (excluded: {case['exclusion']})" if case["exclusion"] else ""
         print(
             f"| {case['name']} | {case['floor_rank']} | {case['previous_rank']} | "
-            f"{case['rank']} | {case['delta']}{exclusion} | {tickets} |"
+            f"{case['rank']} | {case['delta']}{exclusion} |"
         )
     print()
     print(f"regressions: {len(run['regressions'])}")
@@ -401,7 +355,6 @@ def print_pr_block(run: dict) -> None:
     print(f"improvements: {len(run['improvements'])}")
     print(f"driver deltas: {len(run['driver_deltas'])}")
     print(f"oracle changes: {len(run['oracle_changes'])}")
-    print(f"overdue: {run['overdue']}")
     print(f"excluded (measured): {len(run['excluded'])}")
     print(f"wall: {run['wall_seconds']} s")
     print(f"peak RSS: {run['peak_rss_mib']} MiB")
@@ -439,7 +392,6 @@ def command_seed(args: argparse.Namespace) -> int:
         results=results,
         expectations=expectations,
         previous_runs=[],
-        states={},
         timestamp_utc=baseline.get("timestamp_utc"),
     )
     write_new_log(args.log, render_entry(run))
@@ -455,7 +407,6 @@ def command_append(args: argparse.Namespace) -> int:
     if log_document.get("version") != 1:
         raise RatchetError(f"ratchet log does not declare version 1: {args.log}")
     previous_runs = log_document.get("run", [])
-    states = ticket_states(args.status)
     run = build_run(
         sequence=len(previous_runs),
         label=args.label,
@@ -472,7 +423,6 @@ def command_append(args: argparse.Namespace) -> int:
         results=results,
         expectations=expectations,
         previous_runs=previous_runs,
-        states=states,
     )
     append_log(args.log, render_entry(run))
     print_pr_block(run)
@@ -483,12 +433,6 @@ def command_select(args: argparse.Namespace) -> int:
     expectations = expectation_map(load_toml(args.expectations, "expectations"))
     selected = set()
     selected.update(args.cases)
-    for ticket in args.ticket:
-        selected.update(
-            name
-            for name, row in expectations.items()
-            if ticket in row.get("tickets", [])
-        )
     for stage in args.stage:
         selected.update(
             name
@@ -534,17 +478,16 @@ def command_audit(args: argparse.Namespace) -> int:
     scope = f"run {args.sequence}" if args.sequence is not None else "latest measurement per case"
     print(f"### Conformance required floor audit ({scope}, {len(latest)} cases)")
     print()
-    print("| case | floor | rank | run | verdict | tickets | exclusion |")
-    print("|---|---:|---:|---:|---|---|---|")
+    print("| case | floor | rank | run | verdict | exclusion |")
+    print("|---|---:|---:|---:|---|---|")
     failing = 0
     for name, floor_rank, run, case in rows:
-        tickets = ", ".join(case.get("tickets", []))
         exclusion = case.get("exclusion", "")
         if not exclusion:
             failing += 1
         print(
             f"| {name} | {floor_rank} | {case['rank']} | {run.get('sequence')} | "
-            f"{case['verdict']} | {tickets} | {exclusion} |"
+            f"{case['verdict']} | {exclusion} |"
         )
     print()
     print(f"below floor: {len(rows)} ({failing} non-excluded)")
@@ -573,7 +516,6 @@ def parser() -> argparse.ArgumentParser:
     append = subparsers.add_parser("append")
     append.add_argument("--results", type=Path, required=True)
     append.add_argument("--expectations", type=Path, required=True)
-    append.add_argument("--status", type=Path)
     append.add_argument("--log", type=Path, required=True)
     append.add_argument("--label", required=True)
     append.add_argument("--workspace-revision", required=True)
@@ -591,7 +533,6 @@ def parser() -> argparse.ArgumentParser:
     select = subparsers.add_parser("select")
     select.add_argument("--expectations", type=Path, required=True)
     select.add_argument("--cases", nargs="*", default=[])
-    select.add_argument("--ticket", action="append", default=[])
     select.add_argument("--stage", action="append", default=[])
     select.add_argument("--all", action="store_true")
     select.set_defaults(run=command_select)
