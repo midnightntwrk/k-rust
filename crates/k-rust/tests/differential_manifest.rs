@@ -1054,15 +1054,31 @@ reference_run_rust_frontend bash -c '
         std::env::var("PATH").expect("PATH")
     );
 
-    let scoped = Command::new("bash")
-        .arg(&fixture_script)
-        .env("PATH", &path)
-        .env("GUARD_CALLS", &calls)
-        .env("PAYLOAD_RUNS", &payload_runs)
+    let fixture_command = || {
+        let mut command = Command::new("bash");
+        command
+            .arg(&fixture_script)
+            .env("PATH", &path)
+            .env("GUARD_CALLS", &calls)
+            .env("PAYLOAD_RUNS", &payload_runs)
+            .env("REFERENCE_GUARD_PATH", &guard_path);
+        // Each scenario owns the guard inputs, including the absence of an
+        // override. CI and callers may set these in the parent environment.
+        for name in [
+            "REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND",
+            "REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB",
+            "REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB",
+            "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB",
+            "REFERENCE_DIFFERENTIAL_K_OPTS",
+        ] {
+            command.env_remove(name);
+        }
+        command
+    };
+
+    let scoped = fixture_command()
         .env("PAYLOAD_STATUS", "23")
-        .env("REFERENCE_GUARD_PATH", &guard_path)
         .env("SYSTEMD_PROBE_STATUS", "0")
-        .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
         .output()
         .expect("run scoped guard fixture");
     assert_eq!(
@@ -1089,19 +1105,13 @@ reference_run_rust_frontend bash -c '
 
     fs::write(&calls, "").expect("clear call log");
     fs::write(&payload_runs, "").expect("clear payload run log");
-    let fallback = Command::new("bash")
-        .arg(&fixture_script)
-        .env("PATH", &path)
-        .env("GUARD_CALLS", &calls)
-        .env("PAYLOAD_RUNS", &payload_runs)
+    let fallback = fixture_command()
         .env("PAYLOAD_STATUS", "29")
-        .env("REFERENCE_GUARD_PATH", &guard_path)
         .env("SYSTEMD_PROBE_STATUS", "1")
         .env(
             "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB",
             "10485760",
         )
-        .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
         .output()
         .expect("run fallback guard fixture");
     assert_eq!(
@@ -1125,20 +1135,14 @@ reference_run_rust_frontend bash -c '
     // override it nor announce a default it did not apply.
     fs::write(&calls, "").expect("clear call log");
     fs::write(&payload_runs, "").expect("clear payload run log");
-    let bounded = Command::new("bash")
-        .arg(&fixture_script)
-        .env("PATH", &path)
-        .env("GUARD_CALLS", &calls)
-        .env("PAYLOAD_RUNS", &payload_runs)
+    let bounded = fixture_command()
         .env("PAYLOAD_STATUS", "29")
-        .env("REFERENCE_GUARD_PATH", &guard_path)
         .env("SYSTEMD_PROBE_STATUS", "1")
         .env(
             "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB",
             "10485760",
         )
         .env("REFERENCE_DIFFERENTIAL_K_OPTS", "-Xmx1g")
-        .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
         .output()
         .expect("run fallback guard fixture with a caller-bounded JVM");
     assert_eq!(bounded.status.code(), Some(29));
@@ -1163,16 +1167,10 @@ reference_run_rust_frontend bash -c '
 
     fs::write(&calls, "").expect("clear call log");
     fs::write(&payload_runs, "").expect("clear payload run log");
-    let invalid = Command::new("bash")
-        .arg(&fixture_script)
-        .env("PATH", &path)
-        .env("GUARD_CALLS", &calls)
-        .env("PAYLOAD_RUNS", &payload_runs)
+    let invalid = fixture_command()
         .env("PAYLOAD_STATUS", "0")
-        .env("REFERENCE_GUARD_PATH", &guard_path)
         .env("SYSTEMD_PROBE_STATUS", "0")
         .env("REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB", "eight-gib")
-        .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
         .output()
         .expect("run invalid guard configuration");
     assert_eq!(invalid.status.code(), Some(2));

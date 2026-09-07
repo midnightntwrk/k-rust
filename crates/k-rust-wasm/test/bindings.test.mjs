@@ -21,6 +21,7 @@ await init(bytes)
 const backendDefinition = String.raw`[]
 module MAIN
   sort SortS{} []
+  alias weakExistsFinally{A}(A) : A where weakExistsFinally{A}(@X:A) := @X:A []
   symbol a{}() : SortS{} [constructor{}()]
   symbol b{}() : SortS{} [constructor{}()]
   symbol c{}() : SortS{} [constructor{}()]
@@ -54,21 +55,35 @@ test('compiles a portable definition into all KORE artifacts', () => {
   assert.deepEqual(compiled.diagnostics, [])
 })
 
-test('reports the compiler Z3 inference boundary', () => {
+test('compiles unambiguous parametric applications portably', () => {
+  const compiled = compileDefinition({
+    definition: `
+      module MAIN
+        syntax Int ::= r"[0-9]+" [token]
+        syntax Box ::= "box(" Int ")" [function, symbol(box)]
+        syntax {S} S ::= "same(" S ")" [symbol(same)]
+        rule box(same(1)) => box(1)
+      endmodule
+    `,
+    moduleName: 'MAIN',
+  })
+  assert.match(compiled.definitionKore, /Lblsame/)
+  assert.deepEqual(compiled.diagnostics, [])
+})
+
+test('reports the compiler Z3 boundary for an ambiguous rule', () => {
   assert.throws(
     () =>
       compileDefinition({
         definition: `
           module MAIN
-            syntax Int ::= r"[0-9]+" [token]
-            syntax Box ::= "box(" Int ")" [function, symbol(box)]
-            syntax {S} S ::= "same(" S ")" [function, symbol(same)]
-            rule box(same(1)) => box(1)
+            syntax Exp ::= "a" [symbol(a)] | Exp "+" Exp [symbol(add)]
+            rule a+a+a => a
           endmodule
         `,
         moduleName: 'MAIN',
       }),
-    /native Z3 sort inference/i,
+    /native Z3 sort inference.*ambiguous/i,
   )
 })
 
@@ -137,23 +152,39 @@ test('presents inferred parametric labels like reference kast', () => {
   assert.deepEqual(parsed.kast.term.label.params, [])
 })
 
-test('reports the portable Z3 inference boundary', () => {
+test('infers nested parametric applications portably', () => {
+  const parsed = parseProgram({
+    definition: `
+      module MAIN
+        syntax Int ::= r"[0-9]+" [token]
+        syntax Box ::= "box(" Int ")" [symbol(box)]
+        syntax {S} S ::= "same(" S ")" [symbol(same)]
+      endmodule
+    `,
+    moduleName: 'MAIN',
+    sort: 'Box',
+    program: 'box(same(1))',
+    includePrelude: false,
+  })
+  assert.equal(parsed.text, 'box(same(#token("1","Int")))')
+  assert.deepEqual(parsed.kast.term.args[0].label.params, [])
+})
+
+test('reports the portable Z3 boundary for an ambiguous program', () => {
   assert.throws(
     () =>
       parseProgram({
         definition: `
           module MAIN
-            syntax Int ::= r"[0-9]+" [token]
-            syntax Box ::= "box(" Int ")" [symbol(box)]
-            syntax {S} S ::= "same(" S ")" [symbol(same)]
+            syntax Exp ::= "a" [symbol(a)] | Exp "+" Exp [symbol(add)]
           endmodule
         `,
         moduleName: 'MAIN',
-        sort: 'Box',
-        program: 'box(same(1))',
+        sort: 'Exp',
+        program: 'a+a+a',
         includePrelude: false,
       }),
-    /native Z3 sort inference/i,
+    /native Z3 sort inference.*ambiguous/i,
   )
 })
 
@@ -257,12 +288,14 @@ test('searches and observes the persistent portable backend graph', () => {
 test('compileBackend compiles and creates a portable session', () => {
   const backend = compileBackend({
     definition: `module MAIN
-      syntax State ::= "a" [symbol(a)]
+      syntax State ::= "a" [function, symbol(a)] | "b" [symbol(b)]
+      rule a => b
     endmodule`,
     moduleName: 'MAIN',
     includePrelude: false,
   })
   assert.equal(backend.capabilities.execution, true)
   assert.equal(backend.capabilities.smt, false)
+  assert.equal(printKore(backend.simplify({ state: parseKore('Lbla{}()').kore })), 'Lblb{}()')
   backend.free()
 })

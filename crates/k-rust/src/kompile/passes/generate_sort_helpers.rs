@@ -23,6 +23,20 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
         let sorts = resolved.sort_catalog(module_id);
         let visible = resolved.sentences(module_id);
         let mut generated = Vec::new();
+        // Predicate rules produce Boolean tokens even in standalone definitions.
+        // Supply their token sort at the compilation root when the source does
+        // not provide one. Imported prelude declarations remain authoritative.
+        if module_id == resolved.main_module_id()
+            && !sorts.token_sorts().contains(&Sort::new("Bool"))
+        {
+            let mut attributes = Attributes::default();
+            attributes.insert("token", json!(""));
+            generated.push(Sentence::SyntaxSort {
+                parameters: Vec::new(),
+                sort: Sort::new("Bool"),
+                attributes,
+            });
+        }
         for sort in sorts.local_sorts() {
             let label = Label::new(format!("is{sort}"));
             let production = Sentence::Production {
