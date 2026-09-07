@@ -255,6 +255,55 @@ fn rule_parsing_always_includes_default_layout() {
     );
 }
 
+#[test]
+fn rule_synonym_casts_use_the_target_sort_in_production_arguments() {
+    for (cast, accepted) in [
+        ("Rat", true),
+        ("Wad", true),
+        ("Ray", true),
+        ("Other", false),
+    ] {
+        let source = format!(
+            r#"
+            module MAIN
+              syntax Rat ::= r"[0-9]+" [token]
+              syntax Wad = Rat
+              syntax Ray = Rat
+              syntax Other ::= "other" [symbol(other)]
+              syntax Wad ::= "f(" Ray ")" [symbol(f)]
+              rule f(0:{cast}) => 0
+            endmodule
+            "#
+        );
+        let definition = k_rust::definition::apply_sort_synonyms(&lowered(&source)).unwrap();
+        let result = resolve_rule_bubbles(&definition);
+        if !accepted {
+            assert!(
+                matches!(result, Err(RuleError::Parse(ref error))
+                    if matches!(error.error, ParseError::NoParse { .. })),
+                "{result:?}"
+            );
+            continue;
+        }
+        let resolved = result.unwrap_or_else(|error| panic!("{cast}: {error}"));
+        let body = resolved
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule { body, .. } => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            body.to_string(),
+            "f(#SemanticCastToRat(#token(\"0\",\"Rat\")))=>#token(\"0\",\"Rat\")",
+            "{cast}"
+        );
+    }
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn prunes_nested_rewrites_while_parsing_a_long_recursive_chain() {

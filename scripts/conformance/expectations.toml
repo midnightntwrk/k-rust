@@ -2609,14 +2609,14 @@ reason = ""
 
 [[case]]
 name = "synonym"
-accepted_verdict = "krust-error"
-accepted_stage = "inner-parse"
+accepted_verdict = "match"
+accepted_stage = "krun"
+accepted_basis = "Visible synonym casts preserve their spelling and use the target sort in configuration and rule grammars; native/portable regressions and the complete pinned corpus recipe pass (program output compared with the checked-in upstream result)."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 tickets = []
 exclusion = ""
 reason = "`0:Wad` cast to a sort synonym in a configuration (A1 synonyms / A3 casts, no ticket)"
-unexplained = true
 
 [[case]]
 name = "total-proj"

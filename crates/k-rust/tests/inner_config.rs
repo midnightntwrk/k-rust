@@ -140,6 +140,83 @@ fn parses_chained_casts_and_empty_bags() {
     );
 }
 
+fn synonym_configuration(contents: &str, import_aliases: bool) -> Definition {
+    let source = format!(
+        r#"
+        module ALIASES
+          syntax Wad = Rat
+          syntax Ray = Rat
+        endmodule
+        module MAIN
+          {}
+          syntax Rat ::= r"[0-9]+" [token]
+          syntax Other ::= "other" [symbol(other)]
+          configuration <r> {contents} </r>
+        endmodule
+        "#,
+        if import_aliases {
+            "imports ALIASES"
+        } else {
+            ""
+        },
+    );
+    let parsed = k_rust::outer::parse("synonym.k", &source).unwrap();
+    k_rust::definition::apply_sort_synonyms(&k_rust::outer::lower(&parsed, "MAIN").unwrap())
+        .unwrap()
+}
+
+#[test]
+fn configuration_synonym_casts_use_the_target_sort() {
+    // The synonym corpus's 0:Wad needs only an unambiguous token grammar.
+    // Both aliases must produce the same semantic cast as their canonical sort.
+    for contents in ["0:Rat", "0:Wad", "0:Ray", "0:Wad:Ray"] {
+        let transformed = resolve_configuration_bubbles(&synonym_configuration(contents, true))
+            .unwrap_or_else(|error| panic!("{contents}: {error}"));
+        let body = transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Configuration { body, .. } => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        let token = "#token(\"0\",\"Rat\")";
+        let mut value = format!("#SemanticCastToRat({token})");
+        if contents == "0:Wad:Ray" {
+            value = format!("#SemanticCastToRat({value})");
+        }
+        assert_eq!(
+            body.to_string(),
+            format!(
+                "#configCell(#token(\"r\",\"#CellName\"),#cellPropertyListTerminator(.KList),{value},#token(\"r\",\"#CellName\"))"
+            ),
+            "{contents}"
+        );
+    }
+}
+
+#[test]
+fn configuration_synonym_casts_reject_incompatible_values_and_hidden_aliases() {
+    for (contents, imported) in [
+        ("other:Rat", true),
+        ("other:Wad", true),
+        ("0:Other", true),
+        ("0:Wad", false),
+    ] {
+        let result = resolve_configuration_bubbles(&synonym_configuration(contents, imported));
+        assert!(
+            matches!(
+                result,
+                Err(ConfigError::Parse { ref error, .. })
+                    if matches!(error.as_ref(), k_rust::inner::ParseError::NoParse { .. })
+            ),
+            "{contents} (imported={imported}) must be rejected: {result:?}"
+        );
+    }
+}
+
 #[test]
 fn parses_k_sequences_in_configuration_cells() {
     let source = "<k> foo ~> $PGM:Int </k>";
