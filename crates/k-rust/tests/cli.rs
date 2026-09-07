@@ -3411,90 +3411,141 @@ fn kprove_filters_claims_imported_into_the_specification_module() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/proof/split");
     let specification = fixtures.join("imported-spec.k");
-    let common = [
-        "kprove",
-        specification.to_str().unwrap(),
-        "--main-module",
-        "IMPORTED-SPEC",
-        "--definition-module",
-        "SPLIT",
-        "--depth",
-        "10",
-    ];
-
-    let excluded = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args(common)
-        .args(["--exclude", "fail1", "--exclude", "SPLIT-LEMMAS.fail2"])
-        .output()
-        .unwrap();
-    assert!(
-        excluded.status.success(),
-        "{}{}",
-        String::from_utf8_lossy(&excluded.stdout),
-        String::from_utf8_lossy(&excluded.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(excluded.stdout).unwrap(),
-        "claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n"
-    );
-
-    let trusted = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args(common)
-        .args(["--trusted", "fail1", "--trusted", "fail2"])
-        .output()
-        .unwrap();
-    assert!(
-        trusted.status.success(),
-        "{}{}",
-        String::from_utf8_lossy(&trusted.stdout),
-        String::from_utf8_lossy(&trusted.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(trusted.stdout).unwrap(),
-        "claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n\
-         claim SPLIT-LEMMAS.fail1: proven (trusted)\n\
-         claim SPLIT-LEMMAS.fail2: proven (trusted)\n"
-    );
-
-    // Control: without filtering every imported claim is attempted.
-    let batch = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args(common)
-        .output()
-        .unwrap();
-    let batch_stdout = String::from_utf8(batch.stdout).unwrap();
-    assert!(!batch.status.success(), "{batch_stdout}");
-    assert!(
-        batch_stdout.contains("claim SPLIT-LEMMAS.pass: proven"),
-        "{batch_stdout}"
-    );
-    for claim in ["SPLIT-LEMMAS.fail1", "SPLIT-LEMMAS.fail2"] {
+    let (root, _) = fixture();
+    let compiled_semantics = root.join("semantics");
+    let compiled_spec = root.join("specification");
+    let timings = root.join("timings.json");
+    for (source, module, destination) in [
+        (fixtures.join("split.k"), "SPLIT", &compiled_semantics),
+        (specification.clone(), "IMPORTED-SPEC", &compiled_spec),
+    ] {
+        let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kcompile")
+            .arg(source)
+            .args([
+                "--main-module",
+                module,
+                "--definition-module",
+                "SPLIT",
+                "--for-proving",
+            ])
+            .arg("--output-directory")
+            .arg(destination)
+            .output()
+            .unwrap();
         assert!(
-            batch_stdout.contains(&format!("claim {claim}: disproved")),
-            "{batch_stdout}"
+            compiled.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compiled.stderr)
         );
     }
+    for input in [
+        vec![specification.to_str().unwrap()],
+        vec![
+            specification.to_str().unwrap(),
+            "--compiled-definition",
+            compiled_semantics.to_str().unwrap(),
+        ],
+        vec!["--compiled-definition", compiled_spec.to_str().unwrap()],
+    ] {
+        let mut common = vec!["kprove"];
+        common.extend(input);
+        common.extend([
+            "--main-module",
+            "IMPORTED-SPEC",
+            "--definition-module",
+            "SPLIT",
+            "--depth",
+            "10",
+        ]);
 
-    // Excluding every claim leaves the reference backend with an empty claim set, an error.
-    let emptied = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args(common)
-        .args([
-            "--exclude",
-            "pass",
-            "--exclude",
-            "fail1",
-            "--exclude",
-            "fail2",
-        ])
-        .output()
-        .unwrap();
-    assert!(!emptied.status.success());
-    assert_eq!(String::from_utf8(emptied.stdout).unwrap(), "");
-    assert!(
-        String::from_utf8_lossy(&emptied.stderr)
-            .contains("the selected module contains no modal reachability claims"),
-        "{}",
-        String::from_utf8_lossy(&emptied.stderr)
-    );
+        let excluded = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(&common)
+            .args(["--exclude", "fail1", "--exclude", "SPLIT-LEMMAS.fail2"])
+            .output()
+            .unwrap();
+        assert!(
+            excluded.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&excluded.stdout),
+            String::from_utf8_lossy(&excluded.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(excluded.stdout).unwrap(),
+            "claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n"
+        );
+
+        let trusted = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(&common)
+            .args(["--trusted", "fail1", "--trusted", "fail2"])
+            .arg("--timings")
+            .arg(&timings)
+            .output()
+            .unwrap();
+        assert!(
+            trusted.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&trusted.stdout),
+            String::from_utf8_lossy(&trusted.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(trusted.stdout).unwrap(),
+            "claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n\
+         claim SPLIT-LEMMAS.fail1: proven (trusted)\n\
+         claim SPLIT-LEMMAS.fail2: proven (trusted)\n"
+        );
+
+        let recorded: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
+        let claims = recorded["claims"].as_array().unwrap();
+        assert_eq!(claims.len(), 3, "{recorded}");
+        for claim in &claims[1..] {
+            assert_eq!(claim["status"], "trusted");
+            assert_eq!(claim["seconds"], 0.0);
+        }
+        assert_eq!(recorded["proof_seconds"], claims[0]["seconds"]);
+
+        // Control: without filtering every imported claim is attempted.
+        let batch = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(&common)
+            .output()
+            .unwrap();
+        let batch_stdout = String::from_utf8(batch.stdout).unwrap();
+        assert!(!batch.status.success(), "{batch_stdout}");
+        assert!(
+            batch_stdout.contains("claim SPLIT-LEMMAS.pass: proven"),
+            "{batch_stdout}"
+        );
+        for claim in ["SPLIT-LEMMAS.fail1", "SPLIT-LEMMAS.fail2"] {
+            assert!(
+                batch_stdout.contains(&format!("claim {claim}: disproved")),
+                "{batch_stdout}"
+            );
+        }
+
+        // Excluding every claim leaves the reference backend with an empty claim set, an error.
+        let emptied = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(&common)
+            .args([
+                "--exclude",
+                "pass",
+                "--exclude",
+                "fail1",
+                "--exclude",
+                "fail2",
+            ])
+            .output()
+            .unwrap();
+        assert!(!emptied.status.success());
+        assert_eq!(String::from_utf8(emptied.stdout).unwrap(), "");
+        assert!(
+            String::from_utf8_lossy(&emptied.stderr)
+                .contains("the selected module contains no modal reachability claims"),
+            "{}",
+            String::from_utf8_lossy(&emptied.stderr)
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -4342,23 +4393,30 @@ fn reference_proof_modules_reject_rules_and_new_syntax() {
         let (root, definition) = fixture();
         let specification = fs::read_to_string(fixtures.join(file)).unwrap();
         fs::write(&definition, format!("{semantics}\n{specification}")).unwrap();
-        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args([
-                "kprove",
+        for command in ["kprove", "kcompile"] {
+            let mut invocation = Command::new(env!("CARGO_BIN_EXE_krust"));
+            invocation.args([
+                command,
                 definition.to_str().unwrap(),
                 "--main-module",
                 module,
                 "--definition-module",
                 "ERRORCLAIM",
-            ])
-            .output()
-            .unwrap();
-        assert!(!output.status.success(), "{file}");
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains(message),
-            "{file}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+            ]);
+            if command == "kcompile" {
+                invocation
+                    .arg("--for-proving")
+                    .arg("--output-directory")
+                    .arg(root.join("compiled"));
+            }
+            let output = invocation.output().unwrap();
+            assert!(!output.status.success(), "{file}");
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(message),
+                "{file}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 }

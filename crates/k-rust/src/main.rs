@@ -6,8 +6,8 @@ use std::{
     io::{self, Read},
     num::{NonZeroU32, NonZeroUsize},
     path::{Path, PathBuf},
-    time::{Duration, Instant},
     process::ExitCode,
+    time::{Duration, Instant},
 };
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
@@ -70,9 +70,9 @@ use k_rust_backend::{
     substitution::Substitution,
     term::{Name as BackendName, Sort as BackendSort, Term, TermKind, Variable},
 };
-use serde::{Deserialize, Serialize};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
+use serde::{Deserialize, Serialize};
 
 mod rpc;
 
@@ -1189,12 +1189,18 @@ impl From<KproveArgs> for KproveOptions {
             .unwrap_or_else(|| module.clone());
         let input = match (arguments.definition, arguments.compiled_definition) {
             (Some(definition), Some(compiled)) => KproveInput::SourceWithCompiled {
-                source: arguments.source.common(definition, module.clone(), arguments.warnings.policy()),
+                source: arguments.source.common(
+                    definition,
+                    module.clone(),
+                    arguments.warnings.policy(),
+                ),
                 compiled,
             },
-            (Some(definition), None) => {
-                KproveInput::Source(arguments.source.common(definition, module.clone(), arguments.warnings.policy()))
-            }
+            (Some(definition), None) => KproveInput::Source(arguments.source.common(
+                definition,
+                module.clone(),
+                arguments.warnings.policy(),
+            )),
             (None, Some(compiled)) => KproveInput::Compiled(compiled),
             (None, None) => unreachable!("clap requires an input"),
         };
@@ -1343,8 +1349,10 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             backend: options.backend,
             hook_namespaces: options.hook_namespaces,
             default_claims_to_all_path: options.for_proving,
-            check_mode: configuration_module.map_or(CheckMode::Definition, |module| CheckMode::Proof {
-                definition_module: module.to_owned(),
+            check_mode: configuration_module.map_or(CheckMode::Definition, |module| {
+                CheckMode::Proof {
+                    definition_module: module.to_owned(),
+                }
             }),
             diagnostics: options.common.diagnostics,
             builtin_source_prefixes,
@@ -2970,6 +2978,11 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             .map_or_else(|| format!("#{}", index + 1), str::to_owned);
         if claim.attributes.trusted {
             println!("claim {name}: proven (trusted)");
+            timings.claims.push(ClaimTiming {
+                label: name,
+                seconds: 0.0,
+                status: "trusted".into(),
+            });
             continue;
         }
         if proven_ids.contains(&claim.attributes.unique_id) {
