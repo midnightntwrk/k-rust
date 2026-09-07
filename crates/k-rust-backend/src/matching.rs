@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::{
+    builtin::{BuiltinResult, evaluate_hook},
     definition::BackendDefinition,
     rule::Predicate,
     substitution::{Substitution, compose, substitute},
@@ -2025,6 +2026,38 @@ impl SetMatchProblem<'_> {
     }
 }
 
+/// Every result of `LIST.update(L, I, V)` is a fixed point of updating at `I` with `V`.
+/// Reuse the hook to refute a concrete result with a conflicting element or an out-of-range index.
+/// This necessary condition is independent of `L`; satisfying it does not solve for the base list.
+fn list_update_cannot_match(pattern: &Term, subject: &Term) -> bool {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = pattern.kind()
+    else {
+        return false;
+    };
+    if symbol.attributes.hook.as_deref() != Some("LIST.update")
+        || !matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
+        || !subject.attributes().constructor_like
+        || !matches!(subject.kind(), TermKind::List { rest: None, .. })
+    {
+        return false;
+    }
+    let [_, index, value] = arguments.as_slice() else {
+        return false;
+    };
+    match evaluate_hook(
+        "LIST.update",
+        &[subject.clone(), index.clone(), value.clone()],
+    ) {
+        Ok(BuiltinResult::Bottom) => true,
+        Ok(BuiltinResult::Value(updated)) => {
+            updated.attributes().constructor_like && updated != *subject
+        }
+        _ => false,
+    }
+}
+
 struct Matcher<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
@@ -2251,6 +2284,9 @@ impl Matcher<'_> {
             }
             (left, right) if is_rigid(left) && is_rigid(right) => {
                 Err(FailReason::DifferentSymbols(pattern, subject))
+            }
+            _ if list_update_cannot_match(&pattern, &subject) => {
+                Err(FailReason::DifferentValues(pattern, subject))
             }
             _ => self.defer(pattern, subject),
         }
@@ -3226,6 +3262,105 @@ mod tests {
             element_sort: "SomeSort".into(),
             list_sort: "ListSort".into(),
         })
+    }
+
+    fn list_update_pattern(index: Term, value: Term, hooked: bool) -> Term {
+        let mut symbol = (*function()).clone();
+        symbol.argument_sorts = vec![Sort::simple("ListSort"), index.sort(), sort()];
+        symbol.result_sort = Sort::simple("ListSort");
+        symbol.attributes.symbol_type = SymbolType::Function(FunctionType::Partial);
+        symbol.attributes.hook = hooked.then(|| "LIST.update".into());
+        Term::application(
+            Arc::new(symbol),
+            Vec::new(),
+            vec![
+                Term::variable(variable("LIST", Sort::simple("ListSort"))),
+                index,
+                value,
+            ],
+        )
+    }
+
+    #[test]
+    fn list_update_matching_rejects_impossible_results() {
+        let subject = Term::list(
+            list_definition(),
+            vec![domain_value(sort(), "a"), domain_value(sort(), "b")],
+            None,
+        );
+        // Updating preserves length and fixes the selected element, regardless of the base list.
+        for index in ["0", "-1", "2", "184467440737095516160"] {
+            let pattern = list_update_pattern(
+                domain_value(Sort::simple("SortInt"), index),
+                domain_value(sort(), "b"),
+                true,
+            );
+            for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+                assert!(
+                    matches!(
+                        match_terms(mode, &SortGraph::default(), &pattern, &subject),
+                        MatchResult::Failed(_)
+                    ),
+                    "{mode:?}, index {index}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn list_update_matching_defers_results_it_cannot_refute() {
+        let a = domain_value(sort(), "a");
+        let b = domain_value(sort(), "b");
+        let index = domain_value(Sort::simple("SortInt"), "0");
+        let concrete = Term::list(list_definition(), vec![a.clone()], None);
+        let symbolic = Term::list(
+            list_definition(),
+            vec![Term::variable(variable("ITEM", sort()))],
+            None,
+        );
+        let open = Term::list(
+            list_definition(),
+            Vec::new(),
+            Some((
+                Term::variable(variable("REST", Sort::simple("ListSort"))),
+                vec![a.clone()],
+            )),
+        );
+        for (pattern, subject) in [
+            (
+                list_update_pattern(index.clone(), a, true),
+                concrete.clone(),
+            ),
+            (
+                list_update_pattern(
+                    index.clone(),
+                    Term::variable(variable("VALUE", sort())),
+                    true,
+                ),
+                concrete.clone(),
+            ),
+            (
+                list_update_pattern(
+                    Term::variable(variable("INDEX", Sort::simple("SortInt"))),
+                    b.clone(),
+                    true,
+                ),
+                concrete.clone(),
+            ),
+            (
+                list_update_pattern(index.clone(), b.clone(), true),
+                symbolic,
+            ),
+            (list_update_pattern(index.clone(), b.clone(), true), open),
+            (list_update_pattern(index, b, false), concrete),
+        ] {
+            for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+                assert!(matches!(
+                    match_terms(mode, &SortGraph::default(), &pattern, &subject),
+                    MatchResult::Indeterminate { .. }
+                ));
+            }
+        }
     }
 
     fn set_definition() -> Arc<crate::term::SetDefinition> {

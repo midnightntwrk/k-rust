@@ -4370,6 +4370,67 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn list_update_patterns_rewrite_only_when_the_selected_element_agrees() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortList{}
+                    [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+                sort SortState{} []
+                hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+                hooked-symbol listItem{}(SortInt{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
+                hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+                    [function{}(), hook{}("LIST.concat"), assoc{}()]
+                hooked-symbol update{}(SortList{}, SortInt{}, SortInt{}) : SortList{}
+                    [function{}(), hook{}("LIST.update")]
+                symbol state{}(SortInt{}, SortInt{}, SortList{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(I:SortInt{}, V:SortInt{}, update{}(L:SortList{}, I:SortInt{}, V:SortInt{})),
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("list-update-pattern")]
+            endmodule []"#,
+        ).unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let list = r#"listConcat{}(listItem{}(\dv{SortInt{}}("0")), listConcat{}(listItem{}(\dv{SortInt{}}("1")), listItem{}(\dv{SortInt{}}("2"))))"#;
+
+        // The update is a pattern, not a mutation: the three agreeing values match;
+        // a different value or an invalid index leaves the original state stuck.
+        for (index, value, applies) in [
+            (0, 0, true),
+            (1, 1, true),
+            (2, 2, true),
+            (0, 1, false),
+            (-1, 2, false),
+            (3, 3, false),
+        ] {
+            let subject = Pattern {
+                term: internal_term(
+                    &definition,
+                    &format!(
+                        r#"state{{}}(\dv{{SortInt{{}}}}("{index}"), \dv{{SortInt{{}}}}("{value}"), {list})"#
+                    ),
+                ),
+                constraints: Vec::new(),
+            };
+            let result = rewrite_step(&definition, &subject, &mut 0);
+            if applies {
+                let RewriteResult::Finished(applied) = result else {
+                    panic!("({index}, {value}) should rewrite: {result:?}");
+                };
+                assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
+                assert!(applied.pattern.constraints.is_empty());
+            } else {
+                assert_eq!(result, RewriteResult::Stuck(subject), "({index}, {value})");
+            }
+        }
+    }
+
     fn set_selection_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
