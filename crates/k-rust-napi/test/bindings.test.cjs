@@ -17,6 +17,7 @@ const {
 const backendDefinition = String.raw`[]
 module MAIN
   sort SortS{} []
+  alias weakExistsFinally{A}(A) : A where weakExistsFinally{A}(@X:A) := @X:A []
   symbol a{}() : SortS{} [constructor{}()]
   symbol b{}() : SortS{} [constructor{}()]
   symbol c{}() : SortS{} [constructor{}()]
@@ -230,11 +231,13 @@ test('searches and observes the persistent native backend graph', () => {
 test('compileBackend compiles and creates a native session', () => {
   const backend = compileBackend({
     definition: `module MAIN
-      syntax State ::= "a" [symbol(a)]
+      syntax State ::= "a" [function, symbol(a)] | "b" [symbol(b)]
+      rule a => b
     endmodule`,
     moduleName: 'MAIN',
     includePrelude: false,
   })
   assert.equal(backend.capabilities.execution, true)
   assert.equal(backend.capabilities.smt, true)
+  assert.equal(printKore(backend.simplify({ state: parseKore('Lbla{}()').kore })), 'Lblb{}()')
 })

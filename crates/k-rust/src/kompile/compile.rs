@@ -601,7 +601,6 @@ fn with_newline(mut text: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "z3-inference")]
     use k_rust_backend::definition::BackendDefinition;
 
     #[cfg(feature = "z3-inference")]
@@ -619,6 +618,34 @@ mod tests {
     use sha3::{Digest, Sha3_256};
 
     use super::*;
+
+    #[test]
+    fn standalone_compilation_emits_verifiable_sort_predicates() {
+        for bool_syntax in ["", "syntax Bool", "syntax Bool [token]"] {
+            let source = format!(
+                r#"module MAIN
+                  {bool_syntax}
+                  syntax State ::= "a" [function, symbol(a)] | "b" [symbol(b)]
+                  rule a => b
+                endmodule"#
+            );
+            let loaded = load(
+                ResolvedSource::new("standalone.k", source),
+                "MAIN",
+                &mut |_: &str, required: &str| Err(format!("unexpected require {required}")),
+            )
+            .unwrap();
+            let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+            for text in [
+                &artifacts.definition_kore,
+                &artifacts.syntax_definition_kore,
+            ] {
+                let kore = parse_definition(text).unwrap();
+                BackendDefinition::internalize(&kore, "MAIN")
+                    .expect("standalone KORE must satisfy the backend's definition contract");
+            }
+        }
+    }
 
     #[cfg(feature = "z3-inference")]
     fn artifact_digest(text: &str) -> String {
