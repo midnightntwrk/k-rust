@@ -1,0 +1,12 @@
+case = "branching-execution"
+subsystem = "execution"
+harvested_from = "reference-parsed branching program placed in hand-written initialized cells: two rules apply to the same term"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "initial.kore"
+command = "kompile test.k --backend haskell --main-module BR --syntax-module BR-SYNTAX --output-definition ref && python3 refresh.py > initial.kore"
+tool = "kast"
+exit_code = 0
+sha256 = "96909e2bc7819520a5671f73905197ea79ca4139c88fcdf25a84da244029a186"

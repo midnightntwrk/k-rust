@@ -6,12 +6,12 @@ haskell_backend = "0.1.155 (38afc81)"
 
 [[input]]
 file = "syntax.kore"
-source = "minimal hand-written definition for the B3-05 JSON printer probe"
+source = "minimal hand-written definition for the KORE JSON printer probe"
 sha256 = "1b57c858652983118bbd0e9d86385c5c04f914dd4efad41f772ecda38795fd08"
 
 [[input]]
 file = "mu-svar.kore"
-source = "hand-written B3-05 set-variable wire-name probe"
+source = "hand-written KORE JSON set-variable wire-name probe"
 sha256 = "6dbd8da927e5149d0b64d6ef30c21463197ebec12a0e787eb9e8081b120103b9"
 
 [[expectation]]
@@ -21,7 +21,7 @@ sha256 = "91c6fffb984ab67b14fafefae0c964fb0ba1cc697cb5243df23cf78fd1d0a8be"
 
 [[input]]
 file = "deep-148.json"
-source = "B3-02 harvested reference-shaped 72-App KORE JSON depth probe"
+source = "reference-shaped 72-App KORE JSON depth probe"
 sha256 = "a31f6a82c2b43ce95dd63d4cffce75eea18ea5758a8e29fa8899a7fa682d66ea"
 
 [[artifact]]

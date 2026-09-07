@@ -6,10 +6,17 @@ haskell_backend = "0.1.155 (38afc81)"
 
 [[artifact]]
 file = "kompile.stderr"
-command = "kompile test.k --backend haskell --main-module UNDEFINED-SORT-UNRELATED --syntax-module UNDEFINED-SORT-UNRELATED >/dev/null 2> kompile.stderr"
+# Captured diagnostics are retained; only the case-directory prefix is normalized.
+command = '''
+set +e
+kompile test.k --backend haskell --main-module UNDEFINED-SORT-UNRELATED --syntax-module UNDEFINED-SORT-UNRELATED >/dev/null 2> kompile.stderr
+status=$?
+python3 -c 'from pathlib import Path; import re; p = Path("kompile.stderr"); p.write_text(re.sub(r"(?m)^(\s*Source\()(?:[^\n]*/)?test\.k\)$", r"\1test.k)", p.read_text()))'
+exit "$status"
+'''
 tool = "kompile"
 exit_code = 113
-sha256 = "a23f71d56640400c1fdd5e0c4d24ad8bea638f0785101bbf02ba868b53dbabb3"
+sha256 = "927bf1f22bbe21876c117584688788c27bfbb5facf6f3ebbbe6a8e62c6118014"
 
 [[input]]
 file = "test.k"

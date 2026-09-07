@@ -1,6 +1,6 @@
 case = "rewrite-list-singleton"
 subsystem = "kompile"
-harvested_from = "k/k-distribution/tests/regression-new/issue-1573/test.k at 4a46d1231473b599c699160132fd6e76a5c46406, reduced by hand (stage-12 conformance ratchet finding: issue-1573 kompile mismatch on one UNIQUE_ID)"
+harvested_from = "k/k-distribution/tests/regression-new/issue-1573/test.k at 4a46d1231473b599c699160132fd6e76a5c46406, reduced by hand; probes whole-rewrite user-list singleton insertion before UNIQUE_ID hashing"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 
@@ -32,3 +32,8 @@ unique_id = "96c60640fc5ee3a06620b5568f0d83d0838404141a6f701de9ac84d8f999f1f3"
 [[rule]]
 line = 27
 unique_id = "e142b0e6b7ccad7833b2b8f8af740bf8c5232ef57c5204a559a0db6424bcb0c0"
+
+[[input]]
+file = "test.k"
+source = "hand-reduced issue-1573 whole-rewrite user-list singleton insertion probe"
+sha256 = "03d5094e023ede785815cb3ce3bbe995b5e15dd992204dbf812f6a177e34fb7e"

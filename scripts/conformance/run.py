@@ -474,13 +474,13 @@ def krust_kompile_args(case, rec, expect_fail=False):
     for d in opts.get("-I", []): args += ["-I", d]
     if "--no-prelude" in flags: args.append("--no-prelude")
     if "--emit-json" in flags: args.append("--emit-json")
-    # Warning policy, the -w/-w2e half of D1-14 that krust implements (`--warnings LEVEL`,
+    # Warning policy for the -w/-w2e flags krust implements (`--warnings LEVEL`,
     # `--warnings-to-errors`). The contract is forwarded whole or not at all: `-w2e` reaches krust
     # only for a ktest-fail recipe (the reference's rejection depends on it) that carries no
     # per-category `-W`/`-Wno`, which krust cannot express. Forwarding it next to a dropped `-Wno`
     # promotes a warning the reference disabled (werrorCategory), and forwarding it on a recipe the
     # reference accepts promotes krust's extension warnings that K never emits (prelude-warnings,
-    # D1-05 UnadmittedHookNamespace); both are spurious krust-errors, not conformance divergences.
+    # UnadmittedHookNamespace); both are spurious krust-errors, not conformance divergences.
     warning_level = (opts.get("-w") or opts.get("--warnings") or [None])[-1]
     if warning_level in ("all", "normal", "none"): args += ["--warnings", warning_level]
     per_category = [f"{k} {v}" for k in ("-W", "-Wno") for v in opts.get(k, [])]
@@ -703,7 +703,7 @@ def compare_execution(case, rec, step, kout, kore_output, tag):
     case.logfile(f"{tag}.krust.pretty", pout)
     d, compared_as_set = execution_text_diff(expected, pout)
     if compared_as_set:
-        step["comparison"] = "kprint #Or disjunct multiset vs .out (arbiter row 12)"
+        step["comparison"] = "kprint #Or disjunct multiset vs .out (docs/compatibility.md#search-results)"
     if d is None: return True
     step["divergence"] = d
     return False
@@ -1181,12 +1181,11 @@ def main():
         default=[],
         metavar="NAME=SECONDS",
     )
-    ap.add_argument("--ticket", action="append", default=[], help="select cases owned by ID")
     ap.add_argument("--stage", action="append", default=[], help="select baseline stage")
     ap.add_argument("--cases", nargs="*", default=[], help="case names relative to regression-new")
     ap.add_argument("--all", action="store_true", help="select every regression-new leaf")
     ap.add_argument("--kore-parser", help="matching pinned kore-parser executable")
-    ap.add_argument("--expectations", help="case ownership and budget TOML")
+    ap.add_argument("--expectations", help="case expectations and budget TOML")
     ap.add_argument("--jobs", type=positive_integer, default=2)
     ap.add_argument("--rank", choices=sorted(VERDICT_RANK), help="print a verdict rank and exit")
     ap.add_argument("--list", action="store_true")
@@ -1289,13 +1288,8 @@ def main():
     if unknown_overrides:
         ap.error(f"unknown --case-budget case(s): {', '.join(unknown_overrides)}")
 
-    selectors_given = bool(a.cases or a.ticket or a.stage)
+    selectors_given = bool(a.cases or a.stage)
     selected = set(a.cases)
-    for ticket in a.ticket:
-        selected.update(
-            name for name, row in expectations.items()
-            if ticket in row.get("tickets", [])
-        )
     for stage in a.stage:
         selected.update(
             name for name, row in expectations.items()

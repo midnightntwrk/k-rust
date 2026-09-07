@@ -1,5 +1,5 @@
 //! Peak resident memory pins for `krust kcompile` on reduced reproductions of the
-//! real-semantics memory regressions tracked by I1-01.
+//! real-semantics memory regressions.
 //!
 //! The pinned WASM definition needs minutes and gigabytes, so the pins here compile a
 //! synthetic definition that has the same shape: a chain of modules in which every module
@@ -27,7 +27,7 @@ const RULES_PER_MODULE: usize = 12;
 
 /// Peak RSS ceiling for the chain compile.
 ///
-/// The release `krust` built at 747eafc (the I1-01 landing, before the regression) compiled
+/// The release `krust` built at 747eafc (before the provenance-receipt memory regression) compiled
 /// this definition at 324 MiB peak RSS; the ceiling keeps a tolerance of about 20 percent above
 /// that pre-regression level so the pin is stable across allocators and build profiles while
 /// still rejecting the receipts that later grew the same compile past 560 MiB.

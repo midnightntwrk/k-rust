@@ -23,7 +23,7 @@ def main() -> None:
     subprocess.run(
         [
             kompile,
-            "br.k",
+            "branching.k",
             "--backend",
             "haskell",
             "--main-module",
@@ -42,6 +42,7 @@ def main() -> None:
         [rpc, "--help"], check=True, capture_output=True, text=True
     ).stdout
     smt_args = ["--no-smt"] if "--no-smt" in help_text else ["--smt", "none"]
+    bug_report_args = ["--no-bug-report"] if "--no-bug-report" in help_text else []
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -55,7 +56,7 @@ def main() -> None:
             *smt_args,
             "--server-port",
             str(port),
-            "--no-bug-report",
+            *bug_report_args,
         ],
         cwd=root,
         stdout=subprocess.DEVNULL,

@@ -2874,7 +2874,7 @@ mod chart_tests {
         let completion_candidates = chart_completion_candidates();
 
         assert_left_chain(&parsed, operands);
-        eprintln!("A2-02 completion candidates: {completion_candidates}");
+        eprintln!("Casted-chain completion candidates: {completion_candidates}");
         assert!(
             completion_candidates <= 2 * operands * operands,
             "{} completion candidates exceeded the polynomial-work contract",

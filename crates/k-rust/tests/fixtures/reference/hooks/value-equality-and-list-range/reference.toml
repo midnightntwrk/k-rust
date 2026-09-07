@@ -1,0 +1,22 @@
+case = "value-equality-and-list-range"
+subsystem = "hooks"
+harvested_from = "hand-written domains probe: signed integer syntax and equality, map equality, conditionals, and list range"
+k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
+haskell_backend = "0.1.155 (38afc81)"
+
+[[artifact]]
+file = "reference.out"
+command = "kompile value-equality-and-list-range.k --backend haskell --main-module HOOKS --syntax-module HOOKS-SYNTAX --output-definition ref && krun value-equality-and-list-range.hooks --definition ref > reference.out"
+tool = "krun"
+exit_code = 0
+sha256 = "4e356b89891a13b4650b7c7b5f001ddd3e0b6d49c559d0747854c41463c49b3d"
+
+[[input]]
+file = "value-equality-and-list-range.k"
+source = "hand-written definition importing domains syntax to exercise signed integer equality, map equality, conditionals, and list range"
+sha256 = "30c06e7d4b2d4c54cd269afae2bc219890d2cc9d862c98bcfaed193750eceb80"
+
+[[input]]
+file = "value-equality-and-list-range.hooks"
+source = "hand-written program selecting the value-equality and list-range probe"
+sha256 = "e0b64b0889e9029aed18a37bbe2bcb12964a36ed02f4b838a5f43f4c65226e4a"

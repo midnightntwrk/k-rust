@@ -1,6 +1,6 @@
 case = "let-list-binder"
 subsystem = "kompile"
-harvested_from = "wasm-semantics wasm-data/sparse-bytes.k:82-84 at 212271bd434bd402e27c42f6416854342733386d, reduced by hand (stage-12 finding on the wasm haskell/rust semantic comparator)"
+harvested_from = "wasm-semantics wasm-data/sparse-bytes.k:82-84 at 212271bd434bd402e27c42f6416854342733386d, reduced by hand; probes inferred user-list lambda parameter sorts"
 k_revision = "4a46d1231473b599c699160132fd6e76a5c46406"
 haskell_backend = "0.1.155 (38afc81)"
 

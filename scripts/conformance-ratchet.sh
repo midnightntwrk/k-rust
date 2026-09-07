@@ -7,7 +7,6 @@ measure="$workspace/scripts/conformance/measure.py"
 summarize="$workspace/scripts/conformance/summarize.py"
 driver=${CONFORMANCE_DRIVER:-"$workspace/scripts/conformance/run.py"}
 expectations="$workspace/scripts/conformance/expectations.toml"
-status=${CONFORMANCE_RATCHET_STATUS:-}
 log=${CONFORMANCE_RATCHET_LOG:-}
 runs_dir=${CONFORMANCE_RATCHET_RUNS_DIR:-}
 jobs=2
@@ -20,13 +19,12 @@ all=false
 force=false
 dry_run=false
 cases=()
-tickets=()
 stages=()
 original_args=("$@")
 
 usage() {
   cat <<'EOF'
-usage: scripts/conformance-ratchet.sh --label LABEL (--all | --cases NAME... | --ticket ID | --stage STAGE) [OPTIONS]
+usage: scripts/conformance-ratchet.sh --label LABEL (--all | --cases NAME... | --stage STAGE) [OPTIONS]
        scripts/conformance-ratchet.sh --seed RESULTS --label LABEL [OPTIONS]
        scripts/conformance-ratchet.sh --seed-acceptance --label LABEL --log PATH
        scripts/conformance-ratchet.sh --audit [--sequence N] [--log PATH]
@@ -34,7 +32,7 @@ usage: scripts/conformance-ratchet.sh --label LABEL (--all | --cases NAME... | -
 Measure selected K regression-new cases, append their per-case ranks to the
 standing ratchet, and fail with status 3 if a non-excluded rank decreases
 against the previous measurement with the same driver version or if any
-non-excluded measured case is below its stage-1 floor (its entry-0 rank),
+non-excluded measured case is below its initial measurement floor (its first recorded rank),
 whatever the driver version and whether or not this run lowered it.
 The versioned accepted_verdict is also a floor, even for a fresh log or driver.
 --seed-acceptance initializes a local log from those recorded verdicts without running tools.
@@ -45,7 +43,6 @@ Options:
   --log PATH          required; standing ratchet log (or CONFORMANCE_RATCHET_LOG)
   --runs-dir PATH     required when measuring (or CONFORMANCE_RATCHET_RUNS_DIR)
   --expectations PATH
-  --status PATH       optional ticket-state ledger (or CONFORMANCE_RATCHET_STATUS)
   --force
   --dry-run
 EOF
@@ -86,11 +83,6 @@ while (($#)); do
       done
       ((${#cases[@]} > before)) || die "--cases requires at least one case"
       ;;
-    --ticket)
-      require_value "$@"
-      tickets+=("$2")
-      shift 2
-      ;;
     --stage)
       require_value "$@"
       stages+=("$2")
@@ -129,11 +121,6 @@ while (($#)); do
       expectations=$2
       shift 2
       ;;
-    --status)
-      require_value "$@"
-      status=$2
-      shift 2
-      ;;
     --force)
       force=true
       shift
@@ -155,7 +142,7 @@ done
 [[ -n "$log" ]] || die "--log is required (or set CONFORMANCE_RATCHET_LOG)"
 
 if [[ "$audit" == true ]]; then
-  [[ -z "$label" && -z "$seed" && "$seed_acceptance" == false && "$all" == false && ${#cases[@]} -eq 0 && ${#tickets[@]} -eq 0 && ${#stages[@]} -eq 0 ]] || \
+  [[ -z "$label" && -z "$seed" && "$seed_acceptance" == false && "$all" == false && ${#cases[@]} -eq 0 && ${#stages[@]} -eq 0 ]] || \
     die "--audit cannot be combined with a label, a seed, or a run selection"
   [[ -f "$helper" ]] || die "missing ratchet helper: $helper"
   [[ -f "$log" ]] || die "missing ratchet log: $log"
@@ -192,7 +179,7 @@ acquire_lock() {
 }
 
 if [[ -n "$seed" || "$seed_acceptance" == true ]]; then
-  [[ "$all" == false && ${#cases[@]} -eq 0 && ${#tickets[@]} -eq 0 && ${#stages[@]} -eq 0 ]] || \
+  [[ "$all" == false && ${#cases[@]} -eq 0 && ${#stages[@]} -eq 0 ]] || \
     die "--seed cannot be combined with a run selection"
   seed_args=()
   if [[ -n "$seed" ]]; then
@@ -210,8 +197,8 @@ if [[ -n "$seed" || "$seed_acceptance" == true ]]; then
   exit "$exec_status"
 fi
 
-if [[ "$all" == false && ${#cases[@]} -eq 0 && ${#tickets[@]} -eq 0 && ${#stages[@]} -eq 0 ]]; then
-  die "select cases with --all, --cases, --ticket, or --stage"
+if [[ "$all" == false && ${#cases[@]} -eq 0 && ${#stages[@]} -eq 0 ]]; then
+  die "select cases with --all, --cases, or --stage"
 fi
 [[ -n "$runs_dir" ]] || die "--runs-dir is required (or set CONFORMANCE_RATCHET_RUNS_DIR)"
 
@@ -222,9 +209,6 @@ fi
 if ((${#cases[@]})); then
   selection_args+=(--cases "${cases[@]}")
 fi
-for ticket in "${tickets[@]}"; do
-  selection_args+=(--ticket "$ticket")
-done
 for stage in "${stages[@]}"; do
   selection_args+=(--stage "$stage")
 done
@@ -233,7 +217,7 @@ mapfile -t selected < <(python3 "$helper" select "${selection_args[@]}")
 
 selection=all
 if [[ "$all" == false ]]; then
-  selection="cases=$(IFS=,; echo "${cases[*]}");tickets=$(IFS=,; echo "${tickets[*]}");stages=$(IFS=,; echo "${stages[*]}")"
+  selection="cases=$(IFS=,; echo "${cases[*]}");stages=$(IFS=,; echo "${stages[*]}")"
 fi
 
 [[ -x "$driver" ]] || die "conformance driver is not executable: $driver"
@@ -368,15 +352,10 @@ peak_rss_mib=$(sed -n 's/^peak_rss_mib = //p' "$run_dir/driver.meta.toml")
 [[ "$wall_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "measurement has no wall_seconds"
 [[ "$peak_rss_mib" =~ ^[0-9]+$ ]] || die "measurement has no peak_rss_mib"
 
-status_args=()
-if [[ -n "$status" ]]; then
-  status_args=(--status "$status")
-fi
 append_status=0
 python3 "$helper" append \
   --results "$results" \
   --expectations "$expectations" \
-  "${status_args[@]}" \
   --log "$log" \
   --label "$label" \
   --workspace-revision "$workspace_revision" \

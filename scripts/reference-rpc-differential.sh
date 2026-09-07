@@ -41,11 +41,6 @@ if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
   exit 2
 fi
 rpc=$(jq -c --arg name "$name" '.rpc[] | select(.name == $name)' <<<"$manifest_json")
-blocking_tickets=$(jq -r '[.requires[] | select(startswith("ticket:")) | ltrimstr("ticket:")] | join(", ")' <<<"$rpc")
-if [[ -n "$blocking_tickets" && "${REFERENCE_DIFFERENTIAL_PENDING:-0}" != 1 ]]; then
-  echo "[$name] pending: blocked by $blocking_tickets"
-  exit 0
-fi
 
 if [[ -z "$kompile" ]]; then
   kompile=$(command -v kompile || true)
@@ -508,8 +503,7 @@ for reference_oracle in "${reference_oracles[@]}"; do
     if [[ -n "$oracle_exception" ]]; then
       expected=$(jq -r '.expected' <<<"$oracle_exception")
       reason=$(jq -r '.reason' <<<"$oracle_exception")
-      ticket=$(jq -r '.ticket' <<<"$oracle_exception")
-      echo "[$name:rpc:$oracle_name:$response] oracle-exception ($ticket): $reason"
+      echo "[$name:rpc:$oracle_name:$response] oracle-exception: $reason"
       if ! diff -u \
         <(jq -S . "$expected") \
         <(jq -S . "$work/rust-$response.json"); then

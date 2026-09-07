@@ -1,13 +1,13 @@
-module HOOKS-C2-SYNTAX
+module HOOK-BOUNDARIES-SYNTAX
   imports DOMAINS-SYNTAX
   imports BYTES-SYNTAX
   syntax Pgm ::= "pc" | "y14" | "y16" | "edges"
 endmodule
 
-module HOOKS-C2
+module HOOK-BOUNDARIES
   imports DOMAINS
   imports BYTES
-  imports HOOKS-C2-SYNTAX
+  imports HOOK-BOUNDARIES-SYNTAX
   configuration <k> $PGM:Pgm </k>
   syntax Int ::= i(Int) [function, total]
   rule i(X) => X

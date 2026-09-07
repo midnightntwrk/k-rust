@@ -903,7 +903,7 @@ fn combine_obligation_branches(mut branches: Vec<Obligations>) -> Obligations {
 }
 
 /// Solve the collection pairs of a match remainder with the collection solver that rule
-/// application uses (C1-01/C1-02 `solve_collection_pairs_in_definition`): common opaque chunks
+/// application uses (`solve_collection_pairs_in_definition`): common opaque chunks
 /// cancel and a destination frame is bound to the subject's leftover, as Kore's AC unifier binds
 /// the sole remaining opaque variable (AssociativeCommutative.hs matchUnifyEqualsNormalizedAc).
 /// A solution is taken only when it is unique and binds destination existentials alone; any

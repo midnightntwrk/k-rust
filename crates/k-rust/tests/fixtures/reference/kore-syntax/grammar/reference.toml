@@ -6,22 +6,22 @@ haskell_backend = "0.1.155 (38afc81)"
 
 [[input]]
 file = "pass/attribute-patterns.kore"
-source = "hand-written B3-04 acceptance probe"
+source = "hand-written KORE grammar acceptance probe"
 sha256 = "10a29b7a825313a9370b89ea38b9b86e4a6ad79a6423855a4ab2593881857e8e"
 
 [[input]]
 file = "pass/legacy-multi-or.kore"
-source = "hand-written B3-04 acceptance probe"
+source = "hand-written KORE grammar acceptance probe"
 sha256 = "09e08f7018e473275d18ce2ece3f2c303fa7a997520cb00dd543efc26de1e98f"
 
 [[input]]
 file = "pass/backslash-identifiers.kore"
-source = "hand-written B3-04 acceptance probe"
+source = "hand-written KORE grammar acceptance probe"
 sha256 = "23c11f563460ae0a3f8940c85f2560e2d34a84e1102777cab0d852c6ae1566ff"
 
 [[input]]
 file = "pass/alias-set-variable.kore"
-source = "hand-written B3-04 acceptance probe"
+source = "hand-written KORE grammar acceptance probe"
 sha256 = "306d61c314d2898399d9f65fe45c436b6105d60580d28f0a753fad0bc8000342"
 
 [[input]]
@@ -31,17 +31,17 @@ sha256 = "aa8fa57e409941eb21aebba47d4a13c0c60d8bdc4ad8d7e38b6db0b5f46377c4"
 
 [[input]]
 file = "fail/empty-definition.kore"
-source = "hand-written B3-04 rejection probe"
+source = "hand-written KORE grammar rejection probe"
 sha256 = "7682c401c4ce53e723b618cfd2f241f854de5625c791d59b37cbc90461c3aa4f"
 
 [[input]]
 file = "fail/alias-application-argument.kore"
-source = "hand-written B3-04 rejection probe"
+source = "hand-written KORE grammar rejection probe"
 sha256 = "01f29f0a19b39fb38df9f7219aae772f4944f9e2110d17c36e9f44495cf449ea"
 
 [[input]]
 file = "fail/assoc-and-head.kore"
-source = "hand-written B3-04 rejection probe"
+source = "hand-written KORE grammar rejection probe"
 sha256 = "75fbcb15e8a0681afd4f3d9a8b7702758bde2a2fcbe5c59733099db2918937eb"
 
 [[artifact]]

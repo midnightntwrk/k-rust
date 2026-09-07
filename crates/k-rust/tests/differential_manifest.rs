@@ -30,11 +30,11 @@ const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
 ];
 
 #[test]
-fn part_b_manifest_schema_is_complete() {
+fn differential_manifest_schema_is_complete() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
     assert!(
         manifest["normalisations"].get("ignore_unique_id").is_none(),
-        "B2-03 removes the temporary UNIQUE_ID escape hatch"
+        "compile comparison must not globally ignore UNIQUE_ID"
     );
 
     let allowed_pairings = BTreeSet::from(["kore/llvm", "haskell/rust"]);
@@ -125,12 +125,12 @@ fn part_b_manifest_schema_is_complete() {
             .expect("assoc-strict requirements")
             .iter()
             .all(|requirement| requirement.as_str() == Some("reference-toolchain")),
-        "A3-06 and I1-06 are verified, so assoc-strict runs in the default protocol",
+        "assoc-strict must run in the default protocol when the reference toolchain is available",
     );
 }
 
 #[test]
-fn part_b_pending_and_special_case_schema_is_complete() {
+fn differential_special_case_schema_is_complete() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
     let case = |section: &str, name: &str| {
         manifest[section]
@@ -141,12 +141,16 @@ fn part_b_pending_and_special_case_schema_is_complete() {
             .unwrap_or_else(|| panic!("missing {section} case {name}"))
             .clone()
     };
-    // The three symbolic C1 cases compare one rewrite step against kore-exec. The reference's
+    // The three symbolic collection and injection cases compare one rewrite step against kore-exec. The reference's
     // `--depth N` output lists the leaves that are stuck within N steps and drops the leaves that
     // merely reached the limit whenever a stuck leaf exists (GraphTraversal.checkLeftUnproven:
     // GotStuck wins over Stopped), so `--depth 1` prints only the unrewritten remainder and the
     // rewritten branches are observable from `--depth 2` on.
-    for name in ["c1-map", "c1-t2", "c1-t3"] {
+    for name in [
+        "symbolic-collection-frames",
+        "collection-and-injection-narrowing",
+        "injected-variable-narrowing",
+    ] {
         let entry = case("symbolic", name);
         for pattern in entry["pattern"].as_array().expect("symbolic patterns") {
             assert_eq!(
@@ -172,7 +176,7 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         );
     }
 
-    for name in ["imp", "bounded-search", "c3-tr-rpc"] {
+    for name in ["imp", "bounded-search", "trivial-result-rpc"] {
         let entry = manifest["rpc"]
             .as_array()
             .unwrap()
@@ -180,11 +184,11 @@ fn part_b_pending_and_special_case_schema_is_complete() {
             .find(|entry| entry["name"].as_str() == Some(name))
             .unwrap_or_else(|| panic!("missing RPC case {name}"));
         assert_eq!(entry["oracle"].as_str(), Some("kore-rpc-booster"));
-        if name == "c3-tr-rpc" {
+        if name == "trivial-result-rpc" {
             assert_eq!(
                 entry["state-depth"].as_integer(),
                 Some(0),
-                "the C3-05 RPC probe must send the initial state, not Kore's post-step bottom",
+                "the trivial-result RPC probe must send the initial state, not Kore's post-step bottom",
             );
         }
     }
@@ -194,7 +198,7 @@ fn part_b_pending_and_special_case_schema_is_complete() {
         .expect("execution cases")
         .iter()
         .find(|entry| entry["name"].as_str() == Some("exit"))
-        .expect("D1-01 exit execution case");
+        .expect("nonzero exit-code execution case");
     assert_eq!(exit["exit-code"].as_integer(), Some(7));
 
     let hook_exceptions = manifest["execution"]
@@ -283,7 +287,7 @@ fn part_b_pending_and_special_case_schema_is_complete() {
 }
 
 #[test]
-fn b2_03_removes_measured_compile_divergence_ceilings() {
+fn compile_comparison_requires_strict_unique_id_parity() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
     assert!(
         manifest["compile"]
@@ -295,7 +299,7 @@ fn b2_03_removes_measured_compile_divergence_ceilings() {
 }
 
 #[test]
-fn part_b_gate_scripts_wire_the_runtime_contract() {
+fn differential_gate_scripts_wire_the_runtime_contract() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let symbolic = fs::read_to_string(workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH))
         .expect("symbolic differential script");
@@ -308,8 +312,10 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
         RPC_SCRIPT,
         &symbolic,
     ] {
-        assert!(script.contains("REFERENCE_DIFFERENTIAL_PENDING"));
-        assert!(script.contains("pending: blocked by"));
+        assert!(script.contains("reference-manifest.py"));
+        assert!(script.contains("reference_require_k_version"));
+        assert!(script.contains("reference_require_git_pin"));
+        assert!(script.contains("semantics-support"));
     }
     for needle in [
         "REFERENCE_DIFFERENTIAL_PAIRINGS",
@@ -331,7 +337,7 @@ fn part_b_gate_scripts_wire_the_runtime_contract() {
     ] {
         assert!(
             !COMPILE_SCRIPT.contains(obsolete),
-            "B2-03 must remove the general UNIQUE_ID escape hatch: {obsolete}"
+            "compile comparison must reject the general UNIQUE_ID escape hatch: {obsolete}"
         );
     }
     for script in [EXECUTION_SCRIPT, MIR_EXECUTION_SCRIPT, &symbolic] {
@@ -380,9 +386,9 @@ fn execution_gate_krust_krun_invocations(script: &str) -> Vec<&str> {
 
 /// The execution gate pairs krust with the reference Haskell backend: `kompile --backend
 /// haskell`, then the reference `krun`, which runs kore-exec in its default `--strategy all`
-/// and prints every successor of a branching configuration (c3-br: `rule a => b` and
+/// and prints every successor of a branching configuration (branching-execution: `rule a => b` and
 /// `rule a => c` give `\or(b, c)` at depth 1). Plain `krust krun` follows one successor per
-/// step (`--strategy any`, the bucket-05 amendment under C3-02), so a Haskell-paired execution
+/// step (`--strategy any`; docs/compatibility.md#search-results), so a Haskell-paired execution
 /// comparison must ask krust for the Haskell-equivalent branching: the krust side of every
 /// `[[execution]]` program and search passes `--strategy all`, and the reference side keeps
 /// kore-exec's default.
@@ -424,24 +430,84 @@ fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
 }
 
 #[test]
-fn every_gate_skips_unrunnable_cases_before_validating_reference_tools() {
+fn every_gate_rejects_unknown_cases_before_validating_reference_tools() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let compile_validation = "if [[ -z \"$kompile\" ]]";
-    let symbolic = fs::read_to_string(workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH))
-        .expect("symbolic differential script");
-    for (name, script) in [
-        ("compile", COMPILE_SCRIPT),
-        ("KAST", KAST_SCRIPT),
-        ("execution", EXECUTION_SCRIPT),
-        ("proof", PROOF_SCRIPT),
-        ("rpc", RPC_SCRIPT),
-        ("symbolic", symbolic.as_str()),
+    let missing = environment_fixture("missing-reference-tools").join("kompile");
+    for (script, supported) in [
+        ("scripts/reference-differential.sh", "append"),
+        ("scripts/reference-kast-differential.sh", "imp"),
+        (
+            "scripts/reference-non-imp-execution-differential.sh",
+            "collections",
+        ),
+        ("scripts/reference-proof-differential.sh", "mini-proof"),
+        ("scripts/reference-rpc-differential.sh", "imp"),
+        (SYMBOLIC_EXECUTION_SCRIPT_PATH, "symbolic-depth-bound"),
     ] {
-        assert!(
-            script.find("pending: blocked by").unwrap() < script.find(compile_validation).unwrap(),
-            "the {name} gate must select and skip pending cases before validating reference tools",
-        );
+        for (case, diagnostic) in [
+            ("unknown-fixture-case", "error: unknown"),
+            (supported, "error: set K_KOMPILE"),
+        ] {
+            let output = Command::new("bash")
+                .arg(workspace.join(script))
+                .arg(case)
+                .env("K_KOMPILE", &missing)
+                .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+                .output()
+                .expect("run gate preflight");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(2), "{script}: {stderr}");
+            assert!(stderr.contains(diagnostic), "{script}: {stderr}");
+            assert!(!String::from_utf8_lossy(&output.stdout).contains("corpus passed"));
+        }
     }
+    fs::remove_dir_all(missing.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn differential_manifest_rejects_prerequisites_the_gates_cannot_enforce() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-prerequisites");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    for (requirements, valid) in [
+        (r#"["reference-toolchain"]"#, true),
+        (r#"["reference-toolchain", "semantics-support"]"#, true),
+        (
+            r#"["reference-toolchain", "ticket:historical-owner"]"#,
+            false,
+        ),
+        (r#"["unknown-capability"]"#, false),
+        (r#"[]"#, false),
+        (r#""reference-toolchain""#, false),
+    ] {
+        fs::write(
+            fixture.join("reference-differential.toml"),
+            format!("[[compile]]\nname = \"fixture\"\nrequires = {requirements}\n"),
+        )
+        .unwrap();
+        for args in [vec![], vec!["--validate"]] {
+            let output = Command::new("python3")
+                .arg(&helper)
+                .args(args)
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(
+                output.status.code(),
+                Some(if valid { 0 } else { 2 }),
+                "{requirements}: {stderr}"
+            );
+            if !valid {
+                assert!(
+                    output.stdout.is_empty(),
+                    "invalid prerequisites must not reach gates"
+                );
+                assert!(stderr.contains("invalid differential manifest"), "{stderr}");
+            }
+        }
+    }
+    fs::remove_dir_all(fixture).unwrap();
 }
 
 #[test]
@@ -464,7 +530,7 @@ fn every_gate_normalisation_is_registered() {
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1 and N3 through N23 after B2-03 deletes N2"
+        "the gate register must contain N1 and N3 through N23; global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()
@@ -488,12 +554,16 @@ fn every_gate_normalisation_is_registered() {
         row("N22")["anchor_symbol"].as_str(),
         Some("canonicalize_remainder_existentials")
     );
-    // N23 is the decision-row-20 extension of D13-3 to generated `#lambda` suffixes.
+    // N23 limits generated `#lambda` suffix normalization to documented multi-suffix families.
     assert_eq!(
         row("N23")["anchor_symbol"].as_str(),
         Some("strip_multi_suffix_lambda_ids")
     );
-    for needle in ["#lambda", "D13-3", "20"] {
+    for needle in [
+        "#lambda",
+        "multi-suffix",
+        "docs/compatibility.md#comparison-contract",
+    ] {
         assert!(
             row("N23")["justification"]
                 .as_str()
@@ -507,14 +577,7 @@ fn every_gate_normalisation_is_registered() {
     let mut registered_symbols = BTreeSet::new();
     for row in rows {
         let id = row["id"].as_str().unwrap();
-        for field in [
-            "gate",
-            "anchor",
-            "anchor_symbol",
-            "rule",
-            "justification",
-            "fate",
-        ] {
+        for field in ["gate", "anchor", "anchor_symbol", "rule", "justification"] {
             assert!(
                 row[field]
                     .as_str()
@@ -746,7 +809,7 @@ fn excluded_cases_have_complete_oracle_dispositions() {
         };
         assert_eq!(
             disposition, expected_disposition,
-            "excluded case {name} changed its adjudicated disposition",
+            "excluded case {name} changed its documented disposition",
         );
         assert!(
             table["local_gate"]
@@ -797,23 +860,23 @@ fn excluded_cases_have_complete_oracle_dispositions() {
 }
 
 #[test]
-fn manual_certification_protocol_names_part_b_green_gates() {
+fn manual_certification_protocol_names_required_gates() {
     for command in [
         "# scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner",
         "# scripts/reference-differential.sh fun-int-list-config",
         "# scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2",
         "# REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence",
         "# scripts/reference-kast-differential.sh wasm mir evm-equivalence",
-        "# scripts/reference-non-imp-execution-differential.sh imp collections hooks-c2",
-        "# scripts/reference-non-imp-execution-differential.sh c3-search c3-br c3-co c3-tr",
+        "# scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries",
+        "# scripts/reference-non-imp-execution-differential.sh depth-bounded-search branching-execution concrete-symbolic-rules trivial-result-execution",
         "# scripts/reference-proof-differential.sh mini-proof",
-        "# scripts/reference-proof-differential.sh c4-split c4-lemma c4-trivial",
+        "# scripts/reference-proof-differential.sh split-proof trusted-lemma-proof trivial-proof",
         "# scripts/reference-rpc-differential.sh imp",
         "# scripts/reference-rpc-differential.sh bounded-search",
-        "# scripts/reference-rpc-differential.sh c3-tr-rpc",
+        "# scripts/reference-rpc-differential.sh trivial-result-rpc",
         "# scripts/reference-mir-execution-differential.sh",
-        "# scripts/reference-symbolic-execution-differential.sh c3-sd-symbolic c3-sy",
-        "# scripts/conformance-ratchet.sh --label <landing> --ticket <ticket>",
+        "# scripts/reference-symbolic-execution-differential.sh symbolic-depth-bound symbolic-owise",
+        "# scripts/conformance-ratchet.sh --label change --cases append --log target/conformance/ratchet.toml --runs-dir target/conformance/runs",
     ] {
         assert!(
             MANIFEST.lines().any(|line| line == command),
@@ -824,7 +887,7 @@ fn manual_certification_protocol_names_part_b_green_gates() {
     for requirement in [
         "# PR description (any change under crates/k-rust/src/{inner,kompile,outer,definition}, crates/k-rust-backend, scripts/reference-*, scripts/conformance/):",
         "#   1. the gate lines above that apply, one row each: case, pass/fail, wall s, peak RSS MiB (scripts/conformance/measure.py)",
-        "#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label <branch> --ticket <ids named in the PR>` (or --all at a milestone)",
+        "#   2. the ratchet block printed by `scripts/conformance-ratchet.sh --label change --cases <affected cases> --log target/conformance/ratchet.toml --runs-dir target/conformance/runs` (or --all for full certification)",
         "#   3. the permanent multi-alias oracle-exclusion count printed by scripts/reference-differential.sh",
     ] {
         assert!(
@@ -1355,7 +1418,7 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
         let mut command = Command::new("bash");
         command
             .arg(&script)
-            .arg("c3-sy")
+            .arg("symbolic-owise")
             .env("PATH", &path)
             .env("ENVIRONMENT_CALLS", &calls)
             .env("K_KOMPILE", &fake_kompile)

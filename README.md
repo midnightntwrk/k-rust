@@ -477,7 +477,7 @@ scripts/reference-differential.sh casts cell-map  # selected cases
 ```
 
 The real-semantics certification protocol is manual rather than a CI job.
-Run the complete protocol after a change to frontend, definition, kompile, or KORE-emission behavior and retain the named results, wall times, and peak memory in the landing record:
+Run the complete protocol after a change to frontend, definition, kompile, or KORE-emission behavior and record the named results, wall times, and peak memory in the change description:
 
 ```console
 scripts/reference-differential.sh wasm mir evm-equivalence
@@ -488,7 +488,7 @@ scripts/reference-rpc-differential.sh imp
 scripts/reference-mir-execution-differential.sh
 ```
 
-`scripts/reference-differential.toml` is the source of truth for pins, checkout paths, compiler options, compared artifacts, parser cases, execution/search programs, proof claims, RPC cases, and the six adjudicated oracle exclusions.
+`scripts/reference-differential.toml` is the source of truth for pins, checkout paths, compiler options, compared artifacts, parser cases, execution/search programs, proof claims, RPC cases, and the six documented oracle exclusions.
 The scripts enforce clean checkouts at the manifest revisions and require the matching K release.
 Set `K_CHECKOUT`, `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, `EVM_SEMANTICS_CHECKOUT`, `EVM_EQUIVALENCE_CHECKOUT`, or `MIR_SEMANTICS_CHECKOUT` when a checkout is not at its ignored workspace-default path.
 Each of the six Java-backed differential scripts re-executes its complete job in one transient user systemd scope before loading the manifest, validating pins, or starting reference and Rust phases.

@@ -123,7 +123,7 @@ fn marker_after_the_first_body_line_does_not_count() {
             "#",
             r#"[test]
 fn reference_search_fixture_is_attributed_to_the_backend() {
-    assert!("fixtures/reference/search/sd/depth-two.kore".ends_with(".kore"));
+    assert!("fixtures/reference/search/symbolic-depth-bound/depth-two.kore".ends_with(".kore"));
 }
 "#,
         ),

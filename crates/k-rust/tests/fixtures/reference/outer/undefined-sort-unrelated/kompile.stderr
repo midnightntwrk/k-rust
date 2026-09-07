@@ -1,5 +1,5 @@
 [Error] Compiler: Could not find sorts: [Bar]
-	Source(/tmp/a1-fixtures/undefined-sort-unrelated/test.k)
+	Source(test.k)
 	Location(2,18,2,21)
 	2 |	  syntax Foo ::= Bar
 	  .	                 ^~~
