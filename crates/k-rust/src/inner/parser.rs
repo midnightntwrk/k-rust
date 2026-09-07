@@ -50,6 +50,12 @@ struct ParseProvenance {
     base_offset: usize,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum PredictionMode {
+    Filtered,
+    Unfiltered,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AmbiguousParse {
     pub production: Option<String>,
@@ -460,6 +466,7 @@ thread_local! {
     static PACKED_PRIORITY_COMPUTATIONS: Cell<usize> = const { Cell::new(0) };
     static CHART_COMPLETION_CANDIDATES: Cell<usize> = const { Cell::new(0) };
     static CHART_PREDICTION_ATTEMPTS: Cell<usize> = const { Cell::new(0) };
+    static PARSE_ATTEMPTS: Cell<usize> = const { Cell::new(0) };
 }
 
 impl PartialEq for PackedTerm {
@@ -1159,6 +1166,42 @@ impl Grammar {
             source,
             base_offset,
         };
+        let mut pruned = false;
+        let result = self.parse_attempt(
+            start,
+            input,
+            is_anywhere,
+            provenance,
+            PredictionMode::Filtered,
+            &mut pruned,
+        );
+        // Failed first scans still contribute to chart-derived diagnostics. Retry the complete
+        // pipeline so every error, including inference and ambiguity errors, stays unchanged.
+        if result.is_err() && pruned {
+            self.parse_attempt(
+                start,
+                input,
+                is_anywhere,
+                provenance,
+                PredictionMode::Unfiltered,
+                &mut pruned,
+            )
+        } else {
+            result
+        }
+    }
+
+    fn parse_attempt(
+        &self,
+        start: &Sort,
+        input: &str,
+        is_anywhere: bool,
+        provenance: ParseProvenance,
+        prediction_mode: PredictionMode,
+        pruned: &mut bool,
+    ) -> Result<Term, ParseError> {
+        #[cfg(test)]
+        PARSE_ATTEMPTS.set(PARSE_ATTEMPTS.get() + 1);
         let mut charts = (0..=input.len())
             .map(|_| Chart::default())
             .collect::<Vec<_>>();
@@ -1194,6 +1237,26 @@ impl Grammar {
                     Some(Item::NonTerminal(sort)) => {
                         if charts[position].predicted.insert(sort.clone()) {
                             for predicted in self.productions_for(sort) {
+                                if prediction_mode == PredictionMode::Filtered
+                                    && let Some(first @ (Item::Terminal(_) | Item::Regex { .. })) =
+                                        self.productions[predicted].items.first()
+                                    && self
+                                        .scanner
+                                        .matches(
+                                            first,
+                                            input,
+                                            position,
+                                            &mut scanner_cache[position],
+                                        )
+                                        .is_empty()
+                                {
+                                    // This bucket's initial state would be new. Preserve its
+                                    // snapshot invalidation so packed sharing and anonymous
+                                    // inference identities follow the unfiltered parse.
+                                    charts[position].completed_nodes.get_mut().clear();
+                                    *pruned = true;
+                                    continue;
+                                }
                                 #[cfg(test)]
                                 CHART_PREDICTION_ATTEMPTS.set(CHART_PREDICTION_ATTEMPTS.get() + 1);
                                 self.add_chart_state(
@@ -2077,8 +2140,9 @@ type CompletedNodeResult = (BTreeSet<Rc<PackedTerm>>, Option<ParseError>);
 #[derive(Clone, Debug)]
 struct Chart {
     states: BTreeMap<State, Derivations>,
-    // Initial production states have a fixed empty derivation, so inserting their bucket once
-    // suffices for this chart position. Caller-specific nullable completion must still run.
+    // Each bucket is considered once at this position: initial states have a fixed empty
+    // derivation, and first-scan eligibility is fixed. Caller-specific nullable completion
+    // must still run on every request.
     predicted: BTreeSet<Sort>,
     waiting: BTreeMap<Sort, Vec<State>>,
     completed: BTreeMap<Sort, Vec<State>>,
@@ -2605,6 +2669,247 @@ fn kstring_token(term: &Term) -> Option<&str> {
 #[cfg(test)]
 mod chart_tests {
     use super::*;
+
+    mod prediction_filter_tests {
+        use super::*;
+
+        fn nonterminal(name: &str) -> ProductionItem {
+            ProductionItem::NonTerminal {
+                sort: Sort::new(name),
+                name: None,
+            }
+        }
+
+        fn production(result: &str, items: Vec<ProductionItem>, label: &str) -> Sentence {
+            Sentence::Production {
+                label: Some(Label::new(label)),
+                parameters: vec![],
+                sort: Sort::new(result),
+                items,
+                attributes: Attributes::default(),
+            }
+        }
+
+        fn unfiltered(grammar: &Grammar, start: &str, input: &str) -> Result<Term, ParseError> {
+            grammar.parse_attempt(
+                &Sort::new(start),
+                input,
+                false,
+                ParseProvenance {
+                    source: SourceId(0),
+                    base_offset: 0,
+                },
+                PredictionMode::Unfiltered,
+                &mut false,
+            )
+        }
+
+        #[test]
+        fn skips_dead_first_scans_and_preserves_byte_metadata() {
+            let mut sentences = vec![production("Start", vec![nonterminal("Choice")], "start")];
+            for index in 0..64 {
+                sentences.push(production(
+                    "Choice",
+                    vec![ProductionItem::Terminal(format!("dead{index}"))],
+                    "dead",
+                ));
+            }
+            sentences.push(production(
+                "Choice",
+                vec![ProductionItem::Terminal("é".into())],
+                "chosen",
+            ));
+            let grammar = Grammar::from_sentences(&sentences).unwrap();
+            CHART_PREDICTION_ATTEMPTS.set(0);
+            let baseline = unfiltered(&grammar, "Start", " \né ").unwrap();
+            assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 65);
+
+            CHART_PREDICTION_ATTEMPTS.set(0);
+            PARSE_ATTEMPTS.set(0);
+            assert_eq!(
+                grammar.parse(&Sort::new("Start"), " \né ").unwrap(),
+                baseline
+            );
+            assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 1);
+            assert_eq!(PARSE_ATTEMPTS.get(), 1);
+            let parsed = grammar
+                .parse_with_provenance(&Sort::new("Start"), " \né ", SourceId(7), 100)
+                .unwrap();
+            let Term::Apply { arguments, .. } = parsed.unannotated() else {
+                panic!("start constructor")
+            };
+            let metadata = arguments[0].metadata().unwrap();
+            assert_eq!(
+                metadata.span,
+                Some(TermSpan {
+                    source: SourceId(7),
+                    start: 102,
+                    end: 104
+                })
+            );
+            assert_eq!(metadata.production, Some(ResolvedProductionId(65)));
+        }
+
+        #[test]
+        fn retries_exact_rejections_only_when_a_prediction_was_pruned() {
+            let grammar = Grammar::from_sentences(&[
+                production("Start", vec![nonterminal("Choice")], "start"),
+                production("Choice", vec![ProductionItem::Terminal("a".into())], "a"),
+                production("Choice", vec![ProductionItem::Terminal("b".into())], "b"),
+                // A global competitor outside the predicted bucket wins the longer spelling.
+                production("Other", vec![ProductionItem::Terminal("ab".into())], "ab"),
+            ])
+            .unwrap();
+            for input in ["?", "", "ab"] {
+                let baseline = unfiltered(&grammar, "Start", input);
+                assert_eq!(
+                    baseline,
+                    Err(ParseError::NoParse {
+                        position: 0,
+                        expected: vec!["\"a\"".into(), "\"b\"".into(), "Choice".into()]
+                    })
+                );
+                PARSE_ATTEMPTS.set(0);
+                assert_eq!(grammar.parse(&Sort::new("Start"), input), baseline);
+                assert_eq!(PARSE_ATTEMPTS.get(), 2);
+            }
+            PARSE_ATTEMPTS.set(0);
+            assert_eq!(
+                grammar.parse(&Sort::new("Missing"), "?"),
+                Err(ParseError::NoParse {
+                    position: 0,
+                    expected: vec![]
+                })
+            );
+            assert_eq!(PARSE_ATTEMPTS.get(), 1);
+            // Start seeding remains unfiltered, even when its first terminal cannot match.
+            PARSE_ATTEMPTS.set(0);
+            assert!(grammar.parse(&Sort::new("Other"), "?").is_err());
+            assert_eq!(PARSE_ATTEMPTS.get(), 1);
+        }
+
+        #[test]
+        fn retries_errors_after_forest_construction() {
+            let grammar = Grammar::from_sentences(&[
+                production("Start", vec![nonterminal("Choice")], "start"),
+                production(
+                    "Choice",
+                    vec![ProductionItem::Terminal("x".into())],
+                    "first",
+                ),
+                production(
+                    "Choice",
+                    vec![ProductionItem::Terminal("x".into())],
+                    "second",
+                ),
+                production(
+                    "Choice",
+                    vec![ProductionItem::Terminal("dead".into())],
+                    "dead",
+                ),
+            ])
+            .unwrap();
+            let baseline = unfiltered(&grammar, "Start", "x");
+            #[cfg(feature = "z3-inference")]
+            assert!(matches!(
+                &baseline,
+                Err(ParseError::Ambiguous { parses: 2, .. })
+            ));
+            #[cfg(not(feature = "z3-inference"))]
+            assert!(matches!(
+                &baseline,
+                Err(ParseError::Z3InferenceRequired {
+                    ambiguity: true,
+                    ..
+                })
+            ));
+            PARSE_ATTEMPTS.set(0);
+            assert_eq!(grammar.parse(&Sort::new("Start"), "x"), baseline);
+            assert_eq!(PARSE_ATTEMPTS.get(), 2);
+        }
+
+        #[test]
+        fn retains_zero_width_regex_winners_at_eof_and_interior_positions() {
+            let grammar = Grammar::from_sentences(&[
+                production(
+                    "Start",
+                    vec![ProductionItem::Terminal("p".into()), nonterminal("Zero")],
+                    "start",
+                ),
+                production("Zero", vec![ProductionItem::regex("z*")], "zero"),
+                production(
+                    "Zero",
+                    vec![ProductionItem::Terminal("dead".into())],
+                    "dead",
+                ),
+            ])
+            .unwrap();
+            for input in ["p", "pz"] {
+                let baseline = unfiltered(&grammar, "Start", input).unwrap();
+                assert_eq!(
+                    baseline,
+                    Term::apply("start", vec![Term::apply("zero", vec![])])
+                );
+                PARSE_ATTEMPTS.set(0);
+                assert_eq!(grammar.parse(&Sort::new("Start"), input).unwrap(), baseline);
+                assert_eq!(PARSE_ATTEMPTS.get(), 1);
+            }
+            // At byte one the regex wins without consuming '?'. It must still be inserted;
+            // the resulting root stops short of EOF, so this whole input is correctly rejected.
+            let mut pruned = false;
+            CHART_PREDICTION_ATTEMPTS.set(0);
+            let result = grammar.parse_attempt(
+                &Sort::new("Start"),
+                "p?",
+                false,
+                ParseProvenance {
+                    source: SourceId(0),
+                    base_offset: 0,
+                },
+                PredictionMode::Filtered,
+                &mut pruned,
+            );
+            assert!(result.is_err());
+            assert!(pruned);
+            assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 1);
+        }
+
+        #[test]
+        fn retains_productive_cycles_after_a_viable_prefix() {
+            let grammar = Grammar::from_sentences(&[
+                production(
+                    "Start",
+                    vec![ProductionItem::Terminal("x".into()), nonterminal("Tail")],
+                    "start",
+                ),
+                production(
+                    "Tail",
+                    vec![nonterminal("Cycle"), ProductionItem::Terminal("z".into())],
+                    "tail",
+                ),
+                production(
+                    "Tail",
+                    vec![ProductionItem::Terminal("dead".into())],
+                    "dead",
+                ),
+                production("Cycle", vec![nonterminal("Cycle")], "wrap"),
+                production("Cycle", vec![], "unit"),
+            ])
+            .unwrap();
+            for input in ["x", "x y"] {
+                assert_eq!(
+                    unfiltered(&grammar, "Start", input),
+                    Err(ParseError::CyclicParseForest)
+                );
+                PARSE_ATTEMPTS.set(0);
+                assert_eq!(
+                    grammar.parse(&Sort::new("Start"), input),
+                    Err(ParseError::CyclicParseForest)
+                );
+                assert_eq!(PARSE_ATTEMPTS.get(), 2);
+            }
+        }
+    }
 
     #[test]
     fn predicts_a_shared_sort_bucket_once_per_parse() {
