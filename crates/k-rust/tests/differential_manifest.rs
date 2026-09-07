@@ -1204,6 +1204,10 @@ fn compile_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
         std::process::id()
     ));
     fs::create_dir(&fixture).expect("create environment fixture");
+    let k_checkout = fake_k_checkout(
+        &fixture,
+        &["k-distribution/tests/regression-new/append/test.k"],
+    );
     let calls = fixture.join("calls");
     let fake_kompile = fixture.join("kompile");
     let fake_kore_parser = fixture.join("kore-parser");
@@ -1275,6 +1279,7 @@ printf 'cargo-%s|%s\n' "${{1:-missing}}" "$ghcrts_state" >>"$ENVIRONMENT_CALLS"
             .arg("append")
             .env("PATH", &path)
             .env("ENVIRONMENT_CALLS", &calls)
+            .env("K_CHECKOUT", &k_checkout)
             .env("K_KOMPILE", &fake_kompile)
             .env("K_KORE_PARSER", &fake_kore_parser)
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
@@ -1388,10 +1393,26 @@ fn environment_fixture(name: &str) -> PathBuf {
     fixture
 }
 
+/// Supply the filesystem inputs checked by the gates even with mocked tools.
+/// The probes do not parse K sources; no external checkout or builtin contents
+/// are needed to test how the scripts pass runtime options to their children.
+fn fake_k_checkout(fixture: &Path, sources: &[&str]) -> PathBuf {
+    let checkout = fixture.join("k");
+    fs::create_dir_all(checkout.join("k-distribution/include/kframework/builtin"))
+        .expect("create fake K builtin directory");
+    for source in sources {
+        let path = checkout.join(source);
+        fs::create_dir_all(path.parent().unwrap()).expect("create fake K source directory");
+        fs::write(path, "").expect("write fake K source");
+    }
+    checkout
+}
+
 #[test]
 fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let fixture = environment_fixture("symbolic-environment");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
     let calls = fixture.join("calls");
     let fake_kompile = fixture.join("kompile");
     let fake_kore_parser = fixture.join("kore-parser");
@@ -1419,6 +1440,7 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
             .arg("symbolic-owise")
             .env("PATH", &path)
             .env("ENVIRONMENT_CALLS", &calls)
+            .env("K_CHECKOUT", &k_checkout)
             .env("K_KOMPILE", &fake_kompile)
             .env("K_KORE_PARSER", &fake_kore_parser)
             .env("K_KORE_EXEC", &fake_kore_exec)
@@ -1465,6 +1487,7 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
 fn mir_execution_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let fixture = environment_fixture("mir-environment");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
     let calls = fixture.join("calls");
     let fake_kompile = fixture.join("kompile");
     let fake_krun = fixture.join("krun");
@@ -1496,6 +1519,7 @@ fn mir_execution_gate_scopes_haskell_runtime_options_to_the_reference_backend() 
             .arg(&script)
             .env("PATH", &path)
             .env("ENVIRONMENT_CALLS", &calls)
+            .env("K_CHECKOUT", &k_checkout)
             .env("K_KOMPILE", &fake_kompile)
             .env("K_KRUN", &fake_krun)
             .env("KMIR_PYTHON", &fake_kmir_python)
