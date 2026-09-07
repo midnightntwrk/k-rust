@@ -1,6 +1,19 @@
+// Standard-prelude fixtures require native Z3 inference; their semantic assertions are
+// feature-gated below. inner_rules::portable_build_rejects_the_standard_prelude covers
+// the portable boundary instead of duplicating that rejection for each fixture.
+
 use indoc::indoc;
+#[cfg(feature = "z3-inference")]
 use k_rust::{
     builtin::embedded,
+    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+    kore::{
+        ast::{Pattern as KorePattern, Sentence as KoreSentence},
+        parser::parse_definition,
+    },
+    outer::{LoadOptions, load_with_options},
+};
+use k_rust::{
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
         ResolvedDefinition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE,
@@ -8,24 +21,20 @@ use k_rust::{
     },
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan, printer::Printer},
     kompile::{
-        CompilationBackend, CompileOptions, add_cool_like_attributes,
-        add_implicit_computation_cell, add_semantics_module, add_sort_injections_to_definition,
-        check_simplification_rules, compile_loaded_definition, concretize_cells, constant_fold,
-        expand_macros, generate_sort_predicate_rules, generate_sort_predicate_syntax,
-        generate_sort_projections, guard_or_patterns, minimize_term_construction, module_to_kore,
-        number_sentences, propagate_macro_attributes, remove_unit, resolve_anon_vars, resolve_comm,
-        resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
-        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
-        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
-        subsort_kitem,
+        add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
+        add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
+        constant_fold, expand_macros, generate_sort_predicate_rules,
+        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
+        minimize_term_construction, module_to_kore, number_sentences, propagate_macro_attributes,
+        remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
+        resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
+        resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
+        resolve_semantic_casts, resolve_strict, subsort_kitem,
     },
-    kore::{
-        ast::{Pattern as KorePattern, Sentence as KoreSentence},
-        parser::parse_definition,
-    },
-    outer::{LoadOptions, ResolvedSource, load, load_with_options},
+    outer::{ResolvedSource, load},
     provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
 };
+#[cfg(feature = "z3-inference")]
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,11 +50,13 @@ fn parsed(source: &str) -> k_rust::definition::Definition {
     .definition
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct ParametricIdOracle {
     rule: Vec<ParametricRuleId>,
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct ParametricRuleId {
     line: usize,
@@ -53,6 +64,7 @@ struct ParametricRuleId {
 }
 
 /// UNIQUE_ID of every source rule of a compiled reference fixture, keyed by its Location line.
+#[cfg(feature = "z3-inference")]
 fn fixture_rule_ids(file_name: &str, source: &str, main_module: &str) -> BTreeMap<usize, String> {
     let prelude = embedded("prelude.md").expect("embedded prelude should exist");
     let mut resolver = |_: &str, required: &str| {
@@ -124,6 +136,7 @@ fn fixture_rule_ids(file_name: &str, source: &str, main_module: &str) -> BTreeMa
         .collect()
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_parametric_fixture_rule_ids_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module PARAMETRIC test.k
@@ -145,6 +158,7 @@ fn reference_parametric_fixture_rule_ids_match() {
     assert_eq!(actual, expected);
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_rewrite_list_singleton_rule_ids_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module REWRITE-LIST-SINGLETON
@@ -173,6 +187,7 @@ fn reference_rewrite_list_singleton_rule_ids_match() {
     assert_eq!(actual, expected);
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct ConfigVarCastOracle {
     initializer: Vec<InitializerId>,
@@ -180,6 +195,7 @@ struct ConfigVarCastOracle {
     config_var: Vec<ConfigVarSort>,
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct InitializerId {
     file: String,
@@ -187,6 +203,7 @@ struct InitializerId {
     unique_id: String,
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct CellSymbolSorts {
     file: String,
@@ -194,6 +211,7 @@ struct CellSymbolSorts {
     argument_sorts: Vec<String>,
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct ConfigVarSort {
     file: String,
@@ -202,6 +220,7 @@ struct ConfigVarSort {
 }
 
 /// Compile a reference fixture through the whole kompile pipeline.
+#[cfg(feature = "z3-inference")]
 fn compile_fixture(
     file_name: &str,
     source: &str,
@@ -231,6 +250,7 @@ fn compile_fixture(
 /// UNIQUE_ID of every generated cell-initializer axiom of an emitted definition.kore, keyed by
 /// the initializer label (`initKCell`). Each axiom is written as one `  axiom` block whose first
 /// `Lblinit...Cell{}(` occurrence is the initializer being defined.
+#[cfg(feature = "z3-inference")]
 fn initializer_ids(definition_kore: &str) -> BTreeMap<String, String> {
     definition_kore
         .split("\n  axiom")
@@ -247,6 +267,7 @@ fn initializer_ids(definition_kore: &str) -> BTreeMap<String, String> {
 }
 
 /// The argument sorts of a cell symbol declaration (`symbol Lbl'-LT-'p'-GT-'{}(SortK{}) : ...`).
+#[cfg(feature = "z3-inference")]
 fn cell_symbol_argument_sorts(definition_kore: &str, symbol: &str) -> Option<Vec<String>> {
     let declaration = format!("symbol {symbol}{{}}(");
     let arguments = definition_kore
@@ -262,6 +283,7 @@ fn cell_symbol_argument_sorts(definition_kore: &str, symbol: &str) -> Option<Vec
     )
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_config_var_cast_initializer_ids_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module CONFIG-VAR-CAST --syntax-module CONFIG-VAR-CAST test.k
@@ -330,11 +352,13 @@ fn reference_config_var_cast_initializer_ids_match() {
     }
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct LambdaSortOracle {
     lambda: Vec<LambdaSignature>,
 }
 
+#[cfg(feature = "z3-inference")]
 #[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
 struct LambdaSignature {
     line: usize,
@@ -342,6 +366,7 @@ struct LambdaSignature {
     total: bool,
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn reference_let_list_binder_lambda_parameter_sorts_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module LET-LIST-BINDER --syntax-module LET-LIST-BINDER test.k

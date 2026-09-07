@@ -6,62 +6,17 @@ import json
 import os
 import re
 import sys
+import tomllib
 from collections import Counter, defaultdict
 from pathlib import Path
 
 
-SUBSYSTEMS = [
-    ("outer", r"k-rust/src/outer/|tests/outer_|tests/lexer\.rs|tests/string\.rs"),
-    ("inner", r"k-rust/src/inner/|tests/inner_"),
-    (
-        "definition",
-        r"k-rust/src/definition/|tests/definition_|tests/partial_order|tests/provenance_manifest|src/provenance\.rs|src/builtin\.rs|tests/hook_capabilities|tests/structured_definition_conformance",
-    ),
-    (
-        "kompile-passes",
-        r"k-rust/src/kompile/passes/|k-rust/src/kompile/compile\.rs|tests/kompile_passes",
-    ),
-    ("injections", r"tests/sort_injections|injection"),
-    ("module_to_kore", r"module_to_kore|tests/term_to_kore"),
-    ("kore-crate", r"k-rust-kore/|tests/kore_"),
-    ("kast", r"k-rust/src/kast/|tests/kast_"),
-    (
-        "backend-matching",
-        r"k-rust-backend/src/(matching|unification|substitution|term|definedness|alias|rule|definition)\.rs",
-    ),
-    (
-        "backend-simplify-builtins",
-        r"k-rust-backend/src/(simplify|builtin|smt|externalize|binary)|tests/simplification_budget",
-    ),
-    (
-        "backend-rewrite-search",
-        r"k-rust-backend/src/(rewrite|search|session|timeout|cancellation)\.rs",
-    ),
-    ("backend-proof", r"k-rust-backend/src/(proof|implication|claim)\.rs"),
-    (
-        "cli-rpc",
-        r"k-rust/src/main\.rs|k-rust/src/rpc\.rs|k-rust/src/backend\.rs|k-rust/src/native\.rs|tests/cli\.rs|k-rust-wasm/|k-rust-napi/|tests/z3_acquisition|tests/differential_manifest|tests/reference_differential|tests/reference_fixtures|tests/conformance_ratchet|tests/wasm_ratchet",
-    ),
-]
-
-# Tests for backend-facing reference fixtures live in CLI integration-test
-# binaries, but their evidence belongs to the subsystem exercised by the
-# fixture. Attribute an explicitly named fixture home before falling back to
-# the source-file classification used by the baseline census.
+REGISTRY = tomllib.loads(Path(__file__).with_name("subsystems.toml").read_text())
+SUBSYSTEMS = [(row["name"], row["source_pattern"]) for row in REGISTRY["subsystem"]]
 REFERENCE_FIXTURE_SUBSYSTEMS = [
-    ("inner", "inner"),
-    ("kompile", "kompile-passes"),
-    ("kore-syntax", "kore-crate"),
-    ("matching", "backend-matching"),
-    ("execution", "backend-rewrite-search"),
-    ("search", "backend-rewrite-search"),
-    ("simplify", "backend-simplify-builtins"),
-    ("hooks", "backend-simplify-builtins"),
-    ("implication", "backend-proof"),
-    ("proof", "backend-proof"),
-    ("rpc", "cli-rpc"),
-    ("cli", "cli-rpc"),
-    ("outer", "outer"),
+    (home, row["name"])
+    for row in REGISTRY["subsystem"]
+    for home in row["fixture_homes"]
 ]
 
 SNAPSHOT = re.compile(
@@ -102,6 +57,11 @@ def subsystem(path: str) -> str:
 
 
 def test_subsystem(path: str, body: str) -> str:
+    owner = subsystem(path)
+    # Dedicated subsystem tests retain ownership even when they share a fixture home.
+    # Surface test files can exercise a backend contract through its public command.
+    if owner not in {"cli-rpc", "other"}:
+        return owner
     for fixture_home, name in REFERENCE_FIXTURE_SUBSYSTEMS:
         if f"fixtures/reference/{fixture_home}/" in body:
             return name

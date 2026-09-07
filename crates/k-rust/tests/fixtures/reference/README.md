@@ -10,4 +10,7 @@ No artifact may exceed 512 KiB.
 A committed `definition.kore` must be a minimal backend-isolation fixture and must carry its justification in `reference.toml`.
 Real-semantics definitions must never be committed here.
 
-A consuming test must be named `reference_*` or start its body with `// reference: <command>` so the conformance census can identify it exactly and attribute a named fixture home to its owning subsystem.
+A consuming test must be named `reference_*` or start its body with `// reference: <command>` so the conformance census can identify its evidence source.
+`scripts/conformance/subsystems.toml` defines the shared subsystem and fixture-home mapping.
+Dedicated subsystem tests retain their source ownership when sharing a fixture; generic surface tests use the fixture home's default owner.
+See [Testing contracts](../../../../../docs/testing.md) for placement and attribution rules.

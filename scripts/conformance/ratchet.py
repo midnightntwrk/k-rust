@@ -47,6 +47,10 @@ def expectation_map(document: dict) -> dict[str, dict]:
             raise RatchetError("expectation case has no name")
         if name in mapped:
             raise RatchetError(f"duplicate expectation case: {name}")
+        if "accepted_verdict" in row and row["accepted_verdict"] not in RANK:
+            raise RatchetError(f"case {name} has unknown accepted verdict: {row['accepted_verdict']!r}")
+        if "accepted_verdict" in row and not isinstance(row.get("accepted_stage"), str):
+            raise RatchetError(f"case {name} has no accepted stage")
         mapped[name] = row
     return mapped
 
@@ -238,7 +242,7 @@ def classify_delta(
     verdict: str,
     driver_version: str,
 ) -> tuple[int, int, str, bool]:
-    """Classify a measurement against the previous one and the stage-1 floor.
+    """Classify a measurement against the previous one and the required floor.
 
     Returns (previous_rank, floor_rank, delta, driver_changed). A decrease below the floor
     is a regression whatever the driver version; a decrease that stays at or above the
@@ -299,9 +303,13 @@ def build_run(
         rank = RANK[verdict]
         previous_run, previous_case = previous_measurement(previous_runs, name)
         _, floor_case = first_measurement(previous_runs, name)
+        accepted_rank = RANK.get(expectation.get("accepted_verdict"), -1)
+        if accepted_rank > (floor_case["rank"] if floor_case else -1):
+            floor_case = {"rank": accepted_rank}
         previous_rank, floor_rank, delta, driver_changed = classify_delta(
             previous_run, previous_case, floor_case, verdict, driver_version
         )
+        floor_rank = max(floor_rank, accepted_rank)
         exclusion = matching_step_exclusion(result, expectation)
         tickets = list(expectation.get("tickets", []))
         if delta == "regression" and not exclusion:
@@ -389,7 +397,7 @@ def print_pr_block(run: dict) -> None:
         )
     print()
     print(f"regressions: {len(run['regressions'])}")
-    print(f"below stage-1 floor: {string_array(run['below_floor'])}")
+    print(f"below required floor: {string_array(run['below_floor'])}")
     print(f"improvements: {len(run['improvements'])}")
     print(f"driver deltas: {len(run['driver_deltas'])}")
     print(f"oracle changes: {len(run['oracle_changes'])}")
@@ -403,21 +411,31 @@ def print_pr_block(run: dict) -> None:
 def command_seed(args: argparse.Namespace) -> int:
     expectation_document = load_toml(args.expectations, "expectations")
     expectations = expectation_map(expectation_document)
-    results = result_cases(load_toml(args.results, "results"), expectations)
-    baseline = expectation_document.get("baseline", {})
+    if args.results is None:
+        missing = [name for name, row in expectations.items() if "accepted_verdict" not in row]
+        if missing:
+            raise RatchetError(f"cases without an acceptance baseline: {', '.join(missing)}")
+        results = [
+            {"name": name, "verdict": row["accepted_verdict"], "stage": row["accepted_stage"]}
+            for name, row in expectations.items()
+        ]
+        baseline = expectation_document.get("acceptance", {})
+    else:
+        results = result_cases(load_toml(args.results, "results"), expectations)
+        baseline = expectation_document.get("baseline", {})
     run = build_run(
         sequence=0,
         label=args.label,
         workspace_revision=baseline.get("workspace_revision", ""),
         k_revision=baseline.get("k_revision", ""),
-        driver_version="00-baseline",
+        driver_version="accepted-baseline" if args.results is None else "00-baseline",
         krust_sha256="",
         test_binary_sha256="",
         selection="all",
         jobs=2,
-        wall_seconds=4060.0,
+        wall_seconds=0.0 if args.results is None else 4060.0,
         peak_rss_mib=-1,
-        artifacts=baseline.get("artifacts", str(args.results.parent)),
+        artifacts=baseline.get("artifacts", str(args.expectations)),
         results=results,
         expectations=expectations,
         previous_runs=[],
@@ -426,7 +444,7 @@ def command_seed(args: argparse.Namespace) -> int:
     )
     write_new_log(args.log, render_entry(run))
     print_pr_block(run)
-    return 0
+    return 3 if run["below_floor"] else 0
 
 
 def command_append(args: argparse.Namespace) -> int:
@@ -489,8 +507,9 @@ def command_select(args: argparse.Namespace) -> int:
 
 
 def command_audit(args: argparse.Namespace) -> int:
-    """List every case whose latest measurement is below its stage-1 (first) rank."""
+    """List cases below the greater of their first rank and versioned acceptance rank."""
     document = load_toml(args.log, "ratchet log")
+    expectations = expectation_map(load_toml(args.expectations, "expectations")) if args.expectations else {}
     if document.get("version") != 1:
         raise RatchetError(f"ratchet log does not declare version 1: {args.log}")
     runs = document.get("run", [])
@@ -509,10 +528,11 @@ def command_audit(args: argparse.Namespace) -> int:
         run, case = latest[name]
         _, floor_case = first_measurement(runs, name)
         floor_rank = floor_case["rank"] if floor_case is not None else -1
+        floor_rank = max(floor_rank, RANK.get(expectations.get(name, {}).get("accepted_verdict"), -1))
         if is_below_floor(case["rank"], floor_rank):
             rows.append((name, floor_rank, run, case))
     scope = f"run {args.sequence}" if args.sequence is not None else "latest measurement per case"
-    print(f"### Conformance stage-1 floor audit ({scope}, {len(latest)} cases)")
+    print(f"### Conformance required floor audit ({scope}, {len(latest)} cases)")
     print()
     print("| case | floor | rank | run | verdict | tickets | exclusion |")
     print("|---|---:|---:|---:|---|---|---|")
@@ -544,7 +564,7 @@ def parser() -> argparse.ArgumentParser:
     subparsers = root.add_subparsers(dest="command", required=True)
 
     seed = subparsers.add_parser("seed")
-    seed.add_argument("--results", type=Path, required=True)
+    seed.add_argument("--results", type=Path, help="omit to seed from versioned acceptance expectations")
     seed.add_argument("--expectations", type=Path, required=True)
     seed.add_argument("--log", type=Path, required=True)
     seed.add_argument("--label", required=True)
@@ -579,6 +599,7 @@ def parser() -> argparse.ArgumentParser:
     audit = subparsers.add_parser("audit")
     audit.add_argument("--log", type=Path, required=True)
     audit.add_argument("--sequence", type=int)
+    audit.add_argument("--expectations", type=Path, default=Path(__file__).with_name("expectations.toml"))
     audit.set_defaults(run=command_audit)
 
     sequence = subparsers.add_parser("next-sequence")

@@ -1,12 +1,13 @@
 //! Portable SMT-LIB translation shared by native Z3 and solver-free builds.
 
-use std::{collections::BTreeMap, fmt};
-
-#[cfg(feature = "z3")]
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use crate::{
     definition::BackendDefinition,
+    rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
     substitution::Substitution,
     term::{Sort, Term, TermKind, Variable},
@@ -157,6 +158,8 @@ impl<'a> SExprParser<'a> {
 pub struct TranslationState {
     pub mappings: BTreeMap<Term, String>,
     predicate_mappings: Vec<(Predicate, String)>,
+    dependent_mappings: BTreeMap<(Predicate, Vec<Sort>), String>,
+    bound_variables: Vec<(Variable, String)>,
     counter: usize,
 }
 
@@ -171,6 +174,8 @@ impl TranslationState {
         Self {
             mappings: BTreeMap::new(),
             predicate_mappings: Vec::new(),
+            dependent_mappings: BTreeMap::new(),
+            bound_variables: Vec::new(),
             counter: 1,
         }
     }
@@ -208,8 +213,18 @@ impl TranslationState {
             {
                 Ok(SExpr::atom(value.as_ref()))
             }
+            TermKind::Variable(variable) => {
+                match self
+                    .bound_variables
+                    .iter()
+                    .rev()
+                    .find(|(bound, _)| bound == variable)
+                {
+                    Some((_, name)) => Ok(SExpr::atom(name.clone())),
+                    None => Ok(self.abstract_term(term)),
+                }
+            }
             TermKind::DomainValue { .. }
-            | TermKind::Variable(_)
             | TermKind::Injection { .. }
             | TermKind::Map { .. }
             | TermKind::List { .. }
@@ -269,16 +284,19 @@ impl TranslationState {
         variable: &Variable,
         body: &Predicate,
     ) -> Result<SExpr, TranslationError> {
-        let variable_name = self
-            .translate_term(&Term::variable(variable.clone()))?
-            .to_string();
+        let sort = smt_sort(&variable.sort)?;
+        let variable_name = self.fresh_name();
+        self.bound_variables
+            .push((variable.clone(), variable_name.clone()));
+        let body = self.translate_predicate(body);
+        self.bound_variables.pop();
         Ok(SExpr::List(vec![
             SExpr::atom(quantifier),
             SExpr::List(vec![SExpr::List(vec![
                 SExpr::atom(variable_name),
-                SExpr::atom(smt_sort(&variable.sort)?),
+                SExpr::atom(sort),
             ])]),
-            self.translate_predicate(body)?,
+            body?,
         ]))
     }
 
@@ -314,16 +332,25 @@ impl TranslationState {
     }
 
     fn abstract_term(&mut self, term: &Term) -> SExpr {
+        if !self.bound_variables.is_empty()
+            && let Some(expression) = self.abstract_dependent(&Predicate::Term(term.clone()))
+        {
+            return expression;
+        }
         if let Some(name) = self.mappings.get(term) {
             return SExpr::atom(name);
         }
-        let name = format!("SMT-{}", self.counter);
-        self.counter += 1;
+        let name = self.fresh_name();
         self.mappings.insert(term.clone(), name.clone());
         SExpr::atom(name)
     }
 
     fn abstract_predicate(&mut self, predicate: &Predicate) -> SExpr {
+        if !self.bound_variables.is_empty()
+            && let Some(expression) = self.abstract_dependent(predicate)
+        {
+            return expression;
+        }
         if let Some((_, name)) = self
             .predicate_mappings
             .iter()
@@ -331,11 +358,68 @@ impl TranslationState {
         {
             return SExpr::atom(name);
         }
-        let name = format!("SMT-{}", self.counter);
-        self.counter += 1;
+        let name = self.fresh_name();
         self.predicate_mappings
             .push((predicate.clone(), name.clone()));
         SExpr::atom(name)
+    }
+
+    fn fresh_name(&mut self) -> String {
+        let name = format!("SMT-{}", self.counter);
+        self.counter += 1;
+        name
+    }
+
+    /// Like Kore.Rewrite.SMT.Evaluator's SMTDependentAtom, an opaque atom under a
+    /// quantifier must be a function of the bound variables it mentions. A constant
+    /// would erase that dependence and could make a satisfiable formula unsatisfiable.
+    /// Cache its template modulo bound-variable spelling, retaining free variables.
+    fn abstract_dependent(&mut self, predicate: &Predicate) -> Option<SExpr> {
+        let variables = predicate.free_variables();
+        let mut seen = BTreeSet::new();
+        let mut dependencies = self
+            .bound_variables
+            .iter()
+            .rev()
+            .filter(|(variable, _)| variables.contains(variable) && seen.insert(variable.clone()))
+            .cloned()
+            .collect::<Vec<_>>();
+        dependencies.reverse();
+        if dependencies.is_empty() {
+            return None;
+        }
+        let free = variables.difference(&seen).collect::<Vec<_>>();
+        let mut substitution = Substitution::new();
+        let mut sorts = Vec::new();
+        let mut arguments = Vec::new();
+        for (index, (variable, name)) in dependencies.into_iter().enumerate() {
+            let mut placeholder = format!("#SMT-bound-{index}");
+            while free
+                .iter()
+                .any(|variable| variable.name.as_ref() == placeholder)
+            {
+                placeholder.push('_');
+            }
+            substitution.insert(
+                variable.clone(),
+                Term::variable(variable.with_name(placeholder)),
+            );
+            sorts.push(variable.sort);
+            arguments.push(SExpr::atom(name));
+        }
+        // Only atomic predicates reach this method, so this substitution crosses no binder.
+        let template = substitute_predicates(std::slice::from_ref(predicate), &substitution)
+            .pop()
+            .unwrap();
+        let key = (template, sorts);
+        let name = if let Some(name) = self.dependent_mappings.get(&key) {
+            name.clone()
+        } else {
+            let name = self.fresh_name();
+            self.dependent_mappings.insert(key, name.clone());
+            name
+        };
+        Some(SExpr::application(name, arguments))
     }
 }
 
@@ -472,6 +556,20 @@ impl SmtPrelude {
         for (_, name) in &translation.predicate_mappings {
             base.push(format!("(declare-const {name} Bool)"));
         }
+        for ((predicate, arguments), name) in &translation.dependent_mappings {
+            let result = match predicate {
+                Predicate::Term(term) => smt_sort(&term.sort())?,
+                _ => "Bool".into(),
+            };
+            let arguments = arguments
+                .iter()
+                .map(smt_sort)
+                .collect::<Result<Vec<_>, _>>()?;
+            base.push(format!(
+                "(declare-fun {name} ({}) {result})",
+                arguments.join(" ")
+            ));
+        }
         base.extend(
             substitution
                 .into_iter()
@@ -587,13 +685,19 @@ fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
             terms: translation.mappings.into_keys().collect(),
         });
     }
-    if !translation.predicate_mappings.is_empty() {
+    if !translation.predicate_mappings.is_empty() || !translation.dependent_mappings.is_empty() {
         return Err(TranslationError::SmtLemmaSurplusPredicates {
             rule_id: rule.attributes.unique_id.clone(),
             predicates: translation
                 .predicate_mappings
                 .into_iter()
                 .map(|(predicate, _)| predicate)
+                .chain(
+                    translation
+                        .dependent_mappings
+                        .into_keys()
+                        .map(|(predicate, _)| predicate),
+                )
                 .collect(),
         });
     }

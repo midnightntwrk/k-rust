@@ -575,7 +575,11 @@ impl<'a> Solver<'a> {
                         self.constrain(child, expected)?;
                     }
                 }
-                if let Some(lhs_sort) = anywhere_lhs_sort {
+                if let Some(lhs_sort) = anywhere_lhs_sort
+                    && !matches!(&actual, SortRef::Concrete(sort) if !is_real_ground_sort(sort))
+                {
+                    // A monomorphic #KRewrite may return #RuleK, which is parser scaffolding.
+                    // Only semantic results (including formal parameters) inherit the LHS bound.
                     self.constrain(actual.clone(), lhs_sort)?;
                 }
                 if production.label.as_ref().is_some_and(|label| {
