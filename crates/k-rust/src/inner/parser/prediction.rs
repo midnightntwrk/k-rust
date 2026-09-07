@@ -522,6 +522,15 @@ mod tests {
                 "box",
             ),
             production("Int", vec![terminal("1")], "one"),
+            // Generated omitted-field variables have K as their default upper bound, as in
+            // the normal rule grammar. This focused grammar must declare Int's injection.
+            Sentence::Production {
+                label: None,
+                parameters: vec![],
+                sort: Sort::new("K"),
+                items: vec![nt("Int")],
+                attributes: Attributes::default(),
+            },
         ])
         .unwrap();
         let baseline = unfiltered(&grammar, "box(...)").unwrap();
