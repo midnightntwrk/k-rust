@@ -194,13 +194,28 @@ impl Scanner {
         position: usize,
         cached: &mut Option<Option<(usize, usize)>>,
     ) -> Vec<usize> {
-        let Some(target_key) = lexeme_key(item) else {
+        let Some(target) = self.lexeme_id(item) else {
             return Vec::new();
         };
-        let Some(target) = self.ids.get(&target_key).copied() else {
-            return Vec::new();
-        };
-        let winner = match cached {
+        self.winner(input, position, cached)
+            .filter(|(index, _)| *index == target)
+            .map(|(_, end)| end)
+            .into_iter()
+            .collect()
+    }
+
+    // IDs belong to this scanner and remain stable across append-only registration and clones.
+    pub(super) fn lexeme_id(&self, item: &Item) -> Option<usize> {
+        self.ids.get(&lexeme_key(item)?).copied()
+    }
+
+    pub(super) fn winner(
+        &self,
+        input: &str,
+        position: usize,
+        cached: &mut Option<Option<(usize, usize)>>,
+    ) -> Option<(usize, usize)> {
+        match cached {
             Some(winner) => *winner,
             None => {
                 let winner = self
@@ -220,11 +235,7 @@ impl Scanner {
                 *cached = Some(winner);
                 winner
             }
-        };
-        matches!(winner, Some((index, _)) if index == target)
-            .then(|| winner.expect("winner was matched").1)
-            .into_iter()
-            .collect()
+        }
     }
 
     #[cfg(test)]

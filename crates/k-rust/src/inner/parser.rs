@@ -4,6 +4,7 @@ mod disambiguation;
 mod inference;
 mod lists;
 mod parametric;
+mod prediction;
 mod record;
 mod scanner;
 #[cfg(feature = "z3-inference")]
@@ -15,6 +16,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
 use std::rc::Rc;
+use std::sync::OnceLock;
 
 use crate::definition::{
     AssociativityRelations, Attributes, PartialOrder, ProductionCatalog, ProductionId,
@@ -27,6 +29,7 @@ use crate::provenance::SourceId;
 use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
 pub(crate) use self::parametric::is_parser_sort;
+use self::prediction::PredictionAnalysis;
 pub(super) use self::scanner::Scanner;
 use self::scanner::{Item, Layout, compile_item};
 
@@ -467,6 +470,9 @@ thread_local! {
     static CHART_COMPLETION_CANDIDATES: Cell<usize> = const { Cell::new(0) };
     static CHART_PREDICTION_ATTEMPTS: Cell<usize> = const { Cell::new(0) };
     static PARSE_ATTEMPTS: Cell<usize> = const { Cell::new(0) };
+    static PREDICTION_ANALYSIS_BUILDS: Cell<usize> = const { Cell::new(0) };
+    static TERMINAL_PREDICTIONS_SKIPPED: Cell<usize> = const { Cell::new(0) };
+    static NONTERMINAL_PREDICTIONS_SKIPPED: Cell<usize> = const { Cell::new(0) };
 }
 
 impl PartialEq for PackedTerm {
@@ -850,6 +856,7 @@ pub struct Grammar {
     productions: Vec<Production>,
     by_result: BTreeMap<Sort, Vec<usize>>,
     scanner: Scanner,
+    prediction_analysis: OnceLock<PredictionAnalysis>,
     source_production_texts: BTreeMap<ProductionId, String>,
     layout: Layout,
     priorities: PartialOrder<String>,
@@ -875,6 +882,7 @@ impl Default for Grammar {
             productions: Vec::new(),
             by_result: BTreeMap::new(),
             scanner: Scanner::default(),
+            prediction_analysis: OnceLock::new(),
             source_production_texts: BTreeMap::new(),
             layout: Layout::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
@@ -1202,6 +1210,10 @@ impl Grammar {
     ) -> Result<Term, ParseError> {
         #[cfg(test)]
         PARSE_ATTEMPTS.set(PARSE_ATTEMPTS.get() + 1);
+        let prediction_analysis = (prediction_mode == PredictionMode::Filtered).then(|| {
+            self.prediction_analysis
+                .get_or_init(|| PredictionAnalysis::new(self))
+        });
         let mut charts = (0..=input.len())
             .map(|_| Chart::default())
             .collect::<Vec<_>>();
@@ -1237,19 +1249,26 @@ impl Grammar {
                     Some(Item::NonTerminal(sort)) => {
                         if charts[position].predicted.insert(sort.clone()) {
                             for predicted in self.productions_for(sort) {
-                                if prediction_mode == PredictionMode::Filtered
-                                    && let Some(first @ (Item::Terminal(_) | Item::Regex { .. })) =
-                                        self.productions[predicted].items.first()
-                                    && self
-                                        .scanner
-                                        .matches(
-                                            first,
-                                            input,
-                                            position,
-                                            &mut scanner_cache[position],
-                                        )
-                                        .is_empty()
+                                if let Some(analysis) = prediction_analysis
+                                    && analysis.can_filter(predicted, &charts[position].predicted)
+                                    && analysis.cannot_start(
+                                        predicted,
+                                        self.scanner
+                                            .winner(input, position, &mut scanner_cache[position])
+                                            .map(|(lexeme, _)| lexeme),
+                                    )
                                 {
+                                    #[cfg(test)]
+                                    if matches!(
+                                        self.productions[predicted].items.first(),
+                                        Some(Item::NonTerminal(_))
+                                    ) {
+                                        NONTERMINAL_PREDICTIONS_SKIPPED
+                                            .set(NONTERMINAL_PREDICTIONS_SKIPPED.get() + 1);
+                                    } else {
+                                        TERMINAL_PREDICTIONS_SKIPPED
+                                            .set(TERMINAL_PREDICTIONS_SKIPPED.get() + 1);
+                                    }
                                     // This bucket's initial state would be new. Preserve its
                                     // snapshot invalidation so packed sharing and anonymous
                                     // inference identities follow the unfiltered parse.
@@ -1532,6 +1551,7 @@ impl Grammar {
         item: ProductionItem,
         precedence: &str,
     ) -> Result<(), ParseError> {
+        self.prediction_analysis.take();
         if self.has_equivalent_production(&result, std::slice::from_ref(&item), true) {
             let compiled = compile_item(&item, &BTreeMap::new())?;
             self.scanner.register(
@@ -1733,6 +1753,8 @@ impl Grammar {
         options: ProductionOptions<'_>,
         lexical: &BTreeMap<String, KRegex>,
     ) -> Result<(), ParseError> {
+        // Registration of an earlier item can survive a later compile/attribute failure.
+        self.prediction_analysis.take();
         let declared_items = items
             .iter()
             .filter(|item| !matches!(item, ProductionItem::Terminal(value) if value.is_empty()))
@@ -2140,9 +2162,9 @@ type CompletedNodeResult = (BTreeSet<Rc<PackedTerm>>, Option<ParseError>);
 #[derive(Clone, Debug)]
 struct Chart {
     states: BTreeMap<State, Derivations>,
-    // Each bucket is considered once at this position: initial states have a fixed empty
-    // derivation, and first-scan eligibility is fixed. Caller-specific nullable completion
-    // must still run on every request.
+    // Each bucket is considered once at this position. Its marker also permits omission of
+    // impossible callers that would not expand the same bucket again. Caller-specific nullable
+    // completion must still run on every request.
     predicted: BTreeSet<Sort>,
     waiting: BTreeMap<Sort, Vec<State>>,
     completed: BTreeMap<Sort, Vec<State>>,
