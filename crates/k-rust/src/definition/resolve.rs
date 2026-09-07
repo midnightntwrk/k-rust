@@ -1,6 +1,10 @@
 //! Resolution of flat, name-based modules into an import graph.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::{Arc, OnceLock},
+};
 
 use petgraph::Direction::Outgoing;
 use petgraph::algo::toposort;
@@ -63,12 +67,29 @@ struct Import {
     public: bool,
 }
 
-#[derive(Clone, Debug)]
+type SentenceLocation = (ModuleId, usize);
+
+#[derive(Clone)]
 pub struct ResolvedDefinition {
     graph: DiGraph<ResolvedModule, Import>,
     modules_by_name: BTreeMap<String, ModuleId>,
     main_module: ModuleId,
     dependency_order: Vec<ModuleId>,
+    // The graph is immutable, with dense node indices and stable local sentence indices.
+    // Clones share only coordinates; each read borrows sentences from its receiving graph.
+    visible_sentences: Vec<OnceLock<Arc<[SentenceLocation]>>>,
+}
+
+impl fmt::Debug for ResolvedDefinition {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResolvedDefinition")
+            .field("graph", &self.graph)
+            .field("modules_by_name", &self.modules_by_name)
+            .field("main_module", &self.main_module)
+            .field("dependency_order", &self.dependency_order)
+            .finish()
+    }
 }
 
 impl ResolvedDefinition {
@@ -135,12 +156,14 @@ impl ResolvedDefinition {
             }
         };
         dependency_order.reverse();
+        let visible_sentences = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
             graph,
             modules_by_name,
             main_module,
             dependency_order,
+            visible_sentences,
         })
     }
 
@@ -212,24 +235,41 @@ impl ResolvedDefinition {
 
     /// Local and transitively imported sentences, with dependencies first.
     pub fn sentences(&self, module: ModuleId) -> Vec<&Sentence> {
+        let locations = self.visible_sentences[module.0.index()]
+            .get_or_init(|| self.select_sentence_locations(module));
+        locations
+            .iter()
+            .map(|&(owner, index)| &self.module(owner).local_sentences[index])
+            .collect()
+    }
+
+    fn select_sentence_locations(&self, module: ModuleId) -> Arc<[SentenceLocation]> {
         let mut visible = self.transitive_imports(module);
         visible.push(module);
         let visible = visible.into_iter().collect::<BTreeSet<_>>();
         let mut sentences: Vec<&Sentence> = Vec::new();
-        for sentence in self
+        let mut locations = Vec::new();
+        for (owner, index, sentence) in self
             .dependency_order
             .iter()
             .filter(|id| visible.contains(id))
-            .flat_map(|id| self.module(*id).local_sentences.iter())
+            .flat_map(|&id| {
+                self.module(id)
+                    .local_sentences
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, sentence)| (id, index, sentence))
+            })
         {
             if !sentences
                 .iter()
                 .any(|existing| sentence_equivalent(existing, sentence))
             {
                 sentences.push(sentence);
+                locations.push((owner, index));
             }
         }
-        sentences
+        locations.into()
     }
 
     /// Scala's `Module.signature`: local sentences plus the exported sentences
