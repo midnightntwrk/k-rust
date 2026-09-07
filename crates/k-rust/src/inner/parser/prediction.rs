@@ -501,7 +501,7 @@ mod tests {
     #[cfg(feature = "z3-inference")]
     #[test]
     fn dead_waiters_preserve_nullable_record_names_and_metadata() {
-        let grammar = Grammar::from_sentences(&[
+        let mut grammar = Grammar::from_sentences(&[
             production("Start", vec![nt("Dead"), terminal("bad")], "bad"),
             production("Start", vec![nt("Wide")], "start"),
             production("Dead", vec![terminal("n")], "n"),
@@ -532,6 +532,13 @@ mod tests {
                 attributes: Attributes::default(),
             },
         ])
+        .unwrap();
+        crate::inner::config::add_casts(
+            &mut grammar,
+            Sort::new("K"),
+            Sort::new("Int"),
+            Sort::new("Int"),
+        )
         .unwrap();
         let baseline = unfiltered(&grammar, "box(...)").unwrap();
         assert!(baseline.to_string().contains("_value0"));
