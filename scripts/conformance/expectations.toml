@@ -1729,14 +1729,14 @@ reason = ""
 
 [[case]]
 name = "list-set"
-accepted_verdict = "krust-error"
+accepted_verdict = "match"
 accepted_stage = "krun"
+accepted_basis = "Compilation and all four list-set programs match the pinned corpus outputs after refuting impossible LIST.update results; protected by list_update_patterns_rewrite_only_when_the_selected_element_agrees and conservative matching controls."
 baseline_verdict = "krust-error"
 baseline_stage = "krun"
 tickets = []
 exclusion = ""
 reason = "krust error dumps a Term Debug rendering (internal error in list/set execution; C1/C2 area, no ticket)"
-unexplained = true
 
 [[case]]
 name = "llvm-kompile-type"
