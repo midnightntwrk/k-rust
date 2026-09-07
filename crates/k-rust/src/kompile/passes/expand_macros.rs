@@ -10,6 +10,7 @@ use crate::{
         Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition,
         Sentence, SortCatalog,
         checks::{check_functions, check_smt_lemmas},
+        sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
@@ -162,12 +163,43 @@ impl<'a> Expander<'a> {
         let overloads = definition
             .overloads(module)
             .map_err(|error| error.to_string())?;
+        let owners = definition
+            .modules()
+            .flat_map(|(owner, resolved)| {
+                resolved
+                    .local_sentences
+                    .iter()
+                    .map(move |sentence| (std::ptr::from_ref(sentence), owner))
+            })
+            .collect::<BTreeMap<_, _>>();
         let all = definition
             .sentences(module)
             .into_iter()
             .enumerate()
-            .filter_map(|(id, sentence)| macro_rule(id, sentence, &productions))
-            .collect::<Vec<_>>();
+            .filter_map(|(id, sentence)| {
+                macro_rule(id, sentence, &productions).map(|rule| (sentence, rule))
+            })
+            .map(|(sentence, mut rule)| {
+                let owner = owners[&std::ptr::from_ref(sentence)];
+                if owner != module {
+                    // Macro templates carry production indexes from their defining module.
+                    // Translate those indexes before substitution; substituted caller terms
+                    // already use this module's catalog and must not be translated again.
+                    super::rebase_sentence(
+                        &mut rule.sentence,
+                        &definition.production_catalog(owner),
+                        &productions,
+                        &sentence_equivalent,
+                    )?;
+                    let Sentence::Rule { body, .. } = &rule.sentence else {
+                        unreachable!("macro rules are rules")
+                    };
+                    rule.left = rewrite_projection(body, false);
+                    rule.right = rewrite_projection(body, true);
+                }
+                Ok(rule)
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let priorities = all
             .iter()
             .map(|rule| macro_priority(rule.sentence.attributes()))
