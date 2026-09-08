@@ -132,7 +132,7 @@ impl<'a> Converter<'a> {
                     ConversionError(format!("compound KORE sort {name:?} lacks Sort prefix"))
                 })?;
                 Ok(Sort::with_parameters(
-                    name,
+                    decode_identifier(name)?,
                     arguments
                         .iter()
                         .map(|sort| self.sort(sort))
@@ -253,11 +253,18 @@ fn decode_label(name: &str) -> Result<String, ConversionError> {
 
 fn decode_identifier(encoded: &str) -> Result<String, ConversionError> {
     let mut output = String::new();
+    let mut encoded_units = Vec::new();
     let mut literal = true;
     let mut offset = 0;
     while offset < encoded.len() {
         let character = encoded[offset..].chars().next().unwrap();
         if character == '\'' {
+            if !literal {
+                output.push_str(&String::from_utf16(&encoded_units).map_err(|_| {
+                    ConversionError(format!("invalid UTF-16 in encoded identifier {encoded:?}"))
+                })?);
+                encoded_units.clear();
+            }
             literal = !literal;
             offset += 1;
         } else if literal {
@@ -268,13 +275,16 @@ fn decode_identifier(encoded: &str) -> Result<String, ConversionError> {
             let code = encoded.get(offset..end).ok_or_else(|| {
                 ConversionError(format!("truncated encoded identifier {encoded:?}"))
             })?;
-            if u16::from_str_radix(code, 16).is_ok() {
-                output.push_str("\\u");
-                output.push_str(code);
+            if let Ok(unit) = u16::from_str_radix(code, 16) {
+                encoded_units.push(unit);
             } else {
-                output.push_str(decode_code(code).ok_or_else(|| {
-                    ConversionError(format!("unknown KORE identifier code {code:?}"))
-                })?);
+                encoded_units.extend(
+                    decode_code(code)
+                        .ok_or_else(|| {
+                            ConversionError(format!("unknown KORE identifier code {code:?}"))
+                        })?
+                        .encode_utf16(),
+                );
             }
             offset = end;
         }
@@ -322,6 +332,7 @@ fn decode_code(code: &str) -> Option<&'static str> {
         "Pipe" => "|",
         "RBra" => "}",
         "Tild" => "~",
+        "Kywd" => "",
         _ => return None,
     })
 }

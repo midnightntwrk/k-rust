@@ -4,9 +4,10 @@
 
 use indoc::indoc;
 use k_rust::definition::ResolvedDefinition;
+use k_rust::kast::convert::{Converter, convert, convert_sort};
 use k_rust::kompile::{
-    declaration_modules, declaration_modules_from_resolved_with_options, encode_kore_identifier,
-    encode_kore_label, encode_kore_sort, module_to_kore,
+    TermConverter, declaration_modules, declaration_modules_from_resolved_with_options,
+    encode_kore_identifier, encode_kore_label, encode_kore_sort, module_to_kore,
 };
 use k_rust::kore::ast::{Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
@@ -1208,6 +1209,145 @@ fn encodes_labels_and_parametric_sorts() {
         encode_kore_sort(&sort).to_string(),
         "SortMap{SortKey{}, SortValue{}}"
     );
+}
+
+#[test]
+fn round_trips_compiler_produced_kore_identifiers() {
+    let names = [
+        "plain-ASCII9",
+        "éα",
+        "😀",
+        "_é+😀z",
+        "\0\n\u{7f}",
+        "module",
+        "endmodule",
+        "sort",
+        "hooked-sort",
+        "symbol",
+        "hooked-symbol",
+        "alias",
+        "axiom",
+    ];
+
+    for name in names {
+        let label = Label::new(name);
+        let pattern = Pattern::Application {
+            symbol: encode_kore_label(&label),
+            arguments: Vec::new(),
+        };
+        assert_eq!(
+            convert(&pattern).expect("compiler-produced label should convert"),
+            kast::Term::Apply {
+                label,
+                arguments: Vec::new(),
+            },
+            "label {name:?}",
+        );
+    }
+}
+
+#[test]
+fn round_trips_compiler_produced_kore_sort_identifiers() {
+    let sort = kast::Sort::with_parameters(
+        "é😀_",
+        vec![
+            kast::Sort::new("module"),
+            kast::Sort::with_parameters("#Foo", vec![kast::Sort::new("α")]),
+        ],
+    );
+    assert_eq!(
+        convert_sort(&encode_kore_sort(&sort)).expect("compiler-produced sort should convert"),
+        sort,
+    );
+}
+
+#[test]
+fn round_trips_variables_through_the_public_term_converters() {
+    let definition = lowered("module MAIN\n  syntax #Foo\nendmodule", "MAIN");
+    let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+    let converter = TermConverter::new(&resolved, "MAIN").expect("converter should build");
+
+    for name in ["Vé😀_", "@module"] {
+        let variable = kast::Term::Variable {
+            name: name.into(),
+            sort: Some(kast::Sort::new("#Foo")),
+        };
+        let pattern = converter
+            .convert(&variable)
+            .expect("variable should convert to KORE");
+        assert_eq!(
+            convert(&pattern).expect("compiler-produced variable should convert to KAST"),
+            variable,
+            "variable {name:?}",
+        );
+    }
+}
+
+#[test]
+fn parsed_hash_sort_round_trips_through_kore() {
+    let definition = lowered(
+        r#"
+module MAIN
+  syntax #Foo
+endmodule
+"#,
+        "MAIN",
+    );
+    let source_sort = definition
+        .main_module()
+        .expect("main module should exist")
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            k_rust::definition::Sentence::SyntaxSort { sort, .. } if sort.name == "#Foo" => {
+                Some(sort)
+            }
+            _ => None,
+        })
+        .expect("parsed #Foo declaration should lower");
+    let encoded = encode_kore_sort(source_sort);
+    assert_eq!(encoded.to_string(), "Sort'Hash'Foo{}");
+    assert_eq!(
+        convert_sort(&encoded).expect("parsed source sort should convert from KORE"),
+        *source_sort,
+    );
+}
+
+#[test]
+fn decoded_sort_names_drive_hook_lookup() {
+    let sort = kast::Sort::new("#String");
+    let pattern = Pattern::DomainValue {
+        sort: encode_kore_sort(&sort),
+        value: "line\n".into(),
+    };
+    let hooks = std::collections::HashMap::from([("#String".into(), "STRING.String".into())]);
+    assert_eq!(
+        Converter::new(&hooks)
+            .convert(&pattern)
+            .expect("encoded hooked sort should convert"),
+        kast::Term::Token {
+            token: "\"line\\n\"".into(),
+            sort,
+        },
+    );
+}
+
+#[test]
+fn rejects_malformed_utf16_in_kore_identifiers() {
+    for name in ["Lbl'd83d'", "Lbl'de00'", "Lbl'd83dSpce'"] {
+        let pattern = Pattern::Application {
+            symbol: k_rust::kore::ast::Symbol {
+                name: name.into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let error = convert(&pattern).expect_err("malformed UTF-16 should be rejected");
+        assert!(
+            error.to_string().contains("invalid UTF-16"),
+            "unexpected error for {name:?}: {error}",
+        );
+    }
 }
 
 /// `ModuleToKORE.convertSpecificationModule` emits `spec.sentencesExcept(definition)`: every
