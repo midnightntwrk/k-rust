@@ -704,7 +704,11 @@ impl Grammar {
             return None;
         };
         let allowed_parent = |exceptions: &[&str]| {
-            parent.syntactic_subsort || exceptions.contains(&parent_label.as_str())
+            // A bracket has a parse label for priority checks but no semantic klabel.
+            // The reference restricts rewrite/sequence/let scope only under klabels.
+            parent.syntactic_subsort
+                || parent.label.is_none()
+                || exceptions.contains(&parent_label.as_str())
         };
         if child_label == "#KRewrite"
             && !allowed_parent(&[

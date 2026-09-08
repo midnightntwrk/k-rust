@@ -503,11 +503,26 @@ fn rule_grammar(
         })
         .collect::<BTreeSet<_>>();
     add_k_syntax(&mut grammar, BuiltinTokenGrammar::Rule)?;
+    // KSEQ is implicit in the reference rule grammar. Preserve its bracket's
+    // priority contract when adding the concrete brackets supplied by our seed.
+    let default_bracket = resolved.module_id("KSEQ").and_then(|kseq| {
+        resolved
+            .module(kseq)
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Production { attributes, .. } if attributes.get("bracket").is_some() => {
+                    Some(attributes)
+                }
+                _ => None,
+            })
+    });
     add_rule_k_syntax(
         &mut grammar,
         &concrete_sorts,
         &bracket_sorts,
         &klabel_terminals,
+        default_bracket,
     )?;
     add_rule_cells(&mut grammar, &visible)?;
     #[cfg(not(feature = "z3-inference"))]
@@ -617,6 +632,7 @@ fn add_rule_k_syntax(
     concrete_sorts: &BTreeSet<Sort>,
     bracket_sorts: &BTreeSet<Sort>,
     klabel_terminals: &BTreeSet<String>,
+    default_bracket: Option<&Attributes>,
 ) -> Result<(), ParseError> {
     add_subsort(grammar, "KBott", Sort::new("#KVariable"))?;
     add_subsort(grammar, "KBott", Sort::new("KConfigVar"))?;
@@ -708,6 +724,7 @@ fn add_rule_k_syntax(
                 ProductionItem::NonTerminal { sort, name: None },
                 ProductionItem::Terminal(")".into()),
             ],
+            default_bracket,
         )?;
     }
     // `Bag` is likewise absent from `concrete_sorts`, but collection cells need a concrete
@@ -719,6 +736,7 @@ fn add_rule_k_syntax(
             nonterminal("Bag"),
             ProductionItem::Terminal(")".into()),
         ],
+        default_bracket,
     )?;
     // AUTO-CASTS covers these structural rule sorts even though neither reaches the generic loop.
     for sort in [Sort::new("Bag"), Sort::new("Cell")] {
@@ -751,6 +769,7 @@ fn add_rule_k_syntax(
                 },
                 ProductionItem::Terminal(")".into()),
             ],
+            default_bracket,
         )?;
     }
     grammar.add(

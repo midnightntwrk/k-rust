@@ -1650,8 +1650,20 @@ impl Grammar {
         &mut self,
         result: Sort,
         items: Vec<ProductionItem>,
+        source_attributes: Option<&Attributes>,
     ) -> Result<(), ParseError> {
-        let bracket_label = format!("#bracket:{result}");
+        // Parametric source brackets have already been instantiated in this grammar.
+        // Preserve their parse label and applyPriority contract: an untagged fallback
+        // with the same syntax would keep alternatives that the source bracket rejects.
+        if self.productions_for(&result).any(|index| {
+            let production = &self.productions[index];
+            production.bracket && production.declared_items == items
+        }) {
+            return Ok(());
+        }
+        let bracket_label = source_attributes
+            .and_then(|attributes| attributes.label("bracketLabel"))
+            .map_or_else(|| format!("#bracket:{result}"), |label| label.name);
         self.add_production_with_lexical(
             result,
             &items,
@@ -1660,6 +1672,8 @@ impl Grammar {
                 transparent: true,
                 bracket: true,
                 bracket_label: Some(bracket_label),
+                apply_priority: source_attributes
+                    .and_then(|attributes| attributes.get_str("applyPriority")),
                 ..ProductionOptions::default()
             },
             &BTreeMap::new(),

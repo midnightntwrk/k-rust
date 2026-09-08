@@ -1572,6 +1572,153 @@ rule_snapshot!(
     "#
 );
 
+#[cfg(feature = "z3-inference")]
+fn prefix_list_rule_source(priority: &str, rule: &str) -> String {
+    // The parametric bracket is the reduced KSEQ declaration from builtin/kast.md.
+    // Its priority must apply to the enclosed list, including concrete instantiations.
+    indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Name ::= "+" [symbol(plus)]
+          syntax Exp ::= Int | Name
+                       | "(" Name ExpList ")" [symbol(prefix)]
+          syntax ExpList ::= List{Exp,""}
+            [symbol(expressions), terminator-symbol(.Expressions), group(expList)]
+          syntax {S} S ::= "(" S ")"
+            [bracket, group(defaultBracket), applyPriority(1)]
+          PRIORITY
+          rule RULE
+        endmodule
+    "#}
+    .replace("PRIORITY", priority)
+    .replace("RULE", rule)
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn bracket_priority_selects_prefix_application_over_a_bracketed_list() {
+    for rule in ["(+ I1:Int I2:Int) => I1", "(+ 1 2) => 1"] {
+        let source = prefix_list_rule_source("syntax priority defaultBracket > expList", rule);
+        let resolved = resolve_rule_bubbles(&lowered(&source)).unwrap();
+        let body = resolved
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule { body, .. } => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        let Term::Rewrite { left, .. } = body.unannotated() else {
+            panic!("expected a rewrite: {body}");
+        };
+        let Term::Apply { label, arguments } = left.unannotated() else {
+            panic!("expected a prefix application: {left}");
+        };
+        assert_eq!(label.name, "prefix");
+        let [name, arguments] = arguments.as_slice() else {
+            panic!("prefix application has a name and its argument list: {left}");
+        };
+        assert_eq!(name, &Term::apply("plus", vec![]));
+        let mut rest = arguments;
+        let mut entries = 0;
+        while let Term::Apply { label, arguments } = rest.unannotated() {
+            if label.name != "expressions" {
+                break;
+            }
+            let [_, tail] = arguments.as_slice() else {
+                panic!("list constructor has an element and tail: {rest}");
+            };
+            entries += 1;
+            rest = tail;
+        }
+        assert_eq!(entries, 2, "{left}");
+        assert_eq!(rest, &Term::apply(".Expressions", vec![]));
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn declared_bracket_priority_preserves_parenthesized_rewrite_scope() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax {S} S ::= "(" S ")" [bracket, applyPriority(1)]
+          rule (1 => 2)
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
+    assert!(resolved.main_module().unwrap().local_sentences.iter().any(|sentence| {
+        matches!(sentence, Sentence::Rule { body, .. } if matches!(body.unannotated(), Term::Rewrite { .. }))
+    }));
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn implicit_kseq_bracket_priority_selects_the_prefix_application() {
+    let source = prefix_list_rule_source(
+        "syntax priority defaultBracket > expList",
+        "(+ I1:Int I2:Int) => I1",
+    );
+    // KSEQ is available to the implicit rule grammar without a user-module import.
+    let source = source.replace(
+        "syntax {S} S ::= \"(\" S \")\"\n    [bracket, group(defaultBracket), applyPriority(1)]",
+        "",
+    );
+    let source = format!(
+        "{source}\nmodule KSEQ\n syntax {{S}} S ::= \"(\" S \")\" [bracket, group(defaultBracket), applyPriority(1)]\nendmodule\n"
+    );
+    let resolved = resolve_rule_bubbles(&lowered(&source)).unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let Term::Rewrite { left, .. } = body.unannotated() else {
+        panic!("expected a rewrite: {body}");
+    };
+    assert!(
+        matches!(left.unannotated(), Term::Apply { label, .. } if label.name == "prefix"),
+        "{left}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn prefix_application_and_bracketed_list_remain_distinct_without_the_priority() {
+    for priority in ["", "syntax priority expList > defaultBracket"] {
+        let source = prefix_list_rule_source(priority, "(+ I1:Int I2:Int) => I1");
+        let error = resolve_rule_bubbles(&lowered(&source)).unwrap_err();
+        let RuleError::Parse(error) = error else {
+            panic!("expected a parse error: {error:?}");
+        };
+        let ParseError::Ambiguous { alternatives, .. } = error.error else {
+            panic!(
+                "expected distinct prefix/list interpretations: {:?}",
+                error.error
+            );
+        };
+        assert!(
+            alternatives
+                .iter()
+                .any(|alternative| alternative.term.contains("prefix(")),
+            "{alternatives:?}"
+        );
+        assert!(
+            alternatives
+                .iter()
+                .any(|alternative| alternative.term.contains("expressions(plus(")),
+            "{alternatives:?}"
+        );
+    }
+}
+
 rule_snapshot!(
     resolves_prefix_terminals_with_the_global_scanner,
     r#"

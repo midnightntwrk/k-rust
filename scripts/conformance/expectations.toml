@@ -145,12 +145,13 @@ reason = ""
 
 [[case]]
 name = "bracket-priority"
-accepted_verdict = "krust-error"
-accepted_stage = "inner-parse"
+accepted_verdict = "match"
+accepted_stage = "kompile"
+accepted_basis = "Explicit and implicit brackets preserve their priority label and applyPriority contract; native/portable regressions and the complete pinned compilation recipe pass, with both KORE definitions verified and compared. Missing and reversed priority controls preserve the distinct prefix/list ambiguity."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Baseline observation: rule `(+ I1:Int I2:Int)` has 2 parses; bracket vs priority in prefix syntax"
+reason = "The accepted compilation matches after preserving bracket priority in the rule grammar; see accepted_basis. The baseline retained distinct prefix and bracketed-list parses."
 
 [[case]]
 name = "bytes-coverage"
