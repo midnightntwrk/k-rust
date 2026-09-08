@@ -507,6 +507,10 @@ The backend acceptance gate compiles, executes, and proves with the in-process R
 scripts/backend-smoke.sh
 ```
 
+Set `KRUST_BIN` to an existing CLI executable to run the gate without invoking Cargo.
+CI uses its workspace-built `target/debug/krust` so the smoke test does not rebuild dependencies or download Z3 again.
+Without `KRUST_BIN`, the script builds and runs the CLI with the committed Cargo lockfile.
+
 No Haskell executable is required. The gate also generates LLVM matching decision trees for the
 collection-cell fixture and links a native interpreter when `K_BACKEND_BIN` points to an LLVM
 backend installation. `K_KOMPILE` may be supplied instead; its sibling LLVM executables will be
