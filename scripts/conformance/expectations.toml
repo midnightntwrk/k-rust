@@ -710,12 +710,13 @@ reason = "Both toolchains reject the broken rule; only their error presentation 
 
 [[case]]
 name = "issue-1184"
-accepted_verdict = "krust-error"
+accepted_verdict = "match"
 accepted_stage = "kompile"
+accepted_basis = "Generated outer-cast projections retain their parsed result sort during configuration expansion; native/portable regressions and the complete pinned compilation recipe pass, with both KORE definitions verified and compared."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Baseline observation: `project:K` in a configuration: `cannot determine the sort of configuration term`"
+reason = "The accepted compilation matches after recognizing the generated project:K signature during configuration expansion; see accepted_basis."
 
 [[case]]
 name = "issue-1186"
@@ -953,12 +954,13 @@ reason = "The baseline could not parse programs at the declared K/KItem start so
 
 [[case]]
 name = "issue-2075"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "krun"
+accepted_basis = "Cell concretization preserves separately callable initializers alongside the generated top root; native/portable regressions pass, pinned compilation KORE is verified and compared, and program output matches the checked-in upstream result."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Baseline observation: two `configuration` declarations in one module: `Too many top cells: BarCell, GeneratedTopCell`"
+reason = "The accepted recipe matches after distinguishing the generated top root from the auxiliary BarCell initializer; see accepted_basis."
 
 [[case]]
 name = "issue-2075-2"
