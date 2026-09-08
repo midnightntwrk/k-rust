@@ -3,7 +3,7 @@ use std::{
     env,
     error::Error,
     fmt, fs,
-    io::{self, Read},
+    io::{self, Read, Write},
     num::{NonZeroU32, NonZeroUsize},
     path::{Path, PathBuf},
     process::ExitCode,
@@ -2967,6 +2967,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let circularities = kept.iter().collect::<Vec<_>>();
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
+    let mut output = io::stdout().lock();
     let mut all_proven = true;
     for (index, claim) in kept.iter().enumerate() {
         let name = claim
@@ -2975,7 +2976,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             .as_deref()
             .map_or_else(|| format!("#{}", index + 1), str::to_owned);
         if claim.attributes.trusted {
-            println!("claim {name}: proven (trusted)");
+            writeln!(output, "claim {name}: proven (trusted)")?;
             timings.claims.push(ClaimTiming {
                 label: name,
                 seconds: 0.0,
@@ -2984,7 +2985,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             continue;
         }
         if proven_ids.contains(&claim.attributes.unique_id) {
-            println!("claim {name}: proven (saved)");
+            writeln!(output, "claim {name}: proven (saved)")?;
             timings.claims.push(ClaimTiming {
                 label: name,
                 seconds: 0.0,
@@ -3018,12 +3019,13 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             seconds,
             status: proof_status(result.status).into(),
         });
-        println!(
+        writeln!(
+            output,
             "claim {name}: {} ({} states, {} unexplored)",
             proof_status(result.status),
             result.explored_states,
             result.unexplored_states,
-        );
+        )?;
         if result.status == ProofStatus::Proven {
             proven_ids.insert(claim.attributes.unique_id.clone());
         } else {
@@ -3034,20 +3036,21 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
                 )
             }) {
-                println!("  {:?} at depth {}", leaf.outcome, leaf.depth);
+                writeln!(output, "  {:?} at depth {}", leaf.outcome, leaf.depth)?;
                 if matches!(
                     leaf.outcome,
                     ProofLeafOutcome::Vacuous | ProofLeafOutcome::Trivial
                 ) {
-                    println!(
+                    writeln!(
+                        output,
                         "  the left-hand side of the claim has been simplified to bottom \
                          (--allow-vacuous accepts such branches)"
-                    );
+                    )?;
                 }
                 let pattern = externalize::constrained_pattern(&leaf.pattern);
                 let rendered = KorePrinter::pretty(100).print_pattern(&pattern);
                 for line in rendered.lines() {
-                    println!("    {line}");
+                    writeln!(output, "    {line}")?;
                 }
             }
         }

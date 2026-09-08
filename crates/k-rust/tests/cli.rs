@@ -3,10 +3,12 @@
 use std::{
     collections::BTreeSet,
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Output, Stdio},
+    process::{Child, Command, ExitStatus, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
+    thread,
+    time::{Duration, Instant},
 };
 
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
@@ -63,6 +65,29 @@ fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
         .unwrap();
     child.stdin.take().unwrap().write_all(input).unwrap();
     child.wait_with_output().unwrap()
+}
+
+fn wait_with_stderr(mut child: Child, timeout: Duration) -> (ExitStatus, Vec<u8>) {
+    let mut stderr = child.stderr.take().unwrap();
+    let reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).unwrap();
+        bytes
+    });
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            let _ = reader.join();
+            panic!("child did not exit within {timeout:?}");
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    (status, reader.join().unwrap())
 }
 
 fn exit_reference_fixtures() -> PathBuf {
@@ -2999,8 +3024,7 @@ endmodule []
     fs::remove_dir_all(root).unwrap();
 }
 
-#[test]
-fn kprove_proves_a_modal_claim_in_process() {
+fn modal_claim_fixture() -> (PathBuf, PathBuf, PathBuf) {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");
     fs::write(
@@ -3017,6 +3041,12 @@ endmodule
 "#,
     )
     .unwrap();
+    (root, definition, saved_proofs)
+}
+
+#[test]
+fn kprove_proves_a_modal_claim_in_process() {
+    let (root, definition, saved_proofs) = modal_claim_fixture();
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -3080,6 +3110,39 @@ endmodule
         "claim reaches-b-or-c: proven (saved)\n"
     );
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kprove_reports_closed_stdout_as_io_error() {
+    let (root, definition, _) = modal_claim_fixture();
+    // Exercise trusted reporting, an executed proof, and an unproven result.
+    for options in [
+        ["--trusted", "reaches-b-or-c"],
+        ["--depth", "10"],
+        ["--depth", "0"],
+    ] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("kprove")
+            .arg(&definition)
+            .args(["--main-module", "MAIN", "--claim", "reaches-b-or-c"])
+            .args(options)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(child.stdout.take().unwrap());
+
+        let (status, stderr) = wait_with_stderr(child, Duration::from_secs(45));
+        let stderr = String::from_utf8(stderr).unwrap();
+        assert_eq!(status.code(), Some(1), "{options:?}: {stderr}");
+        assert!(stderr.contains("error:"), "{options:?}: {stderr}");
+        assert!(
+            stderr.to_lowercase().contains("pipe"),
+            "{options:?}: {stderr}"
+        );
+        assert!(!stderr.contains("panicked"), "{options:?}: {stderr}");
+    }
     fs::remove_dir_all(root).unwrap();
 }
 
