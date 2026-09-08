@@ -160,6 +160,8 @@ mod tests {
             module TEST
               sort SortS{} []
               hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+              hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+              hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
               sort SortKItem{} []
               symbol state{}(SortS{}) : SortS{} [constructor{}()]
               symbol value{}() : SortS{} [constructor{}()]
@@ -182,6 +184,43 @@ mod tests {
             panic!("expected an application")
         };
         assert_eq!(symbol.name.as_ref(), "state");
+    }
+
+    #[test]
+    fn preserves_binary_string_and_bytes_domain_values_after_validation() {
+        let definition = definition();
+        let value: String = (0..=u8::MAX).map(char::from).collect();
+        for name in ["SortString", "SortBytes"] {
+            let syntax = kore::Pattern::DomainValue {
+                sort: kore::Sort::Application {
+                    name: name.into(),
+                    arguments: Vec::new(),
+                },
+                value: value.clone(),
+            };
+            let bytes = encode_term(&syntax).unwrap();
+            let decoded = decode_term(&definition, &bytes).unwrap();
+            let TermKind::DomainValue {
+                sort,
+                value: actual,
+            } = decoded.kind()
+            else {
+                panic!("expected a domain value");
+            };
+            assert_eq!(sort, &Sort::simple(name));
+            assert_eq!(actual.as_ref(), value);
+        }
+
+        // Wire syntax alone cannot establish that a declared sort admits domain values.
+        let invalid = syntax(r#"\dv{SortS{}}("\xff")"#);
+        let bytes = encode_term(&invalid).unwrap();
+        assert_eq!(wire::decode_term(&bytes).unwrap(), invalid);
+        assert!(matches!(
+            decode_term(&definition, &bytes),
+            Err(DecodeError::Definition(
+                DefinitionError::SortWithoutDomainValues { .. }
+            ))
+        ));
     }
 
     #[test]

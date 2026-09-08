@@ -880,15 +880,13 @@ reason = ""
 
 [[case]]
 name = "issue-1683-cfgVarsWarns"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "krun"
+accepted_basis = "Pinned compilation verification/comparison and both direct krun rejections pass; reference recipe exits 0 and direct reference/Rust tools exit 1 with configuration-variable diagnostics."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Compilation agrees. Execution of 1.test is excluded as both-reject: the toolchains report missing $Foo and undeclared $A in different orders (see step_exclusions). The CLI discovers configuration variables from the transformed main module, as CompiledDefinition.java does."
-step_exclusions = [
-  { test = "1.test", exclusion = "both-reject", reason = "Both reject the run: the reference checks the missing `$Foo` first (`Configuration variable missing: $Foo`), krust the undeclared `-cA` first (`definition has no configuration variable `$A`; available variables: $Foo`); the recipe diffs the error text and the driver compares krust stdout only, so an expected error can never match." },
-]
+reason = "Compilation and expected configuration-variable rejection both match; the driver confirms the reference recipe, direct tool status, and diagnostic family."
 [[case]]
 name = "issue-1760"
 accepted_verdict = "match"
@@ -1011,15 +1009,13 @@ reason = "Both toolchains reject the broken claim; only their error presentation
 
 [[case]]
 name = "issue-2273"
-accepted_verdict = "krust-error"
+accepted_verdict = "match"
 accepted_stage = "krun"
+accepted_basis = "Pinned compilation verification/comparison, ordinary execution output, and unknown-sort rejection pass; the reference kast recipe exits 0 while direct reference/Rust kast exit 113/1 with program-parse diagnostics."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Compilation and execution of tests/1.a agree. The kast step is excluded as both-reject because both toolchains reject unknown start sort Foo (see step_exclusions)."
-step_exclusions = [
-  { test = "tests/kast-in1.kast", exclusion = "both-reject", reason = "kast --sort Foo names a sort the definition does not declare: the reference answers `Could not find start symbol: Foo provided to kast CLI --sort`, krust `could not parse program as Foo`; the driver compares krust stdout only, so an expected error can never match." },
-]
+reason = "Compilation, execution, and expected unknown-sort rejection all match; the driver confirms the reference recipe, direct tool status, and diagnostic family."
 [[case]]
 name = "issue-2287-simpl-rules-in-kprovex"
 accepted_verdict = "match"

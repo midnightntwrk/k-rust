@@ -5,7 +5,7 @@ Usage: measure.py --log PREFIX [--timeout SECS] -- cmd args...
 Writes PREFIX.stdout, PREFIX.stderr, PREFIX.meta.toml.
 Substitute for /usr/bin/time -v, which is not installed in the sandbox.
 """
-import argparse, os, resource, subprocess, sys, time, signal
+import argparse, json, os, resource, subprocess, sys, time, signal
 
 p = argparse.ArgumentParser()
 p.add_argument("--log", required=True)
@@ -28,7 +28,10 @@ except subprocess.TimeoutExpired:
 wall = time.monotonic() - t0
 ru = resource.getrusage(resource.RUSAGE_CHILDREN)
 with open(a.log + ".meta.toml", "w") as f:
-    f.write(f"command = {cmd!r}\n".replace("'", '"'))
+    # JSON string escaping is also valid in TOML basic strings. Keep Unicode scalars
+    # literal (JSON surrogate pairs are not TOML escapes), and escape TOML's DEL.
+    command = json.dumps(cmd, ensure_ascii=False).replace('\x7f', '\\u007f')
+    f.write(f"command = {command}\n")
     f.write(f"exit_code = {rc}\n")
     f.write(f"timed_out = {str(timed_out).lower()}\n")
     f.write(f"wall_seconds = {wall:.1f}\n")

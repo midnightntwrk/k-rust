@@ -236,6 +236,48 @@ fn conformance_driver_mirrors_the_ratchet_ranks() {
 }
 
 #[test]
+fn measurement_metadata_preserves_command_arguments() {
+    let fixture = Fixture::new();
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let prefix = fixture.root.join("measurement");
+    let args = [
+        "python3",
+        "-c",
+        "pass",
+        "quotes: '\"",
+        "slash: \\",
+        "line\nbreak",
+        "\u{7f}",
+        "\u{1f980}",
+    ];
+    let output = Command::new("python3")
+        .arg(workspace.join("scripts/conformance/measure.py"))
+        .arg("--log")
+        .arg(&prefix)
+        .arg("--")
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let metadata: Value = fs::read_to_string(prefix.with_extension("meta.toml"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    let recorded = metadata["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(recorded, args);
+    assert_eq!(metadata["exit_code"].as_integer(), Some(0));
+}
+
+#[test]
 fn conformance_driver_compares_expected_errors_and_program_statuses() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = Command::new("python3")
