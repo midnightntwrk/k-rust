@@ -722,6 +722,103 @@ def confirm_oracle(case, rec, step):
             step["reason"] = "checked-in .out is not reproduced by the pinned reference toolchain; krust mismatch recorded against a stale oracle"
 
 
+def expected_output(case, rec):
+    path = Path(case.dir) / rec['out'] if rec.get('out') else None
+    return path.read_text(errors='replace') if path and path.is_file() else None
+
+
+def rejection_family(text, tool):
+    # Only known tool failures establish a family. Generic compiler/error headings
+    # and crashes must never be mistaken for an intended parser/config rejection.
+    if re.search(r'panicked|outofmemory|out of memory|segmentation fault|stack overflow|failed to create.*thread', text, re.I):
+        return None
+    if tool == 'krun' and re.search(
+        r'Configuration variable missing:|missing required configuration variables? |definition has no configuration variable ', text):
+        return 'configuration-variable'
+    if tool == 'kast' and (re.search(r'^\[Error\] Inner Parser:', text, re.M)
+                           or re.search(r'could not parse program as .+ with module .+:', text)):
+        return 'program-parse'
+    return None
+
+
+def confirmed_reference_outcome(case, rec, step, tag):
+    if case.out_of_budget():
+        step.update(verdict='reference-error', reason='no remaining budget to confirm reference outcome')
+        return None
+    # The recipe verifies the checked-in expected output, including its filters;
+    # its final status is not necessarily the status of the K tool in a pipeline.
+    rc, out, err, secs, timed_out = sh(['bash', '-c', rec['raw']], case.dir, case.remaining())
+    step.update(reference_recipe_rc=rc, reference_recipe_seconds=round(secs, 1))
+    case.logfile(f'{tag}.reference-recipe.log', out + '\n--- stderr ---\n' + err)
+    if timed_out or rc != 0:
+        step.update(verdict='reference-error', reason='reference recipe did not reproduce the expected outcome')
+        return None
+    if case.out_of_budget():
+        step.update(verdict='reference-error', reason='no remaining budget to record reference tool status')
+        return None
+    # Only replay statically decoded argv. Shell expansions need an explicit
+    # adapter rather than accidentally treating their spelling as a literal arg.
+    if any(re.search(r'\$|`|[<>]', arg) for arg in rec['args']):
+        step.update(verdict='reference-error', reason='reference tool status requires an unsupported shell expansion or redirection')
+        return None
+    args = [f"{KBIN}/{rec['tool']}", *rec['args']]
+    stdin_path = str(Path(case.dir) / rec['stdin']) if rec.get('stdin') else None
+    rc, out, err, secs, timed_out = sh(args, case.dir, case.remaining(), stdin_path=stdin_path)
+    step.update(reference_tool_cmd=' '.join(shlex.quote(a) for a in args),
+                reference_tool_rc=rc, reference_tool_seconds=round(secs, 1))
+    case.logfile(f'{tag}.reference-tool.log', out + '\n--- stderr ---\n' + err)
+    if timed_out or rc < 0 or rc in (126, 127):
+        step.update(verdict='reference-error', reason='reference tool failed to produce an ordinary outcome')
+        return None
+    return rc, out, err
+
+
+def compare_expected_rejection(case, rec, step, rc, out, err, tag):
+    expected = expected_output(case, rec)
+    if expected is None or not re.search(r'^\[Error\]', expected, re.M):
+        return False
+    step['expected_outcome'] = 'rejection'
+    step['stage'] = rec['tool']
+    reference = confirmed_reference_outcome(case, rec, step, tag)
+    if reference is None:
+        return True
+    ref_rc, ref_out, ref_err = reference
+    expected_family = rejection_family(expected, rec['tool'])
+    reference_family = rejection_family(ref_out + '\n' + ref_err, rec['tool'])
+    actual_family = rejection_family(out + '\n' + err, rec['tool'])
+    step['expected_rejection_family'] = expected_family or 'unrecognized'
+    step['reference_rejection_family'] = reference_family or 'unrecognized'
+    step['krust_rejection_family'] = actual_family or 'unrecognized'
+    if ref_rc == 0 or not expected_family or reference_family != expected_family:
+        step.update(verdict='reference-error', reason='reference tool did not confirm a recognized expected rejection')
+    elif rc == 0:
+        step.update(verdict='mismatch', reason='krust accepts an input the reference rejects')
+    elif rc < 0 or rc in (126, 127):
+        step.update(verdict='krust-error', reason='krust terminated without an ordinary rejection')
+    elif actual_family != expected_family:
+        step.update(verdict='mismatch', reason='krust failure is not the expected rejection family', divergence=(err or out)[-1200:])
+    else:
+        step.update(verdict='match', comparison='confirmed rejection and diagnostic family; raw diagnostics retained')
+    return True
+
+
+def compare_program_status(case, rec, step, rc, tag):
+    # Zero is ordinary success. Nonzero can be a successful program's getExitCode
+    # value, but needs a successful reference recipe and the same direct status.
+    if rc == 0:
+        return True
+    if rc < 0 or rc in (126, 127):
+        step.update(verdict='krust-error', reason='krust did not finish with an ordinary program status')
+        return False
+    reference = confirmed_reference_outcome(case, rec, step, tag)
+    if reference is None:
+        return False
+    if reference[0] != rc:
+        step.update(verdict='mismatch', reason=f'program exit status differs: krust {rc}, reference {reference[0]}')
+        return False
+    return True
+
+
 def do_krun(case, rec, search_file=False):
     pos, opts, flags = parse_opts(rec["args"], KRUN_VALUE_OPTS)
     prog = next((p for p in pos if p not in ("print",)), None)
@@ -773,6 +870,8 @@ def do_krun(case, rec, search_file=False):
     case.logfile(f"{tag}.krust.log", out + "\n--- stderr ---\n" + err)
     if to:
         step.update(verdict="krust-error", stage="krun", reason="krust krun timed out"); return step_record(case, **step)
+    if compare_expected_rejection(case, rec, step, rc, out, err, tag):
+        return step_record(case, **step)
     if not out.strip():
         stage = classify_error(err)
         step.update(verdict="krust-error", stage=stage, divergence=(err or out)[-1200:])
@@ -802,6 +901,8 @@ def do_krun(case, rec, search_file=False):
             return step_record(case, **step)
         case.logfile(f"{tag}.krust.kore", out)
         step.update(verdict="match", comparison="completion only: the reference recipe runs with --output none, so only successful termination is compared")
+        return step_record(case, **step)
+    if not compare_program_status(case, rec, step, rc, tag):
         return step_record(case, **step)
     ok = compare_execution(case, rec, step, out, kore_output, tag)
     if ok is None:
@@ -851,6 +952,8 @@ def do_kast(case, rec):
     case.logfile(f"{tag}.krust.log", out + "\n--- stderr ---\n" + err)
     step["krust_rc"] = rc; step["krust_seconds"] = round(secs, 1)
     if to: step.update(verdict="krust-error", stage="kast", reason="timed out"); return step_record(case, **step)
+    if compare_expected_rejection(case, rec, step, rc, out, err, tag):
+        return step_record(case, **step)
     if rc != 0:
         step.update(verdict="krust-error", stage="inner-parse", divergence=(err or out)[-1200:])
         if sort in ("K", "KItem"):

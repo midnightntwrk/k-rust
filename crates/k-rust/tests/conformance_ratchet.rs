@@ -236,6 +236,22 @@ fn conformance_driver_mirrors_the_ratchet_ranks() {
 }
 
 #[test]
+fn conformance_driver_compares_expected_errors_and_program_statuses() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("python3")
+        .arg(workspace.join("crates/k-rust/tests/fixtures/conformance/expected_errors.py"))
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn conformance_driver_forwards_kompile_warning_flags_and_md_selectors() {
     // checkWarns requires `-w2e -w all`, and markdownSelectors requires that
     // krust's per-run recompilation receive the
