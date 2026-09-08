@@ -1885,49 +1885,70 @@ fn lowers_heat_and_cool_attributes_to_result_predicates() {
 }
 
 #[test]
-fn rejects_heat_rules_without_a_result_sort_or_predicate() {
-    let definition = Definition {
-        main_module: "MAIN".into(),
-        modules: vec![module(
-            "MAIN",
-            vec![rule(
-                rewrite(application("heat", Vec::new()), truth()),
-                attributes(&[("heat", json!("")), ("result", json!("Missing"))]),
-            )],
-        )],
-        attributes: Attributes::default(),
-    };
-    let error = resolve_heat_cool_attributes(&definition).unwrap_err();
-    assert_eq!(error.diagnostics.len(), 1);
-    assert!(
-        error.diagnostics[0]
-            .message
-            .starts_with("Definition is missing function isMissing required for strictness.")
-    );
+fn heat_cool_ignores_non_rule_sentence_kinds_before_predicate_lookup() {
+    for kind in ["heat", "cool"] {
+        let attrs = attributes(&[(kind, json!("")), ("result", json!("Missing"))]);
+        let sentences = vec![
+            production("a", "Exp", attrs.clone()),
+            Sentence::Claim {
+                body: rewrite(application("a", Vec::new()), application("a", Vec::new())),
+                requires: truth(),
+                ensures: truth(),
+                attributes: attrs.clone(),
+            },
+            Sentence::ContextAlias {
+                body: Term::variable("HOLE"),
+                requires: truth(),
+                attributes: attrs,
+            },
+        ];
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![module("MAIN", sentences.clone())],
+            attributes: Attributes::default(),
+        };
+        let transformed = resolve_heat_cool_attributes(&definition)
+            .expect("ignored sentence kinds must not require a strictness predicate");
+        assert_eq!(
+            transformed.main_module().unwrap().local_sentences,
+            sentences
+        );
+    }
 }
 
 #[test]
-fn heat_cool_ignores_non_rule_sentence_kinds_before_predicate_lookup() {
-    let attrs = attributes(&[("heat", json!("")), ("result", json!("Missing"))]);
-    let sentences = vec![
-        production("a", "Exp", attrs.clone()),
-        Sentence::Claim {
-            body: rewrite(application("a", Vec::new()), application("a", Vec::new())),
-            requires: truth(),
-            ensures: truth(),
-            attributes: attrs,
-        },
-    ];
-    let definition = Definition {
-        main_module: "MAIN".into(),
-        modules: vec![module("MAIN", sentences.clone())],
-        attributes: Attributes::default(),
-    };
-    let transformed = resolve_heat_cool_attributes(&definition).unwrap();
-    assert_eq!(
-        transformed.main_module().unwrap().local_sentences,
-        sentences
-    );
+fn heat_cool_still_rejects_rules_and_contexts_without_result_predicates() {
+    for kind in ["heat", "cool"] {
+        let attrs = attributes(&[(kind, json!("")), ("result", json!("Missing"))]);
+        for sentence in [
+            rule(
+                rewrite(application("a", Vec::new()), truth()),
+                attrs.clone(),
+            ),
+            Sentence::Context {
+                body: Term::variable("HOLE"),
+                requires: truth(),
+                attributes: attrs,
+            },
+        ] {
+            let definition = Definition {
+                main_module: "MAIN".into(),
+                modules: vec![module("MAIN", vec![sentence])],
+                attributes: Attributes::default(),
+            };
+            let error = resolve_heat_cool_attributes(&definition).unwrap_err();
+            assert_eq!(error.diagnostics.len(), 1);
+            assert_eq!(
+                error.diagnostics[0].code,
+                k_rust::diagnostic::DiagnosticCode::InvalidHeatCool
+            );
+            assert!(
+                error.diagnostics[0].message.starts_with(
+                    "Definition is missing function isMissing required for strictness."
+                )
+            );
+        }
+    }
 }
 
 #[test]
