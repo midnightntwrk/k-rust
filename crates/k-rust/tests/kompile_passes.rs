@@ -1924,7 +1924,10 @@ fn heat_cool_ignores_non_rule_sentence_kinds_before_predicate_lookup() {
         attributes: Attributes::default(),
     };
     let transformed = resolve_heat_cool_attributes(&definition).unwrap();
-    assert_eq!(transformed.main_module().unwrap().local_sentences, sentences);
+    assert_eq!(
+        transformed.main_module().unwrap().local_sentences,
+        sentences
+    );
 }
 
 #[test]
