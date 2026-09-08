@@ -72,14 +72,14 @@ pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> 
         TermKind::Application {
             symbol, arguments, ..
         } if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) => {
-            if let Some(mut predicates) = apply_ceil_equation(definition, term) {
-                for argument in arguments {
-                    predicates.extend(ceil_term(definition, argument));
-                }
-                predicates
-            } else {
-                vec![Predicate::Ceil(term.clone())]
+            let mut predicates = apply_ceil_equation(definition, term)
+                .unwrap_or_else(|| vec![Predicate::Ceil(term.clone())]);
+            // Applications are strict in their arguments. Keep this knowledge explicit
+            // even when the parent's ceil is opaque to predicate simplification and SMT.
+            for argument in arguments {
+                predicates.extend(ceil_term(definition, argument));
             }
+            predicates
         }
         TermKind::Application { arguments, .. } => arguments
             .iter()
@@ -299,6 +299,46 @@ mod tests {
             .flatten()
             .next()
             .expect("rewrite rule should be indexed")
+    }
+
+    #[test]
+    fn nested_partial_definedness_exposes_child_obligations_to_simplification() {
+        let definition = definition("");
+        let parse = |source| {
+            definition
+                .internalize_term(&parse_pattern(source).unwrap(), &[])
+                .unwrap()
+        };
+        let child = parse("partial{}(X:SortS{})");
+        let parent = parse("partial{}(partial{}(X:SortS{}))");
+        let parent_ceil = Predicate::Ceil(parent);
+        let child_ceil = Predicate::Ceil(child);
+
+        // Applications are strict in each argument. A defined outer application and an
+        // undefined inner application describe no state, even without an SMT solver.
+        let contradictory = simplify_predicates_with_solver(
+            &definition,
+            &[
+                parent_ceil.clone(),
+                Predicate::Not(Box::new(child_ceil.clone())),
+            ],
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+        assert_eq!(contradictory, vec![Predicate::False]);
+
+        let consistent = simplify_predicates_with_solver(
+            &definition,
+            &[parent_ceil, child_ceil],
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap();
+        assert!(!consistent.contains(&Predicate::False));
+        assert!(!consistent.is_empty());
     }
 
     #[test]

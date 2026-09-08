@@ -2153,6 +2153,38 @@ mod tests {
         assert_ne!(result.status, ImplicationStatus::Valid, "{result:?}");
     }
 
+    #[cfg(feature = "z3")]
+    #[test]
+    fn negated_existential_implication_preserves_free_variables_under_renaming() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let constrained = |bound: &str, free: &str| {
+            let mut result = pattern(&definition, "pair{}(F:SortInt{}, G:SortInt{})");
+            result
+                .constraints
+                .push(Predicate::Not(Box::new(Predicate::Exists(
+                    Variable::new(bound, Sort::simple("SortInt")),
+                    Box::new(Predicate::Equals(
+                        term(&definition, &format!("opaque{{}}({bound}:SortInt{{}})")),
+                        term(&definition, &format!("{free}:SortInt{{}}")),
+                    )),
+                ))));
+            result
+        };
+        let original = constrained("X", "F");
+        let renamed = constrained("Y", "F");
+        let distinct = constrained("Y", "G");
+        for (antecedent, consequent) in [(&original, &renamed), (&renamed, &original)] {
+            let result = check_implication(&definition, antecedent, consequent, &solver).unwrap();
+            assert_eq!(result.status, ImplicationStatus::Valid, "{result:?}");
+            assert!(!result.vacuous);
+        }
+        for (antecedent, consequent) in [(&original, &distinct), (&distinct, &original)] {
+            let result = check_implication(&definition, antecedent, consequent, &solver).unwrap();
+            assert_ne!(result.status, ImplicationStatus::Valid, "{result:?}");
+        }
+    }
+
     #[test]
     fn complete_check_uses_smt_counterexamples_without_hiding_solver_uncertainty() {
         let definition = definition();

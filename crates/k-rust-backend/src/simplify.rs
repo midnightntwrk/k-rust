@@ -712,7 +712,10 @@ fn simplify_predicate_with_budget(
         Predicate::Ceil(term) => {
             let simplified = simplify_term(term)?;
             let unchanged = Predicate::Ceil(simplified.term.clone());
-            let expanded = ceil_term(definition, &simplified.term);
+            let mut expanded = ceil_term(definition, &simplified.term);
+            // An opaque parent ceil remains a conjunct after expansion. Do not repeatedly
+            // add child ceils already supplied by the surrounding conjunction.
+            expanded.retain(|predicate| !assumptions.contains(predicate));
             if expanded.as_slice() == [unchanged.clone()] {
                 with_simplification_constraints(simplified.constraints, unchanged)
             } else {
@@ -3967,6 +3970,44 @@ mod tests {
                 term(&definition, "E:SortExp{}"),
             )
         );
+    }
+
+    #[test]
+    fn externalized_injection_equalities_verify_after_sort_narrowing() {
+        let definition = injection_equality_definition();
+        for (left, right) in [
+            (
+                "inj{SortInt{}, SortKItem{}}(I:SortInt{})",
+                "inj{SortExp{}, SortKItem{}}(E:SortExp{})",
+            ),
+            (
+                "inj{SortA{}, SortKItem{}}(A:SortA{})",
+                "inj{SortC{}, SortKItem{}}(C:SortC{})",
+            ),
+        ] {
+            for (left, right) in [(left, right), (right, left)] {
+                let result = simplify_injection_equality(&definition, left, right);
+                let Predicate::Equals(lhs, rhs) = &result else {
+                    panic!("symbolic equality must remain a constraint: {result:?}");
+                };
+                assert_eq!(lhs.sort(), rhs.sort());
+                let external =
+                    crate::externalize::predicate_pattern(&result, &Sort::simple("SortKItem"));
+                definition.verify_standalone_pattern(&external).unwrap();
+                let (roundtrip, _) = definition.internalize_predicate(&external, &[]).unwrap();
+                assert_eq!(roundtrip, result);
+            }
+        }
+
+        // The verifier must reject a missing injection, so this audit cannot silently
+        // accept a producer that chooses the left operand's sort for unequal operands.
+        let malformed = Predicate::Equals(
+            term(&definition, "I:SortInt{}"),
+            term(&definition, "E:SortExp{}"),
+        );
+        let external =
+            crate::externalize::predicate_pattern(&malformed, &Sort::simple("SortKItem"));
+        assert!(definition.verify_standalone_pattern(&external).is_err());
     }
 
     #[test]
