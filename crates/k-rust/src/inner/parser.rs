@@ -1234,12 +1234,15 @@ impl Grammar {
         let mut first_violation = None;
 
         for position in start_position..=input.len() {
+            // Empty charts can lie inside a UTF-8 character; only evaluate layout on dispatch.
+            let mut canonical_position = None;
             while let Some(state) = charts[position].agenda.pop_front() {
                 let Some(derivations) = charts[position].states.get(&state).cloned() else {
                     continue;
                 };
                 let production = &self.productions[state.production];
-                let canonical = self.layout.skip(input, position);
+                let canonical =
+                    *canonical_position.get_or_insert_with(|| self.layout.skip(input, position));
                 if state.dot < production.items.len() && canonical != position {
                     self.add_chart_state(&mut charts[canonical], state, derivations)?;
                     continue;
