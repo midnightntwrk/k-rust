@@ -575,7 +575,7 @@ fn transform_loaded_definition(
     );
     // Coverage instrumentation and the optional unsafe-anywhere removal are identity stages
     // because neither optional mode is exposed by the frontend API yet.
-    let definition = add_semantics_module(&definition);
+    let definition = stage("add semantics module", add_semantics_module(&definition))?;
     let definition = resolve_config_var(&definition);
     let definition = add_cool_like_attributes(&definition);
     let definition = generate_sort_predicate_rules(&definition);

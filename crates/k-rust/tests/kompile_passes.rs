@@ -3588,7 +3588,7 @@ fn concretizes_cells_inside_generated_simplification_rules() {
         });
     }
 
-    let transformed = add_semantics_module(&transformed);
+    let transformed = add_semantics_module(&transformed).unwrap();
     let transformed = resolve_config_var(&transformed);
     let transformed = add_cool_like_attributes(&transformed);
     let transformed = generate_sort_predicate_rules(&transformed);
@@ -4211,7 +4211,7 @@ fn finalizes_language_parsing_and_sort_predicate_rules() {
         endmodule
     "#};
     let definition = generate_sort_predicate_syntax(&parsed(source)).unwrap();
-    let definition = add_semantics_module(&definition);
+    let definition = add_semantics_module(&definition).unwrap();
     let definition = number_sentences(&generate_sort_predicate_rules(&definition));
     let language = definition
         .modules
@@ -5175,4 +5175,82 @@ fn validates_smt_lemmas_after_expanding_aliases() {
         panic!("expected an SMT lemma rule");
     };
     assert!(!Printer::new().print_term(body).contains("pow256"));
+}
+
+#[test]
+fn language_parsing_module_preserves_imported_overload_identity() {
+    // LATE reaches Y before MAIN in the original graph. LANGUAGE-PARSING reaches MAIN
+    // earlier and visits X before Y, shifting the catalogs of MAIN and its imported owner.
+    let original = parsed(indoc! {r#"
+        module X
+          syntax X ::= "x" [symbol(x)]
+          syntax X ::= "fx(" X ")" [function, symbol(f)]
+        endmodule
+        module Y
+          syntax Y ::= "y" [symbol(y)]
+          syntax Y ::= "fy(" Y ")" [function, symbol(f)]
+        endmodule
+        module OWNER
+          imports X
+          imports Y
+          rule fx(x) => x
+        endmodule
+        module LEFT
+          imports OWNER
+        endmodule
+        module RIGHT
+          imports OWNER
+        endmodule
+        module LATE
+          imports Y
+        endmodule
+        module MAIN
+          imports LEFT
+          imports RIGHT
+          rule fy(y) => y
+        endmodule
+    "#});
+    let before = ResolvedDefinition::resolve(&original).unwrap();
+    let transformed = add_semantics_module(&original).unwrap();
+    let after = ResolvedDefinition::resolve(&transformed).unwrap();
+    for owner in ["OWNER", "MAIN"] {
+        let before_id = before.module_id(owner).unwrap();
+        let after_id = after.module_id(owner).unwrap();
+        let source = before.production_catalog(before_id);
+        let target = after.production_catalog(after_id);
+        let rule_head = |module: &k_rust::definition::ResolvedModule| {
+            module
+                .local_sentences
+                .iter()
+                .find_map(|sentence| {
+                    let Sentence::Rule { body, .. } = sentence else {
+                        return None;
+                    };
+                    let Term::Rewrite { left, .. } = body.unannotated() else {
+                        return None;
+                    };
+                    left.metadata().cloned()
+                })
+                .unwrap()
+        };
+        let mut original_metadata = rule_head(before.module(before_id));
+        let rebased_metadata = rule_head(after.module(after_id));
+        let old_index = original_metadata.production.unwrap();
+        let new_index = rebased_metadata.production.unwrap();
+        let expected = source.production(ProductionId(old_index.0));
+        assert_ne!(
+            target.production(ProductionId(old_index.0)),
+            expected,
+            "fixture must shift the original catalog position for {owner}"
+        );
+        assert_eq!(
+            target.production(ProductionId(new_index.0)),
+            expected,
+            "{owner}: preserve the selected argument/result-sort overload and its provenance"
+        );
+        original_metadata.production = rebased_metadata.production;
+        assert_eq!(original_metadata, rebased_metadata);
+    }
+    module_to_kore(&transformed, "MAIN").expect("local and imported equations must emit");
+    assert_eq!(add_semantics_module(&transformed).unwrap(), transformed);
 }

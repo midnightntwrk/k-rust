@@ -3880,6 +3880,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn equation_selection_requires_exact_metadata_or_a_unique_label() {
+        let parsed = crate::outer::parse(
+            "overloaded-equation.k",
+            indoc! {r#"
+                module MAIN
+                  syntax X ::= "fx(" X ")" [function, symbol(f)]
+                  syntax Y ::= "fy(" Y ")" [function, symbol(f)]
+                  syntax X ::= "other" [symbol(other)]
+                endmodule
+            "#},
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        let label = Label::new("f");
+        let argument = Term::Variable {
+            name: "ARG".into(),
+            sort: None,
+        };
+        let candidates = catalog.productions_for(&LabelHead::from(&label));
+        assert_eq!(candidates.len(), 2);
+        for &selected in candidates {
+            let application =
+                annotated_application(label.clone(), vec![argument.clone()], selected);
+            assert_eq!(
+                resolve_equation_production(&application, &label, &catalog).unwrap(),
+                catalog.production(selected),
+                "same-label overloads must retain their selected argument and result sorts"
+            );
+        }
+        let other = catalog.productions_for(&LabelHead::new("other"))[0];
+        let unique = Term::apply("other", Vec::new());
+        assert_eq!(
+            resolve_equation_production(&unique, &Label::new("other"), &catalog).unwrap(),
+            catalog.production(other)
+        );
+        for stale in [other, ProductionId(catalog.len())] {
+            let application = annotated_application(label.clone(), vec![argument.clone()], stale);
+            assert!(matches!(
+                resolve_equation_production(&application, &label, &catalog),
+                Err(ModuleToKoreError::InvalidEquationProduction { .. })
+            ));
+        }
+        let ambiguous = Term::Apply {
+            label: label.clone(),
+            arguments: vec![argument],
+        };
+        assert!(matches!(
+            resolve_equation_production(&ambiguous, &label, &catalog),
+            Err(ModuleToKoreError::AmbiguousEquationProduction { productions: 2, .. })
+        ));
+    }
+
+    #[test]
     fn generates_symbolic_backend_map_definedness_rule() {
         let source = indoc! {r#"
             module MAIN

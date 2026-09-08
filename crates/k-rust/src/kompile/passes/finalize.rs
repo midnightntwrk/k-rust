@@ -18,13 +18,13 @@ const LANGUAGE_PARSING: &str = "LANGUAGE-PARSING";
 ///
 /// Full installations provide all four imports. Standalone `--no-prelude` definitions retain the
 /// same module boundary while importing only modules that actually exist.
-pub fn add_semantics_module(definition: &Definition) -> Definition {
+pub fn add_semantics_module(definition: &Definition) -> Result<Definition, String> {
     if definition
         .modules
         .iter()
         .any(|module| module.name == LANGUAGE_PARSING)
     {
-        return definition.clone();
+        return Ok(definition.clone());
     }
     let available = definition
         .modules
@@ -57,7 +57,9 @@ pub fn add_semantics_module(definition: &Definition) -> Definition {
         local_sentences: Vec::new(),
         attributes: Attributes::default(),
     });
-    output
+    // A new root can change the global dependency traversal order, and therefore existing
+    // modules' catalog positions, even though their visible production sets are unchanged.
+    super::rebase_local_metadata(definition, output)
 }
 
 /// Mark rules and contexts whose left side begins with a variable in a main-cell K sequence.
