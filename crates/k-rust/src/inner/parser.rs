@@ -1685,6 +1685,7 @@ impl Grammar {
         self.associativities.left.insert((label.clone(), label));
     }
 
+    #[cfg(test)]
     pub(crate) fn add_right_associative(&mut self, label: impl Into<String>) {
         let label = label.into();
         self.associativities.right.insert((label.clone(), label));

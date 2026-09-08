@@ -427,20 +427,12 @@ fn configuration_brackets_preserve_sequence_order_and_scope() {
         else {
             panic!("expected a configuration");
         };
-        let mut sequence = Vec::new();
-        body.visit_preorder(&mut |term| {
-            if let k_rust::kast::Term::Token { token, sort } = term {
-                if sort.name == "Int" {
-                    sequence.push(token.clone());
-                }
-            }
-        });
         let expected = if contents.contains('3') {
             vec!["1", "2", "3"]
         } else {
             vec!["1", "2"]
         };
-        assert_eq!(sequence, expected);
+        assert_eq!(integer_configuration_sequence(body), expected);
     }
     for malformed in ["(1 ~> 2", "1 ~> 2)", "(1 ~> )"] {
         assert!(
@@ -460,21 +452,37 @@ fn portable_configuration_brackets_report_ambiguous_inference_boundary() {
 #[test]
 fn configuration_sequence_seed_preserves_declared_left_associativity() {
     let mut input = definition("<k> 1 ~> 2 ~> 3 </k>");
-    input.modules[0].local_sentences.push(Sentence::SyntaxAssociativity {
-        associativity: k_rust::definition::Associativity::Left,
-        tags: vec!["#KSequence".into()],
-        attributes: Attributes::default(),
-    });
+    input.modules[0]
+        .local_sentences
+        .push(Sentence::SyntaxAssociativity {
+            associativity: k_rust::definition::Associativity::Left,
+            tags: vec!["#KSequence".into()],
+            attributes: Attributes::default(),
+        });
     let transformed = resolve_configuration_bubbles(&input)
         .expect("the KSEQ declaration and implicit seed must not prohibit both associations");
-    let Sentence::Configuration { body, .. } = &transformed.main_module().unwrap().local_sentences[1] else {
+    let Sentence::Configuration { body, .. } =
+        &transformed.main_module().unwrap().local_sentences[1]
+    else {
         panic!("expected a configuration");
     };
-    let mut values = Vec::new();
-    body.visit_preorder(&mut |term| {
-        if let k_rust::kast::Term::Token { token, sort } = term {
-            if sort.name == "Int" { values.push(token.clone()); }
-        }
-    });
-    assert_eq!(values, ["1", "2", "3"]);
+    assert_eq!(integer_configuration_sequence(body), ["1", "2", "3"]);
+}
+
+fn integer_configuration_sequence(body: &k_rust::kast::Term) -> Vec<&str> {
+    use k_rust::kast::Term;
+    let Term::Apply { label, arguments } = body.unannotated() else {
+        panic!("expected a configuration cell");
+    };
+    assert_eq!(label.name, "#configCell");
+    let Term::Sequence(items) = arguments[2].unannotated() else {
+        panic!("expected flattened K sequence content");
+    };
+    items
+        .iter()
+        .map(|item| match item.unannotated() {
+            Term::Token { token, sort } if sort.name == "Int" => token.as_str(),
+            _ => panic!("unexpected sequence item: {item}"),
+        })
+        .collect()
 }

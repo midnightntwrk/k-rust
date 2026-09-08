@@ -749,12 +749,7 @@ impl<'a> Concretizer<'a> {
             }
             for (parent, items) in grouped {
                 let parent = &self.model.cells[&parent];
-                retained.push(incomplete_cell(
-                    &parent.label,
-                    open_left || open_right,
-                    make_body(items),
-                    open_left || open_right,
-                ));
+                retained.extend(self.make_parents(parent, open_left || open_right, items)?);
             }
             completion = retained;
         }
@@ -783,6 +778,84 @@ impl<'a> Concretizer<'a> {
             label: label.clone(),
             arguments: vec![dot(open_left), make_body(others), dot(open_right)],
         })
+    }
+
+    fn make_parents(
+        &self,
+        parent: &Cell,
+        open: bool,
+        items: Vec<Term>,
+    ) -> Result<Vec<Term>, String> {
+        // AddParentCells.makeParents distinguishes children that fit in one
+        // parent, children forced into separate instances, and an ambiguous
+        // partition. Optional children are nonrepeatable too.
+        let nonrepeatable_sorts = |term: &Term| {
+            flatten_cells(term)
+                .into_iter()
+                .filter_map(|term| self.model.sort_for_term(term))
+                .filter(|sort| {
+                    parent.children.iter().any(|child| {
+                        child.sort == *sort && child.multiplicity != Multiplicity::Star
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut children = Vec::new();
+        let mut rewrites = Vec::new();
+        for item in &items {
+            if let Term::Rewrite { left, right } = item.unannotated() {
+                rewrites.push((nonrepeatable_sorts(left), nonrepeatable_sorts(right)));
+            } else {
+                children.push(nonrepeatable_sorts(item));
+            }
+        }
+        let mut used = BTreeSet::new();
+        let children_fit = children.iter().flatten().all(|sort| used.insert(sort));
+        let mut used_left = used.clone();
+        let mut used_right = used;
+        let left_fit = rewrites
+            .iter()
+            .flat_map(|(left, _)| left)
+            .all(|sort| used_left.insert(sort));
+        let right_fit = rewrites
+            .iter()
+            .flat_map(|(_, right)| right)
+            .all(|sort| used_right.insert(sort));
+        if children_fit && left_fit && right_fit {
+            return Ok(vec![incomplete_cell(
+                &parent.label,
+                open,
+                make_body(items),
+                open,
+            )]);
+        }
+
+        let children_force_separation = if let Some(first) = children.first() {
+            if let [sort] = first.as_slice() {
+                children.iter().all(|child| child.as_slice() == first)
+                    // Pinned Java tests the left side twice in this check.
+                    // Preserve that mixed ordinary-child/rewrite boundary;
+                    // rewrite pairs below must still check both sides.
+                    && rewrites.iter().all(|(left, _)| left.contains(sort))
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+        let rewrites_force_separation = rewrites.iter().all(|(left, right)| {
+            rewrites.iter().all(|(other_left, other_right)| {
+                left.iter().any(|sort| other_left.contains(sort))
+                    || right.iter().any(|sort| other_right.contains(sort))
+            })
+        });
+        if children_force_separation && rewrites_force_separation {
+            return Ok(items
+                .into_iter()
+                .map(|item| incomplete_cell(&parent.label, open, item, open))
+                .collect());
+        }
+        Err(format!("Ambiguous completion: {}", parent.label.name))
     }
 
     fn close(&mut self, term: Term, on_rhs: bool) -> Result<Term, String> {
@@ -1051,6 +1124,13 @@ impl<'a> Concretizer<'a> {
                             .collect::<Result<_, _>>()?,
                     }
                 } else {
+                    // Ordered parent slots contain projected fragment variables. A leaf's
+                    // contents are ordinary terms, where source fragments must be rebuilt.
+                    let replace_fragments = replace_fragments
+                        || self
+                            .model
+                            .cell_for_label(&label)
+                            .is_some_and(|cell| cell.children.is_empty());
                     Term::Apply {
                         label,
                         arguments: arguments

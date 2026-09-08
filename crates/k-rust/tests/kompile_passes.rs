@@ -3654,9 +3654,7 @@ fn omitted_thread_parent_fixture(rule: &str) -> Definition {
 
 #[test]
 fn omitted_parents_separate_repeated_nonmultiplicity_children() {
-    let definition = omitted_thread_parent_fixture(
-        "<k> 0 => 1 ... </k> <k> 2 => 3 ... </k>",
-    );
+    let definition = omitted_thread_parent_fixture("<k> 0 => 1 ... </k> <k> 2 => 3 ... </k>");
     let transformed = concretize_cells(&definition).unwrap();
     let body = transformed
         .main_module()
@@ -3664,11 +3662,9 @@ fn omitted_parents_separate_repeated_nonmultiplicity_children() {
         .local_sentences
         .iter()
         .find_map(|sentence| match sentence {
-            Sentence::Rule { body, attributes, .. }
-                if attributes.get("initializer").is_none() =>
-            {
-                Some(Printer::new().print_term(body))
-            }
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
             _ => None,
         })
         .expect("the rendezvous-shaped rule should remain");
@@ -3680,9 +3676,7 @@ fn omitted_parents_separate_repeated_nonmultiplicity_children() {
 
 #[test]
 fn omitted_parents_group_distinct_nonmultiplicity_children() {
-    let definition = omitted_thread_parent_fixture(
-        "<k> 0 => 1 ... </k> <state> 2 => 3 </state>",
-    );
+    let definition = omitted_thread_parent_fixture("<k> 0 => 1 ... </k> <state> 2 => 3 </state>");
     let transformed = concretize_cells(&definition).unwrap();
     let body = transformed
         .main_module()
@@ -3690,11 +3684,9 @@ fn omitted_parents_group_distinct_nonmultiplicity_children() {
         .local_sentences
         .iter()
         .find_map(|sentence| match sentence {
-            Sentence::Rule { body, attributes, .. }
-                if attributes.get("initializer").is_none() =>
-            {
-                Some(Printer::new().print_term(body))
-            }
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
             _ => None,
         })
         .expect("the rule should remain");
@@ -3706,14 +3698,14 @@ fn omitted_parents_group_distinct_nonmultiplicity_children() {
 
 #[test]
 fn omitted_parents_reject_ambiguous_mixed_child_partition() {
-    let definition = omitted_thread_parent_fixture(
-        "<k> 0 => 1 ... </k> <k> 2 => 3 ... </k> <state> 4 </state>",
-    );
+    let definition =
+        omitted_thread_parent_fixture("<k> 0 => 1 ... </k> <k> 2 => 3 ... </k> <state> 4 </state>");
     let error = concretize_cells(&definition).unwrap_err();
     assert!(
-        error.diagnostics.iter().any(|diagnostic| {
-            diagnostic.message.contains("Ambiguous completion")
-        }),
+        error
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("Ambiguous completion") }),
         "the state cell could belong to either thread: {error:#?}"
     );
 }
@@ -3750,22 +3742,36 @@ fn omitted_parents_check_conflicts_on_each_rewrite_side() {
             .local_sentences
             .iter_mut()
             .find_map(|sentence| match sentence {
-                Sentence::Rule { body, attributes, .. }
-                    if attributes.get("initializer").is_none() => Some(body),
+                Sentence::Rule {
+                    body, attributes, ..
+                } if attributes.get("initializer").is_none() => Some(body),
                 _ => None,
             })
             .unwrap();
         *body = application(
             "#cells",
-            ["1", "2"].into_iter().map(|value| {
-                let state = application("<state>", vec![
-                    application("#noDots", Vec::new()),
-                    Term::Token { token: value.into(), sort: Sort::new("Int") },
-                    application("#noDots", Vec::new()),
-                ]);
-                let empty = application("#cells", Vec::new());
-                if insert { rewrite(empty, state) } else { rewrite(state, empty) }
-            }).collect(),
+            ["1", "2"]
+                .into_iter()
+                .map(|value| {
+                    let state = application(
+                        "<state>",
+                        vec![
+                            application("#noDots", Vec::new()),
+                            Term::Token {
+                                token: value.into(),
+                                sort: Sort::new("Int"),
+                            },
+                            application("#noDots", Vec::new()),
+                        ],
+                    );
+                    let empty = application("#cells", Vec::new());
+                    if insert {
+                        rewrite(empty, state)
+                    } else {
+                        rewrite(state, empty)
+                    }
+                })
+                .collect(),
         );
         let transformed = concretize_cells(&input).unwrap();
         let body = transformed
@@ -3774,16 +3780,24 @@ fn omitted_parents_check_conflicts_on_each_rewrite_side() {
             .local_sentences
             .iter()
             .find_map(|sentence| match sentence {
-                Sentence::Rule { body, attributes, .. }
-                    if attributes.get("initializer").is_none() =>
-                {
+                Sentence::Rule {
+                    body, attributes, ..
+                } if attributes.get("initializer").is_none() => {
                     Some(Printer::new().print_term(body))
                 }
                 _ => None,
             })
             .unwrap();
-        assert_eq!(body.matches("`<thread>`(").count(), 2, "insert={insert}: {body}");
-        assert_eq!(body.matches("`<state>`(").count(), 2, "insert={insert}: {body}");
+        assert_eq!(
+            body.matches("`<thread>`(").count(),
+            2,
+            "insert={insert}: {body}"
+        );
+        assert_eq!(
+            body.matches("`<state>`(").count(),
+            2,
+            "insert={insert}: {body}"
+        );
         assert_eq!(body.matches("=>").count(), 2, "insert={insert}: {body}");
     }
 }
@@ -5486,4 +5500,65 @@ fn language_parsing_module_preserves_imported_overload_identity() {
     }
     module_to_kore(&transformed, "MAIN").expect("local and imported equations must emit");
     assert_eq!(add_semantics_module(&transformed).unwrap(), transformed);
+}
+
+#[test]
+fn rebuilds_cell_fragments_used_as_data_inside_leaf_cells() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KItem ::= "save" "(" TopCellFragment ")" [symbol(save)]
+          configuration <top> <k> .K </k> <state> 0 </state> </top>
+          rule <top> <k> save(C) => .K </k> C:TopCellFragment </top>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let transformed = concretize_cells(&definition).unwrap();
+    let (body, requires) = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                attributes,
+                ..
+            } if attributes.get("initializer").is_none() => Some((body, requires)),
+            _ => None,
+        })
+        .unwrap();
+    let mut variable_sorts = Vec::new();
+    let mut saved_fragments = 0;
+    for term in [body, requires] {
+        term.visit_preorder(&mut |term| {
+            if let Term::Variable { name, sort } = term {
+                if name == "C" {
+                    variable_sorts.push(sort.clone());
+                }
+            }
+            if let Term::Apply { label, arguments } = term {
+                if label.name == "save" {
+                    let Term::Apply { label, .. } = arguments[0].unannotated() else {
+                        panic!("the saved value must reconstruct the original fragment: {term}");
+                    };
+                    assert_eq!(label.name, "<top>-fragment");
+                    saved_fragments += 1;
+                }
+            }
+        });
+    }
+    assert_eq!(saved_fragments, 1);
+    assert!(variable_sorts.len() >= 2);
+    assert!(
+        variable_sorts
+            .iter()
+            .all(|sort| sort.as_ref() == Some(&Sort::new("StateCell"))),
+        "{variable_sorts:?}"
+    );
 }

@@ -368,7 +368,9 @@ pub(super) fn add_k_syntax(
         false,
         false,
     )?;
-    grammar.add_right_associative("#KSequence");
+    // KSEQ declares left associativity; adding the opposite edge would make
+    // a visible KSEQ declaration prohibit both associations.
+    grammar.add_left_associative("#KSequence");
     grammar.add(
         Sort::new("Bag"),
         vec![ProductionItem::Terminal(".Bag".into())],
