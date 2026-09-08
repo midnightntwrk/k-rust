@@ -3160,6 +3160,338 @@ mod tests {
         assert_eq!(result.unexplored_states, 0);
     }
 
+    fn overlapping_claim_remainder_definition(
+        mode: ReachabilityMode,
+        reverse_claims: bool,
+        include_summary_rules: bool,
+        include_d_rule: bool,
+        include_initial_step: bool,
+    ) -> BackendDefinition {
+        let modality = match mode {
+            ReachabilityMode::OnePath => "weakExistsFinally",
+            ReachabilityMode::AllPath => "weakAlwaysFinally",
+        };
+        let initial = if include_initial_step {
+            "init{}(X:SortInt{})"
+        } else {
+            "start{}(X:SortInt{})"
+        };
+        let init_rule = include_initial_step.then_some(
+            r#"
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(init{}(X:SortInt{}), \top{SortS{}}()),
+                    start{}(X:SortInt{})
+                ) [label{}("init")]
+            "#,
+        );
+        let d_rule = include_d_rule.then_some(
+            r#"
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        start{}(\dv{SortInt{}}("3")),
+                        \top{SortS{}}()
+                    ),
+                    done{}()
+                ) [label{}("d-case")]
+            "#,
+        );
+        let ab_rule = r#"
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        start{}(X:SortInt{}),
+                        \or{SortS{}}(
+                            \equals{SortInt{}, SortS{}}(
+                                X:SortInt{}, \dv{SortInt{}}("0")
+                            ),
+                            \equals{SortInt{}, SortS{}}(
+                                X:SortInt{}, \dv{SortInt{}}("1")
+                            ),
+                            \bottom{SortS{}}()
+                        )
+                    ),
+                    done{}()
+                ) [label{}("ab-semantics")]
+            "#;
+        let bc_rule = r#"
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        start{}(X:SortInt{}),
+                        \or{SortS{}}(
+                            \equals{SortInt{}, SortS{}}(
+                                X:SortInt{}, \dv{SortInt{}}("1")
+                            ),
+                            \equals{SortInt{}, SortS{}}(
+                                X:SortInt{}, \dv{SortInt{}}("2")
+                            ),
+                            \bottom{SortS{}}()
+                        )
+                    ),
+                    done{}()
+                ) [label{}("bc-semantics")]
+            "#;
+        let summary_rules = include_summary_rules.then(|| {
+            if reverse_claims {
+                format!("{bc_rule}\n{ab_rule}")
+            } else {
+                format!("{ab_rule}\n{bc_rule}")
+            }
+        });
+        let ab = format!(
+            r#"
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(
+                        start{{}}(X:SortInt{{}}),
+                        \or{{SortS{{}}}}(
+                            \equals{{SortInt{{}}, SortS{{}}}}(
+                                X:SortInt{{}}, \dv{{SortInt{{}}}}("0")
+                            ),
+                            \equals{{SortInt{{}}, SortS{{}}}}(
+                                X:SortInt{{}}, \dv{{SortInt{{}}}}("1")
+                            ),
+                            \bottom{{SortS{{}}}}()
+                        )
+                    ),
+                    {modality}{{SortS{{}}}}(done{{}}())
+                ) [label{{}}("ab"), trusted{{}}()]
+            "#,
+        );
+        let bc = format!(
+            r#"
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(
+                        start{{}}(X:SortInt{{}}),
+                        \or{{SortS{{}}}}(
+                            \equals{{SortInt{{}}, SortS{{}}}}(
+                                X:SortInt{{}}, \dv{{SortInt{{}}}}("1")
+                            ),
+                            \equals{{SortInt{{}}, SortS{{}}}}(
+                                X:SortInt{{}}, \dv{{SortInt{{}}}}("2")
+                            ),
+                            \bottom{{SortS{{}}}}()
+                        )
+                    ),
+                    {modality}{{SortS{{}}}}(done{{}}())
+                ) [label{{}}("bc"), trusted{{}}()]
+            "#,
+        );
+        let summaries = if reverse_claims {
+            format!("{bc}\n{ab}")
+        } else {
+            format!("{ab}\n{bc}")
+        };
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                sort SortS{{}} []
+                symbol init{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}()]
+                symbol start{{}}(SortInt{{}}) : SortS{{}} [constructor{{}}()]
+                symbol done{{}}() : SortS{{}} [constructor{{}}()]
+                alias weakExistsFinally{{S}}(S) : S
+                    where weakExistsFinally{{S}}(@X:S) := @X:S []
+                alias weakAlwaysFinally{{S}}(S) : S
+                    where weakAlwaysFinally{{S}}(@X:S) := @X:S []
+                {init_rule}
+                {summary_rules}
+                {d_rule}
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(
+                        {initial},
+                        \or{{SortS{{}}}}(
+                            \equals{{SortInt{{}}, SortS{{}}}}(
+                                X:SortInt{{}}, \dv{{SortInt{{}}}}("0")
+                            ),
+                            \equals{{SortInt{{}}, SortS{{}}}}(
+                                X:SortInt{{}}, \dv{{SortInt{{}}}}("1")
+                            ),
+                            \equals{{SortInt{{}}, SortS{{}}}}(
+                                X:SortInt{{}}, \dv{{SortInt{{}}}}("2")
+                            ),
+                            \equals{{SortInt{{}}, SortS{{}}}}(
+                                X:SortInt{{}}, \dv{{SortInt{{}}}}("3")
+                            ),
+                            \bottom{{SortS{{}}}}()
+                        )
+                    ),
+                    {modality}{{SortS{{}}}}(done{{}}())
+                ) [label{{}}("main")]
+                {summaries}
+            endmodule []"#,
+            init_rule = init_rule.unwrap_or_default(),
+            summary_rules = summary_rules.as_deref().unwrap_or_default(),
+            d_rule = d_rule.unwrap_or_default(),
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    #[test]
+    #[cfg(feature = "z3")]
+    fn overlapping_claim_remainders_preserve_coverage_in_both_modes_and_orders() {
+        for mode in [ReachabilityMode::OnePath, ReachabilityMode::AllPath] {
+            for reverse_claims in [false, true] {
+                let definition =
+                    overlapping_claim_remainder_definition(mode, reverse_claims, true, true, true);
+                let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+                let result = prove_claim(
+                    &definition,
+                    &definition.reachability_claims[0],
+                    ProofOptions::default(),
+                    &solver,
+                )
+                .expect("claim should execute");
+
+                assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+                let (first, second) = if reverse_claims {
+                    ("bc", "ab")
+                } else {
+                    ("ab", "bc")
+                };
+                assert!(
+                    result.leaves.iter().all(|leaf| {
+                        matches!(
+                            leaf.trace.first(),
+                            Some(TraceEntry {
+                                kind: TraceKind::Rewrite,
+                                label: Some(label),
+                                ..
+                            }) if label == "init"
+                        )
+                    }),
+                    "every proof branch must start with semantic progress: {result:#?}"
+                );
+                assert!(
+                    result
+                        .leaves
+                        .iter()
+                        .any(|leaf| leaf.trace.iter().any(|entry| {
+                            entry.kind == TraceKind::Claim && entry.label.as_deref() == Some(first)
+                        })),
+                    "the first summary must cover its guarded sub-case: {result:#?}"
+                );
+                assert!(
+                    result.leaves.iter().any(|leaf| {
+                        matches!(
+                            leaf.trace.as_slice(),
+                            [
+                                TraceEntry { kind: TraceKind::Rewrite, label: Some(init), .. },
+                                TraceEntry { kind: TraceKind::Remainder, .. },
+                                TraceEntry { kind: TraceKind::Claim, label: Some(claim), .. },
+                            ] if init == "init" && claim == second
+                        )
+                    }),
+                    "the first complement must reach the second summary: {result:#?}"
+                );
+                assert!(
+                    result.leaves.iter().any(|leaf| {
+                        matches!(
+                            leaf.trace.as_slice(),
+                            [
+                                TraceEntry { kind: TraceKind::Rewrite, label: Some(init), .. },
+                                TraceEntry { kind: TraceKind::Remainder, .. },
+                                TraceEntry { kind: TraceKind::Remainder, .. },
+                                TraceEntry { kind: TraceKind::Rewrite, label: Some(finish), .. },
+                            ] if init == "init" && finish == "d-case"
+                        )
+                    }),
+                    "the complement of both summaries must reach the d rule: {result:#?}"
+                );
+                assert!(
+                    result.leaves.iter().all(|leaf| {
+                        !leaf.trace.iter().any(|entry| {
+                            entry.label.as_deref() == Some("ab-semantics")
+                                || entry.label.as_deref() == Some("bc-semantics")
+                        })
+                    }),
+                    "the main witness must exercise claims before summary rules: {result:#?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "z3")]
+    fn overlapping_claim_summaries_are_independently_semantically_valid() {
+        for mode in [ReachabilityMode::OnePath, ReachabilityMode::AllPath] {
+            for reverse_claims in [false, true] {
+                let definition =
+                    overlapping_claim_remainder_definition(mode, reverse_claims, true, true, true);
+                let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+                let mut claim = definition.reachability_claims[1].clone();
+                claim.attributes.trusted = false;
+                let result =
+                    super::prove_claim(&definition, &claim, &[], ProofOptions::default(), &solver)
+                        .expect("claim should execute without circularities");
+
+                assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+                assert!(
+                    result.leaves.iter().all(|leaf| {
+                        leaf.trace
+                            .iter()
+                            .all(|entry| entry.kind != TraceKind::Claim)
+                            && leaf
+                                .trace
+                                .iter()
+                                .any(|entry| entry.kind == TraceKind::Rewrite)
+                    }),
+                    "each summary must be proved from semantics alone: {result:#?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "z3")]
+    fn overlapping_claim_remainders_require_complement_coverage_and_semantic_progress() {
+        for mode in [ReachabilityMode::OnePath, ReachabilityMode::AllPath] {
+            let without_d = overlapping_claim_remainder_definition(mode, false, true, false, true);
+            let solver = crate::smt::Z3Solver::new(&without_d).expect("Z3 should initialize");
+            let result = prove_claim(
+                &without_d,
+                &without_d.reachability_claims[0],
+                ProofOptions::default(),
+                &solver,
+            )
+            .expect("claim should execute");
+
+            assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+            assert!(
+                result.leaves.iter().any(|leaf| {
+                    matches!(leaf.outcome, ProofLeafOutcome::Stuck)
+                        && leaf
+                            .trace
+                            .iter()
+                            .filter(|entry| entry.kind == TraceKind::Remainder)
+                            .count()
+                            == 2
+                }),
+                "the uncovered d complement must remain visible: {result:#?}"
+            );
+
+            let without_progress =
+                overlapping_claim_remainder_definition(mode, false, false, true, false);
+            let solver =
+                crate::smt::Z3Solver::new(&without_progress).expect("Z3 should initialize");
+            let result = prove_claim(
+                &without_progress,
+                &without_progress.reachability_claims[0],
+                ProofOptions::default(),
+                &solver,
+            )
+            .expect("claim should execute");
+
+            assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+            assert!(
+                result.leaves.iter().all(|leaf| {
+                    leaf.trace
+                        .iter()
+                        .all(|entry| entry.kind != TraceKind::Claim)
+                }),
+                "claims must remain unavailable before a semantic step: {result:#?}"
+            );
+        }
+    }
+
     #[test]
     fn partial_destination_remainders_respect_the_stuck_check() {
         let definition = definition(
