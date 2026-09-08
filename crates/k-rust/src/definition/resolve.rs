@@ -1,6 +1,7 @@
 //! Resolution of flat, name-based modules into an import graph.
 
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt,
     sync::{Arc, OnceLock},
@@ -11,8 +12,11 @@ use petgraph::algo::toposort;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
-use super::ast::{Attributes, Definition, FlatModule, Sentence};
-use super::ordering::{Error as OrderingError, compare_sentences, sentence_equivalent};
+use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
+use super::ordering::{
+    Error as OrderingError, compare_sentences, compare_terms, sentence_equivalent,
+};
+use crate::kast::{Label, Sort, Term};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -68,6 +72,112 @@ struct Import {
 }
 
 type SentenceLocation = (ModuleId, usize);
+
+// These keys may collide, but equivalent sentences must always have equal keys.
+// Attributes and other omitted fields are checked by sentence_equivalent inside each bucket.
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum SentenceBucket<'a> {
+    SyntaxSort(&'a [Sort], &'a Sort),
+    SortSynonym(&'a Sort, &'a Sort),
+    SyntaxLexical(&'a str, &'a str),
+    Production(
+        Option<&'a Label>,
+        &'a [Sort],
+        &'a Sort,
+        usize,
+        Option<FirstItem<'a>>,
+    ),
+    SyntaxAssociativity(u8),
+    SyntaxPriority(usize),
+    ContextAlias(SentenceBody<'a>),
+    Context(SentenceBody<'a>),
+    Rule(SentenceBody<'a>),
+    Claim(SentenceBody<'a>),
+    Configuration(SentenceBody<'a>),
+    Bubble(&'a str, &'a str),
+}
+
+impl<'a> SentenceBucket<'a> {
+    fn new(sentence: &'a Sentence) -> Self {
+        match sentence {
+            Sentence::SyntaxSort {
+                parameters, sort, ..
+            } => Self::SyntaxSort(parameters, sort),
+            Sentence::SortSynonym {
+                new_sort, old_sort, ..
+            } => Self::SortSynonym(new_sort, old_sort),
+            Sentence::SyntaxLexical { name, regex, .. } => Self::SyntaxLexical(name, regex),
+            Sentence::Production {
+                label,
+                parameters,
+                sort,
+                items,
+                ..
+            } => Self::Production(
+                label.as_ref(),
+                parameters,
+                sort,
+                items.len(),
+                items.first().map(|item| match item {
+                    ProductionItem::NonTerminal { sort, name } => {
+                        FirstItem::NonTerminal(sort, name.as_deref())
+                    }
+                    ProductionItem::RegexTerminal { regex, .. } => FirstItem::Regex(regex),
+                    ProductionItem::Terminal(text) => FirstItem::Terminal(text),
+                }),
+            ),
+            Sentence::SyntaxAssociativity { associativity, .. } => {
+                Self::SyntaxAssociativity(match associativity {
+                    Associativity::Left => 0,
+                    Associativity::Right => 1,
+                    Associativity::NonAssoc => 2,
+                    Associativity::Unspecified => 3,
+                })
+            }
+            Sentence::SyntaxPriority { priorities, .. } => Self::SyntaxPriority(priorities.len()),
+            Sentence::ContextAlias { body, .. } => Self::ContextAlias(SentenceBody(body)),
+            Sentence::Context { body, .. } => Self::Context(SentenceBody(body)),
+            Sentence::Rule { body, .. } => Self::Rule(SentenceBody(body)),
+            Sentence::Claim { body, .. } => Self::Claim(SentenceBody(body)),
+            Sentence::Configuration { body, .. } => Self::Configuration(SentenceBody(body)),
+            Sentence::Bubble {
+                sentence_type,
+                contents,
+                ..
+            } => Self::Bubble(sentence_type, contents),
+        }
+    }
+}
+
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum FirstItem<'a> {
+    NonTerminal(&'a Sort, Option<&'a str>),
+    Regex(&'a str),
+    Terminal(&'a str),
+}
+
+// Ordinary Term equality also compares variable sorts; sentence equality does not.
+struct SentenceBody<'a>(&'a Term);
+
+impl PartialEq for SentenceBody<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for SentenceBody<'_> {}
+
+impl PartialOrd for SentenceBody<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SentenceBody<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        compare_terms(self.0, other.0)
+    }
+}
 
 #[derive(Clone)]
 pub struct ResolvedDefinition {
@@ -247,7 +357,7 @@ impl ResolvedDefinition {
         let mut visible = self.transitive_imports(module);
         visible.push(module);
         let visible = visible.into_iter().collect::<BTreeSet<_>>();
-        let mut sentences: Vec<&Sentence> = Vec::new();
+        let mut buckets: BTreeMap<SentenceBucket<'_>, Vec<&Sentence>> = BTreeMap::new();
         let mut locations = Vec::new();
         for (owner, index, sentence) in self
             .dependency_order
@@ -261,6 +371,7 @@ impl ResolvedDefinition {
                     .map(move |(index, sentence)| (id, index, sentence))
             })
         {
+            let sentences = buckets.entry(SentenceBucket::new(sentence)).or_default();
             if !sentences
                 .iter()
                 .any(|existing| sentence_equivalent(existing, sentence))

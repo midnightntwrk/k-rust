@@ -1,11 +1,12 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Barrier},
 };
 
 use k_rust::definition::{
-    Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolveError,
-    ResolvedDefinition, Sentence,
+    Associativity, Attributes, Definition, FlatImport, FlatModule, ModuleId, ProductionItem,
+    ResolveError, ResolvedDefinition, SENTENCE_END_OFFSET_ATTRIBUTE,
+    SENTENCE_START_OFFSET_ATTRIBUTE, Sentence, sentence_equivalent,
 };
 use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
 use k_rust::provenance::{
@@ -593,4 +594,412 @@ fn warming_sentence_caches_does_not_change_debug_output() {
     assert_eq!(format!("{resolved:?}"), compact);
     assert_eq!(format!("{resolved:#?}"), pretty);
     assert_eq!(format!("{:?}", resolved.clone()), compact);
+}
+
+// Deliberately retain the original complete scan as an independent selection oracle.
+fn quadratic_visible_sentences(resolved: &ResolvedDefinition, module: ModuleId) -> Vec<&Sentence> {
+    let mut visible = resolved
+        .transitive_imports(module)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    visible.insert(module);
+    let mut result: Vec<&Sentence> = Vec::new();
+    for (id, owner) in resolved.modules() {
+        if visible.contains(&id) {
+            for sentence in &owner.local_sentences {
+                if !result
+                    .iter()
+                    .any(|existing| sentence_equivalent(existing, sentence))
+                {
+                    result.push(sentence);
+                }
+            }
+        }
+    }
+    result
+}
+
+fn assert_bucket_sequence(sentences: Vec<Sentence>, expected_indices: &[usize]) {
+    // One candidate per module prevents local resolution from deduplicating the fixtures.
+    let mut modules = Vec::new();
+    for (index, sentence) in sentences.into_iter().enumerate() {
+        let mut owner = module(&format!("B{index:03}"), &[]);
+        if index > 0 {
+            owner.imports.push(FlatImport {
+                name: format!("B{:03}", index - 1),
+                public: index % 2 == 0,
+            });
+        }
+        owner.local_sentences = vec![sentence];
+        modules.push(owner);
+    }
+    let mut main = module("A", &[]);
+    main.imports.push(FlatImport {
+        name: modules.last().unwrap().name.clone(),
+        public: true,
+    });
+    main.local_sentences.clear();
+    modules.push(main);
+    let original = ResolvedDefinition::resolve(&definition(modules)).unwrap();
+    let cold_clone = original.clone();
+    original.sentences(original.main_module_id());
+    let warm_clone = original.clone();
+    for resolved in [original, cold_clone, warm_clone] {
+        let expected_owners = expected_indices
+            .iter()
+            .map(|index| format!("B{index:03}"))
+            .collect::<Vec<_>>();
+        let expected_locations = expected_owners
+            .iter()
+            .map(|owner| (owner.as_str(), 0))
+            .collect::<Vec<_>>();
+        assert_owned_locations(
+            &resolved,
+            &resolved.sentences(resolved.main_module_id()),
+            &expected_locations,
+        );
+        for (id, _) in resolved.modules() {
+            let expected = quadratic_visible_sentences(&resolved, id);
+            for _ in 0..2 {
+                let actual = resolved.sentences(id);
+                assert_eq!(actual.len(), expected.len());
+                for (actual, expected) in actual.iter().zip(&expected) {
+                    assert!(
+                        std::ptr::eq(*actual, *expected),
+                        "bucket selection must retain the quadratic oracle's exact owner and order"
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn assert_equivalent_with_collisions(
+    first: Sentence,
+    equivalent: Sentence,
+    collisions: Vec<Sentence>,
+) {
+    assert!(sentence_equivalent(&first, &equivalent));
+    let mut sequence = vec![first, marker("intervening-unrelated-sentence")];
+    for collision in &collisions {
+        assert!(
+            !sequence
+                .iter()
+                .any(|earlier| sentence_equivalent(earlier, collision))
+        );
+        sequence.push(collision.clone());
+    }
+    let expected = (0..sequence.len()).collect::<Vec<_>>();
+    sequence.push(equivalent);
+    sequence.extend(collisions);
+    assert_bucket_sequence(sequence, &expected);
+}
+
+#[test]
+fn sentence_buckets_preserve_term_equality_and_condition_attribute_collisions() {
+    let body = |annotated| {
+        let variable = Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new(if annotated { "Bool" } else { "Int" })),
+        };
+        let metadata = TermMetadata {
+            sort: Some(Sort::new("Generated")),
+            production: Some(ResolvedProductionId(7)),
+            ..TermMetadata::default()
+        };
+        let variable = if annotated {
+            Term::Annotated {
+                term: Box::new(Term::Annotated {
+                    term: Box::new(variable),
+                    metadata: metadata.clone(),
+                }),
+                metadata: metadata.clone(),
+            }
+        } else {
+            variable
+        };
+        let body = Term::Rewrite {
+            left: Box::new(Term::apply(
+                "f",
+                vec![Term::As {
+                    pattern: Box::new(variable),
+                    alias: Box::new(Term::variable("Y")),
+                }],
+            )),
+            right: Box::new(Term::Sequence(vec![
+                Term::InjectedLabel(Label::with_parameters("g", vec![Sort::new("Int")])),
+                Term::Token {
+                    token: "1".into(),
+                    sort: Sort::with_parameters("List", vec![Sort::new("Int")]),
+                },
+            ])),
+        };
+        if annotated {
+            body.with_metadata(metadata)
+        } else {
+            body
+        }
+    };
+    let term_sentence = |variant, body, condition, attributes| match variant {
+        0 => Sentence::ContextAlias {
+            body,
+            requires: condition,
+            attributes,
+        },
+        1 => Sentence::Context {
+            body,
+            requires: condition,
+            attributes,
+        },
+        2 => Sentence::Rule {
+            body,
+            requires: condition,
+            ensures: Term::variable("E"),
+            attributes,
+        },
+        3 => Sentence::Claim {
+            body,
+            requires: condition,
+            ensures: Term::variable("E"),
+            attributes,
+        },
+        4 => Sentence::Configuration {
+            body,
+            ensures: condition,
+            attributes,
+        },
+        _ => unreachable!(),
+    };
+    let mut distinct_variants = Vec::new();
+    for variant in 0..5 {
+        let first = term_sentence(
+            variant,
+            body(false),
+            Term::variable("C"),
+            Attributes::default(),
+        );
+        let mut equivalent = term_sentence(
+            variant,
+            body(true),
+            Term::variable("C"),
+            Attributes::default(),
+        );
+        equivalent.attributes_mut().insert(
+            ORIGIN_ATTRIBUTE,
+            json!({"pass": "macro-expansion", "origins": [], "destination": null}),
+        );
+        equivalent
+            .attributes_mut()
+            .insert(SENTENCE_START_OFFSET_ATTRIBUTE, json!(10));
+        equivalent
+            .attributes_mut()
+            .insert(SENTENCE_END_OFFSET_ATTRIBUTE, json!(20));
+        let condition = term_sentence(
+            variant,
+            body(false),
+            Term::variable("different-condition"),
+            Attributes::default(),
+        );
+        let attribute = term_sentence(
+            variant,
+            body(false),
+            Term::variable("C"),
+            attrs(&[("org.kframework.attributes.Source", "different.k")]),
+        );
+        let mut collisions = vec![condition, attribute];
+        if let Sentence::Rule { ensures, .. } | Sentence::Claim { ensures, .. } = &mut equivalent {
+            *ensures = Term::Variable {
+                name: "E".into(),
+                sort: Some(Sort::new("Bool")),
+            };
+            let mut distinct_ensures = first.clone();
+            if let Sentence::Rule { ensures, .. } | Sentence::Claim { ensures, .. } =
+                &mut distinct_ensures
+            {
+                *ensures = Term::variable("different-ensures");
+            }
+            collisions.push(distinct_ensures);
+        }
+        assert_equivalent_with_collisions(first.clone(), equivalent, collisions);
+        distinct_variants.push(first);
+    }
+    distinct_variants.extend(distinct_variants.clone());
+    assert_bucket_sequence(distinct_variants, &[0, 1, 2, 3, 4]);
+}
+
+#[test]
+fn sentence_buckets_preserve_production_exceptions_and_prefix_collisions() {
+    let first = Sentence::Production {
+        label: Some(Label::with_parameters("p", vec![Sort::new("Int")])),
+        parameters: vec![Sort::new("S")],
+        sort: Sort::with_parameters("List", vec![Sort::new("Int")]),
+        items: vec![
+            ProductionItem::regex("[a-z]+"),
+            ProductionItem::Terminal("end".into()),
+        ],
+        attributes: attrs(&[("org.kframework.attributes.Source", "first.k")]),
+    };
+    let mut equivalent = first.clone();
+    if let Sentence::Production {
+        items, attributes, ..
+    } = &mut equivalent
+    {
+        items[0] = ProductionItem::RegexTerminal {
+            precede_regex: Some("before".into()),
+            regex: "[a-z]+".into(),
+            follow_regex: Some("after".into()),
+        };
+        attributes.insert("klabel", json!("p"));
+        attributes.insert("function", json!(false));
+        attributes.insert("symbol", json!(17));
+        attributes.insert("org.kframework.attributes.Source", json!("later.k"));
+    }
+    let mut collisions = Vec::new();
+    for (key, value) in [("klabel", "other"), ("function", ""), ("symbol", "")] {
+        let mut changed = first.clone();
+        changed.attributes_mut().insert(key, json!(value));
+        collisions.push(changed);
+    }
+    let mut later_item = first.clone();
+    if let Sentence::Production { items, .. } = &mut later_item {
+        items[1] = ProductionItem::Terminal("different-end".into());
+    }
+    collisions.push(later_item);
+    assert_equivalent_with_collisions(first.clone(), equivalent, collisions);
+    let mut nonstring_label = first.clone();
+    nonstring_label
+        .attributes_mut()
+        .insert("klabel", json!({"name": "ignored"}));
+    assert_equivalent_with_collisions(first.clone(), nonstring_label, vec![]);
+
+    let mut boundary_variants = vec![first.clone()];
+    for field in 0..7 {
+        let mut changed = first.clone();
+        if let Sentence::Production {
+            label,
+            parameters,
+            sort,
+            items,
+            ..
+        } = &mut changed
+        {
+            match field {
+                0 => label.as_mut().unwrap().parameters[0] = Sort::new("Bool"),
+                1 => *label = None,
+                2 => parameters[0] = Sort::new("T"),
+                3 => sort.parameters[0] = Sort::new("Bool"),
+                4 => items.clear(),
+                5 => {
+                    items[0] = ProductionItem::NonTerminal {
+                        sort: Sort::new("Int"),
+                        name: Some("x".into()),
+                    }
+                }
+                6 => items[0] = ProductionItem::Terminal("[a-z]+".into()),
+                _ => unreachable!(),
+            }
+        }
+        assert!(!sentence_equivalent(&first, &changed));
+        boundary_variants.push(changed);
+    }
+    let expected = (0..boundary_variants.len()).collect::<Vec<_>>();
+    boundary_variants.extend(boundary_variants.clone());
+    assert_bucket_sequence(boundary_variants, &expected);
+}
+
+#[test]
+fn sentence_buckets_preserve_set_valued_tags_and_ordered_priority_rows() {
+    let tags = |values: &[&str]| {
+        values
+            .iter()
+            .map(|value| (*value).into())
+            .collect::<Vec<String>>()
+    };
+    for associativity in [
+        Associativity::Left,
+        Associativity::Right,
+        Associativity::NonAssoc,
+        Associativity::Unspecified,
+    ] {
+        let first = Sentence::SyntaxAssociativity {
+            associativity,
+            tags: tags(&["b", "a", "a"]),
+            attributes: Attributes::default(),
+        };
+        let equivalent = Sentence::SyntaxAssociativity {
+            associativity,
+            tags: tags(&["a", "b"]),
+            attributes: Attributes::default(),
+        };
+        let collision = Sentence::SyntaxAssociativity {
+            associativity,
+            tags: tags(&["a", "c"]),
+            attributes: Attributes::default(),
+        };
+        assert_equivalent_with_collisions(first, equivalent, vec![collision]);
+    }
+    let first = Sentence::SyntaxPriority {
+        priorities: vec![tags(&["b", "a", "a"]), vec![], tags(&["c"])],
+        attributes: Attributes::default(),
+    };
+    let equivalent = Sentence::SyntaxPriority {
+        priorities: vec![tags(&["a", "b"]), vec![], tags(&["c", "c"])],
+        attributes: Attributes::default(),
+    };
+    let reordered = Sentence::SyntaxPriority {
+        priorities: vec![tags(&["c"]), vec![], tags(&["a", "b"])],
+        attributes: Attributes::default(),
+    };
+    let changed_empty = Sentence::SyntaxPriority {
+        priorities: vec![tags(&["a", "b"]), tags(&["a"]), tags(&["c"])],
+        attributes: Attributes::default(),
+    };
+    assert_equivalent_with_collisions(first, equivalent, vec![reordered, changed_empty]);
+}
+
+#[test]
+fn sentence_buckets_match_quadratic_selection_for_remaining_syntax_and_attributes() {
+    let syntax = vec![
+        Sentence::SyntaxSort {
+            parameters: vec![Sort::new("S")],
+            sort: Sort::with_parameters("List", vec![Sort::new("Int")]),
+            attributes: Attributes::default(),
+        },
+        Sentence::SortSynonym {
+            new_sort: Sort::new("Alias"),
+            old_sort: Sort::new("Int"),
+            attributes: Attributes::default(),
+        },
+        Sentence::SyntaxLexical {
+            name: "token".into(),
+            regex: "[a-z]+".into(),
+            attributes: Attributes::default(),
+        },
+        marker("same-body"),
+    ];
+    let mut combined = Vec::new();
+    for first in syntax {
+        let mut equivalent = first.clone();
+        equivalent
+            .attributes_mut()
+            .insert(SENTENCE_START_OFFSET_ATTRIBUTE, json!(32));
+        let mut source_collision = first.clone();
+        source_collision
+            .attributes_mut()
+            .insert("org.kframework.attributes.Source", json!("source.k"));
+        let mut typed_collision = first.clone();
+        typed_collision.attributes_mut().insert("custom", json!(1));
+        let mut string_collision = first.clone();
+        string_collision
+            .attributes_mut()
+            .insert("custom", json!("1"));
+        assert_equivalent_with_collisions(
+            first.clone(),
+            equivalent,
+            vec![source_collision, typed_collision, string_collision],
+        );
+        combined.push(first);
+    }
+    combined.extend(combined.clone());
+    assert_bucket_sequence(combined, &[0, 1, 2, 3]);
 }
