@@ -1440,7 +1440,10 @@ fn rewrite_step_any(
                     simplification_options,
                     solver,
                 ) {
-                    Ok(constraints) => remaining.constraints = constraints,
+                    Ok(constraints) => {
+                        remaining.constraints = pattern.constraints.clone();
+                        extend_unique(&mut remaining.constraints, constraints);
+                    }
                     Err(error) => {
                         return RewriteResult::Indeterminate {
                             pattern: remaining,
@@ -8634,6 +8637,70 @@ mod tests {
                 .constraints
                 .iter()
                 .any(|predicate| matches!(predicate, Predicate::Not(_)))
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn sequential_remainders_retain_the_initial_antecedent() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \or{SortS{}}(
+                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("0")),
+                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("1")),
+                        \bottom{SortS{}}()
+                    )
+                ),
+                \dv{SortS{}}("first")
+            ) [label{}("first")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \or{SortS{}}(
+                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("1")),
+                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("2")),
+                        \bottom{SortS{}}()
+                    )
+                ),
+                \dv{SortS{}}("second")
+            ) [label{}("second")]
+            "#,
+        );
+        let variable = Term::variable(Variable::new("Y", Sort::simple("SortS")));
+        let initial_antecedent = Predicate::Or(vec![
+            Predicate::Equals(
+                variable.clone(),
+                Term::domain_value(Sort::simple("SortS"), "1"),
+            ),
+            Predicate::Equals(variable, Term::domain_value(Sort::simple("SortS"), "2")),
+        ]);
+        let initial = Pattern {
+            term: internal_term(&definition, "wrap{}(Y:SortS{})"),
+            constraints: vec![initial_antecedent.clone()],
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder,
+            ..
+        } = rewrite_step_sequential_with_solver(&definition, &initial, &mut fresh, &solver)
+        else {
+            panic!("the two partial rules must expose both successors");
+        };
+
+        assert_eq!(branches.len(), 2);
+        assert!(branches.iter().all(|branch| {
+            branch.before.constraints.contains(&initial_antecedent)
+                && branch.pattern.constraints.contains(&initial_antecedent)
+        }));
+        assert!(
+            remainder.is_none(),
+            "nothing outside the antecedent is live"
         );
     }
 
