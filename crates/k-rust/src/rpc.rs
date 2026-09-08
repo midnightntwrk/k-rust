@@ -1903,9 +1903,11 @@ fn execute_applied_state(
         .as_object_mut()
         .expect("execute_state always returns an object");
     object.insert("rule-id".into(), Value::String(applied.unique_id.clone()));
-    if let Some(rule_predicate) =
-        rule_constraints_pattern(&applied.rule_predicates, &applied.pattern.term.sort())
-    {
+    if let Some(rule_predicate) = rule_constraints_pattern(
+        definition,
+        &applied.rule_predicates,
+        &applied.pattern.term.sort(),
+    ) {
         object.insert("rule-predicate".into(), encode_kore(&rule_predicate)?);
     }
     let (_, state_substitution) = split_constraints(
@@ -2053,13 +2055,20 @@ fn execution_constraints_pattern(
 }
 
 fn rule_constraints_pattern(
+    definition: &BackendDefinition,
     constraints: &[Predicate],
     result_sort: &BackendSort,
 ) -> Option<KorePattern> {
     let mut predicates = constraints
         .iter()
         .filter(|predicate| !matches!(predicate, Predicate::True))
-        .map(|predicate| externalize::booster_rule_predicate_pattern(predicate, result_sort));
+        .map(|predicate| {
+            externalize::booster_rule_predicate_pattern_in_definition(
+                definition,
+                predicate,
+                result_sort,
+            )
+        });
     let first = predicates.next()?;
     Some(predicates.fold(first, |left, right| KorePattern::And {
         sort: externalize::sort(result_sort),
@@ -4080,6 +4089,131 @@ mod tests {
         assert_eq!(next_states[0]["rule-id"], "negative-rule");
         assert!(next_states[1].get("rule-id").is_none());
         assert!(next_states[1].get("predicate").is_some());
+    }
+
+    #[test]
+    fn execute_rule_provenance_preserves_symbolic_float_equality() {
+        let syntax = parse_definition(
+            r#"[]
+                module TEST
+                  hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+                  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                  sort SortState{} []
+                  symbol wrap{}(SortFloat{}) : SortState{}
+                    [constructor{}(), functional{}(), injective{}()]
+                  symbol done{}() : SortState{} [constructor{}(), functional{}()]
+                  hooked-symbol floatEq{}(SortFloat{}, SortFloat{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("FLOAT.eq")]
+                  axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                      wrap{}(X:SortFloat{}),
+                      \equals{SortBool{}, SortState{}}(
+                        floatEq{}(X:SortFloat{}, X:SortFloat{}),
+                        \dv{SortBool{}}("true")
+                      )
+                    ),
+                    done{}()
+                  ) [label{}("TEST.float-reflexive"), UNIQUE'Unds'ID{}("float-reflexive")]
+                endmodule []"#,
+        )
+        .expect("Float provenance definition should parse");
+        let mut service = RpcService::new(BackendSession::new(syntax, "TEST"));
+        let state = encode_kore(&parse_pattern("wrap{}(X:SortFloat{})").unwrap()).unwrap();
+
+        let response = request(
+            &mut service,
+            1,
+            "execute",
+            json!({ "state": state, "max-depth": 1 }),
+        );
+
+        assert_eq!(response["result"]["reason"], "branching", "{response:#}");
+        let rule_predicate = &response["result"]["next-states"][0]["rule-predicate"]["term"];
+        assert_eq!(rule_predicate["tag"], "Equals", "{response:#}");
+        assert_eq!(
+            rule_predicate["argSort"]["name"], "SortBool",
+            "{response:#}"
+        );
+        assert_eq!(rule_predicate["first"]["tag"], "DV", "{response:#}");
+        assert_eq!(rule_predicate["first"]["value"], "true", "{response:#}");
+        assert_eq!(rule_predicate["second"]["tag"], "App", "{response:#}");
+        assert_eq!(rule_predicate["second"]["name"], "floatEq", "{response:#}");
+    }
+
+    #[test]
+    fn execute_rule_provenance_uses_the_declared_boolean_sort() {
+        let syntax = parse_definition(
+            r#"[]
+                module TEST
+                  hooked-sort SortTruth{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                  sort SortBool{} [hasDomainValues{}()]
+                  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                  sort SortState{} []
+                  symbol wrapTruth{}(SortInt{}) : SortState{}
+                    [constructor{}(), functional{}(), injective{}()]
+                  symbol wrapLookalike{}(SortInt{}) : SortState{}
+                    [constructor{}(), functional{}(), injective{}()]
+                  symbol doneTruth{}() : SortState{} [constructor{}(), functional{}()]
+                  symbol doneLookalike{}() : SortState{} [constructor{}(), functional{}()]
+                  hooked-symbol intEqTruth{}(SortInt{}, SortInt{}) : SortTruth{}
+                    [function{}(), total{}(), hook{}("INT.eq")]
+                  hooked-symbol opaqueEqLookalike{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("TEST.eq")]
+                  axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                      wrapTruth{}(X:SortInt{}),
+                      \equals{SortTruth{}, SortState{}}(
+                        intEqTruth{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortTruth{}}("true")
+                      )
+                    ),
+                    doneTruth{}()
+                  ) [UNIQUE'Unds'ID{}("truth-rule")]
+                  axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                      wrapLookalike{}(X:SortInt{}),
+                      \equals{SortBool{}, SortState{}}(
+                        opaqueEqLookalike{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                      )
+                    ),
+                    doneLookalike{}()
+                  ) [UNIQUE'Unds'ID{}("lookalike-rule")]
+                endmodule []"#,
+        )
+        .expect("Boolean-sort provenance definition should parse");
+        let mut service = RpcService::new(BackendSession::new(syntax, "TEST"));
+
+        let state = encode_kore(&parse_pattern("wrapTruth{}(X:SortInt{})").unwrap()).unwrap();
+        let renamed = request(
+            &mut service,
+            1,
+            "execute",
+            json!({ "state": state, "max-depth": 1 }),
+        );
+        assert_eq!(renamed["result"]["reason"], "branching", "{renamed:#}");
+        let predicate = &renamed["result"]["next-states"][0]["rule-predicate"]["term"];
+        assert_eq!(predicate["tag"], "Equals", "{renamed:#}");
+        assert_eq!(predicate["argSort"]["name"], "SortInt", "{renamed:#}");
+        assert_eq!(predicate["first"]["name"], "X", "{renamed:#}");
+        assert_eq!(predicate["second"]["value"], "0", "{renamed:#}");
+
+        let state = encode_kore(&parse_pattern("wrapLookalike{}(X:SortInt{})").unwrap()).unwrap();
+        let lookalike = request(
+            &mut service,
+            2,
+            "execute",
+            json!({ "state": state, "max-depth": 1 }),
+        );
+        assert_eq!(lookalike["result"]["reason"], "branching", "{lookalike:#}");
+        let predicate = &lookalike["result"]["next-states"][0]["rule-predicate"]["term"];
+        assert_eq!(predicate["tag"], "Equals", "{lookalike:#}");
+        assert_eq!(predicate["argSort"]["name"], "SortBool", "{lookalike:#}");
+        assert_eq!(predicate["first"]["value"], "true", "{lookalike:#}");
+        assert_eq!(
+            predicate["second"]["name"], "opaqueEqLookalike",
+            "{lookalike:#}"
+        );
     }
 
     #[test]

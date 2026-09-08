@@ -164,21 +164,40 @@ pub fn booster_predicate_pattern(
 /// projection: execution keeps the original Boolean term so unresolved `KEQUAL` applications are
 /// not mistaken for semantic equality during simplification.
 pub fn booster_rule_predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
-    predicate_pattern(&logical_rule_predicate(predicate), result_sort)
+    predicate_pattern(
+        &logical_rule_predicate(&Sort::simple("SortBool"), predicate),
+        result_sort,
+    )
 }
 
-fn logical_rule_predicate(predicate: &Predicate) -> Predicate {
-    let recurse = logical_rule_predicate;
+/// Externalize applied-rule provenance using the definition's declared `BOOL.Bool` sort.
+pub fn booster_rule_predicate_pattern_in_definition(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    result_sort: &Sort,
+) -> kore::Pattern {
+    declared_boolean_sort(definition).map_or_else(
+        || predicate_pattern(predicate, result_sort),
+        |boolean_sort| {
+            predicate_pattern(
+                &logical_rule_predicate(&boolean_sort, predicate),
+                result_sort,
+            )
+        },
+    )
+}
+
+fn logical_rule_predicate(boolean_sort: &Sort, predicate: &Predicate) -> Predicate {
+    let recurse = |predicate| logical_rule_predicate(boolean_sort, predicate);
     match predicate {
-        Predicate::Term(term) => {
-            boolean_term_predicate(term, true).unwrap_or_else(|| Predicate::Term(term.clone()))
-        }
+        Predicate::Term(term) => boolean_term_predicate(boolean_sort, term, true)
+            .unwrap_or_else(|| Predicate::Term(term.clone())),
         Predicate::Equals(left, right) => {
-            if let Some(value) = boolean_domain_value(right) {
-                boolean_term_predicate(left, value)
+            if let Some(value) = boolean_domain_value_of_sort(boolean_sort, right) {
+                boolean_term_predicate(boolean_sort, left, value)
                     .unwrap_or_else(|| Predicate::Equals(left.clone(), right.clone()))
-            } else if let Some(value) = boolean_domain_value(left) {
-                boolean_term_predicate(right, value)
+            } else if let Some(value) = boolean_domain_value_of_sort(boolean_sort, left) {
+                boolean_term_predicate(boolean_sort, right, value)
                     .unwrap_or_else(|| Predicate::Equals(left.clone(), right.clone()))
             } else {
                 Predicate::Equals(left.clone(), right.clone())
@@ -207,13 +226,16 @@ fn logical_rule_predicate(predicate: &Predicate) -> Predicate {
     }
 }
 
-fn boolean_term_predicate(term: &Term, expected: bool) -> Option<Predicate> {
-    if let Some(value) = boolean_domain_value(term) {
+fn boolean_term_predicate(boolean_sort: &Sort, term: &Term, expected: bool) -> Option<Predicate> {
+    if let Some(value) = boolean_domain_value_of_sort(boolean_sort, term) {
         return Some(if value == expected {
             Predicate::True
         } else {
             Predicate::False
         });
+    }
+    if term.sort() != *boolean_sort {
+        return None;
     }
     let TermKind::Application {
         symbol, arguments, ..
@@ -225,7 +247,7 @@ fn boolean_term_predicate(term: &Term, expected: bool) -> Option<Predicate> {
     let operand = |index, expected| {
         arguments
             .get(index)
-            .and_then(|term| boolean_term_predicate(term, expected))
+            .and_then(|term| boolean_term_predicate(boolean_sort, term, expected))
     };
     match (hook, arguments.as_slice()) {
         ("BOOL.not", [_]) => operand(0, !expected),
@@ -239,7 +261,10 @@ fn boolean_term_predicate(term: &Term, expected: bool) -> Option<Predicate> {
         } else {
             Predicate::And(vec![operand(0, false)?, operand(1, false)?])
         }),
-        (hook, [left, right]) if hook.ends_with(".eq") || hook.ends_with(".ne") => {
+        (hook, [left, right])
+            if (hook.ends_with(".eq") || hook.ends_with(".ne"))
+                && !matches!(hook, "FLOAT.eq" | "FLOAT.ne") =>
+        {
             let equality = Predicate::Equals(left.clone(), right.clone());
             let equality_expected = expected == hook.ends_with(".eq");
             Some(if equality_expected {
@@ -256,10 +281,7 @@ fn predicate_as_boolean_term(
     definition: &BackendDefinition,
     predicate: &Predicate,
 ) -> Option<Term> {
-    let boolean_sort = definition.sorts.iter().find_map(|(name, info)| {
-        (info.hook.as_deref() == Some("BOOL.Bool") && info.parameters.is_empty())
-            .then(|| Sort::simple(name.clone()))
-    })?;
+    let boolean_sort = declared_boolean_sort(definition)?;
     let boolean =
         |value| Term::domain_value(boolean_sort.clone(), if value { "true" } else { "false" });
     let hooked = |hook: &str, arguments: Vec<Term>| {
@@ -315,7 +337,7 @@ fn predicate_as_boolean_term(
                         .attributes
                         .hook
                         .as_deref()
-                        .is_some_and(|hook| hook.ends_with(".eq"))
+                        .is_some_and(|hook| hook.ends_with(".eq") && hook != "FLOAT.eq")
                         && symbol.sort_variables.is_empty()
                         && symbol.result_sort == boolean_sort
                         && symbol.argument_sorts == [left.sort(), right.sort()]
@@ -500,15 +522,18 @@ fn is_boolean_domain_value(term: &Term) -> bool {
     boolean_domain_value(term).is_some()
 }
 
-fn boolean_domain_value(term: &Term) -> Option<bool> {
-    let TermKind::DomainValue {
-        sort: Sort::Application { name, arguments },
-        value,
-    } = term.kind()
-    else {
+fn declared_boolean_sort(definition: &BackendDefinition) -> Option<Sort> {
+    definition.sorts.iter().find_map(|(name, info)| {
+        (info.hook.as_deref() == Some("BOOL.Bool") && info.parameters.is_empty())
+            .then(|| Sort::simple(name.clone()))
+    })
+}
+
+fn boolean_domain_value_of_sort(boolean_sort: &Sort, term: &Term) -> Option<bool> {
+    let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    if name.as_ref() != "SortBool" || !arguments.is_empty() {
+    if sort != boolean_sort {
         return None;
     }
     match value.as_ref() {
@@ -516,6 +541,10 @@ fn boolean_domain_value(term: &Term) -> Option<bool> {
         "false" => Some(false),
         _ => None,
     }
+}
+
+fn boolean_domain_value(term: &Term) -> Option<bool> {
+    boolean_domain_value_of_sort(&Sort::simple("SortBool"), term)
 }
 
 pub fn sort(value: &Sort) -> kore::Sort {
@@ -877,8 +906,11 @@ mod tests {
                 &[],
             )
             .unwrap();
-        let logical =
-            booster_rule_predicate_pattern(&Predicate::Equals(truth, condition), &result_sort);
+        let logical = booster_rule_predicate_pattern_in_definition(
+            &definition,
+            &Predicate::Equals(truth, condition),
+            &result_sort,
+        );
         assert!(matches!(
             &logical,
             kore::Pattern::Not { argument, .. }
@@ -886,5 +918,121 @@ mod tests {
                     if matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
                         && matches!(right.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "1"))
         ));
+    }
+
+    #[test]
+    fn rule_provenance_uses_the_declared_boolean_sort() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortTruth{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-symbol intEqTruth{}(SortInt{}, SortInt{}) : SortTruth{}
+                    [function{}(), total{}(), hook{}("INT.eq")]
+                hooked-symbol opaqueEqLookalike{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("TEST.eq")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let result_sort = Sort::simple("SortInt");
+        let renamed_truth = Term::domain_value(Sort::simple("SortTruth"), "true");
+        let renamed_condition = definition
+            .internalize_term(
+                &parse_pattern(r#"intEqTruth{}(X:SortInt{}, \dv{SortInt{}}("1"))"#).unwrap(),
+                &[],
+            )
+            .unwrap();
+
+        let renamed = booster_rule_predicate_pattern_in_definition(
+            &definition,
+            &Predicate::Equals(renamed_truth, renamed_condition),
+            &result_sort,
+        );
+        assert!(matches!(
+            &renamed,
+            kore::Pattern::Equals { operand_sort, left, right, .. }
+                if *operand_sort == sort(&Sort::simple("SortInt"))
+                    && matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
+                    && matches!(right.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "1")
+        ));
+        definition.verify_standalone_pattern(&renamed).unwrap();
+
+        let lookalike_truth = Term::domain_value(Sort::simple("SortBool"), "true");
+        let lookalike_condition = definition
+            .internalize_term(
+                &parse_pattern(r#"opaqueEqLookalike{}(X:SortInt{}, \dv{SortInt{}}("1"))"#).unwrap(),
+                &[],
+            )
+            .unwrap();
+        let lookalike = booster_rule_predicate_pattern_in_definition(
+            &definition,
+            &Predicate::Equals(lookalike_truth, lookalike_condition),
+            &result_sort,
+        );
+        assert!(matches!(
+            &lookalike,
+            kore::Pattern::Equals { operand_sort, left, right, .. }
+                if *operand_sort == sort(&Sort::simple("SortBool"))
+                    && matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "true")
+                    && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. }
+                        if symbol.name == "opaqueEqLookalike")
+        ));
+        definition.verify_standalone_pattern(&lookalike).unwrap();
+    }
+
+    #[test]
+    fn float_equality_stays_a_boolean_term_in_both_projection_directions() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+                hooked-symbol floatEq{}(SortFloat{}, SortFloat{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("FLOAT.eq")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let result_sort = Sort::simple("SortFloat");
+        let float_sort = Sort::simple("SortFloat");
+        let x = Term::variable(Variable::new("X", float_sort.clone()));
+        let float_equality = definition
+            .internalize_term(
+                &parse_pattern("floatEq{}(X:SortFloat{}, X:SortFloat{})").unwrap(),
+                &[],
+            )
+            .unwrap();
+        let truth = Term::domain_value(Sort::simple("SortBool"), "true");
+
+        let rule_predicate = booster_rule_predicate_pattern_in_definition(
+            &definition,
+            &Predicate::Equals(truth, float_equality),
+            &result_sort,
+        );
+        assert!(matches!(
+            &rule_predicate,
+            kore::Pattern::Equals { operand_sort, right, .. }
+                if *operand_sort == sort(&Sort::simple("SortBool"))
+                    && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. }
+                        if symbol.name == "floatEq")
+        ));
+        definition
+            .verify_standalone_pattern(&rule_predicate)
+            .unwrap();
+
+        let matching_equality =
+            booster_predicate_pattern(&definition, &Predicate::Equals(x.clone(), x), &result_sort);
+        assert!(matches!(
+            &matching_equality,
+            kore::Pattern::Equals { operand_sort, left, right, .. }
+                if *operand_sort == sort(&float_sort)
+                    && matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
+                    && matches!(right.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
+        ));
+        definition
+            .verify_standalone_pattern(&matching_equality)
+            .unwrap();
     }
 }
