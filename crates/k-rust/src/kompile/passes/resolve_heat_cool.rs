@@ -62,6 +62,13 @@ fn resolve_heat_cool_attributes_inner(
             if !heat && !cool {
                 continue;
             }
+            // Heat/cool lowering is defined only for rules and contexts. The
+            // reference leaves all other sentence kinds unchanged before it
+            // resolves the result predicate, so an unrelated production or
+            // claim must not fail for a missing predicate.
+            if !matches!(sentence, Sentence::Rule { .. } | Sentence::Context { .. }) {
+                continue;
+            }
             let result_sort = attributes.get_str("result").unwrap_or("KResult");
             let predicate_label = format!("is{result_sort}");
             let predicate_exists = !productions

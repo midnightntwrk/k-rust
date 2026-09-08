@@ -1907,6 +1907,27 @@ fn rejects_heat_rules_without_a_result_sort_or_predicate() {
 }
 
 #[test]
+fn heat_cool_ignores_non_rule_sentence_kinds_before_predicate_lookup() {
+    let attrs = attributes(&[("heat", json!("")), ("result", json!("Missing"))]);
+    let sentences = vec![
+        production("a", "Exp", attrs.clone()),
+        Sentence::Claim {
+            body: rewrite(application("a", Vec::new()), application("a", Vec::new())),
+            requires: truth(),
+            ensures: truth(),
+            attributes: attrs,
+        },
+    ];
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module("MAIN", sentences.clone())],
+        attributes: Attributes::default(),
+    };
+    let transformed = resolve_heat_cool_attributes(&definition).unwrap();
+    assert_eq!(transformed.main_module().unwrap().local_sentences, sentences);
+}
+
+#[test]
 fn removes_semantic_casts_and_retains_inferred_variable_sorts() {
     let source = indoc! {r#"
         module MAIN
