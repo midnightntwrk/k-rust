@@ -333,22 +333,36 @@ impl CellModel {
             .filter(|sort| !parents.contains_key(*sort))
             .cloned()
             .collect::<Vec<_>>();
-        let root = match roots.as_slice() {
-            [root] => root.clone(),
-            [] => return Err("No root cell found".into()),
-            _ => {
-                return Err(format!(
-                    "Too many top cells: {}",
-                    roots
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
+        // AddTopCellToRules uses the generated top label, independently of separately
+        // callable configuration initializers. Root uniqueness is required earlier when
+        // ResolveFreshConstants must synthesize that wrapper, not for this cell forest.
+        let root = if let Some(root) = roots
+            .iter()
+            .find(|sort| cells[*sort].label.name == "<generatedTop>")
+        {
+            root.clone()
+        } else {
+            match roots.as_slice() {
+                [root] => root.clone(),
+                [] => return Err("No root cell found".into()),
+                _ => {
+                    return Err(format!(
+                        "Too many top cells: {}",
+                        roots
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
             }
         };
-        let mut levels = BTreeMap::new();
-        levels.insert(root.clone(), 0);
+        // ConfigurationInfoFromModule assigns level zero to every top cell, including
+        // auxiliary roots whose initializers still need their own children concretized.
+        let mut levels = roots
+            .into_iter()
+            .map(|root| (root, 0))
+            .collect::<BTreeMap<_, _>>();
         let mut changed = true;
         while changed {
             changed = false;

@@ -244,12 +244,26 @@ impl Generator<'_, '_> {
                     initializer_takes_map: has_configuration_or_regular_variable(term),
                 })
             }
-            Term::Apply { label, .. } => {
-                let sort = semantic_cast_sort(label).or_else(|| {
-                    self.catalog
-                        .result_sort_for(&LabelHead::new(&label.name))
-                        .cloned()
-                });
+            Term::Apply { label, arguments } => {
+                let sort = semantic_cast_sort(label)
+                    .or_else(|| {
+                        self.catalog
+                            .result_sort_for(&LabelHead::new(&label.name))
+                            .cloned()
+                    })
+                    .or_else(|| {
+                        if arguments.len() != 1 || !label.parameters.is_empty() {
+                            return None;
+                        }
+                        // The configuration grammar lowers an outer cast to project:S using
+                        // its selected production's result sort. Its projection production is
+                        // generated later, so there is no source-catalog entry (or stable
+                        // numeric production ID) to consult during configuration expansion.
+                        label
+                            .name
+                            .strip_prefix("project:")
+                            .and_then(|sort| crate::kast::parser::parse_sort_text(sort).ok())
+                    });
                 let Some(sort) = sort else {
                     return Err(self.error(format!(
                         "cannot determine the sort of configuration term {:?}",

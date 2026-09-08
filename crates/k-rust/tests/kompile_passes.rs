@@ -3343,6 +3343,80 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
 }
 
 #[test]
+fn concretizes_main_configuration_with_an_auxiliary_initializer() {
+    for auxiliary in ["1", "<baz> 1 </baz>"] {
+        let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> $PGM:K </k> <foo> 0 </foo>
+          configuration <bar> AUXILIARY </bar>
+          rule <k> I:Int => initBarCell ... </k> <foo> I </foo> [label(step)]
+          syntax K
+          syntax Map
+        endmodule
+    "#}
+        .replace("AUXILIARY", auxiliary);
+        let definition = parsed(&source);
+        let definition = resolve_semantic_casts(&definition);
+        let definition = add_implicit_computation_cell(&definition).unwrap();
+        let definition = resolve_fresh_constants(&definition, 0).unwrap();
+        let transformed = concretize_cells(&definition).unwrap();
+        let rules = transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::Rule { body, .. } => Some(body.to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            rules
+                .iter()
+                .any(|body| body.contains("initBarCell(.KList)") && body.contains("<bar>"))
+        );
+        let step = transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule {
+                    body, attributes, ..
+                } if attributes.get_str("label") == Some("step") => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            matches!(step.unannotated(), Term::Apply { label, .. }
+            if label.name == "<generatedTop>"),
+            "{step}"
+        );
+        let step = step.to_string();
+        assert!(step.contains("initBarCell(.KList)"), "{step}");
+        assert!(!step.contains("#dots"), "{step}");
+    }
+}
+
+#[test]
+fn rejects_multiple_configuration_roots_without_a_generated_top() {
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> $PGM:K </k>
+          configuration <bar> 1 </bar>
+          syntax K
+          syntax Map
+        endmodule
+    "#});
+    let error = resolve_fresh_constants(&definition, 0).unwrap_err();
+    assert!(error.diagnostics.iter().any(
+        |diagnostic| diagnostic.message == "Too many top cells for module MAIN: BarCell, KCell"
+    ));
+}
+
+#[test]
 fn preserves_already_complete_nested_cells() {
     let source = indoc! {r#"
         module MAIN

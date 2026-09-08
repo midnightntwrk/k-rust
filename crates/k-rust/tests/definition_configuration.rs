@@ -17,6 +17,96 @@ fn parsed(source: &str) -> k_rust::definition::Definition {
     resolve_configuration_bubbles(&lowered).unwrap()
 }
 
+fn cell_content_sort(definition: &k_rust::definition::Definition, cell: &str) -> String {
+    definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                ..
+            } if label.name == cell => items.iter().find_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort.to_string()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("generated cell production")
+}
+
+#[test]
+fn configuration_projection_preserves_its_parsed_result_sort() {
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          syntax Val
+          configuration <k> $PGM:Val </k> <cell> {$PGM}:>K </cell>
+        endmodule
+    "#});
+    let expanded = expand_configurations(&definition).unwrap();
+    assert_eq!(cell_content_sort(&expanded, "<cell>"), "K");
+    let mut has_projection = false;
+    for sentence in &expanded.main_module().unwrap().local_sentences {
+        if let Sentence::Rule { body, .. } = sentence {
+            body.visit_preorder(&mut |term| {
+                has_projection |= matches!(term.unannotated(), Term::Apply { label, arguments }
+                    if label.name == "project:K" && arguments.len() == 1);
+            });
+        }
+    }
+    assert!(
+        has_projection,
+        "the initializer must retain the outer-cast projection"
+    );
+}
+
+#[test]
+fn configuration_leaf_uses_declared_projection_labels_before_generated_signatures() {
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          syntax Value ::= "custom" [symbol(project:K)]
+          configuration <cell> custom </cell>
+        endmodule
+    "#});
+    let expanded = expand_configurations(&definition).unwrap();
+    assert_eq!(cell_content_sort(&expanded, "<cell>"), "Value");
+}
+
+#[test]
+fn generated_configuration_projection_does_not_trust_stale_metadata() {
+    let mut definition = parsed(indoc! {r#"
+        module MAIN
+          configuration <cell> {$PGM}:>K </cell>
+        endmodule
+    "#});
+    let body = definition.modules[0]
+        .local_sentences
+        .iter_mut()
+        .find_map(|sentence| match sentence {
+            Sentence::Configuration { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let Term::Apply {
+        label,
+        mut arguments,
+    } = body.clone().into_unannotated()
+    else {
+        panic!("configuration cell");
+    };
+    arguments[2] = arguments[2]
+        .clone()
+        .with_metadata(k_rust::kast::TermMetadata {
+            production: Some(k_rust::kast::ResolvedProductionId(usize::MAX)),
+            ..Default::default()
+        });
+    *body = Term::Apply { label, arguments };
+    let expanded = expand_configurations(&definition).unwrap();
+    assert_eq!(cell_content_sort(&expanded, "<cell>"), "K");
+}
+
 #[test]
 fn collection_cell_with_config_variable_warns_without_initial() {
     let definition = parsed(indoc! {r#"
