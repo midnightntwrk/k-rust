@@ -6,7 +6,13 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-backend-smoke.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
 krust() {
-  cargo run --quiet --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- "$@"
+  # CI supplies its workspace-built CLI so this test cannot trigger another
+  # dependency build (and Z3 download) with a different Cargo feature graph.
+  if [[ -n "${KRUST_BIN:-}" ]]; then
+    "$KRUST_BIN" "$@"
+  else
+    cargo run --quiet --locked --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- "$@"
+  fi
 }
 
 echo "[rust] compiling backend KORE artifacts"

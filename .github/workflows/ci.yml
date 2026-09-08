@@ -22,6 +22,9 @@ jobs:
       - name: Install Rust 1.88
         uses: dtolnay/rust-toolchain@1.88.0
 
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
       - name: Check all targets at the declared minimum
         run: cargo check --workspace --all-targets --locked
 
@@ -38,6 +41,9 @@ jobs:
         with:
           components: clippy, rustfmt
           targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
 
       - name: Install Node.js
         uses: actions/setup-node@v7
@@ -67,6 +73,8 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Smoke-test the unified in-process backend
+        env:
+          KRUST_BIN: ${{ github.workspace }}/target/debug/krust
         run: scripts/backend-smoke.sh
 
       - name: Install system Z3 development files
