@@ -507,9 +507,13 @@ fn macro_rule(
         return None;
     };
     let left = rewrite_projection(body, false);
-    let production_attributes = match left.unannotated() {
-        Term::Apply { label, .. } => productions.attributes_for(&LabelHead::from(label)),
-        _ => None,
+    let production_attributes = if attributes.get("simplification").is_some() {
+        None
+    } else {
+        match left.unannotated() {
+            Term::Apply { label, .. } => productions.attributes_for(&LabelHead::from(label)),
+            _ => None,
+        }
     };
     if !is_macro(attributes) && !production_attributes.is_some_and(is_macro) {
         return None;

@@ -23,7 +23,7 @@ use k_rust::{
     kompile::{
         add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
         add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
-        constant_fold, expand_macros, generate_sort_predicate_rules,
+        constant_fold, expand_macros, expand_macros_in_term, generate_sort_predicate_rules,
         generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
         minimize_term_construction, module_to_kore, number_sentences, propagate_macro_attributes,
         remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
@@ -2553,6 +2553,133 @@ fn expands_nested_macros_child_first_in_priority_order() {
         insta::assert_debug_snapshot!(output);
     });
     assert_has_generated_by(&transformed, GeneratingPass::MacroExpansion);
+}
+
+#[test]
+fn simplification_rules_do_not_inherit_macro_kinds_during_expansion() {
+    for macro_kind in ["macro", "macro-rec", "alias", "alias-rec"] {
+        let source = format!(
+            r#"
+                module MAIN
+                  syntax Exp ::= "a" [symbol(a)]
+                               | "f(" Exp ")" [function, symbol(f)]
+                               | "m(" Exp ")" [{macro_kind}, symbol(m)]
+                  rule m(a) => f(a) [simplification]
+                endmodule
+            "#,
+        );
+        let definition = resolve_semantic_casts(&parsed(&source));
+        let definition = propagate_macro_attributes(&definition).unwrap();
+
+        let error = expand_macros(&definition).unwrap_err();
+        assert_eq!(
+            error.diagnostics[0].message, "Rule contains macro symbol that was not expanded",
+            "production attribute {macro_kind}",
+        );
+        assert_eq!(
+            expand_macros_in_term(
+                &definition,
+                "MAIN",
+                application("m", vec![application("a", Vec::new())]),
+            )
+            .unwrap(),
+            application("m", vec![application("a", Vec::new())]),
+            "production attribute {macro_kind}",
+        );
+    }
+}
+
+#[test]
+fn ordinary_rules_still_inherit_every_macro_kind_during_term_expansion() {
+    for macro_kind in ["macro", "macro-rec", "alias", "alias-rec"] {
+        let source = format!(
+            r#"
+                module MAIN
+                  syntax Exp ::= "a" [symbol(a)]
+                               | "f(" Exp ")" [symbol(f)]
+                               | "m(" Exp ")" [{macro_kind}, symbol(m)]
+                  rule m(a) => f(a)
+                endmodule
+            "#,
+        );
+        let definition = resolve_semantic_casts(&parsed(&source));
+
+        assert_eq!(
+            expand_macros_in_term(
+                &definition,
+                "MAIN",
+                application("m", vec![application("a", Vec::new())]),
+            )
+            .unwrap(),
+            application("f", vec![application("a", Vec::new())]),
+            "production attribute {macro_kind}",
+        );
+    }
+}
+
+#[test]
+fn explicit_simplification_macro_does_not_inherit_recursive_kind() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | "pair(" Exp "," Exp ")" [symbol(pair)]
+                       | "m(" Exp ")" [macro-rec, symbol(m)]
+          rule m(pair(X:Exp, Y:Exp)) => m(X:Exp) [macro, simplification]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let term = application(
+        "m",
+        vec![application(
+            "pair",
+            vec![
+                application(
+                    "pair",
+                    vec![application("a", Vec::new()), application("b", Vec::new())],
+                ),
+                application("b", Vec::new()),
+            ],
+        )],
+    );
+
+    assert_eq!(
+        expand_macros_in_term(&definition, "MAIN", term).unwrap(),
+        application(
+            "m",
+            vec![application(
+                "pair",
+                vec![application("a", Vec::new()), application("b", Vec::new())],
+            )],
+        ),
+    );
+}
+
+#[test]
+fn macro_expansion_preserves_an_unrelated_simplification_equation() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "f(" Exp ")" [function, symbol(f)]
+          rule f(a) => a [simplification, label(subject)]
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let transformed = expand_macros(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("subject") => Some(body),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(Printer::new().print_term(body), "f(a(.KList))=>a(.KList)");
 }
 
 #[test]
