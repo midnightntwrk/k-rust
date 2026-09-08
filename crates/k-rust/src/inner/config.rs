@@ -191,6 +191,29 @@ fn configuration_grammar(
     grammar.add_matching_terminal_tokens(Sort::new("#CellName"), is_cell_name)?;
     add_k_syntax(&mut grammar, BuiltinTokenGrammar::Configuration)?;
 
+    // K is implicit in configuration grammar seeds, including KSEQ brackets.
+    // Keep concrete seeds so their inferred types match the rest of this grammar.
+    let default_bracket = implicit_kseq_bracket(resolved);
+    for sort in
+        concrete_sorts
+            .iter()
+            .cloned()
+            .chain([Sort::new("K"), Sort::new("KItem"), Sort::new("Bag")])
+    {
+        if sort.name.starts_with('#') {
+            continue;
+        }
+        grammar.add_bracket(
+            sort.clone(),
+            vec![
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal { sort, name: None },
+                ProductionItem::Terminal(")".into()),
+            ],
+            default_bracket,
+        )?;
+    }
+
     concrete_sorts.retain(|sort| {
         !matches!(
             sort.name.as_str(),
@@ -208,6 +231,20 @@ fn configuration_grammar(
     add_synonym_casts(&mut grammar, &visible)?;
 
     Ok(grammar)
+}
+
+pub(super) fn implicit_kseq_bracket(resolved: &ResolvedDefinition) -> Option<&Attributes> {
+    let kseq = resolved.module_id("KSEQ")?;
+    resolved
+        .module(kseq)
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Production { attributes, .. } if attributes.get("bracket").is_some() => {
+                Some(attributes)
+            }
+            _ => None,
+        })
 }
 
 /// The reference rule and configuration grammar seed imports `K`, whose

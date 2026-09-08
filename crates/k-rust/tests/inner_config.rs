@@ -414,3 +414,67 @@ proptest! {
         let _ = resolve_configuration_bubbles(&definition(&contents));
     }
 }
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn configuration_brackets_preserve_sequence_order_and_scope() {
+    for contents in ["(1 ~> 2)", "(1 ~> 2) ~> 3", "1 ~> (2 ~> 3)", "((1)) ~> 2"] {
+        let input = definition(&format!("<k> {contents} </k>"));
+        let transformed = resolve_configuration_bubbles(&input)
+            .expect("the implicit configuration grammar includes KSEQ brackets");
+        let Sentence::Configuration { body, .. } =
+            &transformed.main_module().unwrap().local_sentences[1]
+        else {
+            panic!("expected a configuration");
+        };
+        let mut sequence = Vec::new();
+        body.visit_preorder(&mut |term| {
+            if let k_rust::kast::Term::Token { token, sort } = term {
+                if sort.name == "Int" {
+                    sequence.push(token.clone());
+                }
+            }
+        });
+        let expected = if contents.contains('3') {
+            vec!["1", "2", "3"]
+        } else {
+            vec!["1", "2"]
+        };
+        assert_eq!(sequence, expected);
+    }
+    for malformed in ["(1 ~> 2", "1 ~> 2)", "(1 ~> )"] {
+        assert!(
+            resolve_configuration_bubbles(&definition(&format!("<k> {malformed} </k>"))).is_err()
+        );
+    }
+}
+
+#[cfg(not(feature = "z3-inference"))]
+#[test]
+fn portable_configuration_brackets_report_ambiguous_inference_boundary() {
+    let error = resolve_configuration_bubbles(&definition("<k> ((1)) ~> 2 </k>")).unwrap_err();
+    assert!(matches!(error, ConfigError::Parse { error, .. }
+        if matches!(*error, k_rust::inner::ParseError::Z3InferenceRequired { ambiguity: true, .. })));
+}
+
+#[test]
+fn configuration_sequence_seed_preserves_declared_left_associativity() {
+    let mut input = definition("<k> 1 ~> 2 ~> 3 </k>");
+    input.modules[0].local_sentences.push(Sentence::SyntaxAssociativity {
+        associativity: k_rust::definition::Associativity::Left,
+        tags: vec!["#KSequence".into()],
+        attributes: Attributes::default(),
+    });
+    let transformed = resolve_configuration_bubbles(&input)
+        .expect("the KSEQ declaration and implicit seed must not prohibit both associations");
+    let Sentence::Configuration { body, .. } = &transformed.main_module().unwrap().local_sentences[1] else {
+        panic!("expected a configuration");
+    };
+    let mut values = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let k_rust::kast::Term::Token { token, sort } = term {
+            if sort.name == "Int" { values.push(token.clone()); }
+        }
+    });
+    assert_eq!(values, ["1", "2", "3"]);
+}

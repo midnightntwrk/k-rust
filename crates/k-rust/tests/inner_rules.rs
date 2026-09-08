@@ -2635,7 +2635,7 @@ fn portable_build_rejects_the_standard_prelude() {
 }
 
 fn load_with_prelude(
-    source: &'static str,
+    source: &str,
     name: &str,
     main_module: &str,
 ) -> Result<k_rust::outer::LoadedDefinition, k_rust::outer::LoadError> {
@@ -2644,7 +2644,7 @@ fn load_with_prelude(
         k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
     load_with_options(
-        ResolvedSource::new(name, source),
+        ResolvedSource::new(name, source.to_owned()),
         main_module,
         &mut resolver,
         &LoadOptions {
@@ -3118,4 +3118,77 @@ fn parametric_result_in_a_placeholder_slot_agrees_under_checked_inference() {
     assert_test_passes_under_checked_inference(
         "reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width",
     );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
+    for explicit_counter in [false, true] {
+        let counter = if explicit_counter {
+            "<generatedCounter> GC => GC +Int 1 </generatedCounter>"
+        } else {
+            ""
+        };
+        let source = format!(
+            r#"module TEST
+              imports INT
+              syntax Pgm ::= "quux"
+              configuration <k> quux </k> <c1> .K </c1> <c2> .K </c2>
+              claim <k> quux => .K </k>
+                    <c1> .K => ?C </c1>
+                    <c2> .K => ?C </c2>
+                    {counter}
+            endmodule"#
+        );
+        let loaded = load_with_prelude(&source, "counter-claim.k", "TEST")
+            .expect("implicit rule-cell syntax must be available to proof claims");
+        let body = loaded
+            .definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|s| {
+                if let Sentence::Claim { body, .. } = s {
+                    Some(body)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let mut leaves = Vec::new();
+        cell_leaves(body, &mut leaves);
+        let mut expected = vec!["<k>", "<c1>", "<c2>"];
+        if explicit_counter {
+            expected.push("<generatedCounter>");
+        }
+        assert_eq!(leaves, expected);
+        let mut shared = Vec::new();
+        let mut rewrites = 0;
+        body.visit_preorder(&mut |term| {
+            if let Term::Variable { name, sort } = term {
+                if name == "?C" {
+                    shared.push(sort.clone());
+                }
+            }
+            if matches!(term, Term::Rewrite { .. }) {
+                rewrites += 1;
+            }
+        });
+        assert_eq!(shared, vec![None, None]);
+        assert_eq!(rewrites, expected.len());
+        assert!(!loaded.definition.main_module().unwrap().local_sentences.iter().any(|s| {
+            matches!(s, Sentence::Production { sort, .. } if sort.name == "GeneratedCounterCell")
+        }), "the implicit counter production is parse-only");
+        let nested = source.replace("<c1> .K => ?C </c1>", "<c1> .K => ?C => ?D </c1>");
+        assert!(
+            matches!(
+                load_with_prelude(&nested, "nested-counter-claim.k", "TEST"),
+                Err(k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error)))
+                    if matches!(error.error, ParseError::Associativity { ref parent, ref child, .. }
+                        if parent == "#KRewrite" && child == "#KRewrite")
+            ),
+            "genuinely nested rewrites remain rejected"
+        );
+    }
 }

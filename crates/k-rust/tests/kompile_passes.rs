@@ -3629,6 +3629,165 @@ fn drops_a_shallower_misnested_sibling_when_completing_parent_cells() {
     );
 }
 
+fn omitted_thread_parent_fixture(rule: &str) -> Definition {
+    let source = format!(
+        r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <thread multiplicity="*">
+                <k> 0 </k>
+                <state> 0 </state>
+              </thread>
+            </top>
+          rule {rule}
+          syntax K
+          syntax Map
+        endmodule
+        "#,
+    );
+    let definition = resolve_semantic_casts(&parsed(&source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    resolve_fresh_constants(&definition, 0).unwrap()
+}
+
+#[test]
+fn omitted_parents_separate_repeated_nonmultiplicity_children() {
+    let definition = omitted_thread_parent_fixture(
+        "<k> 0 => 1 ... </k> <k> 2 => 3 ... </k>",
+    );
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, attributes, .. }
+                if attributes.get("initializer").is_none() =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("the rendezvous-shaped rule should remain");
+    assert_eq!(body.matches("`<thread>`(").count(), 2, "{body}");
+    assert_eq!(body.matches("`<k>`(").count(), 2, "{body}");
+    assert_eq!(body.matches("=>").count(), 2, "{body}");
+    assert!(!body.contains("#dots"), "{body}");
+}
+
+#[test]
+fn omitted_parents_group_distinct_nonmultiplicity_children() {
+    let definition = omitted_thread_parent_fixture(
+        "<k> 0 => 1 ... </k> <state> 2 => 3 </state>",
+    );
+    let transformed = concretize_cells(&definition).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, attributes, .. }
+                if attributes.get("initializer").is_none() =>
+            {
+                Some(Printer::new().print_term(body))
+            }
+            _ => None,
+        })
+        .expect("the rule should remain");
+    assert_eq!(body.matches("`<thread>`(").count(), 1, "{body}");
+    assert_eq!(body.matches("`<k>`(").count(), 1, "{body}");
+    assert_eq!(body.matches("`<state>`(").count(), 1, "{body}");
+    assert_eq!(body.matches("=>").count(), 2, "{body}");
+}
+
+#[test]
+fn omitted_parents_reject_ambiguous_mixed_child_partition() {
+    let definition = omitted_thread_parent_fixture(
+        "<k> 0 => 1 ... </k> <k> 2 => 3 ... </k> <state> 4 </state>",
+    );
+    let error = concretize_cells(&definition).unwrap_err();
+    assert!(
+        error.diagnostics.iter().any(|diagnostic| {
+            diagnostic.message.contains("Ambiguous completion")
+        }),
+        "the state cell could belong to either thread: {error:#?}"
+    );
+}
+
+#[test]
+fn omitted_parents_check_conflicts_on_each_rewrite_side() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <top>
+              <thread multiplicity="*">
+                <k> 0 </k>
+                <state multiplicity="?"> 0 </state>
+              </thread>
+            </top>
+          rule <k> 0 => 1 ... </k>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    // These are parser-shaped cell rewrites. Empty sides carry no cell sort;
+    // each insertion or removal is forced into its own omitted thread parent.
+    for insert in [false, true] {
+        let mut input = definition.clone();
+        let body = input
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "MAIN")
+            .unwrap()
+            .local_sentences
+            .iter_mut()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule { body, attributes, .. }
+                    if attributes.get("initializer").is_none() => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        *body = application(
+            "#cells",
+            ["1", "2"].into_iter().map(|value| {
+                let state = application("<state>", vec![
+                    application("#noDots", Vec::new()),
+                    Term::Token { token: value.into(), sort: Sort::new("Int") },
+                    application("#noDots", Vec::new()),
+                ]);
+                let empty = application("#cells", Vec::new());
+                if insert { rewrite(empty, state) } else { rewrite(state, empty) }
+            }).collect(),
+        );
+        let transformed = concretize_cells(&input).unwrap();
+        let body = transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule { body, attributes, .. }
+                    if attributes.get("initializer").is_none() =>
+                {
+                    Some(Printer::new().print_term(body))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(body.matches("`<thread>`(").count(), 2, "insert={insert}: {body}");
+        assert_eq!(body.matches("`<state>`(").count(), 2, "insert={insert}: {body}");
+        assert_eq!(body.matches("=>").count(), 2, "insert={insert}: {body}");
+    }
+}
+
 #[test]
 fn concretizes_cells_inside_generated_simplification_rules() {
     let source = indoc! {r#"

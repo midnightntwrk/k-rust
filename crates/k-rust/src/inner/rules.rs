@@ -12,7 +12,7 @@ use crate::provenance::SourceId;
 
 use super::config::{
     BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort,
-    add_synonym_casts, nonterminal, truth,
+    add_synonym_casts, implicit_kseq_bracket, nonterminal, truth,
 };
 use super::parser::{
     Grammar, ParseError, Scanner, TokenPrecedenceDeclaration, named_projection_productions,
@@ -361,7 +361,7 @@ fn rule_grammar(
     module: ModuleId,
     scope: RuleGrammarScope<'_>,
 ) -> Result<Grammar, ParseError> {
-    let visible = match scope {
+    let mut visible = match scope {
         RuleGrammarScope::GlobalScanner => resolved.sentences(module),
         RuleGrammarScope::Module { .. } => {
             let mut visible = resolved.signature_sentences(module);
@@ -369,6 +369,31 @@ fn rule_grammar(
             visible
         }
     };
+    // RULE-CELLS supplies parse-only cells, notably generatedCounter for claims
+    // about fresh constants. The compiler generates their real productions later.
+    // Import only these declarations into the grammar, preserving the source module.
+    if let Some(rule_cells) = resolved.module_id("RULE-CELLS") {
+        for sentence in &resolved.module(rule_cells).local_sentences {
+            let Sentence::Production {
+                label,
+                sort,
+                attributes,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            if attributes.get("cell").is_none() {
+                continue;
+            }
+            if !visible.iter().any(|existing| matches!(existing,
+                Sentence::Production { label: existing_label, sort: existing_sort, attributes, .. }
+                if existing_label == label && existing_sort == sort && attributes.get("cell").is_some()
+            )) {
+                visible.push(sentence);
+            }
+        }
+    }
     let scanner_seed = match scope {
         RuleGrammarScope::GlobalScanner => None,
         RuleGrammarScope::Module { scanner_seed } => scanner_seed,
@@ -505,18 +530,7 @@ fn rule_grammar(
     add_k_syntax(&mut grammar, BuiltinTokenGrammar::Rule)?;
     // KSEQ is implicit in the reference rule grammar. Preserve its bracket's
     // priority contract when adding the concrete brackets supplied by our seed.
-    let default_bracket = resolved.module_id("KSEQ").and_then(|kseq| {
-        resolved
-            .module(kseq)
-            .local_sentences
-            .iter()
-            .find_map(|sentence| match sentence {
-                Sentence::Production { attributes, .. } if attributes.get("bracket").is_some() => {
-                    Some(attributes)
-                }
-                _ => None,
-            })
-    });
+    let default_bracket = implicit_kseq_bracket(resolved);
     add_rule_k_syntax(
         &mut grammar,
         &concrete_sorts,
