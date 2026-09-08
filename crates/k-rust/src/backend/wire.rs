@@ -329,6 +329,10 @@ pub enum SearchFailureOutput {
         bindings: Vec<BindingOutput>,
         remainder: Vec<TermPairOutput>,
     },
+    Instantiation {
+        rule: String,
+        missing_variables: Vec<Value>,
+    },
     Requires {
         rule: String,
         predicates: Vec<Value>,
@@ -853,6 +857,16 @@ fn indeterminate_failure_output(
             bindings: bindings_output(substitution)?,
             remainder: term_pairs_output(remainder)?,
         },
+        IndeterminateReason::Instantiation {
+            rule_id,
+            missing_variables,
+        } => SearchFailureOutput::Instantiation {
+            rule: rule_id,
+            missing_variables: missing_variables
+                .iter()
+                .map(encode_variable)
+                .collect::<Result<_, _>>()?,
+        },
         IndeterminateReason::Requires {
             rule_id,
             predicates,
@@ -1044,4 +1058,34 @@ pub(super) fn path_pattern_search_response(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn instantiation_failure_preserves_rule_and_missing_variables_on_the_wire() {
+        let sort = Sort::simple("SortS");
+        let variable = k_rust_backend::term::Variable::new("Rule#E", sort.clone());
+        let failure = indeterminate_failure_output(
+            IndeterminateReason::Instantiation {
+                rule_id: "heat".into(),
+                missing_variables: [variable.clone()].into_iter().collect(),
+            },
+            &sort,
+        )
+        .unwrap();
+        let value = serde_json::to_value(&failure).unwrap();
+        assert_eq!(value["kind"], "instantiation");
+        assert_eq!(value["rule"], "heat");
+        assert_eq!(
+            value["missing_variables"],
+            serde_json::json!([encode_variable(&variable).unwrap()])
+        );
+        assert_eq!(
+            serde_json::from_value::<SearchFailureOutput>(value).unwrap(),
+            failure
+        );
+    }
 }

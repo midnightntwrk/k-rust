@@ -1,0 +1,19 @@
+[]
+module REWRITE-COVERAGE
+  sort SortS{} []
+  symbol state{}(SortS{}) : SortS{} [constructor{}(), total{}()]
+  symbol id{}() : SortS{} [constructor{}(), total{}()]
+  symbol value{}() : SortS{} [constructor{}(), total{}()]
+  symbol heated{}(SortS{}) : SortS{} [constructor{}(), total{}()]
+  symbol done{}() : SortS{} [constructor{}(), total{}()]
+  symbol box{}(SortS{}) : SortS{} [anywhere{}(), total{}(), injective{}()]
+  axiom{R} \implies{R}(
+    \and{R}(\top{R}(), \and{R}(\in{SortS{},R}(X:SortS{}, value{}()), \top{R}())),
+    \equals{SortS{},R}(box{}(X:SortS{}), \and{SortS{}}(value{}(), \top{SortS{}}()))
+  ) [anywhere{}()]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(state{}(box{}(E:SortS{})), \top{SortS{}}()),
+    heated{}(E:SortS{})
+  ) [label{}("heat"), priority{}("40")]
+  axiom{} \rewrites{SortS{}}(\and{SortS{}}(state{}(id{}()), \top{SortS{}}()), done{}()) [label{}("lookup")]
+endmodule []

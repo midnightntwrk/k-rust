@@ -151,6 +151,11 @@ pub enum IndeterminateReason {
         substitution: Substitution,
         remainder: Vec<(Term, Term)>,
     },
+    /// Concrete execution must instantiate every free variable on the rule's left-hand side.
+    Instantiation {
+        rule_id: String,
+        missing_variables: BTreeSet<Variable>,
+    },
     Requires {
         rule_id: String,
         predicates: Vec<Predicate>,
@@ -1926,6 +1931,12 @@ fn freshen_unbound_rule_variables(
     mut substitution: Substitution,
     fresh_counter: &mut u64,
 ) -> (Substitution, BTreeSet<Variable>) {
+    // Kore's checkSubstitutionCoverage permits narrowing only when the whole initial term is
+    // not constructor-like. Keep concrete rule variables available for requires to bind, then
+    // check coverage before constructing the successor in apply_rule_with_match.
+    if pattern.term.attributes().constructor_like {
+        return (substitution, BTreeSet::new());
+    }
     let mut names_to_avoid = pattern_variable_names(pattern)
         .into_iter()
         .chain(
@@ -2588,6 +2599,37 @@ fn apply_rule_with_match(
     if predicates_truth(&requires) == Truth::False {
         return RuleAttempt::NotApplicable;
     }
+    if pattern.term.attributes().constructor_like {
+        // Conditions can finish an otherwise incomplete match (for example, requires E = value).
+        // Re-enter application with those bindings so the remaining functional equalities and
+        // requires are simplified under the covering substitution before coverage is checked.
+        let mut conditions = match_conditions.clone();
+        extend_unique(&mut conditions, requires.iter().cloned());
+        let (bindings, _) = extract_substitution(&conditions, &definition.sort_graph);
+        let bindings = bindings
+            .into_iter()
+            .filter(|(variable, _)| {
+                rule.lhs.attributes().variables.contains(variable)
+                    && !substitution.contains_key(variable)
+            })
+            .collect::<Substitution>();
+        if !bindings.is_empty() {
+            return apply_rule_with_match(
+                definition,
+                rule,
+                pattern,
+                fresh_counter,
+                simplification_options,
+                solver,
+                assume_initial_defined,
+                Some(PartialRuleMatch {
+                    substitution: compose(&bindings, &substitution),
+                    conditions: substitute_predicates(&conditions, &bindings),
+                    remainder: Vec::new(),
+                }),
+            );
+        }
+    }
     let mut unclear_requires = requires
         .into_iter()
         .filter(|predicate| {
@@ -2637,6 +2679,23 @@ fn apply_rule_with_match(
         )
     {
         return RuleAttempt::NotApplicable;
+    }
+
+    if pattern.term.attributes().constructor_like {
+        let missing_variables = rule
+            .lhs
+            .attributes()
+            .variables
+            .iter()
+            .filter(|variable| !substitution.contains_key(*variable))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if !missing_variables.is_empty() {
+            return RuleAttempt::Indeterminate(IndeterminateReason::Instantiation {
+                rule_id: rule.attributes.unique_id.clone(),
+                missing_variables,
+            });
+        }
     }
 
     let existential_substitution = freshen_existentials(rule, pattern);
@@ -4763,7 +4822,7 @@ mod tests {
                     [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
                 hooked-symbol inKeys{}(SortKey{}, SortMap{}) : SortBool{}
                     [function{}(), total{}(), hook{}("MAP.in_keys")]
-                symbol state{}(SortBool{}) : SortState{} [constructor{}()]
+                symbol state{}(SortBool{}, SortKey{}) : SortState{} [constructor{}()]
                 symbol done{}() : SortState{} [constructor{}()]
                 axiom{} \rewrites{SortState{}}(
                     \and{SortState{}}(
@@ -4774,7 +4833,8 @@ mod tests {
                                     mapItem{}(ENTRY:SortKey{}, VALUE:SortValue{}),
                                     REST:SortMap{}
                                 )
-                            )
+                            ),
+                            CONTEXT:SortKey{}
                         ),
                         \top{SortState{}}()
                     ),
@@ -4847,6 +4907,175 @@ mod tests {
             .replace("$LHS", lhs);
         let syntax = parse_definition(&source).expect("ITE definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("ITE definition should internalize")
+    }
+
+    fn rewrite_coverage_definition() -> BackendDefinition {
+        let syntax = parse_definition(include_str!("../tests/fixtures/rewrite-coverage.kore"))
+            .expect("coverage fixture should parse");
+        BackendDefinition::internalize(&syntax, "REWRITE-COVERAGE")
+            .expect("coverage fixture should internalize")
+    }
+
+    #[test]
+    fn concrete_anywhere_match_requires_lhs_substitution_coverage() {
+        let definition = rewrite_coverage_definition();
+        let subject = Pattern {
+            term: internal_term(&definition, "state{}(id{}())"),
+            constraints: Vec::new(),
+        };
+        assert!(subject.term.attributes().constructor_like);
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+        let mut fresh = 0;
+        let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
+        let RewriteResult::Indeterminate {
+            reason:
+                IndeterminateReason::Instantiation {
+                    missing_variables, ..
+                },
+            ..
+        } = result
+        else {
+            panic!("a concrete subject must not acquire existential rule arguments: {result:?}");
+        };
+        assert_eq!(missing_variables.len(), 1);
+        assert!(missing_variables.iter().next().unwrap().name.ends_with("E"));
+        assert_eq!(
+            fresh, 0,
+            "a failed concrete instantiation must not freshen LHS variables"
+        );
+    }
+
+    #[test]
+    fn concrete_instantiation_coverage_is_checked_after_requires() {
+        for (requires, binds) in [
+            (r"\bottom{SortS{}}()", false),
+            (r"\equals{SortS{},SortS{}}(id{}(), value{}())", false),
+            (r"\equals{SortS{},SortS{}}(E:SortS{}, id{}())", true),
+        ] {
+            let source = include_str!("../tests/fixtures/rewrite-coverage.kore").replace(
+                r"state{}(box{}(E:SortS{})), \top{SortS{}}()",
+                &format!("state{{}}(box{{}}(E:SortS{{}})), {requires}"),
+            );
+            let definition = BackendDefinition::internalize(
+                &parse_definition(&source).unwrap(),
+                "REWRITE-COVERAGE",
+            )
+            .unwrap();
+            let subject = Pattern {
+                term: internal_term(&definition, "state{}(id{}())"),
+                constraints: Vec::new(),
+            };
+            let solver = FixedSolver {
+                satisfiability: Ok(Satisfiability::Sat),
+                validity: Ok(Validity::Indeterminate),
+            };
+            let mut fresh = 0;
+            let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
+            if binds {
+                let RewriteResult::Branch { branches, .. } = result else {
+                    panic!("requires must complete the substitution: {result:?}");
+                };
+                assert_eq!(
+                    branches[0].pattern.term,
+                    internal_term(&definition, "heated{}(id{}())")
+                );
+                assert_eq!(
+                    branches[0].pattern.constraints,
+                    vec![Predicate::Equals(
+                        internal_term(&definition, "box{}(id{}())"),
+                        internal_term(&definition, "id{}()"),
+                    )],
+                    "binding E must preserve the unresolved function equality",
+                );
+            } else {
+                let RewriteResult::Finished(applied) = result else {
+                    panic!("a false requires must reject before coverage: {result:?}");
+                };
+                assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
+            }
+            assert_eq!(fresh, 0);
+        }
+    }
+
+    #[test]
+    fn anywhere_normalization_and_covered_matching_remain_available() {
+        let definition = rewrite_coverage_definition();
+        let term = internal_term(&definition, "state{}(box{}(value{}()))");
+        let normalized =
+            crate::simplify::simplify(&definition, &term, SimplificationOptions::default())
+                .unwrap();
+        assert_eq!(
+            normalized.term,
+            internal_term(&definition, "state{}(value{}())")
+        );
+        let subject = Pattern {
+            term: internal_term(&definition, "state{}(box{}(id{}()))"),
+            constraints: Vec::new(),
+        };
+        assert!(!subject.term.attributes().constructor_like);
+        assert!(subject.term.attributes().variables.is_empty());
+        let mut fresh = 0;
+        let RewriteResult::Finished(applied) = rewrite_step(&definition, &subject, &mut fresh)
+        else {
+            panic!("a covered anywhere match must still apply");
+        };
+        assert_eq!(
+            applied.pattern.term,
+            internal_term(&definition, "heated{}(id{}())")
+        );
+        assert_eq!(fresh, 0);
+    }
+
+    #[test]
+    fn symbolic_anywhere_matching_retains_fresh_arguments_and_complement() {
+        let definition = rewrite_coverage_definition();
+        let subject = Pattern {
+            term: internal_term(&definition, "state{}(SUBJECT:SortS{})"),
+            constraints: Vec::new(),
+        };
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+        let mut fresh = 0;
+        let RewriteResult::Branch {
+            branches,
+            remainder: Some(remainder),
+            ..
+        } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        else {
+            panic!("symbolic anywhere matching must narrow");
+        };
+        assert_eq!(branches[0].unique_id, "heat");
+        assert_eq!(fresh, 1);
+        assert!(
+            matches!(remainder.pattern.constraints.as_slice(), [Predicate::Not(inner)]
+            if matches!(inner.as_ref(), Predicate::Exists(..)))
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn concrete_disequality_does_not_invent_an_operand() {
+        let definition =
+            kequal_rewrite_definition("state{}(equal{}(VALUE:SortValue{}, chosen{}()))");
+        let subject = Pattern {
+            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("false"))"#),
+            constraints: Vec::new(),
+        };
+        let solver = crate::smt::Z3Solver::new(&definition).unwrap();
+        let mut fresh = 0;
+        assert!(matches!(
+            rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver),
+            RewriteResult::Indeterminate {
+                reason: IndeterminateReason::Instantiation { .. },
+                ..
+            }
+        ));
+        assert_eq!(fresh, 0);
     }
 
     fn unresolved_function_rewrite_definition() -> BackendDefinition {
@@ -4968,6 +5197,7 @@ mod tests {
                 symbol chosen{}() : SortValue{} [constructor{}()]
                 symbol rejected{}() : SortValue{} [constructor{}()]
                 symbol state{}(SortBool{}) : SortState{} [constructor{}()]
+                symbol stateWithContext{}(SortBool{}, SortValue{}) : SortState{} [constructor{}()]
                 symbol done{}() : SortState{} [constructor{}()]
                 axiom{} \rewrites{SortState{}}(
                     \and{SortState{}}(
@@ -8689,10 +8919,14 @@ mod tests {
     #[cfg(feature = "z3")]
     #[test]
     fn negates_kequal_operand_unification_when_matching_false() {
-        let definition =
-            kequal_rewrite_definition("state{}(equal{}(VALUE:SortValue{}, chosen{}()))");
+        let definition = kequal_rewrite_definition(
+            "stateWithContext{}(equal{}(VALUE:SortValue{}, chosen{}()), CONTEXT:SortValue{})",
+        );
         let subject = Pattern {
-            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("false"))"#),
+            term: internal_term(
+                &definition,
+                r#"stateWithContext{}(\dv{SortBool{}}("false"), SYMBOLIC:SortValue{})"#,
+            ),
             constraints: Vec::new(),
         };
         let solver = crate::smt::Z3Solver::new(&definition).unwrap();
@@ -9673,7 +9907,10 @@ mod tests {
     fn decomposes_false_map_membership_over_known_entries_and_a_remainder() {
         let definition = map_not_in_keys_rewrite_definition();
         let subject = Pattern {
-            term: internal_term(&definition, r#"state{}(\dv{SortBool{}}("false"))"#),
+            term: internal_term(
+                &definition,
+                r#"state{}(\dv{SortBool{}}("false"), SYMBOLIC:SortKey{})"#,
+            ),
             constraints: Vec::new(),
         };
         let solver = crate::smt::Z3Solver::new(&definition).unwrap();

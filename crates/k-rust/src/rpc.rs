@@ -1702,6 +1702,9 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
             k_rust_backend::rewrite::IndeterminateReason::Match { rule_id, .. } => {
                 ("Uncertain about unification of rule", Some(rule_id))
             }
+            k_rust_backend::rewrite::IndeterminateReason::Instantiation { rule_id, .. } => {
+                ("Unable to instantiate semantic rule", Some(rule_id))
+            }
             k_rust_backend::rewrite::IndeterminateReason::Requires { rule_id, .. }
             | k_rust_backend::rewrite::IndeterminateReason::Smt { rule_id, .. } => {
                 ("Uncertain about a condition in rule", Some(rule_id))
