@@ -1,7 +1,7 @@
 //! Stable source identities and provenance shared by the semantic frontend.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
@@ -712,24 +712,21 @@ pub(crate) fn seed_generated_sentence_origin(
 }
 
 fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> Vec<ProvenanceLink> {
-    let configuration_sources = before_sentences
-        .iter()
-        .filter(|sentence| matches!(sentence, Sentence::Configuration { .. }))
-        .flat_map(sentence_origin_links)
-        .fold(Vec::new(), |mut links, link| {
-            push_unique(&mut links, link);
-            links
-        });
+    // Keep encounter order in the output; the set is only a membership index.
+    fn unique_links(links: impl Iterator<Item = ProvenanceLink>) -> Vec<ProvenanceLink> {
+        let mut seen = BTreeSet::new();
+        links.filter(|link| seen.insert(link.clone())).collect()
+    }
+    let configuration_sources = unique_links(
+        before_sentences
+            .iter()
+            .filter(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+            .flat_map(sentence_origin_links),
+    );
     if pass == GeneratingPass::ConfigurationExpansion && !configuration_sources.is_empty() {
         return configuration_sources;
     }
-    before_sentences
-        .iter()
-        .flat_map(sentence_origin_links)
-        .fold(Vec::new(), |mut links, link| {
-            push_unique(&mut links, link);
-            links
-        })
+    unique_links(before_sentences.iter().flat_map(sentence_origin_links))
 }
 
 fn collect_source_links(term: &Term, links: &mut Vec<ProvenanceLink>) {
@@ -1134,6 +1131,55 @@ mod tests {
             }],
             attributes: Attributes::default(),
         }
+    }
+
+    #[test]
+    fn module_origins_preserve_first_encounter_order_and_configuration_scope() {
+        let link = |id: &str| ProvenanceLink::Sentence {
+            unique_id: id.into(),
+        };
+        let mut first = rule(Term::apply("first", Vec::new()));
+        seed_generated_sentence_origin(
+            &mut first,
+            GeneratingPass::MacroExpansion,
+            vec![link("z"), link("a"), link("z")],
+        );
+        let mut second = rule(Term::apply("second", Vec::new()));
+        seed_generated_sentence_origin(
+            &mut second,
+            GeneratingPass::MacroExpansion,
+            vec![link("a"), link("m")],
+        );
+        let rules = vec![first, second];
+        for pass in [
+            GeneratingPass::MacroExpansion,
+            GeneratingPass::ConfigurationExpansion,
+        ] {
+            assert_eq!(
+                module_origin_links(&rules, pass),
+                vec![link("z"), link("a"), link("m")]
+            );
+        }
+        let mut configuration = Sentence::Configuration {
+            body: Term::apply("config", Vec::new()),
+            ensures: Term::apply("true", Vec::new()),
+            attributes: Attributes::default(),
+        };
+        seed_generated_sentence_origin(
+            &mut configuration,
+            GeneratingPass::ConfigurationExpansion,
+            vec![link("c"), link("b"), link("c")],
+        );
+        let mut sentences = rules;
+        sentences.push(configuration);
+        assert_eq!(
+            module_origin_links(&sentences, GeneratingPass::ConfigurationExpansion),
+            vec![link("c"), link("b")]
+        );
+        assert_eq!(
+            module_origin_links(&sentences, GeneratingPass::MacroExpansion),
+            vec![link("z"), link("a"), link("m"), link("c"), link("b")]
+        );
     }
 
     #[test]
