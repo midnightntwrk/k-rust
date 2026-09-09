@@ -1621,6 +1621,78 @@ fn threads_configuration_through_transitive_function_calls() {
 }
 
 #[test]
+fn function_dependencies_ignore_anywhere_macro_classification() {
+    for macro_kind in [
+        None,
+        Some("macro"),
+        Some("macro-rec"),
+        Some("alias"),
+        Some("alias-rec"),
+    ] {
+        let function = attributes(&[("function", json!(""))]);
+        let mut helper_attributes = attributes(&[("anywhere", json!(""))]);
+        if let Some(macro_kind) = macro_kind {
+            helper_attributes.insert(macro_kind, json!(""));
+        }
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![module(
+                "MAIN",
+                vec![
+                    production("reader", "Int", function.clone()),
+                    production("helper", "Int", function.clone()),
+                    production("caller", "Int", function),
+                    rule(
+                        rewrite(
+                            application("reader", Vec::new()),
+                            Term::Variable {
+                                name: "!Fresh".into(),
+                                sort: Some(Sort::new("Int")),
+                            },
+                        ),
+                        Attributes::default(),
+                    ),
+                    rule(
+                        rewrite(
+                            application("helper", Vec::new()),
+                            application("reader", Vec::new()),
+                        ),
+                        helper_attributes,
+                    ),
+                    rule(
+                        rewrite(
+                            application("caller", Vec::new()),
+                            application("helper", Vec::new()),
+                        ),
+                        Attributes::default(),
+                    ),
+                ],
+            )],
+            attributes: Attributes::default(),
+        };
+
+        let transformed = resolve_function_with_config(&definition).unwrap();
+        let arities = transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label),
+                    items,
+                    ..
+                } => Some((label.name.as_str(), items.len())),
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(arities["reader"], 1, "{macro_kind:?}");
+        assert_eq!(arities["helper"], 1, "{macro_kind:?}");
+        assert_eq!(arities["caller"], 1, "{macro_kind:?}");
+    }
+}
+
+#[test]
 fn lowers_with_config_rules_to_a_top_cell_alias() {
     let definition = Definition {
         main_module: "MAIN".into(),
