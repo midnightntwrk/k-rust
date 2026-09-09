@@ -490,45 +490,71 @@ pub fn internalize_axiom(
                     RulePatternError::TermDisjunction,
                 ));
             }
-            let mut lhs = definition.internalize_term_with_validation(
+            let lhs = definition.internalize_term_with_validation(
                 lhs,
                 sort_parameters,
                 subsort_validation,
             )?;
-            let mut bindings = Substitution::new();
+            let mut binding_alternatives = vec![Substitution::new()];
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
-                let pattern = definition.internalize_term_with_validation(
-                    &binder.pattern,
-                    sort_parameters,
-                    subsort_validation,
-                )?;
-                if variable.sort != pattern.sort() {
-                    return Err(DefinitionError::RulePattern(
-                        RulePatternError::BinderSortMismatch(variable),
-                    ));
+                let alternatives = binder_term_alternatives(&binder.pattern)
+                    .into_iter()
+                    .map(|pattern| {
+                        definition.internalize_term_with_validation(
+                            pattern,
+                            sort_parameters,
+                            subsort_validation,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                for alternative in &alternatives {
+                    if variable.sort != alternative.sort() {
+                        return Err(DefinitionError::RulePattern(
+                            RulePatternError::BinderSortMismatch(variable),
+                        ));
+                    }
                 }
-                bindings.insert(variable, pattern);
+                binding_alternatives = binding_alternatives
+                    .into_iter()
+                    .flat_map(|bindings| {
+                        alternatives.iter().cloned().map({
+                            let variable = variable.clone();
+                            move |alternative| {
+                                let mut bindings = bindings.clone();
+                                bindings.insert(variable.clone(), alternative);
+                                bindings
+                            }
+                        })
+                    })
+                    .collect();
             }
-            lhs = substitute(&lhs, &bindings);
             let requires =
                 internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
             let (rhs, ensures) =
                 internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
             let rename = |variable: &Variable| prefixed(variable, "Eq#");
-            Ok(vec![InternalizedRule::Term(
-                RuleKind::Function,
-                make_rule(
-                    rename_term(&lhs, rename),
-                    rename_rhs(rhs, rename),
-                    rename_predicates(&requires, rename),
-                    rename_predicates(&ensures, rename),
-                    attributes.clone(),
-                    BTreeSet::new(),
-                    None,
-                ),
-            )])
+            let rhs = rename_rhs(rhs, rename);
+            let requires = rename_predicates(&requires, rename);
+            let ensures = rename_predicates(&ensures, rename);
+            Ok(binding_alternatives
+                .into_iter()
+                .map(|bindings| {
+                    InternalizedRule::Term(
+                        RuleKind::Function,
+                        make_rule(
+                            rename_term(&substitute(&lhs, &bindings), rename),
+                            rhs.clone(),
+                            requires.clone(),
+                            ensures.clone(),
+                            attributes.clone(),
+                            BTreeSet::new(),
+                            None,
+                        ),
+                    )
+                })
+                .collect())
         }
         ClassifiedAxiom::Ceil {
             sort_parameters,
@@ -1376,6 +1402,19 @@ fn extract_binders(pattern: &kore::Pattern) -> Result<Vec<ArgumentBinder>, Axiom
     }
 }
 
+fn binder_term_alternatives(pattern: &kore::Pattern) -> Vec<&kore::Pattern> {
+    let kore::Pattern::Or { arguments, .. } = pattern else {
+        return vec![pattern];
+    };
+    if arguments.is_empty() {
+        return vec![pattern];
+    }
+    arguments
+        .iter()
+        .flat_map(binder_term_alternatives)
+        .collect()
+}
+
 fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore::Variable>) {
     let mut variables = Vec::new();
     while let kore::Pattern::Exists { variable, body, .. } = &mut pattern {
@@ -1558,6 +1597,61 @@ mod tests {
         )
     }
 
+    fn function_binder_definition() -> BackendDefinition {
+        BackendDefinition::internalize(
+            &parse_definition(
+                r#"[]
+                module MAIN
+                    sort SortS{} []
+                    sort SortT{} []
+                    symbol unary{}(SortS{}) : SortS{} [function{}()]
+                    symbol binary{}(SortS{}, SortS{}) : SortS{} [function{}()]
+                    symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+                    symbol a{}() : SortS{} [constructor{}()]
+                    symbol b{}() : SortS{} [constructor{}()]
+                    symbol c{}() : SortS{} [constructor{}()]
+                    symbol d{}() : SortS{} [constructor{}()]
+                    symbol e{}() : SortS{} [constructor{}()]
+                    symbol other{}() : SortT{} [constructor{}()]
+                    symbol result{}() : SortS{} [constructor{}()]
+                endmodule []"#,
+            )
+            .expect("definition should parse"),
+            "MAIN",
+        )
+        .expect("definition should internalize")
+    }
+
+    fn internalize_function(source: &str) -> Result<Vec<InternalizedRule>, DefinitionError> {
+        let classified = classify(source)
+            .expect("axiom should classify")
+            .expect("axiom should be executable");
+        internalize_axiom(&function_binder_definition(), &classified)
+    }
+
+    fn function_lhs_argument_names(rules: &[InternalizedRule]) -> Vec<Vec<String>> {
+        rules
+            .iter()
+            .map(|rule| {
+                let InternalizedRule::Term(RuleKind::Function, rule) = rule else {
+                    panic!("expected function rule");
+                };
+                let TermKind::Application { arguments, .. } = rule.lhs.kind() else {
+                    panic!("expected function application lhs");
+                };
+                arguments
+                    .iter()
+                    .map(|argument| {
+                        let TermKind::Application { symbol, .. } = argument.kind() else {
+                            panic!("expected constructor application argument");
+                        };
+                        symbol.name.to_string()
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
     #[test]
     fn internalizes_top_right_hand_sides_of_simplifications() {
         let definition = top_rhs_definition(
@@ -1683,6 +1777,161 @@ mod tests {
                 ConstraintKind::Concrete,
             )]))
         );
+    }
+
+    #[test]
+    fn expands_a_disjunctive_function_argument_binder() {
+        let rules = internalize_function(
+            r#"axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortS{}, R}(a{}(), a{}()),
+                    \and{R}(
+                        \in{SortS{}, R}(
+                            X:SortS{},
+                            \or{SortS{}}(a{}(), b{}())
+                        ),
+                        \top{R}()
+                    )
+                ),
+                \equals{SortS{}, R}(
+                    unary{}(X:SortS{}),
+                    \and{SortS{}}(
+                        result{}(),
+                        \ceil{SortS{}, SortS{}}(a{}())
+                    )
+                )
+            ) [
+                label{}("disjunctive-binder"),
+                priority{}("17"),
+                org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(fixture.k)"),
+                org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,7,2)")
+            ]"#,
+        )
+        .expect("each binder disjunct should produce a function rule");
+
+        assert_eq!(
+            function_lhs_argument_names(&rules),
+            vec![vec![String::from("a")], vec![String::from("b")]]
+        );
+        let first = match &rules[0] {
+            InternalizedRule::Term(_, rule) => rule,
+            InternalizedRule::Predicate(_) => unreachable!(),
+        };
+        let second = match &rules[1] {
+            InternalizedRule::Term(_, rule) => rule,
+            InternalizedRule::Predicate(_) => unreachable!(),
+        };
+        assert_eq!(first.rhs, second.rhs);
+        assert_eq!(first.requires, second.requires);
+        assert_eq!(first.ensures, second.ensures);
+        assert_eq!(first.requires.len(), 1);
+        assert_eq!(first.ensures.len(), 1);
+        assert_eq!(first.attributes, second.attributes);
+        assert_eq!(first.attributes.priority, 17);
+        assert_eq!(first.attributes.unique_id, "disjunctive-binder");
+        assert_eq!(
+            first.attributes.source.as_deref(),
+            Some("Source(fixture.k)")
+        );
+        assert_eq!(
+            first.attributes.location.as_deref(),
+            Some("Location(3,1,7,2)")
+        );
+    }
+
+    #[test]
+    fn expands_nested_disjuncts_across_independent_function_binders() {
+        let rules = internalize_function(
+            r#"axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortS{}, R}(
+                            X:SortS{},
+                            \or{SortS{}}(a{}(), \or{SortS{}}(b{}(), c{}()))
+                        ),
+                        \and{R}(
+                            \in{SortS{}, R}(
+                                Y:SortS{},
+                                \or{SortS{}}(d{}(), e{}())
+                            ),
+                            \top{R}()
+                        )
+                    )
+                ),
+                \equals{SortS{}, R}(
+                    binary{}(X:SortS{}, Y:SortS{}),
+                    \and{SortS{}}(result{}(), \top{SortS{}}())
+                )
+            ) [label{}("binder-product")]"#,
+        )
+        .expect("nested binder disjuncts should form a Cartesian product");
+
+        assert_eq!(
+            function_lhs_argument_names(&rules),
+            vec![
+                vec![String::from("a"), String::from("d")],
+                vec![String::from("a"), String::from("e")],
+                vec![String::from("b"), String::from("d")],
+                vec![String::from("b"), String::from("e")],
+                vec![String::from("c"), String::from("d")],
+                vec![String::from("c"), String::from("e")],
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_a_wrong_sort_in_a_disjunctive_function_binder() {
+        let error = internalize_function(
+            r#"axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortS{}, R}(
+                            X:SortS{},
+                            \or{SortS{}}(a{}(), other{}())
+                        ),
+                        \top{R}()
+                    )
+                ),
+                \equals{SortS{}, R}(
+                    unary{}(X:SortS{}),
+                    \and{SortS{}}(result{}(), \top{SortS{}}())
+                )
+            ) [label{}("wrong-sort-disjunct")]"#,
+        )
+        .expect_err("every disjunct must match the binder variable sort");
+
+        assert!(matches!(
+            error,
+            DefinitionError::RulePattern(RulePatternError::BinderSortMismatch(variable))
+                if variable.name.as_ref() == "X"
+        ));
+    }
+
+    #[test]
+    fn rejects_disjunction_nested_below_a_binder_term_head() {
+        let error = internalize_function(
+            r#"axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortS{}, R}(
+                            X:SortS{},
+                            wrap{}(\or{SortS{}}(a{}(), b{}()))
+                        ),
+                        \top{R}()
+                    )
+                ),
+                \equals{SortS{}, R}(
+                    unary{}(X:SortS{}),
+                    \and{SortS{}}(result{}(), \top{SortS{}}())
+                )
+            ) [label{}("nested-term-or")]"#,
+        )
+        .expect_err("only a binder's top-level disjunction is admissible");
+
+        assert_eq!(error, DefinitionError::ExpectedTerm("or"));
     }
 
     #[test]
