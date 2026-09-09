@@ -5262,6 +5262,218 @@ fn pattern01a_cell_sentence_reports_only_minted_dot_variables_and_preserves_sour
 }
 
 #[test]
+fn close_cells_parent_first_keeps_outer_placeholder_identity() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top> <k> 0 </k> </top>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let sentence = Sentence::Rule {
+        body: application(
+            "<k>",
+            vec![Term::Token {
+                token: "0".into(),
+                sort: Sort::new("Int"),
+            }],
+        ),
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+
+    let (sentence, generated) = concretize_cells_in_sentence(&resolved, "MAIN", sentence).unwrap();
+    assert_eq!(
+        generated,
+        BTreeSet::from([
+            GeneratedVariableIdentity::element("_DotVar0"),
+            GeneratedVariableIdentity::element("_DotVar1"),
+        ])
+    );
+    let Sentence::Rule { body, .. } = sentence else {
+        unreachable!()
+    };
+    let mut occurring = BTreeSet::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Variable { name, .. } = term.unannotated()
+            && name.starts_with("_DotVar")
+        {
+            occurring.insert(name.clone());
+        }
+    });
+    assert_eq!(occurring, BTreeSet::from(["_DotVar0".to_owned()]));
+}
+
+#[test]
+fn close_cells_parent_first_across_three_nested_parents() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <outer> <middle> <k> 0 </k> </middle> </outer>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let sentence = Sentence::Rule {
+        body: application(
+            "<k>",
+            vec![Term::Token {
+                token: "0".into(),
+                sort: Sort::new("Int"),
+            }],
+        ),
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+
+    let (sentence, generated) = concretize_cells_in_sentence(&resolved, "MAIN", sentence).unwrap();
+    assert_eq!(
+        generated,
+        BTreeSet::from([
+            GeneratedVariableIdentity::element("_DotVar0"),
+            GeneratedVariableIdentity::element("_DotVar1"),
+            GeneratedVariableIdentity::element("_DotVar2"),
+        ])
+    );
+    let Sentence::Rule { body, .. } = sentence else {
+        unreachable!()
+    };
+    let mut occurring = BTreeSet::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Variable { name, .. } = term.unannotated()
+            && name.starts_with("_DotVar")
+        {
+            occurring.insert(name.clone());
+        }
+    });
+    assert_eq!(occurring, BTreeSet::from(["_DotVar0".to_owned()]));
+}
+
+#[test]
+fn close_cells_parent_first_reserves_authored_dot_variable_names() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top> <k> 0 </k> </top>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let sentence = Sentence::Rule {
+        body: application(
+            "<k>",
+            vec![Term::Token {
+                token: "0".into(),
+                sort: Sort::new("Int"),
+            }],
+        ),
+        requires: application("uses", vec![Term::variable("_DotVar0")]),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+
+    let (sentence, generated) = concretize_cells_in_sentence(&resolved, "MAIN", sentence).unwrap();
+    assert_eq!(
+        generated,
+        BTreeSet::from([
+            GeneratedVariableIdentity::element("_DotVar1"),
+            GeneratedVariableIdentity::element("_DotVar2"),
+        ])
+    );
+    let Sentence::Rule { body, .. } = sentence else {
+        unreachable!()
+    };
+    let mut occurring = BTreeSet::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Variable { name, .. } = term.unannotated()
+            && name.starts_with("_DotVar")
+        {
+            occurring.insert(name.clone());
+        }
+    });
+    assert_eq!(occurring, BTreeSet::from(["_DotVar1".to_owned()]));
+    assert!(!generated.contains(&GeneratedVariableIdentity::element("_DotVar0")));
+}
+
+#[test]
+fn close_cells_parent_first_preserves_rewrite_rhs_defaults() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top> <k> 0 </k> </top>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let open_top = || {
+        application(
+            "<top>",
+            vec![
+                application("#dots", Vec::new()),
+                application("#cells", Vec::new()),
+                application("#dots", Vec::new()),
+            ],
+        )
+    };
+    let sentence = Sentence::Rule {
+        body: rewrite(open_top(), open_top()),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attributes(&[("anywhere", json!(""))]),
+    };
+
+    let (sentence, generated) = concretize_cells_in_sentence(&resolved, "MAIN", sentence).unwrap();
+    assert_eq!(
+        generated,
+        BTreeSet::from([GeneratedVariableIdentity::element("_DotVar0")])
+    );
+    let Sentence::Rule { body, .. } = sentence else {
+        unreachable!()
+    };
+    let Term::Rewrite { left, right } = body.unannotated() else {
+        panic!(
+            "expected a rewrite, found {}",
+            Printer::new().print_term(&body)
+        );
+    };
+    let mut left_variables = BTreeSet::new();
+    left.visit_preorder(&mut |term| {
+        if let Term::Variable { name, .. } = term.unannotated() {
+            left_variables.insert(name.clone());
+        }
+    });
+    let mut right_variables = BTreeSet::new();
+    let mut right_labels = BTreeSet::new();
+    right.visit_preorder(&mut |term| match term.unannotated() {
+        Term::Variable { name, .. } => {
+            right_variables.insert(name.clone());
+        }
+        Term::Apply { label, .. } => {
+            right_labels.insert(label.name.clone());
+        }
+        _ => {}
+    });
+    assert_eq!(left_variables, BTreeSet::from(["_DotVar0".to_owned()]));
+    assert!(right_variables.is_empty(), "{right_variables:#?}");
+    assert!(right_labels.contains("initKCell"), "{right_labels:#?}");
+}
+
+#[test]
 fn pattern01a_cell_sentence_failure_retains_original_diagnostic_source() {
     let source = indoc! {r#"
         module MAIN

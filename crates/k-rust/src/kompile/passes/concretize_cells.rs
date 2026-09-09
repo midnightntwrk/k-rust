@@ -906,23 +906,22 @@ impl<'a> Concretizer<'a> {
                 right: Box::new(self.close(*right, true)?),
             },
             Term::Apply { label, arguments } => {
-                let application = Term::Apply {
+                let mut application = Term::Apply {
                     label: label.clone(),
                     arguments,
                 };
                 if let Some(cell) = self.model.cell_for_label(&label) {
-                    self.close_cell(application, cell, on_rhs)?
-                } else {
-                    let Term::Apply { label, arguments } = application else {
-                        unreachable!()
-                    };
-                    Term::Apply {
-                        label,
-                        arguments: arguments
-                            .into_iter()
-                            .map(|argument| self.close(argument, on_rhs))
-                            .collect::<Result<_, _>>()?,
-                    }
+                    application = self.close_cell(application, cell, on_rhs)?;
+                }
+                let Term::Apply { label, arguments } = application else {
+                    unreachable!()
+                };
+                Term::Apply {
+                    label,
+                    arguments: arguments
+                        .into_iter()
+                        .map(|argument| self.close(argument, on_rhs))
+                        .collect::<Result<_, _>>()?,
                 }
             }
             Term::As { pattern, alias } => Term::As {
@@ -946,20 +945,10 @@ impl<'a> Concretizer<'a> {
             unreachable!()
         };
         if self.complete_cell_arguments(&arguments, cell) {
-            return Ok(Term::Apply {
-                label,
-                arguments: arguments
-                    .into_iter()
-                    .map(|argument| self.close(argument, on_rhs))
-                    .collect::<Result<_, _>>()?,
-            });
+            return Ok(Term::Apply { label, arguments });
         }
         let (open_left, body, open_right) = incomplete_parts(&arguments)?;
-        let contents = flatten_cells(body)
-            .into_iter()
-            .cloned()
-            .map(|item| self.close(item, on_rhs))
-            .collect::<Result<Vec<_>, _>>()?;
+        let contents = flatten_cells(body).into_iter().cloned().collect::<Vec<_>>();
         if !cell.children.is_empty() {
             let required = |side_right: bool| {
                 let mut required = cell
