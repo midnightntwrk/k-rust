@@ -86,6 +86,7 @@ pub enum SymbolType {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SymbolAttributes {
     pub symbol_type: SymbolType,
+    pub binder: bool,
     pub injective: bool,
     pub associative: bool,
     pub idempotent: bool,
@@ -100,6 +101,7 @@ impl SymbolAttributes {
     pub fn constructor() -> Self {
         Self {
             symbol_type: SymbolType::Constructor,
+            binder: false,
             injective: false,
             associative: false,
             idempotent: false,

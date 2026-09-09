@@ -3216,6 +3216,7 @@ mod tests {
             result_sort: sort(),
             attributes: SymbolAttributes {
                 symbol_type: SymbolType::Function(FunctionType::Total),
+                binder: false,
                 injective: false,
                 associative: false,
                 idempotent: false,

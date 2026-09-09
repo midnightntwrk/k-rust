@@ -228,6 +228,32 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
     }
 }
 
+#[test]
+fn substitution_hooks_have_an_enforced_external_capability_classification() {
+    let declared = declared_hooks(["substitution.md"]);
+    let subst_one = &declared["SUBSTITUTION.substOne"];
+    assert_eq!(subst_one.kind, DeclaredHookKind::Production);
+    assert_eq!(subst_one.arities, BTreeSet::from([3]));
+    assert!(matches!(
+        evaluate_hook("SUBSTITUTION.substOne", &vec![dummy_term(); 4]),
+        Err(BuiltinError::WrongArity {
+            expected: 3,
+            actual: 4,
+            ..
+        })
+    ));
+
+    let subst_many = &declared["SUBSTITUTION.substMany"];
+    assert_eq!(subst_many.kind, DeclaredHookKind::Production);
+    assert_eq!(subst_many.arities, BTreeSet::from([2]));
+    assert_eq!(
+        evaluate_hook("SUBSTITUTION.substMany", &vec![dummy_term(); 2]),
+        Ok(BuiltinResult::Unsupported(
+            k_rust_backend::builtin::UnsupportedHookReason::NotImplemented
+        ))
+    );
+}
+
 fn dummy_term() -> Term {
     Term::domain_value(Sort::simple("SortCapabilityAuditDummy"), "dummy")
 }
@@ -246,7 +272,11 @@ fn assert_disjoint(
 }
 
 fn declared_prelude_hooks() -> BTreeMap<String, DeclaredHook> {
-    let mut pending = vec!["prelude.md".to_owned()];
+    declared_hooks(["prelude.md"])
+}
+
+fn declared_hooks<'a>(roots: impl IntoIterator<Item = &'a str>) -> BTreeMap<String, DeclaredHook> {
+    let mut pending = roots.into_iter().map(str::to_owned).collect::<Vec<_>>();
     let mut visited = BTreeSet::new();
     let mut hooks = BTreeMap::<String, DeclaredHook>::new();
     while let Some(name) = pending.pop() {

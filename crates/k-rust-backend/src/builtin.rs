@@ -12,8 +12,10 @@ mod list;
 mod map;
 mod set;
 mod string;
+mod substitution;
 
 use crate::{
+    definition::BackendDefinition,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
     term::{Sort, SymbolType, Term, TermKind},
     timeout::interruption_requested,
@@ -109,14 +111,33 @@ pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
 
 pub(crate) fn evaluate_in_definition(
     term: &Term,
-    sort_graph: &SortGraph,
+    definition: &BackendDefinition,
 ) -> Result<BuiltinResult, BuiltinError> {
-    evaluate_with_sort_graph(term, Some(sort_graph))
+    evaluate_with_definition(term, Some(definition))
 }
 
 fn evaluate_with_sort_graph(
     term: &Term,
     sort_graph: Option<&SortGraph>,
+) -> Result<BuiltinResult, BuiltinError> {
+    evaluate_with_context(term, sort_graph, None)
+}
+
+fn evaluate_with_definition(
+    term: &Term,
+    definition: Option<&BackendDefinition>,
+) -> Result<BuiltinResult, BuiltinError> {
+    evaluate_with_context(
+        term,
+        definition.map(|definition| &definition.sort_graph),
+        definition,
+    )
+}
+
+fn evaluate_with_context(
+    term: &Term,
+    sort_graph: Option<&SortGraph>,
+    definition: Option<&BackendDefinition>,
 ) -> Result<BuiltinResult, BuiltinError> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -128,7 +149,7 @@ fn evaluate_with_sort_graph(
         return Ok(BuiltinResult::NotApplicable);
     };
     let result_sort = term.sort();
-    evaluate_hook_with_sort(hook, arguments, Some(&result_sort), sort_graph)
+    evaluate_hook_with_context(hook, arguments, Some(&result_sort), sort_graph, definition)
 }
 
 /// Hook namespaces this backend dispatches beyond K's fixed builtin set.
@@ -138,14 +159,15 @@ fn evaluate_with_sort_graph(
 pub const PLUGIN_HOOK_NAMESPACES: [&str; 3] = ["KRYPTO", "HASH", "SECP256K1"];
 
 pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
-    evaluate_hook_with_sort(hook, arguments, None, None)
+    evaluate_hook_with_context(hook, arguments, None, None, None)
 }
 
-fn evaluate_hook_with_sort(
+fn evaluate_hook_with_context(
     hook: &str,
     arguments: &[Term],
     result_sort: Option<&Sort>,
     sort_graph: Option<&SortGraph>,
+    definition: Option<&BackendDefinition>,
 ) -> Result<BuiltinResult, BuiltinError> {
     check_interrupted()?;
     match hook {
@@ -203,6 +225,9 @@ fn evaluate_hook_with_sort(
         }
         hook if hook.starts_with("STRING.") => {
             return string::evaluate(hook, arguments, result_sort);
+        }
+        hook if hook.starts_with("SUBSTITUTION.") => {
+            return substitution::evaluate(hook, arguments, definition);
         }
         _ => {
             return Ok(BuiltinResult::Unsupported(
@@ -783,6 +808,7 @@ mod tests {
                 result_sort,
                 attributes: SymbolAttributes {
                     symbol_type: SymbolType::Function(FunctionType::Total),
+                    binder: false,
                     injective: false,
                     associative: false,
                     idempotent: false,

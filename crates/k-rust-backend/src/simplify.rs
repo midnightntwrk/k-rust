@@ -1897,8 +1897,7 @@ fn simplify_root(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
-    let builtin =
-        evaluate_builtin(term, &definition.sort_graph).map_err(SimplificationError::Builtin)?;
+    let builtin = evaluate_builtin(term, definition).map_err(SimplificationError::Builtin)?;
     let unsupported = match builtin {
         BuiltinResult::NotApplicable => None,
         BuiltinResult::Unsupported(reason) => Some(reason),

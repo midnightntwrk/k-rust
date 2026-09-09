@@ -1930,6 +1930,7 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
     };
     Ok(SymbolAttributes {
         symbol_type,
+        binder: has_attribute(attributes, "binder"),
         injective: has_attribute(attributes, "injective"),
         associative: has_attribute(attributes, "assoc"),
         idempotent: has_attribute(attributes, "idem"),
@@ -2292,6 +2293,26 @@ mod tests {
     use crate::term::TermKind;
 
     use super::*;
+
+    #[test]
+    fn retains_binder_attribute() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortKVar{} []
+                sort SortExp{} []
+                symbol lambda{}(SortKVar{}, SortExp{}) : SortExp{}
+                    [constructor{}(), binder{}()]
+                symbol apply{}(SortExp{}, SortExp{}) : SortExp{} [constructor{}()]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+
+        assert!(definition.symbols["lambda"].attributes.binder);
+        assert!(!definition.symbols["apply"].attributes.binder);
+    }
 
     fn assert_haskell_pattern_order(left: &str, right: &str, expected: Ordering) {
         let left = parse_pattern(left).expect("left pattern should parse");
