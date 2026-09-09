@@ -1497,8 +1497,9 @@ reason = "The accepted compilation and proof measurements match under the same i
 
 [[case]]
 name = "kprove-markdown"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "kprove"
+accepted_basis = "Complete pinned two-stage compilation and proof comparison pass after expanding top-level disjunctions in function argument binders; both SET-BALANCE-SPEC claims are proven with zero unexplored states, agreeing with the pinned #Top reference verdict."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
