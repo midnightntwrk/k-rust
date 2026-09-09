@@ -832,6 +832,12 @@ def do_krun(case, rec, search_file=False):
     extra = []
     kore_output = False
     completion_only = False
+    pattern_values = opts.get("--pattern", [])
+    pattern_is_valid = len(pattern_values) == 1 and "--search-pattern" not in opts
+    if len(pattern_values) > 1:
+        unsupported.append("repeated --pattern")
+    if pattern_values and "--search-pattern" in opts:
+        unsupported.append("--pattern conflicts with --search-pattern")
     for f in flags:
         if f in ("--search",): extra.append("--search-final")
         elif f in ("--search-all", "--search-final", "--search-one-step", "--search-one-or-more-steps"): extra.append(f)
@@ -844,6 +850,8 @@ def do_krun(case, rec, search_file=False):
         if k == "--depth": extra += ["--depth", v]
         elif k == "--bound": extra += ["--search-bound", v]
         elif k == "--io": extra += ["--io", v]
+        elif k == "--pattern":
+            if pattern_is_valid: extra += ["--pattern", v]
         elif k == "-c":
             for c in vs: extra += ["-c", c]
         elif k in ("--output", "-o"):

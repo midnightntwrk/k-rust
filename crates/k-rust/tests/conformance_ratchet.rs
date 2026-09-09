@@ -603,6 +603,101 @@ print(json.dumps({
     }
 }
 
+#[test]
+fn conformance_driver_forwards_krun_pattern_projection() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+captured = []
+def fake_run(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
+    args = run.krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
+    captured.append(args)
+    return args, 0, "\\top{SortGeneratedTopCell{}}()", "", 0.0, False
+run.run_krust_program = fake_run
+
+def probe(arguments):
+    root = tempfile.mkdtemp()
+    case = run.Case("pattern-projection")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "reference-kompiled")
+    case.def_file = "test.k"
+    case.main_module = "TEST"
+    case.syntax_module = "TEST-SYNTAX"
+    case.pgm_sort = "KItem"
+    before = len(captured)
+    recipe = run.split_recipe("/kbin/krun " + arguments)
+    step = run.do_krun(case, recipe)
+    return {
+        "args": captured[-1] if len(captured) != before else None,
+        "verdict": step["verdict"],
+        "reason": step.get("reason"),
+    }
+
+pattern = "<tasks> $(echo must-not-run) ; .Bag </tasks>"
+print(json.dumps({
+    "plain": probe("program"),
+    "pattern": probe("program --pattern " + repr(pattern)),
+    "search": probe("program --search-final --pattern " + repr(pattern)),
+    "repeated": probe("program --pattern first --pattern second"),
+    "mixed": probe("program --search-final --pattern surface --search-pattern target.kore"),
+    "pattern_value": pattern,
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let arguments = |name: &str| -> Vec<&str> {
+        probes[name]["args"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{name} did not invoke krust: {probes}"))
+            .iter()
+            .map(|argument| argument.as_str().unwrap())
+            .collect()
+    };
+    let plain = arguments("plain");
+    let pattern = arguments("pattern");
+    assert_eq!(
+        pattern[..plain.len()],
+        plain,
+        "--pattern must not change the base krust argv"
+    );
+    assert_eq!(
+        &pattern[plain.len()..],
+        ["--pattern", probes["pattern_value"].as_str().unwrap()]
+    );
+    let search = arguments("search");
+    assert_eq!(
+        &search[plain.len()..],
+        [
+            "--search-final",
+            "--pattern",
+            probes["pattern_value"].as_str().unwrap(),
+        ]
+    );
+    for invalid in ["repeated", "mixed"] {
+        assert!(probes[invalid]["args"].is_null(), "{invalid}: {probes}");
+        assert_eq!(
+            probes[invalid]["verdict"].as_str(),
+            Some("krust-unsupported"),
+            "{invalid}: {probes}"
+        );
+    }
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),
