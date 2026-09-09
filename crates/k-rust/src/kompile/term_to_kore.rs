@@ -10,7 +10,7 @@ use crate::definition::{
 use crate::kast::{self, Label, Sort, Term};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
 
-use super::fresh_names::is_generated_anonymous;
+use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use super::module_to_kore::{encode_kore_identifier, encode_kore_label};
 
 /// A failure to recover information required by KORE from the compact public KAST.
@@ -120,6 +120,7 @@ pub struct TermConverter<'a> {
     sorts: SortCatalog<'a>,
     subsorts: PartialOrder<Sort>,
     sort_variables: BTreeSet<String>,
+    generated_anonymous: Option<BTreeSet<GeneratedVariableIdentity>>,
 }
 
 impl<'a> TermConverter<'a> {
@@ -138,7 +139,21 @@ impl<'a> TermConverter<'a> {
             sorts: definition.sort_catalog(module),
             subsorts,
             sort_variables: BTreeSet::new(),
+            generated_anonymous: None,
         })
+    }
+
+    /// Convert ML binders using exact allocation-site provenance for generated anonymous
+    /// variables. The ordinary constructor retains the legacy spelling-based behavior required by
+    /// whole-definition emission.
+    pub fn new_with_generated_anonymous(
+        definition: &'a ResolvedDefinition,
+        module: &str,
+        generated: &BTreeSet<GeneratedVariableIdentity>,
+    ) -> Result<Self, TermConversionError> {
+        let mut converter = Self::new(definition, module)?;
+        converter.generated_anonymous = Some(generated.clone());
+        Ok(converter)
     }
 
     /// Treat the supplied K sort names as KORE sort variables during conversion.
@@ -317,7 +332,7 @@ impl<'a> TermConverter<'a> {
             });
         };
         let result_sort = self.parameter(label, label.parameters.len().saturating_sub(1))?;
-        if self.is_ml_binder(label) && is_generated_anonymous(name) {
+        if self.is_ml_binder(label) && self.is_anonymous(name) {
             let mut seen = BTreeSet::new();
             let mut variables = Vec::new();
             self.collect_anonymous_variables(&arguments[1], &mut seen, &mut variables)?;
@@ -371,6 +386,20 @@ impl<'a> TermConverter<'a> {
                 .is_some_and(|attributes| attributes.get("mlBinder").is_some())
     }
 
+    fn is_anonymous(&self, name: &str) -> bool {
+        self.generated_anonymous.as_ref().map_or_else(
+            || is_generated_anonymous(name),
+            |generated| {
+                let identity = if name.starts_with('@') {
+                    GeneratedVariableIdentity::set(name)
+                } else {
+                    GeneratedVariableIdentity::element(name)
+                };
+                generated.contains(&identity)
+            },
+        )
+    }
+
     fn collect_anonymous_variables(
         &self,
         term: &Term,
@@ -379,7 +408,7 @@ impl<'a> TermConverter<'a> {
     ) -> Result<(), TermConversionError> {
         match term.unannotated() {
             Term::Variable { name, sort } => {
-                if is_generated_anonymous(name) && seen.insert(name.clone()) {
+                if self.is_anonymous(name) && seen.insert(name.clone()) {
                     variables.push((name.clone(), sort.clone()));
                 }
             }
@@ -388,7 +417,7 @@ impl<'a> TermConverter<'a> {
                     && arguments.first().is_some_and(|argument| {
                         matches!(
                             argument.unannotated(),
-                            Term::Variable { name, .. } if is_generated_anonymous(name)
+                            Term::Variable { name, .. } if self.is_anonymous(name)
                         )
                     })
                 {

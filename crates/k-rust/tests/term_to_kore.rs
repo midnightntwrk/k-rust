@@ -1,8 +1,12 @@
+use std::collections::BTreeSet;
+
 use indoc::indoc;
 use k_rust::definition::{Definition, LabelHead, ResolvedDefinition, Sentence};
 use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
-use k_rust::kompile::{TermConversionError, TermConverter, term_to_kore};
+use k_rust::kompile::{
+    GeneratedVariableIdentity, TermConversionError, TermConverter, term_to_kore,
+};
 use k_rust::kore::parser::parse_pattern;
 use k_rust::kore::printer::Printer;
 use k_rust::outer;
@@ -224,6 +228,49 @@ fn named_binders_keep_the_single_variable_translation() {
     assert_eq!(
         convert_handbuilt(&term).unwrap(),
         "\\exists{SortBool{}}(VarX:SortInt{}, Lblp{}(VarX:SortInt{}))"
+    );
+}
+
+#[test]
+fn exact_mode_keeps_user_gen0_as_a_named_binder() {
+    let term = anonymous_quantifier(
+        "#Exists",
+        Term::apply("p", vec![sorted_variable("_Gen1", "Int")]),
+    );
+    let definition = lowered("module MAIN\nendmodule");
+    let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+    let generated = BTreeSet::from([GeneratedVariableIdentity::element("_Gen1")]);
+    let converted = TermConverter::new_with_generated_anonymous(&resolved, "MAIN", &generated)
+        .unwrap()
+        .convert(&term)
+        .unwrap();
+
+    assert_eq!(
+        Printer::compact().print_pattern(&converted),
+        "\\exists{SortBool{}}(Var'Unds'Gen0:SortInt{}, Lblp{}(Var'Unds'Gen1:SortInt{}))"
+    );
+}
+
+#[test]
+fn exact_mode_treats_minted_gen0_as_an_anonymous_binder() {
+    let term = anonymous_quantifier(
+        "#Exists",
+        Term::apply("p", vec![sorted_variable("_Gen1", "Int")]),
+    );
+    let definition = lowered("module MAIN\nendmodule");
+    let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+    let generated = BTreeSet::from([
+        GeneratedVariableIdentity::element("_Gen0"),
+        GeneratedVariableIdentity::element("_Gen1"),
+    ]);
+    let converted = TermConverter::new_with_generated_anonymous(&resolved, "MAIN", &generated)
+        .unwrap()
+        .convert(&term)
+        .unwrap();
+
+    assert_eq!(
+        Printer::compact().print_pattern(&converted),
+        "\\exists{SortBool{}}(Var'Unds'Gen1:SortInt{}, Lblp{}(Var'Unds'Gen1:SortInt{}))"
     );
 }
 
