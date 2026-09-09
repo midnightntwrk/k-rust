@@ -523,14 +523,14 @@ fn every_gate_normalisation_is_registered() {
         .iter()
         .map(|row| row["id"].as_str().expect("normalisation id"))
         .collect::<BTreeSet<_>>();
-    let expected = (1..=23)
+    let expected = (1..=24)
         .filter(|id| *id != 2)
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1 and N3 through N23; global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1 and N3 through N24; global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()

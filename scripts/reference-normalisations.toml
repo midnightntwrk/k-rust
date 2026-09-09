@@ -41,17 +41,23 @@ anchor_helpers = [
   "compare_paired_constraints",
   "constraint_variable_renamings",
   "canonicalize_quantifier_chains",
+  "alpha_normalize_bound_variables",
+  "is_canonical_free_name",
 ]
-rule = "Rename generated variables by the first-occurrence index of each original name, preserving each variable's sort and distinct-name multiplicity. Definitions rename the frontend's Var'Unds'<stem>N names and keep the stem. Execution results rename, in a canonical traversal (term first, conjuncts in name-erased order, quantifier chains by renamed binder), the Var'Unds'<stem>N names, the NewUnifier's VarAC<n>'Unds'<counter> remainder, the port's externalized Ex/Eq/Rule marker names and, when K_DIFFERENTIAL_INITIAL_PATTERN names the initial pattern, every variable that is not free in it (rule variables Kore leaves free in a result)."
+rule = "Alpha-normalize bound variables independently in each scope. Rename remaining generated variables by the first-occurrence index of each original name, preserving each variable's sort and distinct-name multiplicity. Definitions rename the frontend's Var'Unds'<stem>N names and keep the stem. Execution results rename, in a canonical traversal (term first, conjuncts in name-erased order, quantifier chains by renamed binder), the Var'Unds'<stem>N names, the NewUnifier's VarAC<n>'Unds'<counter> remainder, the port's externalized Ex/Eq/Rule marker names and, when K_DIFFERENTIAL_INITIAL_PATTERN names the initial pattern, every variable that is not free in it (rule variables Kore leaves free in a result)."
 justification = "Alpha-renaming is irrelevant, but collapsing two names into one changes the pattern; the reference and the port choose different names for the same rule and remainder variables (VarAC1'Unds'1 versus ExFrame0, VarI versus ExVarI0), and only the initial pattern's variables are names both engines share."
 
 [[normalisation]]
 id = "N5"
-gate = "compile"
+gate = "compile and execution"
 anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_existentials"
 anchor_symbol = "canonicalize_existentials"
-anchor_helpers = ["canonicalize_attributes", "canonicalize_pattern"]
-rule = "Sort same-kind existential and universal binder chains by canonical variable identity, sort, and kind."
+anchor_helpers = [
+  "canonicalize_attributes",
+  "canonicalize_pattern",
+  "canonicalize_commuting_quantifier_chains",
+]
+rule = "For compiled definitions, sort same-kind existential and universal binder chains by canonical variable identity, sort, and kind before alpha-normalizing each scope. For execution results, enumerate blocks whose permutation count is at most 24, preserve the binding identity of every candidate, alpha-normalize each candidate, and retain the structurally least representative; larger blocks retain their original order and can only cause a conservative comparison failure."
 justification = "The reference emits binders from unordered Scala sets."
 
 [[normalisation]]
@@ -217,7 +223,7 @@ id = "N21"
 gate = "execution, symbolic execution, and MIR execution"
 anchor = "crates/k-rust/tests/reference_differential.rs:normalize_conjunctions"
 anchor_symbol = "normalize_conjunctions"
-rule = "Flatten nested same-sort conjunctions of a result disjunct and drop duplicated conjuncts before splitting it into term and constraints."
+rule = "Flatten and structurally order nested same-sort conjunctions of a result disjunct, then drop duplicated conjuncts before splitting it into term and constraints. Quantifier-block candidates are alpha-normalized before their conjunctions are ordered."
 justification = "Kore prints a rewritten branch as \\and(\\and(term, predicate), substitution) with right-nested predicate conjunctions that repeat the AC solution's in_keys condition; conjunction is associative, commutative and idempotent."
 
 [[normalisation]]
@@ -241,3 +247,11 @@ anchor_helpers = [
 ]
 rule = "Collapse every generated `#lambda<h1>_<h2>_<n>` symbol of a multi-suffix family onto the family's unsuffixed name, in declarations and uses alike, and ignore UNIQUE_ID only for the axioms that mention such a family; single-suffix hints keep their identity. The collapsed axiom count is printed per case."
 justification = "ResolveFun.getUniqueLambdaLabel numbers identical hints in `stream(m.localSentences())` order, a Scala HashSet order over sentence hashes that include the Source path, and the pinned reference assigns the suffixes differently from two checkout paths (issue-1528, let-test, record-llvm); the port keeps deterministic declaration order. The collapsed sentence multiset still compares every lambda's signature and rule body; docs/compatibility.md#comparison-contract records the scope and tradeoff."
+
+[[normalisation]]
+id = "N24"
+gate = "execution, symbolic execution, and MIR execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_execution_equalities"
+anchor_symbol = "normalize_execution_equalities"
+rule = "Order the operands of ML equality. Rewrite equality of the generated total `LblisKResult` predicate with false as the negation of its equality with true."
+justification = "ML equality is symmetric, and generated isKResult has a total two-valued SortBool result. The reference and the port choose different but equivalent orientations when they externalize residual isKResult conditions; arbitrary SortBool patterns remain unchanged because they may be partial."

@@ -667,6 +667,171 @@ fn execution_normalizer_reassociates_map_concatenation() {
 }
 
 #[test]
+fn execution_normalizer_alpha_normalizes_each_bound_scope() {
+    let initial = parse_pattern("t{}()").unwrap();
+    let reference = parse_pattern(
+        r"\and{S{}}(
+            t{}(),
+            \not{S{}}(\exists{S{}}(VarX:T{}, \equals{T{}, S{}}(VarX:T{}, a{}()))),
+            \not{S{}}(\exists{S{}}(VarX:T{}, \equals{T{}, S{}}(VarX:T{}, b{}())))
+        )",
+    )
+    .unwrap();
+    let actual = parse_pattern(
+        r"\and{S{}}(
+            t{}(),
+            \not{S{}}(\exists{S{}}(VarY:T{}, \equals{T{}, S{}}(VarY:T{}, a{}()))),
+            \not{S{}}(\exists{S{}}(VarZ:T{}, \equals{T{}, S{}}(VarZ:T{}, b{}())))
+        )",
+    )
+    .unwrap();
+
+    assert_eq!(
+        normalize_execution_pattern_fixing(reference, &initial),
+        normalize_execution_pattern_fixing(actual, &initial)
+    );
+}
+
+#[test]
+fn execution_normalizer_commutes_existential_binder_chains() {
+    let initial = parse_pattern("t{}()").unwrap();
+    let reference = parse_pattern(
+        r"\and{S{}}(t{}(), \exists{S{}}(VarX:T{}, \exists{S{}}(VarY:U{}, f{}(VarX:T{}, VarY:U{}))))",
+    )
+    .unwrap();
+    let actual = parse_pattern(
+        r"\and{S{}}(t{}(), \exists{S{}}(VarY:U{}, \exists{S{}}(VarX:T{}, f{}(VarX:T{}, VarY:U{}))))",
+    )
+    .unwrap();
+
+    assert_eq!(
+        normalize_execution_pattern_fixing(reference, &initial),
+        normalize_execution_pattern_fixing(actual, &initial)
+    );
+}
+
+#[test]
+fn execution_normalizer_commutes_same_sort_binders_while_preserving_their_roles() {
+    let initial = parse_pattern("t{}()").unwrap();
+    let reference = parse_pattern(
+        r"\and{S{}}(
+            t{}(),
+            \exists{S{}}(VarFirst:T{}, \exists{S{}}(VarSecond:T{},
+                \and{S{}}(
+                    \equals{T{}, S{}}(k{}(), op{}(VarFirst:T{}, VarSecond:T{})),
+                    q{}(VarSecond:T{})
+                )
+            ))
+        )",
+    )
+    .unwrap();
+    let actual = parse_pattern(
+        r"\and{S{}}(
+            t{}(),
+            \exists{S{}}(VarTested:T{}, \exists{S{}}(VarOther:T{},
+                \and{S{}}(
+                    q{}(VarTested:T{}),
+                    \equals{T{}, S{}}(op{}(VarOther:T{}, VarTested:T{}), k{}())
+                )
+            ))
+        )",
+    )
+    .unwrap();
+
+    assert_eq!(
+        normalize_execution_pattern_fixing(reference, &initial),
+        normalize_execution_pattern_fixing(actual, &initial)
+    );
+}
+
+#[test]
+fn execution_normalizer_does_not_exchange_bound_variable_roles() {
+    let initial = parse_pattern("t{}()").unwrap();
+    let reference = parse_pattern(
+        r"\and{S{}}(
+            t{}(),
+            \exists{S{}}(VarFirst:T{}, \exists{S{}}(VarSecond:T{},
+                \and{S{}}(
+                    \equals{T{}, S{}}(k{}(), op{}(VarFirst:T{}, VarSecond:T{})),
+                    q{}(VarSecond:T{})
+                )
+            ))
+        )",
+    )
+    .unwrap();
+    let changed_role = parse_pattern(
+        r"\and{S{}}(
+            t{}(),
+            \exists{S{}}(VarFirst:T{}, \exists{S{}}(VarSecond:T{},
+                \and{S{}}(
+                    \equals{T{}, S{}}(k{}(), op{}(VarFirst:T{}, VarSecond:T{})),
+                    q{}(VarFirst:T{})
+                )
+            ))
+        )",
+    )
+    .unwrap();
+
+    assert_ne!(
+        normalize_execution_pattern_fixing(reference, &initial),
+        normalize_execution_pattern_fixing(changed_role, &initial)
+    );
+}
+
+#[test]
+fn execution_normalizer_canonicalizes_equalities_and_boolean_false() {
+    let reference = parse_pattern(
+        r#"\and{S{}}(
+            t{}(),
+            \equals{T{}, S{}}(b{}(), a{}()),
+            \equals{SortBool{}, S{}}(\dv{SortBool{}}("false"), LblisKResult{}(x{}()))
+        )"#,
+    )
+    .unwrap();
+    let actual = parse_pattern(
+        r#"\and{S{}}(
+            t{}(),
+            \equals{T{}, S{}}(a{}(), b{}()),
+            \not{S{}}(\equals{SortBool{}, S{}}(LblisKResult{}(x{}()), \dv{SortBool{}}("true")))
+        )"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        normalize_execution_pattern(reference),
+        normalize_execution_pattern(actual)
+    );
+}
+
+#[test]
+fn execution_normalizer_preserves_partial_and_unrecognized_boolean_equalities() {
+    let false_bottom = parse_pattern(
+        r#"\equals{SortBool{}, S{}}(\dv{SortBool{}}("false"), \bottom{SortBool{}}())"#,
+    )
+    .unwrap();
+    let not_true_bottom = parse_pattern(
+        r#"\not{S{}}(\equals{SortBool{}, S{}}(\dv{SortBool{}}("true"), \bottom{SortBool{}}()))"#,
+    )
+    .unwrap();
+    assert_ne!(
+        normalize_execution_pattern(false_bottom),
+        normalize_execution_pattern(not_true_bottom),
+        "a partial Boolean pattern does not satisfy two-valued complementation"
+    );
+
+    let false_unknown =
+        parse_pattern(r#"\equals{SortBool{}, S{}}(\dv{SortBool{}}("false"), p{}())"#).unwrap();
+    let not_true_unknown =
+        parse_pattern(r#"\not{S{}}(\equals{SortBool{}, S{}}(\dv{SortBool{}}("true"), p{}()))"#)
+            .unwrap();
+    assert_ne!(
+        normalize_execution_pattern(false_unknown),
+        normalize_execution_pattern(not_true_unknown),
+        "the comparator cannot infer totality from a SortBool result alone"
+    );
+}
+
+#[test]
 fn execution_normalizer_keeps_different_sort_disjunctions_nested() {
     let nested = parse_pattern(r"\or{S{}}(\or{T{}}(a{}(), b{}()), c{}())").unwrap();
     let flattened = parse_pattern(r"\or{S{}}(a{}(), \or{T{}}(b{}(), c{}()))").unwrap();
@@ -923,27 +1088,30 @@ fn execution_predicate_recognizer_matches_the_kore_predicate_constructors() {
 
 #[test]
 fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names() {
-    // The two conjuncts of each remainder are spelled differently (the reference's \ceil against
-    // the port's \not(true = in(...))), so N4's first-occurrence indices diverge: the reference
-    // names its Map variable first, the port its KItem variable. Pairing must try the bijection
-    // that maps the port's constraint-only variables onto the reference's names per sort.
+    // The constraints are spelled differently (the reference's \ceil against the port's
+    // \not(true = in(...))), so N4's first-occurrence indices diverge: the reference names its Map
+    // variable first, the port its KItem variable. Pairing must try the bijection that maps the
+    // port's free constraint-only variables onto the reference's names per sort.
     let reference = normalize_execution_pattern(
         parse_pattern(concat!(
-            r"\and{S{}}(t{}(), \not{S{}}(\exists{S{}}(Var'Unds'A1:KI{}, \exists{S{}}(Var'Unds'B1:Map{}, ",
-            r#"\and{S{}}(\ceil{Map{}, S{}}(g{}(Var'Unds'B1:Map{})), \equals{Bool{}, S{}}(\dv{Bool{}}("false"), q{}(Var'Unds'A1:KI{})))))))"#,
+            r"\and{S{}}(t{}(), \ceil{Map{}, S{}}(g{}(Var'Unds'B1:Map{})), ",
+            r#"\equals{Bool{}, S{}}(\dv{Bool{}}("false"), q{}(Var'Unds'A1:KI{})))"#,
         ))
         .unwrap(),
     );
     let actual = normalize_execution_pattern(
         parse_pattern(concat!(
-            r"\and{S{}}(t{}(), \not{S{}}(\exists{S{}}(ExA0:KI{}, \exists{S{}}(ExB0:Map{}, ",
-            r#"\and{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("false"), q{}(ExA0:KI{})), \not{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("true"), in{}(ExB0:Map{}))))))))"#,
+            r#"\and{S{}}(t{}(), \equals{Bool{}, S{}}(\dv{Bool{}}("false"), q{}(ExA0:KI{})), "#,
+            r#"\not{S{}}(\equals{Bool{}, S{}}(\dv{Bool{}}("true"), in{}(ExB0:Map{}))))"#,
         ))
         .unwrap(),
     );
-    let aligned_chain = r"\exists{S{}}(Var'Hash'KDiff0:Map{}, \exists{S{}}(Var'Hash'KDiff1:KI{}";
-    assert!(reference.to_string().contains(aligned_chain), "{reference}");
-    assert!(!actual.to_string().contains(aligned_chain), "{actual}");
+    let aligned_variable = r"Var'Hash'KDiff0:Map{}";
+    assert!(
+        reference.to_string().contains(aligned_variable),
+        "{reference}"
+    );
+    assert!(!actual.to_string().contains(aligned_variable), "{actual}");
 
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -956,9 +1124,9 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
     fs::create_dir(&directory).unwrap();
     let calls = directory.join("calls");
     let needle = directory.join("needle");
-    fs::write(&needle, aligned_chain).unwrap();
+    fs::write(&needle, aligned_variable).unwrap();
     let oracle = directory.join("aligned-only-krust");
-    // Valid only when both sides carry the reference's binder chain.
+    // Valid only when both sides carry the reference's Map variable name.
     fs::write(
         &oracle,
         format!(
@@ -1103,6 +1271,9 @@ fn normalize_execution_disjunct(mut pattern: Pattern, names: &GeneratedNames) ->
     }
     normalize_conjunctions(&mut pattern);
     canonicalize_remainder_existentials(&mut pattern, names);
+    normalize_execution_equalities(&mut pattern);
+    canonicalize_commuting_quantifier_chains(&mut pattern);
+    alpha_normalize_bound_variables(&mut pattern);
     rename_execution_variables(&mut pattern, names);
     pattern
 }
@@ -1147,6 +1318,12 @@ impl GeneratedNames {
 }
 
 const CANONICAL_NAME: &str = "Var'Hash'KDiff";
+
+fn is_canonical_free_name(name: &str) -> bool {
+    name.strip_prefix(CANONICAL_NAME).is_some_and(|suffix| {
+        !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+    })
+}
 
 fn execution_generated_name(name: &str) -> bool {
     if generated_stem(name).is_some() {
@@ -1201,6 +1378,7 @@ fn normalize_conjunctions(pattern: &mut Pattern) {
                     deduplicated.push(argument);
                 }
             }
+            deduplicated.sort();
             *arguments = deduplicated;
         }
         Pattern::Application { arguments, .. }
@@ -1231,6 +1409,98 @@ fn normalize_conjunctions(pattern: &mut Pattern) {
         | Pattern::Top { .. }
         | Pattern::Bottom { .. }
         | Pattern::DomainValue { .. } => {}
+    }
+}
+
+/// N24: use one orientation for symmetric equalities and for false Boolean predicates.
+fn normalize_execution_equalities(pattern: &mut Pattern) {
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                normalize_execution_equalities(argument);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => normalize_execution_equalities(argument),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            normalize_execution_equalities(left);
+            normalize_execution_equalities(right);
+        }
+        Pattern::Equals { left, right, .. } => {
+            normalize_execution_equalities(left);
+            normalize_execution_equalities(right);
+        }
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => normalize_execution_equalities(body),
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
+
+    let Pattern::Equals {
+        operand_sort,
+        result_sort,
+        left,
+        right,
+    } = pattern
+    else {
+        return;
+    };
+    let boolean_sort = matches!(
+        operand_sort,
+        k_rust::kore::ast::Sort::Application { name, arguments }
+            if name == "SortBool" && arguments.is_empty()
+    );
+    let literal = |candidate: &Pattern, value: &str| {
+        matches!(
+            candidate,
+            Pattern::DomainValue { sort, value: actual }
+                if sort == operand_sort && actual == value
+        )
+    };
+    let false_complement = if literal(left, "false") {
+        Some(&**right)
+    } else if literal(right, "false") {
+        Some(&**left)
+    } else {
+        None
+    };
+    let is_k_result = |candidate: &Pattern| {
+        matches!(
+            candidate,
+            Pattern::Application { symbol, .. } if symbol.name == "LblisKResult"
+        )
+    };
+    if boolean_sort && false_complement.is_some_and(&is_k_result) {
+        let term = false_complement.expect("checked above").clone();
+        *pattern = Pattern::Not {
+            sort: result_sort.clone(),
+            argument: Box::new(Pattern::Equals {
+                operand_sort: operand_sort.clone(),
+                result_sort: result_sort.clone(),
+                left: Box::new(Pattern::DomainValue {
+                    sort: operand_sort.clone(),
+                    value: "true".into(),
+                }),
+                right: Box::new(term),
+            }),
+        };
+    } else if (boolean_sort && literal(right, "true"))
+        || (!(boolean_sort && literal(left, "true")) && **right < **left)
+    {
+        std::mem::swap(left, right);
     }
 }
 
@@ -1916,13 +2186,13 @@ fn constraint_variable_renamings(
             | Pattern::Forall { variable, body, .. }
             | Pattern::Mu { variable, body }
             | Pattern::Nu { variable, body } => {
-                if variable.name.starts_with(CANONICAL_NAME) {
+                if is_canonical_free_name(&variable.name) {
                     output.insert(variable.clone());
                 }
                 collect(body, output);
             }
             Pattern::Variable(variable) => {
-                if variable.name.starts_with(CANONICAL_NAME) {
+                if is_canonical_free_name(&variable.name) {
                     output.insert(variable.clone());
                 }
             }
@@ -3037,7 +3307,7 @@ fn alpha_normalize_bound_variables(pattern: &mut Pattern) {
             | Pattern::Mu { variable, body }
             | Pattern::Nu { variable, body } => {
                 let original = variable.clone();
-                let canonical = format!("#KDiffBound{}", scopes.len());
+                let canonical = format!("{CANONICAL_NAME}Bound{}", scopes.len());
                 variable.name.clone_from(&canonical);
                 scopes.push((original, canonical));
                 visit(body, scopes);
@@ -3060,6 +3330,131 @@ fn alpha_normalize_bound_variables(pattern: &mut Pattern) {
     }
 
     visit(pattern, &mut Vec::new());
+}
+
+/// N5 for execution results: choose one alpha-normalized representative for each bounded block
+/// of adjacent existential or universal binders. Same-kind binders commute, including binders of
+/// the same sort whose variables occupy different roles in the body. Enumerating the block keeps
+/// those binding relationships intact while avoiding a name- or traversal-order heuristic.
+fn canonicalize_commuting_quantifier_chains(pattern: &mut Pattern) {
+    #[derive(Clone, Copy)]
+    enum Quantifier {
+        Exists,
+        Forall,
+    }
+
+    fn rebuild(
+        quantifier: Quantifier,
+        binders: Vec<(k_rust::kore::ast::Sort, KoreVariable)>,
+        body: Pattern,
+    ) -> Pattern {
+        binders
+            .into_iter()
+            .rev()
+            .fold(body, |body, (sort, variable)| match quantifier {
+                Quantifier::Exists => Pattern::Exists {
+                    sort,
+                    variable,
+                    body: Box::new(body),
+                },
+                Quantifier::Forall => Pattern::Forall {
+                    sort,
+                    variable,
+                    body: Box::new(body),
+                },
+            })
+    }
+
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                canonicalize_commuting_quantifier_chains(argument);
+            }
+        }
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => canonicalize_commuting_quantifier_chains(argument),
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => {
+            canonicalize_commuting_quantifier_chains(left);
+            canonicalize_commuting_quantifier_chains(right);
+        }
+        Pattern::Mu { body, .. } | Pattern::Nu { body, .. } => {
+            canonicalize_commuting_quantifier_chains(body);
+        }
+        Pattern::Exists { .. } | Pattern::Forall { .. } => {
+            let quantifier = if matches!(pattern, Pattern::Exists { .. }) {
+                Quantifier::Exists
+            } else {
+                Quantifier::Forall
+            };
+            let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
+            let mut binders = Vec::new();
+            loop {
+                let fields = match (quantifier, &mut current) {
+                    (
+                        Quantifier::Exists,
+                        Pattern::Exists {
+                            sort,
+                            variable,
+                            body,
+                        },
+                    )
+                    | (
+                        Quantifier::Forall,
+                        Pattern::Forall {
+                            sort,
+                            variable,
+                            body,
+                        },
+                    ) => Some((
+                        sort.clone(),
+                        variable.clone(),
+                        std::mem::replace(body.as_mut(), Pattern::String(String::new())),
+                    )),
+                    _ => None,
+                };
+                let Some((sort, variable, body)) = fields else {
+                    break;
+                };
+                binders.push((sort, variable));
+                current = body;
+            }
+            canonicalize_commuting_quantifier_chains(&mut current);
+
+            let within_limit = (1..=binders.len())
+                .try_fold(1usize, |count, factor| count.checked_mul(factor))
+                .is_some_and(|count| count <= CONSTRAINT_RENAMING_LIMIT);
+            if within_limit {
+                let mut candidates = permutations(&binders).into_iter().map(|permutation| {
+                    let mut candidate = rebuild(quantifier, permutation, current.clone());
+                    alpha_normalize_bound_variables(&mut candidate);
+                    normalize_conjunctions(&mut candidate);
+                    candidate
+                });
+                *pattern = candidates
+                    .next()
+                    .map(|first| candidates.fold(first, std::cmp::min))
+                    .expect("a quantifier chain contains at least one binder");
+            } else {
+                // Retaining the original order can only cause a conservative comparator failure.
+                // It avoids factorial work for a definition with an unexpectedly large block.
+                *pattern = rebuild(quantifier, binders, current);
+            }
+        }
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => {}
+    }
 }
 
 fn canonicalize_existentials(pattern: &mut Pattern) {
