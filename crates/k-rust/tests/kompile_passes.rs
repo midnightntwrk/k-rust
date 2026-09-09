@@ -21,15 +21,16 @@ use k_rust::{
     },
     kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan, printer::Printer},
     kompile::{
-        add_cool_like_attributes, add_implicit_computation_cell, add_semantics_module,
-        add_sort_injections_to_definition, check_simplification_rules, concretize_cells,
-        constant_fold, expand_macros, expand_macros_in_term, generate_sort_predicate_rules,
-        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
-        minimize_term_construction, module_to_kore, number_sentences, propagate_macro_attributes,
-        remove_unit, resolve_anon_vars, resolve_comm, resolve_config_var, resolve_contexts,
+        GeneratedVariableIdentity, add_cool_like_attributes, add_implicit_computation_cell,
+        add_semantics_module, add_sort_injections_to_definition, check_simplification_rules,
+        concretize_cells, concretize_cells_in_sentence, constant_fold, expand_macros,
+        expand_macros_in_term, generate_sort_predicate_rules, generate_sort_predicate_syntax,
+        generate_sort_projections, guard_or_patterns, minimize_term_construction, module_to_kore,
+        number_sentences, propagate_macro_attributes, remove_unit, resolve_anon_vars,
+        resolve_anon_vars_in_sentence, resolve_comm, resolve_config_var, resolve_contexts,
         resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
         resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
-        resolve_semantic_casts, resolve_strict, subsort_kitem,
+        resolve_semantic_casts, resolve_semantic_casts_in_sentence, resolve_strict, subsort_kitem,
     },
     outer::{ResolvedSource, load},
     provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
@@ -5143,6 +5144,167 @@ fn gives_anonymous_variables_collision_free_sentence_local_names() {
     assert!(rendered[0].2.contains("@_Gen4"), "{rendered:#?}");
     assert!(rendered[1].0.contains("_Gen0"), "{rendered:#?}");
     assert_generated_by(&transformed, GeneratingPass::ResolveAnonymousVariables);
+}
+
+#[test]
+fn pattern01a_anonymous_sentence_reports_only_exact_minted_identities() {
+    let sentence = Sentence::Rule {
+        body: application(
+            "body",
+            vec![
+                Term::variable("_Gen0"),
+                Term::variable("_"),
+                Term::variable("?_"),
+            ],
+        ),
+        requires: application("requires", vec![Term::variable("!_")]),
+        ensures: application("ensures", vec![Term::variable("@_")]),
+        attributes: attributes(&[("label", json!("pattern"))]),
+    };
+
+    let (sentence, generated) = resolve_anon_vars_in_sentence(sentence);
+    assert_eq!(
+        generated,
+        BTreeSet::from([
+            GeneratedVariableIdentity::element("_Gen1"),
+            GeneratedVariableIdentity::element("?_Gen2"),
+            GeneratedVariableIdentity::element("!_Gen3"),
+            GeneratedVariableIdentity::set("@_Gen4"),
+        ])
+    );
+    assert!(!generated.contains(&GeneratedVariableIdentity::element("_Gen0")));
+    let Sentence::Rule { attributes, .. } = sentence else {
+        unreachable!()
+    };
+    assert_eq!(attributes.get_str("label"), Some("pattern"));
+}
+
+#[test]
+fn pattern01a_semantic_cast_sentence_shares_sorts_across_rule_roots() {
+    let sentence = Sentence::Rule {
+        body: application("body", vec![Term::variable("X")]),
+        requires: application("#SemanticCastToInt", vec![Term::variable("X")]),
+        ensures: application("ensures", vec![Term::variable("X")]),
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_semantic_casts_in_sentence(sentence);
+    let mut sorts = Vec::new();
+    if let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = transformed
+    {
+        for root in [&body, &requires, &ensures] {
+            root.visit_preorder(&mut |term| {
+                if let Term::Variable { name, sort } = term.unannotated()
+                    && name == "X"
+                {
+                    sorts.push(sort.clone());
+                }
+            });
+        }
+    }
+    assert_eq!(sorts, vec![Some(Sort::new("Int")); 3]);
+}
+
+#[test]
+fn pattern01a_cell_sentence_reports_only_minted_dot_variables_and_preserves_source() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> 0 </k>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let open_cell = |body| {
+        application(
+            "<k>",
+            vec![
+                application("#dots", Vec::new()),
+                body,
+                application("#dots", Vec::new()),
+            ],
+        )
+    };
+    let int_token = || Term::Token {
+        token: "0".into(),
+        sort: Sort::new("Int"),
+    };
+    let sentence = Sentence::Rule {
+        body: open_cell(Term::Sequence(vec![
+            Term::variable("_DotVar0"),
+            int_token(),
+        ])),
+        requires: open_cell(int_token()),
+        ensures: open_cell(int_token()),
+        attributes: attributes(&[
+            ("anywhere", json!("")),
+            (k_rust::definition::SOURCE_ATTRIBUTE, json!("pattern.k")),
+            (k_rust::definition::LOCATION_ATTRIBUTE, json!([4, 2, 4, 30])),
+        ]),
+    };
+
+    let (sentence, generated) = concretize_cells_in_sentence(&resolved, "MAIN", sentence).unwrap();
+    assert_eq!(generated.len(), 6, "{generated:#?}");
+    assert!(generated.iter().all(|identity| {
+        identity.kind == k_rust::kore::ast::VariableKind::Element
+            && identity.name.starts_with("_DotVar")
+    }));
+    assert!(!generated.contains(&GeneratedVariableIdentity::element("_DotVar0")));
+    assert_eq!(sentence.attributes().source(), Some("pattern.k"));
+}
+
+#[test]
+fn pattern01a_cell_sentence_failure_retains_original_diagnostic_source() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <k> 0 </k>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let sentence = Sentence::Rule {
+        body: application(
+            "<k>",
+            vec![
+                application("#dots", Vec::new()),
+                Term::Token {
+                    token: "0".into(),
+                    sort: Sort::new("Int"),
+                },
+            ],
+        ),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attributes(&[
+            ("anywhere", json!("")),
+            (k_rust::definition::SOURCE_ATTRIBUTE, json!("bad-pattern.k")),
+            (k_rust::definition::LOCATION_ATTRIBUTE, json!([9, 3, 9, 17])),
+        ]),
+    };
+
+    let error = concretize_cells_in_sentence(&resolved, "MAIN", sentence).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1);
+    assert_eq!(
+        error.diagnostics[0].code,
+        k_rust::diagnostic::DiagnosticCode::InvalidCellConcretization
+    );
+    assert_eq!(
+        error.diagnostics[0].source.as_deref(),
+        Some("bad-pattern.k")
+    );
+    assert_eq!(error.diagnostics[0].location.unwrap().start_line, 9);
 }
 
 #[test]

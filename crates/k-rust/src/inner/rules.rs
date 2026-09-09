@@ -21,6 +21,9 @@ use super::parser::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuleError {
     Definition(ResolveError),
+    MissingModule {
+        module: String,
+    },
     Parse(Box<RuleParseError>),
     InconsistentTokenPrecedence {
         token: String,
@@ -47,6 +50,9 @@ impl fmt::Display for RuleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Definition(error) => error.fmt(formatter),
+            Self::MissingModule { module } => {
+                write!(formatter, "rule syntax module {module:?} was not found")
+            }
             Self::Parse(error) => {
                 match (&error.source, error.location) {
                     (Some(source), Some(location)) => write!(
@@ -85,6 +91,38 @@ impl fmt::Display for RuleError {
 
 impl std::error::Error for RuleError {}
 
+/// Parse one complete rule-content string with a resolved module's rule grammar.
+///
+/// The returned rule retains the caller-supplied attributes, including source and
+/// content offsets used by parser metadata and diagnostics.
+pub fn parse_rule_content(
+    definition: &ResolvedDefinition,
+    module: &str,
+    contents: &str,
+    attributes: Attributes,
+) -> Result<Sentence, RuleError> {
+    let module_id = definition
+        .module_id(module)
+        .ok_or_else(|| RuleError::MissingModule {
+            module: module.to_owned(),
+        })?;
+    let main = definition.main_module_id();
+    let global = global_rule_grammar(definition)?;
+    let reachable = definition
+        .transitive_imports(main)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let grammar = module_rule_grammar(
+        definition,
+        module_id,
+        &global,
+        &reachable,
+        "rule",
+        &attributes,
+    )?;
+    parse_rule_like_sentence(&grammar, module, "rule", contents, attributes)
+}
+
 /// Replace local rule, claim, context, and context-alias bubbles with KAST sentences.
 ///
 /// This is the syntax-only first slice of Java's non-configuration bubble
@@ -94,28 +132,7 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
     let resolved = ResolvedDefinition::resolve(definition).map_err(RuleError::Definition)?;
     let mut transformed = definition.clone();
     let main = resolved.main_module_id();
-    let global = rule_grammar(&resolved, main, RuleGrammarScope::GlobalScanner).map_err(
-        |error| match error {
-            ParseError::InconsistentTokenPrecedence {
-                token,
-                declarations,
-            } => RuleError::InconsistentTokenPrecedence {
-                token,
-                declarations,
-            },
-            error => RuleError::Parse(Box::new(RuleParseError {
-                module: resolved.main_module().name.clone(),
-                sentence_type: "rule grammar".into(),
-                source: resolved
-                    .main_module()
-                    .attributes
-                    .source()
-                    .map(str::to_owned),
-                location: resolved.main_module().attributes.location(),
-                error,
-            })),
-        },
-    )?;
+    let global = global_rule_grammar(&resolved)?;
     let reachable = resolved
         .transitive_imports(main)
         .into_iter()
@@ -128,18 +145,14 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
         let module_id = resolved
             .module_id(&module.name)
             .expect("every flat module was added to the resolved definition");
-        let scope = RuleGrammarScope::Module {
-            scanner_seed: reachable.contains(&module_id).then_some(global.scanner()),
-        };
-        let grammar = rule_grammar(&resolved, module_id, scope).map_err(|error| {
-            RuleError::Parse(Box::new(RuleParseError {
-                module: module.name.clone(),
-                sentence_type: "rule-like sentence".into(),
-                source: module.attributes.source().map(str::to_owned),
-                location: module.attributes.location(),
-                error,
-            }))
-        })?;
+        let grammar = module_rule_grammar(
+            &resolved,
+            module_id,
+            &global,
+            &reachable,
+            "rule-like sentence",
+            &module.attributes,
+        )?;
 
         for sentence in &mut module.local_sentences {
             let Sentence::Bubble {
@@ -153,38 +166,96 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
             if !is_rule_sentence_type(sentence_type) {
                 continue;
             }
-            let is_anywhere = [
-                "anywhere",
-                "simplification",
-                "macro",
-                "macro-rec",
-                "alias",
-                "alias-rec",
-            ]
-            .iter()
-            .any(|key| attributes.get(key).is_some());
-            let parsed = grammar
-                .parse_with_context(
-                    &Sort::new("#RuleContent"),
-                    contents,
-                    is_anywhere,
-                    attributes.source_id().unwrap_or(SourceId(0)),
-                    content_start_offset(attributes),
-                )
-                .map_err(|error| {
-                    bubble_error(
-                        &module.name,
-                        sentence_type,
-                        attributes,
-                        Some(contents),
-                        error,
-                    )
-                })?;
-            *sentence = up_sentence(&module.name, sentence_type, parsed, attributes.clone())?;
+            *sentence = parse_rule_like_sentence(
+                &grammar,
+                &module.name,
+                sentence_type,
+                contents,
+                attributes.clone(),
+            )?;
         }
     }
 
     Ok(transformed)
+}
+
+fn global_rule_grammar(definition: &ResolvedDefinition) -> Result<Grammar, RuleError> {
+    let main = definition.main_module_id();
+    rule_grammar(definition, main, RuleGrammarScope::GlobalScanner).map_err(|error| match error {
+        ParseError::InconsistentTokenPrecedence {
+            token,
+            declarations,
+        } => RuleError::InconsistentTokenPrecedence {
+            token,
+            declarations,
+        },
+        error => RuleError::Parse(Box::new(RuleParseError {
+            module: definition.main_module().name.clone(),
+            sentence_type: "rule grammar".into(),
+            source: definition
+                .main_module()
+                .attributes
+                .source()
+                .map(str::to_owned),
+            location: definition.main_module().attributes.location(),
+            error,
+        })),
+    })
+}
+
+fn module_rule_grammar(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    global: &Grammar,
+    reachable: &BTreeSet<ModuleId>,
+    sentence_type: &str,
+    attributes: &Attributes,
+) -> Result<Grammar, RuleError> {
+    rule_grammar(
+        definition,
+        module,
+        RuleGrammarScope::Module {
+            scanner_seed: reachable.contains(&module).then_some(global.scanner()),
+        },
+    )
+    .map_err(|error| {
+        RuleError::Parse(Box::new(RuleParseError {
+            module: definition.module(module).name.clone(),
+            sentence_type: sentence_type.to_owned(),
+            source: attributes.source().map(str::to_owned),
+            location: attributes.location(),
+            error,
+        }))
+    })
+}
+
+fn parse_rule_like_sentence(
+    grammar: &Grammar,
+    module: &str,
+    sentence_type: &str,
+    contents: &str,
+    attributes: Attributes,
+) -> Result<Sentence, RuleError> {
+    let is_anywhere = [
+        "anywhere",
+        "simplification",
+        "macro",
+        "macro-rec",
+        "alias",
+        "alias-rec",
+    ]
+    .iter()
+    .any(|key| attributes.get(key).is_some());
+    let parsed = grammar
+        .parse_with_context(
+            &Sort::new("#RuleContent"),
+            contents,
+            is_anywhere,
+            attributes.source_id().unwrap_or(SourceId(0)),
+            content_start_offset(&attributes),
+        )
+        .map_err(|error| bubble_error(module, sentence_type, &attributes, Some(contents), error))?;
+    up_sentence(module, sentence_type, parsed, attributes)
 }
 
 fn content_start_offset(attributes: &Attributes) -> usize {

@@ -11,4 +11,4 @@ pub use programs::{
     ProgramError, ProgramParseError, ProgramParser, definition_with_named_projections,
     parse_program, parse_program_for_presentation, prepare_reference_kast,
 };
-pub use rules::{RuleError, RuleParseError, resolve_rule_bubbles};
+pub use rules::{RuleError, RuleParseError, parse_rule_content, resolve_rule_bubbles};

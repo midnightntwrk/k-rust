@@ -6,7 +6,31 @@
 
 use std::collections::BTreeSet;
 
+use crate::kore::ast::VariableKind;
 use crate::{definition::Sentence, kast::Term};
+
+/// The exact pre-encoding identity of a variable minted by a compilation pass.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct GeneratedVariableIdentity {
+    pub kind: VariableKind,
+    pub name: String,
+}
+
+impl GeneratedVariableIdentity {
+    pub fn element(name: impl Into<String>) -> Self {
+        Self {
+            kind: VariableKind::Element,
+            name: name.into(),
+        }
+    }
+
+    pub fn set(name: impl Into<String>) -> Self {
+        Self {
+            kind: VariableKind::Set,
+            name: name.into(),
+        }
+    }
+}
 
 /// Whether a variable name is one of the forms that Java's fresh-name passes mark anonymous.
 pub(crate) fn is_generated_anonymous(name: &str) -> bool {

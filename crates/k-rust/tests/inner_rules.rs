@@ -3,13 +3,14 @@
 // the portable boundary instead of duplicating that rejection for each fixture.
 
 use indoc::indoc;
-use k_rust::definition::{Sentence, StructuralCheckOptions, check_rhs_variables};
-use k_rust::inner::{ParseError, RuleError, resolve_rule_bubbles};
+use k_rust::definition::{Attributes, Sentence, StructuralCheckOptions, check_rhs_variables};
+use k_rust::inner::{ParseError, RuleError, parse_rule_content, resolve_rule_bubbles};
 use k_rust::kast::{Sort, Term, TermSpan};
 use k_rust::outer::{LoadOptions, ResolvedSource, load, load_with_options};
-use k_rust::provenance::SourceTable;
+use k_rust::provenance::{SourceId, SourceTable};
 #[cfg(feature = "z3-inference")]
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -158,6 +159,133 @@ fn lowered(source: &str) -> k_rust::definition::Definition {
 fn lowered_module(source: &str, main_module: &str) -> k_rust::definition::Definition {
     let parsed = k_rust::outer::parse("rules.k", source).unwrap();
     k_rust::outer::lower(&parsed, main_module).unwrap()
+}
+
+#[test]
+fn standalone_rule_content_parses_every_condition_shape_and_retains_attributes() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Bool ::= r"true|false" [token]
+          syntax Exp ::= "a" [symbol(a)]
+        endmodule
+    "#});
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    let attributes = Attributes::new(BTreeMap::from([
+        (
+            k_rust::definition::SOURCE_ATTRIBUTE.into(),
+            serde_json::json!("pattern.k"),
+        ),
+        (
+            k_rust::definition::SOURCE_ID_ATTRIBUTE.into(),
+            serde_json::json!(17),
+        ),
+        ("contentStartOffset".into(), serde_json::json!(23)),
+        ("label".into(), serde_json::json!("selected")),
+    ]));
+
+    for contents in [
+        "a => a",
+        "a => a requires false",
+        "a => a ensures false",
+        "a => a requires false ensures false",
+    ] {
+        let sentence = parse_rule_content(&resolved, "MAIN", contents, attributes.clone()).unwrap();
+        let Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes: retained,
+        } = sentence
+        else {
+            panic!("standalone rule parser returned a non-rule sentence")
+        };
+        assert!(body.to_string().contains("=>"), "{body}");
+        assert_eq!(retained, attributes);
+        assert_eq!(retained.source(), Some("pattern.k"));
+        assert_eq!(retained.source_id(), Some(SourceId(17)));
+        let span = body
+            .metadata()
+            .and_then(|metadata| metadata.span)
+            .expect("parsed rule body should retain its source span");
+        assert_eq!(span.source, SourceId(17));
+        assert_eq!(span.start, 23);
+        assert_eq!(
+            requires.to_string().contains("false"),
+            contents.contains("requires false")
+        );
+        assert_eq!(
+            ensures.to_string().contains("false"),
+            contents.contains("ensures false")
+        );
+    }
+}
+
+#[test]
+fn standalone_rule_content_uses_the_reachable_global_scanner() {
+    let definition = lowered(indoc! {r#"
+        module TOKEN
+          syntax Id ::= r"[A-Z]+" [prec(3), token]
+        endmodule
+        module RULES
+        endmodule
+        module MAIN
+          imports TOKEN
+          imports RULES
+        endmodule
+    "#});
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+
+    assert!(matches!(
+        parse_rule_content(
+            &resolved,
+            "RULES",
+            "X => X",
+            Attributes::default(),
+        ),
+        Err(RuleError::Parse(ref error))
+            if error.module == "RULES" && matches!(error.error, ParseError::NoParse { .. })
+    ));
+}
+
+#[test]
+fn standalone_rule_content_reports_typed_module_and_source_aware_parse_errors() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+        endmodule
+    "#});
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    let attributes = Attributes::new(BTreeMap::from([
+        (
+            k_rust::definition::SOURCE_ATTRIBUTE.into(),
+            serde_json::json!("command-line-pattern"),
+        ),
+        (
+            k_rust::definition::LOCATION_ATTRIBUTE.into(),
+            serde_json::json!([7, 11, 7, 20]),
+        ),
+    ]));
+
+    assert!(matches!(
+        parse_rule_content(&resolved, "MISSING", "a => a", attributes.clone()),
+        Err(RuleError::MissingModule { ref module }) if module == "MISSING"
+    ));
+
+    let RuleError::Parse(error) =
+        parse_rule_content(&resolved, "MAIN", "not-a-rule", attributes).unwrap_err()
+    else {
+        panic!("expected a parse error")
+    };
+    assert_eq!(error.source.as_deref(), Some("command-line-pattern"));
+    assert_eq!(
+        error.location,
+        Some(k_rust::definition::Location {
+            start_line: 7,
+            start_column: 11,
+            end_line: 7,
+            end_column: 20,
+        })
+    );
 }
 
 macro_rules! assert_rule_resolution_snapshot {

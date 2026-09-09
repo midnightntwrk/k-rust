@@ -12,7 +12,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
-    kompile::fresh_names::FreshNames,
+    kompile::fresh_names::{FreshNames, GeneratedVariableIdentity},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -32,6 +32,43 @@ impl fmt::Display for ConcretizeCellsError {
 }
 
 impl std::error::Error for ConcretizeCellsError {}
+
+/// Concretize one sentence with the cell model visible from a named module.
+///
+/// The returned identity set contains exactly the `_DotVar` element variables
+/// minted while transforming this sentence.
+pub fn concretize_cells_in_sentence(
+    definition: &ResolvedDefinition,
+    module: &str,
+    sentence: Sentence,
+) -> Result<(Sentence, BTreeSet<GeneratedVariableIdentity>), ConcretizeCellsError> {
+    let original = sentence.clone();
+    let Some(module_id) = definition.module_id(module) else {
+        return Err(sentence_error(
+            format!("cell syntax module {module:?} was not found"),
+            &original,
+        ));
+    };
+    let main_id = definition.main_module_id();
+    let main_modules = definition
+        .transitive_imports(main_id)
+        .into_iter()
+        .chain(std::iter::once(main_id))
+        .collect::<BTreeSet<_>>();
+    let model_module = if main_modules.contains(&module_id) {
+        main_id
+    } else {
+        module_id
+    };
+    let model = CellModel::new(definition, model_module)
+        .map_err(|message| sentence_error(message, &original))?;
+    let productions = definition.production_catalog(module_id);
+    let mut concretizer = Concretizer::new(&model, &productions);
+    let transformed = concretizer
+        .sentence(sentence)
+        .map_err(|message| sentence_error(message, &original))?;
+    Ok((transformed, concretizer.generated))
+}
 
 /// Apply Java's `ConcretizeCells` definition transformation.
 pub fn concretize_cells(definition: &Definition) -> Result<Definition, ConcretizeCellsError> {
@@ -482,6 +519,7 @@ struct Concretizer<'a> {
     model: &'a CellModel,
     productions: &'a ProductionCatalog<'a>,
     fresh: FreshNames,
+    generated: BTreeSet<GeneratedVariableIdentity>,
     fragments: BTreeMap<String, FragmentInfo>,
 }
 
@@ -498,6 +536,7 @@ impl<'a> Concretizer<'a> {
             model,
             productions,
             fresh: FreshNames::default(),
+            generated: BTreeSet::new(),
             fragments: BTreeMap::new(),
         }
     }
@@ -507,6 +546,7 @@ impl<'a> Concretizer<'a> {
             return Ok(sentence);
         }
         self.fresh = FreshNames::for_sentence(&sentence);
+        self.generated.clear();
         self.fragments.clear();
         match sentence {
             Sentence::Rule {
@@ -1373,10 +1413,12 @@ impl<'a> Concretizer<'a> {
     }
 
     fn fresh_variable(&mut self, sort: Option<Sort>, prefix: &str) -> Term {
-        Term::Variable {
-            name: self.fresh.mint(prefix),
-            sort,
+        let name = self.fresh.mint(prefix);
+        if prefix == "_DotVar" {
+            self.generated
+                .insert(GeneratedVariableIdentity::element(name.clone()));
         }
+        Term::Variable { name, sort }
     }
 }
 
@@ -1660,5 +1702,15 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         message: message.into(),
         source: None,
         location: None,
+    }
+}
+
+fn sentence_error(message: impl Into<String>, sentence: &Sentence) -> ConcretizeCellsError {
+    ConcretizeCellsError {
+        diagnostics: vec![Diagnostic::error(
+            DiagnosticCode::InvalidCellConcretization,
+            message,
+            sentence,
+        )],
     }
 }

@@ -17,13 +17,19 @@ pub fn resolve_semantic_casts(definition: &Definition) -> Definition {
     let mut output = definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            resolve_sentence(sentence);
+            resolve_semantic_casts_in_sentence_mut(sentence);
         }
     }
     record_generated_origins(definition, output, GeneratingPass::SemanticCasts)
 }
 
-fn resolve_sentence(sentence: &mut Sentence) {
+/// Resolve semantic casts across all term-bearing roots of one sentence.
+pub fn resolve_semantic_casts_in_sentence(mut sentence: Sentence) -> Sentence {
+    resolve_semantic_casts_in_sentence_mut(&mut sentence);
+    sentence
+}
+
+fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence) {
     let roots = match sentence {
         Sentence::Rule {
             body,
