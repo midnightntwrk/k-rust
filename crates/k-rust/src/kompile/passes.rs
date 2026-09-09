@@ -39,6 +39,7 @@ pub use add_implicit_computation_cell::add_implicit_computation_cell;
 pub use check_simplification::{CheckSimplificationError, check_simplification_rules};
 pub use concretize_cells::{ConcretizeCellsError, concretize_cells, concretize_cells_in_sentence};
 pub use constant_folding::{ConstantFoldingError, constant_fold};
+pub(crate) use expand_macros::expand_macros_in_terms_from_resolved;
 pub use expand_macros::{ExpandMacrosError, expand_macros, expand_macros_in_term};
 pub use finalize::{add_cool_like_attributes, add_semantics_module, generate_sort_predicate_rules};
 pub use generate_sort_helpers::{
@@ -62,7 +63,10 @@ pub use resolve_function_with_config::{
 };
 pub use resolve_heat_cool::{ResolveHeatCoolError, resolve_heat_cool_attributes};
 pub use resolve_io::{ResolveIoError, resolve_io};
-pub use resolve_semantic_casts::{resolve_semantic_casts, resolve_semantic_casts_in_sentence};
+pub use resolve_semantic_casts::{
+    resolve_semantic_casts, resolve_semantic_casts_in_sentence,
+    resolve_semantic_casts_with_predicates_in_sentence,
+};
 pub use resolve_strict::{ResolveStrictError, resolve_strict};
 pub use subsort_kitem::{SubsortKItemError, subsort_kitem};
 
@@ -103,7 +107,7 @@ fn rebase_local_metadata_by(
     Ok(after)
 }
 
-pub(super) fn rebase_sentence(
+pub(crate) fn rebase_sentence(
     sentence: &mut Sentence,
     source: &ProductionCatalog<'_>,
     target: &ProductionCatalog<'_>,

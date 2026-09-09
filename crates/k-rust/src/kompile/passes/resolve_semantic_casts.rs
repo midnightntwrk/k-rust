@@ -17,7 +17,7 @@ pub fn resolve_semantic_casts(definition: &Definition) -> Definition {
     let mut output = definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            resolve_semantic_casts_in_sentence_mut(sentence);
+            resolve_semantic_casts_in_sentence_mut(sentence, false);
         }
     }
     record_generated_origins(definition, output, GeneratingPass::SemanticCasts)
@@ -25,11 +25,21 @@ pub fn resolve_semantic_casts(definition: &Definition) -> Definition {
 
 /// Resolve semantic casts across all term-bearing roots of one sentence.
 pub fn resolve_semantic_casts_in_sentence(mut sentence: Sentence) -> Sentence {
-    resolve_semantic_casts_in_sentence_mut(&mut sentence);
+    resolve_semantic_casts_in_sentence_mut(&mut sentence, false);
     sentence
 }
 
-fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence) {
+/// Resolve semantic casts and add their sort predicates to the sentence condition.
+///
+/// This is Java's `ResolveSemanticCasts(false)` mode used for standalone patterns. Macro and
+/// alias sentences suppress predicates because their casts describe matching syntax rather than
+/// runtime side conditions.
+pub fn resolve_semantic_casts_with_predicates_in_sentence(mut sentence: Sentence) -> Sentence {
+    resolve_semantic_casts_in_sentence_mut(&mut sentence, true);
+    sentence
+}
+
+fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence, add_predicates: bool) {
     let roots = match sentence {
         Sentence::Rule {
             body,
@@ -74,6 +84,62 @@ fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence) {
         let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
         *root = transform(taken, &casts, &typed_variables);
     }
+
+    if !add_predicates
+        || casts.is_empty()
+        || sentence.attributes().entries().keys().any(|attribute| {
+            matches!(
+                attribute.as_str(),
+                "macro" | "macro-rec" | "alias" | "alias-rec"
+            )
+        })
+    {
+        return;
+    }
+
+    let predicate = casts
+        .iter()
+        .map(|cast| {
+            let Term::Apply { label, .. } = cast else {
+                unreachable!("only semantic-cast applications were collected")
+            };
+            let sort = semantic_cast_sort(&label.name)
+                .expect("the cast set contains semantic-cast applications");
+            Term::apply(
+                format!("is{sort}"),
+                vec![transform(cast.clone(), &casts, &typed_variables)],
+            )
+        })
+        .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
+        .expect("at least one semantic cast was collected");
+
+    let requires = match sentence {
+        Sentence::Rule { requires, .. }
+        | Sentence::Claim { requires, .. }
+        | Sentence::Context { requires, .. }
+        | Sentence::ContextAlias { requires, .. } => requires,
+        _ => return,
+    };
+    let prior = std::mem::replace(requires, bool_true());
+    *requires = if is_true(&prior) {
+        predicate
+    } else {
+        Term::apply("_andBool_", vec![predicate, prior])
+    };
+}
+
+fn bool_true() -> Term {
+    Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    }
+}
+
+fn is_true(term: &Term) -> bool {
+    matches!(
+        term.unannotated(),
+        Term::Token { token, sort } if token == "true" && sort == &Sort::new("Bool")
+    )
 }
 
 fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<String, Sort>) -> Term {

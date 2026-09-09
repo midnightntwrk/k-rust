@@ -4,6 +4,7 @@ mod compile;
 mod fresh_names;
 mod module_to_kore;
 mod passes;
+mod search_pattern;
 mod sort_injections;
 mod term_to_kore;
 
@@ -33,7 +34,11 @@ pub use passes::{
     resolve_anon_vars_in_sentence, resolve_comm, resolve_config_var, resolve_contexts,
     resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
     resolve_function_with_config, resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts,
-    resolve_semantic_casts_in_sentence, resolve_strict, subsort_kitem,
+    resolve_semantic_casts_in_sentence, resolve_semantic_casts_with_predicates_in_sentence,
+    resolve_strict, subsort_kitem,
+};
+pub use search_pattern::{
+    CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity, compile_search_pattern,
 };
 pub use sort_injections::{
     SortInjectionError, SortInjector, add_sort_injections, add_sort_injections_from_resolved,

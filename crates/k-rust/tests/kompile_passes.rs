@@ -30,7 +30,8 @@ use k_rust::{
         resolve_anon_vars_in_sentence, resolve_comm, resolve_config_var, resolve_contexts,
         resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
         resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
-        resolve_semantic_casts, resolve_semantic_casts_in_sentence, resolve_strict, subsort_kitem,
+        resolve_semantic_casts, resolve_semantic_casts_in_sentence,
+        resolve_semantic_casts_with_predicates_in_sentence, resolve_strict, subsort_kitem,
     },
     outer::{ResolvedSource, load},
     provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
@@ -5208,6 +5209,135 @@ fn pattern01a_semantic_cast_sentence_shares_sorts_across_rule_roots() {
         }
     }
     assert_eq!(sorts, vec![Some(Sort::new("Int")); 3]);
+}
+
+#[test]
+fn semantic_cast_predicates_share_sorts_across_roots_and_preserve_compound_metadata() {
+    let sentence = Sentence::Rule {
+        body: application(
+            "body",
+            vec![
+                Term::variable("X"),
+                application(
+                    "#SemanticCastToInt",
+                    vec![
+                        application("choice", Vec::new()).with_metadata(TermMetadata {
+                            span: Some(TermSpan {
+                                source: SourceId(7),
+                                start: 11,
+                                end: 17,
+                            }),
+                            production: Some(ResolvedProductionId(3)),
+                            ..TermMetadata::default()
+                        }),
+                    ],
+                ),
+            ],
+        ),
+        requires: application("existing", vec![Term::variable("X"), Term::variable("Y")]),
+        ensures: application(
+            "ensures",
+            vec![
+                application("#SemanticCastToInt", vec![Term::variable("X")]),
+                application("#SemanticCastToBool", vec![Term::variable("Y")]),
+            ],
+        ),
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_semantic_casts_with_predicates_in_sentence(sentence);
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = transformed
+    else {
+        unreachable!()
+    };
+
+    for root in [&body, &requires, &ensures] {
+        root.visit_preorder(&mut |term| {
+            if let Term::Apply { label, .. } = term.unannotated() {
+                assert!(!label.name.starts_with("#SemanticCastTo"), "{term}");
+            }
+            if let Term::Variable { name, sort } = term.unannotated() {
+                let expected = match name.as_str() {
+                    "X" => Some(Sort::new("Int")),
+                    "Y" => Some(Sort::new("Bool")),
+                    _ => return,
+                };
+                assert_eq!(sort, &expected, "{term}");
+            }
+        });
+    }
+
+    let Term::Apply { label, arguments } = requires.unannotated() else {
+        panic!("expected predicate conjunction: {requires}")
+    };
+    assert_eq!(label.name, "_andBool_");
+    let [predicates, existing] = arguments.as_slice() else {
+        panic!("expected predicates and prior requires: {requires}")
+    };
+    assert!(matches!(
+        existing.unannotated(),
+        Term::Apply { label, .. } if label.name == "existing"
+    ));
+
+    let mut predicate_labels = Vec::new();
+    let mut compound_metadata = None;
+    predicates.visit_preorder(&mut |term| {
+        let Term::Apply { label, arguments } = term.unannotated() else {
+            return;
+        };
+        if matches!(label.name.as_str(), "isInt" | "isBool") {
+            predicate_labels.push(label.name.clone());
+            if let [argument] = arguments.as_slice()
+                && matches!(
+                    argument.unannotated(),
+                    Term::Apply { label, .. } if label.name == "choice"
+                )
+            {
+                compound_metadata = argument.metadata().cloned();
+            }
+        }
+        assert!(arguments.len() <= 2 || label.name != "_andBool_");
+    });
+    predicate_labels.sort();
+    assert_eq!(predicate_labels, ["isBool", "isInt", "isInt"]);
+    let compound_metadata = compound_metadata.expect("compound predicate operand has metadata");
+    assert_eq!(compound_metadata.sort, Some(Sort::new("Int")));
+    assert_eq!(compound_metadata.production, Some(ResolvedProductionId(3)));
+    assert_eq!(
+        compound_metadata.span,
+        Some(TermSpan {
+            source: SourceId(7),
+            start: 11,
+            end: 17,
+        })
+    );
+}
+
+#[test]
+fn semantic_cast_predicates_are_suppressed_for_macro_and_alias_rules() {
+    for attribute in ["macro", "macro-rec", "alias", "alias-rec"] {
+        let sentence = Sentence::Rule {
+            body: application("#SemanticCastToInt", vec![Term::variable("X")]),
+            requires: truth(),
+            ensures: truth(),
+            attributes: attributes(&[(attribute, json!(""))]),
+        };
+        let transformed = resolve_semantic_casts_with_predicates_in_sentence(sentence);
+        let Sentence::Rule { body, requires, .. } = transformed else {
+            unreachable!()
+        };
+        assert!(matches!(
+            body.unannotated(),
+            Term::Variable { name, sort: Some(sort) }
+                if name == "X" && sort == &Sort::new("Int")
+        ));
+        assert_eq!(requires, truth());
+    }
 }
 
 #[test]

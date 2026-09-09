@@ -1,0 +1,1 @@
+\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'top'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()),dotk{}()))),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{},SortGeneratedTopCell{}}(Lblpredicate{}(Lbla{}()), \dv{SortBool{}}("true")))

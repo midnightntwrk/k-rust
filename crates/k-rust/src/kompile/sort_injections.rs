@@ -1227,7 +1227,7 @@ fn has_rewrite(term: &Term) -> bool {
     found
 }
 
-fn rewrite_projection(term: &Term, right: bool) -> Term {
+pub(crate) fn rewrite_projection(term: &Term, right: bool) -> Term {
     match term.unannotated() {
         Term::Rewrite {
             left,

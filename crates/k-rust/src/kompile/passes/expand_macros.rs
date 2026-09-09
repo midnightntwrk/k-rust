@@ -14,7 +14,10 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
-    kompile::{SortInjector, fresh_names::FreshNames},
+    kompile::{
+        SortInjector,
+        fresh_names::{FreshNames, GeneratedVariableIdentity},
+    },
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -132,12 +135,38 @@ pub fn expand_macros_in_term(
     let definition = super::resolve_semantic_casts(definition);
     let definition = super::propagate_macro_attributes(&definition)?;
     let resolved = ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
-    let module = resolved
+    let mut expanded = expand_macros_in_terms_from_resolved(&resolved, module, vec![term])?;
+    Ok(expanded
+        .terms
+        .pop()
+        .expect("one input term produces one expanded term"))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ExpandedMacroTerms {
+    pub terms: Vec<Term>,
+    pub generated_variables: BTreeSet<GeneratedVariableIdentity>,
+}
+
+/// Expand several standalone roots through one macro expander and fresh-name allocator.
+pub(crate) fn expand_macros_in_terms_from_resolved(
+    definition: &ResolvedDefinition,
+    module: &str,
+    terms: Vec<Term>,
+) -> Result<ExpandedMacroTerms, String> {
+    let module = definition
         .module_id(module)
         .ok_or_else(|| format!("unknown module {module}"))?;
-    let mut expander = Expander::new(&resolved, module)?;
-    expander.fresh = FreshNames::for_terms([&term]);
-    expander.expand_term(term, &BTreeSet::new())
+    let mut expander = Expander::new(definition, module)?;
+    expander.fresh = FreshNames::for_terms(terms.iter());
+    let terms = terms
+        .into_iter()
+        .map(|term| expander.expand_term(term, &BTreeSet::new()))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ExpandedMacroTerms {
+        terms,
+        generated_variables: expander.generated,
+    })
 }
 
 struct Expander<'a> {
@@ -149,6 +178,7 @@ struct Expander<'a> {
     macros: BTreeMap<Label, Vec<MacroRule>>,
     token_macros: BTreeMap<Sort, Vec<MacroRule>>,
     fresh: FreshNames,
+    generated: BTreeSet<GeneratedVariableIdentity>,
 }
 
 impl<'a> Expander<'a> {
@@ -236,11 +266,13 @@ impl<'a> Expander<'a> {
             macros,
             token_macros,
             fresh: FreshNames::default(),
+            generated: BTreeSet::new(),
         })
     }
 
     fn expand_sentence(&mut self, sentence: Sentence) -> Result<Sentence, String> {
         self.fresh = FreshNames::for_sentence(&sentence);
+        self.generated.clear();
         match sentence {
             Sentence::Rule {
                 body,
@@ -459,8 +491,11 @@ impl<'a> Expander<'a> {
                 if name == "#Configuration" {
                     Term::Variable { name, sort }
                 } else {
+                    let generated_name = self.fresh.mint("_Gen");
+                    self.generated
+                        .insert(GeneratedVariableIdentity::element(generated_name.clone()));
                     let variable = Term::Variable {
-                        name: self.fresh.mint("_Gen"),
+                        name: generated_name,
                         sort,
                     };
                     substitution.insert(name, variable.clone());

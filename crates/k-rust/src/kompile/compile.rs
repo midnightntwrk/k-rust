@@ -151,6 +151,12 @@ pub struct CompiledKoreArtifacts {
     /// Names omit the leading `$`. Collection after the compiler passes makes variables generated
     /// for stream cells visible to execution clients.
     pub configuration_variables: BTreeMap<String, Sort>,
+    /// The transformed execution definition before backend-only sort injection, unit removal,
+    /// and term-construction minimization.
+    ///
+    /// Standalone surface patterns must use this exact context so macro expansion, cell syntax,
+    /// and production identities agree with the compilation that emitted `definition_kore`.
+    pub execution_definition: Definition,
 }
 
 /// A compilation failure with its precise pipeline stage and any structured diagnostics.
@@ -216,7 +222,8 @@ pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<CompiledKoreArtifacts, CompileError> {
-    let (definition, mut diagnostics) = transform_loaded_definition(loaded, &options)?;
+    let (execution_definition, definition, mut diagnostics) =
+        transform_loaded_definition(loaded, &options)?;
     let resolved = stage(
         "resolve transformed definition",
         ResolvedDefinition::resolve(&definition),
@@ -282,6 +289,7 @@ pub fn compile_loaded_definition(
         macros_kore,
         diagnostics,
         configuration_variables,
+        execution_definition,
     })
 }
 
@@ -439,7 +447,7 @@ fn unadmitted_hook_namespace_diagnostics(
 fn transform_loaded_definition(
     loaded: &LoadedDefinition,
     options: &CompileOptions,
-) -> Result<(Definition, Vec<Diagnostic>), CompileError> {
+) -> Result<(Definition, Definition, Vec<Diagnostic>), CompileError> {
     // Loader-produced definitions are already expanded, while structured embedders can construct
     // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
     let (definition, configuration_diagnostics) = stage(
@@ -580,16 +588,17 @@ fn transform_loaded_definition(
     let definition = add_cool_like_attributes(&definition);
     let definition = generate_sort_predicate_rules(&definition);
     let definition = number_sentences(&definition);
+    let execution_definition = definition;
     let definition = stage(
         "add sort injections",
-        add_sort_injections_to_definition(&definition),
+        add_sort_injections_to_definition(&execution_definition),
     )?;
     let definition = stage("remove units", remove_unit(&definition))?;
     let definition = stage(
         "minimize term construction",
         minimize_term_construction(&definition),
     )?;
-    Ok((definition, diagnostics))
+    Ok((execution_definition, definition, diagnostics))
 }
 
 fn with_newline(mut text: String) -> String {
@@ -806,8 +815,8 @@ mod tests {
         .unwrap();
         let options = CompileOptions::default();
 
-        let (first, _) = transform_loaded_definition(&loaded, &options).unwrap();
-        let (second, _) = transform_loaded_definition(&loaded, &options).unwrap();
+        let (_, first, _) = transform_loaded_definition(&loaded, &options).unwrap();
+        let (_, second, _) = transform_loaded_definition(&loaded, &options).unwrap();
         let first = origin_receipts(&first);
         let second = origin_receipts(&second);
 
