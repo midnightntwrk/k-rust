@@ -868,10 +868,26 @@ fn execute_using(
         }
     }
     ExecutionResult {
-        leaves: merge_equal_final_leaves(leaves),
+        leaves: merge_equal_final_leaves(select_got_stuck_over_depth_bound(leaves)),
         effects,
         discarded,
     }
+}
+
+/// Kore's `GraphTraversal.checkLeftUnproven` reports stuck and vacuous results in
+/// preference to states that merely reached the depth bound. Apply that selection before
+/// deduplication so an equal depth-bounded leaf cannot hide a later stuck leaf.
+fn select_got_stuck_over_depth_bound(mut leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
+    let got_stuck = leaves.iter().any(|leaf| {
+        matches!(
+            leaf.halt_reason,
+            HaltReason::Stuck | HaltReason::Trivial | HaltReason::Vacuous
+        )
+    });
+    if got_stuck {
+        leaves.retain(|leaf| leaf.halt_reason != HaltReason::DepthBound);
+    }
+    leaves
 }
 
 /// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342): leaves that carry the
@@ -7687,6 +7703,42 @@ mod tests {
         assert_eq!(result.leaves[0].depth, 3);
         assert_eq!(result.leaves[0].trace.len(), 3);
         assert_eq!(result.leaves[0].halt_reason, HaltReason::DepthBound);
+    }
+
+    #[test]
+    fn stuck_branch_takes_precedence_over_a_depth_bounded_branch() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("start")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("loop"))
+            ) [label{}("start-loop")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("start")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("done"))
+            ) [label{}("start-done")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("loop")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("loop"))
+            ) [label{}("loop")]
+            "#,
+        );
+
+        let result = execute(
+            &definition,
+            subject(&definition, "start"),
+            ExecutionOptions {
+                max_depth: 2,
+                ..ExecutionOptions::default()
+            },
+        );
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected only the stuck leaf, found {:?}", result.leaves);
+        };
+        assert_eq!(leaf.pattern, subject(&definition, "done"));
+        assert_eq!(leaf.depth, 1);
+        assert_eq!(leaf.halt_reason, HaltReason::Stuck);
     }
 
     fn stop_rule_definition() -> BackendDefinition {

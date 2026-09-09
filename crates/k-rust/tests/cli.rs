@@ -1833,7 +1833,7 @@ fn krun_surface_pattern_reports_command_line_parse_locations() {
 }
 
 #[test]
-fn reference_symbolic_depth_two_leaves_match_modulo_gotstuck() {
+fn reference_symbolic_depth_two_leaves_match_gotstuck_selection() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/symbolic-depth-bound");
     let (root, _) = fixture();
@@ -1888,8 +1888,8 @@ fn reference_symbolic_depth_two_leaves_match_modulo_gotstuck() {
     assert_eq!(reference.len(), 2, "the reference records two stuck leaves");
     assert_eq!(
         actual.len(),
-        reference.len() + 1,
-        "the port retains the one depth-bounded Stop leaf Kore drops on GotStuck"
+        reference.len(),
+        "the port must drop depth-bounded leaves when the traversal gets stuck"
     );
     for expected in reference {
         assert!(

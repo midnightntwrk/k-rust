@@ -1567,7 +1567,7 @@ name = "count-X"
 pattern = "${workspace}/crates/k-rust/tests/fixtures/reference/search/symbolic-depth-bound/symbolic.kore"
 mode = "exec"
 depth = 2
-oracle-exclusion = "gotstuck"
+oracle-exclusion = ""
 
 [[symbolic]]
 name = "symbolic-owise"
