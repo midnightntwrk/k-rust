@@ -3585,6 +3585,113 @@ mod tests {
     }
 
     #[test]
+    fn sort_membership_stays_symbolic_for_sorts_with_common_values() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortValue{} []
+                sort SortExpression{} []
+                sort SortResult{} []
+                sort SortOther{} []
+                sort SortKItem{} []
+                sort SortK{} []
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                symbol kseq{}(SortKItem{}, SortK{}) : SortK{}
+                    [constructor{}(), injective{}()]
+                symbol isResult{}(SortK{}) : SortBool{} [function{}(), total{}()]
+                axiom{R} \exists{R}(
+                    Value:SortExpression{},
+                    \equals{SortExpression{}, R}(
+                        Value:SortExpression{},
+                        inj{SortValue{}, SortExpression{}}(From:SortValue{})
+                    )
+                ) [subsort{SortValue{}, SortExpression{}}()]
+                axiom{R} \exists{R}(
+                    Value:SortResult{},
+                    \equals{SortResult{}, R}(
+                        Value:SortResult{},
+                        inj{SortValue{}, SortResult{}}(From:SortValue{})
+                    )
+                ) [subsort{SortValue{}, SortResult{}}()]
+                axiom{R} \exists{R}(
+                    Value:SortKItem{},
+                    \equals{SortKItem{}, R}(
+                        Value:SortKItem{},
+                        inj{SortExpression{}, SortKItem{}}(From:SortExpression{})
+                    )
+                ) [subsort{SortExpression{}, SortKItem{}}()]
+                axiom{R} \exists{R}(
+                    Value:SortKItem{},
+                    \equals{SortKItem{}, R}(
+                        Value:SortKItem{},
+                        inj{SortResult{}, SortKItem{}}(From:SortResult{})
+                    )
+                ) [subsort{SortResult{}, SortKItem{}}()]
+                axiom{R} \exists{R}(
+                    Value:SortKItem{},
+                    \equals{SortKItem{}, R}(
+                        Value:SortKItem{},
+                        inj{SortOther{}, SortKItem{}}(From:SortOther{})
+                    )
+                ) [subsort{SortOther{}, SortKItem{}}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortK{}, R}(
+                                X:SortK{},
+                                kseq{}(
+                                    inj{SortResult{}, SortKItem{}}(RESULT:SortResult{}),
+                                    dotk{}()
+                                )
+                            ),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortBool{}, R}(
+                        isResult{}(X:SortK{}),
+                        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+                    )
+                ) [label{}("result")]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(\in{SortK{}, R}(X:SortK{}, ANY:SortK{}), \top{R}())
+                    ),
+                    \equals{SortBool{}, R}(
+                        isResult{}(X:SortK{}),
+                        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+                    )
+                ) [label{}("owise"), priority{}("200")]
+            endmodule []"#,
+        )
+        .expect("sort-membership definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("sort-membership definition should internalize");
+        let true_term = term(&definition, r#"\dv{SortBool{}}("true")"#);
+        let false_term = term(&definition, r#"\dv{SortBool{}}("false")"#);
+        let cases = [
+            ("SortExpression", None),
+            ("SortValue", Some(&true_term)),
+            ("SortResult", Some(&true_term)),
+            ("SortOther", Some(&false_term)),
+        ];
+
+        for (source, expected) in cases {
+            let input = term(
+                &definition,
+                &format!(
+                    "isResult{{}}(kseq{{}}(inj{{{source}{{}}, SortKItem{{}}}}(INPUT:{source}{{}}), dotk{{}}()))"
+                ),
+            );
+            let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+            assert_eq!(result.term, expected.unwrap_or(&input).clone(), "{source}");
+        }
+    }
+
+    #[test]
     fn normalizes_boolean_k_disequality_conditions_to_native_predicates() {
         let syntax = parse_definition(
             r#"[]

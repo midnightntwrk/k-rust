@@ -117,6 +117,10 @@ impl SortGraph {
     }
 
     fn overlap(&self, left: &Sort, right: &Sort) -> bool {
+        self.known_overlap(left, right).unwrap_or(true)
+    }
+
+    fn known_overlap(&self, left: &Sort, right: &Sort) -> Option<bool> {
         let (
             Sort::Application {
                 name: left,
@@ -128,14 +132,14 @@ impl SortGraph {
             },
         ) = (left, right)
         else {
-            return true;
+            return None;
         };
         if !left_arguments.is_empty() || !right_arguments.is_empty() {
-            return true;
+            return None;
         }
         match (self.subsorts.get(left), self.subsorts.get(right)) {
-            (Some(left), Some(right)) => !left.is_disjoint(right),
-            _ => true,
+            (Some(left), Some(right)) => Some(!left.is_disjoint(right)),
+            _ => None,
         }
     }
 }
@@ -210,7 +214,13 @@ fn has_constructor_like_top(term: &Term) -> bool {
             TermKind::Application { symbol, .. }
                 if symbol.attributes.symbol_type == SymbolType::Constructor
         )
-        || matches!(term.kind(), TermKind::Injection { .. })
+        || matches!(
+            term.kind(),
+            TermKind::Injection { .. }
+                | TermKind::Map { .. }
+                | TermKind::List { .. }
+                | TermKind::Set { .. }
+        )
 }
 
 pub fn match_terms(
@@ -2321,6 +2331,12 @@ impl Matcher<'_> {
             .check_subsort(subject_source, pattern_source)
             .map_err(FailReason::Subsorting)?;
         if !pattern_is_subsort && !subject_is_subsort {
+            if self.sorts.known_overlap(pattern_source, subject_source) == Some(true)
+                && !has_constructor_like_top(pattern_term)
+                && !has_constructor_like_top(subject_term)
+            {
+                return self.defer(pattern, subject);
+            }
             return Err(FailReason::DifferentSorts(
                 pattern_term.clone(),
                 subject_term.clone(),
@@ -3430,6 +3446,139 @@ mod tests {
             graph.insert(name, []);
         }
         graph
+    }
+
+    #[test]
+    fn differing_symbolic_injections_preserve_a_common_subsort_match() {
+        let item = Sort::simple("SortItem");
+        let left = Sort::simple("SortLeft");
+        let right = Sort::simple("SortRight");
+        let common = Name::from("SortCommon");
+        let disjoint = Sort::simple("SortDisjoint");
+        let mut graph = SortGraph::default();
+        graph.insert(
+            "SortItem",
+            [
+                Name::from("SortLeft"),
+                Name::from("SortRight"),
+                common.clone(),
+                Name::from("SortDisjoint"),
+            ],
+        );
+        graph.insert("SortLeft", [common.clone()]);
+        graph.insert("SortRight", [common]);
+        graph.insert("SortCommon", []);
+        graph.insert("SortDisjoint", []);
+
+        let pattern = Term::injection(left.clone(), item.clone(), var("PATTERN", left.clone()));
+        let overlapping =
+            Term::injection(right.clone(), item.clone(), var("SUBJECT", right.clone()));
+        let separate = Term::injection(disjoint.clone(), item.clone(), var("SEPARATE", disjoint));
+
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            assert_eq!(
+                outcome(match_terms(mode, &graph, &pattern, &overlapping)),
+                Outcome::Indeterminate,
+                "{mode:?}",
+            );
+            assert_eq!(
+                outcome(match_terms(mode, &graph, &pattern, &separate)),
+                Outcome::Failed,
+                "{mode:?}",
+            );
+
+            let concrete_left = Term::injection(
+                left.clone(),
+                item.clone(),
+                domain_value(left.clone(), "left"),
+            );
+            let concrete_right = Term::injection(
+                right.clone(),
+                item.clone(),
+                domain_value(right.clone(), "right"),
+            );
+            assert_eq!(
+                outcome(match_terms(mode, &graph, &concrete_left, &overlapping)),
+                Outcome::Failed,
+                "{mode:?}, constructor-like pattern",
+            );
+            assert_eq!(
+                outcome(match_terms(mode, &graph, &pattern, &concrete_right)),
+                Outcome::Failed,
+                "{mode:?}, constructor-like subject",
+            );
+        }
+
+        let parameter = Sort::simple("SortParameter");
+        let parametric = |name| Sort::Application {
+            name: Name::from(name),
+            arguments: vec![parameter.clone()],
+        };
+        let parametric_left = parametric("SortLeft");
+        let parametric_right = parametric("SortRight");
+        assert_eq!(
+            outcome(match_terms(
+                MatchMode::Evaluate,
+                &graph,
+                &Term::injection(
+                    parametric_left.clone(),
+                    Sort::simple("SortItem"),
+                    var("PARAMETRIC_PATTERN", parametric_left),
+                ),
+                &Term::injection(
+                    parametric_right.clone(),
+                    Sort::simple("SortItem"),
+                    var("PARAMETRIC_SUBJECT", parametric_right),
+                ),
+            )),
+            Outcome::Failed,
+        );
+    }
+
+    #[test]
+    fn collection_heads_fix_the_source_sort_of_differing_injections() {
+        let item = Sort::simple("SortItem");
+        let left = Sort::simple("SortLeft");
+        let right = Sort::simple("SortRight");
+        let mut graph = SortGraph::default();
+        graph.insert(
+            "SortItem",
+            [
+                Name::from("SortLeft"),
+                Name::from("SortRight"),
+                Name::from("SortCommon"),
+            ],
+        );
+        graph.insert("SortLeft", [Name::from("SortCommon")]);
+        graph.insert("SortRight", [Name::from("SortCommon")]);
+        graph.insert("SortCommon", []);
+
+        let open_map = |prefix: &str, source: &Sort| {
+            let definition = Arc::new(MapDefinition {
+                symbols: collection_symbols(prefix),
+                key_sort: "SomeSort".into(),
+                value_sort: "SomeSort".into(),
+                map_sort: match source {
+                    Sort::Application { name, .. } => name.clone(),
+                    Sort::Variable(_) => unreachable!(),
+                },
+            });
+            Term::map(
+                definition,
+                vec![(domain_value(sort(), "key"), domain_value(sort(), "value"))],
+                Some(var(&format!("{prefix}_REST"), source.clone())),
+            )
+        };
+        let pattern = Term::injection(left.clone(), item.clone(), open_map("left", &left));
+        let subject = Term::injection(right.clone(), item, open_map("right", &right));
+
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            assert_eq!(
+                outcome(match_terms(mode, &graph, &pattern, &subject)),
+                Outcome::Failed,
+                "{mode:?}",
+            );
+        }
     }
 
     fn overload_definition() -> BackendDefinition {

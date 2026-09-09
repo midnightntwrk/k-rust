@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 
 use crate::{
     definition::BackendDefinition,
-    matching::occurs_below_only_constructors,
+    matching::{InjectionEquality, match_injection_equality, occurs_below_only_constructors},
     rule::Predicate,
     substitution::{Substitution, compose, substitute},
     term::{SymbolType, Term, TermKind, Variable},
@@ -197,59 +197,21 @@ impl Unifier<'_> {
             {
                 Err(UnificationFailure::DifferentSymbols(left, right))
             }
-            (
-                TermKind::Injection {
-                    source: left_source,
-                    target: left_target,
-                    term: left_term,
-                },
-                TermKind::Injection {
-                    source: right_source,
-                    target: right_target,
-                    term: right_term,
-                },
-            ) => {
-                if left_target != right_target {
-                    return Err(UnificationFailure::DifferentSorts(left, right));
+            (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
+                match match_injection_equality(Some(&self.definition.sort_graph), &left, &right) {
+                    Some(InjectionEquality::Direct(left, right))
+                    | Some(InjectionEquality::Split(left, right)) => {
+                        self.pending.push_back((left, right));
+                        Ok(())
+                    }
+                    Some(InjectionEquality::Distinct) | None => {
+                        Err(UnificationFailure::DifferentSorts(left, right))
+                    }
+                    Some(InjectionEquality::Unknown) => {
+                        self.constraints.push(Predicate::Equals(left, right));
+                        Ok(())
+                    }
                 }
-                if left_source == right_source {
-                    self.pending
-                        .push_back((left_term.clone(), right_term.clone()));
-                    return Ok(());
-                }
-                if self
-                    .definition
-                    .sort_graph
-                    .check_subsort(left_source, right_source)
-                    .unwrap_or(false)
-                {
-                    self.pending.push_back((
-                        Term::injection(
-                            left_source.clone(),
-                            right_source.clone(),
-                            left_term.clone(),
-                        ),
-                        right_term.clone(),
-                    ));
-                    return Ok(());
-                }
-                if self
-                    .definition
-                    .sort_graph
-                    .check_subsort(right_source, left_source)
-                    .unwrap_or(false)
-                {
-                    self.pending.push_back((
-                        left_term.clone(),
-                        Term::injection(
-                            right_source.clone(),
-                            left_source.clone(),
-                            right_term.clone(),
-                        ),
-                    ));
-                    return Ok(());
-                }
-                Err(UnificationFailure::DifferentSorts(left, right))
             }
             (left_kind, right_kind) if is_collection(left_kind) || is_collection(right_kind) => {
                 self.unsupported.push((left, right));
@@ -491,6 +453,63 @@ mod tests {
             Substitution::from([(variable, injected)])
         );
         assert!(result.constraints.is_empty());
+    }
+
+    #[test]
+    fn preserves_overlapping_incomparable_injections_as_an_equality() {
+        let item = Sort::simple("SortItem");
+        let left_sort = Sort::simple("SortLeft");
+        let right_sort = Sort::simple("SortRight");
+        let disjoint_sort = Sort::simple("SortDisjoint");
+        let mut definition = definition();
+        definition.sort_graph.insert(
+            "SortItem",
+            [
+                crate::term::Name::from("SortLeft"),
+                crate::term::Name::from("SortRight"),
+                crate::term::Name::from("SortCommon"),
+                crate::term::Name::from("SortDisjoint"),
+            ],
+        );
+        definition
+            .sort_graph
+            .insert("SortLeft", [crate::term::Name::from("SortCommon")]);
+        definition
+            .sort_graph
+            .insert("SortRight", [crate::term::Name::from("SortCommon")]);
+        definition.sort_graph.insert("SortCommon", []);
+        definition.sort_graph.insert("SortDisjoint", []);
+
+        let left = Term::injection(
+            left_sort.clone(),
+            item.clone(),
+            Term::variable(Variable::new("LEFT", left_sort)),
+        );
+        let right = Term::injection(
+            right_sort.clone(),
+            item.clone(),
+            Term::variable(Variable::new("RIGHT", right_sort)),
+        );
+        let separate = Term::injection(
+            disjoint_sort.clone(),
+            item,
+            Term::variable(Variable::new("DISJOINT", disjoint_sort)),
+        );
+
+        let UnificationResult::Unified(result) = unify_term_pairs(
+            &definition,
+            Substitution::new(),
+            [(left.clone(), right.clone())],
+        ) else {
+            panic!("overlapping injection sources should remain symbolic");
+        };
+        assert!(result.substitution.is_empty());
+        assert_eq!(result.constraints, [Predicate::Equals(left.clone(), right)]);
+
+        assert!(matches!(
+            unify_term_pairs(&definition, Substitution::new(), [(left, separate)]),
+            UnificationResult::Bottom(UnificationFailure::DifferentSorts(_, _))
+        ));
     }
 
     #[test]
