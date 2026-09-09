@@ -31,7 +31,7 @@ use self::lists::UserList;
 pub(crate) use self::parametric::is_parser_sort;
 use self::prediction::PredictionAnalysis;
 pub(super) use self::scanner::Scanner;
-use self::scanner::{Item, Layout, compile_item};
+use self::scanner::{Item, Layout, ScanCacheEntry, ScanWinner, compile_item};
 
 /// The name under which sort inference treats a leaf as a variable: a `#KVariable` token, or a
 /// `KConfigVar` token such as `$PGM`, which both reference engines treat exactly like a variable
@@ -1218,7 +1218,7 @@ impl Grammar {
             .map(|_| Chart::default())
             .collect::<Vec<_>>();
         let mut scanner_cache = vec![None; input.len() + 1];
-        let start_position = self.layout.skip(input, 0);
+        let start_position = self.canonical_position(input, 0, &mut scanner_cache);
         for production in self.productions_for(start) {
             self.add_chart_state(
                 &mut charts[start_position],
@@ -1241,8 +1241,9 @@ impl Grammar {
                     continue;
                 };
                 let production = &self.productions[state.production];
-                let canonical =
-                    *canonical_position.get_or_insert_with(|| self.layout.skip(input, position));
+                let canonical = *canonical_position.get_or_insert_with(|| {
+                    self.canonical_position(input, position, &mut scanner_cache)
+                });
                 if state.dot < production.items.len() && canonical != position {
                     self.add_chart_state(&mut charts[canonical], state, derivations)?;
                     continue;
@@ -1257,8 +1258,16 @@ impl Grammar {
                                     && analysis.cannot_start(
                                         predicted,
                                         self.scanner
-                                            .winner(input, position, &mut scanner_cache[position])
-                                            .map(|(lexeme, _)| lexeme),
+                                            .winner(
+                                                &self.layout,
+                                                input,
+                                                position,
+                                                &mut scanner_cache[position],
+                                            )
+                                            .and_then(|winner| match winner {
+                                                ScanWinner::Token { lexeme, .. } => Some(lexeme),
+                                                ScanWinner::Layout { .. } => None,
+                                            }),
                                     )
                                 {
                                     #[cfg(test)]
@@ -1326,6 +1335,7 @@ impl Grammar {
                     }
                     Some(item) => {
                         for end in self.scanner.matches(
+                            &self.layout,
                             item,
                             input,
                             position,
@@ -1411,7 +1421,7 @@ impl Grammar {
             if chart.states.is_empty() {
                 continue;
             }
-            if self.layout.skip(input, position) != input.len() {
+            if self.canonical_position(input, position, &mut scanner_cache) != input.len() {
                 continue;
             }
             let (completed, violation) = completed_nodes(
@@ -1870,6 +1880,23 @@ impl Grammar {
 
     fn productions_for(&self, sort: &Sort) -> impl Iterator<Item = usize> + '_ {
         self.by_result.get(sort).into_iter().flatten().copied()
+    }
+
+    fn canonical_position(
+        &self,
+        input: &str,
+        mut position: usize,
+        scanner_cache: &mut [ScanCacheEntry],
+    ) -> usize {
+        loop {
+            match self
+                .scanner
+                .winner(&self.layout, input, position, &mut scanner_cache[position])
+            {
+                Some(ScanWinner::Layout { end }) if end > position => position = end,
+                _ => return position,
+            }
+        }
     }
 
     fn no_parse(&self, charts: &[Chart]) -> ParseError {
@@ -2826,6 +2853,66 @@ mod chart_tests {
             PARSE_ATTEMPTS.set(0);
             assert!(grammar.parse(&Sort::new("Other"), "?").is_err());
             assert_eq!(PARSE_ATTEMPTS.get(), 1);
+        }
+
+        #[test]
+        fn layout_token_competition_prediction_uses_token_winner_once() {
+            let grammar = Grammar::from_sentences(&[
+                production("Start", vec![nonterminal("Choice")], "start"),
+                production(
+                    "Choice",
+                    vec![ProductionItem::Terminal("ab".into())],
+                    "chosen",
+                ),
+                production(
+                    "Choice",
+                    vec![ProductionItem::Terminal("dead".into())],
+                    "dead",
+                ),
+                production("#Layout", vec![ProductionItem::regex("a")], "layout"),
+            ])
+            .unwrap();
+            let baseline = unfiltered(&grammar, "Start", "ab").unwrap();
+            assert_eq!(
+                baseline,
+                Term::apply("start", vec![Term::apply("chosen", vec![])])
+            );
+            PARSE_ATTEMPTS.set(0);
+            assert_eq!(grammar.parse(&Sort::new("Start"), "ab").unwrap(), baseline);
+            assert_eq!(PARSE_ATTEMPTS.get(), 1);
+        }
+
+        #[test]
+        fn layout_token_competition_retry_preserves_exact_error() {
+            let grammar = Grammar::from_sentences(&[
+                production("Start", vec![nonterminal("Choice")], "start"),
+                production(
+                    "Choice",
+                    vec![
+                        ProductionItem::Terminal("ab".into()),
+                        ProductionItem::Terminal("z".into()),
+                    ],
+                    "chosen",
+                ),
+                production(
+                    "Choice",
+                    vec![ProductionItem::Terminal("dead".into())],
+                    "dead",
+                ),
+                production("#Layout", vec![ProductionItem::regex("a")], "layout"),
+            ])
+            .unwrap();
+            let baseline = unfiltered(&grammar, "Start", "ab?");
+            assert_eq!(
+                baseline,
+                Err(ParseError::NoParse {
+                    position: 2,
+                    expected: vec!["\"z\"".into()]
+                })
+            );
+            PARSE_ATTEMPTS.set(0);
+            assert_eq!(grammar.parse(&Sort::new("Start"), "ab?"), baseline);
+            assert_eq!(PARSE_ATTEMPTS.get(), 2);
         }
 
         #[test]

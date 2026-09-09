@@ -70,23 +70,21 @@ impl Layout {
         )
     }
 
-    pub(super) fn skip(&self, input: &str, mut position: usize) -> usize {
-        loop {
-            let Some(end) = self
-                .patterns
-                .iter()
-                .filter_map(|regex| match_k_regex(regex, input, position))
-                .max()
-            else {
-                return position;
-            };
-            if end == position {
-                return position;
-            }
-            position = end;
-        }
+    fn longest_match(&self, input: &str, position: usize) -> Option<usize> {
+        self.patterns
+            .iter()
+            .filter_map(|regex| match_k_regex(regex, input, position))
+            .max()
     }
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ScanWinner {
+    Layout { end: usize },
+    Token { lexeme: usize, end: usize },
+}
+
+pub(super) type ScanCacheEntry = Option<Option<ScanWinner>>;
 
 #[derive(Clone, Debug)]
 pub(super) struct CompiledKRegex {
@@ -189,17 +187,20 @@ impl Scanner {
 
     pub(super) fn matches(
         &self,
+        layout: &Layout,
         item: &Item,
         input: &str,
         position: usize,
-        cached: &mut Option<Option<(usize, usize)>>,
+        cached: &mut ScanCacheEntry,
     ) -> Vec<usize> {
         let Some(target) = self.lexeme_id(item) else {
             return Vec::new();
         };
-        self.winner(input, position, cached)
-            .filter(|(index, _)| *index == target)
-            .map(|(_, end)| end)
+        self.winner(layout, input, position, cached)
+            .and_then(|winner| match winner {
+                ScanWinner::Token { lexeme, end } if lexeme == target => Some(end),
+                _ => None,
+            })
             .into_iter()
             .collect()
     }
@@ -211,14 +212,15 @@ impl Scanner {
 
     pub(super) fn winner(
         &self,
+        layout: &Layout,
         input: &str,
         position: usize,
-        cached: &mut Option<Option<(usize, usize)>>,
-    ) -> Option<(usize, usize)> {
+        cached: &mut ScanCacheEntry,
+    ) -> Option<ScanWinner> {
         match cached {
             Some(winner) => *winner,
             None => {
-                let winner = self
+                let token = self
                     .lexemes
                     .iter()
                     .enumerate()
@@ -232,6 +234,17 @@ impl Scanner {
                             .then_with(|| right.key.cmp(&left.key))
                     })
                     .map(|(index, _, end)| (index, end));
+                let winner = match (layout.longest_match(input, position), token) {
+                    (Some(layout_end), Some((lexeme, token_end))) if token_end > layout_end => {
+                        Some(ScanWinner::Token {
+                            lexeme,
+                            end: token_end,
+                        })
+                    }
+                    (Some(end), _) => Some(ScanWinner::Layout { end }),
+                    (None, Some((lexeme, end))) => Some(ScanWinner::Token { lexeme, end }),
+                    (None, None) => None,
+                };
                 *cached = Some(winner);
                 winner
             }

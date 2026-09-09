@@ -148,6 +148,110 @@ fn disabled_layout_grammar() -> Grammar {
     Grammar::from_sentences(&[layout_start_production(), syntax_sort("#Layout")]).unwrap()
 }
 
+fn layout_token_competition_grammar(layout: &str, token: &str) -> Grammar {
+    Grammar::from_sentences(&[
+        production(
+            "Start",
+            vec![ProductionItem::Terminal(token.into())],
+            Some("token"),
+            Attributes::default(),
+        ),
+        production(
+            "#Layout",
+            vec![ProductionItem::regex(layout)],
+            None,
+            Attributes::default(),
+        ),
+    ])
+    .unwrap()
+}
+
+#[test]
+fn layout_token_competition_prefers_strictly_longer_token() {
+    use k_rust::kast::TermSpan;
+    use k_rust::provenance::SourceId;
+
+    let grammar = layout_token_competition_grammar("a", "ab");
+    let parsed = grammar
+        .parse_with_provenance(&Sort::new("Start"), "ab", SourceId(7), 100)
+        .unwrap();
+    assert_eq!(parsed.unannotated(), &Term::apply("token", vec![]));
+    assert_eq!(
+        parsed.metadata().and_then(|metadata| metadata.span),
+        Some(TermSpan {
+            source: SourceId(7),
+            start: 100,
+            end: 102,
+        })
+    );
+}
+
+#[test]
+fn layout_token_competition_prefers_equal_length_layout() {
+    let grammar = layout_token_competition_grammar("ab", "ab");
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "ab"),
+        Err(ParseError::NoParse {
+            position: 2,
+            expected: vec!["\"ab\"".into()],
+        })
+    );
+}
+
+#[test]
+fn layout_token_competition_prefers_strictly_longer_layout() {
+    let grammar = layout_token_competition_grammar("ab", "a");
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "ab"),
+        Err(ParseError::NoParse {
+            position: 2,
+            expected: vec!["\"a\"".into()],
+        })
+    );
+}
+
+#[test]
+fn layout_token_competition_preserves_consecutive_layout_and_eof() {
+    let grammar = layout_token_competition_grammar("a", "x");
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "aaxaa").unwrap(),
+        Term::apply("token", vec![])
+    );
+}
+
+#[test]
+fn layout_token_competition_global_token_blocks_nullable_root() {
+    let grammar = Grammar::from_sentences(&[
+        production("Start", vec![], Some("empty"), Attributes::default()),
+        production(
+            "Other",
+            vec![ProductionItem::Terminal("ab".into())],
+            Some("other"),
+            Attributes::default(),
+        ),
+        production(
+            "#Layout",
+            vec![ProductionItem::regex("[ab]")],
+            None,
+            Attributes::default(),
+        ),
+    ])
+    .unwrap();
+    for input in ["", "a", "aa"] {
+        assert_eq!(
+            grammar.parse(&Sort::new("Start"), input).unwrap(),
+            Term::apply("empty", vec![])
+        );
+    }
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "ab"),
+        Err(ParseError::NoParse {
+            position: 0,
+            expected: vec![],
+        })
+    );
+}
+
 #[test]
 fn uses_default_layout_when_layout_is_undeclared() {
     let grammar = Grammar::from_sentences([&layout_start_production()]).unwrap();

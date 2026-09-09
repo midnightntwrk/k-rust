@@ -177,8 +177,8 @@ impl PredictionAnalysis {
 mod tests {
     use super::super::{
         CHART_COMPLETION_CANDIDATES, NONTERMINAL_PREDICTIONS_SKIPPED, PARSE_ATTEMPTS,
-        PREDICTION_ANALYSIS_BUILDS, ParseError, ParseProvenance, PredictionMode, SourceId, Term,
-        TermMetadata,
+        PREDICTION_ANALYSIS_BUILDS, ParseError, ParseProvenance, PredictionMode, ScanWinner,
+        SourceId, Term, TermMetadata,
     };
     use super::*;
     use crate::definition::{Attributes, ProductionCatalog, ProductionItem, Sentence};
@@ -370,7 +370,11 @@ mod tests {
                 BTreeSet::from([token("b")])
             );
         }
-        let zero = grammar.scanner.winner("", 0, &mut None).unwrap().0;
+        let Some(ScanWinner::Token { lexeme: zero, .. }) =
+            grammar.scanner.winner(&grammar.layout, "", 0, &mut None)
+        else {
+            panic!("expected the zero-width token to win")
+        };
         assert_eq!(
             analysis.first[id(&Sort::new("Mandatory"))],
             BTreeSet::from([zero])
