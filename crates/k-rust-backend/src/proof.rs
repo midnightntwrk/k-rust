@@ -1258,6 +1258,17 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
+    fn claim_with_label<'a>(
+        definition: &'a BackendDefinition,
+        label: &str,
+    ) -> &'a ReachabilityClaim {
+        definition
+            .reachability_claims
+            .iter()
+            .find(|claim| claim.attributes.label.as_deref() == Some(label))
+            .unwrap_or_else(|| panic!("claim {label:?} should be indexed"))
+    }
+
     fn claim_requires_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
@@ -1437,7 +1448,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "main"),
             ProofOptions::default(),
             &solver,
         )
@@ -1718,7 +1729,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "main"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -1747,7 +1758,7 @@ mod tests {
             remainder: None,
         } = apply_claim(
             &definition,
-            &definition.reachability_claims[1],
+            claim_with_label(&definition, "defines-z"),
             &subject,
             ProofOptions::default(),
             &NoSolver,
@@ -1793,7 +1804,7 @@ mod tests {
                 remainder: Some(remainder),
             } = apply_claim(
                 &definition,
-                &definition.reachability_claims[2],
+                claim_with_label(&definition, "guarded"),
                 &subject,
                 ProofOptions::default(),
                 solver,
@@ -1831,7 +1842,7 @@ mod tests {
         assert!(matches!(
             apply_claim(
                 &definition,
-                &definition.reachability_claims[2],
+                claim_with_label(&definition, "guarded"),
                 &subject,
                 ProofOptions::default(),
                 &solver,
@@ -2108,10 +2119,10 @@ mod tests {
             "#,
         );
 
-        let isolated = [&definition.reachability_claims[0]];
+        let isolated = [claim_with_label(&definition, "ca")];
         let result = super::prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "ca"),
             &isolated,
             ProofOptions::default(),
             &NoSolver,
@@ -2131,7 +2142,7 @@ mod tests {
         let circularities = definition.reachability_claims.iter().collect::<Vec<_>>();
         let batch = super::prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "ca"),
             &circularities,
             ProofOptions::default(),
             &NoSolver,
@@ -2235,7 +2246,7 @@ mod tests {
 
         let first = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "one-a-c"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -2249,12 +2260,12 @@ mod tests {
                     kind: TraceKind::Rewrite,
                     label: Some(label),
                     ..
-                }] if label == "a-to-b")
+                }] if label == "a-to-c")
         ));
 
         let second = prove_claim(
             &definition,
-            &definition.reachability_claims[1],
+            claim_with_label(&definition, "one-a-b"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -2263,7 +2274,7 @@ mod tests {
         assert!(second.leaves.iter().all(|leaf| {
             leaf.trace
                 .iter()
-                .all(|entry| entry.label.as_deref() != Some("a-to-c"))
+                .all(|entry| entry.label.as_deref() != Some("a-to-b"))
         }));
     }
 
@@ -2344,10 +2355,14 @@ mod tests {
             ReachabilityMode::OnePath => "weakExistsFinally",
             ReachabilityMode::AllPath => "weakAlwaysFinally",
         };
-        let trusted = if trusted {
-            "trusted{}()"
+        let mode_label = match mode {
+            ReachabilityMode::OnePath => "one",
+            ReachabilityMode::AllPath => "all",
+        };
+        let attributes = if trusted {
+            format!("label{{}}(\"{mode_label}-{left}-{right}\"), trusted{{}}()")
         } else {
-            "label{}(\"claim\")"
+            format!("label{{}}(\"{mode_label}-{left}-{right}\")")
         };
         format!(
             r#"claim{{}} \implies{{SortS{{}}}}(
@@ -2355,7 +2370,7 @@ mod tests {
                 {modality}{{SortS{{}}}}(
                     \and{{SortS{{}}}}({right}{{}}(), \top{{SortS{{}}}}())
                 )
-            ) [{trusted}]"#
+            ) [{attributes}]"#
         )
     }
 
@@ -2555,7 +2570,7 @@ mod tests {
         let definition = definition("symbol opaque{}() : SortS{} [function{}()]", claims);
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "smt-unsat-antecedent"),
             ProofOptions::default(),
             &NonemptyUnsatSolver,
         )
@@ -2586,14 +2601,14 @@ mod tests {
 
         let direct = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "one-a-a"),
             ProofOptions::default(),
             &NoSolver,
         )
         .unwrap();
         let rewritten = prove_claim(
             &definition,
-            &definition.reachability_claims[1],
+            claim_with_label(&definition, "one-a-b"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -2622,7 +2637,10 @@ mod tests {
         let applicable = if include_applicable_claim {
             r#"
             claim{} \implies{SortS{}}(
-                \and{SortS{}}(b{}(), \top{SortS{}}()),
+                \and{SortS{}}(
+                    b{}(),
+                    \and{SortS{}}(\top{SortS{}}(), \top{SortS{}}())
+                ),
                 weakAlwaysFinally{SortS{}}(c{}())
             ) [label{}("applicable-third"), trusted{}()]
             "#
@@ -2654,7 +2672,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "main"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -2688,7 +2706,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "main"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -2708,7 +2726,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "main"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -2779,7 +2797,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "one-a-a"),
             ProofOptions {
                 step_timeout: Some(Duration::from_millis(1)),
                 ..ProofOptions::default()
@@ -2876,22 +2894,22 @@ mod tests {
     #[test]
     fn distinguishes_existential_and_universal_rewrite_paths() {
         let claims = [
-            modal_claim(ReachabilityMode::OnePath, "a", "b", false),
-            modal_claim(ReachabilityMode::AllPath, "a", "b", false),
+            modal_claim(ReachabilityMode::OnePath, "a", "c", false),
+            modal_claim(ReachabilityMode::AllPath, "a", "c", false),
         ]
         .join("\n");
         let definition = definition(A_TO_B_AND_C, &claims);
 
         let one_path = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "one-a-c"),
             ProofOptions::default(),
             &NoSolver,
         )
         .unwrap();
         let all_path = prove_claim(
             &definition,
-            &definition.reachability_claims[1],
+            claim_with_label(&definition, "all-a-c"),
             ProofOptions {
                 max_counterexamples: 2,
                 ..ProofOptions::default()
@@ -2905,7 +2923,7 @@ mod tests {
         assert!(one_path.leaves.iter().all(|leaf| {
             leaf.trace
                 .iter()
-                .all(|entry| entry.label.as_deref() != Some("a-to-c"))
+                .all(|entry| entry.label.as_deref() != Some("a-to-b"))
         }));
         assert_eq!(all_path.status, ProofStatus::Disproved);
         assert_eq!(all_path.leaves.len(), 2);
@@ -2951,8 +2969,8 @@ mod tests {
 
         let limited = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
         assert_eq!(limited.status, ProofStatus::Disproved);
-        assert_eq!(limited.leaves.len(), 1);
-        assert_eq!(limited.unexplored_states, 1);
+        assert_eq!(limited.leaves.len(), 2);
+        assert_eq!(limited.unexplored_states, 0);
     }
 
     #[test]
@@ -3026,20 +3044,25 @@ mod tests {
     fn condition_stuck_check_can_be_disabled() {
         let claims = modal_claim(ReachabilityMode::OnePath, "a", "a", false);
         let mut definition = definition(A_TO_B, &claims);
-        definition.reachability_claims[0].rhs[0]
+        definition
+            .reachability_claims
+            .iter_mut()
+            .find(|claim| claim.attributes.label.as_deref() == Some("one-a-a"))
+            .expect("the target claim should be indexed")
+            .rhs[0]
             .constraints
             .push(crate::rule::Predicate::False);
 
         let checked = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "one-a-a"),
             ProofOptions::default(),
             &NoSolver,
         )
         .unwrap();
         let unchecked = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "one-a-a"),
             ProofOptions {
                 stuck_check: false,
                 ..ProofOptions::default()
@@ -3132,7 +3155,7 @@ mod tests {
 
         let result = prove_claim(
             &definition,
-            &definition.reachability_claims[0],
+            claim_with_label(&definition, "main"),
             ProofOptions::default(),
             &solver,
         )
@@ -3335,18 +3358,14 @@ mod tests {
                 let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
                 let result = prove_claim(
                     &definition,
-                    &definition.reachability_claims[0],
+                    claim_with_label(&definition, "main"),
                     ProofOptions::default(),
                     &solver,
                 )
                 .expect("claim should execute");
 
                 assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
-                let (first, second) = if reverse_claims {
-                    ("bc", "ab")
-                } else {
-                    ("ab", "bc")
-                };
+                let (first, second) = ("bc", "ab");
                 assert!(
                     result.leaves.iter().all(|leaf| {
                         matches!(
@@ -3417,7 +3436,7 @@ mod tests {
                 let definition =
                     overlapping_claim_remainder_definition(mode, reverse_claims, true, true, true);
                 let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
-                let mut claim = definition.reachability_claims[1].clone();
+                let mut claim = claim_with_label(&definition, "ab").clone();
                 claim.attributes.trusted = false;
                 let result =
                     super::prove_claim(&definition, &claim, &[], ProofOptions::default(), &solver)
@@ -3448,7 +3467,7 @@ mod tests {
             let solver = crate::smt::Z3Solver::new(&without_d).expect("Z3 should initialize");
             let result = prove_claim(
                 &without_d,
-                &without_d.reachability_claims[0],
+                claim_with_label(&without_d, "main"),
                 ProofOptions::default(),
                 &solver,
             )
@@ -3474,7 +3493,7 @@ mod tests {
                 crate::smt::Z3Solver::new(&without_progress).expect("Z3 should initialize");
             let result = prove_claim(
                 &without_progress,
-                &without_progress.reachability_claims[0],
+                claim_with_label(&without_progress, "main"),
                 ProofOptions::default(),
                 &solver,
             )

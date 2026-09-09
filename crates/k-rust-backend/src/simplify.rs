@@ -3409,19 +3409,19 @@ mod tests {
     }
 
     #[test]
-    fn applies_the_first_of_two_same_priority_simplification_equations() {
+    fn applies_the_canonically_first_same_priority_simplification_equation() {
         let definition = same_priority_term_equations(", simplification{}()");
         let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
 
         let result = simplify(&definition, &input, SimplificationOptions::default())
             .expect("the first applicable simplification equation should win");
 
-        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("first")"#));
-        assert_eq!(result.applied_rules, ["z-first"]);
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("second")"#));
+        assert_eq!(result.applied_rules, ["a-second"]);
     }
 
     #[test]
-    fn applies_the_first_of_two_same_priority_function_equations() {
+    fn applies_the_canonically_first_same_priority_function_equation() {
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -3451,12 +3451,12 @@ mod tests {
         let result = simplify(&definition, &input, SimplificationOptions::default())
             .expect("the first applicable function equation should win");
 
-        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("first")"#));
-        assert_eq!(result.applied_rules, ["function-first"]);
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("second")"#));
+        assert_eq!(result.applied_rules, ["function-second"]);
     }
 
     #[test]
-    fn applies_the_first_of_two_same_priority_ceil_equations() {
+    fn applies_the_canonically_first_same_priority_ceil_equation() {
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -3507,7 +3507,7 @@ mod tests {
     }
 
     #[test]
-    fn applies_the_first_of_two_same_priority_predicate_equations() {
+    fn applies_the_canonically_first_same_priority_predicate_equation() {
         let syntax = parse_definition(
             r#"[]
             module MAIN

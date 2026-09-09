@@ -2647,7 +2647,7 @@ mod tests {
             },
         );
 
-        assert_eq!(names(&result), BTreeSet::from(["next1".into()]));
+        assert_eq!(names(&result), BTreeSet::from(["next2".into()]));
         assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
     }
 
@@ -2796,7 +2796,7 @@ mod tests {
                     other => panic!("expected an application, found {other:?}"),
                 })
                 .collect::<Vec<_>>(),
-            vec!["next1", "next2"]
+            vec!["next2", "next1"]
         );
     }
 

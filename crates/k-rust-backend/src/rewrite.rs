@@ -6985,8 +6985,56 @@ mod tests {
                 .iter()
                 .map(|branch| branch.label.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            vec!["left", "right"]
+            vec!["right", "left"]
         );
+    }
+
+    #[test]
+    fn any_mode_uses_canonical_rule_order_within_a_priority() {
+        let heat = r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(injectiveFunction{}(X:SortS{})),
+                    \top{SortS{}}()
+                ),
+                \dv{SortS{}}("heat")
+            ) [label{}("heat")]
+        "#;
+        let lookup = r#"
+             axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(\dv{SortS{}}("value")),
+                    \top{SortS{}}()
+                ),
+                \dv{SortS{}}("lookup")
+            ) [label{}("lookup")]
+        "#;
+
+        for rules in [format!("{heat}{lookup}"), format!("{lookup}{heat}")] {
+            let definition = definition(&rules);
+            let solver = FixedSolver {
+                satisfiability: Ok(Satisfiability::Sat),
+                validity: Ok(Validity::Indeterminate),
+            };
+            let mut fresh = 0;
+
+            let result = rewrite_step_sequential_with_solver(
+                &definition,
+                &subject(&definition, "value"),
+                &mut fresh,
+                &solver,
+            );
+
+            let RewriteResult::Finished(application) = result else {
+                panic!("lookup should consume the whole subject before heat: {result:?}");
+            };
+            assert_eq!(application.label.as_deref(), Some("lookup"));
+            assert!(application.pattern.constraints.is_empty());
+            assert_eq!(
+                application.pattern.term,
+                internal_term(&definition, r#"\dv{SortS{}}("lookup")"#)
+            );
+        }
     }
 
     #[test]
@@ -7781,7 +7829,7 @@ mod tests {
                 .iter()
                 .map(|entry| entry.label.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            ["initial-left", "left-merged"]
+            ["initial-right", "right-merged"]
         );
     }
 
@@ -7819,8 +7867,8 @@ mod tests {
             );
         };
         assert_eq!(leaf.pattern, subject(&definition, "d"));
-        assert_eq!(leaf.depth, 2);
-        assert_eq!(leaf.halt_reason, HaltReason::DepthBound);
+        assert_eq!(leaf.depth, 1);
+        assert_eq!(leaf.halt_reason, HaltReason::Stuck);
     }
 
     #[test]
@@ -8303,8 +8351,8 @@ mod tests {
         assert_eq!(
             result.effects,
             [
-                BuiltinEffect::UserLog("left".into()),
                 BuiltinEffect::UserLog("right".into()),
+                BuiltinEffect::UserLog("left".into()),
             ]
         );
         assert_eq!(observed, result.effects);
@@ -8353,7 +8401,7 @@ mod tests {
                     other => panic!("branch payload was not normalized: {other:?}"),
                 })
                 .collect::<Vec<_>>(),
-            vec!["left", "right"]
+            vec!["right", "left"]
         );
     }
 
@@ -8497,7 +8545,7 @@ mod tests {
                 .iter()
                 .map(|leaf| leaf.trace[0].label.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            vec!["left", "right"]
+            vec!["right", "left"]
         );
     }
 
@@ -8530,7 +8578,7 @@ mod tests {
                     other => panic!("expected a domain value, found {other:?}"),
                 })
                 .collect::<Vec<_>>(),
-            vec!["left", "right"]
+            vec!["right", "left"]
         );
     }
 
@@ -8570,9 +8618,9 @@ mod tests {
         assert_eq!(result.leaves[0].depth, 1);
         assert!(matches!(
             result.leaves[0].pattern.term.kind(),
-            TermKind::DomainValue { value, .. } if value.as_ref() == "left"
+            TermKind::DomainValue { value, .. } if value.as_ref() == "right"
         ));
-        assert_eq!(result.leaves[0].trace[0].label.as_deref(), Some("left"));
+        assert_eq!(result.leaves[0].trace[0].label.as_deref(), Some("right"));
     }
 
     #[cfg(feature = "z3")]
@@ -8590,7 +8638,10 @@ mod tests {
                 \dv{SortS{}}("first")
             ) [label{}("specific")]
             axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(
+                    wrap{}(fallback{}(X:SortS{})),
+                    \top{SortS{}}()
+                ),
                 fallback{}(X:SortS{})
             ) [label{}("fallback")]
             "#,
@@ -8609,7 +8660,7 @@ mod tests {
             &solver,
         );
 
-        assert_eq!(result.leaves.len(), 2);
+        assert_eq!(result.leaves.len(), 3);
         let specific = result
             .leaves
             .iter()
@@ -8630,6 +8681,11 @@ mod tests {
                 )
             })
             .expect("the later rule should receive the first rule's remainder");
+        let uncovered = result
+            .leaves
+            .iter()
+            .find(|leaf| leaf.pattern.term == internal_term(&definition, "wrap{}(Y:SortS{})"))
+            .expect("the complement of both partial rules should remain visible");
         assert!(!specific.pattern.constraints.is_empty());
         assert!(
             fallback
@@ -8637,6 +8693,15 @@ mod tests {
                 .constraints
                 .iter()
                 .any(|predicate| matches!(predicate, Predicate::Not(_)))
+        );
+        assert_eq!(
+            uncovered
+                .pattern
+                .constraints
+                .iter()
+                .filter(|predicate| matches!(predicate, Predicate::Not(_)))
+                .count(),
+            2
         );
     }
 
@@ -8673,9 +8738,9 @@ mod tests {
         let initial_antecedent = Predicate::Or(vec![
             Predicate::Equals(
                 variable.clone(),
-                Term::domain_value(Sort::simple("SortS"), "1"),
+                Term::domain_value(Sort::simple("SortS"), "0"),
             ),
-            Predicate::Equals(variable, Term::domain_value(Sort::simple("SortS"), "2")),
+            Predicate::Equals(variable, Term::domain_value(Sort::simple("SortS"), "1")),
         ]);
         let initial = Pattern {
             term: internal_term(&definition, "wrap{}(Y:SortS{})"),
