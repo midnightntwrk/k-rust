@@ -16,21 +16,25 @@ use k_rust::{
         collect_free_kore_variables, implication_sort_variables, special_implication_result,
         strip_exists,
     },
-    definition::{CheckMode, Sentence, checks::check_definition, json as definition_json},
+    definition::{
+        Attributes, CheckMode, LOCATION_ATTRIBUTE, SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE, Sentence,
+        checks::check_definition, json as definition_json,
+    },
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, definition_with_named_projections, parse_program_for_presentation},
     kast::{
         Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
     },
     kompile::{
-        CompilationBackend, CompileOptions, SortInjector, compile_loaded_definition,
+        CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
+        KoreVariableIdentity, SortInjector, compile_loaded_definition, compile_search_pattern,
         encode_kore_sort, expand_macros_in_term, term_to_kore_from_resolved,
     },
     kore::{
         ast::{
             Attributes as KoreAttributes, Definition as KoreDefinition, Module as KoreModule,
             Pattern as KorePattern, Sentence as KoreSentence, Sort as KoreSort,
-            Symbol as KoreSymbol,
+            Symbol as KoreSymbol, VariableKind as KoreVariableKind,
         },
         binary as kore_binary, json as kore_json,
         parser::{
@@ -62,7 +66,8 @@ use k_rust_backend::{
     rule::{Predicate, RulePatternError},
     search::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
-        SearchType, match_disjunction, search_pattern_disjunction_with_solver,
+        SearchType, match_disjunction, match_disjunction_with_solver,
+        search_pattern_disjunction_with_solver,
     },
     session::BackendSession,
     simplify::{
@@ -71,7 +76,10 @@ use k_rust_backend::{
     },
     smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
     substitution::Substitution,
-    term::{Name as BackendName, Sort as BackendSort, Term, TermKind, Variable},
+    term::{
+        Name as BackendName, Sort as BackendSort, Term, TermKind, Variable,
+        VariableKind as BackendVariableKind,
+    },
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -422,6 +430,15 @@ struct KrunArgs {
     /// Set a configuration variable (for example `-c ENV=.Map`). May be repeated.
     #[arg(short = 'c', long = "config-var", value_name = "NAME=VALUE")]
     config_vars: Vec<String>,
+
+    /// Match results against this K surface rule-content pattern.
+    #[arg(
+        long = "pattern",
+        value_name = "K_TEXT",
+        conflicts_with = "search_pattern",
+        allow_hyphen_values = true
+    )]
+    surface_pattern: Option<String>,
 
     /// Enable real input/output for stream cells. `off` buffers standard input into `$STDIN`
     /// with its trailing newlines replaced by exactly one, as K's krun does.
@@ -892,6 +909,7 @@ struct KrunOptions {
     expression: Option<String>,
     program_file: Option<PathBuf>,
     config_vars: Vec<String>,
+    surface_pattern: Option<String>,
     io: Option<bool>,
     depth: u64,
     max_simplification_iterations: usize,
@@ -923,11 +941,58 @@ struct BackendRunOptions {
     terminal_rules: BTreeSet<String>,
     strategy: ExecutionMode,
     search: Option<KrunSearchOptions>,
+    match_target: Option<BackendMatchTarget>,
+    function_symbols: BTreeSet<String>,
     stop_leaves: Option<PathBuf>,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
     smt: Z3Options,
 }
+
+#[derive(Debug)]
+enum MatchTargetSource {
+    KoreFile(PathBuf),
+    Surface(CompiledSearchPattern),
+}
+
+#[derive(Debug)]
+struct BackendMatchTarget {
+    pattern: Pattern,
+    generated_anonymous_variables: BTreeSet<Variable>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum GeneratedIdentityMappingError {
+    Missing {
+        identity: KoreVariableIdentity,
+    },
+    Ambiguous {
+        identity: KoreVariableIdentity,
+        candidates: BTreeSet<Variable>,
+    },
+}
+
+impl fmt::Display for GeneratedIdentityMappingError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Missing { identity } => write!(
+                formatter,
+                "generated {:?} KORE variable {:?} is missing from the internalized match target",
+                identity.kind, identity.name
+            ),
+            Self::Ambiguous {
+                identity,
+                candidates,
+            } => write!(
+                formatter,
+                "generated {:?} KORE variable {:?} maps to multiple sorted backend variables: {candidates:?}",
+                identity.kind, identity.name
+            ),
+        }
+    }
+}
+
+impl Error for GeneratedIdentityMappingError {}
 
 #[derive(Debug)]
 struct KproveOptions {
@@ -1165,6 +1230,7 @@ impl From<KrunArgs> for KrunOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             config_vars: arguments.config_vars,
+            surface_pattern: arguments.surface_pattern,
             io: arguments.io.map(|io| io == IoArg::On),
             depth: arguments.depth.unwrap_or(u64::MAX),
             max_simplification_iterations: arguments
@@ -1181,6 +1247,189 @@ impl From<KrunArgs> for KrunOptions {
             smt: arguments.smt.options(),
         }
     }
+}
+
+fn select_match_target_source(
+    search: Option<&KrunSearchOptions>,
+    surface: Option<CompiledSearchPattern>,
+) -> Option<MatchTargetSource> {
+    if let Some(surface) = surface {
+        return Some(MatchTargetSource::Surface(surface));
+    }
+    search.and_then(|search| {
+        search
+            .pattern
+            .as_ref()
+            .map(|path| MatchTargetSource::KoreFile(path.clone()))
+    })
+}
+
+fn command_line_pattern_attributes(contents: &str) -> Attributes {
+    let mut end_line = 1_u32;
+    let mut end_column = 1_u32;
+    for character in contents.chars() {
+        if character == '\n' {
+            end_line += 1;
+            end_column = 1;
+        } else {
+            end_column += 1;
+        }
+    }
+    let mut attributes = Attributes::default();
+    attributes.insert(SOURCE_ATTRIBUTE, serde_json::json!("<command line>"));
+    attributes.insert(SOURCE_ID_ATTRIBUTE, serde_json::json!(0));
+    attributes.insert(
+        LOCATION_ATTRIBUTE,
+        serde_json::json!([1, 1, end_line, end_column]),
+    );
+    attributes.insert("contentStartOffset", serde_json::json!(0));
+    attributes.insert("contentStartLine", serde_json::json!(1));
+    attributes.insert("contentStartColumn", serde_json::json!(1));
+    attributes
+}
+
+fn kore_variable_identity(variable: &k_rust::kore::ast::Variable) -> KoreVariableIdentity {
+    KoreVariableIdentity {
+        kind: variable.kind,
+        name: variable.name.clone(),
+    }
+}
+
+fn collect_kore_variable_identities(
+    pattern: &KorePattern,
+    all: &mut BTreeSet<KoreVariableIdentity>,
+) {
+    match pattern {
+        KorePattern::Variable(variable) => {
+            all.insert(kore_variable_identity(variable));
+        }
+        KorePattern::Application { arguments, .. }
+        | KorePattern::And { arguments, .. }
+        | KorePattern::Or { arguments, .. }
+        | KorePattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                collect_kore_variable_identities(argument, all);
+            }
+        }
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => {
+            collect_kore_variable_identities(argument, all);
+        }
+        KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            collect_kore_variable_identities(left, all);
+            collect_kore_variable_identities(right, all);
+        }
+        KorePattern::Exists { variable, body, .. }
+        | KorePattern::Forall { variable, body, .. }
+        | KorePattern::Mu { variable, body }
+        | KorePattern::Nu { variable, body } => {
+            all.insert(kore_variable_identity(variable));
+            collect_kore_variable_identities(body, all);
+        }
+        KorePattern::String(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => {}
+    }
+}
+
+fn collect_predicate_variables(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
+    match predicate {
+        Predicate::True | Predicate::False => {}
+        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+            variables.extend(term.attributes().variables.iter().cloned());
+        }
+        Predicate::Equals(left, right) | Predicate::In(left, right) => {
+            variables.extend(left.attributes().variables.iter().cloned());
+            variables.extend(right.attributes().variables.iter().cloned());
+        }
+        Predicate::Not(inner) => collect_predicate_variables(inner, variables),
+        Predicate::And(inner) | Predicate::Or(inner) => {
+            for predicate in inner {
+                collect_predicate_variables(predicate, variables);
+            }
+        }
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            collect_predicate_variables(left, variables);
+            collect_predicate_variables(right, variables);
+        }
+        Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+            variables.insert(variable.clone());
+            collect_predicate_variables(inner, variables);
+        }
+    }
+}
+
+fn map_generated_anonymous_variables(
+    target: &Pattern,
+    identities: &BTreeSet<KoreVariableIdentity>,
+) -> Result<BTreeSet<Variable>, GeneratedIdentityMappingError> {
+    let mut variables = target.term.attributes().variables.clone();
+    for constraint in &target.constraints {
+        collect_predicate_variables(constraint, &mut variables);
+    }
+    let mut mapped = BTreeSet::new();
+    for identity in identities {
+        let kind = match identity.kind {
+            KoreVariableKind::Element => BackendVariableKind::Element,
+            KoreVariableKind::Set => BackendVariableKind::Set,
+        };
+        let candidates = variables
+            .iter()
+            .filter(|variable| variable.kind == kind && variable.name.as_ref() == identity.name)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        match candidates.len() {
+            0 => {
+                return Err(GeneratedIdentityMappingError::Missing {
+                    identity: identity.clone(),
+                });
+            }
+            1 => {
+                mapped.extend(candidates);
+            }
+            _ => {
+                return Err(GeneratedIdentityMappingError::Ambiguous {
+                    identity: identity.clone(),
+                    candidates,
+                });
+            }
+        }
+    }
+    Ok(mapped)
+}
+
+fn prepare_backend_match_target(
+    backend: &BackendDefinition,
+    compiled: CompiledSearchPattern,
+) -> Result<BackendMatchTarget, Box<dyn Error>> {
+    backend.verify_standalone_pattern(&compiled.pattern)?;
+    let mut occurring = BTreeSet::new();
+    collect_kore_variable_identities(&compiled.pattern, &mut occurring);
+    if let Some(identity) = compiled
+        .generated_anonymous_variables
+        .iter()
+        .find(|identity| !occurring.contains(*identity))
+    {
+        return Err(io::Error::other(format!(
+            "generated {:?} KORE variable {:?} does not occur in the compiled match target",
+            identity.kind, identity.name
+        ))
+        .into());
+    }
+    let pattern = backend.internalize_pattern(&compiled.pattern, &[])?;
+    let generated_anonymous_variables =
+        map_generated_anonymous_variables(&pattern, &compiled.generated_anonymous_variables)?;
+    Ok(BackendMatchTarget {
+        pattern,
+        generated_anonymous_variables,
+    })
 }
 
 impl From<KproveArgs> for KproveOptions {
@@ -1596,6 +1845,30 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     // production for sort injection and KORE conversion.
     let program_definition = definition_with_named_projections(&loaded.definition);
     let program_resolved = k_rust::definition::ResolvedDefinition::resolve(&program_definition)?;
+    let compiled_surface_pattern = if let Some(contents) = options.surface_pattern.as_deref() {
+        let execution_resolved =
+            k_rust::definition::ResolvedDefinition::resolve(&compiled.execution_definition)?;
+        let attributes = command_line_pattern_attributes(contents);
+        match compile_search_pattern(
+            &program_resolved,
+            &execution_resolved,
+            &options.common.module,
+            contents,
+            attributes,
+        ) {
+            Ok(pattern) => Some(pattern),
+            Err(error) => {
+                if let CompileSearchPatternError::CellConcretization(cell_error) = &error {
+                    emit_diagnostics(&cell_error.diagnostics);
+                }
+                return Err(error.into());
+            }
+        }
+    } else {
+        None
+    };
+    let match_target_source =
+        select_match_target_source(options.search.as_ref(), compiled_surface_pattern);
     let program = if program_supplied || available_config_vars.contains_key("PGM") {
         let source = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
@@ -1746,9 +2019,26 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let initial = top_cell_initializer(program, config_vars);
 
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
+    let function_symbols = kore_function_symbols(&syntax);
 
     let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
     let initial = backend.internalize_frontend_term(&initial, &[])?;
+    let match_target = match match_target_source {
+        Some(MatchTargetSource::Surface(compiled)) => {
+            Some(prepare_backend_match_target(&backend, compiled)?)
+        }
+        Some(MatchTargetSource::KoreFile(path)) => {
+            debug_assert_eq!(
+                options
+                    .search
+                    .as_ref()
+                    .and_then(|search| search.pattern.as_ref()),
+                Some(&path)
+            );
+            None
+        }
+        None => None,
+    };
     let output = run_backend(
         &backend,
         vec![Pattern {
@@ -1764,6 +2054,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             terminal_rules: options.terminal_rules,
             strategy: options.strategy,
             search: options.search,
+            match_target,
+            function_symbols,
             stop_leaves: None,
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
@@ -1788,6 +2080,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             ),
         )
     })?;
+    let mut function_symbols = kore_function_symbols(&definition);
     let mut session = BackendSession::new(definition, &options.module);
     for path in &options.added_modules {
         let source = fs::read_to_string(path)?;
@@ -1800,6 +2093,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
                 ),
             )
         })?;
+        function_symbols.extend(kore_module_function_symbols(&module));
         session.add_module(&source, module, true)?;
     }
     let backend = session.definition(None)?;
@@ -1818,6 +2112,8 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             terminal_rules: options.terminal_rules.into_iter().collect(),
             strategy: options.strategy.into(),
             search: options.search.into_options(),
+            match_target: None,
+            function_symbols,
             stop_leaves: options.stop_leaves,
             step_timeout: options.timeout.timeout(),
             moving_average_timeout: options.timeout.moving_average,
@@ -2316,6 +2612,7 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
             ),
         )
     })?;
+    let function_symbols = kore_function_symbols(&definition);
     let backend = BackendDefinition::internalize(&definition, &options.module)?;
 
     let target_source = fs::read_to_string(&options.pattern)?;
@@ -2344,7 +2641,13 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
     let matches =
         match_disjunction(&backend, &target, &alternatives).map_err(pattern_match_error)?;
     let output_sort = externalize::sort(&target.term.sort());
-    let output = pattern_matches_output(&matches, &output_sort, &target.term.sort());
+    let output = pattern_matches_output(
+        &matches,
+        &output_sort,
+        &target.term.sort(),
+        &BTreeSet::new(),
+        &function_symbols,
+    );
     let output = KorePrinter::pretty(100).print_pattern(&output);
     if let Some(path) = options.output {
         fs::write(path, output)?;
@@ -2374,18 +2677,25 @@ fn run_backend(
     let output_sort = externalize::sort(&first_initial.term.sort());
     let solver = Z3Solver::with_options(backend, options.smt)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+    let mut match_target = options.match_target;
     if let Some(search) = options.search {
         if options.stop_leaves.is_some() {
             return Err(io::Error::other("--stop-leaves is only supported for execution").into());
         }
-        let target = match search.pattern {
-            Some(path) => load_backend_pattern(backend, &path, "search")?,
-            None => default_search_pattern(first_initial),
+        let target = match match_target.take() {
+            Some(target) => target,
+            None => BackendMatchTarget {
+                pattern: match search.pattern {
+                    Some(path) => load_backend_pattern(backend, &path, "search")?,
+                    None => default_search_pattern(first_initial),
+                },
+                generated_anonymous_variables: BTreeSet::new(),
+            },
         };
         let result = search_pattern_disjunction_with_solver(
             backend,
             initial,
-            &target,
+            &target.pattern,
             SearchOptions {
                 search_type: search.search_type,
                 max_depth: options.depth,
@@ -2417,7 +2727,12 @@ fn run_backend(
             .into());
         }
         return Ok(BackendRunOutput {
-            pattern: search_output(&result, &output_sort),
+            pattern: search_output(
+                &result,
+                &output_sort,
+                &target.generated_anonymous_variables,
+                &options.function_symbols,
+            ),
             exit_code: 0,
         });
     }
@@ -2510,15 +2825,42 @@ fn run_backend(
         &finals,
         options.max_simplification_iterations,
     )?;
-    let states = finals
-        .iter()
-        .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
-        .collect::<Vec<_>>();
     if initial_is_bottom {
         eprintln!(
             "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
         );
     }
+    if let Some(target) = match_target {
+        let subjects = finals
+            .iter()
+            .map(|leaf| leaf.pattern.clone())
+            .collect::<Vec<_>>();
+        let matches = match_disjunction_with_solver(
+            backend,
+            &target.pattern,
+            &subjects,
+            SimplificationOptions {
+                max_iterations: options.max_simplification_iterations,
+                ..SimplificationOptions::default()
+            },
+            &solver,
+        )
+        .map_err(pattern_match_error)?;
+        return Ok(BackendRunOutput {
+            pattern: pattern_matches_output(
+                &matches,
+                &output_sort,
+                &target.pattern.term.sort(),
+                &target.generated_anonymous_variables,
+                &options.function_symbols,
+            ),
+            exit_code,
+        });
+    }
+    let states = finals
+        .iter()
+        .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
+        .collect::<Vec<_>>();
     let mut states = order_disjuncts(states);
     let pattern = match states.len() {
         0 => KorePattern::Bottom { sort: output_sort },
@@ -2696,12 +3038,17 @@ fn invalid_kore_pattern(
     .into()
 }
 
-fn search_output(result: &PatternSearchResult, result_sort: &KoreSort) -> KorePattern {
+fn search_output(
+    result: &PatternSearchResult,
+    result_sort: &KoreSort,
+    generated_anonymous_variables: &BTreeSet<Variable>,
+    function_symbols: &BTreeSet<String>,
+) -> KorePattern {
     let solutions = result
         .matches
         .iter()
         .map(|found| {
-            match_condition_output(
+            raw_match_condition_output(
                 &found.substitution,
                 &found.constraints,
                 result_sort,
@@ -2709,18 +3056,25 @@ fn search_output(result: &PatternSearchResult, result_sort: &KoreSort) -> KorePa
             )
         })
         .collect::<Vec<_>>();
-    disjoin_outputs(order_disjuncts(solutions), result_sort)
+    filter_match_condition(
+        disjoin_outputs(solutions, result_sort),
+        result_sort,
+        generated_anonymous_variables,
+        function_symbols,
+    )
 }
 
 fn pattern_matches_output(
     matches: &[PatternMatch],
     result_sort: &KoreSort,
     predicate_sort: &BackendSort,
+    generated_anonymous_variables: &BTreeSet<Variable>,
+    function_symbols: &BTreeSet<String>,
 ) -> KorePattern {
     let solutions = matches
         .iter()
         .map(|found| {
-            match_condition_output(
+            raw_match_condition_output(
                 &found.substitution,
                 &found.constraints,
                 result_sort,
@@ -2728,10 +3082,15 @@ fn pattern_matches_output(
             )
         })
         .collect::<Vec<_>>();
-    disjoin_outputs(order_disjuncts(solutions), result_sort)
+    filter_match_condition(
+        disjoin_outputs(solutions, result_sort),
+        result_sort,
+        generated_anonymous_variables,
+        function_symbols,
+    )
 }
 
-fn match_condition_output(
+fn raw_match_condition_output(
     substitution: &Substitution,
     constraints: &[Predicate],
     result_sort: &KoreSort,
@@ -2749,19 +3108,189 @@ fn match_condition_output(
         .chain(constraints.iter().cloned())
         .map(|predicate| externalize::predicate_pattern(&predicate, predicate_sort))
         .collect::<Vec<_>>();
-    let mut predicates = predicates.into_iter();
-    let Some(mut result) = predicates.next() else {
+    conjoin_outputs(predicates, result_sort)
+}
+
+fn conjoin_outputs(patterns: Vec<KorePattern>, result_sort: &KoreSort) -> KorePattern {
+    let mut patterns = patterns.into_iter();
+    let Some(mut result) = patterns.next() else {
         return KorePattern::Top {
             sort: result_sort.clone(),
         };
     };
-    for predicate in predicates {
+    for pattern in patterns {
         result = KorePattern::And {
             sort: result_sort.clone(),
-            arguments: vec![result, predicate],
+            arguments: vec![result, pattern],
         };
     }
     result
+}
+
+fn count_kore_variable_occurrences(
+    pattern: &KorePattern,
+    counts: &mut BTreeMap<KoreVariableIdentity, usize>,
+) {
+    match pattern {
+        KorePattern::Variable(variable) => {
+            *counts.entry(kore_variable_identity(variable)).or_default() += 1;
+        }
+        KorePattern::Application { arguments, .. }
+        | KorePattern::And { arguments, .. }
+        | KorePattern::Or { arguments, .. }
+        | KorePattern::AssociativeApplication { arguments, .. } => {
+            for argument in arguments {
+                count_kore_variable_occurrences(argument, counts);
+            }
+        }
+        KorePattern::Not { argument, .. }
+        | KorePattern::Next { argument, .. }
+        | KorePattern::Ceil { argument, .. }
+        | KorePattern::Floor { argument, .. } => {
+            count_kore_variable_occurrences(argument, counts);
+        }
+        KorePattern::Implies { left, right, .. }
+        | KorePattern::Iff { left, right, .. }
+        | KorePattern::Rewrites { left, right, .. }
+        | KorePattern::Equals { left, right, .. }
+        | KorePattern::In { left, right, .. } => {
+            count_kore_variable_occurrences(left, counts);
+            count_kore_variable_occurrences(right, counts);
+        }
+        KorePattern::Exists { variable, body, .. }
+        | KorePattern::Forall { variable, body, .. }
+        | KorePattern::Mu { variable, body }
+        | KorePattern::Nu { variable, body } => {
+            *counts.entry(kore_variable_identity(variable)).or_default() += 1;
+            count_kore_variable_occurrences(body, counts);
+        }
+        KorePattern::String(_)
+        | KorePattern::Top { .. }
+        | KorePattern::Bottom { .. }
+        | KorePattern::DomainValue { .. } => {}
+    }
+}
+
+fn flatten_kore_conjunction(
+    pattern: KorePattern,
+    result_sort: &KoreSort,
+    output: &mut Vec<KorePattern>,
+) {
+    match &pattern {
+        KorePattern::And { sort, arguments } if sort == result_sort => {
+            for argument in arguments {
+                flatten_kore_conjunction(argument.clone(), result_sort, output);
+            }
+        }
+        KorePattern::Top { sort } if sort == result_sort => {}
+        _ => output.push(pattern),
+    }
+}
+
+fn generated_kore_identities(variables: &BTreeSet<Variable>) -> BTreeSet<KoreVariableIdentity> {
+    variables
+        .iter()
+        .map(|variable| KoreVariableIdentity {
+            kind: match variable.kind {
+                BackendVariableKind::Element => KoreVariableKind::Element,
+                BackendVariableKind::Set => KoreVariableKind::Set,
+            },
+            name: externalize::external_variable_name(&variable.name),
+        })
+        .collect()
+}
+
+fn is_filterable_generated_equality(
+    pattern: &KorePattern,
+    generated_anonymous_variables: &BTreeSet<KoreVariableIdentity>,
+    function_symbols: &BTreeSet<String>,
+    occurrences: &BTreeMap<KoreVariableIdentity, usize>,
+) -> bool {
+    let KorePattern::Equals { left, .. } = pattern else {
+        return false;
+    };
+    let eligible_left = match left.as_ref() {
+        KorePattern::Variable(_) => true,
+        KorePattern::Application { symbol, .. } => function_symbols.contains(&symbol.name),
+        _ => false,
+    };
+    if !eligible_left {
+        return false;
+    }
+    let mut left_variables = BTreeSet::new();
+    collect_kore_variable_identities(left, &mut left_variables);
+    left_variables.iter().all(|identity| {
+        generated_anonymous_variables.contains(identity) && occurrences.get(identity) == Some(&1)
+    })
+}
+
+fn filter_match_condition(
+    condition: KorePattern,
+    result_sort: &KoreSort,
+    generated_anonymous_variables: &BTreeSet<Variable>,
+    function_symbols: &BTreeSet<String>,
+) -> KorePattern {
+    let mut disjuncts = Vec::new();
+    flatten_kore_disjunction(condition, result_sort, &mut disjuncts);
+    let disjuncts = disjuncts
+        .into_iter()
+        .map(|condition| {
+            filter_match_conjunction(
+                condition,
+                result_sort,
+                generated_anonymous_variables,
+                function_symbols,
+            )
+        })
+        .collect();
+    disjoin_outputs(order_distinct_match_outputs(disjuncts), result_sort)
+}
+
+fn flatten_kore_disjunction(
+    pattern: KorePattern,
+    result_sort: &KoreSort,
+    output: &mut Vec<KorePattern>,
+) {
+    match &pattern {
+        KorePattern::Or { sort, arguments } if sort == result_sort => {
+            for argument in arguments {
+                flatten_kore_disjunction(argument.clone(), result_sort, output);
+            }
+        }
+        KorePattern::Bottom { sort } if sort == result_sort => {}
+        _ => output.push(pattern),
+    }
+}
+
+fn filter_match_conjunction(
+    condition: KorePattern,
+    result_sort: &KoreSort,
+    generated_anonymous_variables: &BTreeSet<Variable>,
+    function_symbols: &BTreeSet<String>,
+) -> KorePattern {
+    let mut occurrences = BTreeMap::new();
+    count_kore_variable_occurrences(&condition, &mut occurrences);
+    let generated_anonymous_variables = generated_kore_identities(generated_anonymous_variables);
+    let mut conjuncts = Vec::new();
+    flatten_kore_conjunction(condition, result_sort, &mut conjuncts);
+    let conjuncts = conjuncts
+        .into_iter()
+        .filter(|pattern| {
+            !is_filterable_generated_equality(
+                pattern,
+                &generated_anonymous_variables,
+                function_symbols,
+                &occurrences,
+            )
+        })
+        .collect();
+    conjoin_outputs(conjuncts, result_sort)
+}
+
+fn order_distinct_match_outputs(mut solutions: Vec<KorePattern>) -> Vec<KorePattern> {
+    solutions.sort();
+    solutions.dedup();
+    solutions
 }
 
 fn disjoin_outputs(solutions: Vec<KorePattern>, result_sort: &KoreSort) -> KorePattern {
@@ -3257,6 +3786,42 @@ fn same_claim(left: &KoreSentence, right: &KoreSentence) -> bool {
     left_parameters == right_parameters && left_pattern == right_pattern
 }
 
+fn kore_attributes_have_marker(attributes: &KoreAttributes, name: &str) -> bool {
+    attributes.0.iter().any(|attribute| {
+        matches!(
+            attribute,
+            KorePattern::Application { symbol, arguments }
+                if symbol.name == name
+                    && symbol.sort_parameters.is_empty()
+                    && arguments.is_empty()
+        )
+    })
+}
+
+fn kore_module_function_symbols(module: &KoreModule) -> BTreeSet<String> {
+    module
+        .sentences
+        .iter()
+        .filter_map(|sentence| {
+            let KoreSentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } = sentence
+            else {
+                return None;
+            };
+            kore_attributes_have_marker(attributes, "function").then(|| symbol.name.clone())
+        })
+        .collect()
+}
+
+fn kore_function_symbols(definition: &KoreDefinition) -> BTreeSet<String> {
+    definition
+        .modules
+        .iter()
+        .flat_map(kore_module_function_symbols)
+        .collect()
+}
+
 fn attribute_string(attributes: &KoreAttributes, name: &str) -> Option<String> {
     attributes.0.iter().find_map(|attribute| {
         let KorePattern::Application { symbol, arguments } = attribute else {
@@ -3447,6 +4012,7 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use k_rust_backend::term::{FunctionType, Symbol, SymbolAttributes, SymbolType};
 
     #[test]
     fn buffered_stdin_ends_in_exactly_one_newline() {
@@ -3929,10 +4495,631 @@ mod tests {
         );
         assert_eq!(options.terminal_rules, BTreeSet::from(["rule-id".into()]));
         assert_eq!(options.strategy, ExecutionMode::Any);
+        assert!(options.surface_pattern.is_none());
         assert!(options.search.is_none());
         assert_eq!(options.step_timeout, Some(Duration::from_millis(250)));
         assert!(options.moving_average_timeout);
         assert_eq!(options.smt, Z3Options::default());
+    }
+
+    fn parse_krun_pattern_options(extra: &[&str]) -> Result<KrunOptions, clap::Error> {
+        let mut arguments = vec![
+            "krust",
+            "krun",
+            "definition.k",
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Exp",
+        ];
+        arguments.extend_from_slice(extra);
+        let cli = Cli::try_parse_from(arguments)?;
+        let Command::Krun(options) = cli.command else {
+            unreachable!("the command name is fixed above")
+        };
+        Ok(options.into())
+    }
+
+    #[test]
+    fn pattern01c_cli_accepts_surface_pattern_without_search() {
+        let options = parse_krun_pattern_options(&["--pattern", "<k> X => Y </k>"]).unwrap();
+
+        assert_eq!(options.surface_pattern.as_deref(), Some("<k> X => Y </k>"));
+        assert!(options.search.is_none());
+    }
+
+    #[test]
+    fn pattern01c_cli_accepts_surface_pattern_with_each_search_mode() {
+        for (flag, expected) in [
+            ("--search-final", SearchType::Final),
+            ("--search-all", SearchType::Star),
+            ("--search-one-step", SearchType::One),
+            ("--search-one-or-more-steps", SearchType::Plus),
+        ] {
+            let options = parse_krun_pattern_options(&["--pattern", "<k> X </k>", flag])
+                .unwrap_or_else(|error| panic!("{flag}: {error}"));
+            assert_eq!(options.surface_pattern.as_deref(), Some("<k> X </k>"));
+            assert_eq!(options.search.unwrap().search_type, expected);
+        }
+    }
+
+    #[test]
+    fn pattern01c_cli_rejects_surface_and_kore_file_targets_together() {
+        let error = parse_krun_pattern_options(&[
+            "--search-final",
+            "--pattern",
+            "<k> X </k>",
+            "--search-pattern",
+            "target.kore",
+        ])
+        .unwrap_err();
+
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+
+        let reverse_error = parse_krun_pattern_options(&[
+            "--search-final",
+            "--search-pattern",
+            "target.kore",
+            "--pattern",
+            "<k> X </k>",
+        ])
+        .unwrap_err();
+
+        assert_eq!(
+            reverse_error.kind(),
+            clap::error::ErrorKind::ArgumentConflict
+        );
+    }
+
+    #[test]
+    fn pattern01c_cli_rejects_repeated_surface_pattern() {
+        let error =
+            parse_krun_pattern_options(&["--pattern", "<k> X </k>", "--pattern", "<k> Y </k>"])
+                .unwrap_err();
+
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn pattern01c_cli_accepts_hyphen_leading_surface_text_as_one_value() {
+        let options = parse_krun_pattern_options(&["--pattern", "-1 => X"]).unwrap();
+
+        assert_eq!(options.surface_pattern.as_deref(), Some("-1 => X"));
+    }
+
+    fn compiled_pattern_for_selection() -> k_rust::kompile::CompiledSearchPattern {
+        k_rust::kompile::CompiledSearchPattern {
+            pattern: KorePattern::Top {
+                sort: kore_sort("SortGeneratedTopCell"),
+            },
+            generated_anonymous_variables: BTreeSet::new(),
+        }
+    }
+
+    #[test]
+    fn pattern01c_selects_all_target_source_rows() {
+        assert!(select_match_target_source(None, None).is_none());
+        assert!(matches!(
+            select_match_target_source(None, Some(compiled_pattern_for_selection())),
+            Some(MatchTargetSource::Surface(_))
+        ));
+
+        let default_search = KrunSearchOptions {
+            search_type: SearchType::Final,
+            pattern: None,
+            bound: None,
+        };
+        assert!(select_match_target_source(Some(&default_search), None).is_none());
+
+        let file_search = KrunSearchOptions {
+            search_type: SearchType::Final,
+            pattern: Some("target.kore".into()),
+            bound: None,
+        };
+        assert!(matches!(
+            select_match_target_source(Some(&file_search), None),
+            Some(MatchTargetSource::KoreFile(path)) if path == Path::new("target.kore")
+        ));
+        assert!(matches!(
+            select_match_target_source(
+                Some(&default_search),
+                Some(compiled_pattern_for_selection())
+            ),
+            Some(MatchTargetSource::Surface(_))
+        ));
+    }
+
+    fn backend_pattern_with_candidates(term: Variable, constraints: Vec<Predicate>) -> Pattern {
+        Pattern {
+            term: Term::variable(term),
+            constraints,
+        }
+    }
+
+    #[test]
+    fn pattern01c_maps_element_identity_to_actual_sorted_backend_variable() {
+        let variable = Variable::new("VarGenerated", BackendSort::simple("SortInt"));
+        let target = backend_pattern_with_candidates(variable.clone(), Vec::new());
+        let identities = BTreeSet::from([k_rust::kompile::KoreVariableIdentity::element(
+            "VarGenerated",
+        )]);
+
+        assert_eq!(
+            map_generated_anonymous_variables(&target, &identities).unwrap(),
+            BTreeSet::from([variable])
+        );
+    }
+
+    #[test]
+    fn pattern01c_maps_set_identity_without_colliding_with_element_identity() {
+        let element = Variable::new("@VarGenerated", BackendSort::simple("SortInt"));
+        let set = Variable {
+            kind: k_rust_backend::term::VariableKind::Set,
+            sort: BackendSort::simple("SortInt"),
+            name: "@VarGenerated".into(),
+        };
+        let target = backend_pattern_with_candidates(
+            element,
+            vec![Predicate::Term(Term::variable(set.clone()))],
+        );
+        let identities =
+            BTreeSet::from([k_rust::kompile::KoreVariableIdentity::set("@VarGenerated")]);
+
+        assert_eq!(
+            map_generated_anonymous_variables(&target, &identities).unwrap(),
+            BTreeSet::from([set])
+        );
+    }
+
+    #[test]
+    fn pattern01c_does_not_map_user_gen0_lookalike() {
+        let authored = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
+        let generated = Variable::new("Var'Unds'Gen1", BackendSort::simple("SortInt"));
+        let target = backend_pattern_with_candidates(
+            authored,
+            vec![Predicate::Term(Term::variable(generated.clone()))],
+        );
+        let identities = BTreeSet::from([k_rust::kompile::KoreVariableIdentity::element(
+            "Var'Unds'Gen1",
+        )]);
+
+        assert_eq!(
+            map_generated_anonymous_variables(&target, &identities).unwrap(),
+            BTreeSet::from([generated])
+        );
+    }
+
+    #[test]
+    fn pattern01c_rejects_missing_generated_identity() {
+        let target = backend_pattern_with_candidates(
+            Variable::new("VarPresent", BackendSort::simple("SortInt")),
+            Vec::new(),
+        );
+        let missing = k_rust::kompile::KoreVariableIdentity::element("VarMissing");
+        let error = map_generated_anonymous_variables(&target, &BTreeSet::from([missing.clone()]))
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            GeneratedIdentityMappingError::Missing { identity: missing }
+        );
+    }
+
+    #[test]
+    fn pattern01c_rejects_ambiguous_kind_and_name_with_distinct_sorts() {
+        let first = Variable::new("VarGenerated", BackendSort::simple("SortInt"));
+        let second = Variable::new("VarGenerated", BackendSort::simple("SortBool"));
+        let target = backend_pattern_with_candidates(
+            first.clone(),
+            vec![Predicate::Term(Term::variable(second.clone()))],
+        );
+        let identity = k_rust::kompile::KoreVariableIdentity::element("VarGenerated");
+        let error = map_generated_anonymous_variables(&target, &BTreeSet::from([identity.clone()]))
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            GeneratedIdentityMappingError::Ambiguous {
+                identity,
+                candidates: BTreeSet::from([first, second]),
+            }
+        );
+    }
+
+    #[test]
+    fn pattern01c_maps_empty_and_bound_only_identity_sets() {
+        let binder = Variable::new("VarBound", BackendSort::simple("SortInt"));
+        let target = backend_pattern_with_candidates(
+            Variable::new("VarTerm", BackendSort::simple("SortInt")),
+            vec![Predicate::Exists(binder.clone(), Box::new(Predicate::True))],
+        );
+
+        assert_eq!(
+            map_generated_anonymous_variables(&target, &BTreeSet::new()).unwrap(),
+            BTreeSet::new()
+        );
+        assert_eq!(
+            map_generated_anonymous_variables(
+                &target,
+                &BTreeSet::from([k_rust::kompile::KoreVariableIdentity::element("VarBound")])
+            )
+            .unwrap(),
+            BTreeSet::from([binder])
+        );
+    }
+
+    #[test]
+    fn pattern01c_command_line_metadata_covers_exact_multiline_contents() {
+        let attributes = command_line_pattern_attributes("a\nbc");
+
+        assert_eq!(attributes.source(), Some("<command line>"));
+        assert_eq!(
+            attributes.source_id(),
+            Some(k_rust::provenance::SourceId(0))
+        );
+        assert_eq!(
+            attributes.location(),
+            Some(k_rust::definition::Location {
+                start_line: 1,
+                start_column: 1,
+                end_line: 2,
+                end_column: 3,
+            })
+        );
+        assert_eq!(
+            attributes.get("contentStartOffset"),
+            Some(&serde_json::json!(0))
+        );
+        assert_eq!(
+            attributes.get("contentStartLine"),
+            Some(&serde_json::json!(1))
+        );
+        assert_eq!(
+            attributes.get("contentStartColumn"),
+            Some(&serde_json::json!(1))
+        );
+    }
+
+    fn pattern01d_condition_output(
+        substitution: Substitution,
+        constraints: Vec<Predicate>,
+        generated: BTreeSet<Variable>,
+    ) -> KorePattern {
+        pattern01d_condition_output_with_functions(
+            substitution,
+            constraints,
+            generated,
+            BTreeSet::from(["LbltestFunction".to_owned()]),
+        )
+    }
+
+    fn pattern01d_condition_output_with_functions(
+        substitution: Substitution,
+        constraints: Vec<Predicate>,
+        generated: BTreeSet<Variable>,
+        function_symbols: BTreeSet<String>,
+    ) -> KorePattern {
+        let result_sort = kore_sort("SortGeneratedTopCell");
+        let predicate_sort = BackendSort::simple("SortGeneratedTopCell");
+        let condition =
+            raw_match_condition_output(&substitution, &constraints, &result_sort, &predicate_sort);
+        filter_match_condition(condition, &result_sort, &generated, &function_symbols)
+    }
+
+    fn test_function(arguments: Vec<Term>) -> Term {
+        let sort = BackendSort::simple("SortGeneratedTopCell");
+        let mut attributes = SymbolAttributes::constructor();
+        attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+        Term::application(
+            std::sync::Arc::new(Symbol {
+                name: "LbltestFunction".into(),
+                sort_variables: Vec::new(),
+                argument_sorts: vec![sort.clone(); arguments.len()],
+                result_sort: sort,
+                attributes,
+            }),
+            Vec::new(),
+            arguments,
+        )
+    }
+
+    #[test]
+    fn pattern01d_filters_one_use_generated_variable_equality() {
+        let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
+        let value = Term::domain_value(BackendSort::simple("SortInt"), "1");
+        let output = pattern01d_condition_output(
+            Substitution::from([(variable.clone(), value)]),
+            Vec::new(),
+            BTreeSet::from([variable]),
+        );
+
+        assert!(matches!(output, KorePattern::Top { .. }));
+    }
+
+    #[test]
+    fn pattern01d_retains_named_and_authored_gen_lookalike_equalities() {
+        for variable in [
+            Variable::new("VarNamed", BackendSort::simple("SortInt")),
+            Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt")),
+        ] {
+            let output = pattern01d_condition_output(
+                Substitution::from([(
+                    variable,
+                    Term::domain_value(BackendSort::simple("SortInt"), "1"),
+                )]),
+                Vec::new(),
+                BTreeSet::new(),
+            );
+            assert!(matches!(output, KorePattern::Equals { .. }), "{output:?}");
+        }
+    }
+
+    #[test]
+    fn pattern01d_counts_occurrences_across_the_whole_conjunction() {
+        let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortGeneratedTopCell"));
+        let output = pattern01d_condition_output(
+            Substitution::from([(
+                variable.clone(),
+                Term::domain_value(BackendSort::simple("SortGeneratedTopCell"), "value"),
+            )]),
+            vec![Predicate::Term(Term::variable(variable.clone()))],
+            BTreeSet::from([variable]),
+        );
+
+        assert!(matches!(output, KorePattern::And { .. }), "{output:?}");
+    }
+
+    #[test]
+    fn pattern01d_filters_only_eligible_function_equalities() {
+        let sort = BackendSort::simple("SortGeneratedTopCell");
+        let variable = Variable::new("Var'Unds'Gen0", sort.clone());
+        let value = Term::domain_value(sort.clone(), "value");
+        let one_use = Predicate::Equals(
+            test_function(vec![Term::variable(variable.clone())]),
+            value.clone(),
+        );
+        assert!(matches!(
+            pattern01d_condition_output(
+                Substitution::new(),
+                vec![one_use],
+                BTreeSet::from([variable.clone()])
+            ),
+            KorePattern::Top { .. }
+        ));
+
+        let repeated = Predicate::Equals(
+            test_function(vec![
+                Term::variable(variable.clone()),
+                Term::variable(variable.clone()),
+            ]),
+            value.clone(),
+        );
+        assert!(matches!(
+            pattern01d_condition_output(
+                Substitution::new(),
+                vec![repeated],
+                BTreeSet::from([variable])
+            ),
+            KorePattern::Equals { .. }
+        ));
+
+        let ground = Predicate::Equals(test_function(Vec::new()), value);
+        assert!(matches!(
+            pattern01d_condition_output(Substitution::new(), vec![ground], BTreeSet::new()),
+            KorePattern::Top { .. }
+        ));
+
+        let functional_only = Predicate::Equals(
+            test_function(Vec::new()),
+            Term::domain_value(BackendSort::simple("SortGeneratedTopCell"), "value"),
+        );
+        assert!(matches!(
+            pattern01d_condition_output_with_functions(
+                Substitution::new(),
+                vec![functional_only],
+                BTreeSet::new(),
+                BTreeSet::new(),
+            ),
+            KorePattern::Equals { .. }
+        ));
+    }
+
+    #[test]
+    fn pattern01d_filters_nested_conjunctions_but_not_other_connectives() {
+        let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
+        let equality = Predicate::Equals(
+            Term::variable(variable.clone()),
+            Term::domain_value(BackendSort::simple("SortInt"), "1"),
+        );
+        assert!(matches!(
+            pattern01d_condition_output(
+                Substitution::new(),
+                vec![Predicate::And(vec![equality.clone()])],
+                BTreeSet::from([variable.clone()]),
+            ),
+            KorePattern::Top { .. }
+        ));
+        assert!(matches!(
+            pattern01d_condition_output(
+                Substitution::new(),
+                vec![Predicate::Not(Box::new(equality))],
+                BTreeSet::from([variable]),
+            ),
+            KorePattern::Not { .. }
+        ));
+    }
+
+    #[test]
+    fn pattern01d_counts_binder_declarations_and_bodies_syntactically() {
+        let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
+        let output = pattern01d_condition_output(
+            Substitution::from([(
+                variable.clone(),
+                Term::domain_value(BackendSort::simple("SortInt"), "1"),
+            )]),
+            vec![Predicate::Exists(
+                variable.clone(),
+                Box::new(Predicate::Term(Term::variable(variable.clone()))),
+            )],
+            BTreeSet::from([variable]),
+        );
+
+        assert!(matches!(output, KorePattern::And { .. }), "{output:?}");
+    }
+
+    #[test]
+    fn pattern01d_filters_after_boolean_equality_orientation() {
+        let sort = BackendSort::simple("SortBool");
+        let variable = Variable::new("Var'Unds'Gen0", sort.clone());
+        let mut attributes = SymbolAttributes::constructor();
+        attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+        let function = Term::application(
+            std::sync::Arc::new(Symbol {
+                name: "LbltestFunction".into(),
+                sort_variables: Vec::new(),
+                argument_sorts: vec![sort.clone()],
+                result_sort: sort.clone(),
+                attributes,
+            }),
+            Vec::new(),
+            vec![Term::variable(variable.clone())],
+        );
+        let output = pattern01d_condition_output(
+            Substitution::new(),
+            vec![Predicate::Equals(
+                function,
+                Term::domain_value(sort, "true"),
+            )],
+            BTreeSet::from([variable]),
+        );
+
+        let KorePattern::Equals { left, .. } = &output else {
+            panic!("expected the externally oriented equality to remain")
+        };
+        assert!(matches!(left.as_ref(), KorePattern::DomainValue { .. }));
+    }
+
+    #[test]
+    fn pattern01d_filters_element_and_set_identities_independently() {
+        let set = Variable {
+            kind: BackendVariableKind::Set,
+            sort: BackendSort::simple("SortInt"),
+            name: "@Var'Unds'Gen0".into(),
+        };
+        let output = pattern01d_condition_output(
+            Substitution::from([(
+                set.clone(),
+                Term::domain_value(BackendSort::simple("SortInt"), "1"),
+            )]),
+            Vec::new(),
+            BTreeSet::from([set]),
+        );
+
+        assert!(matches!(output, KorePattern::Top { .. }));
+    }
+
+    #[test]
+    fn pattern01d_collects_only_exact_function_markers() {
+        let definition = parse_kore_definition(
+            r#"[]
+            module M
+              sort S{} []
+              symbol exact{}() : S{} [function{}()]
+              symbol functionalOnly{}() : S{} [functional{}()]
+              symbol totalOnly{}() : S{} [total{}()]
+              symbol constructor{}() : S{} [constructor{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            kore_function_symbols(&definition),
+            BTreeSet::from(["exact".to_owned()])
+        );
+    }
+
+    #[test]
+    fn pattern01d_deduplicates_filtered_disjuncts() {
+        let sort = kore_sort("SortGeneratedTopCell");
+        let duplicate = KorePattern::Top { sort: sort.clone() };
+
+        assert_eq!(
+            order_distinct_match_outputs(vec![duplicate.clone(), duplicate.clone()]),
+            vec![duplicate]
+        );
+    }
+
+    #[test]
+    fn pattern01d_deduplicates_after_anonymous_filtering() {
+        let sort = BackendSort::simple("SortGeneratedTopCell");
+        let first = Variable::new("Var'Unds'Gen0", sort.clone());
+        let second = Variable::new("Var'Unds'Gen1", sort.clone());
+        let value = Term::domain_value(sort.clone(), "value");
+        let matches = [
+            PatternMatch {
+                substitution: Substitution::from([(first.clone(), value.clone())]),
+                constraints: Vec::new(),
+            },
+            PatternMatch {
+                substitution: Substitution::from([(second.clone(), value)]),
+                constraints: Vec::new(),
+            },
+        ];
+        let output = pattern_matches_output(
+            &matches,
+            &kore_sort("SortGeneratedTopCell"),
+            &sort,
+            &BTreeSet::from([first, second]),
+            &BTreeSet::new(),
+        );
+
+        assert!(matches!(output, KorePattern::Top { .. }), "{output:?}");
+    }
+
+    #[test]
+    fn pattern01d_flattens_and_deduplicates_disjuncts_across_matches() {
+        let sort = BackendSort::simple("SortGeneratedTopCell");
+        let variable = Variable::new("VarX", sort.clone());
+        let generated = Variable::new("Var'Unds'Gen0", sort.clone());
+        let first_value = Term::domain_value(sort.clone(), "first");
+        let second_value = Term::domain_value(sort.clone(), "second");
+        let first = Predicate::Equals(Term::variable(variable.clone()), first_value);
+        let second = Predicate::Equals(Term::variable(variable), second_value);
+        let generated_binding = Predicate::Equals(
+            Term::variable(generated.clone()),
+            Term::domain_value(sort.clone(), "generated"),
+        );
+        let matches = [
+            PatternMatch {
+                substitution: Substitution::new(),
+                constraints: vec![Predicate::Or(vec![
+                    Predicate::And(vec![generated_binding, first.clone()]),
+                    second,
+                ])],
+            },
+            PatternMatch {
+                substitution: Substitution::new(),
+                constraints: vec![first],
+            },
+        ];
+        let result_sort = kore_sort("SortGeneratedTopCell");
+        let output = pattern_matches_output(
+            &matches,
+            &result_sort,
+            &sort,
+            &BTreeSet::from([generated]),
+            &BTreeSet::new(),
+        );
+
+        let mut disjuncts = Vec::new();
+        flatten_kore_disjunction(output, &result_sort, &mut disjuncts);
+        assert_eq!(disjuncts.len(), 2, "{disjuncts:?}");
+        assert!(
+            disjuncts
+                .iter()
+                .all(|disjunct| !matches!(disjunct, KorePattern::Or { .. })),
+            "{disjuncts:?}"
+        );
     }
 
     #[test]

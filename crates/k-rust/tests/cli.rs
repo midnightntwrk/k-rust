@@ -1680,6 +1680,158 @@ fn krun_search_explores_an_unconditional_branch() {
     fs::remove_dir_all(root).unwrap();
 }
 
+fn run_branching_surface_pattern(definition: &Path, pattern: &str, extra: &[&str]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "krun",
+        definition.to_str().unwrap(),
+        "--main-module",
+        "MAIN",
+        "--syntax-module",
+        "MAIN",
+        "--sort",
+        "State",
+        "--expression",
+        "a",
+        "--pattern",
+        pattern,
+    ]);
+    command.args(extra).output().unwrap()
+}
+
+#[test]
+fn krun_surface_pattern_projects_ordinary_final_states() {
+    let (root, definition) = branching_search_fixture();
+
+    let matching = run_branching_surface_pattern(&definition, "<k> e </k>", &[]);
+    assert!(
+        matching.status.success(),
+        "{}",
+        String::from_utf8_lossy(&matching.stderr)
+    );
+    assert!(matches!(
+        parse_pattern(&String::from_utf8(matching.stdout).unwrap()).unwrap(),
+        Pattern::Top { .. }
+    ));
+
+    let nonmatching = run_branching_surface_pattern(&definition, "<k> d </k>", &[]);
+    assert!(
+        nonmatching.status.success(),
+        "{}",
+        String::from_utf8_lossy(&nonmatching.stderr)
+    );
+    assert!(matches!(
+        parse_pattern(&String::from_utf8(nonmatching.stdout).unwrap()).unwrap(),
+        Pattern::Bottom { .. }
+    ));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_surface_pattern_projects_every_strategy_all_final_state() {
+    let (root, definition) = branching_search_fixture();
+
+    let output =
+        run_branching_surface_pattern(&definition, "<k> S:State </k>", &["--strategy", "all"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("\\or{"), "{output}");
+    assert!(output.contains("Lbld'Unds'MAIN'Unds'State{}()"), "{output}");
+    assert!(output.contains("Lble'Unds'MAIN'Unds'State{}()"), "{output}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_surface_pattern_routes_through_each_explicit_search_mode() {
+    let (root, definition) = branching_search_fixture();
+    for (mode, pattern) in [
+        ("--search-final", "<k> d </k>"),
+        ("--search-all", "<k> a </k>"),
+        ("--search-one-step", "<k> b </k>"),
+        ("--search-one-or-more-steps", "<k> c </k>"),
+    ] {
+        let output = run_branching_surface_pattern(&definition, pattern, &[mode, "--depth", "10"]);
+        assert!(
+            output.status.success(),
+            "{mode}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+        assert!(matches!(output, Pattern::Top { .. }), "{mode}: {output:?}");
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_surface_pattern_filters_only_generated_anonymous_bindings() {
+    let (root, definition) = branching_search_fixture();
+
+    let named = run_branching_surface_pattern(&definition, "<k> S:State </k>", &[]);
+    assert!(
+        named.status.success(),
+        "{}",
+        String::from_utf8_lossy(&named.stderr)
+    );
+    let named = String::from_utf8(named.stdout).unwrap();
+    assert!(named.contains("VarS:SortState{}"), "{named}");
+
+    let anonymous = run_branching_surface_pattern(&definition, "<k> _ </k>", &[]);
+    assert!(
+        anonymous.status.success(),
+        "{}",
+        String::from_utf8_lossy(&anonymous.stderr)
+    );
+    assert!(matches!(
+        parse_pattern(&String::from_utf8(anonymous.stdout).unwrap()).unwrap(),
+        Pattern::Top { .. }
+    ));
+
+    let authored = run_branching_surface_pattern(&definition, "<k> _Gen0:State </k>", &[]);
+    assert!(
+        authored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&authored.stderr)
+    );
+    let authored = String::from_utf8(authored.stdout).unwrap();
+    assert!(authored.contains("Var'Unds'Gen0:SortState{}"), "{authored}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_surface_pattern_preserves_the_ordinary_exit_code() {
+    let output = exit_krun_command()
+        .args(["--pattern", "<k> 999 </k>"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(7));
+    assert!(matches!(
+        parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap(),
+        Pattern::Bottom { .. }
+    ));
+}
+
+#[test]
+fn krun_surface_pattern_reports_command_line_parse_locations() {
+    let (root, definition) = branching_search_fixture();
+    let output = run_branching_surface_pattern(&definition, "<k>", &[]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("<command line>"), "{stderr}");
+    assert!(stderr.contains("1:1"), "{stderr}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn reference_symbolic_depth_two_leaves_match_modulo_gotstuck() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
