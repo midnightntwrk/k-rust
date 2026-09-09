@@ -6285,19 +6285,19 @@ fn rebuilds_cell_fragments_used_as_data_inside_leaf_cells() {
     let mut saved_fragments = 0;
     for term in [body, requires] {
         term.visit_preorder(&mut |term| {
-            if let Term::Variable { name, sort } = term {
-                if name == "C" {
-                    variable_sorts.push(sort.clone());
-                }
+            if let Term::Variable { name, sort } = term
+                && name == "C"
+            {
+                variable_sorts.push(sort.clone());
             }
-            if let Term::Apply { label, arguments } = term {
-                if label.name == "save" {
-                    let Term::Apply { label, .. } = arguments[0].unannotated() else {
-                        panic!("the saved value must reconstruct the original fragment: {term}");
-                    };
-                    assert_eq!(label.name, "<top>-fragment");
-                    saved_fragments += 1;
-                }
+            if let Term::Apply { label, arguments } = term
+                && label.name == "save"
+            {
+                let Term::Apply { label, .. } = arguments[0].unannotated() else {
+                    panic!("the saved value must reconstruct the original fragment: {term}");
+                };
+                assert_eq!(label.name, "<top>-fragment");
+                saved_fragments += 1;
             }
         });
     }

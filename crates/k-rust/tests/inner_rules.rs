@@ -3294,10 +3294,10 @@ fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
         let mut shared = Vec::new();
         let mut rewrites = 0;
         body.visit_preorder(&mut |term| {
-            if let Term::Variable { name, sort } = term {
-                if name == "?C" {
-                    shared.push(sort.clone());
-                }
+            if let Term::Variable { name, sort } = term
+                && name == "?C"
+            {
+                shared.push(sort.clone());
             }
             if matches!(term, Term::Rewrite { .. }) {
                 rewrites += 1;

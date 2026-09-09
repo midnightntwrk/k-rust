@@ -35,7 +35,7 @@ pub fn resolve_anon_vars_in_sentence(
 fn resolve_anon_vars_in_sentence_mut(
     sentence: &mut Sentence,
 ) -> BTreeSet<GeneratedVariableIdentity> {
-    let mut fresh = FreshNames::for_sentence(&sentence);
+    let mut fresh = FreshNames::for_sentence(sentence);
     let mut generated = BTreeSet::new();
     let roots = match sentence {
         Sentence::Rule {
