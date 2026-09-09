@@ -488,23 +488,21 @@ impl BackendDefinition {
         let mut claims = Vec::new();
         let mut subsorts = Vec::new();
         let mut overloads = Vec::new();
+        let import_orders = ordered
+            .iter()
+            .map(|module| (module.name.as_str(), sorted_import_sentence_indices(module)))
+            .collect::<BTreeMap<_, _>>();
+        let rule_orders = ordered
+            .iter()
+            .map(|module| (module.name.as_str(), sorted_rule_sentence_indices(module)))
+            .collect::<BTreeMap<_, _>>();
         let mut axiom_modules = Vec::new();
-        visit_modules_preorder(main_module, &module_map, &mut axiom_modules)?;
+        visit_modules_preorder(main_module, &module_map, &import_orders, &mut axiom_modules)?;
         for module in axiom_modules {
             // Pinned Kore canonically sorts module sentences and prepends each verified axiom or
             // claim to its index. Reproduce that stable order before populating every rule theory.
-            let mut axioms_and_claims = module
-                .sentences
-                .iter()
-                .filter(|sentence| {
-                    matches!(
-                        sentence,
-                        kore::Sentence::Axiom { .. } | kore::Sentence::Claim { .. }
-                    )
-                })
-                .collect::<Vec<_>>();
-            axioms_and_claims.sort_by(|left, right| compare_rule_sentences(left, right));
-            for sentence in axioms_and_claims.into_iter().rev() {
+            for &index in &rule_orders[module.name.as_str()] {
+                let sentence = &module.sentences[index];
                 let (target, parameters, pattern, attributes, expand) = match sentence {
                     kore::Sentence::Axiom {
                         parameters,
@@ -1360,6 +1358,7 @@ fn visit_module<'a>(
 fn visit_modules_preorder<'a>(
     name: &str,
     modules: &BTreeMap<&str, &'a kore::Module>,
+    import_orders: &BTreeMap<&str, Vec<usize>>,
     ordered: &mut Vec<&'a kore::Module>,
 ) -> Result<(), DefinitionError> {
     let module = modules
@@ -1367,102 +1366,139 @@ fn visit_modules_preorder<'a>(
         .copied()
         .ok_or_else(|| DefinitionError::NoSuchModule(name.to_owned()))?;
     ordered.push(module);
-    // Kore sorts import sentences, then prepends each verified import to the module index.
-    let mut imports = module
-        .sentences
-        .iter()
-        .filter_map(|sentence| match sentence {
-            kore::Sentence::Import { module, attributes } => Some((module, attributes)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    imports.sort_by(
-        |(left_module, left_attributes), (right_module, right_attributes)| {
-            left_module.cmp(right_module).then_with(|| {
-                compare_haskell_pattern_slices(&left_attributes.0, &right_attributes.0)
-            })
-        },
-    );
-    for (import, _) in imports.into_iter().rev() {
-        visit_modules_preorder(import, modules, ordered)?;
+    for &index in &import_orders[name] {
+        let kore::Sentence::Import { module: import, .. } = &module.sentences[index] else {
+            unreachable!("cached import order contains only import sentences")
+        };
+        visit_modules_preorder(import, modules, import_orders, ordered)?;
     }
     Ok(())
 }
 
+fn sorted_import_sentence_indices(module: &kore::Module) -> Vec<usize> {
+    let mut imports = module
+        .sentences
+        .iter()
+        .enumerate()
+        .filter_map(|(index, sentence)| match sentence {
+            kore::Sentence::Import { module, attributes } => Some((
+                index,
+                module,
+                attributes
+                    .0
+                    .iter()
+                    .map(k_rust_kore::kore::normalize::for_kast)
+                    .collect::<Vec<_>>(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    imports.sort_by(
+        |(_, left_module, left_attributes), (_, right_module, right_attributes)| {
+            left_module.cmp(right_module).then_with(|| {
+                compare_normalized_haskell_pattern_slices(left_attributes, right_attributes)
+            })
+        },
+    );
+    imports
+        .into_iter()
+        .rev()
+        .map(|(index, _, _)| index)
+        .collect()
+}
+
+fn sorted_rule_sentence_indices(module: &kore::Module) -> Vec<usize> {
+    let mut rules = module
+        .sentences
+        .iter()
+        .enumerate()
+        .filter(|(_, sentence)| {
+            matches!(
+                sentence,
+                kore::Sentence::Axiom { .. } | kore::Sentence::Claim { .. }
+            )
+        })
+        .map(|(index, sentence)| (index, PreparedRuleSentence::new(sentence)))
+        .collect::<Vec<_>>();
+    rules.sort_by(|(_, left), (_, right)| left.compare(right));
+    rules.into_iter().rev().map(|(index, _)| index).collect()
+}
+
+#[cfg(test)]
 fn compare_rule_sentences(left: &kore::Sentence, right: &kore::Sentence) -> std::cmp::Ordering {
-    fn fields(sentence: &kore::Sentence) -> (u8, &[String], &kore::Pattern, &kore::Attributes) {
+    PreparedRuleSentence::new(left).compare(&PreparedRuleSentence::new(right))
+}
+
+struct PreparedRuleSentence<'a> {
+    kind: u8,
+    parameters: &'a [String],
+    pattern: kore::Pattern,
+    attributes: Vec<kore::Pattern>,
+}
+
+impl<'a> PreparedRuleSentence<'a> {
+    fn new(sentence: &'a kore::Sentence) -> Self {
         match sentence {
             kore::Sentence::Axiom {
                 parameters,
                 pattern,
                 attributes,
-            } => (0, parameters, pattern, attributes),
+            } => Self {
+                kind: 0,
+                parameters,
+                pattern: k_rust_kore::kore::normalize::for_kast(pattern),
+                attributes: attributes
+                    .0
+                    .iter()
+                    .map(k_rust_kore::kore::normalize::for_kast)
+                    .collect(),
+            },
             kore::Sentence::Claim {
                 parameters,
                 pattern,
                 attributes,
-            } => (1, parameters, pattern, attributes),
+            } => Self {
+                kind: 1,
+                parameters,
+                pattern: k_rust_kore::kore::normalize::for_kast(pattern),
+                attributes: attributes
+                    .0
+                    .iter()
+                    .map(k_rust_kore::kore::normalize::for_kast)
+                    .collect(),
+            },
             _ => unreachable!("only axioms and claims are sorted as rule sentences"),
         }
     }
 
-    let (left_kind, left_parameters, left_pattern, left_attributes) = fields(left);
-    let (right_kind, right_parameters, right_pattern, right_attributes) = fields(right);
-    left_kind
-        .cmp(&right_kind)
-        .then_with(|| left_parameters.cmp(right_parameters))
-        .then_with(|| compare_haskell_patterns(left_pattern, right_pattern))
-        .then_with(|| compare_haskell_pattern_slices(&left_attributes.0, &right_attributes.0))
+    fn compare(&self, other: &Self) -> std::cmp::Ordering {
+        self.kind
+            .cmp(&other.kind)
+            .then_with(|| self.parameters.cmp(other.parameters))
+            .then_with(|| compare_normalized_haskell_patterns(&self.pattern, &other.pattern))
+            .then_with(|| {
+                compare_normalized_haskell_pattern_slices(&self.attributes, &other.attributes)
+            })
+    }
 }
 
 /// Compares parsed patterns as the pinned Haskell `PatternF` derived `Ord` instance does.
 ///
 /// `k-rust-kore`'s public `Pattern::cmp` intentionally follows the Scala backend's ordering,
 /// which has a different constructor order and compares domain values alphanumerically.
+#[cfg(test)]
 fn compare_haskell_patterns(left: &kore::Pattern, right: &kore::Pattern) -> std::cmp::Ordering {
+    let left = k_rust_kore::kore::normalize::for_kast(left);
+    let right = k_rust_kore::kore::normalize::for_kast(right);
+    compare_normalized_haskell_patterns(&left, &right)
+}
+
+fn compare_normalized_haskell_patterns(
+    left: &kore::Pattern,
+    right: &kore::Pattern,
+) -> std::cmp::Ordering {
     use kore::Pattern;
     use std::cmp::Ordering;
-
-    fn contains_associative(root: &Pattern) -> bool {
-        let mut work = vec![root];
-        while let Some(pattern) = work.pop() {
-            match pattern {
-                Pattern::AssociativeApplication { .. } => return true,
-                Pattern::Application { arguments, .. }
-                | Pattern::And { arguments, .. }
-                | Pattern::Or { arguments, .. } => work.extend(arguments),
-                Pattern::Not { argument, .. }
-                | Pattern::Next { argument, .. }
-                | Pattern::Ceil { argument, .. }
-                | Pattern::Floor { argument, .. } => work.push(argument),
-                Pattern::Implies { left, right, .. }
-                | Pattern::Iff { left, right, .. }
-                | Pattern::Rewrites { left, right, .. }
-                | Pattern::Equals { left, right, .. }
-                | Pattern::In { left, right, .. } => {
-                    work.push(left);
-                    work.push(right);
-                }
-                Pattern::Exists { body, .. }
-                | Pattern::Forall { body, .. }
-                | Pattern::Mu { body, .. }
-                | Pattern::Nu { body, .. } => work.push(body),
-                Pattern::String(_)
-                | Pattern::Variable(_)
-                | Pattern::Top { .. }
-                | Pattern::Bottom { .. }
-                | Pattern::DomainValue { .. } => {}
-            }
-        }
-        false
-    }
-
-    if contains_associative(left) || contains_associative(right) {
-        // The pinned parser expands `\\left-assoc` and `\\right-assoc` into applications.
-        let left = k_rust_kore::kore::normalize::for_kast(left);
-        let right = k_rust_kore::kore::normalize::for_kast(right);
-        return compare_haskell_patterns(&left, &right);
-    }
 
     fn rank(pattern: &Pattern) -> u8 {
         match pattern {
@@ -1491,6 +1527,47 @@ fn compare_haskell_patterns(left: &kore::Pattern, right: &kore::Pattern) -> std:
                 unreachable!("associative applications were normalized above")
             }
         }
+    }
+
+    fn variable_name(name: &str) -> (&str, Option<&str>) {
+        let suffix_start = name
+            .char_indices()
+            .rev()
+            .find_map(|(index, character)| {
+                (!character.is_ascii_digit()).then_some(index + character.len_utf8())
+            })
+            .unwrap_or(0);
+        let suffix = &name[suffix_start..];
+        if suffix.is_empty() {
+            return (name, None);
+        }
+        let nonzero = suffix.find(|character| character != '0');
+        match nonzero {
+            None => (&name[..name.len() - 1], Some("0")),
+            Some(index) => (&name[..suffix_start + index], Some(&suffix[index..])),
+        }
+    }
+
+    fn compare_variable_names(left: &str, right: &str) -> Ordering {
+        let (left_base, left_counter) = variable_name(left);
+        let (right_base, right_counter) = variable_name(right);
+        left_base
+            .cmp(right_base)
+            .then_with(|| match (left_counter, right_counter) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Less,
+                (Some(_), None) => Ordering::Greater,
+                (Some(left), Some(right)) => {
+                    left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+                }
+            })
+    }
+
+    fn compare_variables(left: &kore::Variable, right: &kore::Variable) -> Ordering {
+        left.kind
+            .cmp(&right.kind)
+            .then_with(|| compare_variable_names(&left.name, &right.name))
+            .then_with(|| left.sort.cmp(&right.sort))
     }
 
     fn scalars(left: &Pattern, right: &Pattern) -> Ordering {
@@ -1590,7 +1667,7 @@ fn compare_haskell_patterns(left: &kore::Pattern, right: &kore::Pattern) -> std:
                 },
             ) => left_sort
                 .cmp(right_sort)
-                .then_with(|| left_variable.cmp(right_variable)),
+                .then_with(|| compare_variables(left_variable, right_variable)),
             (Pattern::Iff { sort: left, .. }, Pattern::Iff { sort: right, .. })
             | (Pattern::Implies { sort: left, .. }, Pattern::Implies { sort: right, .. })
             | (Pattern::Next { sort: left, .. }, Pattern::Next { sort: right, .. })
@@ -1609,39 +1686,10 @@ fn compare_haskell_patterns(left: &kore::Pattern, right: &kore::Pattern) -> std:
                 Pattern::Nu {
                     variable: right, ..
                 },
-            ) => left.cmp(right),
+            ) => compare_variables(left, right),
             (Pattern::String(left), Pattern::String(right)) => left.cmp(right),
-            (Pattern::Variable(left), Pattern::Variable(right)) => left.cmp(right),
+            (Pattern::Variable(left), Pattern::Variable(right)) => compare_variables(left, right),
             _ => Ordering::Equal,
-        }
-    }
-
-    fn children(pattern: &Pattern) -> Vec<&Pattern> {
-        match pattern {
-            Pattern::Application { arguments, .. }
-            | Pattern::And { arguments, .. }
-            | Pattern::Or { arguments, .. } => arguments.iter().collect(),
-            Pattern::Not { argument, .. }
-            | Pattern::Next { argument, .. }
-            | Pattern::Ceil { argument, .. }
-            | Pattern::Floor { argument, .. } => vec![argument],
-            Pattern::Implies { left, right, .. }
-            | Pattern::Iff { left, right, .. }
-            | Pattern::Rewrites { left, right, .. }
-            | Pattern::Equals { left, right, .. }
-            | Pattern::In { left, right, .. } => vec![left, right],
-            Pattern::Exists { body, .. }
-            | Pattern::Forall { body, .. }
-            | Pattern::Mu { body, .. }
-            | Pattern::Nu { body, .. } => vec![body],
-            Pattern::String(_)
-            | Pattern::Variable(_)
-            | Pattern::Top { .. }
-            | Pattern::Bottom { .. }
-            | Pattern::DomainValue { .. } => Vec::new(),
-            Pattern::AssociativeApplication { .. } => {
-                unreachable!("associative applications were normalized above")
-            }
         }
     }
 
@@ -1667,24 +1715,132 @@ fn compare_haskell_patterns(left: &kore::Pattern, right: &kore::Pattern) -> std:
         if !ordering.is_eq() {
             return ordering;
         }
-        let (left_children, right_children) = (children(left), children(right));
-        let common = left_children.len().min(right_children.len());
-        work.push(Step::PrefixLength(
-            left_children.len().cmp(&right_children.len()),
-        ));
-        for index in (0..common).rev() {
-            work.push(Step::Compare(left_children[index], right_children[index]));
+        match (left, right) {
+            (
+                Pattern::Application {
+                    arguments: left, ..
+                }
+                | Pattern::And {
+                    arguments: left, ..
+                }
+                | Pattern::Or {
+                    arguments: left, ..
+                },
+                Pattern::Application {
+                    arguments: right, ..
+                }
+                | Pattern::And {
+                    arguments: right, ..
+                }
+                | Pattern::Or {
+                    arguments: right, ..
+                },
+            ) => {
+                let common = left.len().min(right.len());
+                work.push(Step::PrefixLength(left.len().cmp(&right.len())));
+                for index in (0..common).rev() {
+                    work.push(Step::Compare(&left[index], &right[index]));
+                }
+            }
+            (
+                Pattern::Not { argument: left, .. }
+                | Pattern::Next { argument: left, .. }
+                | Pattern::Ceil { argument: left, .. }
+                | Pattern::Floor { argument: left, .. },
+                Pattern::Not {
+                    argument: right, ..
+                }
+                | Pattern::Next {
+                    argument: right, ..
+                }
+                | Pattern::Ceil {
+                    argument: right, ..
+                }
+                | Pattern::Floor {
+                    argument: right, ..
+                },
+            ) => work.push(Step::Compare(left, right)),
+            (
+                Pattern::Implies {
+                    left: left_a,
+                    right: left_b,
+                    ..
+                }
+                | Pattern::Iff {
+                    left: left_a,
+                    right: left_b,
+                    ..
+                }
+                | Pattern::Rewrites {
+                    left: left_a,
+                    right: left_b,
+                    ..
+                }
+                | Pattern::Equals {
+                    left: left_a,
+                    right: left_b,
+                    ..
+                }
+                | Pattern::In {
+                    left: left_a,
+                    right: left_b,
+                    ..
+                },
+                Pattern::Implies {
+                    left: right_a,
+                    right: right_b,
+                    ..
+                }
+                | Pattern::Iff {
+                    left: right_a,
+                    right: right_b,
+                    ..
+                }
+                | Pattern::Rewrites {
+                    left: right_a,
+                    right: right_b,
+                    ..
+                }
+                | Pattern::Equals {
+                    left: right_a,
+                    right: right_b,
+                    ..
+                }
+                | Pattern::In {
+                    left: right_a,
+                    right: right_b,
+                    ..
+                },
+            ) => {
+                work.push(Step::Compare(left_b, right_b));
+                work.push(Step::Compare(left_a, right_a));
+            }
+            (
+                Pattern::Exists { body: left, .. }
+                | Pattern::Forall { body: left, .. }
+                | Pattern::Mu { body: left, .. }
+                | Pattern::Nu { body: left, .. },
+                Pattern::Exists { body: right, .. }
+                | Pattern::Forall { body: right, .. }
+                | Pattern::Mu { body: right, .. }
+                | Pattern::Nu { body: right, .. },
+            ) => work.push(Step::Compare(left, right)),
+            (Pattern::AssociativeApplication { .. }, _)
+            | (_, Pattern::AssociativeApplication { .. }) => {
+                unreachable!("associative applications were normalized above")
+            }
+            _ => {}
         }
     }
     Ordering::Equal
 }
 
-fn compare_haskell_pattern_slices(
+fn compare_normalized_haskell_pattern_slices(
     left: &[kore::Pattern],
     right: &[kore::Pattern],
 ) -> std::cmp::Ordering {
     for (left, right) in left.iter().zip(right) {
-        let ordering = compare_haskell_patterns(left, right);
+        let ordering = compare_normalized_haskell_patterns(left, right);
         if !ordering.is_eq() {
             return ordering;
         }
@@ -2131,10 +2287,190 @@ fn reject_name_duplicates(parameters: &[Name]) -> Result<(), DefinitionError> {
 mod tests {
     use indoc::indoc;
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+    use std::cmp::Ordering;
 
     use crate::term::TermKind;
 
     use super::*;
+
+    fn assert_haskell_pattern_order(left: &str, right: &str, expected: Ordering) {
+        let left = parse_pattern(left).expect("left pattern should parse");
+        let right = parse_pattern(right).expect("right pattern should parse");
+        assert_eq!(
+            compare_haskell_patterns(&left, &right),
+            expected,
+            "unexpected Haskell order for {left} and {right}"
+        );
+        assert_eq!(
+            compare_haskell_patterns(&right, &left),
+            expected.reverse(),
+            "unexpected reverse Haskell order for {right} and {left}"
+        );
+    }
+
+    #[test]
+    fn haskell_pattern_order_variable_counters() {
+        for (left, right) in [
+            ("X2:SortS{}", "X10:SortS{}"),
+            ("X1:SortS{}", "X01:SortS{}"),
+            ("@X2:SortS{}", "@X10:SortS{}"),
+            ("@X1:SortS{}", "@X01:SortS{}"),
+            ("X:SortS{}", "X0:SortS{}"),
+            ("X0:SortS{}", "X00:SortS{}"),
+            ("@X:SortS{}", "@X0:SortS{}"),
+            ("@X0:SortS{}", "@X00:SortS{}"),
+            ("X12:SortS{}", "X0012:SortS{}"),
+            ("@X12:SortS{}", "@X0012:SortS{}"),
+            (
+                "X184467440737095516160:SortS{}",
+                "X184467440737095516161:SortS{}",
+            ),
+            (
+                "@X184467440737095516160:SortS{}",
+                "@X184467440737095516161:SortS{}",
+            ),
+        ] {
+            assert_haskell_pattern_order(left, right, Ordering::Less);
+        }
+
+        // Sort-variable identifiers and string literals retain lexical ordering.
+        assert_haskell_pattern_order(r"\top{X10}()", r"\top{X2}()", Ordering::Less);
+        assert_haskell_pattern_order(r#""X10""#, r#""X2""#, Ordering::Less);
+    }
+
+    #[test]
+    fn haskell_pattern_order_empty_and_unary_connectives() {
+        for (left, right) in [
+            (r"\and{SortS{}}()", r"\top{SortS{}}()"),
+            (r"\or{SortS{}}()", r"\bottom{SortS{}}()"),
+            (r"\and{SortS{}}(a{}())", "a{}()"),
+            (r"\or{SortS{}}(a{}())", "a{}()"),
+        ] {
+            assert_haskell_pattern_order(left, right, Ordering::Equal);
+        }
+    }
+
+    #[test]
+    fn haskell_pattern_order_normalized_pattern_attribute_tiebreak() {
+        let empty_and = r#"
+            axiom{} \rewrites{SortS{}}(a{}(), a{}())
+                [ordering{}(\and{SortS{}}()), label{}("z-empty-and")]
+        "#;
+        let explicit_top = r#"
+            axiom{} \rewrites{SortS{}}(a{}(), a{}())
+                [ordering{}(\top{SortS{}}()), label{}("a-top")]
+        "#;
+
+        for rules in [
+            format!("{empty_and}{explicit_top}"),
+            format!("{explicit_top}{empty_and}"),
+        ] {
+            let source = format!(
+                r#"[]
+                module MAIN
+                    sort SortS{{}} []
+                    symbol a{{}}() : SortS{{}} [constructor{{}}()]
+                    symbol ordering{{}}(SortS{{}}) : SortS{{}} []
+                    symbol label{{}}(SortS{{}}) : SortS{{}} []
+                    {rules}
+                endmodule []"#
+            );
+            let syntax = parse_definition(&source).expect("definition should parse");
+            let axioms = syntax.modules[0]
+                .sentences
+                .iter()
+                .filter(|sentence| matches!(sentence, kore::Sentence::Axiom { .. }))
+                .collect::<Vec<_>>();
+            let (empty_and, explicit_top) = if rules.starts_with(empty_and) {
+                (axioms[0], axioms[1])
+            } else {
+                (axioms[1], axioms[0])
+            };
+            assert_eq!(
+                compare_rule_sentences(empty_and, explicit_top),
+                Ordering::Greater
+            );
+        }
+    }
+
+    #[test]
+    fn haskell_pattern_order_all_represented_constructors_and_fields() {
+        let constructors = [
+            r"\and{SortS{}}(a{}(), b{}())",
+            "a{}()",
+            r"\bottom{SortS{}}()",
+            r"\ceil{SortS{}, SortS{}}(a{}())",
+            r#"\dv{SortS{}}("a")"#,
+            r"\equals{SortS{}, SortS{}}(a{}(), b{}())",
+            r"\exists{SortS{}}(X:SortS{}, a{}())",
+            r"\floor{SortS{}, SortS{}}(a{}())",
+            r"\forall{SortS{}}(X:SortS{}, a{}())",
+            r"\iff{SortS{}}(a{}(), b{}())",
+            r"\implies{SortS{}}(a{}(), b{}())",
+            r"\in{SortS{}, SortS{}}(a{}(), b{}())",
+            r"\mu{}(@X:SortS{}, a{}())",
+            r"\next{SortS{}}(a{}())",
+            r"\not{SortS{}}(a{}())",
+            r"\nu{}(@X:SortS{}, a{}())",
+            r"\or{SortS{}}(a{}(), b{}())",
+            r"\rewrites{SortS{}}(a{}(), b{}())",
+            r"\top{SortS{}}()",
+            r#""a""#,
+            "X:SortS{}",
+        ];
+        for pair in constructors.windows(2) {
+            assert_haskell_pattern_order(pair[0], pair[1], Ordering::Less);
+        }
+
+        let scalar_and_child_cases = [
+            (r"\and{S}(a{}(), b{}())", r"\and{T}(a{}(), b{}())"),
+            ("a{}()", "b{}()"),
+            (r"\bottom{S}()", r"\bottom{T}()"),
+            (r"\ceil{S, S}(a{}())", r"\ceil{T, S}(a{}())"),
+            (r"\ceil{S, S}(a{}())", r"\ceil{S, T}(a{}())"),
+            (r#"\dv{S}("a")"#, r#"\dv{T}("a")"#),
+            (r#"\dv{S}("a")"#, r#"\dv{S}("b")"#),
+            (
+                r"\equals{S, S}(a{}(), b{}())",
+                r"\equals{T, S}(a{}(), b{}())",
+            ),
+            (r"\exists{S}(X:S, a{}())", r"\exists{T}(X:S, a{}())"),
+            (r"\exists{S}(X:S, a{}())", r"\exists{S}(Y:S, a{}())"),
+            (r"\floor{S, S}(a{}())", r"\floor{T, S}(a{}())"),
+            (r"\forall{S}(X:S, a{}())", r"\forall{T}(X:S, a{}())"),
+            (r"\iff{S}(a{}(), b{}())", r"\iff{T}(a{}(), b{}())"),
+            (r"\implies{S}(a{}(), b{}())", r"\implies{T}(a{}(), b{}())"),
+            (r"\in{S, S}(a{}(), b{}())", r"\in{T, S}(a{}(), b{}())"),
+            (r"\mu{}(@X:S, a{}())", r"\mu{}(@Y:S, a{}())"),
+            (r"\next{S}(a{}())", r"\next{T}(a{}())"),
+            (r"\not{S}(a{}())", r"\not{T}(a{}())"),
+            (r"\nu{}(@X:S, a{}())", r"\nu{}(@Y:S, a{}())"),
+            (r"\or{S}(a{}(), b{}())", r"\or{T}(a{}(), b{}())"),
+            (r"\rewrites{S}(a{}(), b{}())", r"\rewrites{T}(a{}(), b{}())"),
+            (r"\top{S}()", r"\top{T}()"),
+            (r#""a""#, r#""b""#),
+            ("X2:S", "X10:S"),
+            ("a{}()", "a{}(a{}())"),
+            (r"\and{S}(a{}(), a{}())", r"\and{S}(a{}(), b{}())"),
+            (r"\and{S}(a{}(), b{}())", r"\and{S}(a{}(), b{}(), a{}())"),
+            (r"\not{S}(a{}())", r"\not{S}(b{}())"),
+            (r"\implies{S}(a{}(), a{}())", r"\implies{S}(a{}(), b{}())"),
+        ];
+        for (left, right) in scalar_and_child_cases {
+            assert_haskell_pattern_order(left, right, Ordering::Less);
+        }
+
+        assert_haskell_pattern_order(
+            r"\left-assoc{}(f{}(a{}(), b{}(), c{}()))",
+            "f{}(f{}(a{}(), b{}()), c{}())",
+            Ordering::Equal,
+        );
+        assert_haskell_pattern_order(
+            r"\right-assoc{}(f{}(a{}(), b{}(), c{}()))",
+            "f{}(a{}(), f{}(b{}(), c{}()))",
+            Ordering::Equal,
+        );
+    }
 
     fn classified_rule_labels(definition: &BackendDefinition) -> Vec<&str> {
         definition
