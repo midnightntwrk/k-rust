@@ -459,6 +459,7 @@ impl BackendDefinition {
                     .collect::<Result<Vec<_>, _>>()?;
                 let result_sort = internalize_sort(result_sort, &sorts, &known)?;
                 let attributes = symbol_attributes(attributes)?;
+                validate_binder_attribute(&attributes, &argument_sorts, &sorts)?;
                 let internal = Arc::new(Symbol {
                     name: symbol.name.as_str().into(),
                     sort_variables,
@@ -1943,6 +1944,32 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
     })
 }
 
+fn validate_binder_attribute(
+    attributes: &SymbolAttributes,
+    argument_sorts: &[Sort],
+    sorts: &BTreeMap<Name, SortInfo>,
+) -> Result<(), DefinitionError> {
+    if !attributes.binder {
+        return Ok(());
+    }
+    if argument_sorts.len() < 2 {
+        return Err(DefinitionError::MalformedAttribute(
+            "Binder productions must have at least two nonterminals.".into(),
+        ));
+    }
+    let Sort::Application { name, .. } = &argument_sorts[0] else {
+        return Err(DefinitionError::MalformedAttribute(
+            "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.".into(),
+        ));
+    };
+    if sorts.get(name).and_then(|info| info.hook.as_deref()) != Some("KVAR.KVar") {
+        return Err(DefinitionError::MalformedAttribute(
+            "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn collection_sort(
     attributes: &kore::Attributes,
 ) -> Result<Option<CollectionSort>, DefinitionError> {
@@ -2295,11 +2322,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn retains_binder_attribute() {
+    fn retains_valid_binder_attribute() {
         let syntax = parse_definition(indoc! {r#"
             []
             module MAIN
-                sort SortKVar{} []
+                hooked-sort SortKVar{} [hook{}("KVAR.KVar"), hasDomainValues{}()]
                 sort SortExp{} []
                 symbol lambda{}(SortKVar{}, SortExp{}) : SortExp{}
                     [constructor{}(), binder{}()]
@@ -2312,6 +2339,80 @@ mod tests {
 
         assert!(definition.symbols["lambda"].attributes.binder);
         assert!(!definition.symbols["apply"].attributes.binder);
+    }
+
+    #[test]
+    fn retains_three_argument_binder_attribute() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortKVar{} [hook{}("KVAR.KVar"), hasDomainValues{}()]
+                sort SortExp{} []
+                symbol letWithAnnotation{}(SortKVar{}, SortExp{}, SortExp{}) : SortExp{}
+                    [constructor{}(), binder{}()]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+
+        assert!(definition.symbols["letWithAnnotation"].attributes.binder);
+    }
+
+    #[test]
+    fn rejects_unary_binder_attribute() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortKVar{} [hook{}("KVAR.KVar"), hasDomainValues{}()]
+                sort SortExp{} []
+                symbol malformed{}(SortKVar{}) : SortExp{} [constructor{}(), binder{}()]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+
+        assert!(matches!(
+            BackendDefinition::internalize(&syntax, "MAIN"),
+            Err(DefinitionError::MalformedAttribute(message))
+                if message == "Binder productions must have at least two nonterminals."
+        ));
+    }
+
+    #[test]
+    fn rejects_binder_attribute_without_kvar_hook() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortExp{} []
+                symbol malformed{}(SortExp{}, SortExp{}) : SortExp{}
+                    [constructor{}(), binder{}()]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+
+        assert!(matches!(
+            BackendDefinition::internalize(&syntax, "MAIN"),
+            Err(DefinitionError::MalformedAttribute(message))
+                if message == "First child of binder must have a sort with the 'KVAR.KVar' hook attribute."
+        ));
+    }
+
+    #[test]
+    fn rejects_binder_attribute_with_first_sort_variable() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortExp{} []
+                symbol malformed{S}(S, SortExp{}) : SortExp{} [constructor{}(), binder{}()]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+
+        assert!(matches!(
+            BackendDefinition::internalize(&syntax, "MAIN"),
+            Err(DefinitionError::MalformedAttribute(message))
+                if message == "First child of binder must have a sort with the 'KVAR.KVar' hook attribute."
+        ));
     }
 
     fn assert_haskell_pattern_order(left: &str, right: &str, expected: Ordering) {
