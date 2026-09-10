@@ -48,6 +48,12 @@ pub(crate) enum SubsortValidation {
     Ignore,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RuleIndexOrder {
+    Canonical,
+    Definition,
+}
+
 /// Transitive strict ordering between overloaded KORE symbols.
 ///
 /// A relation `(greater, lesser)` records that `greater` overloads `lesser`. Symbols which share
@@ -381,6 +387,25 @@ impl BackendDefinition {
         definition: &kore::Definition,
         main_module: &str,
     ) -> Result<Self, DefinitionError> {
+        Self::internalize_with_rule_order(definition, main_module, RuleIndexOrder::Canonical)
+    }
+
+    /// Internalizes rules in parsed definition order for source-compiled `krun` execution.
+    ///
+    /// Raw KORE surfaces must use [`Self::internalize`] so their rule index follows pinned Haskell
+    /// Kore's reverse canonical module and sentence order.
+    pub fn internalize_in_definition_order(
+        definition: &kore::Definition,
+        main_module: &str,
+    ) -> Result<Self, DefinitionError> {
+        Self::internalize_with_rule_order(definition, main_module, RuleIndexOrder::Definition)
+    }
+
+    fn internalize_with_rule_order(
+        definition: &kore::Definition,
+        main_module: &str,
+        rule_index_order: RuleIndexOrder,
+    ) -> Result<Self, DefinitionError> {
         let mut module_map = BTreeMap::new();
         for module in &definition.modules {
             if module_map.insert(module.name.as_str(), module).is_some() {
@@ -489,19 +514,28 @@ impl BackendDefinition {
         let mut claims = Vec::new();
         let mut subsorts = Vec::new();
         let mut overloads = Vec::new();
-        let import_orders = ordered
-            .iter()
-            .map(|module| (module.name.as_str(), sorted_import_sentence_indices(module)))
-            .collect::<BTreeMap<_, _>>();
         let rule_orders = ordered
             .iter()
-            .map(|module| (module.name.as_str(), sorted_rule_sentence_indices(module)))
+            .map(|module| {
+                (
+                    module.name.as_str(),
+                    rule_sentence_indices(module, rule_index_order),
+                )
+            })
             .collect::<BTreeMap<_, _>>();
-        let mut axiom_modules = Vec::new();
-        visit_modules_preorder(main_module, &module_map, &import_orders, &mut axiom_modules)?;
+        let axiom_modules = match rule_index_order {
+            RuleIndexOrder::Canonical => {
+                let import_orders = ordered
+                    .iter()
+                    .map(|module| (module.name.as_str(), sorted_import_sentence_indices(module)))
+                    .collect::<BTreeMap<_, _>>();
+                let mut modules = Vec::new();
+                visit_modules_preorder(main_module, &module_map, &import_orders, &mut modules)?;
+                modules
+            }
+            RuleIndexOrder::Definition => ordered.clone(),
+        };
         for module in axiom_modules {
-            // Pinned Kore canonically sorts module sentences and prepends each verified axiom or
-            // claim to its index. Reproduce that stable order before populating every rule theory.
             for &index in &rule_orders[module.name.as_str()] {
                 let sentence = &module.sentences[index];
                 let (target, parameters, pattern, attributes, expand) = match sentence {
@@ -1423,6 +1457,24 @@ fn sorted_rule_sentence_indices(module: &kore::Module) -> Vec<usize> {
         .collect::<Vec<_>>();
     rules.sort_by(|(_, left), (_, right)| left.compare(right));
     rules.into_iter().rev().map(|(index, _)| index).collect()
+}
+
+fn rule_sentence_indices(module: &kore::Module, order: RuleIndexOrder) -> Vec<usize> {
+    match order {
+        RuleIndexOrder::Canonical => sorted_rule_sentence_indices(module),
+        RuleIndexOrder::Definition => module
+            .sentences
+            .iter()
+            .enumerate()
+            .filter_map(|(index, sentence)| {
+                matches!(
+                    sentence,
+                    kore::Sentence::Axiom { .. } | kore::Sentence::Claim { .. }
+                )
+                .then_some(index)
+            })
+            .collect(),
+    }
 }
 
 #[cfg(test)]
@@ -2608,7 +2660,7 @@ mod tests {
     }
 
     #[test]
-    fn indexes_main_module_before_imports_in_reverse_canonical_import_order() {
+    fn rule_index_orders_select_canonical_or_definition_import_traversal() {
         let syntax = parse_definition(indoc! {r#"
             []
             module BASE
@@ -2654,6 +2706,13 @@ mod tests {
             classified_rule_labels(&definition),
             ["main", "b", "base", "a", "base"]
         );
+
+        let definition = BackendDefinition::internalize_in_definition_order(&syntax, "MAIN")
+            .expect("definition should internalize");
+        assert_eq!(
+            classified_rule_labels(&definition),
+            ["base", "a", "b", "main"]
+        );
     }
 
     #[test]
@@ -2697,6 +2756,31 @@ mod tests {
 
             assert_eq!(classified_rule_labels(&definition), ["lookup", "heat"]);
         }
+    }
+
+    #[test]
+    fn definition_order_policy_indexes_axioms_in_sentence_order() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    a{}()
+                ) [label{}("first")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()),
+                    a{}()
+                ) [label{}("second")]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+
+        let definition = BackendDefinition::internalize_in_definition_order(&syntax, "MAIN")
+            .expect("definition should internalize");
+
+        assert_eq!(classified_rule_labels(&definition), ["first", "second"]);
     }
 
     fn reference_definition_fixture(name: &str) -> kore::Definition {

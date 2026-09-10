@@ -1703,7 +1703,7 @@ fn run_branching_surface_pattern(definition: &Path, pattern: &str, extra: &[&str
 fn krun_surface_pattern_projects_ordinary_final_states() {
     let (root, definition) = branching_search_fixture();
 
-    let matching = run_branching_surface_pattern(&definition, "<k> e </k>", &[]);
+    let matching = run_branching_surface_pattern(&definition, "<k> d </k>", &[]);
     assert!(
         matching.status.success(),
         "{}",
@@ -1714,7 +1714,7 @@ fn krun_surface_pattern_projects_ordinary_final_states() {
         Pattern::Top { .. }
     ));
 
-    let nonmatching = run_branching_surface_pattern(&definition, "<k> d </k>", &[]);
+    let nonmatching = run_branching_surface_pattern(&definition, "<k> e </k>", &[]);
     assert!(
         nonmatching.status.success(),
         "{}",
@@ -2721,7 +2721,7 @@ endmodule []
         "{}",
         String::from_utf8_lossy(&any.stderr)
     );
-    assert_eq!(String::from_utf8(any.stdout).unwrap(), "d{}()\n");
+    assert_eq!(String::from_utf8(any.stdout).unwrap(), "e{}()\n");
 
     let breadth = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -3711,20 +3711,20 @@ fn kprove_filters_claims_imported_into_the_specification_module() {
         );
         assert_eq!(
             String::from_utf8(trusted.stdout).unwrap(),
-            "claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n\
+            "claim SPLIT-LEMMAS.fail2: proven (trusted)\n\
          claim SPLIT-LEMMAS.fail1: proven (trusted)\n\
-         claim SPLIT-LEMMAS.fail2: proven (trusted)\n"
+         claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n"
         );
 
         let recorded: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
         let claims = recorded["claims"].as_array().unwrap();
         assert_eq!(claims.len(), 3, "{recorded}");
-        for claim in &claims[1..] {
+        for claim in &claims[..2] {
             assert_eq!(claim["status"], "trusted");
             assert_eq!(claim["seconds"], 0.0);
         }
-        assert_eq!(recorded["proof_seconds"], claims[0]["seconds"]);
+        assert_eq!(recorded["proof_seconds"], claims[2]["seconds"]);
 
         // Control: without filtering every imported claim is attempted.
         let batch = Command::new(env!("CARGO_BIN_EXE_krust"))

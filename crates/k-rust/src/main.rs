@@ -2021,7 +2021,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
     let function_symbols = kore_function_symbols(&syntax);
 
-    let backend = BackendDefinition::internalize(&syntax, &options.common.module)?;
+    let backend =
+        BackendDefinition::internalize_in_definition_order(&syntax, &options.common.module)?;
     let initial = backend.internalize_frontend_term(&initial, &[])?;
     let match_target = match match_target_source {
         Some(MatchTargetSource::Surface(compiled)) => {
