@@ -299,6 +299,38 @@ fn normalize_integer(rendered: &str) -> Option<String> {
         .map(|value| (-value).to_string())
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ValiditySubquery {
+    Base,
+    Positive,
+    Negative,
+}
+
+fn decide_validity(mut solve: impl FnMut(ValiditySubquery) -> Satisfiability) -> Validity {
+    match solve(ValiditySubquery::Positive) {
+        Satisfiability::Sat => match solve(ValiditySubquery::Negative) {
+            Satisfiability::Unsat => Validity::Valid,
+            Satisfiability::Sat => Validity::Indeterminate,
+            Satisfiability::Unknown(reason) => Validity::Unknown(reason),
+        },
+        Satisfiability::Unsat => match solve(ValiditySubquery::Base) {
+            Satisfiability::Unsat => Validity::InconsistentGroundTruth,
+            Satisfiability::Sat => Validity::Invalid,
+            Satisfiability::Unknown(reason) => Validity::Unknown(reason),
+        },
+        Satisfiability::Unknown(positive_reason) => match solve(ValiditySubquery::Base) {
+            Satisfiability::Unsat => Validity::InconsistentGroundTruth,
+            Satisfiability::Unknown(reason) => Validity::Unknown(reason),
+            Satisfiability::Sat => match solve(ValiditySubquery::Negative) {
+                Satisfiability::Unsat => Validity::Valid,
+                Satisfiability::Sat | Satisfiability::Unknown(_) => {
+                    Validity::Unknown(positive_reason)
+                }
+            },
+        },
+    }
+}
+
 impl SmtSolver for Z3Solver {
     fn is_sat(
         &self,
@@ -319,28 +351,14 @@ impl SmtSolver for Z3Solver {
             return Ok(Validity::Valid);
         }
         let query = self.prelude.query(known, substitution, checked, true)?;
-        match self.solve_query(&query, None) {
-            Satisfiability::Unsat => return Ok(Validity::InconsistentGroundTruth),
-            Satisfiability::Unknown(reason) => return Ok(Validity::Unknown(reason)),
-            Satisfiability::Sat => {}
-        }
         let checked = query.checked.to_string();
-        let positive = self.solve_query(&query, Some(&checked));
-        let negative = self.solve_query(&query, Some(&format!("(not {checked})")));
-        let (positive, negative) = match (positive, negative) {
-            (Satisfiability::Unsat, _) => (Satisfiability::Unsat, Satisfiability::Sat),
-            (_, Satisfiability::Unsat) => (Satisfiability::Sat, Satisfiability::Unsat),
-            results => results,
-        };
-        Ok(match (positive, negative) {
-            (Satisfiability::Sat, Satisfiability::Unsat) => Validity::Valid,
-            (Satisfiability::Unsat, Satisfiability::Sat) => Validity::Invalid,
-            (Satisfiability::Sat, Satisfiability::Sat) => Validity::Indeterminate,
-            (Satisfiability::Unsat, Satisfiability::Unsat) => Validity::InconsistentGroundTruth,
-            (Satisfiability::Unknown(reason), _) | (_, Satisfiability::Unknown(reason)) => {
-                Validity::Unknown(reason)
+        Ok(decide_validity(|subquery| match subquery {
+            ValiditySubquery::Base => self.solve_query(&query, None),
+            ValiditySubquery::Positive => self.solve_query(&query, Some(&checked)),
+            ValiditySubquery::Negative => {
+                self.solve_query(&query, Some(&format!("(not {checked})")))
             }
-        })
+        }))
     }
 
     fn get_model(
@@ -984,6 +1002,206 @@ mod tests {
                 baseline
             );
         }
+    }
+
+    #[test]
+    fn adaptive_validity_has_explicit_27_case_table() {
+        #[derive(Clone, Copy, Debug)]
+        enum Outcome {
+            Sat,
+            Unsat,
+            Unknown,
+        }
+
+        fn satisfiability(outcome: Outcome, reason: &str) -> Satisfiability {
+            match outcome {
+                Outcome::Sat => Satisfiability::Sat,
+                Outcome::Unsat => Satisfiability::Unsat,
+                Outcome::Unknown => Satisfiability::Unknown(reason.into()),
+            }
+        }
+
+        fn legacy(
+            base: Satisfiability,
+            positive: Satisfiability,
+            negative: Satisfiability,
+        ) -> Validity {
+            match base {
+                Satisfiability::Unsat => return Validity::InconsistentGroundTruth,
+                Satisfiability::Unknown(reason) => return Validity::Unknown(reason),
+                Satisfiability::Sat => {}
+            }
+            let (positive, negative) = match (positive, negative) {
+                (Satisfiability::Unsat, _) => (Satisfiability::Unsat, Satisfiability::Sat),
+                (_, Satisfiability::Unsat) => (Satisfiability::Sat, Satisfiability::Unsat),
+                results => results,
+            };
+            match (positive, negative) {
+                (Satisfiability::Sat, Satisfiability::Unsat) => Validity::Valid,
+                (Satisfiability::Unsat, Satisfiability::Sat) => Validity::Invalid,
+                (Satisfiability::Sat, Satisfiability::Sat) => Validity::Indeterminate,
+                (Satisfiability::Unsat, Satisfiability::Unsat) => Validity::InconsistentGroundTruth,
+                (Satisfiability::Unknown(reason), _) | (_, Satisfiability::Unknown(reason)) => {
+                    Validity::Unknown(reason)
+                }
+            }
+        }
+
+        let outcomes = [Outcome::Sat, Outcome::Unsat, Outcome::Unknown];
+        let mut case_id = 0;
+        let mut divergent_cases = Vec::new();
+        for &base in &outcomes {
+            for &positive in &outcomes {
+                for &negative in &outcomes {
+                    case_id += 1;
+                    let fixed = |subquery| match subquery {
+                        ValiditySubquery::Base => satisfiability(base, "base unknown"),
+                        ValiditySubquery::Positive => satisfiability(positive, "positive unknown"),
+                        ValiditySubquery::Negative => satisfiability(negative, "negative unknown"),
+                    };
+                    let expected = legacy(
+                        fixed(ValiditySubquery::Base),
+                        fixed(ValiditySubquery::Positive),
+                        fixed(ValiditySubquery::Negative),
+                    );
+                    let mut queried = Vec::new();
+                    let actual = decide_validity(|subquery| {
+                        queried.push(subquery);
+                        fixed(subquery)
+                    });
+
+                    if matches!(base, Outcome::Sat) || !matches!(positive, Outcome::Sat) {
+                        assert_eq!(actual, expected, "{base:?}, {positive:?}, {negative:?}");
+                    } else {
+                        let stronger_result = match negative {
+                            Outcome::Unsat => Validity::Valid,
+                            Outcome::Sat => Validity::Indeterminate,
+                            Outcome::Unknown => Validity::Unknown("negative unknown".into()),
+                        };
+                        assert_eq!(
+                            actual, stronger_result,
+                            "a satisfiable positive subquery proves the base satisfiable despite a conflicting or inconclusive base outcome"
+                        );
+                    }
+                    if actual != expected {
+                        divergent_cases.push(case_id);
+                    }
+                    let expected_queries = match (positive, base) {
+                        (Outcome::Sat | Outcome::Unsat, _) => vec![
+                            ValiditySubquery::Positive,
+                            match positive {
+                                Outcome::Sat => ValiditySubquery::Negative,
+                                Outcome::Unsat => ValiditySubquery::Base,
+                                Outcome::Unknown => unreachable!(),
+                            },
+                        ],
+                        (Outcome::Unknown, Outcome::Sat) => vec![
+                            ValiditySubquery::Positive,
+                            ValiditySubquery::Base,
+                            ValiditySubquery::Negative,
+                        ],
+                        (Outcome::Unknown, Outcome::Unsat | Outcome::Unknown) => {
+                            vec![ValiditySubquery::Positive, ValiditySubquery::Base]
+                        }
+                    };
+                    assert_eq!(
+                        queried, expected_queries,
+                        "{base:?}, {positive:?}, {negative:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(divergent_cases, [10, 11, 12, 19, 20, 21]);
+    }
+
+    #[test]
+    fn indeterminate_validity_uses_two_uncached_solver_queries() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let checked = [Predicate::Term(term(
+            &definition,
+            r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
+        ))];
+        let query = solver
+            .prelude
+            .query(&[], &Substitution::new(), &checked, true)
+            .unwrap();
+        let checked_smt = query.checked.to_string();
+        let positive_script = format!("{}\n(assert {checked_smt})", query.base);
+        let negative_script = format!("{}\n(assert (not {checked_smt}))", query.base);
+        let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
+
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &checked),
+            Ok(Validity::Indeterminate)
+        );
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,
+            2,
+            "a satisfiable positive query proves the base satisfiable"
+        );
+        let cache = solver
+            .result_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(cache.entries.len(), 2);
+        assert!(cache.entries.contains_key(positive_script.as_str()));
+        assert!(cache.entries.contains_key(negative_script.as_str()));
+        assert!(!cache.entries.contains_key(query.base.as_str()));
+    }
+
+    #[test]
+    fn invalid_validity_uses_positive_then_base() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let checked = [Predicate::Term(term(
+            &definition,
+            r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
+        ))];
+        let substitution =
+            Substitution::from([(x(), Term::domain_value(Sort::simple("SortInt"), "15"))]);
+        let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
+
+        assert_eq!(
+            solver.check_predicates(&[], &substitution, &checked),
+            Ok(Validity::Invalid)
+        );
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,
+            2,
+            "an unsatisfiable positive query needs the base but not the negative query"
+        );
+    }
+
+    #[test]
+    fn already_cancelled_validity_does_not_reach_z3_or_cache() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let checked = [Predicate::Term(term(
+            &definition,
+            r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
+        ))];
+        let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
+        let token = CancellationToken::new();
+        token.cancel();
+
+        assert_eq!(
+            token.scope(|| solver.check_predicates(&[], &Substitution::new(), &checked)),
+            Ok(Validity::Unknown("request cancelled".into()))
+        );
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed),
+            baseline
+        );
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &checked),
+            Ok(Validity::Indeterminate)
+        );
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,
+            2,
+            "the cancelled request must not populate either adaptive script"
+        );
     }
 
     #[test]
