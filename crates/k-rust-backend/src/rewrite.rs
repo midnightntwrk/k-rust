@@ -368,7 +368,7 @@ fn execute_using(
             observation: None,
         })
         .collect::<VecDeque<_>>();
-    let mut leaves = Vec::new();
+    let mut leaves = SelectedExecutionLeaves::default();
     let mut effects = Vec::new();
     let mut discarded = Vec::new();
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
@@ -868,7 +868,7 @@ fn execute_using(
         }
     }
     ExecutionResult {
-        leaves: merge_equal_final_leaves(select_got_stuck_over_depth_bound(leaves)),
+        leaves: merge_equal_final_leaves(select_got_stuck_over_depth_bound(leaves.into_inner())),
         effects,
         discarded,
     }
@@ -888,6 +888,45 @@ fn select_got_stuck_over_depth_bound(mut leaves: Vec<ExecutionLeaf>) -> Vec<Exec
         leaves.retain(|leaf| leaf.halt_reason != HaltReason::DepthBound);
     }
     leaves
+}
+
+#[derive(Default)]
+struct SelectedExecutionLeaves {
+    retained: Vec<ExecutionLeaf>,
+    got_stuck: bool,
+}
+
+impl SelectedExecutionLeaves {
+    fn push(&mut self, leaf: ExecutionLeaf) {
+        let got_stuck = matches!(
+            leaf.halt_reason,
+            HaltReason::Stuck | HaltReason::Trivial | HaltReason::Vacuous
+        );
+        if got_stuck && !self.got_stuck {
+            self.retained
+                .retain(|retained| retained.halt_reason != HaltReason::DepthBound);
+            self.got_stuck = true;
+        }
+        if self.got_stuck && leaf.halt_reason == HaltReason::DepthBound {
+            return;
+        }
+        self.retained.push(leaf);
+    }
+
+    fn replace_unselected(&mut self, leaves: impl IntoIterator<Item = ExecutionLeaf>) {
+        self.retained.clear();
+        self.retained.extend(leaves);
+        self.got_stuck = false;
+    }
+
+    #[cfg(test)]
+    fn retained(&self) -> &[ExecutionLeaf] {
+        &self.retained
+    }
+
+    fn into_inner(self) -> Vec<ExecutionLeaf> {
+        self.retained
+    }
 }
 
 /// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342): leaves that carry the
@@ -984,15 +1023,14 @@ fn enqueue_execution_states(pending: &mut VecDeque<ExecutionState>, next: Vec<Ex
 
 fn execution_breadth_exceeded(
     pending: &mut VecDeque<ExecutionState>,
-    leaves: &mut Vec<ExecutionLeaf>,
+    leaves: &mut SelectedExecutionLeaves,
     max_breadth: Option<usize>,
     observation_log: &ObservationLog,
 ) -> bool {
     if !max_breadth.is_some_and(|bound| pending.len() > bound) {
         return false;
     }
-    leaves.clear();
-    leaves.extend(
+    leaves.replace_unselected(
         pending
             .drain(..)
             .map(|state| execution_state_at_breadth_bound(state, observation_log)),
@@ -7739,6 +7777,33 @@ mod tests {
         assert_eq!(leaf.pattern, subject(&definition, "done"));
         assert_eq!(leaf.depth, 1);
         assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    }
+
+    #[test]
+    fn got_stuck_selection_releases_and_suppresses_depth_bound_leaves_online() {
+        let definition = definition("");
+        let leaf = |name, halt_reason| ExecutionLeaf {
+            pattern: subject(&definition, name),
+            depth: 1,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+            halt_reason,
+        };
+        let mut selected = SelectedExecutionLeaves::default();
+
+        selected.push(leaf("depth-before", HaltReason::DepthBound));
+        assert_eq!(selected.retained().len(), 1);
+
+        selected.push(leaf("stuck", HaltReason::Stuck));
+        assert_eq!(selected.retained().len(), 1);
+        assert_eq!(selected.retained()[0].halt_reason, HaltReason::Stuck);
+
+        selected.push(leaf("depth-after", HaltReason::DepthBound));
+        selected.push(leaf("cancelled", HaltReason::Cancelled));
+        assert_eq!(selected.retained().len(), 2);
+        assert_eq!(selected.retained()[0].halt_reason, HaltReason::Stuck);
+        assert_eq!(selected.retained()[1].halt_reason, HaltReason::Cancelled);
     }
 
     fn stop_rule_definition() -> BackendDefinition {
