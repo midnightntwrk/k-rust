@@ -10,3 +10,7 @@ agent-sandbox-test*/
 # Python verifier caches.
 __pycache__/
 *.py[cod]
+
+# Machine-local agent notes.
+AGENTS.local.md
+CLAUDE.local.md
