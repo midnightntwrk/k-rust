@@ -1,9 +1,13 @@
 //! In-process Z3 implementation of the backend SMT interface.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     str::FromStr,
+    sync::{Arc, Mutex},
 };
+
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use num_bigint::BigInt;
 use z3::{
@@ -40,6 +44,63 @@ impl Default for Z3Options {
 pub struct Z3Solver {
     prelude: SmtPrelude,
     options: Z3Options,
+    result_cache: Arc<Mutex<SolverResultCache>>,
+    #[cfg(test)]
+    uncached_solve_count: Arc<AtomicUsize>,
+}
+
+const RESULT_CACHE_ENTRY_LIMIT: usize = 256;
+const RESULT_CACHE_KEY_BYTE_LIMIT: usize = 8 * 1024 * 1024;
+
+#[derive(Debug)]
+struct SolverResultCache {
+    entries: BTreeMap<Arc<str>, Satisfiability>,
+    insertion_order: VecDeque<Arc<str>>,
+    key_bytes: usize,
+    entry_limit: usize,
+    key_byte_limit: usize,
+}
+
+impl SolverResultCache {
+    fn new(entry_limit: usize, key_byte_limit: usize) -> Self {
+        Self {
+            entries: BTreeMap::new(),
+            insertion_order: VecDeque::new(),
+            key_bytes: 0,
+            entry_limit,
+            key_byte_limit,
+        }
+    }
+
+    fn get(&self, script: &str) -> Option<Satisfiability> {
+        self.entries.get(script).cloned()
+    }
+
+    fn insert(&mut self, script: &str, result: &Satisfiability) {
+        if !matches!(result, Satisfiability::Sat | Satisfiability::Unsat)
+            || self.entry_limit == 0
+            || script.len() > self.key_byte_limit
+            || self.entries.contains_key(script)
+        {
+            return;
+        }
+
+        while self.entries.len() >= self.entry_limit
+            || self.key_bytes + script.len() > self.key_byte_limit
+        {
+            let Some(evicted) = self.insertion_order.pop_front() else {
+                return;
+            };
+            if self.entries.remove(evicted.as_ref()).is_some() {
+                self.key_bytes -= evicted.len();
+            }
+        }
+
+        let script: Arc<str> = Arc::from(script);
+        self.key_bytes += script.len();
+        self.entries.insert(script.clone(), result.clone());
+        self.insertion_order.push_back(script);
+    }
 }
 
 impl Z3Solver {
@@ -72,8 +133,14 @@ impl Z3Solver {
                 None => SmtPrelude::from_definition(definition)?,
             },
             options,
+            result_cache: Arc::new(Mutex::new(SolverResultCache::new(
+                RESULT_CACHE_ENTRY_LIMIT,
+                RESULT_CACHE_KEY_BYTE_LIMIT,
+            ))),
+            #[cfg(test)]
+            uncached_solve_count: Arc::new(AtomicUsize::new(0)),
         };
-        match solver.solve(&solver.prelude.declarations().join("\n")) {
+        match solver.solve_uncached(&solver.prelude.declarations().join("\n")) {
             Satisfiability::Sat => Ok(solver),
             Satisfiability::Unsat => Err(SmtError::InconsistentPrelude),
             Satisfiability::Unknown(reason) => Err(SmtError::UnknownPrelude(reason)),
@@ -81,6 +148,30 @@ impl Z3Solver {
     }
 
     fn solve(&self, script: &str) -> Satisfiability {
+        if cancellation_requested() {
+            return Satisfiability::Unknown("request cancelled".into());
+        }
+        if let Some(result) = self
+            .result_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(script)
+        {
+            return result;
+        }
+
+        let result = self.solve_uncached(script);
+        self.result_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(script, &result);
+        result
+    }
+
+    fn solve_uncached(&self, script: &str) -> Satisfiability {
+        #[cfg(test)]
+        self.uncached_solve_count.fetch_add(1, Ordering::Relaxed);
+
         let mut timeout = self.options.timeout_ms;
         for attempt in 0..=self.options.retry_limit {
             if cancellation_requested() {
@@ -275,7 +366,10 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::{definition::BackendDefinition, rule::Predicate, term::Variable};
+    use crate::{
+        cancellation::CancellationToken, definition::BackendDefinition, rule::Predicate,
+        term::Variable,
+    };
 
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(
@@ -695,5 +789,222 @@ mod tests {
             panic!("reflexive opaque equality should be satisfiable")
         };
         assert_eq!(model.get(&opaque), Some(&Term::variable(opaque.clone())));
+    }
+
+    #[test]
+    fn reuses_conclusive_exact_scripts() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
+        let x_term = Term::variable(x());
+        let one = Term::domain_value(Sort::simple("SortInt"), "1");
+        let two = Term::domain_value(Sort::simple("SortInt"), "2");
+        let satisfiable = [Predicate::Equals(x_term.clone(), one.clone())];
+        let unsatisfiable = [
+            Predicate::Equals(x_term.clone(), one),
+            Predicate::Equals(x_term, two),
+        ];
+
+        for _ in 0..2 {
+            assert_eq!(
+                solver.is_sat(&satisfiable, &Substitution::new()),
+                Ok(Satisfiability::Sat)
+            );
+            assert_eq!(
+                solver.is_sat(&unsatisfiable, &Substitution::new()),
+                Ok(Satisfiability::Unsat)
+            );
+        }
+
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,
+            2,
+            "each distinct complete script should reach Z3 once"
+        );
+    }
+
+    #[test]
+    fn does_not_conflate_distinct_scripts() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
+        let x_term = Term::variable(x());
+        let equals = |value| {
+            [Predicate::Equals(
+                x_term.clone(),
+                Term::domain_value(Sort::simple("SortInt"), value),
+            )]
+        };
+
+        assert_eq!(
+            solver.is_sat(&equals("1"), &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+        assert_eq!(
+            solver.is_sat(&equals("2"), &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+        assert_eq!(
+            solver.is_sat(&equals("1"), &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,
+            2
+        );
+    }
+
+    #[test]
+    fn cancelled_exact_hit_returns_unknown() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let predicates = [Predicate::Equals(
+            Term::variable(x()),
+            Term::domain_value(Sort::simple("SortInt"), "1"),
+        )];
+        assert_eq!(
+            solver.is_sat(&predicates, &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+        let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
+        let token = CancellationToken::new();
+        token.cancel();
+
+        assert_eq!(
+            token.scope(|| solver.is_sat(&predicates, &Substitution::new())),
+            Ok(Satisfiability::Unknown("request cancelled".into()))
+        );
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed),
+            baseline
+        );
+        assert_eq!(
+            solver.is_sat(&predicates, &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed),
+            baseline
+        );
+    }
+
+    #[test]
+    fn result_cache_excludes_unknown_and_bounds_keys_by_fifo_order() {
+        let mut cache = SolverResultCache::new(2, usize::MAX);
+        cache.insert("A", &Satisfiability::Sat);
+        cache.insert("B", &Satisfiability::Unsat);
+        assert_eq!(cache.get("A"), Some(Satisfiability::Sat));
+        cache.insert("C", &Satisfiability::Sat);
+
+        assert_eq!(cache.get("A"), None, "hits must not refresh FIFO order");
+        assert_eq!(cache.get("B"), Some(Satisfiability::Unsat));
+        assert_eq!(cache.get("C"), Some(Satisfiability::Sat));
+
+        cache.insert("unknown", &Satisfiability::Unknown("timeout".into()));
+        assert_eq!(cache.get("unknown"), None);
+
+        let mut byte_bounded = SolverResultCache::new(2, 2);
+        byte_bounded.insert("abc", &Satisfiability::Sat);
+        assert_eq!(byte_bounded.get("abc"), None);
+
+        let mut cumulative_bytes = SolverResultCache::new(3, 5);
+        cumulative_bytes.insert("aa", &Satisfiability::Sat);
+        cumulative_bytes.insert("bbb", &Satisfiability::Unsat);
+        cumulative_bytes.insert("cc", &Satisfiability::Sat);
+        assert_eq!(cumulative_bytes.get("aa"), None);
+        assert_eq!(cumulative_bytes.get("bbb"), Some(Satisfiability::Unsat));
+        assert_eq!(cumulative_bytes.get("cc"), Some(Satisfiability::Sat));
+        assert_eq!(cumulative_bytes.key_bytes, 5);
+
+        cumulative_bytes.insert("dddd", &Satisfiability::Unsat);
+        assert_eq!(cumulative_bytes.get("bbb"), None);
+        assert_eq!(cumulative_bytes.get("cc"), None);
+        assert_eq!(cumulative_bytes.get("dddd"), Some(Satisfiability::Unsat));
+        assert_eq!(cumulative_bytes.key_bytes, 4);
+    }
+
+    #[test]
+    fn clones_share_cached_results_and_remain_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Z3Solver>();
+
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let predicates = [Predicate::Equals(
+            Term::variable(x()),
+            Term::domain_value(Sort::simple("SortInt"), "1"),
+        )];
+        assert_eq!(
+            solver.is_sat(&predicates, &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+        let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
+        let clone = solver.clone();
+
+        assert_eq!(
+            clone.is_sat(&predicates, &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed),
+            baseline
+        );
+    }
+
+    #[test]
+    fn validity_subqueries_reuse_only_exact_scripts() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let checked = [Predicate::Term(term(
+            &definition,
+            r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
+        ))];
+        for (substitution, expected) in [
+            (Substitution::new(), Validity::Indeterminate),
+            (
+                Substitution::from([(x(), Term::domain_value(Sort::simple("SortInt"), "5"))]),
+                Validity::Valid,
+            ),
+            (
+                Substitution::from([(x(), Term::domain_value(Sort::simple("SortInt"), "15"))]),
+                Validity::Invalid,
+            ),
+        ] {
+            assert_eq!(
+                solver.check_predicates(&[], &substitution, &checked),
+                Ok(expected.clone())
+            );
+            let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
+            assert_eq!(
+                solver.check_predicates(&[], &substitution, &checked),
+                Ok(expected)
+            );
+            assert_eq!(
+                solver.uncached_solve_count.load(Ordering::Relaxed),
+                baseline
+            );
+        }
+    }
+
+    #[test]
+    fn cached_satisfiability_does_not_replace_model_check() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let predicates = [Predicate::Equals(
+            Term::variable(x()),
+            Term::domain_value(Sort::simple("SortInt"), "7"),
+        )];
+        assert_eq!(
+            solver.is_sat(&predicates, &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+
+        assert_eq!(
+            solver.get_model(&predicates, &Substitution::new()),
+            Ok(ModelResult::Sat(Substitution::from([(
+                x(),
+                Term::domain_value(Sort::simple("SortInt"), "7")
+            )])))
+        );
     }
 }
