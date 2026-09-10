@@ -17,14 +17,10 @@ The verifier builds the `krs` binary, then performs two clean runs from
 different absolute paths. Each run checks all four commands against the same
 M2 `foo -> bar` theory:
 
-- `check` validates exactly seven descriptors and one semantic module;
-- `expand` is canonical protocol-v5 JSON with three sorts, two constructors,
-  one combined configuration, and one rule;
-- `emit-k` creates only the schema marker, `definition.k`, `symbols.json`, and
-  `sources.json` and retains `M2Obj < KResult < KItem`, `<k> foo </k>`, and the
-  `foo => bar` rule;
-- `build` reaches the permanent native seam, reports
-  `StructuredDefinitionPreparationUnavailable`, and creates no native output.
+- `check` validates exactly nine descriptors and one semantic module;
+- `expand` produces canonical, deterministic layer-2 Rust source with three sorts, two constructors, one combined configuration, and one rule;
+- `emit-k` creates the schema marker, the three IR/bundle documents, `definition.k`, `symbols.json`, and `sources.json`, and retains `M2Obj < KResult < KItem`, `<k> foo </k>`, and the `foo => bar` rule;
+- `build` compiles the Definition IR through the structured k-rust frontend and creates exactly `.krs-artifacts`, `definition.kore`, `syntaxDefinition.kore`, and `macros.kore`.
 
 Relocated outputs must be byte-identical and match `pins.json`. These pins are
 independent of the M2 in-tree oracle: this package intentionally has its own
@@ -38,4 +34,3 @@ nonempty artifact directory. If both `kompile` and `krun` are present at the
 required K `v7.1.337` pin, the emitted K is compiled with the LLVM backend and
 executed to prove `foo -> bar`. Missing tools are reported as unavailable;
 present tools at a different version are a hard mismatch and are never used.
-

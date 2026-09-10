@@ -6,9 +6,9 @@ review links fail visibly if the evidence regresses.
 
 ## Strict result
 
-Reproduced twice unchanged on 2026-08-26 with descriptor protocol 15,
-Definition IR schema 9,
-pinned `k-rust` revision `58f33885b736148dae189623d1aac989ce9be475`, and
+Reproduced on 2026-09-10 with descriptor protocol 35,
+Definition IR schema 27,
+pinned `k-rust` revision `fb9b3e1472623d9b991a386edf56792959973456`, and
 pinned K 7.1.337:
 
 ```text
@@ -94,8 +94,8 @@ and comparing the artifacts:
 | emitted `symbols.json` | 31,012 | `5c0d68d757fad8717ba2ff6823045e414db916ec55944f45aea9df449ae0d5ae` |
 | emitted `sources.json` | 4,594,792 | `2caba193fdadc7c5b17c09a02d826ecbe16df470ada74951784995d48f3b45f8` |
 | native `.krs-artifacts` | 49 | `4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5` |
-| native `definition.kore` | 521,007 | `1483dc5eacf7fed1f5fd56d0c33530a6552d06b19216159758e5b0d57211d518` |
-| native `syntaxDefinition.kore` | 96,324 | `9963fcfacc153cf8e12e900ace1b4416be6672d5c4ac620a3e73af2d69c7c051` |
+| native `definition.kore` | 520,752 | `7576e61715cca682454355d43ce04a8107d6f0b9f9ce1a8c31a0af185dfbd45b` |
+| native `syntaxDefinition.kore` | 96,323 | `364df09e2ac19139b0e23343375fee4da4b5a6cf691b738607fcf09b4723c56e` |
 | native `macros.kore` | 437 | `e1d5a374973b2fa9eb2502c3acdee5244ee7a89a965dd7acd69cda4b7d7814e0` |
 
 The LLVM route still intentionally rejects existential claims. That is a

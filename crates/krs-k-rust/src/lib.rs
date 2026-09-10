@@ -1,10 +1,8 @@
 //! Versioned adapter to the native `k-rust` frontend.
 //!
 //! [`adapt_definition`] is the permanent structural boundary. The resulting
-//! native source definition is prepared by [`prepare_definition`], an isolated
-//! compatibility layer over the pinned frontend's public loader,
-//! configuration expander, and graph resolver. The exact pin predates the
-//! later upstream structured-preparation convenience API.
+//! native source definition is prepared by [`prepare_definition`] through the
+//! pinned frontend's public structured loader.
 //!
 //! [`compile_definition_provisional_oracle`] exists only as an explicitly
 //! provisional M2 oracle. It parses no K source (and in particular never
@@ -15,15 +13,14 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
-    fmt::{self, Write as _},
+    fmt,
 };
 
 use k_rust::{
     builtin,
     definition::{
-        self as native_definition, Attributes as NativeAttributes, FlatImport, FlatModule,
-        ProductionItem as NativeItem, ResolvedDefinition, Sentence as NativeSentence,
-        expand_configurations,
+        self as native_definition, Attributes as NativeAttributes, CheckMode as NativeCheckMode,
+        FlatImport, FlatModule, ProductionItem as NativeItem, Sentence as NativeSentence,
     },
     diagnostic::{Diagnostic as NativeDiagnostic, Severity as NativeSeverity},
     kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm},
@@ -36,7 +33,7 @@ use k_rust::{
         parser::parse_definition as parse_kore_definition,
         printer::Printer as KorePrinter,
     },
-    outer::{LoadOptions as NativeLoadOptions, ResolvedSource, load_with_options},
+    outer::{LoadOptions as NativeLoadOptions, load_structured},
 };
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
@@ -70,7 +67,7 @@ pub struct FrontendPin {
 /// The native frontend compatibility unit verified by this adapter.
 pub const FRONTEND_PIN: FrontendPin = FrontendPin {
     crate_version: "0.4.0",
-    source_revision: "c41caa8bede96e279e0b058577dce504e4144f65",
+    source_revision: "fb9b3e1472623d9b991a386edf56792959973456",
     k_version: "7.1.337",
     k_source_revision: "4a46d1231473b599c699160132fd6e76a5c46406",
 };
@@ -563,14 +560,10 @@ pub fn adapt_definition(ir: &DefinitionIr) -> Result<AdaptedDefinition, AdapterE
     Adapter::new(ir).adapt(ir)
 }
 
-/// Prepare one structurally adapted definition through public pinned APIs.
-///
-/// This compatibility layer first lets the public
-/// loader establish the bundled prelude, backend filtering, source-file set,
-/// and graph invariants from a fixed empty bootstrap module. It then replaces
-/// that module with the already-structured KRS modules, expands structured
-/// configurations, and resolves the resulting graph. It never parses emitted
-/// KRS `.k` source.
+/// Prepare one structurally adapted definition through the public structured
+/// loader. The loader establishes the bundled prelude, backend filtering,
+/// source-file set, configuration expansion, and graph invariants without
+/// parsing emitted KRS `.k` source.
 ///
 /// # Errors
 ///
@@ -580,78 +573,21 @@ pub fn prepare_definition(
     definition: NativeDefinition,
     backend: Backend,
 ) -> Result<LoadedDefinition, String> {
-    const BOOTSTRAP_MODULE: &str = "KRS-STRUCTURED-BOOTSTRAP";
-    const DEFAULT_CONFIGURATION_MODULE: &str = "DEFAULT-CONFIGURATION";
-    let local_modules = definition
-        .modules
-        .iter()
-        .map(|module| module.name.as_str())
-        .collect::<BTreeSet<_>>();
-    let bootstrap_imports = definition
-        .modules
-        .iter()
-        .flat_map(|module| module.imports.iter())
-        .filter(|import| !local_modules.contains(import.name.as_str()))
-        .map(|import| import.name.as_str())
-        .collect::<BTreeSet<_>>();
-    let bootstrap_imports =
-        bootstrap_imports
-            .into_iter()
-            .fold(String::new(), |mut source, name| {
-                writeln!(source, "  imports {name}").expect("writing to String cannot fail");
-                source
-            });
-    let bootstrap_source = format!("module {BOOTSTRAP_MODULE}\n{bootstrap_imports}endmodule\n");
     let prelude = builtin::embedded("prelude.md")
-        .ok_or_else(|| "pinned compatibility prelude is unavailable".to_owned())?;
-    let mut resolver = |_: &str, required: &str| {
-        builtin::embedded(required).ok_or_else(|| format!("missing pinned source {required:?}"))
-    };
+        .ok_or_else(|| "pinned structured-loader prelude is unavailable".to_owned())?;
     let excluded = match backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm.excluded_module_attribute(),
         Backend::Haskell => kompile::CompilationBackend::Rust.excluded_module_attribute(),
     };
-    let mut loaded = load_with_options(
-        ResolvedSource::new("krs-structured-bootstrap.k", bootstrap_source),
-        BOOTSTRAP_MODULE,
-        &mut resolver,
+    load_structured(
+        definition,
         &NativeLoadOptions {
             implicit_sources: vec![prelude],
             excluded_module_attributes: vec![excluded.to_owned()],
             ..NativeLoadOptions::default()
         },
     )
-    .map_err(|error| error.to_string())?;
-
-    loaded.definition.modules.retain(|module| {
-        module.name != BOOTSTRAP_MODULE && module.name != DEFAULT_CONFIGURATION_MODULE
-    });
-    for module in &mut loaded.definition.modules {
-        module
-            .imports
-            .retain(|import| import.name != DEFAULT_CONFIGURATION_MODULE);
-    }
-    for module in &definition.modules {
-        if loaded
-            .definition
-            .modules
-            .iter()
-            .any(|existing| existing.name == module.name)
-        {
-            return Err(format!(
-                "structured module {:?} conflicts with a pinned prelude module",
-                module.name
-            ));
-        }
-    }
-    loaded.definition.modules.extend(definition.modules);
-    loaded.definition.main_module = definition.main_module;
-    loaded.definition.attributes = definition.attributes;
-    loaded.definition =
-        expand_configurations(&loaded.definition).map_err(|error| error.to_string())?;
-    loaded.resolved =
-        ResolvedDefinition::resolve(&loaded.definition).map_err(|error| error.to_string())?;
-    Ok(loaded)
+    .map_err(|error| error.to_string())
 }
 
 /// Compile schema-9 Definition IR through the permanent native boundary.
@@ -1022,6 +958,24 @@ pub fn compile_loaded_definition(
             kore_width: options.kore_width,
             default_claims_to_all_path: false,
             hook_namespaces: None,
+            // Definition IR represents a self-contained proof unit: when it
+            // contains claims, the semantics and specification intentionally
+            // share the selected main module. Tell the upstream checker to use
+            // its explicit colocated-proof policy; claim-free inputs retain the
+            // stricter definition-only policy.
+            check_mode: if loaded.definition.modules.iter().any(|module| {
+                module
+                    .local_sentences
+                    .iter()
+                    .any(|sentence| matches!(sentence, NativeSentence::Claim { .. }))
+            }) {
+                NativeCheckMode::Proof {
+                    definition_module: loaded.definition.main_module.clone(),
+                }
+            } else {
+                NativeCheckMode::Definition
+            },
+            ..kompile::CompileOptions::default()
         },
     )
     .map_err(CompileError::from)?;
@@ -1295,8 +1249,16 @@ impl Adapter {
                 }
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
+        // Token values lower to KORE domain values, never applications of
+        // their source-level parser production. Leaving a stable KRS symbol
+        // on that production makes the native frontend emit a constructor on
+        // a hooked/domain-value sort, which the native backend rejects.
+        let label = attributes
+            .get("token")
+            .is_none()
+            .then(|| NativeLabel::new(sentence.symbol().emitted_name()));
         Ok(NativeSentence::Production {
-            label: Some(NativeLabel::new(sentence.symbol().emitted_name())),
+            label,
             parameters: Vec::new(),
             sort: self.sort(sentence.result_sort(), sentence.origin())?,
             items,
@@ -2063,6 +2025,11 @@ impl Adapter {
                     .collect::<Result<Vec<_>, _>>()?;
                 let native = Self::map_term(*operation, arguments, term.origin())?;
                 if *operation == MapOperation::Get {
+                    // Preserve the typed equation's result sort at the rewrite
+                    // root. An upstream semantic cast around heterogeneous
+                    // collection lookup is projected only after its rewrite
+                    // has already widened to KItem, misclassifying function
+                    // equations as ordinary semantic rules.
                     Ok(NativeTerm::apply(
                         format!("project:{}", self.sort(term.sort(), term.origin())?.name),
                         vec![native],
@@ -2120,13 +2087,7 @@ impl Adapter {
                         self.term(child, module, sentence_index, child_path, context, rule)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                // k-rust 0.4 at the pinned clean-main revision still routes every
-                // recognized cell application through its parser-only
-                // three-argument concretization path. Preserve KRS's complete
-                // structured IR while presenting the equivalent closed source
-                // shape at this compatibility boundary. See
-                // K_RUST_UPSTREAM.toml#complete-nested-cell-concretization.
-                Ok(incomplete_cell(&name, native_cells(arguments), false))
+                Ok(NativeTerm::apply(format!("<{name}>"), arguments))
             }
             DefinitionTermKind::Rewrite { from, to } => {
                 let mut left_path = path.clone();

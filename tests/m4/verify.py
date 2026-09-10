@@ -734,7 +734,7 @@ def phase_preflight(context: Context) -> str:
             "tracked_crate_sha256": tracked_tree_digest(native, "crates/k-rust"),
             "backend_version": "0.3.0",
             "tracked_backend_sha256": tracked_tree_digest(native, "crates/k-rust-backend"),
-            "kore_version": "0.3.0",
+            "kore_version": "0.4.0",
             "tracked_kore_sha256": tracked_tree_digest(native, "crates/k-rust-kore"),
         },
         "builtin_registry": {
@@ -755,7 +755,7 @@ definition_ir = 27
 kast_json = 4
 
 [cargo]
-lock_sha256 = "50859782257669ec271ce97a9d244381560c2bfebd9df66ef51c6089481c4821"
+lock_sha256 = "0a35b1084e8dfd15a589824a992afbb494225d937883d853dd1889a159edfc02"
 msrv = "1.88.0"
 native_frontend_rust = "1.98.0"
 native_frontend_msrv_status = "msrv-compatible"
@@ -770,12 +770,12 @@ pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147
 
 [k_rust]
 version = "0.4.0"
-commit = "c41caa8bede96e279e0b058577dce504e4144f65"
-tracked_crate_sha256 = "a3ef4e44ecd387bd85dd0e2027d6f9fdac29916e0e842488ddf6f95e51915add"
+commit = "fb9b3e1472623d9b991a386edf56792959973456"
+tracked_crate_sha256 = "699411dd94cb8cf4c6cec319db2703c205c749e1b6fb6b1c956a70707a1b7099"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "656fc56585c6368b0894483d299869fef06ab08273c82ed571ae1d0d0581f714"
-kore_version = "0.3.0"
-tracked_kore_sha256 = "1f68eec08de77921f521321d67aa2cace9323c86bfe37a05c8561e3ea7f572e6"
+tracked_backend_sha256 = "14db1103162d46447b16ff6c66f39f73e8cabcc390374dc5ffb9c9ba135797d1"
+kore_version = "0.4.0"
+tracked_kore_sha256 = "c70789c7270be4666dc5bcbbf7df6f021efcdfad03c314f833d10c7b4bda6109"
 
 [builtin_registry]
 source_sha256 = "7076fb0bcf4667b8e819445995b1055d55b10d9fc4f7a5b8e037189556c2910a"
@@ -808,8 +808,8 @@ llvm_existential_claims = "typed-backend-capability-error"
     kore = run([context.tools["kore-exec"], "--version"], timeout=30).stdout.strip()
     if kore != lock["k"]["kore_exec_version"]:
         raise GateError(f"kore-exec version differs: {kore}")
-    llvm = run([context.tools["llvm-kompile"], "--version"], timeout=30, check=False)
-    if f"llvm-backend-{lock['k']['llvm_backend_version']}" not in llvm.stdout + llvm.stderr:
+    llvm = Path(context.tools["llvm-kompile"]).resolve()
+    if f"llvm-backend-{lock['k']['llvm_backend_version']}" not in llvm.as_posix():
         raise GateError("LLVM backend version differs from Krs.lock")
     z3 = run([context.tools["z3"], "--version"], timeout=30).stdout.strip()
     if z3 != f"Z3 version {lock['solver']['version']} - 64 bit":

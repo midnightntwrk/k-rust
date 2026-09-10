@@ -148,13 +148,15 @@ fn normalize_residual_pattern(pattern: &mut Pattern) {
                 normalize_residual_pattern(argument);
             }
             let mut flattened = Vec::new();
-            for argument in std::mem::take(arguments) {
-                match argument {
+            for mut argument in std::mem::take(arguments) {
+                match &mut argument {
                     Pattern::And {
                         sort: child_sort,
                         arguments: child_arguments,
-                    } if child_sort == *sort => flattened.extend(child_arguments),
-                    other => flattened.push(other),
+                    } if *child_sort == *sort => {
+                        flattened.extend(std::mem::take(child_arguments));
+                    }
+                    _ => flattened.push(argument),
                 }
             }
             flattened.sort();
@@ -196,19 +198,21 @@ fn normalize_residual_pattern(pattern: &mut Pattern) {
     let Some(first) = leaves.first().cloned() else {
         return;
     };
-    let rebuilt = leaves
+    let mut rebuilt = leaves
         .into_iter()
         .skip(1)
         .fold(first, |left, right| Pattern::Application {
             symbol: symbol.clone(),
             arguments: vec![left, right],
         });
-    match rebuilt {
-        Pattern::Application {
-            arguments: rebuilt_arguments,
-            ..
-        } => *arguments = rebuilt_arguments,
-        leaf => *arguments = vec![leaf],
+    if let Pattern::Application {
+        arguments: rebuilt_arguments,
+        ..
+    } = &mut rebuilt
+    {
+        *arguments = std::mem::take(rebuilt_arguments);
+    } else {
+        *arguments = vec![rebuilt];
     }
 }
 
@@ -217,13 +221,15 @@ fn flatten_application(
     symbol: &k_rust::kore::ast::Symbol,
     output: &mut Vec<Pattern>,
 ) {
-    for argument in arguments {
-        match argument {
+    for mut argument in arguments {
+        match &mut argument {
             Pattern::Application {
                 symbol: child_symbol,
                 arguments: child_arguments,
-            } if child_symbol == *symbol => flatten_application(child_arguments, symbol, output),
-            other => output.push(other),
+            } if *child_symbol == *symbol => {
+                flatten_application(std::mem::take(child_arguments), symbol, output);
+            }
+            _ => output.push(argument),
         }
     }
 }

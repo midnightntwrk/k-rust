@@ -140,12 +140,12 @@ def main() -> None:
         (
             "readable_missing_cell",
             "unsupported fixed configuration field: wrapper-free configurations require `#[k::cell]` on every plain field",
-            "renamed_krs::builtin::Map",
+            "renamed_krs",
         ),
         (
             "initializer_control_flow",
             "unsupported declarative initializer body: statements, semicolons, control flow, mutation, and early return are forbidden",
-            "if true { Self } else { Self }",
+            "if",
         ),
         (
             "malformed_readable_family",

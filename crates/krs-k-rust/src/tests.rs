@@ -693,7 +693,10 @@ fn prepared_with_structured_injection_for_test(
     let entry = ResolvedSource::new(
         "krs://adapter-test.k",
         r#"
+            requires "domains.md"
+
             module KRS-ADAPTER-TEST
+              imports DOMAINS
               syntax Bool ::= r"true" [token]
               syntax Exp ::= "foo" [symbol(foo)]
               configuration <k> foo </k>
@@ -1344,7 +1347,7 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
     .unwrap();
     let native_token = adapter.production(&token, MODULE, 1).unwrap();
     assert!(
-        matches!(native_token, Sentence::Production { items, attributes, .. }
+        matches!(native_token, Sentence::Production { label: None, items, attributes, .. }
         if matches!(items.as_slice(), [ProductionItem::RegexTerminal { regex, .. }] if regex == "[0-9]+")
             && attributes.get("token").is_some()
             && attributes.get_str("prec") == Some("120"))
@@ -1465,30 +1468,15 @@ fn fixed_configuration_preserves_config_variables_and_cell_properties() {
 }
 
 #[test]
-fn complete_cell_terms_use_the_pinned_frontend_concretization_shape() {
-    fn closed_cell_body<'a>(term: &'a Term, expected_label: &str) -> &'a Term {
+fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
+    fn cell_body<'a>(term: &'a Term, expected_label: &str) -> &'a Term {
         let Term::Apply { label, arguments } = term else {
             panic!("cell term must remain an application")
         };
         assert_eq!(label.name, expected_label);
-        let [
-            Term::Apply {
-                label: left,
-                arguments: left_arguments,
-            },
-            body,
-            Term::Apply {
-                label: right,
-                arguments: right_arguments,
-            },
-        ] = arguments.as_slice()
-        else {
-            panic!("cell term must use the parser-compatible closed shape")
+        let [body] = arguments.as_slice() else {
+            panic!("leaf cell must carry its complete structured body")
         };
-        assert_eq!(left.name, "#noDots");
-        assert!(left_arguments.is_empty());
-        assert_eq!(right.name, "#noDots");
-        assert!(right_arguments.is_empty());
         body
     }
 
@@ -1529,17 +1517,15 @@ fn complete_cell_terms_use_the_pinned_frontend_concretization_shape() {
     let native = adapter
         .term(&term, MODULE, 0, Vec::new(), TermContext::Normal, None)
         .unwrap();
-    let Term::Apply { label, arguments } = closed_cell_body(&native, "<parent>") else {
-        panic!("a multi-child parent must retain the #cells grouping")
+    let Term::Apply { label, arguments } = native else {
+        panic!("a multi-child parent must remain a complete application")
     };
-    assert_eq!(label.name, "#cells");
+    assert_eq!(label.name, "<parent>");
     let [left, right] = arguments.as_slice() else {
         panic!("the parent must retain both ordered children")
     };
-    assert!(matches!(closed_cell_body(left, "<left>"), Term::Token { token, .. } if token == "1"));
-    assert!(
-        matches!(closed_cell_body(right, "<right>"), Term::Token { token, .. } if token == "2")
-    );
+    assert!(matches!(cell_body(left, "<left>"), Term::Token { token, .. } if token == "1"));
+    assert!(matches!(cell_body(right, "<right>"), Term::Token { token, .. } if token == "2"));
 }
 
 #[test]
@@ -1916,7 +1902,7 @@ fn permanent_compile_disambiguates_generated_names_reused_at_different_sorts() {
     let KoreSentence::Axiom { pattern, .. } = sentence else {
         unreachable!()
     };
-    let KorePattern::And { arguments, .. } = *pattern else {
+    let KorePattern::And { arguments, .. } = pattern.as_ref() else {
         unreachable!()
     };
     let names = arguments
