@@ -859,79 +859,6 @@ impl Grammar {
         }
     }
 
-    pub(super) fn lower_glr_alternatives(&self, term: ParsedTerm) -> (Vec<Term>, bool) {
-        match term {
-            ParsedTerm::Term(term) => (vec![term], false),
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => self.lower_glr_production(production, None, children, metadata),
-            ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } => self.lower_glr_production(production, Some(parameters), children, metadata),
-            ParsedTerm::Ambiguity(alternatives) => {
-                let mut lowered = Vec::new();
-                let mut seen = BTreeSet::new();
-                let mut ordinary_would_be_ambiguous = false;
-                for alternative in alternatives {
-                    let (terms, nested_ambiguity) = self.lower_glr_alternatives(alternative);
-                    ordinary_would_be_ambiguous |= nested_ambiguity;
-                    for term in terms {
-                        push_unique_term(&mut lowered, &mut seen, term);
-                    }
-                }
-                debug_assert!(
-                    !lowered.is_empty(),
-                    "an ambiguity has at least one alternative"
-                );
-                ordinary_would_be_ambiguous |= lowered.len() > 1;
-                (lowered, ordinary_would_be_ambiguous)
-            }
-        }
-    }
-
-    fn lower_glr_production(
-        &self,
-        production: usize,
-        parameters: Option<Vec<Sort>>,
-        children: Vec<ParsedTerm>,
-        metadata: crate::kast::TermMetadata,
-    ) -> (Vec<Term>, bool) {
-        let mut combinations = vec![Vec::new()];
-        let mut ordinary_would_be_ambiguous = false;
-        for child in children {
-            let (child_alternatives, child_ambiguity) = self.lower_glr_alternatives(child);
-            ordinary_would_be_ambiguous |= child_ambiguity;
-            let mut expanded =
-                Vec::with_capacity(combinations.len().saturating_mul(child_alternatives.len()));
-            for prefix in combinations {
-                for child in &child_alternatives {
-                    let mut combination = prefix.clone();
-                    combination.push(child.clone());
-                    expanded.push(combination);
-                }
-            }
-            combinations = expanded;
-        }
-
-        let mut lowered = Vec::new();
-        let mut seen = BTreeSet::new();
-        for children in combinations {
-            let term = self.lower_production(
-                production,
-                parameters.as_deref(),
-                children,
-                metadata.clone(),
-            );
-            push_unique_term(&mut lowered, &mut seen, term);
-        }
-        (lowered, ordinary_would_be_ambiguous)
-    }
-
     fn lower_production(
         &self,
         production: usize,
@@ -2110,12 +2037,6 @@ impl Grammar {
     }
 }
 
-fn push_unique_term(output: &mut Vec<Term>, seen: &mut BTreeSet<Term>, term: Term) {
-    if seen.insert(term.clone()) {
-        output.push(term);
-    }
-}
-
 fn parsed_term_span(term: &ParsedTerm) -> Option<TermSpan> {
     match term {
         ParsedTerm::Production { metadata, .. }
@@ -2370,50 +2291,6 @@ mod tests {
 
         assert!(matches!(factored, ParsedTerm::Ambiguity(ref items) if items.len() == 3));
         assert_eq!(render(&grammar, &factored), "amb{A, B, C}");
-    }
-
-    #[test]
-    fn glr_deduplicates_lowered_terms_and_retains_the_first_metadata() {
-        let mut grammar = Grammar::default();
-        let first = add_production(&mut grammar, "Exp", &[], "same");
-        let second = add_production(&mut grammar, "Exp", &[], "same");
-        let first_span = TermSpan {
-            source: SourceId(1),
-            start: 2,
-            end: 3,
-        };
-        let alternatives = ParsedTerm::Ambiguity(BTreeSet::from([
-            ParsedTerm::Production {
-                production: first,
-                children: Vec::new(),
-                metadata: crate::kast::TermMetadata {
-                    span: Some(first_span),
-                    ..Default::default()
-                },
-            },
-            ParsedTerm::Production {
-                production: second,
-                children: Vec::new(),
-                metadata: crate::kast::TermMetadata {
-                    span: Some(TermSpan {
-                        source: SourceId(4),
-                        start: 5,
-                        end: 6,
-                    }),
-                    ..Default::default()
-                },
-            },
-        ]));
-
-        let (lowered, ordinary_would_be_ambiguous) = grammar.lower_glr_alternatives(alternatives);
-
-        assert_eq!(lowered.len(), 1);
-        assert_eq!(lowered[0], Term::apply("same", vec![]));
-        assert_eq!(
-            lowered[0].metadata().and_then(|metadata| metadata.span),
-            Some(first_span)
-        );
-        assert!(!ordinary_would_be_ambiguous);
     }
 
     #[test]

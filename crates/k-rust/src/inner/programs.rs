@@ -117,26 +117,6 @@ impl ProgramParser {
             })
     }
 
-    /// Parse every final alternative after the complete program-disambiguation pipeline.
-    ///
-    /// Alternatives retain parser structural order and are deduplicated by [`Term`] identity.
-    /// A unique parse returns one element. Source spans are omitted in the same way as
-    /// [`Self::parse`].
-    pub fn parse_glr(
-        &self,
-        start_sort: &Sort,
-        source: &str,
-    ) -> Result<Vec<Term>, ProgramParseError> {
-        self.grammar
-            .parse_glr(start_sort, source)
-            .map(|alternatives| alternatives.into_iter().map(without_source_spans).collect())
-            .map_err(|error| ProgramParseError {
-                module: self.module.clone(),
-                start_sort: start_sort.clone(),
-                error: Box::new(error),
-            })
-    }
-
     /// Parse a program whose byte zero belongs to `source_id`.
     pub fn parse_with_provenance(
         &self,
