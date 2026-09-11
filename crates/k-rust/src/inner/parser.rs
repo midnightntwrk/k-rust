@@ -1151,6 +1151,10 @@ impl Grammar {
         self.parse_with_provenance(start, input, SourceId(0), 0)
     }
 
+    pub(crate) fn parse_glr(&self, start: &Sort, input: &str) -> Result<Vec<Term>, ParseError> {
+        self.parse_glr_with_context(start, input, false, SourceId(0), 0)
+    }
+
     /// Parse semantic text whose byte zero begins at `base_offset` in `source`.
     pub fn parse_with_provenance(
         &self,
@@ -1199,6 +1203,47 @@ impl Grammar {
         }
     }
 
+    fn parse_glr_with_context(
+        &self,
+        start: &Sort,
+        input: &str,
+        is_anywhere: bool,
+        source: SourceId,
+        base_offset: usize,
+    ) -> Result<Vec<Term>, ParseError> {
+        let provenance = ParseProvenance {
+            source,
+            base_offset,
+        };
+        let mut pruned = false;
+        let result = self.parse_glr_attempt(
+            start,
+            input,
+            is_anywhere,
+            provenance,
+            PredictionMode::Filtered,
+            &mut pruned,
+        );
+        let retry_unfiltered = pruned
+            && match &result {
+                Ok((_, ordinary_would_be_ambiguous)) => *ordinary_would_be_ambiguous,
+                Err(_) => true,
+            };
+        let result = if retry_unfiltered {
+            self.parse_glr_attempt(
+                start,
+                input,
+                is_anywhere,
+                provenance,
+                PredictionMode::Unfiltered,
+                &mut pruned,
+            )
+        } else {
+            result
+        };
+        result.map(|(alternatives, _)| alternatives)
+    }
+
     fn parse_attempt(
         &self,
         start: &Sort,
@@ -1208,6 +1253,46 @@ impl Grammar {
         prediction_mode: PredictionMode,
         pruned: &mut bool,
     ) -> Result<Term, ParseError> {
+        self.parse_attempt_to_final_ambiguity(
+            start,
+            input,
+            is_anywhere,
+            provenance,
+            prediction_mode,
+            pruned,
+        )
+        .and_then(|term| self.resolve_ambiguities(term))
+    }
+
+    fn parse_glr_attempt(
+        &self,
+        start: &Sort,
+        input: &str,
+        is_anywhere: bool,
+        provenance: ParseProvenance,
+        prediction_mode: PredictionMode,
+        pruned: &mut bool,
+    ) -> Result<(Vec<Term>, bool), ParseError> {
+        self.parse_attempt_to_final_ambiguity(
+            start,
+            input,
+            is_anywhere,
+            provenance,
+            prediction_mode,
+            pruned,
+        )
+        .map(|term| self.lower_glr_alternatives(term))
+    }
+
+    fn parse_attempt_to_final_ambiguity(
+        &self,
+        start: &Sort,
+        input: &str,
+        is_anywhere: bool,
+        provenance: ParseProvenance,
+        prediction_mode: PredictionMode,
+        pruned: &mut bool,
+    ) -> Result<ParsedTerm, ParseError> {
         #[cfg(test)]
         PARSE_ATTEMPTS.set(PARSE_ATTEMPTS.get() + 1);
         let prediction_analysis = (prediction_mode == PredictionMode::Filtered).then(|| {
@@ -1457,7 +1542,7 @@ impl Grammar {
         let listed = self.add_empty_lists(filtered, start)?;
         let cleaned = self.remove_brackets_and_syntactic_casts(listed);
         let cleaned = self.factor_ambiguities(cleaned);
-        self.resolve_ambiguities(cleaned)
+        Ok(cleaned)
     }
 
     /// Drop completed nodes whose top label violates the caller's associativity on the side they
@@ -2953,6 +3038,27 @@ mod chart_tests {
             PARSE_ATTEMPTS.set(0);
             assert_eq!(grammar.parse(&Sort::new("Start"), "x"), baseline);
             assert_eq!(PARSE_ATTEMPTS.get(), 2);
+
+            #[cfg(feature = "z3-inference")]
+            {
+                let mut pruned = false;
+                let baseline = grammar
+                    .parse_glr_attempt(
+                        &Sort::new("Start"),
+                        "x",
+                        false,
+                        ParseProvenance {
+                            source: SourceId(0),
+                            base_offset: 0,
+                        },
+                        PredictionMode::Unfiltered,
+                        &mut pruned,
+                    )
+                    .map(|(alternatives, _)| alternatives);
+                PARSE_ATTEMPTS.set(0);
+                assert_eq!(grammar.parse_glr(&Sort::new("Start"), "x"), baseline);
+                assert_eq!(PARSE_ATTEMPTS.get(), 2);
+            }
         }
 
         #[test]
