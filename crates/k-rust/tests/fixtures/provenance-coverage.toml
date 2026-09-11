@@ -3,6 +3,11 @@
 version = 1
 origin_free_node_kinds = ["primitive-token", "structural-dot", "truth-value"]
 
+[[pipeline_checkpoint]]
+binding = "execution_definition"
+source = "definition"
+reason = "Surface-pattern compilation retains the transformed definition before backend-only sort injection, unit removal, and term-construction minimization."
+
 [[pipeline]]
 call = "expand_configurations_with_diagnostics"
 occurrences = 1
