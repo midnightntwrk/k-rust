@@ -28,6 +28,16 @@ The reference checks are in `kernel/src/main/java/org/kframework/compile/checks/
 [Definition checks](../crates/k-rust/tests/definition_checks.rs) exercise these acceptance boundaries.
 Anywhere rules have the explicit supported-superset contract below.
 
+## Compiler-resolved fresh constants
+
+Within one rule or context, each distinct `!` variable receives one offset from the generated counter and every occurrence of the same full variable name reuses that offset.
+Rust assigns offsets in lexicographic order of the full names and advances the counter by the number of distinct names.
+This deterministic association is the supported source-compiler contract; it must not depend on source paths or emulate the iteration order of Java's `HashSet`.
+
+Freshness, distinctness, and consistent reuse are portable frontend properties.
+Exact terminal values produced during execution are backend-specific because runtime engines own their generated identities and counter state.
+The `fresh-variables` compilation differential checks the frontend transformation, while `krun_executes_fresh_constant_fixture_to_pinned_kore_result` pins Rust's local execution behavior without treating another backend's concrete values as an oracle.
+
 ## Anywhere rules
 
 Rust accepts and executes anywhere rules, including inputs K's Haskell frontend rejects or removes.
