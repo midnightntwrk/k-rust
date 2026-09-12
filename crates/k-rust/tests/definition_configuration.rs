@@ -429,6 +429,86 @@ fn generated_configuration_projections_discard_replaced_source_sort_metadata() {
 }
 
 #[test]
+fn configuration_initializer_casts_are_lexically_scoped() {
+    fn contains_token(term: &Term, expected: &str) -> bool {
+        match term.unannotated() {
+            Term::Token { token, .. } => token == expected,
+            Term::Rewrite { left, right } => {
+                contains_token(left, expected) || contains_token(right, expected)
+            }
+            Term::As { pattern, alias } => {
+                contains_token(pattern, expected) || contains_token(alias, expected)
+            }
+            Term::Apply { arguments, .. } | Term::Sequence(arguments) => arguments
+                .iter()
+                .any(|argument| contains_token(argument, expected)),
+            Term::InjectedLabel(_) | Term::Variable { .. } => false,
+            Term::Annotated { .. } => unreachable!(),
+        }
+    }
+
+    fn projection_for_token(term: &Term, expected: &str) -> Option<String> {
+        match term.unannotated() {
+            Term::Apply { label, arguments }
+                if label.name.starts_with("project:")
+                    && arguments
+                        .iter()
+                        .any(|argument| contains_token(argument, expected)) =>
+            {
+                Some(label.name.clone())
+            }
+            Term::Rewrite { left, right } => projection_for_token(left, expected)
+                .or_else(|| projection_for_token(right, expected)),
+            Term::As { pattern, alias } => projection_for_token(pattern, expected)
+                .or_else(|| projection_for_token(alias, expected)),
+            Term::Apply { arguments, .. } | Term::Sequence(arguments) => arguments
+                .iter()
+                .find_map(|argument| projection_for_token(argument, expected)),
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => None,
+            Term::Annotated { .. } => unreachable!(),
+        }
+    }
+
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int
+          configuration
+            <top>
+              <cast-first> $A:Int ~> #token("$B", "KConfigVar") </cast-first>
+              <uncast-first> #token("$C", "KConfigVar") ~> $D:Int </uncast-first>
+              <nested> ($E:Int ~> #token("$F", "KConfigVar")):K </nested>
+              <k-cast> $G:K ~> #token("$H", "KConfigVar") </k-cast>
+              <separate-cast> $I:Int </separate-cast>
+              <separate-raw> #token("$J", "KConfigVar") </separate-raw>
+              <literal> #token("1", "Int") </literal>
+            </top>
+        endmodule
+    "#};
+    let expanded = expand_configurations(&parsed(source)).unwrap();
+    let rule_bodies = expanded
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for token in ["$B", "$C", "$F", "$H", "$J"] {
+        let projection = rule_bodies
+            .iter()
+            .find_map(|body| projection_for_token(body, token));
+        assert_eq!(projection.as_deref(), Some("project:KItem"), "{token}");
+    }
+    assert!(
+        rule_bodies.iter().any(|body| contains_token(body, "1")),
+        "a non-configuration #token must retain its declared token value"
+    );
+}
+
+#[test]
 fn generates_map_set_and_list_cell_collections() {
     let source = indoc! {r#"
         module MAIN

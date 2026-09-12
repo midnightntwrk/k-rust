@@ -209,6 +209,26 @@ fn configuration_grammar(
     add_config_cells(&mut grammar)?;
     grammar.add_matching_terminal_tokens(Sort::new("#CellName"), is_cell_name)?;
     add_k_syntax(&mut grammar, BuiltinTokenGrammar::Configuration)?;
+    // K's configuration grammar imports the KAST seed, whose #KToken production is the only
+    // source form that can intentionally construct a token without passing its value through
+    // configuration-variable inference first. Keep this parser-only KBott bridge local to the
+    // configuration grammar; lower_term converts the selected #KToken application to Term::Token.
+    add_subsort(&mut grammar, "KBott", Sort::new("KConfigVar"))?;
+    add_subsort(&mut grammar, "KItem", Sort::new("KBott"))?;
+    grammar.add(
+        Sort::new("KBott"),
+        vec![
+            ProductionItem::Terminal("#token".into()),
+            ProductionItem::Terminal("(".into()),
+            nonterminal("KString"),
+            ProductionItem::Terminal(",".into()),
+            nonterminal("KString"),
+            ProductionItem::Terminal(")".into()),
+        ],
+        Some(Label::new("#KToken")),
+        false,
+        false,
+    )?;
 
     // K is implicit in configuration grammar seeds, including KSEQ brackets.
     // Keep concrete seeds so their inferred types match the rest of this grammar.
