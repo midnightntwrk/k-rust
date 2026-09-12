@@ -1322,6 +1322,56 @@ fn loader_parses_parenthesized_cell_deletion_inside_collection_cells() {
     });
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn loader_keeps_unparenthesized_cell_deletion_inside_collection_cell_scope() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration
+            <accounts>
+              <account multiplicity="*" type="Map">
+                <acctID> 0 </acctID>
+              </account>
+            </accounts>
+
+          rule <accounts>
+            <account>
+              <acctID> ACCT </acctID>
+              ...
+            </account>
+            => .Bag
+            ...
+          </accounts>
+        endmodule
+    "#};
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    let loaded = load(
+        ResolvedSource::new("unparenthesized-collection-cell-deletion.k", source),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+    let body = loaded
+        .definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } if body.to_string().starts_with("`<accounts>`") => {
+                Some(body.to_string())
+            }
+            _ => None,
+        })
+        .expect("the source deletion rule must remain inside the accounts cell");
+
+    assert_eq!(
+        body,
+        "`<accounts>`(#noDots(.KList),`<account>`(#noDots(.KList),`<acctID>`(#noDots(.KList),#SemanticCastToInt(ACCT),#noDots(.KList)),#dots(.KList))=>#cells(.KList),#dots(.KList))"
+    );
+}
+
 #[test]
 fn rejects_ensures_on_contexts_and_aliases() {
     for source in [
