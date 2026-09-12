@@ -2187,6 +2187,55 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
     assert_generated_by(&transformed, GeneratingPass::ConstantFolding);
 }
 
+#[test]
+fn folds_integer_parameters_only_through_the_reference_unsigned_bound() {
+    let control =
+        include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/control.k");
+    let folded_right = |source: &str| {
+        let transformed = constant_fold(&resolve_semantic_casts(&parsed(source))).unwrap();
+        transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule { body, .. } => match body.unannotated() {
+                    Term::Rewrite { right, .. } => Some(right.unannotated().clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap()
+    };
+    assert_eq!(
+        folded_right(control),
+        Term::Token {
+            token: "0".into(),
+            sort: Sort::new("Int"),
+        }
+    );
+    assert_eq!(
+        folded_right(&control.replace("0 >>Int 2147483647", "8 >>Int 1")),
+        Term::Token {
+            token: "4".into(),
+            sort: Sort::new("Int"),
+        }
+    );
+
+    let negative =
+        include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/test.k");
+    for value in ["-1", "2147483648", "4294967295", "4294967296"] {
+        let source = negative.replace("2147483648", value);
+        let error = constant_fold(&resolve_semantic_casts(&parsed(&source))).unwrap_err();
+        assert_eq!(error.diagnostics.len(), 1, "bound {value}");
+        assert_eq!(
+            error.diagnostics[0].message,
+            "Argument to hook INT.shr out of range. Expected a 32-bit unsigned integer.",
+            "bound {value}"
+        );
+    }
+}
+
 #[cfg(feature = "mpfr-folding")]
 #[test]
 fn folds_mpfr_float_constants_with_their_declared_contexts() {

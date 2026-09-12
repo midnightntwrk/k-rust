@@ -450,9 +450,12 @@ fn compare_string(values: &[Value], f: impl FnOnce(Ordering) -> bool) -> Result<
 }
 
 fn unsigned_32(value: &BigInt, hook: &str) -> Result<u32, String> {
-    value.to_u32().ok_or_else(|| {
-        format!("Argument to hook {hook} out of range. Expected a 32-bit unsigned integer.")
-    })
+    value
+        .to_u32()
+        .filter(|value| *value <= i32::MAX as u32)
+        .ok_or_else(|| {
+            format!("Argument to hook {hook} out of range. Expected a 32-bit unsigned integer.")
+        })
 }
 fn checked_div(a: BigInt, b: BigInt, euclidean: bool) -> Result<BigInt, String> {
     if b.is_zero() {
