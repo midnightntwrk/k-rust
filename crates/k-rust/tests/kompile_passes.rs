@@ -909,6 +909,79 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
 }
 
 #[test]
+fn stdin_unblocking_rejects_multiple_matches_and_generates_one_for_single_match() {
+    let single = resolve_io(&io_fixture("stdin")).unwrap();
+    let consume_rules = single
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("consume") => Some(body),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(consume_rules.len(), 2);
+    assert_eq!(
+        consume_rules
+            .iter()
+            .filter(|body| Printer::new().print_term(body).contains("#parseInput"))
+            .count(),
+        1
+    );
+
+    let mut multiple = io_fixture("stdin");
+    let consume = multiple
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .iter_mut()
+        .find(|sentence| sentence.attributes().get_str("label") == Some("consume"))
+        .unwrap();
+    let Sentence::Rule {
+        body,
+        attributes: rule_attributes,
+        ..
+    } = consume
+    else {
+        unreachable!()
+    };
+    *body = Term::Sequence(vec![body.clone(), body.clone()]);
+    *rule_attributes = attributes(&[
+        ("label", json!("consume")),
+        ("org.kframework.attributes.Source", json!("wem14.k")),
+        ("org.kframework.attributes.Location", json!([7, 3, 9, 20])),
+    ]);
+
+    let error = resolve_io(&multiple).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1);
+    let diagnostic = &error.diagnostics[0];
+    assert_eq!(diagnostic.severity, k_rust::diagnostic::Severity::Error);
+    assert_eq!(
+        diagnostic.code,
+        k_rust::diagnostic::DiagnosticCode::InvalidIoStream
+    );
+    assert_eq!(
+        diagnostic.message,
+        "A stdin rule may match the stream cell at most once."
+    );
+    assert_eq!(diagnostic.source.as_deref(), Some("wem14.k"));
+    assert_eq!(
+        diagnostic.location,
+        Some(k_rust::definition::Location {
+            start_line: 7,
+            start_column: 3,
+            end_line: 9,
+            end_column: 20,
+        })
+    );
+}
+
+#[test]
 fn rejects_unknown_stream_names() {
     let error = resolve_io(&io_fixture("stderr")).unwrap_err();
 
