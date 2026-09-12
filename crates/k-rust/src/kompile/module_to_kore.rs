@@ -732,6 +732,10 @@ pub fn module_to_kore_from_resolved_with_options(
         .extend(generated_axioms.semantics);
     modules.syntax.sentences.extend(generated_axioms.syntax);
 
+    // Keep ordinary rule injection separate: it resets sentence-local injector state and fixes
+    // the error order. Only successful results from the first owise scan are reusable by later
+    // owise scans over this immutable, already-rebased rule list.
+    let mut owise_injections = Vec::new();
     for rule in &sorted_rules {
         let emitted = emit_rule_or_claim(
             rule,
@@ -741,6 +745,7 @@ pub fn module_to_kore_from_resolved_with_options(
             &injector,
             &converter,
             &sorted_rules,
+            &mut owise_injections,
             default_reachability,
         )?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(rule))?;
@@ -786,6 +791,7 @@ pub fn module_to_kore_from_resolved_with_options(
             &injector,
             &converter,
             &sorted_rules,
+            &mut owise_injections,
             default_reachability,
         )?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(claim))?;
@@ -2185,6 +2191,7 @@ fn emit_rule_or_claim(
     injector: &SortInjector<'_>,
     converter: &TermConverter<'_>,
     sorted_rules: &[Sentence],
+    owise_injections: &mut Vec<Option<Sentence>>,
     default_reachability: Option<ReachabilityMode>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let injected = injector.inject_sentence(sentence)?;
@@ -2232,6 +2239,7 @@ fn emit_rule_or_claim(
             productions,
             injector,
             sorted_rules,
+            owise_injections,
         );
     }
     if is_macro_rule(&injected) {
@@ -2507,6 +2515,7 @@ fn emit_equation(
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
     sorted_rules: &[Sentence],
+    owise_injections: &mut Vec<Option<Sentence>>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let parameters = equation_parameters(attributes);
     let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
@@ -2535,6 +2544,7 @@ fn emit_equation(
             productions,
             injector,
             sorted_rules,
+            owise_injections,
             parameters,
             &avoid_variables,
         );
@@ -2627,6 +2637,7 @@ fn emit_owise_equation(
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
     sorted_rules: &[Sentence],
+    owise_injections: &mut Vec<Option<Sentence>>,
     parameters: Vec<String>,
     avoid_variables: &BTreeSet<String>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
@@ -2645,15 +2656,24 @@ fn emit_owise_equation(
     for name in avoid_variables {
         fresh.reserve(name.clone());
     }
+    if owise_injections.is_empty() {
+        // Initialize lazily so modules without owise equations pay no cache allocation.
+        owise_injections.resize_with(sorted_rules.len(), || None);
+    }
     let mut competitors = Vec::new();
-    for sentence in sorted_rules {
-        let injected = injector.inject_sentence(sentence)?;
+    for (index, sentence) in sorted_rules.iter().enumerate() {
+        if owise_injections[index].is_none() {
+            owise_injections[index] = Some(injector.inject_sentence(sentence)?);
+        }
+        let injected = owise_injections[index]
+            .as_ref()
+            .expect("successful injections are cached");
         let Sentence::Rule {
             body,
             requires: competitor_requires,
             ensures: competitor_ensures,
             ..
-        } = &injected
+        } = injected
         else {
             continue;
         };
