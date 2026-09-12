@@ -1,0 +1,6 @@
+\rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'top'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortTopCell{}, SortKItem{}}(\and{SortTopCell{}}(\or{SortTopCell{}}(Lbl'-LT-'top'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortFoo{}, SortKItem{}}(Lbla'Unds'WEM15-COMPLETE-TOP-BRANCHES'Unds'Foo{}()),dotk{}())),Lbl'-LT-'x'-GT-'{}(\dv{SortInt{}}("0"))),Lbl'-LT-'top'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortFoo{}, SortKItem{}}(Lblb'Unds'WEM15-COMPLETE-TOP-BRANCHES'Unds'Foo{}()),dotk{}())),Lbl'-LT-'x'-GT-'{}(\dv{SortInt{}}("0")))),Var'Unds'Gen0:SortTopCell{})),Var'Unds'DotVar2:SortK{})),Var'Unds'DotVar1:SortXCell{}),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'top'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortTopCell{}, SortKItem{}}(Var'Unds'Gen0:SortTopCell{}),Var'Unds'DotVar2:SortK{})),Var'Unds'DotVar1:SortXCell{}),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))

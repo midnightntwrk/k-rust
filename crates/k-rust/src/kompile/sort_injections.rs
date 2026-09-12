@@ -302,6 +302,29 @@ impl<'a> SortInjector<'a> {
         term: &Term,
         expected: Option<&Sort>,
     ) -> Result<Sort, SortInjectionError> {
+        self.term_sort_with_arity(term, expected, false)
+    }
+
+    /// Infer a sort before cell terms have been normalized to their generated productions.
+    ///
+    /// Java's sort-only inference visits the declared nonterminal prefix and ignores trailing
+    /// syntax children. GuardOrPatterns runs while authored cells still carry their dots and
+    /// aggregate child, so this narrow entry point retains that behavior. Missing declared
+    /// children and every other inference error remain errors.
+    pub(crate) fn term_sort_before_shape_normalization(
+        &self,
+        term: &Term,
+        expected: Option<&Sort>,
+    ) -> Result<Sort, SortInjectionError> {
+        self.term_sort_with_arity(term, expected, true)
+    }
+
+    fn term_sort_with_arity(
+        &self,
+        term: &Term,
+        expected: Option<&Sort>,
+        allow_trailing_arguments: bool,
+    ) -> Result<Sort, SortInjectionError> {
         // A semantic cast on an application records the intended overload/context, not a
         // replacement for the selected production's result sort. In particular, `{P}:K` where
         // `P:KItem` must still materialize the KItem-to-K sequence wrapper.
@@ -313,13 +336,14 @@ impl<'a> SortInjector<'a> {
         match term.unannotated() {
             Term::InjectedLabel(_) => Ok(Sort::new(K_ITEM_SORT)),
             Term::Rewrite { left, right } => {
-                let left = self.term_sort(left, expected)?;
-                let right = self.term_sort(right, expected)?;
+                let left = self.term_sort_with_arity(left, expected, allow_trailing_arguments)?;
+                let right = self.term_sort_with_arity(right, expected, allow_trailing_arguments)?;
                 self.least_upper_bound(&[left, right], expected)
             }
             Term::As { pattern, alias } => {
-                let pattern = self.term_sort(pattern, expected)?;
-                let alias = self.term_sort(alias, expected)?;
+                let pattern =
+                    self.term_sort_with_arity(pattern, expected, allow_trailing_arguments)?;
+                let alias = self.term_sort_with_arity(alias, expected, allow_trailing_arguments)?;
                 self.least_upper_bound(&[pattern, alias], expected)
             }
             Term::Variable { sort, .. } => Ok(sort
@@ -349,7 +373,7 @@ impl<'a> SortInjector<'a> {
                             actual: arguments.len(),
                         });
                     };
-                    return self.term_sort(argument, expected);
+                    return self.term_sort_with_arity(argument, expected, allow_trailing_arguments);
                 }
                 if matches!(
                     label.name.as_str(),
@@ -369,7 +393,9 @@ impl<'a> SortInjector<'a> {
                         | "weakAlwaysFinally"
                 ) && self.has_production(term, label)
                 {
-                    return Ok(self.signature(term, label, arguments, expected)?.result);
+                    return Ok(self
+                        .signature(term, label, arguments, expected, allow_trailing_arguments)?
+                        .result);
                 }
                 match label.name.as_str() {
                     "#Top" | "#Bottom" | "#And" | "#Or" | "#Not" | "#Implies" | "#AG"
@@ -401,18 +427,31 @@ impl<'a> SortInjector<'a> {
                         });
                     }
                     "#fun2" if arguments.len() >= 2 => {
-                        return self.term_sort(&arguments[0], expected);
+                        return self.term_sort_with_arity(
+                            &arguments[0],
+                            expected,
+                            allow_trailing_arguments,
+                        );
                     }
                     "#fun3" if arguments.len() >= 3 => {
-                        return self.term_sort(&arguments[1], expected);
+                        return self.term_sort_with_arity(
+                            &arguments[1],
+                            expected,
+                            allow_trailing_arguments,
+                        );
                     }
                     "#let" if arguments.len() >= 3 => {
-                        return self.term_sort(&arguments[2], expected);
+                        return self.term_sort_with_arity(
+                            &arguments[2],
+                            expected,
+                            allow_trailing_arguments,
+                        );
                     }
                     "_:=K_" | "_:/=K_" => return Ok(Sort::new(BOOL_SORT)),
                     _ => {}
                 }
-                let signature = self.signature(term, label, arguments, expected)?;
+                let signature =
+                    self.signature(term, label, arguments, expected, allow_trailing_arguments)?;
                 Ok(signature.result)
             }
             Term::Annotated { .. } => unreachable!(),
@@ -686,7 +725,7 @@ impl<'a> SortInjector<'a> {
                 }
             }
             Term::Apply { label, arguments } => {
-                let signature = self.signature(term, label, arguments, Some(actual))?;
+                let signature = self.signature(term, label, arguments, Some(actual), false)?;
                 let arguments = arguments
                     .iter()
                     .zip(signature.arguments.iter())
@@ -747,6 +786,7 @@ impl<'a> SortInjector<'a> {
         label: &Label,
         arguments: &[Term],
         expected: Option<&Sort>,
+        allow_trailing_arguments: bool,
     ) -> Result<InstantiatedSignature, SortInjectionError> {
         let expected = term
             .metadata()
@@ -769,7 +809,9 @@ impl<'a> SortInjector<'a> {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        if argument_sorts.len() != arguments.len() {
+        if argument_sorts.len() != arguments.len()
+            && (!allow_trailing_arguments || arguments.len() < argument_sorts.len())
+        {
             if label.name.strip_prefix("is").is_some_and(|sort| {
                 self.sorts
                     .defined_heads()
@@ -812,7 +854,11 @@ impl<'a> SortInjector<'a> {
                     .iter()
                     .map(|sort| substitute_sort(sort, &fresh_substitution)),
             ) {
-                let actual = self.term_sort(argument, Some(&fresh_expected))?;
+                let actual = self.term_sort_with_arity(
+                    argument,
+                    Some(&fresh_expected),
+                    allow_trailing_arguments,
+                )?;
                 self.match_sort(parameters, declared, &actual, &mut matches);
             }
             let result_only_parameter = parameters.iter().any(|parameter| {

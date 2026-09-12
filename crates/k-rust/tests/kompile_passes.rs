@@ -9,7 +9,7 @@ use k_rust::{
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::{
         ast::{Pattern as KorePattern, Sentence as KoreSentence},
-        parser::parse_definition,
+        parser::{parse_definition, parse_pattern},
     },
     outer::{LoadOptions, load_with_options},
 };
@@ -2609,6 +2609,185 @@ fn guards_or_patterns_with_collision_free_typed_aliases() {
         insta::assert_debug_snapshot!(output);
     });
     assert_generated_by(&transformed, GeneratingPass::GuardOrPatterns);
+}
+
+#[test]
+fn guard_or_patterns_preserves_resolved_production_for_top_cell_alias_sort() {
+    let binary_production = |sort: &str| Sentence::Production {
+        label: Some(Label::new("#Or")),
+        parameters: Vec::new(),
+        sort: Sort::new(sort),
+        items: vec![
+            ProductionItem::NonTerminal {
+                sort: Sort::new(sort),
+                name: None,
+            },
+            ProductionItem::NonTerminal {
+                sort: Sort::new(sort),
+                name: None,
+            },
+        ],
+        attributes: Attributes::default(),
+    };
+    let mut definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                production("top-a", "TopCell", Attributes::default()),
+                production("top-b", "TopCell", Attributes::default()),
+                binary_production("TopCell"),
+                binary_production("K"),
+                rule(
+                    application(
+                        "#Or",
+                        vec![
+                            application("top-a", Vec::new()),
+                            application("top-b", Vec::new()),
+                        ],
+                    ),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let top_cell_or = {
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        catalog
+            .productions_for(&LabelHead::from(&Label::new("#Or")))
+            .iter()
+            .copied()
+            .find(|production| {
+                matches!(
+                    catalog.production(*production),
+                    Sentence::Production { sort, .. } if sort == &Sort::new("TopCell")
+                )
+            })
+            .unwrap()
+    };
+    let metadata = TermMetadata {
+        span: Some(TermSpan {
+            source: SourceId(0),
+            start: 10,
+            end: 30,
+        }),
+        production: Some(ResolvedProductionId(top_cell_or.0)),
+        ..TermMetadata::default()
+    };
+    let Sentence::Rule { body, .. } = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .last_mut()
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
+    *body = taken.with_metadata(metadata.clone());
+
+    let transformed = guard_or_patterns(&definition).unwrap();
+    let Sentence::Rule { body, .. } = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .last()
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let Term::As { pattern, alias } = body.unannotated() else {
+        panic!("#Or should be guarded by an alias: {body:?}");
+    };
+
+    assert!(matches!(
+        pattern.unannotated(),
+        Term::Apply { label, .. } if label.name == "#Or"
+    ));
+    let pattern_metadata = pattern
+        .metadata()
+        .expect("guarded #Or should retain semantic metadata");
+    assert_eq!(pattern_metadata.span, metadata.span);
+    assert_eq!(pattern_metadata.production, metadata.production);
+    assert!(matches!(
+        alias.unannotated(),
+        Term::Variable {
+            name,
+            sort: Some(sort),
+        } if name == "_Gen0" && sort == &Sort::new("TopCell")
+    ));
+}
+
+#[test]
+fn guard_or_patterns_propagates_sort_inference_errors() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::Production {
+                    label: Some(Label::new("#Or")),
+                    parameters: Vec::new(),
+                    sort: Sort::new("Exp"),
+                    items: vec![
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Exp"),
+                            name: None,
+                        },
+                        ProductionItem::NonTerminal {
+                            sort: Sort::new("Exp"),
+                            name: None,
+                        },
+                    ],
+                    attributes: Attributes::default(),
+                },
+                production("a", "Exp", Attributes::default()),
+                rule(
+                    application("#Or", vec![application("a", Vec::new())]),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    assert_eq!(
+        guard_or_patterns(&definition).unwrap_err(),
+        "KLabel \"#Or\" expects 2 arguments but received 1"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn complete_top_cell_or_compiles_with_a_top_cell_guard_alias() {
+    let source = include_str!("fixtures/reference/guard-or/complete-top-branches.k");
+    let artifacts = compile_fixture(
+        "complete-top-branches.k",
+        source,
+        "WEM15-COMPLETE-TOP-BRANCHES",
+    );
+    let emitted =
+        parse_definition(&artifacts.definition_kore).expect("emitted definition should parse");
+    let reference = parse_pattern(include_str!(
+        "fixtures/reference/guard-or/reference-complete-top-branches-rule.kore"
+    ))
+    .expect("pinned K authored rule should parse");
+    assert!(
+        emitted.modules.iter().any(|module| {
+            module.name == "WEM15-COMPLETE-TOP-BRANCHES"
+                && module.sentences.iter().any(|sentence| {
+                    matches!(
+                        sentence,
+                        KoreSentence::Axiom { pattern, .. } if pattern.as_ref() == &reference
+                    )
+                })
+        }),
+        "emitted definition should contain the pinned semantic authored rule"
+    );
 }
 
 #[test]
