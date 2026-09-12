@@ -21,7 +21,8 @@ use std::sync::OnceLock;
 use crate::definition::{
     AssociativityRelations, Attributes, PartialOrder, ProductionCatalog, ProductionId,
     ProductionItem, Regex as KRegex, RegexBody, Sentence, compute_associativities,
-    compute_overloads, compute_priorities, compute_subsorts, parse_regex, sentence_equivalent,
+    compute_disambiguation_subsorts, compute_overloads, compute_priorities, compute_subsorts,
+    parse_regex, sentence_equivalent,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
 use crate::provenance::SourceId;
@@ -1023,8 +1024,11 @@ impl Grammar {
         let priorities = compute_priorities(sentences.iter().copied())
             .map_err(|cycle| ParseError::CircularPriorities { path: cycle.path })?;
         let associativities = compute_associativities(sentences.iter().copied());
-        let semantic_subsorts = compute_subsorts(sentences.iter().copied(), false)
-            .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
+        let semantic_subsorts = match role {
+            ParserRole::Program => compute_subsorts(sentences.iter().copied(), false),
+            ParserRole::Rule => compute_disambiguation_subsorts(&sentences),
+        }
+        .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         let overloads = compute_overloads(sentences.iter().copied(), &semantic_subsorts)
             .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?;
         let external = source_links.is_some();

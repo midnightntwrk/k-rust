@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use k_rust::definition::{
     Attributes, Definition, FlatModule, PartialOrder, ProductionId, ProductionItem,
-    ResolvedDefinition, Sentence, compute_overloads, compute_subsorts,
+    ResolvedDefinition, Sentence, compute_disambiguation_subsorts, compute_overloads,
+    compute_subsorts,
 };
 use k_rust::kast::{Label, Sort};
 use serde_json::Value;
@@ -78,6 +79,26 @@ fn distinguishes_semantic_and_syntactic_subsorts() {
     let syntactic = compute_subsorts(sentences, true).unwrap();
     assert!(syntactic.less_than(&Sort::new("Int"), &Sort::new("Value")));
     assert!(!syntactic.contains(&Sort::new("Box")));
+}
+
+#[test]
+fn rule_disambiguation_adds_only_the_user_list_element_subsort() {
+    let recursive = production(
+        Some("foos"),
+        "Foos",
+        &["Foo", "Foos"],
+        attrs(&[("userList", "*")]),
+    );
+    let terminator = production(Some(".Foos"), "Foos", &[], attrs(&[("userList", "*")]));
+    let unrelated = production(Some("box"), "Box", &["Item"], Attributes::default());
+    let sentences = [&recursive, &terminator, &unrelated];
+
+    let semantic = compute_subsorts(sentences, false).unwrap();
+    assert!(!semantic.less_than(&Sort::new("Foo"), &Sort::new("Foos")));
+
+    let disambiguation = compute_disambiguation_subsorts(&sentences).unwrap();
+    assert!(disambiguation.less_than(&Sort::new("Foo"), &Sort::new("Foos")));
+    assert!(!disambiguation.less_than(&Sort::new("Item"), &Sort::new("Box")));
 }
 
 #[test]

@@ -50,7 +50,7 @@ pub use regex::{
 };
 pub use relations::{
     AssociativityRelations, Error as RelationError, OverloadOrder, compute_associativities,
-    compute_overloads, compute_priorities, compute_subsorts,
+    compute_disambiguation_subsorts, compute_overloads, compute_priorities, compute_subsorts,
 };
 pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition, ResolvedModule};
 pub use rule_catalog::{ClaimId, ContextId, RuleCatalog, RuleId, match_rule_label};

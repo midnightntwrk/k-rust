@@ -490,6 +490,63 @@ fn rule_conditions_can_select_an_overloaded_rewrite_super_sort() {
 
 #[cfg(feature = "z3-inference")]
 #[test]
+fn user_list_singletons_participate_in_rule_overload_selection() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= "foo" [symbol(foo)]
+                       | "bar" [symbol(bar)]
+          syntax Foos ::= List{Foo, ","} [symbol(foos)]
+          syntax Bool ::= "test" "(" Foo ")" [function, overload(test), symbol(testFoo)]
+                        | "test" "(" Foos ")" [function, overload(test), symbol(testFoos)]
+
+          rule test(foo) => test(foo)
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source))
+        .expect("the synthetic Foo < Foos rule-grammar subsort should select the Foo overload");
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .expect("the parsed definition should retain the rule");
+
+    assert!(body.contains("testFoo"), "{body}");
+    assert!(!body.contains("testFoos"), "{body}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn user_list_singletons_remain_ambiguous_without_an_overload_group() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= "foo" [symbol(foo)]
+          syntax Foos ::= List{Foo, ","} [symbol(foos)]
+          syntax Bool ::= "test" "(" Foo ")" [function, symbol(testFoo)]
+                        | "test" "(" Foos ")" [function, symbol(testFoos)]
+
+          rule test(foo) => test(foo)
+        endmodule
+    "#};
+    let error = resolve_rule_bubbles(&lowered(source))
+        .expect_err("the synthetic list subsort alone must not select a production");
+
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error)
+                if matches!(error.error, ParseError::Ambiguous { parses: 2, .. })
+        ),
+        "{error:?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
 fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
     let source = indoc! {r#"
         module MAIN

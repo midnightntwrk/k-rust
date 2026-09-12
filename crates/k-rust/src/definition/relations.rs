@@ -97,6 +97,50 @@ pub fn compute_subsorts<'a>(
     PartialOrder::new(relations)
 }
 
+/// Compute the semantic subsort relation used by K's rule disambiguation grammar.
+///
+/// The rule grammar temporarily adds `ListSort ::= ElementSort` for every lowered
+/// user list. Those edges participate in sort inference and overload selection,
+/// but they do not change the definition's ordinary semantic subsort lattice.
+pub fn compute_disambiguation_subsorts(
+    sentences: &[&Sentence],
+) -> Result<PartialOrder<Sort>, Cycle<Sort>> {
+    let mut relations = compute_subsorts(sentences.iter().copied(), false)?
+        .direct_relations()
+        .clone();
+    for sentence in sentences {
+        let Sentence::Production {
+            parameters,
+            sort,
+            items,
+            attributes,
+            ..
+        } = sentence
+        else {
+            continue;
+        };
+        if !parameters.is_empty() || attributes.get("userList").is_none() {
+            continue;
+        }
+        let nonterminals = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let child = match nonterminals.as_slice() {
+            [list, child] if *list == sort && *child != sort => Some(*child),
+            [child, list] if *list == sort && *child != sort => Some(*child),
+            _ => None,
+        };
+        if let Some(child) = child {
+            relations.insert((child.clone(), sort.clone()));
+        }
+    }
+    PartialOrder::new(relations)
+}
+
 /// Compute Scala's priority order from adjacent syntax-priority blocks.
 ///
 /// For `A B > C > D E`, the direct relations are `A/C`, `B/C`, `C/D`,
