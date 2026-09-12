@@ -3250,6 +3250,71 @@ fn wraps_cell_free_rules_and_contexts_in_the_main_computation_cell() {
 }
 
 #[test]
+fn wraps_only_the_generated_counter_two_item_claim() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)] | "b" [symbol(b)]
+          configuration <k> a </k> <state> a </state>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let item = rewrite(application("a", Vec::new()), application("b", Vec::new()));
+    let counter_body = application(
+        "#cells",
+        vec![
+            item.clone(),
+            incomplete_cell("<generatedCounter>", Term::variable("GC")),
+        ],
+    );
+    let state_body = application(
+        "#cells",
+        vec![
+            item.clone(),
+            incomplete_cell("<state>", Term::variable("STATE")),
+        ],
+    );
+    let mut definition = parsed(source);
+    definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .extend([
+            Sentence::Claim {
+                body: counter_body,
+                requires: truth(),
+                ensures: truth(),
+                attributes: attributes(&[("label", json!("counter-sentinel"))]),
+            },
+            Sentence::Claim {
+                body: state_body.clone(),
+                requires: truth(),
+                ensures: truth(),
+                attributes: attributes(&[("label", json!("ordinary-second-cell"))]),
+            },
+        ]);
+
+    let transformed = add_implicit_computation_cell(&definition).unwrap();
+    let claims = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Claim {
+                body, attributes, ..
+            } => attributes.get_str("label").map(|label| (label, body)),
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    assert_eq!(claims["counter-sentinel"], &incomplete_cell("<k>", item));
+    assert_eq!(claims["ordinary-second-cell"], &state_body);
+}
+
+#[test]
 fn imported_syntax_rules_use_the_main_modules_computation_cell() {
     let source = indoc! {r#"
         module LANGUAGE-SYNTAX
