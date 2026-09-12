@@ -243,6 +243,40 @@ fn semantic_casts_instantiate_parametric_production_results() {
 }
 
 #[test]
+fn parametric_head_matches_declared_subsort_of_actual() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax MInt{8}
+          syntax Value ::= MInt{8}
+          syntax Result
+          syntax {W} Result ::= "use(" MInt{W} ")" [symbol(use)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let term = Term::apply(
+        "use",
+        vec![Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new("Value")),
+        }],
+    );
+
+    let injected = injector.inject(&term, &Sort::new("Result")).unwrap();
+    let Term::Apply { label, arguments } = injected.unannotated() else {
+        panic!("expected the parametric use application");
+    };
+
+    assert_eq!(label.parameters, vec![Sort::new("8")]);
+    assert!(matches!(
+        arguments.as_slice(),
+        [Term::Apply { label, .. }]
+            if label.name == "inj"
+                && label.parameters == vec![Sort::new("Value"), Sort::with_parameters("MInt", vec![Sort::new("8")])]
+    ));
+}
+
+#[test]
 fn semantic_casts_project_heterogeneous_collection_results() {
     let mut definition = lowered(indoc! {r#"
         module MAIN

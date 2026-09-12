@@ -813,7 +813,7 @@ impl<'a> SortInjector<'a> {
                     .map(|sort| substitute_sort(sort, &fresh_substitution)),
             ) {
                 let actual = self.term_sort(argument, Some(&fresh_expected))?;
-                match_sort(parameters, declared, &actual, &mut matches);
+                self.match_sort(parameters, declared, &actual, &mut matches);
             }
             let result_only_parameter = parameters.iter().any(|parameter| {
                 contains_sort(sort, parameter)
@@ -822,7 +822,7 @@ impl<'a> SortInjector<'a> {
                         .any(|argument| contains_sort(argument, parameter))
             });
             if result_only_parameter {
-                match_sort(parameters, sort, &expected, &mut matches);
+                self.match_sort(parameters, sort, &expected, &mut matches);
             }
             parameters
                 .iter()
@@ -875,6 +875,43 @@ impl<'a> SortInjector<'a> {
             &concrete,
             (fallback.name != SORT_PARAMETER).then_some(fallback),
         )
+    }
+
+    fn match_sort(
+        &self,
+        formal_parameters: &[Sort],
+        declared: &Sort,
+        actual: &Sort,
+        matches: &mut BTreeMap<Sort, Vec<Sort>>,
+    ) {
+        if formal_parameters.contains(declared) {
+            matches
+                .entry(declared.clone())
+                .or_default()
+                .push(actual.clone());
+            return;
+        }
+
+        self.match_sort_parameters(formal_parameters, declared, actual, matches);
+        for candidate in self.sorts.sorted_all_sorts() {
+            if candidate != actual && self.subsorts.less_than_eq(candidate, actual) {
+                self.match_sort_parameters(formal_parameters, declared, candidate, matches);
+            }
+        }
+    }
+
+    fn match_sort_parameters(
+        &self,
+        formal_parameters: &[Sort],
+        declared: &Sort,
+        actual: &Sort,
+        matches: &mut BTreeMap<Sort, Vec<Sort>>,
+    ) {
+        if declared.name == actual.name && declared.parameters.len() == actual.parameters.len() {
+            for (declared, actual) in declared.parameters.iter().zip(&actual.parameters) {
+                self.match_sort(formal_parameters, declared, actual, matches);
+            }
+        }
     }
 
     fn production(&self, term: &Term, label: &Label) -> Result<&'a Sentence, SortInjectionError> {
@@ -1205,26 +1242,6 @@ fn contains_sort(sort: &Sort, needle: &Sort) -> bool {
             .parameters
             .iter()
             .any(|parameter| contains_sort(parameter, needle))
-}
-
-fn match_sort(
-    formal_parameters: &[Sort],
-    declared: &Sort,
-    actual: &Sort,
-    matches: &mut BTreeMap<Sort, Vec<Sort>>,
-) {
-    if formal_parameters.contains(declared) {
-        matches
-            .entry(declared.clone())
-            .or_default()
-            .push(actual.clone());
-        return;
-    }
-    if declared.name == actual.name && declared.parameters.len() == actual.parameters.len() {
-        for (declared, actual) in declared.parameters.iter().zip(&actual.parameters) {
-            match_sort(formal_parameters, declared, actual, matches);
-        }
-    }
 }
 
 fn has_rewrite(term: &Term) -> bool {
