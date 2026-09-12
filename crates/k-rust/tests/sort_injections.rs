@@ -6,7 +6,7 @@ use k_rust::definition::{
 use k_rust::inner::resolve_rule_bubbles;
 use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
 use k_rust::kompile::{
-    SortInjector, add_sort_injections_to_definition, generate_sort_projections,
+    SortInjectionError, SortInjector, add_sort_injections_to_definition, generate_sort_projections,
     term_to_kore_from_resolved,
 };
 use k_rust::kore::printer::Printer;
@@ -273,6 +273,242 @@ fn parametric_head_matches_declared_subsort_of_actual() {
         [Term::Apply { label, .. }]
             if label.name == "inj"
                 && label.parameters == vec![Sort::new("Value"), Sort::with_parameters("MInt", vec![Sort::new("8")])]
+    ));
+}
+
+fn wem10_bound_definition(source: &str) -> ResolvedDefinition {
+    ResolvedDefinition::resolve(&lowered(source)).unwrap()
+}
+
+fn wem10_bound_injector() -> ResolvedDefinition {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax MInt{8}
+          syntax KItem ::= MInt{8}
+          syntax K
+          syntax K ::= KItem
+          syntax KBott
+          syntax KItem ::= KBott
+          syntax KList
+          syntax KList ::= K
+        endmodule
+    "#});
+    ResolvedDefinition::resolve(&definition).unwrap()
+}
+
+fn rewrite_tokens(left: Sort, right: Sort) -> Term {
+    Term::Rewrite {
+        left: Box::new(Term::Token {
+            token: "left".into(),
+            sort: left,
+        }),
+        right: Box::new(Term::Token {
+            token: "right".into(),
+            sort: right,
+        }),
+    }
+}
+
+#[test]
+fn wem10_bound_resolves_unfixed_parametric_entry_through_declared_instantiations() {
+    let definition = wem10_bound_injector();
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let unresolved = Sort::with_parameters(
+        "MInt",
+        vec![Sort::with_parameters("#SortParam", vec![Sort::new("Q")])],
+    );
+    let rewrite = rewrite_tokens(unresolved.clone(), unresolved);
+
+    assert_eq!(
+        injector.term_sort(&rewrite, None).unwrap(),
+        Sort::with_parameters("MInt", vec![Sort::new("8")])
+    );
+}
+
+#[test]
+fn wem10_bound_filters_concrete_seed_bounds_through_declared_instantiations() {
+    let definition = wem10_bound_definition(indoc! {r#"
+        module MAIN
+          syntax Int
+          syntax Bool
+          syntax Box{Int}
+          syntax Box{Bool}
+          syntax Seed
+          syntax Good ::= Seed
+          syntax Good ::= Box{Int}
+          syntax Decoy ::= Seed
+          syntax K ::= Good
+          syntax K ::= Decoy
+        endmodule
+    "#});
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let unresolved = Sort::with_parameters(
+        "Box",
+        vec![Sort::with_parameters("#SortParam", vec![Sort::new("Q")])],
+    );
+    let rewrite = rewrite_tokens(unresolved, Sort::new("Seed"));
+
+    assert_eq!(
+        injector.term_sort(&rewrite, None).unwrap(),
+        Sort::new("Good")
+    );
+}
+
+#[test]
+fn wem10_bound_excludes_kbott_and_lower_parser_sorts() {
+    let definition = wem10_bound_injector();
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("KBott"), Sort::new("KBott"));
+
+    assert_eq!(
+        injector.term_sort(&rewrite, None).unwrap(),
+        Sort::new("KItem")
+    );
+}
+
+#[test]
+fn wem10_bound_excludes_a_strict_lower_parser_sort() {
+    let definition = wem10_bound_definition(indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+          syntax ParserLow ::= A
+          syntax ParserLow ::= B
+          syntax KBott ::= ParserLow
+          syntax KItem ::= KBott
+          syntax K ::= KItem
+        endmodule
+    "#});
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("A"), Sort::new("B"));
+
+    assert_eq!(
+        injector.term_sort(&rewrite, None).unwrap(),
+        Sort::new("KItem")
+    );
+}
+
+#[test]
+fn wem10_bound_rejects_sorts_above_k() {
+    let definition = wem10_bound_injector();
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("KList"), Sort::new("KList"));
+
+    assert!(matches!(
+        injector.term_sort(&rewrite, None),
+        Err(SortInjectionError::IncompatibleSorts { .. })
+    ));
+}
+
+#[test]
+fn wem10_bound_rejects_a_distinct_common_bound_above_k() {
+    let definition = wem10_bound_definition(indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+          syntax K
+          syntax Above ::= A
+          syntax Above ::= B
+          syntax Above ::= K
+        endmodule
+    "#});
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("A"), Sort::new("B"));
+
+    assert!(matches!(
+        injector.term_sort(&rewrite, None),
+        Err(SortInjectionError::IncompatibleSorts { .. })
+    ));
+}
+
+#[test]
+fn wem10_bound_retains_a_relation_free_singleton() {
+    let definition = wem10_bound_definition(indoc! {r#"
+        module MAIN
+          syntax A
+        endmodule
+    "#});
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("A"), Sort::new("A"));
+
+    assert_eq!(injector.term_sort(&rewrite, None).unwrap(), Sort::new("A"));
+}
+
+#[test]
+fn wem10_bound_retains_a_unique_semantic_bound() {
+    let definition = wem10_bound_definition(indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+          syntax C ::= A
+          syntax C ::= B
+        endmodule
+    "#});
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("A"), Sort::new("B"));
+
+    assert_eq!(injector.term_sort(&rewrite, None).unwrap(), Sort::new("C"));
+}
+
+#[test]
+fn wem10_bound_rejects_ambiguous_minima() {
+    let definition = wem10_bound_definition(indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+          syntax C ::= A
+          syntax C ::= B
+          syntax D ::= A
+          syntax D ::= B
+        endmodule
+    "#});
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("A"), Sort::new("B"));
+
+    assert!(matches!(
+        injector.term_sort(&rewrite, None),
+        Err(SortInjectionError::IncompatibleSorts { .. })
+    ));
+}
+
+#[test]
+fn wem10_bound_rejects_absent_common_bound() {
+    let definition = wem10_bound_definition(indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+        endmodule
+    "#});
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("A"), Sort::new("B"));
+
+    assert!(matches!(
+        injector.term_sort(&rewrite, None),
+        Err(SortInjectionError::IncompatibleSorts { .. })
+    ));
+}
+
+#[test]
+fn wem10_bound_preserves_the_expected_sort_ceiling() {
+    let definition = wem10_bound_definition(indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+          syntax C ::= A
+          syntax C ::= B
+          syntax D ::= C
+        endmodule
+    "#});
+    let injector = SortInjector::new(&definition, "MAIN").unwrap();
+    let rewrite = rewrite_tokens(Sort::new("A"), Sort::new("B"));
+
+    assert_eq!(
+        injector.term_sort(&rewrite, Some(&Sort::new("D"))).unwrap(),
+        Sort::new("C")
+    );
+    assert!(matches!(
+        injector.term_sort(&rewrite, Some(&Sort::new("A"))),
+        Err(SortInjectionError::IncompatibleSorts { .. })
     ));
 }
 

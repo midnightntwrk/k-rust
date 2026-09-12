@@ -983,12 +983,12 @@ impl<'a> SortInjector<'a> {
         sorts: &[Sort],
         expected: Option<&Sort>,
     ) -> Result<Sort, SortInjectionError> {
-        let mut unique = sorts
+        let mut entries = sorts
             .iter()
             .filter(|sort| sort.name != SORT_PARAMETER)
             .cloned()
             .collect::<Vec<_>>();
-        if unique.is_empty() {
+        if entries.is_empty() {
             return sorts
                 .first()
                 .cloned()
@@ -998,24 +998,57 @@ impl<'a> SortInjector<'a> {
                     expected: expected.cloned(),
                 });
         }
-        unique.sort();
-        unique.dedup();
-        if let [sort] = unique.as_slice() {
-            return Ok(sort.clone());
+        entries.sort();
+        entries.dedup();
+
+        let non_parametric = entries
+            .iter()
+            .filter(|sort| {
+                sort.parameters.is_empty()
+                    || sort
+                        .parameters
+                        .iter()
+                        .all(|parameter| self.sorts.all_sorts().contains(parameter))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut bounds = self.subsorts.upper_bounds(&non_parametric);
+        if let [sort] = non_parametric.as_slice() {
+            // A relation-free sort is absent from PartialOrder's element set, while Java's
+            // upperBounds includes every supplied element itself.
+            bounds.insert(sort.clone());
         }
-        let mut bounds = self.subsorts.upper_bounds(&unique);
+        let k_bottom = Sort::new("KBott");
+        let k = Sort::new(K_SORT);
+        bounds.retain(|bound| {
+            !self.subsorts.less_than_eq(bound, &k_bottom) && !self.subsorts.greater_than(bound, &k)
+        });
         if let Some(expected) = expected
             && expected.name != SORT_PARAMETER
             && expected.parameters.is_empty()
         {
             bounds.retain(|bound| self.subsorts.less_than_eq(bound, expected));
         }
+        let parametric = entries
+            .iter()
+            .filter(|sort| !sort.parameters.is_empty())
+            .collect::<Vec<_>>();
+        bounds.retain(|bound| {
+            parametric.iter().all(|sort| {
+                self.sorts
+                    .instantiations()
+                    .get(&SortHead::from(*sort))
+                    .into_iter()
+                    .flatten()
+                    .any(|instance| self.subsorts.less_than_eq(instance, bound))
+            })
+        });
         let minima = self.subsorts.minimal(&bounds);
         if minima.len() == 1 {
             Ok(minima.into_iter().next().expect("one minimum"))
         } else {
             Err(SortInjectionError::IncompatibleSorts {
-                sorts: unique,
+                sorts: entries,
                 expected: expected.cloned(),
             })
         }
