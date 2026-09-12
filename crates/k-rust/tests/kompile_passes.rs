@@ -32,6 +32,7 @@ use k_rust::{
         resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
         resolve_semantic_casts, resolve_semantic_casts_in_sentence,
         resolve_semantic_casts_with_predicates_in_sentence, resolve_strict, subsort_kitem,
+        term_to_kore,
     },
     outer::{ResolvedSource, load},
     provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
@@ -2355,9 +2356,9 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
             "#
         )
     };
-    let folded_right = |value: &str| {
+    let folded = |value: &str| {
         let transformed = constant_fold(&resolve_semantic_casts(&parsed(&source(value)))).unwrap();
-        transformed
+        let right = transformed
             .main_module()
             .unwrap()
             .local_sentences
@@ -2369,26 +2370,26 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
                 },
                 _ => None,
             })
-            .unwrap()
+            .unwrap();
+        (transformed, right)
     };
     for (codepoint, token, scalar) in [
         ("55295", r#""\ud7ff""#, "\u{d7ff}"),
         ("57344", r#""\ue000""#, "\u{e000}"),
         ("1114111", r#""\U0010ffff""#, "\u{10ffff}"),
     ] {
+        let (transformed, right) = folded(codepoint);
         assert_eq!(
-            folded_right(codepoint),
+            right,
             Term::Token {
                 token: token.into(),
                 sort: Sort::new("String"),
             }
         );
-        let kore = format!(
-            r#"\dv{{SortString{{}}}}({})"#,
-            k_rust::kore::string::quote(scalar)
-        );
+        let kore = term_to_kore(&transformed, "MAIN", &right).unwrap();
+        let reparsed = k_rust::kore::parser::parse_pattern(&kore.to_string()).unwrap();
         assert!(matches!(
-            k_rust::kore::parser::parse_pattern(&kore).unwrap(),
+            reparsed,
             k_rust::kore::ast::Pattern::DomainValue { ref value, .. } if value == scalar
         ));
     }
