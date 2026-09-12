@@ -12,7 +12,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use rug::{
     Float, Integer,
-    float::{Round, Special},
+    float::{self, Round, Special},
     ops::Pow,
 };
 
@@ -27,6 +27,8 @@ pub(super) struct KFloat {
 impl KFloat {
     pub(super) fn parse(token: &str) -> Result<Self, String> {
         let (text, precision, exponent_bits) = parse_parts(token)?;
+        validate_context(precision, exponent_bits)
+            .map_err(|_| format!("invalid Float token {token:?}"))?;
         match text {
             "Infinity" => Ok(Self::special(precision, exponent_bits, Special::Infinity)),
             "-Infinity" => Ok(Self::special(
@@ -389,26 +391,37 @@ fn context(precision: &Value, exponent: &Value) -> Result<(u32, u32), String> {
     let exponent = int_value(exponent)?
         .to_u32()
         .ok_or_else(|| "Float exponent bits are outside the supported range".to_owned())?;
+    validate_context(precision, exponent)
+}
+
+fn validate_context(precision: u32, exponent: u32) -> Result<(u32, u32), String> {
+    if precision > i32::MAX as u32 || precision > float::prec_max() {
+        return Err("Float precision is outside the supported range".into());
+    }
+    if exponent > i32::MAX as u32 {
+        return Err("Float exponent bits are outside the supported range".into());
+    }
     if precision < 2 || exponent < 2 {
         return Err("Float precision and exponent bits must both be at least 2.".into());
     }
+    context_exponent_limits(precision, exponent)?;
     Ok((precision, exponent))
 }
 
 fn exponent_limits(bits: u32) -> Result<(i32, i32), String> {
     let maximum = 1i32
         .checked_shl(bits.saturating_sub(1))
+        .filter(|maximum| *maximum > 0)
         .ok_or_else(|| "Float exponent bits are too large".to_owned())?;
-    Ok((1 - maximum, maximum))
+    let minimum = 1i32
+        .checked_sub(maximum)
+        .ok_or_else(|| "Float exponent bits are too large".to_owned())?;
+    Ok((minimum, maximum))
 }
 
-fn limit_exponent(
-    value: &mut Float,
-    exponent_bits: u32,
-    direction: Ordering,
-) -> Result<(), String> {
+fn context_exponent_limits(precision: u32, exponent_bits: u32) -> Result<(i32, i32, i32), String> {
     let (minimum, maximum) = exponent_limits(exponent_bits)?;
-    let precision = i32::try_from(value.prec())
+    let precision = i32::try_from(precision)
         .map_err(|_| "Float precision is outside the supported range".to_owned())?;
     let normal_minimum = minimum
         .checked_add(2)
@@ -416,6 +429,21 @@ fn limit_exponent(
     let subnormal_minimum = normal_minimum
         .checked_sub(precision - 1)
         .ok_or_else(|| "Float exponent range is outside the supported range".to_owned())?;
+    // K's BigFloat validates contexts against MPFR's active default range, not its wider platform limit.
+    let (allowed_minimum, allowed_maximum) = (float::exp_min(), float::exp_max());
+    if subnormal_minimum < allowed_minimum || maximum > allowed_maximum {
+        return Err("Float exponent range is outside MPFR's supported range".into());
+    }
+    Ok((normal_minimum, subnormal_minimum, maximum))
+}
+
+fn limit_exponent(
+    value: &mut Float,
+    exponent_bits: u32,
+    direction: Ordering,
+) -> Result<(), String> {
+    let (normal_minimum, subnormal_minimum, maximum) =
+        context_exponent_limits(value.prec(), exponent_bits)?;
     let direction = value
         .clamp_exp(direction, Round::Nearest, subnormal_minimum, maximum)
         .ok_or_else(|| "Float exponent range is outside MPFR's supported range".to_owned())?;
@@ -567,5 +595,66 @@ mod tests {
         );
         assert!(float("12.5").format("%s").is_err());
         assert!(float("12.5").format("%Rf %Rf").is_err());
+    }
+
+    #[test]
+    fn enforces_explicit_float_context_boundaries() {
+        for token in [
+            "1p0x8",
+            "NaNp1x8",
+            "1p24x0",
+            "Infinityp24x1",
+            "1p2147483648x8",
+            "NaNp24x2147483648",
+            "1p24x31",
+            "NaNp24x31",
+            "1p24x32",
+        ] {
+            assert_eq!(
+                KFloat::parse(token).unwrap_err(),
+                format!("invalid Float token {token:?}")
+            );
+        }
+
+        let finite = KFloat::parse("1p24x30").unwrap();
+        assert_eq!(finite.value.prec(), 24);
+        assert_eq!(finite.exponent_bits, 30);
+        let special = KFloat::parse("NaNp24x30").unwrap();
+        assert!(special.value.is_nan());
+        assert_eq!(special.value.prec(), 24);
+        assert_eq!(special.exponent_bits, 30);
+    }
+
+    #[test]
+    fn rejects_invalid_operation_contexts() {
+        let context_error = |precision: i64, exponent: i64| {
+            context(&Value::Int(precision.into()), &Value::Int(exponent.into())).unwrap_err()
+        };
+
+        assert_eq!(
+            context_error(1, 8),
+            "Float precision and exponent bits must both be at least 2."
+        );
+        assert_eq!(
+            context_error(24, 1),
+            "Float precision and exponent bits must both be at least 2."
+        );
+        assert_eq!(
+            context_error(i64::from(i32::MAX) + 1, 8),
+            "Float precision is outside the supported range"
+        );
+        assert_eq!(
+            context_error(24, i64::from(i32::MAX) + 1),
+            "Float exponent bits are outside the supported range"
+        );
+        assert_eq!(
+            context(&Value::Int(24.into()), &Value::Int(30.into())),
+            Ok((24, 30))
+        );
+        assert_eq!(
+            context_error(24, 31),
+            "Float exponent range is outside MPFR's supported range"
+        );
+        assert_eq!(context_error(24, 32), "Float exponent bits are too large");
     }
 }
