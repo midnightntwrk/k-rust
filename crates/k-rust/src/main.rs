@@ -204,6 +204,22 @@ struct KcompileArgs {
     #[arg(long, value_name = "MODULE")]
     syntax_module: Option<String>,
 
+    /// Generate an executable deterministic Bison parser for the $PGM configuration variable.
+    #[arg(long)]
+    gen_bison_parser: bool,
+
+    /// Generate an executable GLR Bison parser for the $PGM configuration variable.
+    #[arg(long)]
+    gen_glr_bison_parser: bool,
+
+    /// Maximum size of the generated Bison parser stack.
+    #[arg(long, default_value_t = 10_000, value_name = "SIZE")]
+    bison_stack_max_depth: u64,
+
+    /// Make generated Bison list grammars left associative to bound parser stack use.
+    #[arg(long)]
+    bison_lists: bool,
+
     /// Plugin hook namespaces (for example `KRYPTO`) emitted as hooked symbols. K's form is one
     /// whitespace-separated list; commas and repeated flags are accepted too. Defaults to the
     /// namespaces the Rust backend implements, or to none for other backends.
@@ -811,6 +827,10 @@ struct KcompileOptions {
     backend: CompilationBackend,
     hook_namespaces: Option<Vec<String>>,
     syntax_module: Option<String>,
+    gen_bison_parser: bool,
+    gen_glr_bison_parser: bool,
+    bison_stack_max_depth: u64,
+    bison_lists: bool,
     output_directory: PathBuf,
     emit_json: bool,
     for_proving: bool,
@@ -1149,6 +1169,10 @@ impl From<KcompileArgs> for KcompileOptions {
                 .hook_namespaces
                 .map(|values| split_hook_namespaces(&values)),
             syntax_module: arguments.syntax_module,
+            gen_bison_parser: arguments.gen_bison_parser,
+            gen_glr_bison_parser: arguments.gen_glr_bison_parser,
+            bison_stack_max_depth: arguments.bison_stack_max_depth,
+            bison_lists: arguments.bison_lists,
             output_directory: arguments.output_directory,
             emit_json: arguments.emit_json,
             for_proving: arguments.for_proving,
@@ -1491,7 +1515,8 @@ fn load_definition(
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
-    load_definition_impl(options, backend, configuration_module, None).map(|(loaded, _)| loaded)
+    load_definition_impl(options, backend, configuration_module, None, false)
+        .map(|(loaded, _)| loaded)
 }
 
 fn load_definition_impl(
@@ -1499,6 +1524,7 @@ fn load_definition_impl(
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
     compilation_syntax: Option<Option<&str>>,
+    bison_lists: bool,
 ) -> Result<(k_rust::outer::LoadedDefinition, Option<String>), Box<dyn Error>> {
     let builtin_directory = options.configured_builtin_directory();
     let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
@@ -1524,6 +1550,7 @@ fn load_definition_impl(
         configuration_module: configuration_module.map(str::to_owned),
         project_root: None,
         diagnostics: options.diagnostics,
+        bison_lists,
     };
     if let Some(syntax) = compilation_syntax {
         let (loaded, syntax) =
@@ -1555,6 +1582,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             &options.common,
             configuration_module.expect("--compiled-definition requires --for-proving"),
             prepared,
+            options.bison_lists,
         )?;
         let syntax = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
         (loaded, syntax)
@@ -1564,6 +1592,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             Some(options.backend),
             configuration_module,
             Some(options.syntax_module.as_deref()),
+            options.bison_lists,
         )?;
         (
             loaded,
@@ -1603,6 +1632,27 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     };
     emit_diagnostics(&artifacts.diagnostics);
     fs::create_dir_all(&options.output_directory)?;
+    let bison_mode = if options.gen_glr_bison_parser {
+        Some(k_rust::bison::Mode::Glr)
+    } else if options.gen_bison_parser {
+        Some(k_rust::bison::Mode::Lr)
+    } else {
+        None
+    };
+    if let Some(mode) = bison_mode
+        && let Some(start_sort) = artifacts.configuration_variables.get("PGM")
+    {
+        k_rust::bison::generate_program_parser(
+            &loaded.resolved,
+            &syntax_module.name,
+            start_sort,
+            &options.output_directory,
+            k_rust::bison::Options {
+                mode,
+                stack_max_depth: options.bison_stack_max_depth,
+            },
+        )?;
+    }
     if options.emit_json || options.for_proving {
         let definition = if options.compiled_definition.is_some() {
             parsed_definition_for_json(&loaded, &syntax_module.name)?
@@ -3324,7 +3374,7 @@ fn compile_proof_source(
     prepared: Option<&Path>,
 ) -> Result<KoreDefinition, Box<dyn Error>> {
     let loaded = if let Some(prepared) = prepared {
-        load_definition_against_prepared(common, definition_module, prepared)?
+        load_definition_against_prepared(common, definition_module, prepared, false)?
     } else {
         load_definition(
             common,
@@ -3360,6 +3410,7 @@ fn load_definition_against_prepared(
     options: &CommonOptions,
     definition_module: &str,
     prepared: &Path,
+    bison_lists: bool,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
     let directory = prepared_artifact_directory(prepared);
     let manifest = load_prepared_manifest(prepared)?;
@@ -3387,6 +3438,7 @@ fn load_definition_against_prepared(
             configuration_module: Some(definition_module.into()),
             project_root: None,
             diagnostics: options.diagnostics,
+            bison_lists,
         },
         &base,
         &manifest.sources,

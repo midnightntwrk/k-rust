@@ -20,6 +20,11 @@ use super::{
     check_list_declarations,
 };
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct LowerOptions {
+    pub(super) bison_lists: bool,
+}
+
 /// Lower user-authored outer syntax into the flat definition model.
 ///
 /// This is the Rust boundary corresponding to the syntax-shaped portion of
@@ -29,12 +34,17 @@ pub fn lower(
     file: &SourceFile,
     main_module: impl Into<String>,
 ) -> Result<Definition, Vec<crate::diagnostic::Diagnostic>> {
-    lower_files(std::slice::from_ref(file), main_module)
+    lower_files(
+        std::slice::from_ref(file),
+        main_module,
+        LowerOptions::default(),
+    )
 }
 
 pub(crate) fn lower_files(
     files: &[SourceFile],
     main_module: impl Into<String>,
+    options: LowerOptions,
 ) -> Result<Definition, Vec<crate::diagnostic::Diagnostic>> {
     let mut diagnostics = Vec::new();
     for file in files {
@@ -50,7 +60,13 @@ pub(crate) fn lower_files(
     let mut modules = Vec::new();
     for file in files {
         for module in &file.modules {
-            modules.push(lower_module(file, module, &tag_index, &mut diagnostics));
+            modules.push(lower_module(
+                file,
+                module,
+                &tag_index,
+                options,
+                &mut diagnostics,
+            ));
         }
     }
     if !diagnostics.is_empty() {
@@ -70,6 +86,7 @@ fn lower_module(
     file: &SourceFile,
     module: &Module,
     tag_index: &TagIndex,
+    options: LowerOptions,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> FlatModule {
     let mut local_sentences = Vec::new();
@@ -79,6 +96,7 @@ fn lower_module(
             module,
             sentence,
             tag_index,
+            options,
             &mut local_sentences,
             diagnostics,
         );
@@ -132,6 +150,7 @@ fn lower_sentence(
     module: &Module,
     sentence: &Sentence,
     tag_index: &TagIndex,
+    options: LowerOptions,
     output: &mut Vec<FlatSentence>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -176,6 +195,7 @@ fn lower_sentence(
                             &syntax.parameters,
                             &syntax.sort,
                             production,
+                            options,
                             output,
                         );
                     }
@@ -219,6 +239,7 @@ fn lower_production(
     parameters: &[Sort],
     result_sort: &Sort,
     production: &Production,
+    options: LowerOptions,
     output: &mut Vec<FlatSentence>,
 ) {
     if let [
@@ -238,6 +259,7 @@ fn lower_production(
             sort,
             separator,
             *non_empty,
+            options,
             output,
         );
         return;
@@ -287,6 +309,7 @@ fn lower_user_list(
     element_sort: &Sort,
     separator: &str,
     non_empty: bool,
+    options: LowerOptions,
     output: &mut Vec<FlatSentence>,
 ) {
     let recursive_label = effective_label(module, result_sort, production, false)
@@ -301,17 +324,31 @@ fn lower_user_list(
         )),
         parameters: parameters.to_vec(),
         sort: result_sort.clone(),
-        items: vec![
-            FlatProductionItem::NonTerminal {
-                sort: element_sort.clone(),
-                name: None,
-            },
-            FlatProductionItem::Terminal(separator.to_owned()),
-            FlatProductionItem::NonTerminal {
-                sort: result_sort.clone(),
-                name: None,
-            },
-        ],
+        items: if options.bison_lists {
+            vec![
+                FlatProductionItem::NonTerminal {
+                    sort: result_sort.clone(),
+                    name: None,
+                },
+                FlatProductionItem::Terminal(separator.to_owned()),
+                FlatProductionItem::NonTerminal {
+                    sort: element_sort.clone(),
+                    name: None,
+                },
+            ]
+        } else {
+            vec![
+                FlatProductionItem::NonTerminal {
+                    sort: element_sort.clone(),
+                    name: None,
+                },
+                FlatProductionItem::Terminal(separator.to_owned()),
+                FlatProductionItem::NonTerminal {
+                    sort: result_sort.clone(),
+                    name: None,
+                },
+            ]
+        },
         attributes: recursive_attributes,
     });
 

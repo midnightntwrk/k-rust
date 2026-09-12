@@ -81,9 +81,7 @@ impl ProgramParser {
         let module_id = definition
             .module_id(module)
             .ok_or_else(|| ProgramError::MissingModule(module.to_owned()))?;
-        let mut sentences = program_sentences(definition, module_id);
-        sentences.extend(named_projection_productions(&sentences));
-        let sentences = with_kitem_subsorts(sentences);
+        let sentences = prepared_program_sentences(definition, module_id);
         let source_catalog = definition.production_catalog(module_id);
         let grammar =
             Grammar::from_program_sentences(&sentences, &source_catalog).map_err(|error| {
@@ -132,6 +130,40 @@ impl ProgramParser {
                 error: Box::new(error),
             })
     }
+}
+
+/// Build the program grammar sentence set shared by the in-process parser and generated parsers.
+///
+/// Keeping this boundary in one place prevents standalone parser generation from drifting from
+/// the import substitution, named projection, and KItem subsort rules used by [`ProgramParser`].
+pub(crate) fn prepared_program_sentences(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+) -> Vec<Sentence> {
+    prepared_program_sentences_with(definition, module, false)
+}
+
+/// Build the standalone Bison grammar after removing sentences declared by `not-lr1` modules.
+///
+/// K applies this module filter before it concretizes parametric productions. In particular,
+/// excluding `ML-SYNTAX` prevents its generic logical productions from being instantiated at
+/// every user sort and turning a two-sort program grammar into a large IELR automaton.
+#[cfg(any(feature = "cli", test))]
+pub(crate) fn prepared_bison_program_sentences(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+) -> Vec<Sentence> {
+    prepared_program_sentences_with(definition, module, true)
+}
+
+fn prepared_program_sentences_with(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    exclude_not_lr1: bool,
+) -> Vec<Sentence> {
+    let mut sentences = program_sentences(definition, module, exclude_not_lr1);
+    sentences.extend(named_projection_productions(&sentences));
+    with_kitem_subsorts(sentences)
 }
 
 /// The definition against which a parsed program is converted: every module gains the
@@ -206,7 +238,11 @@ pub fn parse_program_for_presentation(
     ))
 }
 
-fn program_sentences(definition: &ResolvedDefinition, module: ModuleId) -> Vec<Sentence> {
+fn program_sentences(
+    definition: &ResolvedDefinition,
+    module: ModuleId,
+    exclude_not_lr1: bool,
+) -> Vec<Sentence> {
     let substitute_imports = !definition
         .module(module)
         .name
@@ -224,14 +260,23 @@ fn program_sentences(definition: &ResolvedDefinition, module: ModuleId) -> Vec<S
             definition,
             imported,
             substitute_imports && !substituted,
+            exclude_not_lr1,
             &mut visited,
             &mut sentences,
         );
     }
-    append_unique(
-        &mut sentences,
-        definition.module(module).local_sentences.iter(),
-    );
+    if !exclude_not_lr1
+        || definition
+            .module(module)
+            .attributes
+            .get("not-lr1")
+            .is_none()
+    {
+        append_unique(
+            &mut sentences,
+            definition.module(module).local_sentences.iter(),
+        );
+    }
     sentences
 }
 
@@ -266,6 +311,7 @@ fn collect_public_signature(
     definition: &ResolvedDefinition,
     module: ModuleId,
     substitute_imports: bool,
+    exclude_not_lr1: bool,
     visited: &mut BTreeSet<(ModuleId, bool)>,
     sentences: &mut Vec<Sentence>,
 ) {
@@ -286,11 +332,20 @@ fn collect_public_signature(
             definition,
             imported,
             substitute_imports && !substituted,
+            exclude_not_lr1,
             visited,
             sentences,
         );
     }
-    append_unique(sentences, definition.public_sentences(module));
+    if !exclude_not_lr1
+        || definition
+            .module(module)
+            .attributes
+            .get("not-lr1")
+            .is_none()
+    {
+        append_unique(sentences, definition.public_sentences(module));
+    }
 }
 
 fn program_import(definition: &ResolvedDefinition, module: ModuleId) -> (ModuleId, bool) {
@@ -372,5 +427,44 @@ pub fn prepare_reference_kast(term: Term, productions: &ProductionCatalog<'_>) -
     match metadata {
         Some(metadata) => rebuilt.with_metadata(metadata),
         None => rebuilt,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bison_preparation_excludes_not_lr1_module_sentences_before_concretization() {
+        let parsed = crate::outer::parse(
+            "not-lr1.k",
+            r#"
+module GENERIC-LOGIC [not-lr1]
+  syntax {S} S ::= S "blocked" S [symbol(blocked)]
+endmodule
+
+module PROGRAM
+  imports GENERIC-LOGIC
+  syntax Pgm ::= "ok" [symbol(ok)]
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "PROGRAM").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let module = resolved.module_id("PROGRAM").unwrap();
+        let contains_blocked = |sentences: &[Sentence]| {
+            sentences.iter().any(|sentence| {
+                matches!(sentence, Sentence::Production { items, .. }
+                    if items.iter().any(|item| matches!(item, ProductionItem::Terminal(value) if value == "blocked")))
+            })
+        };
+
+        assert!(contains_blocked(&prepared_program_sentences(
+            &resolved, module
+        )));
+        assert!(!contains_blocked(&prepared_bison_program_sentences(
+            &resolved, module
+        )));
     }
 }

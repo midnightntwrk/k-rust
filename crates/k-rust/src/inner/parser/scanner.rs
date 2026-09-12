@@ -10,7 +10,7 @@ use crate::kast::Sort;
 
 use super::{ParseError, TokenPrecedenceDeclaration, expand_regex_body};
 
-const DEFAULT_LAYOUT: [&str; 3] = [
+pub(crate) const DEFAULT_LAYOUT: [&str; 3] = [
     r"(\/\*([^\*]|(\*+([^\*\/])))*\*+\/)",
     r"(\/\/[^\n\r]*)",
     r"([\ \n\r\t])",

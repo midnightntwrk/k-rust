@@ -14,7 +14,11 @@ use crate::{
 };
 
 use super::{MarkdownError, extract_fenced_k_code_with_map};
-use super::{ParseError, SourceFile, Span, lower::lower_files, parse};
+use super::{
+    ParseError, SourceFile, Span,
+    lower::{LowerOptions, lower_files},
+    parse,
+};
 
 mod selection;
 pub use selection::{SyntaxModule, resolve_syntax_module};
@@ -60,6 +64,8 @@ pub struct LoadOptions {
     pub project_root: Option<String>,
     /// Filtering and severity policy for diagnostics produced while loading sources.
     pub diagnostics: DiagnosticPolicy,
+    /// Lower user-list sugar with the left-recursive orientation required by Bison parsers.
+    pub bison_lists: bool,
 }
 
 impl Default for LoadOptions {
@@ -71,6 +77,7 @@ impl Default for LoadOptions {
             configuration_module: None,
             project_root: None,
             diagnostics: DiagnosticPolicy::default(),
+            bison_lists: false,
         }
     }
 }
@@ -313,8 +320,14 @@ fn load_impl(
     loader.visit(entry)?;
     validate_unique_modules(&loader.files)?;
 
-    let mut definition =
-        lower_files(&loader.files, &main_module).map_err(LoadError::SourceDiagnostics)?;
+    let mut definition = lower_files(
+        &loader.files,
+        &main_module,
+        LowerOptions {
+            bison_lists: options.bison_lists,
+        },
+    )
+    .map_err(LoadError::SourceDiagnostics)?;
     if let Some(base) = base {
         let base_modules = base
             .modules
@@ -371,8 +384,14 @@ pub fn load_structured(
     }
     validate_unique_modules(&loader.files)?;
 
-    let mut implicit = lower_files(&loader.files, definition.main_module.clone())
-        .map_err(LoadError::SourceDiagnostics)?;
+    let mut implicit = lower_files(
+        &loader.files,
+        definition.main_module.clone(),
+        LowerOptions {
+            bison_lists: options.bison_lists,
+        },
+    )
+    .map_err(LoadError::SourceDiagnostics)?;
     implicit.modules.append(&mut definition.modules);
     implicit.main_module = definition.main_module;
     implicit.attributes = definition.attributes;

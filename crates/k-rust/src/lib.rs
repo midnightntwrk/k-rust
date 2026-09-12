@@ -1,6 +1,8 @@
 //! A Rust implementation of the K Framework frontend.
 
 pub mod backend;
+#[cfg(feature = "cli")]
+pub mod bison;
 pub mod builtin;
 pub mod definition;
 pub mod diagnostic;

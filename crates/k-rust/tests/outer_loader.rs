@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use indoc::indoc;
-use k_rust::definition::Sentence;
+use k_rust::definition::{ProductionItem, Sentence};
 use k_rust::diagnostic::{
     DiagnosticCode, DiagnosticPolicy, Severity, WarningCategory, WarningLevel,
 };
@@ -17,6 +17,87 @@ struct LoadSummary {
     flat_modules: Vec<String>,
     dependency_order: Vec<String>,
     main_priorities: Vec<Vec<Vec<String>>>,
+}
+
+#[test]
+fn bison_lists_orient_only_outer_user_list_sugar() {
+    for separator in [",", ""] {
+        let source = format!(
+            r#"
+module LISTS
+  syntax Element ::= "e" [token]
+  syntax Elements ::= NeList{{Element, "{separator}"}} [symbol(elements)]
+endmodule
+"#
+        );
+        let load = |bison_lists| {
+            let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+            load_with_options(
+                ResolvedSource::new("lists.k", source.clone()),
+                "LISTS",
+                &mut resolver,
+                &LoadOptions {
+                    bison_lists,
+                    ..LoadOptions::default()
+                },
+            )
+            .unwrap()
+        };
+        let default = load(false);
+        let bison = load(true);
+        let recursive = |loaded: &k_rust::outer::LoadedDefinition| {
+            loaded
+                .definition
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .find(|sentence| {
+                    matches!(sentence, Sentence::Production { items, attributes, .. }
+                        if attributes.get_str("userList") == Some("+")
+                            && items.iter().filter(|item| matches!(item, ProductionItem::NonTerminal { .. })).count() == 2)
+                })
+                .unwrap()
+                .clone()
+        };
+        let default = recursive(&default);
+        let bison = recursive(&bison);
+        let Sentence::Production {
+            label: default_label,
+            parameters: default_parameters,
+            items: default_items,
+            attributes: default_attributes,
+            ..
+        } = default
+        else {
+            unreachable!()
+        };
+        let Sentence::Production {
+            label: bison_label,
+            parameters: bison_parameters,
+            items: bison_items,
+            attributes: bison_attributes,
+            ..
+        } = bison
+        else {
+            unreachable!()
+        };
+        let nonterminals = |items: Vec<ProductionItem>| {
+            items
+                .into_iter()
+                .filter_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort.name),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(nonterminals(default_items), ["Element", "Elements"]);
+        assert_eq!(nonterminals(bison_items), ["Elements", "Element"]);
+        assert_eq!(bison_label, default_label);
+        assert_eq!(bison_parameters, default_parameters);
+        assert_eq!(bison_attributes, default_attributes);
+    }
 }
 
 #[test]

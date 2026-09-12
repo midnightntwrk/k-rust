@@ -5,57 +5,86 @@ use std::collections::BTreeMap;
 use crate::definition::regex::Regex as KRegex;
 use crate::definition::{
     Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
+    compare_sentences,
 };
 use crate::kast::{Label, Sort};
 
 use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_production};
 
-impl Grammar {
-    pub(super) fn add_parametric_productions(
-        &mut self,
-        sentences: &[&Sentence],
-        lexical: &BTreeMap<String, KRegex>,
-        source_catalog: &ProductionCatalog<'_>,
-    ) -> Result<(), ParseError> {
-        let catalog = SortCatalog::from_visible(sentences.iter().copied());
-        let mut all_sorts = catalog
-            .all_sorts()
-            .iter()
-            .filter(|sort| !is_parser_sort(sort) || matches!(sort.name.as_str(), "K" | "KItem"))
-            .cloned()
-            .collect::<Vec<_>>();
-        for builtin in [Sort::new("K"), Sort::new("KItem")] {
-            if !all_sorts.contains(&builtin) {
-                all_sorts.push(builtin);
-            }
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParametricInstance {
+    pub(crate) sentence: Sentence,
+    pub(crate) origin: ParametricOrigin,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParametricFamily<'a> {
+    pub(crate) formal_source: &'a Sentence,
+    pub(crate) instances: Vec<ParametricInstance>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParsingOnlySubsort {
+    pub(crate) sentence: Sentence,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ParametricConcretization<'a> {
+    pub(crate) families: Vec<ParametricFamily<'a>>,
+    pub(crate) parsing_only_subsorts: Vec<ParsingOnlySubsort>,
+}
+
+/// Enumerate the concrete parsing productions derived from formal productions.
+///
+/// The in-process parser and generated parsers share this pure plan so they cannot drift in the
+/// four K concretization cases or in the placeholder subsorts added for parametric sort heads.
+pub(crate) fn concretize_parametric_productions<'a>(
+    sentences: &[&'a Sentence],
+) -> ParametricConcretization<'a> {
+    let catalog = SortCatalog::from_visible(sentences.iter().copied());
+    let mut all_sorts = catalog
+        .all_sorts()
+        .iter()
+        .filter(|sort| !is_parser_sort(sort) || matches!(sort.name.as_str(), "K" | "KItem"))
+        .cloned()
+        .collect::<Vec<_>>();
+    for builtin in [Sort::new("K"), Sort::new("KItem")] {
+        if !all_sorts.contains(&builtin) {
+            all_sorts.push(builtin);
         }
-        all_sorts.sort();
+    }
+    all_sorts.sort();
 
-        for sentence in sentences {
-            let Sentence::Production {
-                label,
-                parameters,
-                sort,
-                items,
-                attributes,
-            } = sentence
-            else {
-                continue;
-            };
-            if parameters.is_empty() {
-                continue;
-            }
+    let mut formal_sources = sentences
+        .iter()
+        .copied()
+        .filter(|sentence| {
+            matches!(sentence, Sentence::Production { parameters, .. } if !parameters.is_empty())
+        })
+        .collect::<Vec<_>>();
+    formal_sources.sort_by(|left, right| {
+        compare_sentences(left, right).expect("production sentences have a structural order")
+    });
 
-            // All temporary concrete variants of this source production become the same original
-            // production reference in Java's Earley forest. The first variant is our canonical
-            // descriptor; its `ParametricOrigin` carries the actual source signature used by
-            // inference, so its concrete parse-time result is not semantically observable.
-            let term_production = self.productions.len();
+    let mut families = Vec::new();
+    for sentence in formal_sources {
+        let Sentence::Production {
+            label,
+            parameters,
+            sort,
+            items,
+            attributes,
+        } = sentence
+        else {
+            unreachable!()
+        };
 
-            if parameters.contains(sort) {
-                // Case 1: `syntax {P, R} P ::= P "+" R`.
-                for concrete in &all_sorts {
-                    let substitution = parameters
+        let substitutions = if parameters.contains(sort) {
+            // Case 1: `syntax {P, R} P ::= P "+" R`.
+            all_sorts
+                .iter()
+                .map(|concrete| {
+                    parameters
                         .iter()
                         .cloned()
                         .map(|parameter| {
@@ -66,25 +95,20 @@ impl Grammar {
                             };
                             (parameter, replacement)
                         })
-                        .collect();
-                    self.add_instantiation(
-                        label,
-                        parameters,
-                        sort,
-                        items,
-                        attributes,
-                        substitution,
-                        lexical,
-                        catalog_production(source_catalog, sentence),
-                        term_production,
-                    )?;
-                }
-            } else if !sort.parameters.is_empty() {
-                // Case 2: `syntax {W, X} MInt{W} ::= MInt{W} "+" MInt{X}`.
-                let head = SortHead::from(sort);
-                for concrete in catalog.instantiations().get(&head).into_iter().flatten() {
+                        .collect()
+                })
+                .collect::<Vec<_>>()
+        } else if !sort.parameters.is_empty() {
+            // Case 2: `syntax {W, X} MInt{W} ::= MInt{W} "+" MInt{X}`.
+            let head = SortHead::from(sort);
+            catalog
+                .instantiations()
+                .get(&head)
+                .into_iter()
+                .flatten()
+                .map(|concrete| {
                     let result_parameter = &sort.parameters[0];
-                    let substitution = parameters
+                    parameters
                         .iter()
                         .cloned()
                         .map(|parameter| {
@@ -95,57 +119,99 @@ impl Grammar {
                             };
                             (parameter, replacement)
                         })
-                        .collect();
-                    self.add_instantiation(
-                        label,
-                        parameters,
-                        sort,
-                        items,
-                        attributes,
-                        substitution,
-                        lexical,
-                        catalog_production(source_catalog, sentence),
-                        term_production,
-                    )?;
-                }
-            } else if is_syntactic_subsort(label, items) {
-                // Case 3: `syntax {S} KItem ::= S`.
-                for concrete in &all_sorts {
-                    if !parameters.contains(sort) && matches!(concrete.name.as_str(), "K" | "KItem")
-                    {
-                        continue;
-                    }
-                    let substitution = BTreeMap::from([(parameters[0].clone(), concrete.clone())]);
-                    self.add_instantiation(
-                        label,
-                        parameters,
-                        sort,
-                        items,
-                        attributes,
-                        substitution,
-                        lexical,
-                        catalog_production(source_catalog, sentence),
-                        term_production,
-                    )?;
-                }
-            } else {
-                // Case 4: parameters which occur only in arguments become `K`.
-                let substitution = parameters
+                        .collect()
+                })
+                .collect()
+        } else if is_syntactic_subsort(label, items) {
+            // Case 3: `syntax {S} KItem ::= S`.
+            all_sorts
+                .iter()
+                .filter(|concrete| {
+                    parameters.contains(sort) || !matches!(concrete.name.as_str(), "K" | "KItem")
+                })
+                .map(|concrete| BTreeMap::from([(parameters[0].clone(), concrete.clone())]))
+                .collect()
+        } else {
+            // Case 4: parameters which occur only in arguments become `K`.
+            vec![
+                parameters
                     .iter()
                     .cloned()
                     .map(|parameter| (parameter, Sort::new("K")))
-                    .collect();
-                self.add_instantiation(
-                    label,
-                    parameters,
-                    sort,
-                    items,
-                    attributes,
+                    .collect(),
+            ]
+        };
+
+        let instances = substitutions
+            .into_iter()
+            .map(|substitution| ParametricInstance {
+                sentence: Sentence::Production {
+                    label: label.as_ref().map(|label| Label::new(label.name.clone())),
+                    parameters: Vec::new(),
+                    sort: substitute_sort(sort, &substitution),
+                    items: items
+                        .iter()
+                        .map(|item| substitute_item(item, &substitution))
+                        .collect(),
+                    attributes: attributes.clone(),
+                },
+                origin: ParametricOrigin {
+                    label: label.clone(),
+                    parameters: parameters.clone(),
+                    result: sort.clone(),
+                    items: items.clone(),
+                    attributes: attributes.clone(),
                     substitution,
-                    lexical,
-                    catalog_production(source_catalog, sentence),
-                    term_production,
-                )?;
+                },
+            })
+            .collect();
+        families.push(ParametricFamily {
+            formal_source: sentence,
+            instances,
+        });
+    }
+
+    let parsing_only_subsorts = catalog
+        .instantiations()
+        .values()
+        .flatten()
+        .map(|concrete| ParsingOnlySubsort {
+            sentence: Sentence::Production {
+                label: None,
+                parameters: Vec::new(),
+                sort: Sort::with_parameters(concrete.name.clone(), vec![Sort::new("K")]),
+                items: vec![ProductionItem::NonTerminal {
+                    sort: concrete.clone(),
+                    name: None,
+                }],
+                attributes: Attributes::default(),
+            },
+        })
+        .collect();
+    ParametricConcretization {
+        families,
+        parsing_only_subsorts,
+    }
+}
+
+impl Grammar {
+    pub(super) fn add_parametric_productions(
+        &mut self,
+        sentences: &[&Sentence],
+        lexical: &BTreeMap<String, KRegex>,
+        source_catalog: &ProductionCatalog<'_>,
+    ) -> Result<(), ParseError> {
+        let concretization = concretize_parametric_productions(sentences);
+        for family in concretization.families {
+            let sentence = family.formal_source;
+            // All temporary concrete variants of this source production become the same original
+            // production reference in Java's Earley forest. The first variant is our canonical
+            // descriptor; its `ParametricOrigin` carries the actual source signature used by
+            // inference, so its concrete parse-time result is not semantically observable.
+            let term_production = self.productions.len();
+            let source_production = catalog_production(source_catalog, sentence);
+            for instance in family.instances {
+                self.add_instantiation(instance, lexical, source_production, term_production)?;
             }
         }
 
@@ -154,72 +220,59 @@ impl Grammar {
         // parsing-module production only (RuleGrammarGenerator.java:627-637): the inferencers
         // must not see `MInt{6} <= MInt{K}`, or a production parameter constrained by that slot
         // could be inferred as `K` instead of the declared width its token or cast anchors.
-        for instances in catalog.instantiations().values() {
-            for concrete in instances {
-                let placeholder =
-                    Sort::with_parameters(concrete.name.clone(), vec![Sort::new("K")]);
-                self.add_production_with_lexical(
-                    placeholder,
-                    &[ProductionItem::NonTerminal {
-                        sort: concrete.clone(),
-                        name: None,
-                    }],
-                    None,
-                    ProductionOptions {
-                        parsing_only_subsort: true,
-                        ..ProductionOptions::default()
-                    },
-                    &BTreeMap::new(),
-                )?;
-            }
+        for bridge in concretization.parsing_only_subsorts {
+            let Sentence::Production { sort, items, .. } = bridge.sentence else {
+                unreachable!()
+            };
+            self.add_production_with_lexical(
+                sort,
+                &items,
+                None,
+                ProductionOptions {
+                    parsing_only_subsort: true,
+                    ..ProductionOptions::default()
+                },
+                &BTreeMap::new(),
+            )?;
         }
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn add_instantiation(
         &mut self,
-        label: &Option<Label>,
-        parameters: &[Sort],
-        result: &Sort,
-        items: &[ProductionItem],
-        attributes: &Attributes,
-        substitution: BTreeMap<Sort, Sort>,
+        instance: ParametricInstance,
         lexical: &BTreeMap<String, KRegex>,
         source_production: Option<crate::definition::ProductionId>,
         term_production: usize,
     ) -> Result<(), ParseError> {
-        let concrete_result = substitute_sort(result, &substitution);
-        let concrete_items = items
-            .iter()
-            .map(|item| substitute_item(item, &substitution))
-            .collect::<Vec<_>>();
-        let concrete_label = label.as_ref().map(|label| Label::new(label.name.clone()));
+        let Sentence::Production {
+            label,
+            sort,
+            items,
+            attributes,
+            ..
+        } = instance.sentence
+        else {
+            unreachable!()
+        };
         let index = self.productions.len();
         let source_production_text = source_production
             .and_then(|production| self.source_production_texts.get(&production))
             .cloned();
         self.add_production_with_lexical(
-            concrete_result,
-            &concrete_items,
-            concrete_label,
+            sort,
+            &items,
+            label,
             ProductionOptions {
                 source_production,
                 source_production_text: source_production_text.as_deref(),
                 source: attributes.source(),
                 location: attributes.location(),
-                ..production_options(attributes)
+                ..production_options(&attributes)
             },
             lexical,
         )?;
-        self.productions[index].parametric_origin = Some(ParametricOrigin {
-            label: label.clone(),
-            parameters: parameters.to_vec(),
-            result: result.clone(),
-            items: items.to_vec(),
-            attributes: attributes.clone(),
-            substitution,
-        });
+        self.productions[index].parametric_origin = Some(instance.origin);
         self.productions[index].term_production = Some(term_production);
         Ok(())
     }
@@ -312,7 +365,7 @@ mod tests {
         }};
     }
 
-    fn parametric_grammar() -> Grammar {
+    fn parametric_sentences() -> Vec<Sentence> {
         let p = Sort::new("P");
         let r = Sort::new("R");
         let s = Sort::new("S");
@@ -364,7 +417,29 @@ mod tests {
                 attributes: Attributes::default(),
             },
         ];
+        sentences
+    }
+
+    fn parametric_grammar() -> Grammar {
+        let sentences = parametric_sentences();
         Grammar::from_sentences(&sentences).unwrap()
+    }
+
+    #[test]
+    fn shared_concretization_is_independent_of_sentence_order() {
+        let sentences = parametric_sentences();
+        let references = sentences.iter().collect::<Vec<_>>();
+        let expected = concretize_parametric_productions(&references);
+        let mut reversed = sentences.clone();
+        reversed.reverse();
+        let references = reversed.iter().collect::<Vec<_>>();
+        let actual = concretize_parametric_productions(&references);
+
+        assert_eq!(actual, expected);
+        assert!(actual.parsing_only_subsorts.iter().all(|bridge| {
+            matches!(&bridge.sentence, Sentence::Production { label: None, parameters, attributes, .. }
+                if parameters.is_empty() && attributes.entries().is_empty())
+        }));
     }
 
     #[test]
@@ -399,13 +474,13 @@ mod tests {
         assert_eq!(
             summary.iter().map(String::as_str).collect::<Vec<_>>(),
             vec![
+                "KItem ::= Int [S=Int] from 1 parameter(s)",
+                "KItem ::= MInt{8} [S=MInt{8}] from 1 parameter(s)",
                 "Int ::= \"case1(\" Int \",\" K \")\" [P=Int, R=K] from 2 parameter(s)",
                 "K ::= \"case1(\" K \",\" K \")\" [P=K, R=K] from 2 parameter(s)",
                 "KItem ::= \"case1(\" KItem \",\" K \")\" [P=KItem, R=K] from 2 parameter(s)",
                 "MInt{8} ::= \"case1(\" MInt{8} \",\" K \")\" [P=MInt{8}, R=K] from 2 parameter(s)",
                 "MInt{8} ::= \"case2(\" MInt{8} \",\" MInt{K} \")\" [W=8, X=K] from 2 parameter(s)",
-                "KItem ::= Int [S=Int] from 1 parameter(s)",
-                "KItem ::= MInt{8} [S=MInt{8}] from 1 parameter(s)",
                 "Int ::= \"case4(\" K \")\" [S=K] from 1 parameter(s)",
             ]
         );

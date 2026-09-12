@@ -4349,6 +4349,264 @@ fn kcompile_writes_parseable_kore_outputs() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn kcompile_generates_a_relocatable_glr_program_parser() {
+    use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::fs::PermissionsExt;
+
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module BISON
+  syntax Number ::= r"[A-Z]+" [token]
+  syntax Pgm ::= Number
+               | Pgm "+" Pgm [symbol(add), group(add)]
+               | Pgm "*" Pgm [symbol(mul), group(mul)]
+  syntax priority mul > add
+  syntax left add
+  syntax left mul
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output_name = std::ffi::OsString::from_vec(b"bison-\xff-kompiled".to_vec());
+    let output_directory = root.join(&output_name);
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .current_dir(&root)
+        .args([
+            "kcompile",
+            definition.file_name().unwrap().to_str().unwrap(),
+            "--main-module",
+            "BISON",
+            "--syntax-module",
+            "BISON",
+            "--output-directory",
+        ])
+        .arg(&output_name)
+        .arg("--gen-glr-bison-parser")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let primary = output_directory.join("parser_Pgm_BISON");
+    let link = output_directory.join("parser_PGM");
+    assert!(primary.is_file());
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new("parser_Pgm_BISON"));
+
+    let input = root.join("input.pgm");
+    fs::write(&input, "A+B*C\n").unwrap();
+    let parsed = Command::new(&link).arg(&input).output().unwrap();
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(parsed.stdout).unwrap(),
+        "Lbladd{}(inj{SortNumber{}, SortPgm{}}(\\dv{SortNumber{}}(\"A\")),Lblmul{}(inj{SortNumber{}, SortPgm{}}(\\dv{SortNumber{}}(\"B\")),inj{SortNumber{}, SortPgm{}}(\\dv{SortNumber{}}(\"C\"))))\n"
+    );
+
+    let original_primary = fs::read(&primary).unwrap();
+    let failing_cc = root.join("failing-cc");
+    fs::write(
+        &failing_cc,
+        "#!/bin/sh\necho controlled-cc-failure >&2\nexit 23\n",
+    )
+    .unwrap();
+    fs::set_permissions(&failing_cc, fs::Permissions::from_mode(0o755)).unwrap();
+    let failed_replacement = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .current_dir(&root)
+        .args([
+            "kcompile",
+            definition.file_name().unwrap().to_str().unwrap(),
+            "--main-module",
+            "BISON",
+            "--syntax-module",
+            "BISON",
+            "--output-directory",
+        ])
+        .arg(&output_name)
+        .arg("--gen-glr-bison-parser")
+        .env("KRUST_CC", &failing_cc)
+        .output()
+        .unwrap();
+    assert!(!failed_replacement.status.success());
+    assert!(
+        String::from_utf8_lossy(&failed_replacement.stderr)
+            .contains("C compiler failed with exit code 23: controlled-cc-failure")
+    );
+    assert_eq!(fs::read(&primary).unwrap(), original_primary);
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new("parser_Pgm_BISON"));
+    assert!(fs::read_dir(&output_directory).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".krust-bison")
+    }));
+
+    let replacement = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .current_dir(&root)
+        .args([
+            "kcompile",
+            definition.file_name().unwrap().to_str().unwrap(),
+            "--main-module",
+            "BISON",
+            "--syntax-module",
+            "BISON",
+            "--output-directory",
+        ])
+        .arg(&output_name)
+        .args(["--gen-bison-parser", "--bison-stack-max-depth", "4321"])
+        .output()
+        .unwrap();
+    assert!(
+        replacement.status.success(),
+        "{}",
+        String::from_utf8_lossy(&replacement.stderr)
+    );
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new("parser_Pgm_BISON"));
+    let parsed = Command::new(&link).arg(&input).output().unwrap();
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(parsed.stdout).unwrap(),
+        "Lbladd{}(inj{SortNumber{}, SortPgm{}}(\\dv{SortNumber{}}(\"A\")),Lblmul{}(inj{SortNumber{}, SortPgm{}}(\\dv{SortNumber{}}(\"B\")),inj{SortNumber{}, SortPgm{}}(\\dv{SortNumber{}}(\"C\"))))\n"
+    );
+
+    let relocated = root.join("relocated");
+    fs::rename(&output_directory, &relocated).unwrap();
+    let parsed = Command::new(relocated.join("parser_PGM"))
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kcompile_skips_bison_tools_when_the_configuration_has_no_pgm() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module NO-PGM
+  syntax Value ::= "value"
+  configuration <k> value </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output_directory = root.join("no-pgm-kompiled");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "NO-PGM",
+            "--syntax-module",
+            "NO-PGM",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+            "--gen-glr-bison-parser",
+        ])
+        .env("KRUST_FLEX", root.join("must-not-run-flex"))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!output_directory.join("parser_PGM").exists());
+    assert!(fs::read_dir(&output_directory).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("parser_")
+    }));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn kcompile_generates_a_bounded_left_associative_nonempty_list_parser() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module NELISTS-SYNTAX
+  syntax E ::= "e" [token]
+  syntax Es ::= NeList{E, ","} [symbol(es)]
+  syntax Pgm ::= Es
+endmodule
+
+module NELISTS
+  imports NELISTS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output_directory = root.join("nelists-kompiled");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "NELISTS",
+            "--syntax-module",
+            "NELISTS-SYNTAX",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+            "--gen-glr-bison-parser",
+            "--bison-lists",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let input = root.join("input.pgm");
+    fs::write(&input, "e,e\n").unwrap();
+    let parsed = Command::new(output_directory.join("parser_PGM"))
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(parsed.stdout).unwrap(),
+        "inj{SortEs{}, SortPgm{}}(Lbles{}(Lbles{}(Lbl'Stop'List'LBraQuot'es'QuotRBra'{}(),\\dv{SortE{}}(\"e\")),\\dv{SortE{}}(\"e\")))\n"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kcompile_rejects_missing_user_syntax_module_and_warns_on_missing_default() {
     let (root, definition) = fixture();

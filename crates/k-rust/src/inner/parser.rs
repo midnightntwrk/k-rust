@@ -28,8 +28,12 @@ use crate::provenance::SourceId;
 
 use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
+#[cfg(feature = "cli")]
+pub(crate) use self::parametric::concretize_parametric_productions;
 pub(crate) use self::parametric::is_parser_sort;
 use self::prediction::PredictionAnalysis;
+#[cfg(feature = "cli")]
+pub(crate) use self::scanner::DEFAULT_LAYOUT;
 pub(super) use self::scanner::Scanner;
 use self::scanner::{Item, Layout, ScanCacheEntry, ScanWinner, compile_item};
 
@@ -355,13 +359,13 @@ impl Production {
 const MINT_LITERAL_HOOK: &str = "MINT.literal";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ParametricOrigin {
-    label: Option<Label>,
-    parameters: Vec<Sort>,
-    result: Sort,
-    items: Vec<ProductionItem>,
-    attributes: Attributes,
-    substitution: BTreeMap<Sort, Sort>,
+pub(crate) struct ParametricOrigin {
+    pub(crate) label: Option<Label>,
+    pub(crate) parameters: Vec<Sort>,
+    pub(crate) result: Sort,
+    pub(crate) items: Vec<ProductionItem>,
+    pub(crate) attributes: Attributes,
+    pub(crate) substitution: BTreeMap<Sort, Sort>,
 }
 
 impl ParametricOrigin {
