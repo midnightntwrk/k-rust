@@ -102,14 +102,19 @@ pub(super) struct Restriction {
 }
 
 #[derive(Clone, Debug)]
+pub(super) struct Restrictions {
+    precede: Option<Restriction>,
+    follow: Option<Restriction>,
+}
+
+#[derive(Clone, Debug)]
 pub(super) enum Item {
     NonTerminal(Sort),
     Terminal(String),
     Regex {
         source: String,
         regex: CompiledKRegex,
-        precede: Option<Restriction>,
-        follow: Option<Restriction>,
+        restrictions: Option<Box<Restrictions>>,
     },
 }
 
@@ -124,12 +129,17 @@ impl Item {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct RestrictionKey {
+    precede: Option<String>,
+    follow: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum LexemeKey {
     Terminal(String),
     Regex {
         canonical: String,
-        precede: Option<String>,
-        follow: Option<String>,
+        restrictions: Option<Box<RestrictionKey>>,
     },
 }
 
@@ -280,18 +290,24 @@ pub(super) fn compile_item(
             precede_regex,
             regex,
             follow_regex,
-        } => Ok(Item::Regex {
-            source: regex.clone(),
-            regex: compile_k_regex(regex, lexical)?,
-            precede: precede_regex
+        } => {
+            let compiled_regex = compile_k_regex(regex, lexical)?;
+            let precede = precede_regex
                 .as_deref()
                 .map(|regex| compile_restriction(regex, lexical, false))
-                .transpose()?,
-            follow: follow_regex
+                .transpose()?;
+            let follow = follow_regex
                 .as_deref()
                 .map(|regex| compile_restriction(regex, lexical, true))
-                .transpose()?,
-        }),
+                .transpose()?;
+            let restrictions = (precede.is_some() || follow.is_some())
+                .then(|| Box::new(Restrictions { precede, follow }));
+            Ok(Item::Regex {
+                source: regex.clone(),
+                regex: compiled_regex,
+                restrictions,
+            })
+        }
     }
 }
 
@@ -363,17 +379,22 @@ fn lexeme_key(item: &Item) -> Option<LexemeKey> {
         Item::Terminal(value) => Some(LexemeKey::Terminal(value.clone())),
         Item::Regex {
             regex,
-            precede,
-            follow,
+            restrictions,
             ..
         } => Some(LexemeKey::Regex {
             canonical: regex.canonical.clone(),
-            precede: precede
-                .as_ref()
-                .map(|restriction| restriction.canonical.clone()),
-            follow: follow
-                .as_ref()
-                .map(|restriction| restriction.canonical.clone()),
+            restrictions: restrictions.as_ref().map(|restrictions| {
+                Box::new(RestrictionKey {
+                    precede: restrictions
+                        .precede
+                        .as_ref()
+                        .map(|restriction| restriction.canonical.clone()),
+                    follow: restrictions
+                        .follow
+                        .as_ref()
+                        .map(|restriction| restriction.canonical.clone()),
+                })
+            }),
         }),
     }
 }
@@ -404,19 +425,20 @@ fn match_lexeme(item: &Item, input: &str, position: usize) -> Option<usize> {
             .then_some(position + terminal.len()),
         Item::Regex {
             regex,
-            precede,
-            follow,
+            restrictions,
             ..
         } => {
-            if precede
-                .as_ref()
+            if restrictions
+                .as_deref()
+                .and_then(|restrictions| restrictions.precede.as_ref())
                 .is_some_and(|restriction| restriction.pattern.is_match(&input[..position]))
             {
                 return None;
             }
             let end = match_k_regex(regex, input, position)?;
-            if follow
-                .as_ref()
+            if restrictions
+                .as_deref()
+                .and_then(|restrictions| restrictions.follow.as_ref())
                 .is_some_and(|restriction| restriction.pattern.is_match(&input[end..]))
             {
                 return None;
@@ -444,6 +466,86 @@ mod tests {
     use crate::{definition::Sentence, outer};
 
     use super::*;
+
+    fn restricted_regex(precede: Option<&str>, follow: Option<&str>) -> Item {
+        compile_item(
+            &ProductionItem::RegexTerminal {
+                precede_regex: precede.map(str::to_owned),
+                regex: "b".into(),
+                follow_regex: follow.map(str::to_owned),
+            },
+            &BTreeMap::new(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn regex_restrictions_reject_matching_prefixes_and_suffixes() {
+        let precede = restricted_regex(Some("a"), None);
+        assert_eq!(match_lexeme(&precede, "b", 0), Some(1));
+        assert_eq!(match_lexeme(&precede, "ab", 1), None);
+
+        let follow = restricted_regex(None, Some("c"));
+        assert_eq!(match_lexeme(&follow, "b", 0), Some(1));
+        assert_eq!(match_lexeme(&follow, "bc", 0), None);
+
+        let both = restricted_regex(Some("a"), Some("c"));
+        assert_eq!(match_lexeme(&both, "b", 0), Some(1));
+        assert_eq!(match_lexeme(&both, "ab", 1), None);
+        assert_eq!(match_lexeme(&both, "bc", 0), None);
+    }
+
+    #[test]
+    fn regex_restrictions_preserve_scanner_identity_order() {
+        let unrestricted = lexeme_key(&restricted_regex(None, None)).unwrap();
+        let follow = lexeme_key(&restricted_regex(None, Some("c"))).unwrap();
+        let precede = lexeme_key(&restricted_regex(Some("a"), None)).unwrap();
+
+        assert_ne!(unrestricted, follow);
+        assert_ne!(unrestricted, precede);
+        assert_ne!(follow, precede);
+        assert!(unrestricted < follow);
+        assert!(follow < precede);
+    }
+
+    #[test]
+    fn invalid_body_and_restriction_regexes_retain_their_source() {
+        for item in [
+            ProductionItem::RegexTerminal {
+                precede_regex: None,
+                regex: "(".into(),
+                follow_regex: None,
+            },
+            ProductionItem::RegexTerminal {
+                precede_regex: Some("(".into()),
+                regex: "b".into(),
+                follow_regex: None,
+            },
+            ProductionItem::RegexTerminal {
+                precede_regex: None,
+                regex: "b".into(),
+                follow_regex: Some("(".into()),
+            },
+        ] {
+            assert!(
+                matches!(
+                    compile_item(&item, &BTreeMap::new()),
+                    Err(ParseError::InvalidRegex { regex, .. }) if regex == "("
+                ),
+                "{item:?}"
+            );
+        }
+
+        let all_invalid = ProductionItem::RegexTerminal {
+            precede_regex: Some("[".into()),
+            regex: "(".into(),
+            follow_regex: Some("{".into()),
+        };
+        assert!(matches!(
+            compile_item(&all_invalid, &BTreeMap::new()),
+            Err(ParseError::InvalidRegex { regex, .. }) if regex == "("
+        ));
+    }
 
     #[test]
     fn builtin_string_regex_matches_an_empty_quoted_string() {
