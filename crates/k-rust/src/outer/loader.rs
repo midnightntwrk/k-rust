@@ -1,6 +1,12 @@
 //! Recursive, host-independent loading of outer-syntax source graphs.
 
-use std::{collections::BTreeMap, error::Error, fmt, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    ffi::OsStr,
+    fmt,
+    path::Path,
+};
 
 use crate::{
     builtin,
@@ -15,7 +21,7 @@ use crate::{
 
 use super::{MarkdownError, extract_fenced_k_code_with_map};
 use super::{
-    ParseError, SourceFile, Span,
+    ParseError, Position, Sentence as OuterSentence, SourceFile, Span, SyntaxBody,
     lower::{LowerOptions, lower_files},
     parse,
 };
@@ -318,10 +324,11 @@ fn load_impl(
         loader.visit(source.clone())?;
     }
     loader.visit(entry)?;
-    validate_unique_modules(&loader.files)?;
+    let selected_files = validate_and_select_modules(&loader.files)?;
+    let files_to_lower = selected_files.as_deref().unwrap_or(&loader.files);
 
     let mut definition = lower_files(
-        &loader.files,
+        files_to_lower,
         &main_module,
         LowerOptions {
             bison_lists: options.bison_lists,
@@ -382,10 +389,11 @@ pub fn load_structured(
     for source in &options.implicit_sources {
         loader.visit(source.clone())?;
     }
-    validate_unique_modules(&loader.files)?;
+    let selected_files = validate_and_select_modules(&loader.files)?;
+    let files_to_lower = selected_files.as_deref().unwrap_or(&loader.files);
 
     let mut implicit = lower_files(
-        &loader.files,
+        files_to_lower,
         definition.main_module.clone(),
         LowerOptions {
             bison_lists: options.bison_lists,
@@ -782,20 +790,150 @@ fn logical_below(project_root: &str, source: &str) -> Option<String> {
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
 }
 
-fn validate_unique_modules(files: &[SourceFile]) -> Result<(), LoadError> {
-    let mut modules = BTreeMap::<&str, &str>::new();
-    for file in files {
-        for module in &file.modules {
-            if let Some(first_source) = modules.insert(&module.name, &file.source) {
+struct FirstModule<'a> {
+    source: &'a str,
+    basename: Option<&'a OsStr>,
+    location: Location,
+    module: &'a super::Module,
+    normalized: Option<super::Module>,
+}
+
+/// Validate same-named declarations and build a lowering view only when equivalent copies exist.
+///
+/// K permits copied modules from distinct directories when their final filename, outer location,
+/// and canonical module contents agree. The original files remain the provenance record; only the
+/// later equivalent declaration is omitted from lowering.
+fn validate_and_select_modules(files: &[SourceFile]) -> Result<Option<Vec<SourceFile>>, LoadError> {
+    let mut modules = BTreeMap::<&str, FirstModule<'_>>::new();
+    let mut equivalent_duplicates = BTreeSet::new();
+    for (file_index, file) in files.iter().enumerate() {
+        let basename = Path::new(&file.source).file_name();
+        for (module_index, module) in file.modules.iter().enumerate() {
+            let Some(first) = modules.get_mut(module.name.as_str()) else {
+                modules.insert(
+                    module.name.as_str(),
+                    FirstModule {
+                        source: &file.source,
+                        basename,
+                        location: location(module.span),
+                        module,
+                        normalized: None,
+                    },
+                );
+                continue;
+            };
+
+            let normalized = normalize_module(module);
+            let first_normalized = first
+                .normalized
+                .get_or_insert_with(|| normalize_module(first.module));
+            let equivalent = first.basename.is_some()
+                && first.basename == basename
+                && first.location == location(module.span)
+                && &*first_normalized == &normalized;
+            if !equivalent {
                 return Err(LoadError::DuplicateModule {
                     name: module.name.clone(),
-                    first_source: first_source.to_owned(),
+                    first_source: first.source.to_owned(),
                     second_source: file.source.clone(),
                 });
             }
+            equivalent_duplicates.insert((file_index, module_index));
         }
     }
-    Ok(())
+
+    if equivalent_duplicates.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(
+        files
+            .iter()
+            .enumerate()
+            .map(|(file_index, file)| {
+                let mut selected = file.clone();
+                selected.modules = file
+                    .modules
+                    .iter()
+                    .enumerate()
+                    .filter(|(module_index, _)| {
+                        !equivalent_duplicates.contains(&(file_index, *module_index))
+                    })
+                    .map(|(_, module)| module.clone())
+                    .collect();
+                selected
+            })
+            .collect(),
+    ))
+}
+
+const IGNORED_SPAN: Span = Span {
+    start: Position {
+        offset: 0,
+        line: 0,
+        column: 0,
+    },
+    end: Position {
+        offset: 0,
+        line: 0,
+        column: 0,
+    },
+};
+
+fn normalize_module(module: &super::Module) -> super::Module {
+    let mut module = module.clone();
+    module.span = IGNORED_SPAN;
+    sort_attributes(&mut module.attributes);
+    for import in &mut module.imports {
+        import.span = IGNORED_SPAN;
+    }
+    for sentence in &mut module.sentences {
+        match sentence {
+            OuterSentence::Syntax(syntax) => {
+                syntax.span = IGNORED_SPAN;
+                if matches!(&syntax.body, SyntaxBody::Synonym { .. }) {
+                    // The legacy KIL SortSynonym keeps only the new and old sorts; declaration
+                    // parameters parsed before the new sort do not participate in Module.digest().
+                    syntax.parameters.clear();
+                }
+                match &mut syntax.body {
+                    SyntaxBody::Sort(attributes) => sort_attributes(attributes),
+                    SyntaxBody::Productions(blocks) => {
+                        for block in blocks {
+                            block.span = IGNORED_SPAN;
+                            for production in &mut block.productions {
+                                production.span = IGNORED_SPAN;
+                                sort_attributes(&mut production.attributes);
+                            }
+                        }
+                    }
+                    SyntaxBody::Synonym { attributes, .. } => sort_attributes(attributes),
+                }
+            }
+            OuterSentence::Priority(priority) => priority.span = IGNORED_SPAN,
+            OuterSentence::Associativity(associativity) => {
+                associativity.span = IGNORED_SPAN;
+            }
+            OuterSentence::Lexical(lexical) => {
+                lexical.span = IGNORED_SPAN;
+                sort_attributes(&mut lexical.attributes);
+            }
+            OuterSentence::Bubble(bubble) => {
+                bubble.content_span = IGNORED_SPAN;
+                bubble.span = IGNORED_SPAN;
+                sort_attributes(&mut bubble.attributes);
+            }
+        }
+    }
+    module
+}
+
+fn sort_attributes(attributes: &mut [super::Attribute]) {
+    for attribute in &mut *attributes {
+        if attribute.value.as_deref() == Some("") {
+            attribute.value = None;
+        }
+    }
+    attributes.sort_by(|left, right| (&left.key, &left.value).cmp(&(&right.key, &right.value)));
 }
 
 #[cfg(test)]

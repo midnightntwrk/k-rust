@@ -231,6 +231,227 @@ fn canonical_source_identity_deduplicates_diamond_leaves() {
     );
 }
 
+#[cfg(feature = "cli")]
+#[test]
+fn equivalent_duplicate_modules_accept_native_file_copies() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/outer/equivalent-duplicate-module-copy");
+    let mut resolver =
+        k_rust::native::FileResolver::new(&root, std::iter::empty::<std::path::PathBuf>());
+    let entry = resolver.load_entry(root.join("main.k")).unwrap();
+    let loaded = load(entry, "MAIN", &mut resolver).unwrap();
+
+    assert_eq!(
+        loaded
+            .definition
+            .modules
+            .iter()
+            .filter(|module| module.name == "SHARED")
+            .count(),
+        1
+    );
+    assert!(
+        loaded
+            .definition
+            .modules
+            .iter()
+            .any(|module| module.name == "SIBLING")
+    );
+    assert_eq!(loaded.files.len(), 3);
+}
+
+#[test]
+fn equivalent_duplicate_modules_retain_sources_siblings_and_first_provenance() {
+    let left = indoc! {r#"
+        module SHARED
+          syntax Value ::= "value" [symbol(value), unused]
+        endmodule
+    "#};
+    let right = indoc! {r#"
+        module SHARED
+        syntax   Value::=   "value" [unused(), symbol(value)]
+        endmodule
+
+        module SIBLING endmodule
+    "#};
+    let sources = BTreeMap::from([("left/shared.k", left), ("right/shared.k", right)]);
+    let mut resolver = |_: &str, required: &str| {
+        sources
+            .get(required)
+            .map(|text| ResolvedSource::new(required, *text))
+            .ok_or_else(|| "not found".to_owned())
+    };
+    let loaded = load(
+        ResolvedSource::new(
+            "main.k",
+            indoc! {r#"
+                requires "left/shared.k"
+                requires "right/shared.k"
+                module MAIN
+                  imports SHARED
+                  imports SIBLING
+                endmodule
+            "#},
+        ),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+
+    let shared = loaded
+        .definition
+        .modules
+        .iter()
+        .filter(|module| module.name == "SHARED")
+        .collect::<Vec<_>>();
+    assert_eq!(shared.len(), 1);
+    assert_eq!(shared[0].attributes.source(), Some("left/shared.k"));
+    assert_eq!(
+        shared[0].attributes.source_id(),
+        Some(loaded.files[0].source_id)
+    );
+    assert!(
+        loaded
+            .definition
+            .modules
+            .iter()
+            .any(|module| module.name == "SIBLING")
+    );
+    assert_eq!(
+        loaded
+            .files
+            .iter()
+            .map(|file| file.source.as_str())
+            .collect::<Vec<_>>(),
+        ["left/shared.k", "right/shared.k", "main.k"]
+    );
+    assert_eq!(loaded.files[1].modules.len(), 2);
+    assert_eq!(loaded.source_table.iter().len(), 3);
+}
+
+#[test]
+fn equivalent_duplicate_modules_follow_kil_sort_synonym_content() {
+    let sources = BTreeMap::from([
+        (
+            "left/shared.k",
+            "module SHARED\n  syntax {A} New = Old\nendmodule",
+        ),
+        (
+            "right/shared.k",
+            "module SHARED\n  syntax {B} New = Old\nendmodule",
+        ),
+    ]);
+    let mut resolver = |_: &str, required: &str| {
+        sources
+            .get(required)
+            .map(|text| ResolvedSource::new(required, *text))
+            .ok_or_else(|| "not found".to_owned())
+    };
+    let loaded = load(
+        ResolvedSource::new(
+            "main.k",
+            indoc! {r#"
+                requires "left/shared.k"
+                requires "right/shared.k"
+                module MAIN imports SHARED endmodule
+            "#},
+        ),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap();
+
+    assert_eq!(
+        loaded
+            .definition
+            .modules
+            .iter()
+            .filter(|module| module.name == "SHARED")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn duplicate_modules_reject_each_changed_equivalence_component() {
+    let cases = [
+        (
+            "right/copied.k",
+            "module SHARED endmodule",
+            "module SHARED endmodule",
+        ),
+        (
+            "right/shared.k",
+            "module SHARED endmodule",
+            "\nmodule SHARED endmodule",
+        ),
+        (
+            "right/shared.k",
+            "module SHARED\n  syntax A\nendmodule",
+            "module SHARED\n  syntax B\nendmodule",
+        ),
+    ];
+    for (second_source, first_text, second_text) in cases {
+        let sources = BTreeMap::from([("left/shared.k", first_text), (second_source, second_text)]);
+        let mut resolver = |_: &str, required: &str| {
+            sources
+                .get(required)
+                .map(|text| ResolvedSource::new(required, *text))
+                .ok_or_else(|| "not found".to_owned())
+        };
+        let entry = format!(
+            "requires \"left/shared.k\"\nrequires \"{second_source}\"\nmodule MAIN endmodule"
+        );
+        let error = load(ResolvedSource::new("main.k", entry), "MAIN", &mut resolver).unwrap_err();
+        assert_eq!(
+            error,
+            LoadError::DuplicateModule {
+                name: "SHARED".into(),
+                first_source: "left/shared.k".into(),
+                second_source: second_source.into(),
+            }
+        );
+    }
+}
+
+#[test]
+fn duplicate_modules_reject_a_changed_third_declaration() {
+    let sources = BTreeMap::from([
+        ("left/shared.k", "module SHARED endmodule"),
+        ("middle/shared.k", "module SHARED endmodule"),
+        ("right/shared.k", "module SHARED [private] endmodule"),
+    ]);
+    let mut resolver = |_: &str, required: &str| {
+        sources
+            .get(required)
+            .map(|text| ResolvedSource::new(required, *text))
+            .ok_or_else(|| "not found".to_owned())
+    };
+    let error = load(
+        ResolvedSource::new(
+            "main.k",
+            indoc! {r#"
+                requires "left/shared.k"
+                requires "middle/shared.k"
+                requires "right/shared.k"
+                module MAIN endmodule
+            "#},
+        ),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        LoadError::DuplicateModule {
+            name: "SHARED".into(),
+            first_source: "left/shared.k".into(),
+            second_source: "right/shared.k".into(),
+        }
+    );
+}
+
 #[test]
 fn load_time_warnings_fail_the_load_under_warnings_to_errors() {
     let source = indoc! {r#"
