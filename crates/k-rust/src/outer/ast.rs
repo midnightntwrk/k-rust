@@ -60,6 +60,7 @@ pub enum Sentence {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SyntaxDeclaration {
+    pub name: Option<String>,
     pub parameters: Vec<Sort>,
     pub sort: Sort,
     pub body: SyntaxBody,

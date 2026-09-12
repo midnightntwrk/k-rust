@@ -16,6 +16,7 @@ SourceFile {
             sentences: [
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Text",

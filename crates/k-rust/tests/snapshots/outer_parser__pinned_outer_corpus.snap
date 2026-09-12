@@ -49,6 +49,7 @@ SourceFile {
             sentences: [
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Program",
@@ -139,6 +140,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Pair",
@@ -235,6 +237,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Exp",
@@ -394,6 +397,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Exps",
@@ -474,6 +478,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Ints",
@@ -541,6 +546,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Exp",

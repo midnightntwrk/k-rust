@@ -105,7 +105,7 @@ impl<'a> Parser<'a> {
     fn module(&mut self) -> Result<Module, ParseError> {
         self.expect_word("module")?;
         let start = self.last_start;
-        let name = self.unrestricted_word()?;
+        let name = self.module_name()?;
         let attributes = if self.peek_char_after_trivia()? == Some('[') {
             self.attributes()?
         } else {
@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
         } else {
             !module_is_private
         };
-        let module = self.unrestricted_word()?;
+        let module = self.module_name()?;
         Ok(Import {
             module,
             public,
@@ -188,18 +188,17 @@ impl<'a> Parser<'a> {
             }));
         }
         if self.consume_word("lexical") {
-            let name = self.word()?;
+            let name = self.sort_id()?.1.name;
             self.expect_char('=')?;
             let regex = self.regex()?;
-            let attributes = if self.peek_char_after_trivia()? == Some('[') {
-                self.attributes()?
-            } else {
-                Vec::new()
-            };
+            if self.peek_char_after_trivia()? == Some('[') {
+                self.skip_trivia()?;
+                return Err(self.error("syntax lexical does not accept attributes"));
+            }
             return Ok(Sentence::Lexical(SyntaxLexical {
                 name,
                 regex,
-                attributes,
+                attributes: Vec::new(),
                 span: self.span(start, self.offset),
             }));
         }
@@ -209,14 +208,14 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        let sort = self.sort()?;
+        let (name, sort) = self.sort_id()?;
         let sort_end = self.offset;
         self.skip_trivia()?;
         let (body, end) = if self.consume("::=") {
             let blocks = self.priority_blocks()?;
             (SyntaxBody::Productions(blocks), self.offset)
         } else if self.consume("=") {
-            let old_sort = self.sort()?;
+            let old_sort = self.sort_id()?.1;
             let attributes = if self.peek_char_after_trivia()? == Some('[') {
                 self.attributes()?
             } else {
@@ -238,7 +237,13 @@ impl<'a> Parser<'a> {
             };
             (SyntaxBody::Sort(attributes), end)
         };
+        let name = if matches!(&body, SyntaxBody::Synonym { .. }) {
+            None
+        } else {
+            name
+        };
         Ok(Sentence::Syntax(SyntaxDeclaration {
+            name,
             parameters,
             sort,
             body,
@@ -287,12 +292,18 @@ impl<'a> Parser<'a> {
         self.skip_trivia()?;
         let start = self.offset;
         let mut items = Vec::new();
+        let mut function_style = false;
         while !self.done() {
             let before_trivia = self.offset;
             self.skip_trivia()?;
             if self.at_default_sentence_boundary() {
                 self.offset = before_trivia;
                 break;
+            }
+            if function_style
+                && !matches!(self.peek_char(), Some('|') | Some('>') | Some('[') | None)
+            {
+                return Err(self.error("function-style production must be the whole production"));
             }
             match self.peek_char() {
                 Some('|') | Some('>') | Some('[') | None => {
@@ -303,7 +314,14 @@ impl<'a> Parser<'a> {
                 Some('(') => {
                     self.expect_char('(')?;
                     items.push(ProductionItem::Terminal("(".into()));
-                    for (index, item) in self.nonterminals_until(')')?.into_iter().enumerate() {
+                    let arguments = self.nonterminals_until(')')?;
+                    if arguments.is_empty() {
+                        return Err(self.error_at(
+                            self.offset - ')'.len_utf8(),
+                            "parenthesized production requires at least one sort",
+                        ));
+                    }
+                    for (index, item) in arguments.into_iter().enumerate() {
                         if index > 0 {
                             items.push(ProductionItem::Terminal(",".into()));
                         }
@@ -317,27 +335,49 @@ impl<'a> Parser<'a> {
                         self.expect_word("List")?;
                     }
                     self.expect_char('{')?;
-                    let sort = self.sort()?;
+                    self.skip_trivia()?;
+                    let sort_start = self.offset;
+                    let sort_name = self.word()?;
+                    if !is_upper_identifier(&sort_name) {
+                        return Err(self.error_at(sort_start, "invalid list element sort name"));
+                    }
+                    if self.peek_char_after_trivia()? == Some('{') {
+                        self.skip_trivia()?;
+                        return Err(self.error("list element sort cannot have parameters"));
+                    }
                     self.expect_char(',')?;
                     let separator = self.quoted()?;
                     self.expect_char('}')?;
                     items.push(ProductionItem::UserList {
-                        sort,
+                        sort: Sort::new(sort_name),
                         separator,
                         non_empty,
                     });
                 }
                 _ if self.peek_regex() => items.push(ProductionItem::Regex(self.regex()?)),
                 _ => {
+                    let identifier_start = self.offset;
                     let first = self.word()?;
                     let after_first = self.offset;
                     self.skip_trivia()?;
                     if self.consume(":") {
+                        if !is_outer_identifier(&first) {
+                            return Err(self.error_at(identifier_start, "invalid nonterminal name"));
+                        }
                         items.push(ProductionItem::NonTerminal {
                             name: Some(first),
                             sort: self.sort()?,
                         });
                     } else if self.consume("(") {
+                        if !items.is_empty() {
+                            return Err(self.error_at(
+                                identifier_start,
+                                "function-style production must be the whole production",
+                            ));
+                        }
+                        if !is_outer_identifier(&first) {
+                            return Err(self.error_at(identifier_start, "invalid production name"));
+                        }
                         items.push(ProductionItem::Terminal(first));
                         items.push(ProductionItem::Terminal("(".into()));
                         let arguments = self.nonterminals_until(')')?;
@@ -348,12 +388,10 @@ impl<'a> Parser<'a> {
                             items.push(argument);
                         }
                         items.push(ProductionItem::Terminal(")".into()));
+                        function_style = true;
                     } else {
                         self.offset = after_first;
-                        let mut sort = Sort::new(first);
-                        if self.peek_char_after_trivia()? == Some('{') {
-                            sort.parameters = self.sort_list('{', '}')?;
-                        }
+                        let sort = self.finish_sort(identifier_start, first)?;
                         items.push(ProductionItem::NonTerminal { name: None, sort });
                     }
                 }
@@ -559,8 +597,39 @@ impl<'a> Parser<'a> {
     }
 
     fn sort(&mut self) -> Result<Sort, ParseError> {
+        self.skip_trivia()?;
+        let start = self.offset;
         let name = self.word()?;
+        self.finish_sort(start, name)
+    }
+
+    fn sort_id(&mut self) -> Result<(Option<String>, Sort), ParseError> {
+        self.skip_trivia()?;
+        let start = self.offset;
+        let first = self.word()?;
+        let after_first = self.offset;
+        self.skip_trivia()?;
+        if self.starts_with(":") && !self.starts_with("::=") {
+            self.expect_raw(':')?;
+            if !is_outer_identifier(&first) {
+                return Err(self.error_at(start, "invalid nonterminal name"));
+            }
+            Ok((Some(first), self.sort()?))
+        } else {
+            self.offset = after_first;
+            Ok((None, self.finish_sort(start, first)?))
+        }
+    }
+
+    fn finish_sort(&mut self, start: usize, name: String) -> Result<Sort, ParseError> {
+        if !is_sort_name(&name) {
+            return Err(self.error_at(start, "invalid sort name"));
+        }
         let parameters = if self.peek_char_after_trivia()? == Some('{') {
+            if name.chars().all(|ch| ch.is_ascii_digit()) {
+                self.skip_trivia()?;
+                return Err(self.error("numeric sort cannot take parameters"));
+            }
             self.sort_list('{', '}')?
         } else {
             Vec::new()
@@ -577,7 +646,10 @@ impl<'a> Parser<'a> {
         let mut sorts = Vec::new();
         self.skip_trivia()?;
         if self.consume(&close.to_string()) {
-            return Ok(sorts);
+            return Err(self.error_at(
+                self.offset - close.len_utf8(),
+                "sort parameter list requires at least one sort",
+            ));
         }
         loop {
             sorts.push(self.sort()?);
@@ -597,17 +669,17 @@ impl<'a> Parser<'a> {
             return Ok(items);
         }
         loop {
+            self.skip_trivia()?;
+            let identifier_start = self.offset;
             let first = self.word()?;
             self.skip_trivia()?;
             let (name, sort) = if self.consume(":") {
+                if !is_outer_identifier(&first) {
+                    return Err(self.error_at(identifier_start, "invalid nonterminal name"));
+                }
                 (Some(first), self.sort()?)
             } else {
-                let parameters = if self.peek_char_after_trivia()? == Some('{') {
-                    self.sort_list('{', '}')?
-                } else {
-                    Vec::new()
-                };
-                (None, Sort::with_parameters(first, parameters))
+                (None, self.finish_sort(identifier_start, first)?)
             };
             items.push(ProductionItem::NonTerminal { name, sort });
             self.skip_trivia()?;
@@ -793,6 +865,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn module_name(&mut self) -> Result<String, ParseError> {
+        self.skip_trivia()?;
+        let start = self.offset;
+        let name = self.unrestricted_word()?;
+        if is_module_name(&name) {
+            Ok(name)
+        } else {
+            Err(self.error_at(start, "invalid module name"))
+        }
+    }
+
     fn expect_word(&mut self, word: &str) -> Result<(), ParseError> {
         self.skip_trivia()?;
         if self.consume_word(word) {
@@ -946,6 +1029,13 @@ impl<'a> Parser<'a> {
             fatal: false,
         }
     }
+    fn error_at(&self, offset: usize, message: impl Into<String>) -> ParseError {
+        ParseError {
+            message: message.into(),
+            position: self.position(offset),
+            fatal: false,
+        }
+    }
     fn fatal_error(&self, message: impl Into<String>) -> ParseError {
         ParseError {
             message: message.into(),
@@ -953,6 +1043,49 @@ impl<'a> Parser<'a> {
             fatal: true,
         }
     }
+}
+
+fn without_optional_hash(identifier: &str) -> &str {
+    identifier.strip_prefix('#').unwrap_or(identifier)
+}
+
+fn is_outer_identifier(identifier: &str) -> bool {
+    let identifier = without_optional_hash(identifier);
+    let mut chars = identifier.chars();
+    chars.next().is_some_and(|ch| ch.is_ascii_alphabetic())
+        && chars.all(|ch| ch.is_ascii_alphanumeric())
+}
+
+fn is_upper_identifier(identifier: &str) -> bool {
+    let identifier = without_optional_hash(identifier);
+    let mut chars = identifier.chars();
+    chars.next().is_some_and(|ch| ch.is_ascii_uppercase())
+        && chars.all(|ch| ch.is_ascii_alphanumeric())
+}
+
+fn is_sort_name(name: &str) -> bool {
+    (!name.is_empty() && name.chars().all(|ch| ch.is_ascii_digit())) || is_upper_identifier(name)
+}
+
+fn is_module_name(name: &str) -> bool {
+    if matches!(name, "private" | "public") {
+        return false;
+    }
+    let mut segments = name.split('-');
+    let Some(first) = segments.next() else {
+        return false;
+    };
+    let mut first_chars = first.chars();
+    first_chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic())
+        && first_chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        && segments.all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
 }
 
 /// Return `[` offsets which occur in code rather than strings or comments.

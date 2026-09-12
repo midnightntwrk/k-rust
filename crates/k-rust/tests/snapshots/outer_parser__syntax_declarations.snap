@@ -1,6 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_parser.rs
-description: "K source:\n\nmodule SYNTAX\n  syntax {S} List{S}\n  syntax NonEmpty = List\n  syntax Id ::= r\"[a-zA-Z][a-zA-Z0-9]*\" [token]\n  syntax Exps ::= List{Exp, \",\"} [klabel(exps)]\n  syntax Exp ::= left: Exp \"+\" Exp [left, klabel(_+_)]\n               | name:Id\n               > \"(\" Exp \")\" [bracket]\n  syntax priority _*_ > _+_ _-_\n  syntax left _+_ _-_\n  syntax lexical Identifier = r\"[a-z]+\" [prec(1)]\nendmodule\n"
+description: "K source:\n\nmodule SYNTAX\n  syntax {S} List{S}\n  syntax NonEmpty = List\n  syntax Id ::= r\"[a-zA-Z][a-zA-Z0-9]*\" [token]\n  syntax Exps ::= List{Exp, \",\"} [klabel(exps)]\n  syntax Exp ::= left: Exp \"+\" Exp [left, klabel(_+_)]\n               | name:Id\n               > \"(\" Exp \")\" [bracket]\n  syntax priority _*_ > _+_ _-_\n  syntax left _+_ _-_\n  syntax lexical Identifier = r\"[a-z]+\"\nendmodule\n"
 ---
 SourceFile {
     source: "syntax_declarations.k",
@@ -16,6 +16,7 @@ SourceFile {
             sentences: [
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [
                             Sort {
                                 name: "S",
@@ -50,6 +51,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "NonEmpty",
@@ -78,6 +80,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Id",
@@ -145,6 +148,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Exps",
@@ -219,6 +223,7 @@ SourceFile {
                 ),
                 Syntax(
                     SyntaxDeclaration {
+                        name: None,
                         parameters: [],
                         sort: Sort {
                             name: "Exp",
@@ -432,14 +437,7 @@ SourceFile {
                     SyntaxLexical {
                         name: "Identifier",
                         regex: "[a-z]+",
-                        attributes: [
-                            Attribute {
-                                key: "prec",
-                                value: Some(
-                                    "1",
-                                ),
-                            },
-                        ],
+                        attributes: [],
                         span: Span {
                             start: Position {
                                 offset: 331,
@@ -447,9 +445,9 @@ SourceFile {
                                 column: 3,
                             },
                             end: Position {
-                                offset: 378,
+                                offset: 368,
                                 line: 11,
-                                column: 50,
+                                column: 40,
                             },
                         },
                     },
@@ -462,7 +460,7 @@ SourceFile {
                     column: 1,
                 },
                 end: Position {
-                    offset: 388,
+                    offset: 378,
                     line: 12,
                     column: 10,
                 },

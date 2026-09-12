@@ -373,6 +373,48 @@ fn equivalent_duplicate_modules_follow_kil_sort_synonym_content() {
 }
 
 #[test]
+fn duplicate_modules_distinguish_named_regular_syntax_declarations() {
+    let sources = BTreeMap::from([
+        (
+            "left/shared.k",
+            "module SHARED\n  syntax foo:Sort ::= \"x\"\nendmodule",
+        ),
+        (
+            "right/shared.k",
+            "module SHARED\n  syntax bar:Sort ::= \"x\"\nendmodule",
+        ),
+    ]);
+    let mut resolver = |_: &str, required: &str| {
+        sources
+            .get(required)
+            .map(|text| ResolvedSource::new(required, *text))
+            .ok_or_else(|| "not found".to_owned())
+    };
+    let error = load(
+        ResolvedSource::new(
+            "main.k",
+            indoc! {r#"
+                requires "left/shared.k"
+                requires "right/shared.k"
+                module MAIN endmodule
+            "#},
+        ),
+        "MAIN",
+        &mut resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        LoadError::DuplicateModule {
+            name: "SHARED".into(),
+            first_source: "left/shared.k".into(),
+            second_source: "right/shared.k".into(),
+        }
+    );
+}
+
+#[test]
 fn duplicate_modules_reject_each_changed_equivalence_component() {
     let cases = [
         (

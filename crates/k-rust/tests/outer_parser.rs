@@ -340,10 +340,194 @@ outer_snapshot!(
                    > "(" Exp ")" [bracket]
       syntax priority _*_ > _+_ _-_
       syntax left _+_ _-_
-      syntax lexical Identifier = r"[a-z]+" [prec(1)]
+      syntax lexical Identifier = r"[a-z]+"
     endmodule
 "#}
 );
+
+#[test]
+fn strict_outer_rejects_invalid_module_names() {
+    for (source, invalid) in [
+        ("module 1MAIN\n  syntax Foo ::= \"x\"\nendmodule\n", "1MAIN"),
+        (
+            "module MAIN\n  imports LIB-\n  syntax Foo ::= \"x\"\nendmodule\n",
+            "LIB-",
+        ),
+        (
+            "module public\n  syntax Foo ::= \"x\"\nendmodule\n",
+            "public",
+        ),
+    ] {
+        let error = parse("invalid-module-name.k", source).unwrap_err();
+        assert_eq!(error.message, "invalid module name");
+        assert_eq!(error.position.offset, source.find(invalid).unwrap());
+    }
+}
+
+#[test]
+fn strict_outer_accepts_identifier_boundaries() {
+    let source = indoc! {r#"
+        module M_1-2_X
+          syntax #Foo
+          syntax 123
+          syntax Bar
+          syntax Result ::= #foo(Bar) | #field:Bar
+        endmodule
+    "#};
+    let parsed = parse("valid-outer-identifiers.k", source).unwrap();
+
+    assert_eq!(parsed.modules[0].name, "M_1-2_X");
+    let Sentence::Syntax(hash_sort) = &parsed.modules[0].sentences[0] else {
+        panic!("expected #Foo declaration")
+    };
+    let Sentence::Syntax(numeric_sort) = &parsed.modules[0].sentences[1] else {
+        panic!("expected numeric sort declaration")
+    };
+    assert_eq!(hash_sort.sort.name, "#Foo");
+    assert_eq!(numeric_sort.sort.name, "123");
+}
+
+#[test]
+fn strict_outer_rejects_invalid_sort_and_production_identifiers() {
+    for (source, message, invalid) in [
+        (
+            "module MAIN\n  syntax foo ::= \"x\"\nendmodule\n",
+            "invalid sort name",
+            "foo",
+        ),
+        (
+            "module MAIN\n  syntax Foo_Bar ::= \"x\"\nendmodule\n",
+            "invalid sort name",
+            "Foo_Bar",
+        ),
+        (
+            "module MAIN\n  syntax Foo ::= bar\nendmodule\n",
+            "invalid sort name",
+            "bar",
+        ),
+        (
+            "module MAIN\n  syntax Bar\n  syntax Foo ::= x_y:Bar\nendmodule\n",
+            "invalid nonterminal name",
+            "x_y",
+        ),
+        (
+            "module MAIN\n  syntax Bar\n  syntax Foo ::= foo_bar(Bar)\nendmodule\n",
+            "invalid production name",
+            "foo_bar",
+        ),
+    ] {
+        let error = parse("invalid-outer-identifier.k", source).unwrap_err();
+        assert_eq!(error.message, message, "source:\n{source}");
+        assert_eq!(
+            error.position.offset,
+            source.find(invalid).unwrap(),
+            "source:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn strict_outer_accepts_named_and_parameterized_sort_ids() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax child:Child ::= "x"
+          syntax lexical token:Token = r"x"
+          syntax lexical Parametric{Parameter} = r"y"
+          syntax newSort:NewSort = oldSort:OldSort
+        endmodule
+    "#};
+    let parsed = parse("valid-named-sort-ids.k", source).unwrap();
+    let [
+        Sentence::Syntax(syntax),
+        Sentence::Lexical(named_lexical),
+        Sentence::Lexical(parameterized_lexical),
+        Sentence::Syntax(synonym),
+    ] = parsed.modules[0].sentences.as_slice()
+    else {
+        panic!("expected two syntax and two lexical declarations")
+    };
+
+    assert_eq!(syntax.sort.name, "Child");
+    assert_eq!(syntax.name.as_deref(), Some("child"));
+    assert_eq!(named_lexical.name, "Token");
+    assert_eq!(parameterized_lexical.name, "Parametric");
+    assert_eq!(synonym.sort.name, "NewSort");
+    let k_rust::outer::SyntaxBody::Synonym { old_sort, .. } = &synonym.body else {
+        panic!("expected a sort synonym")
+    };
+    assert_eq!(old_sort.name, "OldSort");
+    assert_eq!(synonym.name, None);
+}
+
+#[test]
+fn strict_outer_rejects_unsupported_production_forms() {
+    for (source, message, invalid) in [
+        (
+            "module MAIN\n  syntax Foo ::= ()\nendmodule\n",
+            "parenthesized production requires at least one sort",
+            ")",
+        ),
+        (
+            "module MAIN\n  syntax Bar\n  syntax Foo ::= foo(Bar) \"x\"\nendmodule\n",
+            "function-style production must be the whole production",
+            "\"x\"",
+        ),
+    ] {
+        let error = parse("invalid-production-form.k", source).unwrap_err();
+        assert_eq!(error.message, message);
+        assert_eq!(error.position.offset, source.find(invalid).unwrap());
+    }
+}
+
+#[test]
+fn strict_outer_rejects_lexical_attributes_and_parameterized_list_elements() {
+    for (source, message, invalid) in [
+        (
+            "module MAIN\n  syntax lexical Identifier = r\"[a-z]+\" [prec(1)]\nendmodule\n",
+            "syntax lexical does not accept attributes",
+            "[prec(1)]",
+        ),
+        (
+            "module MAIN\n  syntax Ss ::= List{S{T}, \",\"}\nendmodule\n",
+            "list element sort cannot have parameters",
+            "{T},",
+        ),
+    ] {
+        let error = parse("invalid-special-production.k", source).unwrap_err();
+        assert_eq!(error.message, message);
+        assert_eq!(error.position.offset, source.find(invalid).unwrap());
+    }
+}
+
+#[test]
+fn strict_outer_rejects_empty_and_numeric_sort_parameters() {
+    for (source, message, invalid) in [
+        (
+            "module MAIN\n  syntax {} Foo ::= \"x\"\nendmodule\n",
+            "sort parameter list requires at least one sort",
+            "}",
+        ),
+        (
+            "module MAIN\n  syntax Foo{} ::= \"x\"\nendmodule\n",
+            "sort parameter list requires at least one sort",
+            "}",
+        ),
+        (
+            "module MAIN\n  syntax Foo ::= Bar{}\nendmodule\n",
+            "sort parameter list requires at least one sort",
+            "}",
+        ),
+        (
+            "module MAIN\n  syntax Foo ::= 123{Bar}\nendmodule\n",
+            "numeric sort cannot take parameters",
+            "{Bar}",
+        ),
+    ] {
+        let error = parse("invalid-sort-parameters.k", source).unwrap_err();
+        assert_eq!(error.message, message);
+        assert_eq!(error.position.offset, source.find(invalid).unwrap());
+    }
+}
 
 outer_snapshot!(
     bubbles,
