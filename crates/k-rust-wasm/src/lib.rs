@@ -683,6 +683,68 @@ mod tests {
     }
 
     #[test]
+    fn loads_equivalent_duplicate_modules_through_virtual_requires() {
+        let mut resolver = VirtualResolver::new(vec![
+            Source {
+                name: "definitions/left/shared.k".to_owned(),
+                text: "module SHARED endmodule".to_owned(),
+            },
+            Source {
+                name: "definitions/right/shared.k".to_owned(),
+                text: "module SHARED endmodule\n\nmodule SIBLING endmodule".to_owned(),
+            },
+        ]);
+        let loaded = load_with_options(
+            ResolvedSource::new(
+                "definitions/main.k",
+                r#"requires "left/shared.k"
+requires "right/shared.k"
+module MAIN
+  imports SHARED
+  imports SIBLING
+endmodule"#,
+            ),
+            "MAIN",
+            &mut resolver,
+            &LoadOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            loaded
+                .definition
+                .modules
+                .iter()
+                .filter(|module| module.name == "SHARED")
+                .count(),
+            1
+        );
+        let siblings = loaded
+            .definition
+            .modules
+            .iter()
+            .filter(|module| module.name == "SIBLING")
+            .collect::<Vec<_>>();
+        assert_eq!(siblings.len(), 1);
+        assert_eq!(
+            siblings[0].attributes.source(),
+            Some("definitions/right/shared.k")
+        );
+        assert_eq!(
+            loaded
+                .files
+                .iter()
+                .map(|file| file.source.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "definitions/left/shared.k",
+                "definitions/right/shared.k",
+                "definitions/main.k",
+            ]
+        );
+    }
+
+    #[test]
     fn presents_inferred_parametric_labels_like_reference_kast() {
         let result = parse_program(
             r#"{
