@@ -506,6 +506,7 @@ struct PackedTerm {
 
 #[cfg(test)]
 thread_local! {
+    static CHART_WORK_COUNTERS: Cell<ChartWorkCounters> = const { Cell::new(ChartWorkCounters::ZERO) };
     static PACKED_STRUCTURAL_COMPARISONS: Cell<usize> = const { Cell::new(0) };
     static UNPACKED_NODES: Cell<usize> = const { Cell::new(0) };
     static PACKED_APPLICATION_RESOLUTIONS: Cell<usize> = const { Cell::new(0) };
@@ -516,6 +517,120 @@ thread_local! {
     static PREDICTION_ANALYSIS_BUILDS: Cell<usize> = const { Cell::new(0) };
     static TERMINAL_PREDICTIONS_SKIPPED: Cell<usize> = const { Cell::new(0) };
     static NONTERMINAL_PREDICTIONS_SKIPPED: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ChartWorkCounters {
+    add_calls: usize,
+    new_state_changes: usize,
+    existing_state_growth_changes: usize,
+    agenda_enqueues: usize,
+    agenda_pops: usize,
+    revisit_pops: usize,
+    derivations_read: usize,
+    revisit_derivations_read: usize,
+    relocation_derivations_read: usize,
+    relocation_revisit_derivations_read: usize,
+    nonterminal_derivations_read: usize,
+    nonterminal_revisit_derivations_read: usize,
+    scan_derivations_read: usize,
+    scan_revisit_derivations_read: usize,
+    completion_derivations_read: usize,
+    completion_revisit_derivations_read: usize,
+    primary_completion_candidates: usize,
+    helper_completion_candidates: usize,
+    completed_nodes_calls: usize,
+    completed_nodes_hits: usize,
+    completed_nodes_misses: usize,
+    completed_nodes_invalidation_entries: usize,
+    completion_caller_derivations_read: usize,
+}
+
+#[cfg(test)]
+impl ChartWorkCounters {
+    const ZERO: Self = Self {
+        add_calls: 0,
+        new_state_changes: 0,
+        existing_state_growth_changes: 0,
+        agenda_enqueues: 0,
+        agenda_pops: 0,
+        revisit_pops: 0,
+        derivations_read: 0,
+        revisit_derivations_read: 0,
+        relocation_derivations_read: 0,
+        relocation_revisit_derivations_read: 0,
+        nonterminal_derivations_read: 0,
+        nonterminal_revisit_derivations_read: 0,
+        scan_derivations_read: 0,
+        scan_revisit_derivations_read: 0,
+        completion_derivations_read: 0,
+        completion_revisit_derivations_read: 0,
+        primary_completion_candidates: 0,
+        helper_completion_candidates: 0,
+        completed_nodes_calls: 0,
+        completed_nodes_hits: 0,
+        completed_nodes_misses: 0,
+        completed_nodes_invalidation_entries: 0,
+        completion_caller_derivations_read: 0,
+    };
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+enum ChartDispatchKind {
+    Relocation,
+    Nonterminal,
+    Scan,
+    Completion,
+}
+
+#[cfg(test)]
+fn update_chart_work_counters(update: impl FnOnce(&mut ChartWorkCounters)) {
+    let mut counters = CHART_WORK_COUNTERS.get();
+    update(&mut counters);
+    CHART_WORK_COUNTERS.set(counters);
+}
+
+#[cfg(test)]
+fn reset_chart_work_counters() {
+    CHART_WORK_COUNTERS.set(ChartWorkCounters::ZERO);
+}
+
+#[cfg(test)]
+fn chart_work_counters() -> ChartWorkCounters {
+    CHART_WORK_COUNTERS.get()
+}
+
+#[cfg(test)]
+fn record_chart_dispatch(kind: ChartDispatchKind, derivations: usize, revisit: bool) {
+    update_chart_work_counters(|counters| match kind {
+        ChartDispatchKind::Relocation => {
+            counters.relocation_derivations_read += derivations;
+            if revisit {
+                counters.relocation_revisit_derivations_read += derivations;
+            }
+        }
+        ChartDispatchKind::Nonterminal => {
+            counters.nonterminal_derivations_read += derivations;
+            if revisit {
+                counters.nonterminal_revisit_derivations_read += derivations;
+            }
+        }
+        ChartDispatchKind::Scan => {
+            counters.scan_derivations_read += derivations;
+            if revisit {
+                counters.scan_revisit_derivations_read += derivations;
+            }
+        }
+        ChartDispatchKind::Completion => {
+            counters.completion_derivations_read += derivations;
+            if revisit {
+                counters.completion_revisit_derivations_read += derivations;
+            }
+        }
+    });
 }
 
 impl PartialEq for PackedTerm {
@@ -1335,20 +1450,50 @@ impl Grammar {
             // Empty charts can lie inside a UTF-8 character; only evaluate layout on dispatch.
             let mut canonical_position = None;
             while let Some(state) = charts[position].agenda.pop_front() {
+                #[cfg(test)]
+                let revisit = {
+                    let revisit = !charts[position].popped.insert(state);
+                    update_chart_work_counters(|counters| {
+                        counters.agenda_pops += 1;
+                        if revisit {
+                            counters.revisit_pops += 1;
+                        }
+                    });
+                    revisit
+                };
                 let Some(derivations) = charts[position].states.get(&state).cloned() else {
                     continue;
+                };
+                #[cfg(test)]
+                let derivation_count = {
+                    let derivation_count = derivations.len();
+                    update_chart_work_counters(|counters| {
+                        counters.derivations_read += derivation_count;
+                        if revisit {
+                            counters.revisit_derivations_read += derivation_count;
+                        }
+                    });
+                    derivation_count
                 };
                 let production = &self.productions[state.production];
                 let canonical = *canonical_position.get_or_insert_with(|| {
                     self.canonical_position(input, position, &mut scanner_cache)
                 });
                 if state.dot < production.items.len() && canonical != position {
+                    #[cfg(test)]
+                    record_chart_dispatch(ChartDispatchKind::Relocation, derivation_count, revisit);
                     self.add_chart_state(&mut charts[canonical], state, derivations)?;
                     continue;
                 }
 
                 match production.items.get(state.dot) {
                     Some(Item::NonTerminal(sort)) => {
+                        #[cfg(test)]
+                        record_chart_dispatch(
+                            ChartDispatchKind::Nonterminal,
+                            derivation_count,
+                            revisit,
+                        );
                         if charts[position].predicted.insert(sort.clone()) {
                             for predicted in self.productions_for(sort) {
                                 if let Some(analysis) = prediction_analysis
@@ -1382,7 +1527,7 @@ impl Grammar {
                                     // This bucket's initial state would be new. Preserve its
                                     // snapshot invalidation so packed sharing and anonymous
                                     // inference identities follow the unfiltered parse.
-                                    charts[position].completed_nodes.get_mut().clear();
+                                    charts[position].invalidate_completed_nodes();
                                     *pruned = true;
                                     continue;
                                 }
@@ -1432,6 +1577,8 @@ impl Grammar {
                         }
                     }
                     Some(item) => {
+                        #[cfg(test)]
+                        record_chart_dispatch(ChartDispatchKind::Scan, derivation_count, revisit);
                         for end in self.scanner.matches(
                             &self.layout,
                             item,
@@ -1450,6 +1597,12 @@ impl Grammar {
                         }
                     }
                     None => {
+                        #[cfg(test)]
+                        record_chart_dispatch(
+                            ChartDispatchKind::Completion,
+                            derivation_count,
+                            revisit,
+                        );
                         if self.productive_unary_cycles.contains(&state.production) {
                             return Err(ParseError::CyclicParseForest);
                         }
@@ -1457,7 +1610,13 @@ impl Grammar {
                         let mut invalid = Vec::new();
                         for children in &derivations {
                             #[cfg(test)]
-                            CHART_COMPLETION_CANDIDATES.set(CHART_COMPLETION_CANDIDATES.get() + 1);
+                            {
+                                CHART_COMPLETION_CANDIDATES
+                                    .set(CHART_COMPLETION_CANDIDATES.get() + 1);
+                                update_chart_work_counters(|counters| {
+                                    counters.primary_completion_candidates += 1;
+                                });
+                            }
                             let term = build_packed_term(
                                 state.production,
                                 production,
@@ -1492,6 +1651,11 @@ impl Grammar {
                             })
                             .collect::<Vec<_>>();
                         for (caller, caller_derivations) in callers {
+                            #[cfg(test)]
+                            update_chart_work_counters(|counters| {
+                                counters.completion_caller_derivations_read +=
+                                    caller_derivations.len();
+                            });
                             let completed = self.filter_associative_boundary(
                                 caller,
                                 &nodes,
@@ -2393,6 +2557,8 @@ struct Chart {
     waiting: BTreeMap<Sort, Vec<State>>,
     completed: BTreeMap<Sort, Vec<State>>,
     agenda: VecDeque<State>,
+    #[cfg(test)]
+    popped: BTreeSet<State>,
     // Java exposes one completed node for each stable (sort, origin, end) chart boundary. Retain
     // that identity until the chart changes; `add` invalidates this snapshot before reprocessing.
     completed_nodes: RefCell<BTreeMap<CompletedNodeKey, CompletedNodeResult>>,
@@ -2406,6 +2572,8 @@ impl Default for Chart {
             waiting: BTreeMap::new(),
             completed: BTreeMap::new(),
             agenda: VecDeque::new(),
+            #[cfg(test)]
+            popped: BTreeSet::new(),
             completed_nodes: RefCell::new(BTreeMap::new()),
         }
     }
@@ -2544,15 +2712,28 @@ impl IntoIterator for Derivations {
 }
 
 impl Chart {
+    fn invalidate_completed_nodes(&mut self) {
+        let completed_nodes = self.completed_nodes.get_mut();
+        #[cfg(test)]
+        update_chart_work_counters(|counters| {
+            counters.completed_nodes_invalidation_entries += completed_nodes.len();
+        });
+        completed_nodes.clear();
+    }
+
     fn add(
         &mut self,
         state: State,
         derivations: impl IntoIterator<Item = Derivation>,
     ) -> Result<bool, ParseError> {
+        #[cfg(test)]
+        update_chart_work_counters(|counters| counters.add_calls += 1);
         let mut derivations = derivations.into_iter().peekable();
         if derivations.peek().is_none() {
             return Ok(false);
         }
+        #[cfg(test)]
+        let new_state = !self.states.contains_key(&state);
         let stored = self.states.entry(state).or_default();
         let mut changed = false;
         for derivation in derivations {
@@ -2561,7 +2742,16 @@ impl Chart {
         if !changed {
             return Ok(false);
         }
-        self.completed_nodes.get_mut().clear();
+        #[cfg(test)]
+        update_chart_work_counters(|counters| {
+            if new_state {
+                counters.new_state_changes += 1;
+            } else {
+                counters.existing_state_growth_changes += 1;
+            }
+            counters.agenda_enqueues += 1;
+        });
+        self.invalidate_completed_nodes();
         self.agenda.push_back(state);
         Ok(true)
     }
@@ -2701,6 +2891,8 @@ fn completed_nodes(
     input: &str,
     provenance: ParseProvenance,
 ) -> (BTreeSet<Rc<PackedTerm>>, Option<ParseError>) {
+    #[cfg(test)]
+    update_chart_work_counters(|counters| counters.completed_nodes_calls += 1);
     let key = (
         sort.clone(),
         origin,
@@ -2709,8 +2901,12 @@ fn completed_nodes(
         provenance.base_offset,
     );
     if let Some(completed) = chart.completed_nodes.borrow().get(&key) {
+        #[cfg(test)]
+        update_chart_work_counters(|counters| counters.completed_nodes_hits += 1);
         return completed.clone();
     }
+    #[cfg(test)]
+    update_chart_work_counters(|counters| counters.completed_nodes_misses += 1);
     let mut nodes = BTreeSet::new();
     let mut invalid = Vec::new();
     for state in chart.completed.get(sort).into_iter().flatten() {
@@ -2721,7 +2917,12 @@ fn completed_nodes(
         let production = &grammar.productions[state.production];
         for children in derivations {
             #[cfg(test)]
-            CHART_COMPLETION_CANDIDATES.set(CHART_COMPLETION_CANDIDATES.get() + 1);
+            {
+                CHART_COMPLETION_CANDIDATES.set(CHART_COMPLETION_CANDIDATES.get() + 1);
+                update_chart_work_counters(|counters| {
+                    counters.helper_completion_candidates += 1;
+                });
+            }
             let term = build_packed_term(
                 state.production,
                 production,
@@ -3546,19 +3747,121 @@ mod chart_tests {
             .collect::<Vec<_>>()
             .join("+");
         reset_chart_completion_candidates();
+        reset_chart_work_counters();
 
         let parsed = grammar
             .parse(&sort, &input)
             .expect("casted chain should parse");
         let completion_candidates = chart_completion_candidates();
+        let chart_work = chart_work_counters();
 
         assert_left_chain(&parsed, operands);
         eprintln!("Casted-chain completion candidates: {completion_candidates}");
+        eprintln!("Casted-chain chart work: {chart_work:?}");
         assert!(
             completion_candidates <= 2 * operands * operands,
             "{} completion candidates exceeded the polynomial-work contract",
             completion_candidates
         );
+    }
+
+    fn incremental_ambiguity_grammar(trailing_terminal: bool) -> Grammar {
+        let nonterminal = |name| ProductionItem::NonTerminal {
+            sort: Sort::new(name),
+            name: None,
+        };
+        let mut grammar = Grammar::default();
+        let mut start_items = vec![nonterminal("A")];
+        if trailing_terminal {
+            start_items.push(ProductionItem::Terminal("!".to_owned()));
+        }
+        for (result, items, label) in [
+            ("Start", start_items, "start"),
+            ("A", vec![nonterminal("B")], "fromB"),
+            ("A", vec![nonterminal("C")], "fromC"),
+            ("B", vec![ProductionItem::Terminal("x".to_owned())], "b"),
+            ("C", vec![ProductionItem::Terminal("x".to_owned())], "c"),
+        ] {
+            grammar
+                .add(
+                    Sort::new(result),
+                    items,
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+    }
+
+    fn assert_incremental_ambiguity(result: Result<Term, ParseError>) {
+        #[cfg(feature = "z3-inference")]
+        {
+            let ParseError::Ambiguous {
+                parses,
+                alternatives,
+                ..
+            } = result.unwrap_err()
+            else {
+                panic!("the two production-distinct alternatives must remain ambiguous");
+            };
+            assert_eq!(parses, 2);
+            assert!(
+                alternatives
+                    .iter()
+                    .all(|alternative| alternative.production.is_none())
+            );
+            assert_eq!(
+                alternatives
+                    .into_iter()
+                    .map(|alternative| alternative.term)
+                    .collect::<BTreeSet<_>>(),
+                BTreeSet::from([
+                    Term::apply("fromB", vec![Term::apply("b", vec![])]).to_string(),
+                    Term::apply("fromC", vec![Term::apply("c", vec![])]).to_string(),
+                ]),
+            );
+        }
+        #[cfg(not(feature = "z3-inference"))]
+        assert_eq!(
+            result,
+            Err(ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            })
+        );
+    }
+
+    #[test]
+    fn fe19_incremental_ambiguity_revisits_scan_derivations() {
+        let grammar = incremental_ambiguity_grammar(true);
+        reset_chart_work_counters();
+
+        assert_incremental_ambiguity(grammar.parse(&Sort::new("Start"), "x!"));
+
+        let counters = chart_work_counters();
+        eprintln!("FE19 incremental scan chart work: {counters:?}");
+        assert!(counters.existing_state_growth_changes > 0);
+        assert!(counters.revisit_pops > 0);
+        assert!(counters.revisit_derivations_read > 0);
+        assert!(counters.scan_revisit_derivations_read > 0);
+    }
+
+    #[test]
+    fn fe19_incremental_ambiguity_revisits_completion_derivations() {
+        let grammar = incremental_ambiguity_grammar(false);
+        reset_chart_work_counters();
+
+        assert_incremental_ambiguity(grammar.parse(&Sort::new("Start"), "x"));
+
+        let counters = chart_work_counters();
+        eprintln!("FE19 incremental completion chart work: {counters:?}");
+        assert!(counters.existing_state_growth_changes > 0);
+        assert!(counters.revisit_pops > 0);
+        assert!(counters.revisit_derivations_read > 0);
+        assert!(counters.completion_revisit_derivations_read > 0);
+        assert!(counters.primary_completion_candidates > 0);
     }
 
     #[test]
