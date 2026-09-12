@@ -28,6 +28,9 @@ const REFERENCE_MACRO_ROOTS: &str =
 const REFERENCE_MACRO_ROOTS_COLLISION_FREE: &str =
     include_str!("fixtures/search-pattern/reference-macro-roots-collision-free.kore");
 const REFERENCE_GROUND: &str = include_str!("fixtures/search-pattern/reference-ground.kore");
+const ROOT_SORTED_OR: &str = include_str!("fixtures/search-pattern/root-sorted-or.pattern");
+const REFERENCE_ROOT_SORTED_OR: &str =
+    include_str!("fixtures/search-pattern/reference-root-sorted-or.kore");
 const REFERENCE_EXPLICIT_GEN_BINDER: &str =
     include_str!("fixtures/search-pattern/reference-explicit-gen-binder.kore");
 const EXPLICIT_GEN_BINDER: &str =
@@ -248,6 +251,19 @@ fn pinned_ground_and_explicit_binder_patterns_match_exactly() {
         let rust = compile(contents).unwrap().pattern;
         assert_eq!(rust, reference);
     }
+}
+
+#[test]
+fn search_pattern_compilation_preserves_root_sorted_ml_connectives() {
+    let reference = parse_pattern(REFERENCE_ROOT_SORTED_OR.trim()).unwrap();
+    let rust = compile(ROOT_SORTED_OR).unwrap().pattern;
+    assert_eq!(rust, reference);
+
+    let definition = parse_definition(&context().definition_kore).unwrap();
+    BackendDefinition::internalize(&definition, "MAIN")
+        .unwrap()
+        .verify_standalone_pattern(&rust)
+        .unwrap();
 }
 
 #[test]

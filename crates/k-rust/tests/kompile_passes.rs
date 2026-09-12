@@ -5701,6 +5701,182 @@ fn pattern01a_cell_sentence_reports_only_minted_dot_variables_and_preserves_sour
 }
 
 #[test]
+fn concretize_cells_recurses_only_into_ml_result_sort_children() {
+    fn ml_production(
+        name: &str,
+        parameters: Vec<Sort>,
+        result: Sort,
+        arguments: Vec<Sort>,
+    ) -> Sentence {
+        Sentence::Production {
+            label: Some(Label::new(name)),
+            parameters,
+            sort: result,
+            items: arguments
+                .into_iter()
+                .map(|sort| ProductionItem::NonTerminal { sort, name: None })
+                .collect(),
+            attributes: Attributes::default(),
+        }
+    }
+
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <top> <k> 0 </k> </top>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = add_implicit_computation_cell(&parsed(source)).unwrap();
+    let mut definition = resolve_fresh_constants(&definition, 0).unwrap();
+    let formal_operand = Sort::new("S1");
+    let formal_result = Sort::new("S2");
+    definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .extend([
+            ml_production(
+                "#Or",
+                vec![formal_result.clone()],
+                formal_result.clone(),
+                vec![formal_result.clone(), formal_result.clone()],
+            ),
+            ml_production(
+                "#Top",
+                vec![formal_result.clone()],
+                formal_result.clone(),
+                Vec::new(),
+            ),
+            ml_production(
+                "#Equals",
+                vec![formal_operand.clone(), formal_result.clone()],
+                formal_result.clone(),
+                vec![formal_operand.clone(), formal_operand.clone()],
+            ),
+            ml_production(
+                "#Exists",
+                vec![formal_operand.clone(), formal_result.clone()],
+                formal_result.clone(),
+                vec![formal_operand.clone(), formal_result.clone()],
+            ),
+        ]);
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let root_sort = Sort::new("GeneratedTopCell");
+    let operand_sort = Sort::new("Int");
+    let or_span = TermSpan {
+        source: SourceId(9),
+        start: 12,
+        end: 48,
+    };
+    let int = |token: &str| Term::Token {
+        token: token.into(),
+        sort: operand_sort.clone(),
+    };
+    let open_k = |body| {
+        application(
+            "<k>",
+            vec![
+                application("#noDots", Vec::new()),
+                body,
+                application("#noDots", Vec::new()),
+            ],
+        )
+    };
+    let cases = [
+        (
+            Term::Apply {
+                label: Label::with_parameters("#Or", vec![root_sort.clone()]),
+                arguments: vec![open_k(int("0")), open_k(int("1"))],
+            }
+            .with_metadata(TermMetadata {
+                span: Some(or_span),
+                ..TermMetadata::default()
+            }),
+            "#Or",
+        ),
+        (
+            Term::Apply {
+                label: Label::with_parameters("#Top", vec![root_sort.clone()]),
+                arguments: Vec::new(),
+            },
+            "#Top",
+        ),
+        (
+            Term::Apply {
+                label: Label::with_parameters(
+                    "#Equals",
+                    vec![operand_sort.clone(), root_sort.clone()],
+                ),
+                arguments: vec![int("0"), int("1")],
+            },
+            "#Equals",
+        ),
+        (
+            Term::Apply {
+                label: Label::with_parameters("#Exists", vec![operand_sort.clone(), root_sort]),
+                arguments: vec![
+                    Term::Variable {
+                        name: "X".into(),
+                        sort: Some(operand_sort.clone()),
+                    },
+                    open_k(int("0")),
+                ],
+            },
+            "#Exists",
+        ),
+    ];
+
+    for (body, expected_label) in cases {
+        let sentence = Sentence::Rule {
+            body,
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        };
+        let (sentence, _) = concretize_cells_in_sentence(&resolved, "MAIN", sentence).unwrap();
+        let Sentence::Rule { body, .. } = sentence else {
+            unreachable!()
+        };
+        let Term::Apply { label, arguments } = body.unannotated() else {
+            panic!("expected {expected_label}, found {body}")
+        };
+        assert_eq!(label.name, expected_label, "{body}");
+        if expected_label == "#Or" {
+            assert_eq!(
+                body.metadata().and_then(|metadata| metadata.span),
+                Some(or_span)
+            );
+        }
+        match expected_label {
+            "#Or" => assert!(arguments.iter().all(|argument| matches!(
+                argument.unannotated(),
+                Term::Apply { label, .. } if label.name == "<generatedTop>"
+            ))),
+            "#Top" => assert!(arguments.is_empty()),
+            "#Equals" => assert!(
+                arguments
+                    .iter()
+                    .all(|argument| matches!(argument.unannotated(), Term::Token { .. }))
+            ),
+            "#Exists" => assert!(
+                matches!(
+                    arguments.first().map(Term::unannotated),
+                    Some(Term::Variable { .. })
+                ) && matches!(
+                    arguments.get(1).map(Term::unannotated),
+                    Some(Term::Apply { label, .. }) if label.name == "<generatedTop>"
+                )
+            ),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
 fn close_cells_parent_first_keeps_outer_placeholder_identity() {
     let source = indoc! {r#"
         module MAIN

@@ -7,8 +7,8 @@ use std::{
 
 use crate::{
     definition::{
-        Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ProductionItem,
-        ResolvedDefinition, Sentence,
+        Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ProductionId,
+        ProductionItem, ResolvedDefinition, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
@@ -686,9 +686,36 @@ impl<'a> Concretizer<'a> {
             .cells
             .get(&self.model.root)
             .ok_or_else(|| "No root cell found".to_owned())?;
-        if matches!(term.unannotated(), Term::Apply { label, .. } if label.name == root.label.name)
-        {
-            return Ok(term);
+        if let Term::Apply { label, arguments } = term.unannotated() {
+            if is_matching_logic_builtin(&label.name) {
+                if let Some(recurse) =
+                    self.ml_result_sort_children(&term, label, arguments.len())?
+                {
+                    if recurse.iter().any(|recurse| *recurse) {
+                        let metadata = term.metadata().cloned();
+                        let Term::Apply { label, arguments } = term.into_unannotated() else {
+                            unreachable!()
+                        };
+                        let arguments = arguments
+                            .into_iter()
+                            .zip(recurse)
+                            .map(|(argument, recurse)| {
+                                if recurse {
+                                    self.add_root(argument)
+                                } else {
+                                    Ok(argument)
+                                }
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let rebuilt = Term::Apply { label, arguments };
+                        return Ok(with_metadata(rebuilt, metadata));
+                    }
+                    return Ok(term);
+                }
+            }
+            if label.name == root.label.name {
+                return Ok(term);
+            }
         }
         if let Term::Rewrite { left, right: _ } = term.unannotated() {
             let wrapped_left = self.add_root((**left).clone())?;
@@ -698,6 +725,60 @@ impl<'a> Concretizer<'a> {
             return Ok(incomplete_cell(&root.label, true, term, true));
         }
         Ok(incomplete_cell(&root.label, true, term, true))
+    }
+
+    fn ml_result_sort_children(
+        &self,
+        term: &Term,
+        label: &Label,
+        argument_count: usize,
+    ) -> Result<Option<Vec<bool>>, String> {
+        let resolved = term
+            .metadata()
+            .and_then(|metadata| metadata.production)
+            .filter(|resolved| resolved.0 < self.productions.len())
+            .map(|resolved| self.productions.production(ProductionId(resolved.0)))
+            .filter(|production| {
+                matches!(
+                    production,
+                    Sentence::Production {
+                        label: Some(production_label),
+                        ..
+                    } if production_label.name == label.name
+                )
+            });
+        let production = resolved.or_else(|| {
+            let ids = self.productions.productions_for(&LabelHead::from(label));
+            (ids.len() == 1).then(|| self.productions.production(ids[0]))
+        });
+        let Some(Sentence::Production {
+            parameters,
+            sort,
+            items,
+            ..
+        }) = production
+        else {
+            return Ok(None);
+        };
+        let Some(result_parameter) = parameters.iter().find(|parameter| *parameter == sort) else {
+            return Ok(Some(vec![false; argument_count]));
+        };
+        let recurse = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort == result_parameter),
+                ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+            })
+            .collect::<Vec<_>>();
+        if recurse.len() != argument_count {
+            return Err(format!(
+                "KLabel {:?} has {} arguments but its production has {} nonterminals",
+                label.name,
+                argument_count,
+                recurse.len()
+            ));
+        }
+        Ok(Some(recurse))
     }
 
     fn add_parents(&self, term: Term) -> Result<Term, String> {
@@ -1548,6 +1629,26 @@ fn skip_root_wrapping(attributes: &Attributes) -> bool {
     ]
     .iter()
     .any(|attribute| attributes.get(attribute).is_some())
+}
+
+fn is_matching_logic_builtin(label: &str) -> bool {
+    matches!(
+        label,
+        "#Bottom"
+            | "#Top"
+            | "#Not"
+            | "#Or"
+            | "#And"
+            | "#Implies"
+            | "#Equals"
+            | "#Ceil"
+            | "#Floor"
+            | "#Exists"
+            | "#Forall"
+            | "#AG"
+            | "weakExistsFinally"
+            | "weakAlwaysFinally"
+    )
 }
 
 fn rewrite_side_variable(term: &Term, right: bool, child: &Child) -> Option<Term> {
