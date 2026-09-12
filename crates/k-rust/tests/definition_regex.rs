@@ -81,6 +81,88 @@ fn java_compatible_printer_preserves_the_reference_anchor_bug_explicitly() {
 }
 
 #[test]
+fn flex_printer_mangles_named_lexical_identifiers() {
+    assert_eq!(regex::mangle_flex_identifier("Word"), "Word");
+    assert_eq!(regex::mangle_flex_identifier("#Word"), "_Hash_Word");
+    assert_eq!(
+        regex::parse("{#Word}{Digit}").unwrap().to_flex_string(),
+        "{_Hash_Word}{Digit}"
+    );
+}
+
+#[test]
+fn flex_printer_escapes_flex_pattern_characters() {
+    for (character, expected) in [
+        ('^', r"\^"),
+        ('$', r"\$"),
+        ('|', r"\|"),
+        ('?', r"\?"),
+        ('*', r"\*"),
+        ('+', r"\+"),
+        ('(', r"\("),
+        (')', r"\)"),
+        ('{', r"\{"),
+        ('}', r"\}"),
+        ('[', r"\["),
+        (']', r"\]"),
+        ('\\', r"\\"),
+        ('.', r"\."),
+        ('"', r#"\""#),
+        ('/', r"\/"),
+        ('<', r"\<"),
+        ('>', r"\>"),
+        (' ', r"\ "),
+    ] {
+        let body = regex::RegexBody::Char(character);
+        assert_eq!(body.to_flex_string(), expected, "character {character:?}");
+    }
+}
+
+#[test]
+fn flex_printer_uses_character_class_escaping() {
+    for (character, expected) in [
+        ('^', r"\^"),
+        ('-', r"\-"),
+        ('\\', r"\\"),
+        ('[', r"\["),
+        (']', r"\]"),
+        (' ', r"\ "),
+        ('/', "/"),
+    ] {
+        let member = regex::CharClass::Char(character);
+        assert_eq!(member.to_flex_string(), expected, "character {character:?}");
+    }
+}
+
+#[test]
+fn flex_printer_preserves_repetition_and_precedence() {
+    assert_eq!(
+        regex::parse("(ab|c)?d{2}e{3,}f{4,5}")
+            .unwrap()
+            .to_flex_string(),
+        "(ab|c)?d{2}e{3,}f{4,5}"
+    );
+}
+
+#[test]
+fn flex_printer_groups_non_ascii_code_points_and_factors_classes() {
+    assert_eq!(regex::parse("🙂+").unwrap().to_flex_string(), "(🙂)+");
+    assert_eq!(
+        regex::parse("[a🙂b🙁]").unwrap().to_flex_string(),
+        "((🙂)|(🙁))|[ab]"
+    );
+    assert_eq!(regex::parse("[a-z]").unwrap().to_flex_string(), "[a-z]");
+}
+
+#[test]
+fn flex_printer_applies_the_reference_anchor_rule() {
+    assert_eq!(regex::parse("a").unwrap().to_flex_string(), "a");
+    assert_eq!(regex::parse("^a").unwrap().to_flex_string(), "^a$");
+    assert_eq!(regex::parse("a$").unwrap().to_flex_string(), "a");
+    assert_eq!(regex::parse("^a$").unwrap().to_flex_string(), "^a$");
+}
+
+#[test]
 fn rust_printer_treats_k_backslash_letters_as_literals() {
     let pattern = regex::parse(r"\d+").unwrap().to_flex_pattern().unwrap();
     let compiled = RustRegex::new(&format!(r"\A(?:{})\z", pattern.body)).unwrap();

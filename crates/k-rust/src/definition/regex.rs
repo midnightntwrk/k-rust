@@ -28,6 +28,13 @@ impl Regex {
         print_regex(self, self.end_line)
     }
 
+    /// Render this regular expression as a deterministic Flex pattern.
+    ///
+    /// This is a semantic input to Flex, not a byte-parity contract with K's renderer.
+    pub fn to_flex_string(&self) -> String {
+        print_flex_regex(self)
+    }
+
     /// Translate K's regex AST to a Rust regex body with Flex's anchor semantics.
     pub fn to_flex_pattern(&self) -> Result<FlexPattern, UnexpandedLexical> {
         Ok(FlexPattern {
@@ -116,6 +123,14 @@ impl RegexBody {
         print_rust_regex(self, &mut output)?;
         Ok(output)
     }
+
+    /// Render this regular-expression body for Flex.
+    pub fn to_flex_string(&self) -> String {
+        let transformed = transform_flex_body(self);
+        let mut output = String::new();
+        print_flex_union(&transformed, &mut output).expect("writing to a string cannot fail");
+        output
+    }
 }
 
 impl Display for RegexBody {
@@ -134,6 +149,13 @@ impl CharClass {
     pub fn to_k_string(&self) -> String {
         let mut output = String::new();
         print_class_member(self, &mut output).expect("writing to a string cannot fail");
+        output
+    }
+
+    /// Render this character-class member for Flex.
+    pub fn to_flex_string(&self) -> String {
+        let mut output = String::new();
+        print_flex_class_member(self, &mut output).expect("writing to a string cannot fail");
         output
     }
 }
@@ -167,6 +189,15 @@ impl Display for UnexpandedLexical {
 }
 
 impl std::error::Error for UnexpandedLexical {}
+
+/// Convert a K lexical identifier to the identifier syntax accepted by Flex.
+pub fn mangle_flex_identifier(name: &str) -> String {
+    if let Some(name) = name.strip_prefix('#') {
+        format!("_Hash_{name}")
+    } else {
+        name.to_owned()
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseError {
@@ -498,6 +529,225 @@ fn print_regex(regex: &Regex, end_line: bool) -> String {
         output.push('$');
     }
     output
+}
+
+fn print_flex_regex(regex: &Regex) -> String {
+    let mut output = String::new();
+    if regex.start_line {
+        output.push('^');
+    }
+    print_flex_union(&transform_flex_body(&regex.body), &mut output)
+        .expect("writing to a string cannot fail");
+    // Match RegexSyntax.Flex.print: K emits both anchors for a start-anchored
+    // regex and omits a lone end anchor.
+    if regex.start_line {
+        output.push('$');
+    }
+    output
+}
+
+fn transform_flex_body(body: &RegexBody) -> RegexBody {
+    match body {
+        RegexBody::Char(_) | RegexBody::AnyChar => body.clone(),
+        RegexBody::Named(name) => RegexBody::Named(mangle_flex_identifier(name)),
+        RegexBody::CharClass { negated, members } => {
+            if *negated {
+                return body.clone();
+            }
+
+            // Flex scans UTF-8 as bytes, so a non-ASCII code point cannot stay
+            // inside a byte-oriented character class. Preserve member order
+            // within both partitions and place the remaining class last.
+            let mut alternatives = Vec::new();
+            let mut ascii_and_ranges = Vec::new();
+            for member in members {
+                if let CharClass::Char(character) = member
+                    && !character.is_ascii()
+                {
+                    alternatives.push(RegexBody::Char(*character));
+                } else {
+                    ascii_and_ranges.push(member.clone());
+                }
+            }
+            if !ascii_and_ranges.is_empty() {
+                alternatives.push(RegexBody::CharClass {
+                    negated: false,
+                    members: ascii_and_ranges,
+                });
+            }
+            alternatives
+                .into_iter()
+                .reduce(|left, right| RegexBody::Union {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
+                .unwrap_or_else(|| body.clone())
+        }
+        RegexBody::Union { left, right } => RegexBody::Union {
+            left: Box::new(transform_flex_body(left)),
+            right: Box::new(transform_flex_body(right)),
+        },
+        RegexBody::Concat(members) => {
+            RegexBody::Concat(members.iter().map(transform_flex_body).collect())
+        }
+        RegexBody::ZeroOrMore(body) => RegexBody::ZeroOrMore(Box::new(transform_flex_body(body))),
+        RegexBody::ZeroOrOne(body) => RegexBody::ZeroOrOne(Box::new(transform_flex_body(body))),
+        RegexBody::OneOrMore(body) => RegexBody::OneOrMore(Box::new(transform_flex_body(body))),
+        RegexBody::Exactly { body, count } => RegexBody::Exactly {
+            body: Box::new(transform_flex_body(body)),
+            count: *count,
+        },
+        RegexBody::AtLeast { body, count } => RegexBody::AtLeast {
+            body: Box::new(transform_flex_body(body)),
+            count: *count,
+        },
+        RegexBody::Range {
+            body,
+            at_least,
+            at_most,
+        } => RegexBody::Range {
+            body: Box::new(transform_flex_body(body)),
+            at_least: *at_least,
+            at_most: *at_most,
+        },
+    }
+}
+
+fn print_flex_union(body: &RegexBody, output: &mut String) -> std::fmt::Result {
+    if let RegexBody::Union { left, right } = body {
+        print_flex_concat(left, output)?;
+        output.push('|');
+        print_flex_concat(right, output)
+    } else {
+        print_flex_concat(body, output)
+    }
+}
+
+fn print_flex_concat(body: &RegexBody, output: &mut String) -> std::fmt::Result {
+    if let RegexBody::Concat(members) = body {
+        for member in members {
+            print_flex_repeat(member, output)?;
+        }
+        Ok(())
+    } else {
+        print_flex_repeat(body, output)
+    }
+}
+
+fn print_flex_repeat(body: &RegexBody, output: &mut String) -> std::fmt::Result {
+    match body {
+        RegexBody::ZeroOrOne(body) => print_flex_repeated(body, "?", output),
+        RegexBody::ZeroOrMore(body) => print_flex_repeated(body, "*", output),
+        RegexBody::OneOrMore(body) => print_flex_repeated(body, "+", output),
+        RegexBody::Exactly { body, count } => {
+            print_flex_repeated(body, &format!("{{{count}}}"), output)
+        }
+        RegexBody::AtLeast { body, count } => {
+            print_flex_repeated(body, &format!("{{{count},}}"), output)
+        }
+        RegexBody::Range {
+            body,
+            at_least,
+            at_most,
+        } => print_flex_repeated(body, &format!("{{{at_least},{at_most}}}"), output),
+        _ => print_flex_class(body, output),
+    }
+}
+
+fn print_flex_repeated(body: &RegexBody, suffix: &str, output: &mut String) -> std::fmt::Result {
+    print_flex_class(body, output)?;
+    output.push_str(suffix);
+    Ok(())
+}
+
+fn print_flex_class(body: &RegexBody, output: &mut String) -> std::fmt::Result {
+    if let RegexBody::CharClass { negated, members } = body {
+        output.push('[');
+        if *negated {
+            output.push('^');
+        }
+        for member in members {
+            print_flex_class_member(member, output)?;
+        }
+        output.push(']');
+        Ok(())
+    } else {
+        print_flex_simple(body, output)
+    }
+}
+
+fn print_flex_class_member(member: &CharClass, output: &mut String) -> std::fmt::Result {
+    match member {
+        CharClass::Char(character) => print_flex_character(*character, true, output),
+        CharClass::Range { start, end } => {
+            print_flex_character(*start, true, output)?;
+            output.push('-');
+            print_flex_character(*end, true, output)
+        }
+    }
+}
+
+fn print_flex_simple(body: &RegexBody, output: &mut String) -> std::fmt::Result {
+    match body {
+        RegexBody::Char(character) => print_flex_character(*character, false, output),
+        RegexBody::AnyChar => {
+            output.push('.');
+            Ok(())
+        }
+        RegexBody::Named(name) => write!(output, "{{{name}}}"),
+        _ => {
+            output.push('(');
+            print_flex_union(body, output)?;
+            output.push(')');
+            Ok(())
+        }
+    }
+}
+
+fn print_flex_character(character: char, in_class: bool, output: &mut String) -> std::fmt::Result {
+    if !character.is_ascii() {
+        output.push('(');
+    }
+    match character {
+        '\n' => output.push_str("\\n"),
+        '\r' => output.push_str("\\r"),
+        '\t' => output.push_str("\\t"),
+        character => {
+            let reserved = if in_class {
+                matches!(character, '^' | '-' | '\\' | '[' | ']' | ' ')
+            } else {
+                matches!(
+                    character,
+                    '^' | '$'
+                        | '|'
+                        | '?'
+                        | '*'
+                        | '+'
+                        | '('
+                        | ')'
+                        | '{'
+                        | '}'
+                        | '['
+                        | ']'
+                        | '\\'
+                        | '.'
+                        | '"'
+                        | '/'
+                        | '<'
+                        | '>'
+                        | ' '
+                )
+            };
+            if reserved {
+                output.push('\\');
+            }
+            output.push(character);
+        }
+    }
+    if !character.is_ascii() {
+        output.push(')');
+    }
+    Ok(())
 }
 
 fn print_rust_regex(body: &RegexBody, output: &mut String) -> Result<(), UnexpandedLexical> {
