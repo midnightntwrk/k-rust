@@ -543,9 +543,15 @@ fn modular_inverse(a: BigInt, modulus: BigInt) -> Option<BigInt> {
 }
 
 fn string_chr(value: BigInt) -> Result<Value, String> {
-    let Some(value) = value.to_u32().and_then(char::from_u32) else {
+    let Some(value) = value.to_u32().filter(|value| *value <= 0x10ffff) else {
         return Err(
             "Argument to hook STRING.chr out of range. Expected a number between 0 and 1114111."
+                .into(),
+        );
+    };
+    let Some(value) = char::from_u32(value) else {
+        return Err(
+            "Argument to hook STRING.chr is a surrogate code point. Expected a Unicode scalar value."
                 .into(),
         );
     };

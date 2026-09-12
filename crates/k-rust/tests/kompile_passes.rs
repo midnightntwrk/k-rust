@@ -2338,6 +2338,84 @@ fn folds_unicode_string_hooks_with_java_token_wrapping() {
 }
 
 #[test]
+fn folds_string_chr_only_for_unicode_scalar_values() {
+    // reference: pinned K folds D7FF, E000, and 10FFFF to valid KORE, but its D800 and DFFF
+    // artifacts are rejected by both the Haskell backend and standalone kore-parser.
+    let source = |value: &str| {
+        format!(
+            r#"
+            module MAIN
+              syntax Int [hook(INT.Int)]
+              syntax String [hook(STRING.String)]
+              syntax Int ::= r"[\\+\\-]?[0-9]+" [token]
+              syntax String ::= "result" [function, symbol(result)]
+              syntax String ::= "chr(" Int ")" [function, hook(STRING.chr), symbol(chr)]
+              rule result => chr({value})
+            endmodule
+            "#
+        )
+    };
+    let folded_right = |value: &str| {
+        let transformed = constant_fold(&resolve_semantic_casts(&parsed(&source(value)))).unwrap();
+        transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Rule { body, .. } => match body.unannotated() {
+                    Term::Rewrite { right, .. } => Some(right.unannotated().clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap()
+    };
+    for (codepoint, token, scalar) in [
+        ("55295", r#""\ud7ff""#, "\u{d7ff}"),
+        ("57344", r#""\ue000""#, "\u{e000}"),
+        ("1114111", r#""\U0010ffff""#, "\u{10ffff}"),
+    ] {
+        assert_eq!(
+            folded_right(codepoint),
+            Term::Token {
+                token: token.into(),
+                sort: Sort::new("String"),
+            }
+        );
+        let kore = format!(
+            r#"\dv{{SortString{{}}}}({})"#,
+            k_rust::kore::string::quote(scalar)
+        );
+        assert!(matches!(
+            k_rust::kore::parser::parse_pattern(&kore).unwrap(),
+            k_rust::kore::ast::Pattern::DomainValue { ref value, .. } if value == scalar
+        ));
+    }
+
+    for codepoint in ["-1", "1114112"] {
+        let error =
+            constant_fold(&resolve_semantic_casts(&parsed(&source(codepoint)))).unwrap_err();
+        assert_eq!(error.diagnostics.len(), 1, "code point {codepoint}");
+        assert_eq!(
+            error.diagnostics[0].message,
+            "Argument to hook STRING.chr out of range. Expected a number between 0 and 1114111.",
+            "code point {codepoint}"
+        );
+    }
+    for codepoint in ["55296", "57343"] {
+        let error =
+            constant_fold(&resolve_semantic_casts(&parsed(&source(codepoint)))).unwrap_err();
+        assert_eq!(error.diagnostics.len(), 1, "code point {codepoint}");
+        assert_eq!(
+            error.diagnostics[0].message,
+            "Argument to hook STRING.chr is a surrogate code point. Expected a Unicode scalar value.",
+            "code point {codepoint}"
+        );
+    }
+}
+
+#[test]
 fn reports_invalid_constant_operations() {
     let definition = Definition {
         main_module: "MAIN".into(),
