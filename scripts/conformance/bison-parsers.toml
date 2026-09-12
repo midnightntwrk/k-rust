@@ -1,0 +1,122 @@
+schema = 1
+
+# This manifest is the reviewed behavioral oracle for generated Bison parsers. Inputs are
+# relative to their regression-new case. `amb` permits only the test-only Lblamb canonicalizer;
+# every other successful parser invocation must produce byte-identical stdout.
+
+[[case]]
+name = "bison-glr-bug"
+artifact = "executable"
+comparison = "exact"
+inputs = ["forwarder.iele"]
+
+[[case]]
+name = "bison-parser-library"
+artifact = "shared-library"
+comparison = "exact"
+inputs = ["test.in"]
+reason = "No parser_PGM exists by design; test.c consumes libparser_KItem_TEST."
+
+[[case]]
+name = "glr"
+artifact = "executable"
+comparison = "exact"
+inputs = ["1.test"]
+
+[[case]]
+name = "glr2"
+artifact = "executable"
+comparison = "exact"
+inputs = ["1.test"]
+
+[[case]]
+name = "glr3"
+artifact = "executable"
+comparison = "exact"
+inputs = ["1.test"]
+
+[[case]]
+name = "glr4"
+artifact = "executable"
+comparison = "exact"
+inputs = ["1.test"]
+
+[[case]]
+name = "imp++-llvm"
+artifact = "executable"
+comparison = "exact"
+inputs = ["div.imp", "spawn.imp"]
+
+[[case]]
+name = "issue-1602"
+artifact = "executable"
+comparison = "exact"
+inputs = ["foo.test"]
+
+[[case]]
+name = "llvm-krun"
+artifact = "executable"
+comparison = "exact"
+inputs = ["test.in"]
+
+[[case]]
+name = "locations"
+artifact = "executable"
+comparison = "exact"
+inputs = ["1.test"]
+
+[[case]]
+name = "locations2"
+artifact = "executable"
+comparison = "exact"
+inputs = ["1.test"]
+
+[[case]]
+name = "locations3"
+artifact = "executable"
+comparison = "exact"
+inputs = ["1.test"]
+
+[[case]]
+name = "parse-c"
+artifact = "executable"
+comparison = "amb"
+inputs = ["test.c"]
+
+[[case]]
+name = "parseNonPgm"
+artifact = "executable"
+comparison = "exact"
+inputs = ["1.test"]
+reason = "This row covers parser_PGM; parser_MODE is a separately deferred artifact."
+
+[[case]]
+name = "pl-tutorial/1_k/1_lambda/lesson_8"
+artifact = "executable"
+comparison = "exact"
+inputs = ["tests/arithmetic.lambda", "tests/closed-variable-capture.lambda", "tests/factorial-let-fix.lambda", "tests/factorial-let.lambda", "tests/factorial-letrec.lambda", "tests/fibbo.lambda", "tests/free-variable-capture.lambda", "tests/identity.lambda", "tests/if.lambda", "tests/lets.lambda"]
+
+[[case]]
+name = "pl-tutorial/1_k/2_imp/lesson_4"
+artifact = "executable"
+comparison = "exact"
+inputs = ["tests/collatz.imp", "tests/primes.imp", "tests/sum.imp"]
+
+[[case]]
+name = "pl-tutorial/1_k/4_imp++/lesson_7"
+artifact = "executable"
+makefile = "Makefile.concrete"
+comparison = "exact"
+inputs = ["tests/collatz.imp", "tests/div.imp", "tests/io.imp", "tests/locals.imp", "tests/primes.imp", "tests/spawn.imp", "tests/sum-io.imp", "tests/sum.imp"]
+
+[[case]]
+name = "proof-instrumentation"
+artifact = "executable"
+comparison = "exact"
+inputs = ["input.test"]
+
+[[case]]
+name = "proof-instrumentation-debug"
+artifact = "executable"
+comparison = "exact"
+inputs = ["input.test"]

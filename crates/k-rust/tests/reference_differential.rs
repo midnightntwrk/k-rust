@@ -10,6 +10,7 @@ use k_rust::kore::{
     ast::{Attributes, Definition, Pattern, Sentence, Symbol},
     parser::parse_definition,
     parser::parse_pattern,
+    printer::Printer,
 };
 use k_rust::{
     definition::{
@@ -18,6 +19,500 @@ use k_rust::{
     },
     kast::json as kast_json,
 };
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct AmbiguityStats {
+    nodes: usize,
+    alternatives: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BisonComparison {
+    Exact,
+    Amb,
+}
+
+#[test]
+#[ignore = "requires K_REFERENCE_BISON_PARSER_OUTPUT and K_RUST_BISON_PARSER_OUTPUT"]
+fn generated_bison_parser_outputs_match() {
+    let reference_path = env::var("K_REFERENCE_BISON_PARSER_OUTPUT")
+        .expect("K_REFERENCE_BISON_PARSER_OUTPUT is required");
+    let actual_path =
+        env::var("K_RUST_BISON_PARSER_OUTPUT").expect("K_RUST_BISON_PARSER_OUTPUT is required");
+    let allow_ambiguity = env::var("K_BISON_PARSER_ALLOW_AMBIGUITY").as_deref() == Ok("1");
+    let fixture = env::var("K_BISON_PARSER_INPUT").unwrap_or_else(|_| "<unknown input>".into());
+    let reference = fs::read(reference_path).unwrap();
+    let actual = fs::read(actual_path).unwrap();
+    let (comparison, reference_stats, actual_stats) =
+        compare_bison_parser_outputs(&reference, &actual, allow_ambiguity)
+            .unwrap_or_else(|error| panic!("{fixture}: {error}"));
+    println!(
+        "bison-parser-comparison = '{}'",
+        match comparison {
+            BisonComparison::Exact => "exact",
+            BisonComparison::Amb => "amb",
+        }
+    );
+    println!(
+        "bison-parser-reference-ambiguity-nodes = {}",
+        reference_stats.nodes
+    );
+    println!(
+        "bison-parser-reference-alternatives = {}",
+        reference_stats.alternatives
+    );
+    println!(
+        "bison-parser-krust-ambiguity-nodes = {}",
+        actual_stats.nodes
+    );
+    println!(
+        "bison-parser-krust-alternatives = {}",
+        actual_stats.alternatives
+    );
+}
+
+fn compare_bison_parser_outputs(
+    reference_bytes: &[u8],
+    actual_bytes: &[u8],
+    allow_ambiguity: bool,
+) -> Result<(BisonComparison, AmbiguityStats, AmbiguityStats), String> {
+    let reference_source = std::str::from_utf8(reference_bytes)
+        .map_err(|error| format!("reference parser stdout is not UTF-8: {error}"))?;
+    let actual_source = std::str::from_utf8(actual_bytes)
+        .map_err(|error| format!("krust parser stdout is not UTF-8: {error}"))?;
+    let reference = parse_pattern(reference_source).map_err(|error| {
+        format!("reference parser stdout is not one complete KORE pattern: {error}")
+    })?;
+    let actual = parse_pattern(actual_source).map_err(|error| {
+        format!("krust parser stdout is not one complete KORE pattern: {error}")
+    })?;
+    let reference_stats = ambiguity_stats(&reference)?;
+    let actual_stats = ambiguity_stats(&actual)?;
+    let ambiguous = reference_stats.nodes != 0 || actual_stats.nodes != 0;
+
+    if !ambiguous {
+        if reference_bytes != actual_bytes {
+            return Err(format!(
+                "unambiguous parser stdout differs byte-for-byte\nreference: {}\nkrust: {}",
+                bounded_text(reference_source),
+                bounded_text(actual_source),
+            ));
+        }
+        if allow_ambiguity {
+            return Err("manifest authorizes amb comparison, but neither parser produced Lblamb; review the fixture classification".into());
+        }
+        return Ok((BisonComparison::Exact, reference_stats, actual_stats));
+    }
+    if !allow_ambiguity {
+        return Err("unexpected Lblamb under exact comparison; review this fixture before authorizing ambiguity canonicalization".into());
+    }
+
+    let reference = canonicalize_ambiguities(&reference)?;
+    let actual = canonicalize_ambiguities(&actual)?;
+    if reference != actual {
+        return Err(format!(
+            "ambiguous parser outputs differ after flattening and sorting same-sort Lblamb alternatives\nreference: {}\nkrust: {}",
+            bounded_text(&Printer::compact().print_pattern(&reference)),
+            bounded_text(&Printer::compact().print_pattern(&actual)),
+        ));
+    }
+    Ok((BisonComparison::Amb, reference_stats, actual_stats))
+}
+
+fn bounded_text(value: &str) -> String {
+    const LIMIT: usize = 2_000;
+    if value.len() <= LIMIT {
+        return value.into();
+    }
+    let mut end = LIMIT;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}… <{} bytes omitted>", &value[..end], value.len() - end)
+}
+
+fn ambiguity_stats(root: &Pattern) -> Result<AmbiguityStats, String> {
+    struct Entry<'a> {
+        pattern: &'a Pattern,
+        parent_amb_sort: Option<&'a k_rust::kore::ast::Sort>,
+    }
+    let mut stats = AmbiguityStats::default();
+    let mut stack = vec![Entry {
+        pattern: root,
+        parent_amb_sort: None,
+    }];
+    while let Some(Entry {
+        pattern,
+        parent_amb_sort,
+    }) = stack.pop()
+    {
+        let amb_sort = valid_amb_sort(pattern)?;
+        if let Some(sort) = amb_sort {
+            stats.nodes += 1;
+            if parent_amb_sort != Some(sort) {
+                stats.alternatives += flattened_amb_alternative_count(pattern, sort)?;
+            }
+        }
+        let child_parent = amb_sort;
+        for child in pattern_children(pattern).into_iter().rev() {
+            stack.push(Entry {
+                pattern: child,
+                parent_amb_sort: child_parent,
+            });
+        }
+    }
+    Ok(stats)
+}
+
+fn valid_amb_sort(pattern: &Pattern) -> Result<Option<&k_rust::kore::ast::Sort>, String> {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return Ok(None);
+    };
+    if symbol.name != "Lblamb" {
+        return Ok(None);
+    }
+    if symbol.sort_parameters.len() != 1 || arguments.len() != 2 {
+        return Err(format!(
+            "malformed Lblamb: expected one sort parameter and two arguments, found {} sort parameter(s) and {} argument(s)",
+            symbol.sort_parameters.len(),
+            arguments.len()
+        ));
+    }
+    Ok(symbol.sort_parameters.first())
+}
+
+fn flattened_amb_alternative_count(
+    root: &Pattern,
+    sort: &k_rust::kore::ast::Sort,
+) -> Result<usize, String> {
+    let mut count = 0;
+    let mut stack = vec![root];
+    while let Some(pattern) = stack.pop() {
+        if valid_amb_sort(pattern)? == Some(sort) {
+            let Pattern::Application { arguments, .. } = pattern else {
+                unreachable!()
+            };
+            stack.extend(arguments.iter().rev());
+        } else {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+// This duplicates the private kore::walk shape deliberately: ambiguity normalization is a
+// differential-test transform, not a production KORE API. Both traversal and rebuilding remain
+// iterative for generated parsers configured with very deep Bison stacks.
+fn pattern_children(pattern: &Pattern) -> Vec<&Pattern> {
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => arguments.iter().collect(),
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => vec![argument],
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => vec![left, right],
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => vec![body],
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => Vec::new(),
+    }
+}
+
+fn canonicalize_ambiguities(root: &Pattern) -> Result<Pattern, String> {
+    struct Frame<'a> {
+        pattern: &'a Pattern,
+        children: Vec<&'a Pattern>,
+        next: usize,
+        built: Vec<Pattern>,
+    }
+    impl<'a> Frame<'a> {
+        fn new(pattern: &'a Pattern) -> Self {
+            Self {
+                pattern,
+                children: pattern_children(pattern),
+                next: 0,
+                built: Vec::new(),
+            }
+        }
+    }
+
+    let mut stack = vec![Frame::new(root)];
+    loop {
+        let frame = stack
+            .last_mut()
+            .expect("the root frame remains until return");
+        if let Some(child) = frame.children.get(frame.next).copied() {
+            frame.next += 1;
+            stack.push(Frame::new(child));
+            continue;
+        }
+        let frame = stack.pop().expect("the completed frame is present");
+        let mut built = rebuild_pattern_node(frame.pattern, frame.built);
+        if let Some(sort) = valid_amb_sort(&built)?.cloned() {
+            let Pattern::Application { arguments, .. } = &mut built else {
+                unreachable!()
+            };
+            let mut work = std::mem::take(arguments);
+            let mut alternatives = Vec::new();
+            while let Some(mut candidate) = work.pop() {
+                if valid_amb_sort(&candidate)? == Some(&sort) {
+                    let Pattern::Application { arguments, .. } = &mut candidate else {
+                        unreachable!()
+                    };
+                    work.extend(std::mem::take(arguments));
+                } else {
+                    alternatives.push(candidate);
+                }
+            }
+            alternatives.sort_by_cached_key(|pattern| {
+                Printer::compact().print_pattern(pattern).into_bytes()
+            });
+            let mut alternatives = alternatives.into_iter();
+            let first = alternatives
+                .next()
+                .expect("a valid binary Lblamb has alternatives");
+            built = alternatives.fold(first, |left, right| Pattern::Application {
+                symbol: Symbol {
+                    name: "Lblamb".into(),
+                    sort_parameters: vec![sort.clone()],
+                },
+                arguments: vec![left, right],
+            });
+        }
+        if let Some(parent) = stack.last_mut() {
+            parent.built.push(built);
+        } else {
+            return Ok(built);
+        }
+    }
+}
+
+fn rebuild_pattern_node(pattern: &Pattern, children: Vec<Pattern>) -> Pattern {
+    let mut children = children.into_iter();
+    let mut child = || Box::new(children.next().expect("the traversal supplies every child"));
+    match pattern {
+        Pattern::String(value) => Pattern::String(value.clone()),
+        Pattern::Variable(variable) => Pattern::Variable(variable.clone()),
+        Pattern::Application { symbol, .. } => Pattern::Application {
+            symbol: symbol.clone(),
+            arguments: children.collect(),
+        },
+        Pattern::Top { sort } => Pattern::Top { sort: sort.clone() },
+        Pattern::Bottom { sort } => Pattern::Bottom { sort: sort.clone() },
+        Pattern::And { sort, .. } => Pattern::And {
+            sort: sort.clone(),
+            arguments: children.collect(),
+        },
+        Pattern::Or { sort, .. } => Pattern::Or {
+            sort: sort.clone(),
+            arguments: children.collect(),
+        },
+        Pattern::Not { sort, .. } => Pattern::Not {
+            sort: sort.clone(),
+            argument: child(),
+        },
+        Pattern::Next { sort, .. } => Pattern::Next {
+            sort: sort.clone(),
+            argument: child(),
+        },
+        Pattern::Implies { sort, .. } => Pattern::Implies {
+            sort: sort.clone(),
+            left: child(),
+            right: child(),
+        },
+        Pattern::Iff { sort, .. } => Pattern::Iff {
+            sort: sort.clone(),
+            left: child(),
+            right: child(),
+        },
+        Pattern::Rewrites { sort, .. } => Pattern::Rewrites {
+            sort: sort.clone(),
+            left: child(),
+            right: child(),
+        },
+        Pattern::Exists { sort, variable, .. } => Pattern::Exists {
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: child(),
+        },
+        Pattern::Forall { sort, variable, .. } => Pattern::Forall {
+            sort: sort.clone(),
+            variable: variable.clone(),
+            body: child(),
+        },
+        Pattern::Mu { variable, .. } => Pattern::Mu {
+            variable: variable.clone(),
+            body: child(),
+        },
+        Pattern::Nu { variable, .. } => Pattern::Nu {
+            variable: variable.clone(),
+            body: child(),
+        },
+        Pattern::Ceil {
+            operand_sort,
+            result_sort,
+            ..
+        } => Pattern::Ceil {
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            argument: child(),
+        },
+        Pattern::Floor {
+            operand_sort,
+            result_sort,
+            ..
+        } => Pattern::Floor {
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            argument: child(),
+        },
+        Pattern::Equals {
+            operand_sort,
+            result_sort,
+            ..
+        } => Pattern::Equals {
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            left: child(),
+            right: child(),
+        },
+        Pattern::In {
+            operand_sort,
+            result_sort,
+            ..
+        } => Pattern::In {
+            operand_sort: operand_sort.clone(),
+            result_sort: result_sort.clone(),
+            left: child(),
+            right: child(),
+        },
+        Pattern::DomainValue { sort, value } => Pattern::DomainValue {
+            sort: sort.clone(),
+            value: value.clone(),
+        },
+        Pattern::AssociativeApplication {
+            associativity,
+            symbol,
+            ..
+        } => Pattern::AssociativeApplication {
+            associativity: *associativity,
+            symbol: symbol.clone(),
+            arguments: children.collect(),
+        },
+    }
+}
+
+#[test]
+fn bison_parser_comparator_is_byte_exact_for_unambiguous_output() {
+    let bytes = b"f{}(a{}())\n";
+    assert_eq!(
+        compare_bison_parser_outputs(bytes, bytes, false).unwrap().0,
+        BisonComparison::Exact
+    );
+    assert!(compare_bison_parser_outputs(b"f{}(a{}())\n", b"f{}( a{}() )\n", false).is_err());
+}
+
+#[test]
+fn bison_parser_comparator_canonicalizes_same_sort_ambiguity_only() {
+    let left = b"wrap{}(Lblamb{SortA{}}(Lblamb{SortA{}}(m{}(),z{}()),a{}()),Lblamb{SortB{}}(x{}(),y{}()))\n";
+    let right = b"wrap{}(Lblamb{SortA{}}(z{}(),Lblamb{SortA{}}(a{}(),m{}())),Lblamb{SortB{}}(y{}(),x{}()))\n";
+    let compared = compare_bison_parser_outputs(left, right, true).unwrap();
+    assert_eq!(compared.0, BisonComparison::Amb);
+    assert_eq!(
+        compared.1,
+        AmbiguityStats {
+            nodes: 3,
+            alternatives: 5
+        }
+    );
+    assert_eq!(
+        compared.2,
+        AmbiguityStats {
+            nodes: 3,
+            alternatives: 5
+        }
+    );
+}
+
+#[test]
+fn bison_parser_comparator_keeps_different_sort_ambiguity_as_one_alternative() {
+    let left = b"Lblamb{SortA{}}(z{}(),Lblamb{SortB{}}(b{}(),a{}()))";
+    let right = b"Lblamb{SortA{}}(Lblamb{SortB{}}(a{}(),b{}()),z{}())";
+    let compared = compare_bison_parser_outputs(left, right, true).unwrap();
+    assert_eq!(
+        compared.1,
+        AmbiguityStats {
+            nodes: 2,
+            alternatives: 4
+        }
+    );
+    assert_eq!(
+        compared.2,
+        AmbiguityStats {
+            nodes: 2,
+            alternatives: 4
+        }
+    );
+}
+
+#[test]
+fn bison_parser_comparator_rejects_bad_ambiguity_contracts() {
+    assert!(
+        compare_bison_parser_outputs(b"Lblamb{}(a{}(),b{}())", b"Lblamb{}(a{}(),b{}())", true)
+            .is_err()
+    );
+    assert!(compare_bison_parser_outputs(b"Lblamb{S{},T{}}(a{}(),b{}())", b"a{}()", true).is_err());
+    assert!(compare_bison_parser_outputs(b"Lblamb{S{}}(a{}())", b"a{}()", true).is_err());
+    assert!(
+        compare_bison_parser_outputs(
+            b"Lblamb{S{}}(a{}(),b{}())",
+            b"Lblamb{S{}}(b{}(),a{}())",
+            false
+        )
+        .is_err()
+    );
+    assert!(compare_bison_parser_outputs(b"a{}()", b"a{}()", true).is_err());
+    assert!(compare_bison_parser_outputs(b"Lblamb{S{}}(a{}(),a{}())", b"a{}()", true).is_err());
+    assert!(
+        compare_bison_parser_outputs(
+            br#"\dv{S{}}("Lblamb{S{}}(a{}(),b{}())")"#,
+            br#"\dv{S{}}("Lblamb{S{}}(a{}(),b{}())")"#,
+            false
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn bison_parser_comparator_handles_a_deep_unambiguous_term_iteratively() {
+    let depth = 20_000;
+    let mut source = String::with_capacity(depth * 12 + 16);
+    for _ in 0..depth {
+        source.push_str(r"\not{S{}}(");
+    }
+    source.push_str(r"\top{S{}}()");
+    for _ in 0..depth {
+        source.push(')');
+    }
+    assert_eq!(
+        compare_bison_parser_outputs(source.as_bytes(), source.as_bytes(), false)
+            .unwrap()
+            .0,
+        BisonComparison::Exact,
+    );
+}
 
 #[test]
 #[ignore = "requires K_REFERENCE_KORE and K_RUST_KORE outputs"]

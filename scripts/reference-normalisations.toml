@@ -255,3 +255,19 @@ anchor = "crates/k-rust/tests/reference_differential.rs:normalize_execution_equa
 anchor_symbol = "normalize_execution_equalities"
 rule = "Order the operands of ML equality. Rewrite equality of the generated total `LblisKResult` predicate with false as the negation of its equality with true."
 justification = "ML equality is symmetric, and generated isKResult has a total two-valued SortBool result. The reference and the port choose different but equivalent orientations when they externalize residual isKResult conditions; arbitrary SortBool patterns remain unchanged because they may be partial."
+
+[[normalisation]]
+id = "N25"
+gate = "generated Bison parser output"
+anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_ambiguities"
+anchor_symbol = "canonicalize_ambiguities"
+anchor_helpers = [
+  "ambiguity_stats",
+  "valid_amb_sort",
+  "flattened_amb_alternative_count",
+  "pattern_children",
+  "rebuild_pattern_node",
+]
+rule = "Only for a manifest row explicitly classified as ambiguous, require both parser outputs to be complete KORE patterns, recursively flatten same-sort binary Lblamb trees, retain duplicate alternatives, sort alternatives by compact KORE bytes, and rebuild a deterministic binary tree. Every unambiguous parser output must remain byte-identical."
+justification = "Alternative order in a generated GLR grammar can change the nesting of an ambiguity tree without changing its alternatives. The manifest authorizes this test-only transformation only for individually reviewed ambiguous inputs; generated scanner and grammar source bytes are outside the compatibility contract."
+env = "K_BISON_PARSER_ALLOW_AMBIGUITY=1"

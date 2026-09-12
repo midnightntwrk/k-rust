@@ -523,14 +523,14 @@ fn every_gate_normalisation_is_registered() {
         .iter()
         .map(|row| row["id"].as_str().expect("normalisation id"))
         .collect::<BTreeSet<_>>();
-    let expected = (1..=24)
+    let expected = (1..=25)
         .filter(|id| *id != 2)
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1 and N3 through N24; global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1 and N3 through N25; global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()
@@ -571,6 +571,27 @@ fn every_gate_normalisation_is_registered() {
                 .contains(needle)
                 || row("N23")["rule"].as_str().unwrap().contains(needle),
             "N23 must cite {needle}"
+        );
+    }
+    for needle in [
+        "manifest row explicitly classified as ambiguous",
+        "complete KORE patterns",
+        "same-sort binary Lblamb",
+        "retain duplicate alternatives",
+        "unambiguous parser output must remain byte-identical",
+    ] {
+        assert!(
+            row("N25")["rule"].as_str().unwrap().contains(needle),
+            "N25 must constrain {needle}"
+        );
+    }
+    for needle in ["test-only", "generated scanner and grammar source bytes"] {
+        assert!(
+            row("N25")["justification"]
+                .as_str()
+                .unwrap()
+                .contains(needle),
+            "N25 must document {needle}"
         );
     }
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

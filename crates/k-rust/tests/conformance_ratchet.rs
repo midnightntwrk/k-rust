@@ -7,9 +7,11 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use sha2::{Digest, Sha256};
 use toml::Value;
 
 const EXPECTATIONS: &str = include_str!("../../../scripts/conformance/expectations.toml");
+const BISON_PARSERS: &str = include_str!("../../../scripts/conformance/bison-parsers.toml");
 
 struct Fixture {
     root: PathBuf,
@@ -464,6 +466,447 @@ print(json.dumps({
     assert!(level("fail-with-Wno", "all"), "{translated}");
     assert!(drops("fail-with-Wno", "-Wno useless-rule"), "{translated}");
     assert!(drops("fail-with-Wno", "-w2e"), "{translated}");
+}
+
+#[test]
+fn bison_parser_manifest_covers_the_reviewed_positive_corpus() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let regression = workspace.join("k/k-distribution/tests/regression-new");
+    let document = BISON_PARSERS.parse::<Value>().unwrap();
+    assert_eq!(document["schema"].as_integer(), Some(1));
+    let rows = document["case"].as_array().unwrap();
+    assert_eq!(rows.len(), 19);
+
+    let mut names = BTreeSet::new();
+    let mut executable = 0;
+    let mut executable_inputs = 0;
+    let mut libraries = 0;
+    let mut reviewed_matrix = String::new();
+    for value in rows {
+        let row = value.as_table().unwrap();
+        let name = row["name"].as_str().unwrap();
+        assert!(names.insert(name), "duplicate case {name}");
+        let name_path = Path::new(name);
+        assert!(!name_path.is_absolute());
+        assert!(
+            name_path
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)))
+        );
+        let artifact = row["artifact"].as_str().unwrap();
+        let comparison = row
+            .get("comparison")
+            .and_then(Value::as_str)
+            .unwrap_or("exact");
+        assert!(matches!(comparison, "exact" | "amb"));
+        let inputs = row["inputs"].as_array().unwrap();
+        let strings = inputs
+            .iter()
+            .map(|item| item.as_str().unwrap())
+            .collect::<Vec<_>>();
+        use std::fmt::Write as _;
+        writeln!(
+            &mut reviewed_matrix,
+            "{name}\t{artifact}\t{comparison}\t{}\t{}",
+            row.get("makefile").and_then(Value::as_str).unwrap_or(""),
+            strings.join("\t")
+        )
+        .unwrap();
+        assert!(!strings.is_empty(), "{name}");
+        assert!(
+            strings.windows(2).all(|pair| pair[0] < pair[1]),
+            "{name}: {strings:?}"
+        );
+        for input in &strings {
+            let input_path = Path::new(input);
+            assert!(!input_path.is_absolute(), "{name}/{input}");
+            assert!(
+                input_path
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_))),
+                "{name}/{input}"
+            );
+            if regression.is_dir() {
+                assert!(
+                    regression.join(name).join(input).is_file(),
+                    "missing {name}/{input}"
+                );
+            }
+        }
+        match artifact {
+            "executable" => {
+                executable += 1;
+                executable_inputs += inputs.len();
+            }
+            "shared-library" => libraries += 1,
+            other => panic!("unknown artifact {other}"),
+        }
+        if comparison == "amb" {
+            assert_eq!(name, "parse-c", "ambiguity requires individual review");
+        }
+    }
+    assert_eq!((executable, executable_inputs, libraries), (18, 37, 1));
+    let matrix_digest = Sha256::digest(reviewed_matrix.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(
+        matrix_digest,
+        "67f65334366f36782f461d65670d84369da29d907bfaad25ae7e627882a7de59"
+    );
+}
+
+#[test]
+fn conformance_driver_forwards_bison_generator_options() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import run
+def translate(flags):
+    case = run.Case("bison-glr-bug")
+    recipe = run.split_recipe("/kbin/kompile " + flags + " --backend llvm test.k --output-definition ./test-kompiled")
+    args, why, info = run.krust_kompile_args(case, recipe)
+    return {"args": args, "why": why, "dropped": info["dropped"]}
+print(json.dumps({
+    "lr": translate("--gen-bison-parser"),
+    "glr": translate("--gen-glr-bison-parser --bison-lists"),
+    "both": translate("--gen-bison-parser --gen-glr-bison-parser"),
+    "depth": translate("--gen-glr-bison-parser --bison-stack-max-depth 12000"),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let translated: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let args = |row: &str| {
+        translated[row]["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert!(args("lr").contains(&"--gen-bison-parser"));
+    assert!(args("glr").contains(&"--gen-glr-bison-parser"));
+    assert!(args("glr").contains(&"--bison-lists"));
+    assert!(args("both").contains(&"--gen-bison-parser"));
+    assert!(args("both").contains(&"--gen-glr-bison-parser"));
+    assert!(
+        args("depth")
+            .windows(2)
+            .any(|pair| pair == ["--bison-stack-max-depth", "12000"])
+    );
+    for row in ["lr", "glr", "both", "depth"] {
+        assert_eq!(
+            translated[row]["dropped"],
+            serde_json::json!([]),
+            "{row}: {translated}"
+        );
+    }
+}
+
+#[test]
+fn conformance_driver_passes_parser_bytes_to_the_semantic_comparator() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+root = tempfile.mkdtemp()
+case = run.Case("glr")
+case.dir = root
+case.log = os.path.join(root, "logs")
+case.ref_kompiled = os.path.join(root, "reference-kompiled")
+os.makedirs(case.ref_kompiled)
+os.makedirs(os.path.join(root, "krust-kompiled"))
+open(os.path.join(case.ref_kompiled, "parser_PGM"), "wb").close()
+open(os.path.join(root, "krust-kompiled", "parser_PGM"), "wb").close()
+open(os.path.join(root, "1.test"), "wb").close()
+calls = []
+comparison = {}
+def fake_to_file(command, cwd, timeout, stdout_path, env=None):
+    calls.append({"command": command, "cwd": cwd, "stdout": stdout_path})
+    os.makedirs(os.path.dirname(stdout_path), exist_ok=True)
+    with open(stdout_path, "wb") as output: output.write(b"a{}()\\n")
+    return 0, "", 0.01, False
+def fake_test(name, env, cwd, timeout=120):
+    comparison.update(name=name, env=env, cwd=cwd, timeout=timeout)
+    return 0, "bison-parser-comparison = 'exact'\nbison-parser-reference-ambiguity-nodes = 0\nbison-parser-reference-alternatives = 0\nbison-parser-krust-ambiguity-nodes = 0\nbison-parser-krust-alternatives = 0\n", ""
+run.sh_to_file = fake_to_file
+run.run_test_binary_result = lambda *args, **kwargs: (*fake_test(*args, **kwargs), False)
+run.run_bison_parsers(case)
+print(json.dumps({"calls": calls, "comparison": comparison, "steps": case.steps}))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let observed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let calls = observed["calls"].as_array().unwrap();
+    assert_eq!(calls.len(), 2);
+    for call in calls {
+        assert_eq!(call["command"][1], "1.test");
+        assert_eq!(call["cwd"], observed["comparison"]["cwd"]);
+    }
+    assert_eq!(
+        observed["comparison"]["name"],
+        "generated_bison_parser_outputs_match"
+    );
+    assert_eq!(
+        observed["comparison"]["env"]["K_REFERENCE_BISON_PARSER_OUTPUT"],
+        calls[0]["stdout"]
+    );
+    assert_eq!(
+        observed["comparison"]["env"]["K_RUST_BISON_PARSER_OUTPUT"],
+        calls[1]["stdout"]
+    );
+    assert_eq!(
+        observed["comparison"]["env"]["K_BISON_PARSER_ALLOW_AMBIGUITY"],
+        "0"
+    );
+    assert_eq!(observed["steps"][0]["verdict"], "match");
+    assert_eq!(observed["steps"][0]["comparison_policy"], "exact");
+}
+
+#[test]
+fn conformance_driver_selects_lesson_7_concrete_makefile_and_drives_custom_case() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+case = run.Case("pl-tutorial/1_k/4_imp++/lesson_7")
+case.dir = "/case"
+commands = []
+def fake_sh(command, cwd, timeout, **kwargs):
+    commands.append(command)
+    return 0, "KOMPILE_BACKEND = llvm\n", "", 0.0, False
+run.sh = fake_sh
+run.make_vars(case)
+run.make_recipes(case)
+
+root = tempfile.mkdtemp()
+run.WORK_TREE = root
+run.REG = "regression"
+run.LOGS = os.path.join(root, "logs")
+os.makedirs(os.path.join(root, run.REG, case.name))
+run.make_vars = lambda case: {}
+run.make_recipes = lambda case: (0, [], "")
+driven = []
+run.run_bison_parsers = lambda case: driven.append(case.makefile)
+result = run.run_case(case.name, "custom")
+print(json.dumps({"commands": commands, "driven": driven, "verdict": result.verdict}))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let observed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for command in observed["commands"].as_array().unwrap() {
+        let prefix = command.as_array().unwrap()[..3]
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(prefix, ["make", "-f", "Makefile.concrete"]);
+    }
+    assert_eq!(observed["driven"], serde_json::json!(["Makefile.concrete"]));
+}
+
+#[test]
+fn conformance_driver_classifies_generated_parser_failures() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+def probe(mode):
+    root = tempfile.mkdtemp()
+    case = run.Case("glr")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "reference-kompiled")
+    os.makedirs(case.ref_kompiled)
+    os.makedirs(os.path.join(root, "krust-kompiled"))
+    reference = os.path.join(case.ref_kompiled, "parser_PGM")
+    krust = os.path.join(root, "krust-kompiled", "parser_PGM")
+    if mode not in ("missing-reference", "expired-missing-reference"): open(reference, "wb").close()
+    if mode not in ("missing-krust", "expired-missing-krust"): open(krust, "wb").close()
+    if mode.startswith("expired-"): case.deadline = case.t0 - 1
+    def fake(command, cwd, timeout, stdout_path, env=None):
+        is_reference = command[0] == reference
+        if mode == "reference-nonzero" and is_reference: return 7, "reference failed", 0.1, False
+        if mode == "reference-timeout" and is_reference: return -9, "", 1.0, True
+        if mode == "krust-nonzero" and not is_reference: return 8, "krust failed", 0.1, False
+        if mode == "krust-timeout" and not is_reference: return -9, "", 1.0, True
+        os.makedirs(os.path.dirname(stdout_path), exist_ok=True)
+        with open(stdout_path, "wb") as output: output.write(b"a{}()\\n")
+        return 0, "", 0.1, False
+    run.sh_to_file = fake
+    if mode == "comparator-timeout":
+        run.run_test_binary_result = lambda *args, **kwargs: (-9, "", "", True)
+    elif mode == "comparator-infrastructure":
+        run.run_test_binary_result = lambda *args, **kwargs: (127, "", "missing comparator", False)
+    elif mode == "comparator-mismatch":
+        run.run_test_binary_result = lambda *args, **kwargs: (101, "", "semantic difference", False)
+    else:
+        run.run_test_binary_result = lambda *args, **kwargs: (0, "bison-parser-comparison = 'exact'\n", "", False)
+    run.run_bison_parsers(case)
+    return case.steps[0]["verdict"]
+print(json.dumps({mode: probe(mode) for mode in [
+    "missing-reference", "missing-krust", "expired-missing-reference",
+    "expired-missing-krust", "reference-nonzero", "reference-timeout",
+    "krust-nonzero", "krust-timeout", "comparator-timeout",
+    "comparator-infrastructure", "comparator-mismatch",
+]}))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let verdicts: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for mode in [
+        "missing-reference",
+        "reference-nonzero",
+        "reference-timeout",
+        "expired-missing-reference",
+    ] {
+        assert_eq!(verdicts[mode], "reference-error", "{mode}: {verdicts}");
+    }
+    for mode in [
+        "missing-krust",
+        "krust-nonzero",
+        "krust-timeout",
+        "comparator-timeout",
+        "comparator-infrastructure",
+        "expired-missing-krust",
+    ] {
+        assert_eq!(verdicts[mode], "krust-error", "{mode}: {verdicts}");
+    }
+    assert_eq!(verdicts["comparator-mismatch"], "mismatch", "{verdicts}");
+}
+
+#[test]
+fn conformance_driver_reports_missing_comparator_infrastructure() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+root = tempfile.mkdtemp()
+run.KR = root
+run.TEST_BINARY = None
+missing_directory = run.run_test_binary_result("unused", {}, root)
+os.makedirs(os.path.join(root, "target", "debug", "deps"))
+missing_binary = run.run_test_binary_result("unused", {}, root)
+print(json.dumps({"directory": missing_directory, "binary": missing_binary}))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let observed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for key in ["directory", "binary"] {
+        let result = observed[key].as_array().unwrap();
+        assert_eq!(result.len(), 4, "{key}: {observed}");
+        assert_eq!(result[0], 1, "{key}: {observed}");
+        assert_eq!(result[3], false, "{key}: {observed}");
+        assert!(
+            result[2]
+                .as_str()
+                .unwrap()
+                .contains("no reference_differential test binary"),
+            "{key}: {observed}"
+        );
+    }
+}
+
+#[test]
+fn conformance_driver_bison_mode_skips_runtime_recipes_and_ranks_parser_steps() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+root = tempfile.mkdtemp()
+run.WORK_TREE = root
+run.REG = "regression"
+run.LOGS = os.path.join(root, "logs")
+run.BISON_PARSER_ONLY = True
+case_dir = os.path.join(root, run.REG, "glr")
+os.makedirs(case_dir)
+run.make_vars = lambda case: {}
+run.make_recipes = lambda case: (0, ["kompile", "krun"], "")
+run.split_recipe = lambda line: {
+    "tool": line,
+    "args": ["test.k"] if line == "kompile" else ["1.test"],
+    "raw": line,
+    "out": None,
+}
+driven = []
+def fake_kompile(case, recipe, expect_fail):
+    driven.append(recipe["tool"])
+    case.main_module = "TEST"
+    run.step_record(case, step="kompile", stage="kompile", verdict="reference-error")
+def fake_bison(case):
+    driven.append("bison-parser")
+    run.step_record(case, step="bison-parser", stage="bison-parser", verdict="match")
+run.do_kompile = fake_kompile
+run.run_bison_parsers = fake_bison
+run.do_krun = lambda *args, **kwargs: driven.append("krun")
+result = run.run_case("glr", "ktest")
+print(json.dumps({"driven": driven, "verdict": result.verdict, "stage": result.stage}))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let observed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        observed["driven"],
+        serde_json::json!(["kompile", "bison-parser"])
+    );
+    assert_eq!(observed["verdict"], "match");
+    assert_eq!(observed["stage"], "bison-parser");
 }
 
 #[test]

@@ -32,6 +32,8 @@ K_OPTS = os.environ.get("REFERENCE_DIFFERENTIAL_K_OPTS", "")
 KORE_PARSER = os.environ.get("K_KORE_PARSER", f"{KBIN}/kore-parser")
 TEST_BINARY = os.environ.get("CONFORMANCE_TEST_BINARY")
 EXPECTATIONS = str(HERE / "expectations.toml")
+BISON_PARSER_MANIFEST = str(HERE / "bison-parsers.toml")
+BISON_PARSER_ONLY = False
 IGNORE_UNIQUE_ID = False
 CASE_BUDGET = 300.0
 CASE_BUDGETS = {}
@@ -90,6 +92,52 @@ def load_expectations(path):
     return document, budgets
 
 
+def load_bison_parsers(path):
+    with open(path, "rb") as source:
+        document = tomllib.load(source)
+    if document.get("schema") != 1:
+        raise ValueError("bison parser manifest schema must be 1")
+    allowed = {"name", "artifact", "inputs", "makefile", "comparison", "reason"}
+    rows = {}
+    for index, row in enumerate(document.get("case", [])):
+        unknown = set(row) - allowed
+        if unknown:
+            raise ValueError(f"bison parser row {index} has unknown fields: {sorted(unknown)}")
+        missing = {"name", "artifact", "inputs"} - set(row)
+        if missing:
+            raise ValueError(f"bison parser row {index} is missing: {sorted(missing)}")
+        name = row["name"]
+        if not isinstance(name, str) or not name or name in rows:
+            raise ValueError(f"invalid or duplicate bison parser case: {name!r}")
+        name_path = Path(name)
+        if name_path.is_absolute() or any(part in (".", "..") for part in name_path.parts):
+            raise ValueError(f"unsafe bison parser case path: {name!r}")
+        if row["artifact"] not in ("executable", "shared-library"):
+            raise ValueError(f"invalid bison parser artifact for {name}: {row['artifact']!r}")
+        if row.get("comparison", "exact") not in ("exact", "amb"):
+            raise ValueError(f"invalid bison parser comparison for {name}")
+        inputs = row["inputs"]
+        if (not isinstance(inputs, list) or not inputs or
+                any(not isinstance(item, str) or not item for item in inputs) or
+                inputs != sorted(set(inputs))):
+            raise ValueError(f"bison parser inputs for {name} must be nonempty, unique, and sorted")
+        if any(Path(item).is_absolute() or any(part in (".", "..") for part in Path(item).parts)
+               for item in inputs):
+            raise ValueError(f"unsafe bison parser input path for {name}")
+        for optional in ("makefile", "reason"):
+            if optional in row and not isinstance(row[optional], str):
+                raise ValueError(f"bison parser {optional} for {name} must be a string")
+        if "makefile" in row:
+            makefile = Path(row["makefile"])
+            if makefile.is_absolute() or len(makefile.parts) != 1 or makefile.parts[0] in (".", ".."):
+                raise ValueError(f"unsafe bison parser makefile for {name}")
+        rows[name] = dict(row, comparison=row.get("comparison", "exact"))
+    return rows
+
+
+BISON_PARSERS = load_bison_parsers(BISON_PARSER_MANIFEST)
+
+
 def load_reference_normalisations(workspace, k_checkout):
     """Read the manifest through its renderer, which owns placeholder expansion."""
     renderer = os.path.join(workspace, "scripts", "reference-manifest.py")
@@ -135,6 +183,31 @@ def sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
     finally:
         if stdin is not subprocess.DEVNULL: stdin.close()
     return rc, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), time.monotonic() - t0, to
+
+
+def sh_to_file(cmd, cwd, timeout, stdout_path, env=None):
+    """Run a command with stdout connected directly to a binary file."""
+    e = dict(os.environ); e["K_OPTS"] = K_OPTS
+    if env: e.update(env)
+    t0 = time.monotonic()
+    os.makedirs(os.path.dirname(stdout_path), exist_ok=True)
+    try:
+        with open(stdout_path, "wb") as stdout:
+            process = subprocess.Popen(
+                cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=stdout,
+                stderr=subprocess.PIPE, env=e, start_new_session=True,
+            )
+            try:
+                _, stderr = process.communicate(timeout=max(1.0, timeout))
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, 9)
+                _, stderr = process.communicate()
+                timed_out = True
+            rc = process.returncode
+    except FileNotFoundError as error:
+        rc, stderr, timed_out = 127, str(error).encode(), False
+    return rc, stderr.decode("utf-8", "replace"), time.monotonic() - t0, timed_out
 
 
 def first_diff(expected, actual, n=DIFF_LINES):
@@ -207,6 +280,8 @@ class Case:
         self.def_file = None
         self.md_selectors = []
         self.custom_targets = []
+        self.bison_parser = BISON_PARSERS.get(rel)
+        self.makefile = self.bison_parser.get("makefile", "Makefile") if self.bison_parser else "Makefile"
 
     def remaining(self):
         return self.deadline - time.monotonic()
@@ -248,7 +323,8 @@ def enumerate_cases(rel=""):
 
 
 def make_vars(case):
-    rc, out, err, _, _ = sh(["make", "-pn", "clean", f"K_BIN={KBIN}", f"BUILTIN_DIR={BUILTIN}", "KDEP=true"], case.dir, 60)
+    makefile = ["-f", case.makefile] if case.makefile != "Makefile" else []
+    rc, out, err, _, _ = sh(["make", *makefile, "-pn", "clean", f"K_BIN={KBIN}", f"BUILTIN_DIR={BUILTIN}", "KDEP=true"], case.dir, 60)
     v = {}
     for m in re.finditer(r"^([A-Z_0-9]+) :?= (.*)$", out, re.M):
         v[m.group(1)] = m.group(2)
@@ -256,7 +332,8 @@ def make_vars(case):
 
 
 def make_recipes(case):
-    rc, out, err, secs, to = sh(["make", "-n", "all", f"K_BIN={KBIN}", f"BUILTIN_DIR={BUILTIN}", "KDEP=true"], case.dir, 120)
+    makefile = ["-f", case.makefile] if case.makefile != "Makefile" else []
+    rc, out, err, secs, to = sh(["make", *makefile, "-n", "all", f"K_BIN={KBIN}", f"BUILTIN_DIR={BUILTIN}", "KDEP=true"], case.dir, 120)
     lines = [l for l in out.splitlines() if l.strip() and not l.startswith("make")]
     case.logfile("make-n.txt", out + "\n--- stderr ---\n" + err)
     return rc, lines, err
@@ -415,26 +492,31 @@ def postprocess(path):
     print(f"postprocessed {len(cases)} cases -> {path}")
 
 
-def run_test_binary(name, env, cwd):
+def run_test_binary_result(name, env, cwd, timeout=120):
     """Run one ignored comparison test of crates/k-rust/tests/reference_differential.rs directly."""
     binary = TEST_BINARY
     if not binary:
         dependency_dir = os.path.join(KR, "target", "debug", "deps")
         if not os.path.isdir(dependency_dir):
-            return 1, "", f"no reference_differential test binary directory: {dependency_dir}"
+            return 1, "", f"no reference_differential test binary directory: {dependency_dir}", False
         bins = sorted((os.path.getmtime(path), path) for path in
                       (os.path.join(dependency_dir, entry) for entry in os.listdir(dependency_dir)
                        if entry.startswith("reference_differential-") and not entry.endswith(".d"))
                       if os.access(path, os.X_OK))
         if not bins:
-            return 1, "", "no reference_differential test binary in target/debug/deps"
+            return 1, "", "no reference_differential test binary in target/debug/deps", False
         binary = bins[-1][1]
-    rc, out, err, _, _ = sh(
+    rc, out, err, _, timed_out = sh(
         [binary, "--ignored", "--exact", name, "--nocapture", "--test-threads=1"],
         cwd,
-        120,
+        timeout,
         env=env,
     )
+    return rc, out, err, timed_out
+
+
+def run_test_binary(name, env, cwd, timeout=120):
+    rc, out, err, _ = run_test_binary_result(name, env, cwd, timeout)
     return rc, out, err
 
 
@@ -474,6 +556,11 @@ def krust_kompile_args(case, rec, expect_fail=False):
     for d in opts.get("-I", []): args += ["-I", d]
     if "--no-prelude" in flags: args.append("--no-prelude")
     if "--emit-json" in flags: args.append("--emit-json")
+    for flag in flags:
+        if flag in ("--gen-bison-parser", "--gen-glr-bison-parser", "--bison-lists"):
+            args.append(flag)
+    if opts.get("--bison-stack-max-depth"):
+        args += ["--bison-stack-max-depth", opts["--bison-stack-max-depth"][-1]]
     # Warning policy for the -w/-w2e flags krust implements (`--warnings LEVEL`,
     # `--warnings-to-errors`). The contract is forwarded whole or not at all: `-w2e` reaches krust
     # only for a ktest-fail recipe (the reference's rejection depends on it) that carries no
@@ -485,7 +572,7 @@ def krust_kompile_args(case, rec, expect_fail=False):
     if warning_level in ("all", "normal", "none"): args += ["--warnings", warning_level]
     per_category = [f"{k} {v}" for k in ("-W", "-Wno") for v in opts.get(k, [])]
     w2e = [f for f in flags if f in ("-w2e", "--warnings-to-errors")]
-    dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap", "-w2e", "--warnings-to-errors")]
+    dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap", "-w2e", "--warnings-to-errors", "--gen-bison-parser", "--gen-glr-bison-parser", "--bison-lists")]
     if w2e and per_category:
         dropped.append(f"{w2e[-1]} (not forwarded next to {' '.join(per_category)}: krust has no per-category warning control, and a partial contract would promote warnings the reference disabled)")
     elif w2e and not expect_fail:
@@ -495,7 +582,7 @@ def krust_kompile_args(case, rec, expect_fail=False):
     inference_mode = (opts.get("--type-inference-mode") or [None])[-1]
     for k in opts:
         if k in ("-w", "--warnings") and warning_level in ("all", "normal", "none"): continue
-        if k not in ("--backend", "--main-module", "--syntax-module", "--output-definition", "--md-selector", "-I", "--type-inference-mode"):
+        if k not in ("--backend", "--main-module", "--syntax-module", "--output-definition", "--md-selector", "-I", "--type-inference-mode", "--bison-stack-max-depth"):
             dropped.append(f"{k} {' '.join(opts[k])}")
     if inference_mode not in (None, "simplesub", "checked"):
         dropped.append(f"--type-inference-mode {inference_mode}")
@@ -609,6 +696,109 @@ def do_kompile(case, rec, expect_fail):
     else:
         step.update(verdict="match", comparison="both kompile succeeded; no definition.kore to compare")
     return step_record(case, **step)
+
+
+def bison_log_key(input_path):
+    return re.sub(r"[^A-Za-z0-9_.-]+", "__", input_path).strip("_") or "input"
+
+
+def run_bison_parsers(case):
+    """Execute and semantically compare the generated parser artifacts named by the manifest."""
+    row = case.bison_parser
+    if row is None:
+        return
+    if row["artifact"] == "shared-library":
+        step_record(
+            case,
+            step="bison-parser",
+            stage="bison-parser",
+            verdict="krust-unsupported",
+            reason="shared-library parser generation is not implemented; this fixture exposes libparser_KItem_TEST to test.c and has no parser_PGM",
+            inputs=row["inputs"],
+        )
+        return
+
+    reference_parser = os.path.join(case.ref_kompiled or "", "parser_PGM")
+    rust_parser = os.path.join(case.dir, "krust-kompiled", "parser_PGM")
+    for input_path in row["inputs"]:
+        step = dict(step="bison-parser", stage="bison-parser", test=input_path,
+                    comparison_policy=row["comparison"])
+        if not case.ref_kompiled or not os.path.exists(reference_parser):
+            step.update(verdict="reference-error", reason="reference generator did not install a resolvable parser_PGM")
+            step_record(case, **step)
+            continue
+        if not os.path.exists(rust_parser):
+            step.update(verdict="krust-error", reason="krust generator did not install a resolvable parser_PGM")
+            step_record(case, **step)
+            continue
+        if case.out_of_budget():
+            step.update(verdict="reference-error", reason="case budget exhausted before reference parser")
+            step_record(case, **step)
+            continue
+        key = bison_log_key(input_path)
+        reference_output = os.path.join(case.log, f"bison__{key}.reference.kore")
+        rust_output = os.path.join(case.log, f"bison__{key}.krust.kore")
+        reference_stderr = os.path.join(case.log, f"bison__{key}.reference.stderr")
+        rust_stderr = os.path.join(case.log, f"bison__{key}.krust.stderr")
+
+        rc, err, seconds, timed_out = sh_to_file(
+            [reference_parser, input_path], case.dir, case.remaining(), reference_output)
+        case.logfile(os.path.basename(reference_stderr), err)
+        step["ref_rc"] = rc; step["ref_seconds"] = round(seconds, 1)
+        if timed_out:
+            step.update(verdict="reference-error", reason="reference parser timed out (case budget)")
+            step_record(case, **step)
+            continue
+        if rc != 0:
+            step.update(verdict="reference-error", reason=f"reference parser exit {rc}", divergence=err[-1500:])
+            step_record(case, **step)
+            continue
+
+        if case.out_of_budget():
+            step.update(verdict="krust-error", reason="case budget exhausted before krust parser")
+            step_record(case, **step)
+            continue
+        rc, err, seconds, timed_out = sh_to_file(
+            [rust_parser, input_path], case.dir, case.remaining(), rust_output)
+        case.logfile(os.path.basename(rust_stderr), err)
+        step["krust_rc"] = rc; step["krust_seconds"] = round(seconds, 1)
+        if timed_out:
+            step.update(verdict="krust-error", reason="krust parser timed out (case budget)")
+            step_record(case, **step)
+            continue
+        if rc != 0:
+            step.update(verdict="krust-error", reason=f"krust parser exit {rc}", divergence=err[-1500:])
+            step_record(case, **step)
+            continue
+
+        environment = {
+            "K_REFERENCE_BISON_PARSER_OUTPUT": reference_output,
+            "K_RUST_BISON_PARSER_OUTPUT": rust_output,
+            "K_BISON_PARSER_INPUT": f"{case.name}/{input_path}",
+            "K_BISON_PARSER_ALLOW_AMBIGUITY": "1" if row["comparison"] == "amb" else "0",
+        }
+        if case.out_of_budget():
+            step.update(verdict="krust-error", reason="case budget exhausted before parser-output comparison")
+            step_record(case, **step)
+            continue
+        trc, tout, terr, comparator_timed_out = run_test_binary_result(
+            "generated_bison_parser_outputs_match", environment, case.dir, case.remaining())
+        case.logfile(f"bison__{key}.compare.log", tout + "\n--- stderr ---\n" + terr)
+        # The comparison test emits simple machine-readable assignments; parse them separately
+        # to keep diagnostics robust when libtest adds unrelated output.
+        for name, quoted, number in re.findall(r"(bison-parser-[a-z-]+) = (?:'([^']*)'|([0-9]+))$", tout, re.M):
+            step[name.replace("-", "_")] = quoted if quoted else int(number)
+        if comparator_timed_out:
+            step.update(verdict="krust-error", reason="parser-output comparator timed out (case budget)")
+        elif trc == 0:
+            step.update(verdict="match", comparison="parser stdout bytes" if row["comparison"] == "exact" else "parser KORE modulo same-sort Lblamb flattening and sorting")
+        elif trc == 101:
+            message = re.search(r"panicked at[^\n]*\n(.*)", tout + terr, re.S)
+            text = (message.group(1) if message else (tout + terr)).strip()
+            step.update(verdict="mismatch", comparison="generated parser stdout", divergence="\n".join(text.splitlines()[:DIFF_LINES]))
+        else:
+            step.update(verdict="krust-error", reason=f"parser-output comparator exit {trc}", divergence="\n".join((tout + terr).strip().splitlines()[:DIFF_LINES]))
+        step_record(case, **step)
 
 
 def program_sort_fallback(case, prog_path, stdin_path):
@@ -1100,7 +1290,7 @@ def run_case(rel, kind):
     case = Case(rel); case.kind = kind
     if os.path.exists(case.log): shutil.rmtree(case.log)
     os.makedirs(case.log, exist_ok=True)
-    if kind in ("no-makefile", "custom", "kdep"):
+    if kind in ("no-makefile", "kdep") or (kind == "custom" and case.bison_parser is None):
         case.note(f"case kind {kind}: not driven"); return finish(case, "skipped-with-reason", f"case kind {kind}")
     for entry in os.listdir(case.dir):
         if entry.endswith("-kompiled") and os.path.isdir(f"{case.dir}/{entry}"): shutil.rmtree(f"{case.dir}/{entry}")
@@ -1120,7 +1310,7 @@ def run_case(rel, kind):
         case.custom_targets = custom[:8]
         case.note(f"{len(custom)} recipe line(s) without a K tool were not driven")
     kompiles = [r for r in recs if r["tool"] == "kompile"]
-    tests = [r for r in recs if r["tool"] != "kompile"]
+    tests = [] if BISON_PARSER_ONLY else [r for r in recs if r["tool"] != "kompile"]
     if kind == "fail":
         case.deadline = case.t0 + max(case.budget, 12.0 * len(kompiles))
         case.note(f"ktest-fail case: budget {int(case.deadline - case.t0)} s for {len(kompiles)} kompile recipes")
@@ -1141,6 +1331,7 @@ def run_case(rel, kind):
             if not case.main_module and case.def_file:
                 case.main_module, case.syntax_module, case.pgm_sort = guess_modules(case, case.def_file, (opts.get("--main-module") or [None])[-1])
                 if (opts.get("--syntax-module") or [None])[-1]: case.syntax_module = opts["--syntax-module"][-1]
+        run_bison_parsers(case)
     for r in tests:
         if case.out_of_budget():
             step_record(case, step=r["tool"], test=" ".join(r["args"][:1]), reason=f"case budget exhausted ({case.budget:g} s)", ref_cmd=r["raw"]); continue
@@ -1164,17 +1355,20 @@ VERDICT_RANK = {
     "skipped-with-reason": 2,
     "match": 3,
 }
-STAGE_RANK = ["outer-parse", "inner-parse", "kompile", "kast", "krun", "search", "kprove"]
+STAGE_RANK = ["outer-parse", "inner-parse", "kompile", "bison-parser", "kast", "krun", "search", "kprove"]
 
 
 def finish(case, verdict=None, reason=None):
     case.seconds = round(time.monotonic() - case.t0, 1)
     if verdict is None:
-        vs = [s.get("verdict", "skipped-with-reason") for s in case.steps]
+        ranked_steps = case.steps
+        if BISON_PARSER_ONLY:
+            ranked_steps = [step for step in case.steps if step.get("step") == "bison-parser"]
+        vs = [s.get("verdict", "skipped-with-reason") for s in ranked_steps]
         if not vs: verdict, reason = "skipped-with-reason", "no driven steps"
         else:
             verdict = min(vs, key=VERDICT_RANK.__getitem__)
-            first = next(s for s in case.steps if s.get("verdict") == verdict)
+            first = next(s for s in ranked_steps if s.get("verdict") == verdict)
             reason = first.get("reason") or (f"{first.get('step')} {first.get('test', '')}".strip() + f": {verdict}")
     stages = [s.get("stage") for s in case.steps if s.get("stage")]
     stage = max(stages, key=STAGE_RANK.index) if stages else "none"
@@ -1271,7 +1465,7 @@ def validate_work_tree_target(path, workspace, source_tree):
 
 
 def main():
-    global BUILTIN, CASE_BUDGET, CASE_BUDGETS, EXPECTATIONS, IGNORE_UNIQUE_ID
+    global BISON_PARSER_ONLY, BUILTIN, CASE_BUDGET, CASE_BUDGETS, EXPECTATIONS, IGNORE_UNIQUE_ID
     global KBIN, K_CHECKOUT, K_OPTS, KORE_PARSER, KR, KRUST, LOGS
     global RESULTS, SRC_TREE, TEST_BINARY, WORK_TREE
 
@@ -1295,6 +1489,11 @@ def main():
     ap.add_argument("--stage", action="append", default=[], help="select baseline stage")
     ap.add_argument("--cases", nargs="*", default=[], help="case names relative to regression-new")
     ap.add_argument("--all", action="store_true", help="select every regression-new leaf")
+    ap.add_argument(
+        "--bison-parsers",
+        action="store_true",
+        help="select the generated-parser manifest and run only its parser comparisons",
+    )
     ap.add_argument("--kore-parser", help="matching pinned kore-parser executable")
     ap.add_argument("--expectations", help="case expectations and budget TOML")
     ap.add_argument("--jobs", type=positive_integer, default=2)
@@ -1304,6 +1503,7 @@ def main():
     ap.add_argument("--postprocess", action="store_true", help="only reclassify/trim an existing results file")
     ap.add_argument("--merge", help="replace the cases of --results by the cases found in this results file, then postprocess")
     a = ap.parse_args()
+    BISON_PARSER_ONLY = a.bison_parsers
 
     if a.rank:
         print(VERDICT_RANK[a.rank])
@@ -1374,7 +1574,9 @@ def main():
     except OSError as error:
         ap.error(f"cannot enumerate {SRC_TREE}/{REG}: {error}")
     if a.list:
-        for rel, kind in cases: print(kind, rel)
+        for rel, kind in cases:
+            if not BISON_PARSER_ONLY or rel in BISON_PARSERS:
+                print(kind, rel)
         return 0
 
     try:
@@ -1399,8 +1601,10 @@ def main():
     if unknown_overrides:
         ap.error(f"unknown --case-budget case(s): {', '.join(unknown_overrides)}")
 
-    selectors_given = bool(a.cases or a.stage)
+    selectors_given = bool(a.cases or a.stage or BISON_PARSER_ONLY)
     selected = set(a.cases)
+    if BISON_PARSER_ONLY:
+        selected.update(BISON_PARSERS)
     for stage in a.stage:
         selected.update(
             name for name, row in expectations.items()
