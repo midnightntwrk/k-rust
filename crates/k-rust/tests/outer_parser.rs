@@ -460,6 +460,130 @@ fn strict_outer_accepts_named_and_parameterized_sort_ids() {
 }
 
 #[test]
+fn strict_outer_rejects_invalid_terminal_regex_list_and_require_strings() {
+    for (source, message, marker, adjustment) in [
+        (
+            "module MAIN\n  syntax Foo ::= \"a\\q\"\nendmodule\n",
+            r"invalid escape `\q` in string",
+            r"\q",
+            0,
+        ),
+        (
+            "module MAIN\n  syntax Foo ::= \"a\nb\"\nendmodule\n",
+            "newline in string",
+            "\"a\nb\"",
+            2,
+        ),
+        (
+            "module MAIN\n  syntax Foo ::= r\"a\\q\" [token]\nendmodule\n",
+            r"invalid escape `\q` in string",
+            r"\q",
+            0,
+        ),
+        (
+            "module MAIN\n  syntax Foo ::= r\"a\nb\" [token]\nendmodule\n",
+            "newline in string",
+            "\"a\nb\"",
+            2,
+        ),
+        (
+            "module MAIN\n  syntax S\n  syntax Ss ::= List{S, \"a\\q\"}\nendmodule\n",
+            r"invalid escape `\q` in string",
+            r"\q",
+            0,
+        ),
+        (
+            "module MAIN\n  syntax S\n  syntax Ss ::= List{S, \"a\nb\"}\nendmodule\n",
+            "newline in string",
+            "\"a\nb\"",
+            2,
+        ),
+        (
+            "requires \"dep\\q.k\"\nmodule MAIN endmodule\n",
+            r"invalid escape `\q` in string",
+            r"\q",
+            0,
+        ),
+        (
+            "requires \"dep\n.k\"\nmodule MAIN endmodule\n",
+            "newline in string",
+            "\"dep\n.k\"",
+            4,
+        ),
+    ] {
+        let error = parse("invalid-string.k", source).unwrap_err();
+        assert_eq!(
+            error.message,
+            message,
+            "source bytes: {:?}",
+            source.as_bytes()
+        );
+        assert_eq!(
+            error.position.offset,
+            source.find(marker).unwrap() + adjustment,
+            "source bytes: {:?}",
+            source.as_bytes()
+        );
+    }
+}
+
+#[test]
+fn strict_outer_decodes_legal_strings_once_in_every_context() {
+    let source = concat!(
+        "requires \"raw\rpath.k\"\n",
+        "requires \"escaped\\npath.k\"\n",
+        "requires \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"\n",
+        "module MAIN\n",
+        "  syntax S\n",
+        "  syntax Term ::= \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"\n",
+        "  syntax Token ::= r\"a\\\\+Q\\\"N\\nR\\rT\\tB\\\\C\rZ\" [token]\n",
+        "  syntax Ss ::= List{S, \"Q\\\"N\\nR\\rT\\tB\\\\C\rZ\"}\n",
+        "endmodule\n",
+    );
+    let parsed = parse("valid-strings.k", source).unwrap();
+
+    assert_eq!(parsed.requires[0].path, "raw\rpath.k");
+    assert_eq!(parsed.requires[1].path, "escaped\npath.k");
+    assert_eq!(parsed.requires[2].path, "Q\"N\nR\rT\tB\\C\rZ");
+    let [
+        Sentence::Syntax(_),
+        Sentence::Syntax(terminal),
+        Sentence::Syntax(regex),
+        Sentence::Syntax(list),
+    ] = parsed.modules[0].sentences.as_slice()
+    else {
+        panic!("expected four syntax declarations")
+    };
+    let k_rust::outer::SyntaxBody::Productions(terminal_blocks) = &terminal.body else {
+        panic!("expected terminal production")
+    };
+    assert_eq!(
+        terminal_blocks[0].productions[0].items,
+        [k_rust::outer::ProductionItem::Terminal(
+            "Q\"N\nR\rT\tB\\C\rZ".into()
+        )]
+    );
+    let k_rust::outer::SyntaxBody::Productions(regex_blocks) = &regex.body else {
+        panic!("expected regex production")
+    };
+    assert_eq!(
+        regex_blocks[0].productions[0].items,
+        [k_rust::outer::ProductionItem::Regex(
+            "a\\+Q\"N\nR\rT\tB\\C\rZ".into()
+        )]
+    );
+    let k_rust::outer::SyntaxBody::Productions(list_blocks) = &list.body else {
+        panic!("expected list production")
+    };
+    let [k_rust::outer::ProductionItem::UserList { separator, .. }] =
+        list_blocks[0].productions[0].items.as_slice()
+    else {
+        panic!("expected one user-list item")
+    };
+    assert_eq!(separator, "Q\"N\nR\rT\tB\\C\rZ");
+}
+
+#[test]
 fn strict_outer_rejects_unsupported_production_forms() {
     for (source, message, invalid) in [
         (

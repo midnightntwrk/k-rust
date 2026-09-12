@@ -807,23 +807,29 @@ impl<'a> Parser<'a> {
         self.expect_raw('"')?;
         let mut result = String::new();
         loop {
+            let start = self.offset;
             let ch = self
                 .bump()
                 .ok_or_else(|| self.error("unterminated string"))?;
             match ch {
                 '"' => return Ok(result),
+                '\n' => return Err(self.error_at(start, "newline in string")),
                 '\\' => {
                     let escaped = self
                         .bump()
                         .ok_or_else(|| self.error("unterminated escape"))?;
-                    result.push(match escaped {
+                    let decoded = match escaped {
                         'n' => '\n',
                         'r' => '\r',
                         't' => '\t',
                         '\\' => '\\',
                         '"' => '"',
-                        other => other,
-                    });
+                        other => {
+                            return Err(self
+                                .error_at(start, format!("invalid escape `\\{other}` in string")));
+                        }
+                    };
+                    result.push(decoded);
                 }
                 other => result.push(other),
             }
