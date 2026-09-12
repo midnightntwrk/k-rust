@@ -7,8 +7,8 @@ use crate::definition::{
     Sentence, sentence_equivalent,
 };
 use crate::kast::{Label, Sort, Term};
-use crate::provenance::SourceId;
 
+use super::location::span_location;
 use super::parser::{Grammar, ParseError};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -83,14 +83,17 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
             if sentence_type != "config" {
                 continue;
             }
-            let parsed = grammar
-                .parse_with_provenance(
+            let parsed = if let Some(source) = attributes.source_id() {
+                grammar.parse_with_provenance(
                     &Sort::new("#RuleContent"),
                     contents,
-                    attributes.source_id().unwrap_or(SourceId(0)),
+                    source,
                     content_start_offset(attributes),
                 )
-                .map_err(|error| bubble_error(&module.name, attributes, error))?;
+            } else {
+                grammar.parse(&Sort::new("#RuleContent"), contents)
+            }
+            .map_err(|error| bubble_error(&module.name, attributes, Some(contents), error))?;
             *sentence = up_configuration(&module.name, parsed, attributes.clone())?;
         }
     }
@@ -113,11 +116,27 @@ fn is_configuration_bubble(sentence: &Sentence) -> bool {
     )
 }
 
-fn bubble_error(module: &str, attributes: &Attributes, error: ParseError) -> ConfigError {
+fn bubble_error(
+    module: &str,
+    attributes: &Attributes,
+    contents: Option<&str>,
+    error: ParseError,
+) -> ConfigError {
+    let location = match &error {
+        ParseError::NoParse {
+            span: Some(span), ..
+        }
+        | ParseError::Ambiguous {
+            span: Some(span), ..
+        } => contents
+            .and_then(|contents| span_location(attributes, contents, *span))
+            .or_else(|| attributes.location()),
+        _ => attributes.location(),
+    };
     ConfigError::Parse {
         module: module.to_owned(),
         source: attributes.source().map(str::to_owned),
-        location: attributes.location(),
+        location,
         error: Box::new(error),
     }
 }
@@ -131,9 +150,9 @@ fn up_configuration(
         return Err(bubble_error(
             module,
             &attributes,
-            ParseError::NoParse {
-                position: 0,
-                expected: vec!["#RuleContent".into()],
+            None,
+            ParseError::InvalidParseShape {
+                expected: "#RuleContent".into(),
             },
         ));
     };
@@ -156,9 +175,9 @@ fn up_configuration(
         _ => Err(bubble_error(
             module,
             &attributes,
-            ParseError::NoParse {
-                position: 0,
-                expected: vec!["configuration body".into()],
+            None,
+            ParseError::InvalidParseShape {
+                expected: "configuration body".into(),
             },
         )),
     }

@@ -1,5 +1,6 @@
 ---
 source: crates/k-rust/tests/inner_parser.rs
+assertion_line: 474
 description: "Input parsed as Start:\n\n x"
 ---
 Err(
@@ -8,5 +9,10 @@ Err(
         expected: [
             "\"x\"",
         ],
+        input: UnrecognizedInput {
+            value: " ",
+        },
+        previous: None,
+        span: None,
     },
 )

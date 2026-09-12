@@ -1,5 +1,6 @@
 ---
 source: crates/k-rust/tests/outer_loader.rs
+assertion_line: 969
 description: "main.k:\n\nmodule MAIN\n  configuration <k> @@@ </k>\nendmodule\n\n\nRequired sources:\n\n{}\n\nMain module: MAIN"
 ---
 Configuration(
@@ -11,9 +12,9 @@ Configuration(
         location: Some(
             Location {
                 start_line: 2,
-                start_column: 3,
+                start_column: 21,
                 end_line: 2,
-                end_column: 29,
+                end_column: 22,
             },
         ),
         error: NoParse {
@@ -39,6 +40,21 @@ Configuration(
                 "r\"(\\\\$)([A-Z][A-Za-z0-9'_]*)\"",
                 "r\"[A-Z][a-zA-Z0-9]*\"",
             ],
+            input: UnrecognizedInput {
+                value: "@",
+            },
+            previous: Some(
+                ">",
+            ),
+            span: Some(
+                TermSpan {
+                    source: SourceId(
+                        0,
+                    ),
+                    start: 32,
+                    end: 33,
+                },
+            ),
         },
     },
 )

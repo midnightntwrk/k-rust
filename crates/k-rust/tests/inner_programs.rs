@@ -4,8 +4,8 @@
 
 use indoc::indoc;
 use k_rust::definition::{Definition, LabelHead, ResolvedDefinition};
-use k_rust::inner::{ParseError, ProgramError, ProgramParser, parse_program};
-use k_rust::kast::{Sort, Term};
+use k_rust::inner::{NoParseInput, ParseError, ProgramError, ProgramParser, parse_program};
+use k_rust::kast::{Sort, Term, TermSpan};
 use k_rust::provenance::SourceId;
 
 fn lowered(source: &str, main_module: &str) -> Definition {
@@ -165,6 +165,69 @@ fn parse_program_records_the_callers_logical_source_identity() {
             start: 0,
             end: 1,
         })
+    );
+}
+
+#[test]
+fn parse_program_exposes_the_structured_noparse_diagnostic() {
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Start ::= "ok" "done" [symbol(start)]
+              syntax Other ::= "bad" [symbol(bad)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let error = parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Start"),
+        "ok bad",
+        SourceId(7),
+    )
+    .unwrap_err();
+    assert_eq!(
+        error,
+        ProgramError::Parse(k_rust::inner::ProgramParseError {
+            module: "MAIN".into(),
+            start_sort: Sort::new("Start"),
+            error: Box::new(ParseError::NoParse {
+                position: 3,
+                expected: vec!["\"done\"".into()],
+                input: NoParseInput::Token {
+                    value: "bad".into(),
+                },
+                previous: Some("ok".into()),
+                span: Some(TermSpan {
+                    source: SourceId(7),
+                    start: 3,
+                    end: 6,
+                }),
+            }),
+        })
+    );
+    assert_eq!(
+        error.to_string(),
+        "could not parse program as Start with module \"MAIN\": Parse error: unexpected token 'bad' following token 'ok'."
+    );
+
+    let legacy = ProgramParser::new(&definition, "MAIN")
+        .unwrap()
+        .parse(&Sort::new("Start"), "ok bad")
+        .unwrap_err();
+    assert!(matches!(
+        legacy.error.as_ref(),
+        ParseError::NoParse {
+            input: NoParseInput::Token { value },
+            previous: Some(previous),
+            span: None,
+            ..
+        } if value == "bad" && previous == "ok"
+    ));
+    assert_eq!(
+        legacy.to_string(),
+        "could not parse program as Start with module \"MAIN\": Parse error: unexpected token 'bad' following token 'ok'."
     );
 }
 

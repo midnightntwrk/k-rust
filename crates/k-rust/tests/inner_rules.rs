@@ -286,6 +286,10 @@ fn standalone_rule_content_reports_typed_module_and_source_aware_parse_errors() 
             end_column: 20,
         })
     );
+    assert!(matches!(
+        error.error,
+        ParseError::NoParse { span: None, .. }
+    ));
 }
 
 macro_rules! assert_rule_resolution_snapshot {

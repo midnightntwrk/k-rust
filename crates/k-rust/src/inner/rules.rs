@@ -8,12 +8,12 @@ use crate::definition::{
     Sentence, SortCatalog,
 };
 use crate::kast::{Label, Sort, Term};
-use crate::provenance::SourceId;
 
 use super::config::{
     BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort,
     add_synonym_casts, implicit_kseq_bracket, nonterminal, truth,
 };
+use super::location::span_location;
 use super::parser::{
     Grammar, ParseError, Scanner, TokenPrecedenceDeclaration, named_projection_productions,
 };
@@ -246,15 +246,22 @@ fn parse_rule_like_sentence(
     ]
     .iter()
     .any(|key| attributes.get(key).is_some());
-    let parsed = grammar
-        .parse_with_context(
+    let parsed = if let Some(source) = attributes.source_id() {
+        grammar.parse_with_context(
             &Sort::new("#RuleContent"),
             contents,
             is_anywhere,
-            attributes.source_id().unwrap_or(SourceId(0)),
+            source,
             content_start_offset(&attributes),
         )
-        .map_err(|error| bubble_error(module, sentence_type, &attributes, Some(contents), error))?;
+    } else {
+        grammar.parse_with_context_without_provenance(
+            &Sort::new("#RuleContent"),
+            contents,
+            is_anywhere,
+        )
+    }
+    .map_err(|error| bubble_error(module, sentence_type, &attributes, Some(contents), error))?;
     up_sentence(module, sentence_type, parsed, attributes)
 }
 
@@ -284,15 +291,19 @@ fn bubble_error(
     contents: Option<&str>,
     error: ParseError,
 ) -> RuleError {
-    let location = match (&error, contents) {
-        (
-            ParseError::Ambiguous {
-                span: Some(span), ..
-            },
-            Some(contents),
-        ) => ambiguity_location(attributes, contents, *span).or_else(|| attributes.location()),
-        _ => attributes.location(),
+    let span = match &error {
+        ParseError::NoParse {
+            span: Some(span), ..
+        }
+        | ParseError::Ambiguous {
+            span: Some(span), ..
+        } => Some(*span),
+        _ => None,
     };
+    let location = span
+        .zip(contents)
+        .and_then(|(span, contents)| span_location(attributes, contents, span))
+        .or_else(|| attributes.location());
     RuleError::Parse(Box::new(RuleParseError {
         module: module.to_owned(),
         sentence_type: sentence_type.to_owned(),
@@ -300,46 +311,6 @@ fn bubble_error(
         location,
         error,
     }))
-}
-
-fn ambiguity_location(
-    attributes: &Attributes,
-    contents: &str,
-    span: crate::kast::TermSpan,
-) -> Option<Location> {
-    let content_offset = content_start_offset(attributes);
-    let start = span.start.checked_sub(content_offset)?;
-    let end = span.end.checked_sub(content_offset)?;
-    let prefix = contents.get(..start)?;
-    let through = contents.get(start..end)?;
-    let mut line = attributes
-        .get("contentStartLine")
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|line| u32::try_from(line).ok())?;
-    let mut column = attributes
-        .get("contentStartColumn")
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|column| u32::try_from(column).ok())?;
-    advance_location(&mut line, &mut column, prefix);
-    let (start_line, start_column) = (line, column);
-    advance_location(&mut line, &mut column, through);
-    Some(Location {
-        start_line,
-        start_column,
-        end_line: line,
-        end_column: column,
-    })
-}
-
-fn advance_location(line: &mut u32, column: &mut u32, text: &str) {
-    for character in text.chars() {
-        if character == '\n' {
-            *line = line.saturating_add(1);
-            *column = 1;
-        } else {
-            *column = column.saturating_add(1);
-        }
-    }
 }
 
 fn up_sentence(
@@ -354,9 +325,8 @@ fn up_sentence(
             sentence_type,
             &attributes,
             None,
-            ParseError::NoParse {
-                position: 0,
-                expected: vec!["#RuleContent".into()],
+            ParseError::InvalidParseShape {
+                expected: "#RuleContent".into(),
             },
         ));
     };
@@ -373,9 +343,8 @@ fn up_sentence(
                 sentence_type,
                 &attributes,
                 None,
-                ParseError::NoParse {
-                    position: 0,
-                    expected: vec!["rule content".into()],
+                ParseError::InvalidParseShape {
+                    expected: "rule content".into(),
                 },
             ));
         }

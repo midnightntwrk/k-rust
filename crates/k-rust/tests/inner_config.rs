@@ -1,7 +1,7 @@
 use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, ProductionItem, Sentence,
 };
-use k_rust::inner::{ConfigError, resolve_configuration_bubbles};
+use k_rust::inner::{ConfigError, NoParseInput, ParseError, resolve_configuration_bubbles};
 use k_rust::kast::{Label, Sort};
 use proptest::prelude::*;
 
@@ -57,6 +57,29 @@ fn parses_nested_cells_properties_casts_and_ensures() {
     assert!(matches!(
         transformed.main_module().unwrap().local_sentences[1],
         Sentence::Configuration { .. }
+    ));
+}
+
+#[test]
+fn configuration_errors_do_not_fabricate_missing_provenance() {
+    let error = resolve_configuration_bubbles(&definition("@@@"))
+        .expect_err("the configuration is not recognized");
+    assert!(matches!(
+        error,
+        ConfigError::Parse {
+            source: None,
+            location: None,
+            error,
+            ..
+        } if matches!(
+            error.as_ref(),
+            ParseError::NoParse {
+                input: NoParseInput::UnrecognizedInput { value },
+                previous: None,
+                span: None,
+                ..
+            } if value == "@"
+        )
     ));
 }
 

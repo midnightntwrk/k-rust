@@ -8,7 +8,7 @@ sys.path.insert(0, sys.argv.pop(1))
 import run
 
 REFERENCE_KAST = '[Error] Inner Parser: Could not find start symbol: Foo provided to kast CLI --sort\n'
-RUST_KAST = 'error: could not parse program as Foo with module "TEST": could not parse input at byte 0\n'
+RUST_KAST = 'error: could not parse program as Foo with module "TEST": Parse error: unexpected end of file.\n'
 REFERENCE_KRUN = '[Error] krun: Configuration variable missing: $Foo. Use -cFoo=<Value> in the command line to set.\n'
 RUST_KRUN = 'error: definition has no configuration variable `$A`; available variables: $Foo\n'
 

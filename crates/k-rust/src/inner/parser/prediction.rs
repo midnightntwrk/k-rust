@@ -214,6 +214,7 @@ mod tests {
                 source: SourceId(7),
                 base_offset: 100,
             },
+            true,
             PredictionMode::Unfiltered,
             &mut false,
         )

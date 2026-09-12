@@ -70,6 +70,17 @@ pub struct AmbiguousParse {
     pub term: String,
 }
 
+/// Input encountered at the furthest point reached by the recognizer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NoParseInput {
+    /// A registered scanner token that is not accepted by the remaining grammar states.
+    Token { value: String },
+    /// The physical end of the input.
+    EndOfInput,
+    /// The smallest Unicode scalar for which the scanner has no registered winner.
+    UnrecognizedInput { value: String },
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TokenPrecedenceDeclaration {
     pub source: Option<String>,
@@ -96,6 +107,12 @@ pub enum ParseError {
     NoParse {
         position: usize,
         expected: Vec<String>,
+        input: NoParseInput,
+        previous: Option<String>,
+        span: Option<TermSpan>,
+    },
+    InvalidParseShape {
+        expected: String,
     },
     Ambiguous {
         parses: usize,
@@ -198,12 +215,33 @@ impl fmt::Display for ParseError {
             Self::EmptyLayout => {
                 formatter.write_str("a `#Layout` regular expression must not match empty input")
             }
-            Self::NoParse { position, expected } => {
-                write!(formatter, "could not parse input at byte {position}")?;
-                if !expected.is_empty() {
-                    write!(formatter, "; expected {}", expected.join(", "))?;
+            Self::NoParse {
+                input, previous, ..
+            } => match input {
+                NoParseInput::Token { value } => {
+                    write!(formatter, "Parse error: unexpected token '{value}'")?;
+                    if let Some(previous) = previous {
+                        write!(formatter, " following token '{previous}'")?;
+                    }
+                    formatter.write_str(".")
                 }
-                Ok(())
+                NoParseInput::EndOfInput => {
+                    formatter.write_str("Parse error: unexpected end of file")?;
+                    if let Some(previous) = previous {
+                        write!(formatter, " following token '{previous}'")?;
+                    }
+                    formatter.write_str(".")
+                }
+                NoParseInput::UnrecognizedInput { value } => write!(
+                    formatter,
+                    "Scanner error: unexpected character sequence '{value}'."
+                ),
+            },
+            Self::InvalidParseShape { expected } => {
+                write!(
+                    formatter,
+                    "parsed term does not have the expected {expected} shape"
+                )
             }
             Self::Ambiguous { alternatives, .. } => {
                 formatter.write_str("Parsing ambiguity.")?;
@@ -1156,7 +1194,14 @@ impl Grammar {
     }
 
     pub fn parse(&self, start: &Sort, input: &str) -> Result<Term, ParseError> {
-        self.parse_with_provenance(start, input, SourceId(0), 0)
+        self.parse_with_context_and_diagnostic_provenance(
+            start,
+            input,
+            false,
+            SourceId(0),
+            0,
+            false,
+        )
     }
 
     /// Parse semantic text whose byte zero begins at `base_offset` in `source`.
@@ -1167,7 +1212,14 @@ impl Grammar {
         source: SourceId,
         base_offset: usize,
     ) -> Result<Term, ParseError> {
-        self.parse_with_context(start, input, false, source, base_offset)
+        self.parse_with_context_and_diagnostic_provenance(
+            start,
+            input,
+            false,
+            source,
+            base_offset,
+            true,
+        )
     }
 
     pub(crate) fn parse_with_context(
@@ -1177,6 +1229,41 @@ impl Grammar {
         is_anywhere: bool,
         source: SourceId,
         base_offset: usize,
+    ) -> Result<Term, ParseError> {
+        self.parse_with_context_and_diagnostic_provenance(
+            start,
+            input,
+            is_anywhere,
+            source,
+            base_offset,
+            true,
+        )
+    }
+
+    pub(crate) fn parse_with_context_without_provenance(
+        &self,
+        start: &Sort,
+        input: &str,
+        is_anywhere: bool,
+    ) -> Result<Term, ParseError> {
+        self.parse_with_context_and_diagnostic_provenance(
+            start,
+            input,
+            is_anywhere,
+            SourceId(0),
+            0,
+            false,
+        )
+    }
+
+    fn parse_with_context_and_diagnostic_provenance(
+        &self,
+        start: &Sort,
+        input: &str,
+        is_anywhere: bool,
+        source: SourceId,
+        base_offset: usize,
+        diagnostic_provenance: bool,
     ) -> Result<Term, ParseError> {
         let provenance = ParseProvenance {
             source,
@@ -1188,6 +1275,7 @@ impl Grammar {
             input,
             is_anywhere,
             provenance,
+            diagnostic_provenance,
             PredictionMode::Filtered,
             &mut pruned,
         );
@@ -1199,6 +1287,7 @@ impl Grammar {
                 input,
                 is_anywhere,
                 provenance,
+                diagnostic_provenance,
                 PredictionMode::Unfiltered,
                 &mut pruned,
             )
@@ -1213,6 +1302,7 @@ impl Grammar {
         input: &str,
         is_anywhere: bool,
         provenance: ParseProvenance,
+        diagnostic_provenance: bool,
         prediction_mode: PredictionMode,
         pruned: &mut bool,
     ) -> Result<Term, ParseError> {
@@ -1447,7 +1537,15 @@ impl Grammar {
             }
         }
         if parses.is_empty() {
-            return Err(first_violation.unwrap_or_else(|| self.no_parse(&charts)));
+            return Err(first_violation.unwrap_or_else(|| {
+                self.no_parse(
+                    input,
+                    provenance,
+                    diagnostic_provenance,
+                    &charts,
+                    &mut scanner_cache,
+                )
+            }));
         }
         // The chart can retain the whole packed forest through its states. Release it before any
         // post-parse allocation, then apply the root priority preference while alternatives still
@@ -1907,12 +2005,19 @@ impl Grammar {
         }
     }
 
-    fn no_parse(&self, charts: &[Chart]) -> ParseError {
-        let position = charts
+    fn no_parse(
+        &self,
+        input: &str,
+        provenance: ParseProvenance,
+        diagnostic_provenance: bool,
+        charts: &[Chart],
+        scanner_cache: &mut [ScanCacheEntry],
+    ) -> ParseError {
+        let chart_position = charts
             .iter()
             .rposition(|chart| !chart.states.is_empty())
             .unwrap_or(0);
-        let expected = charts[position]
+        let expected = charts[chart_position]
             .states
             .keys()
             .filter_map(|state| {
@@ -1924,7 +2029,73 @@ impl Grammar {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        ParseError::NoParse { position, expected }
+        let position = self.canonical_position(input, chart_position, scanner_cache);
+        let (input_kind, end) = if position == input.len() {
+            (NoParseInput::EndOfInput, position)
+        } else {
+            match self
+                .scanner
+                .winner(&self.layout, input, position, &mut scanner_cache[position])
+            {
+                Some(ScanWinner::Token { end, .. }) => (
+                    NoParseInput::Token {
+                        value: input[position..end].to_owned(),
+                    },
+                    end,
+                ),
+                Some(ScanWinner::Layout { .. }) => {
+                    unreachable!("the diagnostic position was canonicalized past layout")
+                }
+                None => {
+                    let end = position
+                        + input[position..]
+                            .chars()
+                            .next()
+                            .expect("a non-EOF parse position starts a Unicode scalar")
+                            .len_utf8();
+                    (
+                        NoParseInput::UnrecognizedInput {
+                            value: input[position..end].to_owned(),
+                        },
+                        end,
+                    )
+                }
+            }
+        };
+        let mut previous = None;
+        let mut cursor = 0;
+        while cursor < position {
+            let Some(winner) =
+                self.scanner
+                    .winner(&self.layout, input, cursor, &mut scanner_cache[cursor])
+            else {
+                break;
+            };
+            let winner_end = match winner {
+                ScanWinner::Layout { end } => end,
+                ScanWinner::Token { end, .. } => {
+                    if end <= position {
+                        previous = Some(input[cursor..end].to_owned());
+                    }
+                    end
+                }
+            };
+            if winner_end <= cursor || winner_end > position {
+                break;
+            }
+            cursor = winner_end;
+        }
+        ParseError::NoParse {
+            position,
+            expected,
+            input: input_kind,
+            previous,
+            span: diagnostic_provenance.then_some(TermSpan {
+                source: provenance.source,
+                start: provenance.base_offset + position,
+                end: provenance.base_offset + end,
+            }),
+        }
     }
 }
 
@@ -2774,6 +2945,7 @@ mod chart_tests {
                     source: SourceId(0),
                     base_offset: 0,
                 },
+                false,
                 PredictionMode::Unfiltered,
                 &mut false,
             )
@@ -2835,13 +3007,20 @@ mod chart_tests {
                 production("Other", vec![ProductionItem::Terminal("ab".into())], "ab"),
             ])
             .unwrap();
-            for input in ["?", "", "ab"] {
+            for (input, input_kind) in [
+                ("?", NoParseInput::UnrecognizedInput { value: "?".into() }),
+                ("", NoParseInput::EndOfInput),
+                ("ab", NoParseInput::Token { value: "ab".into() }),
+            ] {
                 let baseline = unfiltered(&grammar, "Start", input);
                 assert_eq!(
                     baseline,
                     Err(ParseError::NoParse {
                         position: 0,
-                        expected: vec!["\"a\"".into(), "\"b\"".into(), "Choice".into()]
+                        expected: vec!["\"a\"".into(), "\"b\"".into(), "Choice".into()],
+                        input: input_kind,
+                        previous: None,
+                        span: None,
                     })
                 );
                 PARSE_ATTEMPTS.set(0);
@@ -2853,7 +3032,10 @@ mod chart_tests {
                 grammar.parse(&Sort::new("Missing"), "?"),
                 Err(ParseError::NoParse {
                     position: 0,
-                    expected: vec![]
+                    expected: vec![],
+                    input: NoParseInput::UnrecognizedInput { value: "?".into() },
+                    previous: None,
+                    span: None,
                 })
             );
             assert_eq!(PARSE_ATTEMPTS.get(), 1);
@@ -2915,7 +3097,10 @@ mod chart_tests {
                 baseline,
                 Err(ParseError::NoParse {
                     position: 2,
-                    expected: vec!["\"z\"".into()]
+                    expected: vec!["\"z\"".into()],
+                    input: NoParseInput::UnrecognizedInput { value: "?".into() },
+                    previous: Some("ab".into()),
+                    span: None,
                 })
             );
             PARSE_ATTEMPTS.set(0);
@@ -3001,6 +3186,7 @@ mod chart_tests {
                     source: SourceId(0),
                     base_offset: 0,
                 },
+                false,
                 PredictionMode::Filtered,
                 &mut pruned,
             );

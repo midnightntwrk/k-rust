@@ -1,5 +1,5 @@
 use k_rust::definition::{Associativity, Attributes, ProductionItem, Sentence};
-use k_rust::inner::{Grammar, ParseError};
+use k_rust::inner::{Grammar, NoParseInput, ParseError};
 use k_rust::kast::{Label, Sort, Term};
 
 macro_rules! assert_inner_parse_snapshot {
@@ -166,6 +166,238 @@ fn layout_token_competition_grammar(layout: &str, token: &str) -> Grammar {
     .unwrap()
 }
 
+fn no_parse_diagnostic_grammar() -> Grammar {
+    Grammar::from_sentences(&[
+        production(
+            "Start",
+            vec![
+                ProductionItem::Terminal("ok".into()),
+                ProductionItem::Terminal("done".into()),
+            ],
+            Some("start"),
+            Attributes::default(),
+        ),
+        production(
+            "Start",
+            vec![
+                ProductionItem::Terminal("λ".into()),
+                ProductionItem::Terminal("done".into()),
+            ],
+            Some("lambdaStart"),
+            Attributes::default(),
+        ),
+        production(
+            "Other",
+            vec![ProductionItem::Terminal("bad".into())],
+            Some("bad"),
+            Attributes::default(),
+        ),
+    ])
+    .unwrap()
+}
+
+#[test]
+fn no_parse_reports_the_unexpected_token_previous_token_and_absolute_span() {
+    use k_rust::kast::TermSpan;
+    use k_rust::provenance::SourceId;
+
+    let error = no_parse_diagnostic_grammar()
+        .parse_with_provenance(&Sort::new("Start"), "ok bad", SourceId(7), 100)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        ParseError::NoParse {
+            position: 3,
+            expected: vec!["\"done\"".into()],
+            input: NoParseInput::Token {
+                value: "bad".into(),
+            },
+            previous: Some("ok".into()),
+            span: Some(TermSpan {
+                source: SourceId(7),
+                start: 103,
+                end: 106,
+            }),
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "Parse error: unexpected token 'bad' following token 'ok'."
+    );
+}
+
+#[test]
+fn no_parse_messages_omit_the_previous_clause_at_the_start_of_input() {
+    let grammar = no_parse_diagnostic_grammar();
+    let token = grammar
+        .parse(&Sort::new("Start"), "bad")
+        .expect_err("the registered Other token is invalid at Start");
+    assert_eq!(token.to_string(), "Parse error: unexpected token 'bad'.");
+    assert!(matches!(
+        token,
+        ParseError::NoParse {
+            input: NoParseInput::Token { ref value },
+            previous: None,
+            span: None,
+            ..
+        } if value == "bad"
+    ));
+
+    let eof = grammar
+        .parse(&Sort::new("Missing"), "")
+        .expect_err("a missing start sort has no empty production");
+    assert_eq!(eof.to_string(), "Parse error: unexpected end of file.");
+    assert!(matches!(
+        eof,
+        ParseError::NoParse {
+            input: NoParseInput::EndOfInput,
+            previous: None,
+            span: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
+    use k_rust::kast::TermSpan;
+    use k_rust::provenance::SourceId;
+
+    let grammar = no_parse_diagnostic_grammar();
+    let cases = [
+        (
+            "ok",
+            ParseError::NoParse {
+                position: 2,
+                expected: vec!["\"done\"".into()],
+                input: NoParseInput::EndOfInput,
+                previous: Some("ok".into()),
+                span: Some(TermSpan {
+                    source: SourceId(9),
+                    start: 42,
+                    end: 42,
+                }),
+            },
+            "Parse error: unexpected end of file following token 'ok'.",
+        ),
+        (
+            "λ bad",
+            ParseError::NoParse {
+                position: 3,
+                expected: vec!["\"done\"".into()],
+                input: NoParseInput::Token {
+                    value: "bad".into(),
+                },
+                previous: Some("λ".into()),
+                span: Some(TermSpan {
+                    source: SourceId(9),
+                    start: 43,
+                    end: 46,
+                }),
+            },
+            "Parse error: unexpected token 'bad' following token 'λ'.",
+        ),
+        (
+            "ok ?! bad",
+            ParseError::NoParse {
+                position: 3,
+                expected: vec!["\"done\"".into()],
+                input: NoParseInput::UnrecognizedInput { value: "?".into() },
+                previous: Some("ok".into()),
+                span: Some(TermSpan {
+                    source: SourceId(9),
+                    start: 43,
+                    end: 44,
+                }),
+            },
+            "Scanner error: unexpected character sequence '?'.",
+        ),
+        (
+            "ok 😀! bad",
+            ParseError::NoParse {
+                position: 3,
+                expected: vec!["\"done\"".into()],
+                input: NoParseInput::UnrecognizedInput {
+                    value: "😀".into()
+                },
+                previous: Some("ok".into()),
+                span: Some(TermSpan {
+                    source: SourceId(9),
+                    start: 43,
+                    end: 47,
+                }),
+            },
+            "Scanner error: unexpected character sequence '😀'.",
+        ),
+    ];
+    for (input, expected, display) in cases {
+        let error = grammar
+            .parse_with_provenance(&Sort::new("Start"), input, SourceId(9), 40)
+            .unwrap_err();
+        assert_eq!(error, expected, "{input:?}");
+        assert_eq!(error.to_string(), display, "{input:?}");
+    }
+
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "ok done").unwrap(),
+        Term::apply("start", vec![])
+    );
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "λ done").unwrap(),
+        Term::apply("lambdaStart", vec![])
+    );
+}
+
+#[test]
+fn no_parse_skips_layout_and_omits_unavailable_provenance() {
+    let grammar = no_parse_diagnostic_grammar();
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "ok   ").unwrap_err(),
+        ParseError::NoParse {
+            position: 5,
+            expected: vec!["\"done\"".into()],
+            input: NoParseInput::EndOfInput,
+            previous: Some("ok".into()),
+            span: None,
+        }
+    );
+    assert_eq!(
+        grammar.parse(&Sort::new("Start"), "ok bad").unwrap_err(),
+        ParseError::NoParse {
+            position: 3,
+            expected: vec!["\"done\"".into()],
+            input: NoParseInput::Token {
+                value: "bad".into(),
+            },
+            previous: Some("ok".into()),
+            span: None,
+        }
+    );
+
+    let nullable = Grammar::from_sentences(&[
+        production("Start", vec![], Some("empty"), Attributes::default()),
+        production(
+            "Other",
+            vec![ProductionItem::Terminal("bad".into())],
+            Some("bad"),
+            Attributes::default(),
+        ),
+    ])
+    .unwrap();
+    assert_eq!(
+        nullable.parse(&Sort::new("Start"), " bad").unwrap_err(),
+        ParseError::NoParse {
+            position: 1,
+            expected: vec![],
+            input: NoParseInput::Token {
+                value: "bad".into(),
+            },
+            previous: None,
+            span: None,
+        }
+    );
+}
+
 #[test]
 fn layout_token_competition_prefers_strictly_longer_token() {
     use k_rust::kast::TermSpan;
@@ -194,6 +426,9 @@ fn layout_token_competition_prefers_equal_length_layout() {
         Err(ParseError::NoParse {
             position: 2,
             expected: vec!["\"ab\"".into()],
+            input: NoParseInput::EndOfInput,
+            previous: None,
+            span: None,
         })
     );
 }
@@ -206,6 +441,9 @@ fn layout_token_competition_prefers_strictly_longer_layout() {
         Err(ParseError::NoParse {
             position: 2,
             expected: vec!["\"a\"".into()],
+            input: NoParseInput::EndOfInput,
+            previous: None,
+            span: None,
         })
     );
 }
@@ -248,6 +486,9 @@ fn layout_token_competition_global_token_blocks_nullable_root() {
         Err(ParseError::NoParse {
             position: 0,
             expected: vec![],
+            input: NoParseInput::Token { value: "ab".into() },
+            previous: None,
+            span: None,
         })
     );
 }
@@ -515,7 +756,10 @@ fn prediction_reuse_preserves_layout_positions_provenance_and_rejection() {
         grammar.parse(&Sort::new("Start"), "x y"),
         Err(ParseError::NoParse {
             position: 2,
-            expected: vec!["\"x\"".into(), "Empty".into()]
+            expected: vec!["\"x\"".into(), "Empty".into()],
+            input: NoParseInput::UnrecognizedInput { value: "y".into() },
+            previous: Some("x".into()),
+            span: None,
         }),
     );
 }

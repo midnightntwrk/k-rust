@@ -1,5 +1,7 @@
 use indoc::indoc;
-use k_rust::definition::Sentence;
+use k_rust::definition::{Location, Sentence};
+use k_rust::inner::{NoParseInput, ParseError, RuleError};
+use k_rust::kast::TermSpan;
 use k_rust::outer::{
     LoadOptions, ResolvedSource, extract_fenced_k_code, extract_fenced_k_code_with_map,
     load_with_options,
@@ -97,6 +99,66 @@ fn loaded_rule_spans_resolve_to_raw_markdown_bytes() {
 
     assert_eq!(&source[raw_range], &extracted[span.start..span.end]);
     assert_eq!(&extracted[span.start..span.end], "start => value");
+}
+
+#[test]
+fn markdown_rule_failures_report_the_exact_unexpected_token_location() {
+    let source = indoc! {r#"
+        Prose before.
+
+        ```k
+        module FE15-MD
+          syntax Start ::= "ok" "done" [symbol(start)]
+          syntax Other ::= "bad" [symbol(bad)]
+          rule ok bad
+        endmodule
+        ```
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let error = load_with_options(
+        ResolvedSource::new("fixture.md", source),
+        "FE15-MD",
+        &mut resolver,
+        &LoadOptions::default(),
+    )
+    .unwrap_err();
+    let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error)) = error else {
+        panic!("expected an inner rule parse error: {error:?}")
+    };
+    assert_eq!(error.source.as_deref(), Some("fixture.md"));
+    assert_eq!(
+        error.location,
+        Some(Location {
+            start_line: 7,
+            start_column: 11,
+            end_line: 7,
+            end_column: 14,
+        })
+    );
+    assert_eq!(
+        error.error,
+        ParseError::NoParse {
+            position: 3,
+            expected: vec!["\"done\"".into()],
+            input: NoParseInput::Token {
+                value: "bad".into(),
+            },
+            previous: Some("ok".into()),
+            span: Some(TermSpan {
+                source: k_rust::provenance::SourceId(0),
+                start: extract_fenced_k_code(source, "k")
+                    .unwrap()
+                    .find("ok bad")
+                    .unwrap()
+                    + 3,
+                end: extract_fenced_k_code(source, "k")
+                    .unwrap()
+                    .find("ok bad")
+                    .unwrap()
+                    + 6,
+            }),
+        }
+    );
 }
 
 #[test]

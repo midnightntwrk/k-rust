@@ -1,12 +1,13 @@
 //! Parsing of outer-syntax bubbles with module-derived inner grammars.
 
 mod config;
+mod location;
 mod parser;
 mod programs;
 mod rules;
 
 pub use config::{ConfigError, resolve_configuration_bubbles};
-pub use parser::{AmbiguousParse, Grammar, ParseError, TokenPrecedenceDeclaration};
+pub use parser::{AmbiguousParse, Grammar, NoParseInput, ParseError, TokenPrecedenceDeclaration};
 #[cfg(feature = "cli")]
 pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions};
 #[cfg(feature = "cli")]
