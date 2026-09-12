@@ -161,6 +161,11 @@ impl fmt::Display for SortInjectionError {
 impl std::error::Error for SortInjectionError {}
 
 /// Adds explicit `inj{From,To}` applications using one resolved module's syntax.
+///
+/// Public terms may contain variables without sort annotations. A positional expected sort types
+/// such a variable during injection; without an expected sort, it defaults to `K`. Application
+/// sort metadata produced by semantic-cast resolution requests a runtime projection only when the
+/// metadata sort is a strict subsort of the selected production's natural result sort.
 #[derive(Clone, Debug)]
 pub struct SortInjector<'a> {
     productions: ProductionCatalog<'a>,
@@ -289,6 +294,9 @@ impl<'a> SortInjector<'a> {
         Sort::with_parameters(SORT_PARAMETER, vec![Sort::new(format!("Q{index}"))])
     }
 
+    /// Infer a term's sort in an optional positional context.
+    ///
+    /// An unsorted variable uses `expected` when supplied and defaults to `K` otherwise.
     pub fn term_sort(
         &self,
         term: &Term,

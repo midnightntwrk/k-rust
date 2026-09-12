@@ -564,6 +564,67 @@ fn application_cast_context_does_not_replace_its_production_sort() {
 }
 
 #[test]
+fn synthetic_unsorted_variables_use_expected_sort_then_k() {
+    let definition = lowered("module MAIN\n  syntax Exp\nendmodule");
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let variable = Term::variable("X");
+
+    assert_eq!(injector.term_sort(&variable, None).unwrap(), Sort::new("K"));
+    assert_eq!(
+        injector
+            .term_sort(&variable, Some(&Sort::new("Exp")))
+            .unwrap(),
+        Sort::new("Exp")
+    );
+    assert!(matches!(
+        injector.inject(&variable, &Sort::new("Exp")).unwrap(),
+        Term::Variable { name, sort: Some(sort) } if name == "X" && sort == Sort::new("Exp")
+    ));
+    assert!(matches!(
+        injector.inject_at_top(&variable).unwrap(),
+        Term::Variable { name, sort: Some(sort) } if name == "X" && sort == Sort::new("K")
+    ));
+}
+
+#[test]
+fn synthetic_application_sort_metadata_projects_only_strict_subsorts() {
+    let definition = generate_sort_projections(&lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= "int" [symbol(int)]
+          syntax KItem ::= Int
+                         | "item" [symbol(item)]
+          syntax Other ::= "other" [symbol(other)]
+        endmodule
+    "#}))
+    .unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let metadata = |sort| TermMetadata {
+        sort: Some(Sort::new(sort)),
+        ..TermMetadata::default()
+    };
+
+    let exact = Term::apply("item", vec![]).with_metadata(metadata("KItem"));
+    let upcast = Term::apply("int", vec![]).with_metadata(metadata("KItem"));
+    let downcast = Term::apply("item", vec![]).with_metadata(metadata("Int"));
+    let unrelated = Term::apply("item", vec![]).with_metadata(metadata("Other"));
+
+    let exact = injector.inject_at_top(&exact).unwrap().to_string();
+    let upcast = injector
+        .inject(&upcast, &Sort::new("KItem"))
+        .unwrap()
+        .to_string();
+    let downcast = injector.inject_at_top(&downcast).unwrap().to_string();
+    let unrelated = injector.inject_at_top(&unrelated).unwrap().to_string();
+
+    assert_eq!(exact, "item(.KList)");
+    assert_eq!(upcast, "inj{Int,KItem}(int(.KList))");
+    assert_eq!(downcast, "inj{Int,KItem}(`project:Int`(item(.KList)))");
+    assert_eq!(unrelated, "item(.KList)");
+}
+
+#[test]
 fn flattens_nested_sequences_during_final_injection() {
     let definition = lowered("module MAIN\nendmodule");
     let resolved = ResolvedDefinition::resolve(&definition).unwrap();

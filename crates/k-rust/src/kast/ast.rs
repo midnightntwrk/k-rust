@@ -74,6 +74,8 @@ pub struct TermMetadata {
     pub span: Option<TermSpan>,
     pub production: Option<ResolvedProductionId>,
     /// An explicit compiler sort attached by transformations such as semantic-cast resolution.
+    /// Sort injection consumes a strict subsort of an application's natural result as runtime
+    /// projection metadata; equal, wider, and unrelated sorts do not authorize a projection.
     pub sort: Option<Sort>,
     pub origin: Option<Arc<OriginRecord>>,
 }
