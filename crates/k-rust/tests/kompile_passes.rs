@@ -3507,6 +3507,42 @@ fn resolves_fresh_variables_and_generates_the_counter_configuration() {
 }
 
 #[test]
+fn fresh_offsets_reuse_names_and_cover_the_counter_range() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | "freshInt(" Int ")" [function, freshGenerator, symbol(freshInt)]
+          syntax Exp ::= Int
+                       | "triple(" Int "," Int "," Int ")" [symbol(triple)]
+          configuration <k> 0 </k>
+          rule 0 => triple(!B:Int, !Q:Int, !B:Int) [label(fresh-range)]
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let transformed = resolve_fresh_constants(&definition, 7).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if attributes.get_str("label") == Some("fresh-range") => Some(body),
+            _ => None,
+        })
+        .expect("fresh-range rule should remain present");
+
+    assert_eq!(
+        Printer::new().print_term(body),
+        "#cells(`<k>`(#noDots(.KList),#token(\"0\",\"Int\")=>triple(freshInt(`_+Int_`(#Fresh,#token(\"0\",\"Int\"))),freshInt(`_+Int_`(#Fresh,#token(\"1\",\"Int\"))),freshInt(`_+Int_`(#Fresh,#token(\"0\",\"Int\")))),#dots(.KList)),`<generatedCounter>`(#noDots(.KList),#Fresh=>`_+Int_`(#Fresh,#token(\"2\",\"Int\")),#noDots(.KList)))"
+    );
+}
+
+#[test]
 fn expands_the_internally_generated_counter_configuration() {
     let source = indoc! {r#"
         module MAIN

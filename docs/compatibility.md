@@ -30,13 +30,16 @@ Anywhere rules have the explicit supported-superset contract below.
 
 ## Compiler-resolved fresh constants
 
-Within one rule or context, each distinct `!` variable receives one offset from the generated counter and every occurrence of the same full variable name reuses that offset.
+Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.
 Rust assigns offsets in lexicographic order of the full names and advances the counter by the number of distinct names.
-This deterministic association is the supported source-compiler contract; it must not depend on source paths or emulate the iteration order of Java's `HashSet`.
+This deterministic association is Rust's stable compiler policy; portable programs must not depend on a particular association between names and offsets.
+The policy must not depend on source paths or emulate the iteration order of Java's `HashSet`.
 
-Freshness, distinctness, and consistent reuse are portable frontend properties.
-Exact terminal values produced during execution are backend-specific because runtime engines own their generated identities and counter state.
-The `fresh-variables` compilation differential checks the frontend transformation, while `krun_executes_fresh_constant_fixture_to_pinned_kore_result` pins Rust's local execution behavior without treating another backend's concrete values as an oracle.
+Distinct offsets, consistent reuse, and counter advancement are portable frontend properties.
+Generated-value freshness additionally relies on the selected sort's `freshGenerator` contract.
+Pinned K assigns names to offsets in unspecified `HashSet` iteration order, so its name-to-offset permutation is not a compiler oracle.
+Each backend executes the permutation in its compiled definition; differing concrete values in ordered result positions must remain visible and must not be normalized as alpha-equivalent.
+The `fresh-variables` compilation differential checks a case where the permutations happen to agree, while the focused Rust pass regression pins lexicographic allocation and repeated-name reuse.
 
 ## Anywhere rules
 
