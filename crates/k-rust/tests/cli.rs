@@ -1232,6 +1232,53 @@ endmodule
 }
 
 #[test]
+fn krun_does_not_warn_when_the_first_semantic_rewrite_is_bottom() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax KItem ::= fail(Int) [symbol(fail)]
+  rule fail(_:Int) => #Bottom
+  configuration <k> fail($PGM:Int) </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Int",
+            "--expression",
+            "1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "\\bottom{SortGeneratedTopCell{}}()\n"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr)
+            .contains("the initial configuration simplified to \\bottom"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn reference_krun_exits_with_the_exit_cell_value_and_prints_the_final_pattern() {
     let output = exit_krun_command().output().unwrap();
 

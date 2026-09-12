@@ -61,7 +61,7 @@ use k_rust_backend::{
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
-        execute_disjunction_with_solver_and_observer,
+        execute_disjunction_with_solver_and_observer_with_initial_status,
     },
     rule::{Predicate, RulePatternError},
     search::{
@@ -2790,30 +2790,31 @@ fn run_backend(
             exit_code: 0,
         });
     }
-    let execution = execute_disjunction_with_solver_and_observer(
-        backend,
-        initial,
-        ExecutionOptions {
-            max_depth: options.depth,
-            max_breadth: options.breadth_limit,
-            max_simplification_iterations: options.max_simplification_iterations,
-            mode: options.strategy,
-            branch_mode: if options.execute_to_branch {
-                ExecutionBranchMode::StopAtBranch
-            } else {
-                ExecutionBranchMode::ExploreAll
+    let (execution, initial_simplification) =
+        execute_disjunction_with_solver_and_observer_with_initial_status(
+            backend,
+            initial,
+            ExecutionOptions {
+                max_depth: options.depth,
+                max_breadth: options.breadth_limit,
+                max_simplification_iterations: options.max_simplification_iterations,
+                mode: options.strategy,
+                branch_mode: if options.execute_to_branch {
+                    ExecutionBranchMode::StopAtBranch
+                } else {
+                    ExecutionBranchMode::ExploreAll
+                },
+                cut_point_rules: options.cut_point_rules,
+                terminal_rules: options.terminal_rules,
+                step_timeout: options.step_timeout,
+                moving_average_timeout: options.moving_average_timeout,
+                ..ExecutionOptions::default()
             },
-            cut_point_rules: options.cut_point_rules,
-            terminal_rules: options.terminal_rules,
-            step_timeout: options.step_timeout,
-            moving_average_timeout: options.moving_average_timeout,
-            ..ExecutionOptions::default()
-        },
-        &solver,
-        |effect| match effect {
-            BuiltinEffect::UserLog(message) => eprintln!("{message}"),
-        },
-    );
+            &solver,
+            |effect| match effect {
+                BuiltinEffect::UserLog(message) => eprintln!("{message}"),
+            },
+        );
     if let Some(leaf) = execution.leaves.iter().find(|leaf| {
         matches!(
             leaf.halt_reason,
@@ -2859,15 +2860,7 @@ fn run_backend(
         .first()
         .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
         .unwrap_or_else(|| output_sort.clone());
-    let initial_is_bottom = execution.leaves.iter().all(|leaf| {
-        leaf.depth == 0
-            && (matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous)
-                || leaf
-                    .pattern
-                    .constraints
-                    .iter()
-                    .any(|predicate| matches!(predicate, Predicate::False)))
-    });
+    let initial_is_bottom = initial_simplification.simplified_to_bottom();
     let finals = execution
         .leaves
         .iter()

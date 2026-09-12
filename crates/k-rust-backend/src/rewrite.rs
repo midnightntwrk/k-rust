@@ -284,6 +284,18 @@ pub struct ExecutionResult {
     pub discarded: Vec<UncommittedObservation>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InitialSimplificationStatus {
+    simplified_to_bottom: bool,
+}
+
+impl InitialSimplificationStatus {
+    /// Whether every nonempty input disjunct completed initial simplification as false.
+    pub fn simplified_to_bottom(self) -> bool {
+        self.simplified_to_bottom
+    }
+}
+
 pub fn execute(
     definition: &BackendDefinition,
     initial: Pattern,
@@ -327,6 +339,7 @@ pub fn execute_observed_with_solver(
         Some(observation),
         |_| {},
     )
+    .0
 }
 
 pub fn execute_with_solver_and_observer(
@@ -336,7 +349,7 @@ pub fn execute_with_solver_and_observer(
     solver: &dyn SmtSolver,
     observe: impl FnMut(&BuiltinEffect),
 ) -> ExecutionResult {
-    execute_using(definition, vec![initial], options, solver, None, observe)
+    execute_using(definition, vec![initial], options, solver, None, observe).0
 }
 
 pub fn execute_disjunction_with_solver_and_observer(
@@ -346,6 +359,17 @@ pub fn execute_disjunction_with_solver_and_observer(
     solver: &dyn SmtSolver,
     observe: impl FnMut(&BuiltinEffect),
 ) -> ExecutionResult {
+    execute_using(definition, initial, options, solver, None, observe).0
+}
+
+/// Execute a disjunction and report the outcome of its initial simplification phase.
+pub fn execute_disjunction_with_solver_and_observer_with_initial_status(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    observe: impl FnMut(&BuiltinEffect),
+) -> (ExecutionResult, InitialSimplificationStatus) {
     execute_using(definition, initial, options, solver, None, observe)
 }
 
@@ -356,9 +380,10 @@ fn execute_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
-) -> ExecutionResult {
+) -> (ExecutionResult, InitialSimplificationStatus) {
     let mut fresh_counter = 0;
     let mut observation_log = ObservationLog::default();
+    let initial_input_count = initial.len();
     let mut pending = initial
         .into_iter()
         .map(|pattern| ExecutionState {
@@ -366,26 +391,34 @@ fn execute_using(
             depth: 0,
             trace: Vec::new(),
             observation: None,
+            is_initial_input: true,
         })
         .collect::<VecDeque<_>>();
     let mut leaves = SelectedExecutionLeaves::default();
     let mut effects = Vec::new();
     let mut discarded = Vec::new();
+    let mut completed_initial_simplifications = 0;
+    let mut bottom_initial_simplifications = 0;
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
     });
     if options.max_breadth == Some(0) {
-        return ExecutionResult {
-            leaves: merge_equal_final_leaves(
-                pending
-                    .drain(..)
-                    .map(|state| execution_state_at_breadth_bound(state, &observation_log))
-                    .collect(),
-            ),
-            effects,
-            discarded,
-        };
+        return (
+            ExecutionResult {
+                leaves: merge_equal_final_leaves(
+                    pending
+                        .drain(..)
+                        .map(|state| execution_state_at_breadth_bound(state, &observation_log))
+                        .collect(),
+                ),
+                effects,
+                discarded,
+            },
+            InitialSimplificationStatus {
+                simplified_to_bottom: false,
+            },
+        );
     }
     while let Some(mut state) = pending.pop_front() {
         let mut step_timer = timeout_controller.begin_step();
@@ -439,6 +472,10 @@ fn execute_using(
                 deferred_initial_vacuity = Some(state.pattern.clone());
                 state.pattern = pattern_before_constraint_simplification;
             } else {
+                if state.is_initial_input {
+                    completed_initial_simplifications += 1;
+                    bottom_initial_simplifications += 1;
+                }
                 leaves.push(state.leaf(HaltReason::Vacuous, &observation_log));
                 continue;
             }
@@ -483,6 +520,16 @@ fn execute_using(
             }
             Err(error) => {
                 leaves.push(state.leaf(HaltReason::Simplification(error), &observation_log));
+                continue;
+            }
+        }
+        if state.is_initial_input {
+            completed_initial_simplifications += 1;
+            if deferred_initial_vacuity.is_none()
+                && predicates_truth(&state.pattern.constraints) == Truth::False
+            {
+                bottom_initial_simplifications += 1;
+                leaves.push(state.leaf(HaltReason::Vacuous, &observation_log));
                 continue;
             }
         }
@@ -867,11 +914,20 @@ fn execute_using(
             }
         }
     }
-    ExecutionResult {
-        leaves: merge_equal_final_leaves(select_got_stuck_over_depth_bound(leaves.into_inner())),
-        effects,
-        discarded,
-    }
+    (
+        ExecutionResult {
+            leaves: merge_equal_final_leaves(select_got_stuck_over_depth_bound(
+                leaves.into_inner(),
+            )),
+            effects,
+            discarded,
+        },
+        InitialSimplificationStatus {
+            simplified_to_bottom: initial_input_count != 0
+                && completed_initial_simplifications == initial_input_count
+                && bottom_initial_simplifications == initial_input_count,
+        },
+    )
 }
 
 /// Kore's `GraphTraversal.checkLeftUnproven` reports stuck and vacuous results in
@@ -1122,6 +1178,7 @@ fn next_state(
         depth: depth + 1,
         trace,
         observation,
+        is_initial_input: false,
     }
 }
 
@@ -1147,6 +1204,7 @@ fn remaining_state(
         depth,
         trace,
         observation,
+        is_initial_input: false,
     }
 }
 
@@ -1155,6 +1213,7 @@ struct ExecutionState {
     depth: u64,
     trace: Vec<TraceEntry>,
     observation: ObservationHead,
+    is_initial_input: bool,
 }
 
 impl ExecutionState {
@@ -5465,7 +5524,15 @@ mod tests {
         let result = rewrite_step(&definition, &subject, &mut fresh);
 
         assert_eq!(result, RewriteResult::Trivial(subject.clone()));
-        let execution = execute(&definition, subject, ExecutionOptions::default());
+        let (execution, initial_status) =
+            execute_disjunction_with_solver_and_observer_with_initial_status(
+                &definition,
+                vec![subject],
+                ExecutionOptions::default(),
+                &NoSolver,
+                |_| {},
+            );
+        assert!(!initial_status.simplified_to_bottom());
         assert!(matches!(
             execution.leaves.as_slice(),
             [ExecutionLeaf {
@@ -5474,6 +5541,47 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[test]
+    fn initial_bottom_metadata_requires_completed_bottom_simplification_for_every_input() {
+        let definition = definition("");
+        let live = subject(&definition, "live");
+        let mut bottom = subject(&definition, "bottom");
+        bottom.constraints.push(Predicate::False);
+
+        let (_, all_bottom) = execute_disjunction_with_solver_and_observer_with_initial_status(
+            &definition,
+            vec![bottom.clone(), bottom.clone()],
+            ExecutionOptions::default(),
+            &NoSolver,
+            |_| {},
+        );
+        assert!(all_bottom.simplified_to_bottom());
+
+        let (_, mixed) = execute_disjunction_with_solver_and_observer_with_initial_status(
+            &definition,
+            vec![bottom.clone(), live],
+            ExecutionOptions {
+                max_depth: 0,
+                ..ExecutionOptions::default()
+            },
+            &NoSolver,
+            |_| {},
+        );
+        assert!(!mixed.simplified_to_bottom());
+
+        let (_, not_started) = execute_disjunction_with_solver_and_observer_with_initial_status(
+            &definition,
+            vec![bottom],
+            ExecutionOptions {
+                max_breadth: Some(0),
+                ..ExecutionOptions::default()
+            },
+            &NoSolver,
+            |_| {},
+        );
+        assert!(!not_started.simplified_to_bottom());
     }
 
     #[test]
@@ -8051,7 +8159,7 @@ mod tests {
             "#,
         );
         let initial = subject(&definition, "a");
-        let result = execute_using(
+        let (result, _) = execute_using(
             &definition,
             vec![initial.clone(), initial],
             ExecutionOptions::default(),
