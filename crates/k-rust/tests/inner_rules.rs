@@ -2840,6 +2840,43 @@ fn load_with_prelude(
 }
 
 #[cfg(feature = "z3-inference")]
+#[test]
+fn rejects_parametric_completion_without_a_unique_least_upper_bound() {
+    // reference: k/result/bin/kompile test.k --backend haskell
+    //   --main-module PARAMETRIC-COMPLETION-LUB
+    //   --syntax-module PARAMETRIC-COMPLETION-LUB (exit 113 before parsed.txt)
+    // AddEmptyLists asks AddSortInjections to complete #fun3's Sort2 parameter from its two
+    // parser-layer #KToken children. Both are KBott until TreeNodesToKORE materializes their
+    // semantic Missing sort, and filtering KBott's upper bounds leaves no unique admissible LUB.
+    let source = include_str!("fixtures/reference/inner/parametric-completion-lub/test.k");
+    let Err(error) = load_with_prelude(
+        source,
+        "parametric-completion-lub.k",
+        "PARAMETRIC-COMPLETION-LUB",
+    ) else {
+        panic!("the reference rejects a parametric production without a unique completion LUB");
+    };
+    assert!(
+        matches!(&error, k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error))
+            if matches!(&error.error, ParseError::SortInference { message }
+                if message.contains("least upper bound"))),
+        "{error:?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn accepts_parametric_completion_with_an_admissible_singleton_bound() {
+    let source = include_str!("fixtures/reference/inner/parametric-completion-lub/control.k");
+    load_with_prelude(
+        source,
+        "parametric-completion-lub-control.k",
+        "PARAMETRIC-COMPLETION-LUB-CONTROL",
+    )
+    .expect("equal Int bounds have the unique admissible completion LUB Int");
+}
+
+#[cfg(feature = "z3-inference")]
 fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
     loaded
         .definition

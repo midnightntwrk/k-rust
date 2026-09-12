@@ -391,22 +391,18 @@ impl Grammar {
                 // leaves the child-only `Sort2` at `K`, while the reference instantiates it to
                 // `lub(sort(X), sort(e))`, so an element-sorted `X` bound to a user list is
                 // completed to the singleton list `X .Xs` before ResolveFun reads the binder.
-                let expected_children = descriptor
-                    .parametric_origin
-                    .as_ref()
-                    .map(|origin| {
-                        self.list_instantiation(
-                            origin,
-                            &parameters,
-                            Some(expected),
-                            &children,
-                            subsorts,
-                        )
-                        .0
-                    })
-                    .unwrap_or_else(|| {
-                        nonterminal_sorts(descriptor).into_iter().cloned().collect()
-                    });
+                let expected_children = if let Some(origin) = &descriptor.parametric_origin {
+                    self.list_instantiation(
+                        origin,
+                        &parameters,
+                        Some(expected),
+                        &children,
+                        subsorts,
+                    )?
+                    .0
+                } else {
+                    nonterminal_sorts(descriptor).into_iter().cloned().collect()
+                };
                 if expected_children.len() != children.len() {
                     return Err(list_error(format!(
                         "production {:?} has {} nonterminals but its parse node has {} children",
@@ -457,7 +453,7 @@ impl Grammar {
         if !self.user_lists.contains_key(expected) {
             return Ok(child);
         }
-        let child_sort = self.list_sort(&child, Some(expected), subsorts);
+        let child_sort = self.list_sort(&child, Some(expected), subsorts)?;
         if self.user_lists.contains_key(&child_sort) && subsorts.less_than_eq(&child_sort, expected)
         {
             return Ok(child);
@@ -529,8 +525,8 @@ impl Grammar {
     /// Port of `AddSortInjections.substituteProd` as `AddEmptyLists` uses it: instantiate a
     /// parametric production from the expected sort of its node and the sorts of its children.
     /// A parameter that neither the expected sort nor any child constrains keeps the parser's
-    /// inferred instantiation, where Java would keep a fresh sort parameter; so does a parameter
-    /// whose bounds have no unique least upper bound, where Java reports an internal error.
+    /// inferred instantiation, where Java would keep a fresh sort parameter. A parameter with
+    /// bounds must have the same unique least upper bound that Java requires.
     /// Returns the instantiated nonterminal sorts and the instantiated result sort.
     fn list_instantiation(
         &self,
@@ -539,7 +535,7 @@ impl Grammar {
         expected: Option<&Sort>,
         children: &[ParsedTerm],
         subsorts: &PartialOrder<Sort>,
-    ) -> (Vec<Sort>, Sort) {
+    ) -> Result<(Vec<Sort>, Sort), ParseError> {
         let fresh = origin
             .parameters
             .iter()
@@ -568,7 +564,7 @@ impl Grammar {
             let child_expected = substitute_sort(declared_sort, &fresh_substitution);
             let child_expected = (!mentions_parameter(&child_expected, &origin.parameters))
                 .then_some(child_expected);
-            let actual = self.list_sort(child, child_expected.as_ref(), subsorts);
+            let actual = self.list_sort(child, child_expected.as_ref(), subsorts)?;
             match_parameters(origin, declared_sort, &actual, &mut bounds, subsorts);
         }
         let result_only_parameter = origin.parameters.iter().any(|parameter| {
@@ -581,40 +577,48 @@ impl Grammar {
         if result_only_parameter && let Some(expected) = expected {
             match_parameters(origin, &origin.result, expected, &mut bounds, subsorts);
         }
-        let arguments = origin
-            .parameters
-            .iter()
-            .zip(&fresh)
-            .enumerate()
-            .map(|(index, (parameter, fresh))| {
-                // `substituteProd`: a parameter without bounds takes its fresh sort (the
-                // expected sort for the result parameter); a bounded one takes the lub of its
-                // bounds, where the fresh sort only filters the candidate upper bounds and never
-                // joins them. `1 => foo(1)` at a user-list position therefore instantiates
-                // `#KRewrite` at `Int` and the parent wraps the whole rewrite, as K does.
-                let entries = bounds.get(parameter).cloned().unwrap_or_default();
-                if entries.is_empty() {
-                    fresh.clone()
-                } else {
-                    least_upper_bound(&entries, fresh.as_ref(), subsorts)
-                }
-                .or_else(|| inferred.get(index).cloned())
-                .unwrap_or_else(|| parameter.clone())
-            })
-            .collect::<Vec<_>>();
+        let mut arguments = Vec::with_capacity(origin.parameters.len());
+        for (index, (parameter, fresh)) in origin.parameters.iter().zip(&fresh).enumerate() {
+            // `substituteProd`: a parameter without bounds takes its fresh sort (the expected
+            // sort for the result parameter); a bounded one takes the lub of its bounds, where
+            // the fresh sort only filters the candidate upper bounds and never joins them.
+            // `1 => foo(1)` at a user-list position therefore instantiates `#KRewrite` at `Int`
+            // and the parent wraps the whole rewrite, as K does.
+            let entries = bounds.get(parameter).cloned().unwrap_or_default();
+            let argument = if entries.is_empty() {
+                fresh
+                    .clone()
+                    .or_else(|| inferred.get(index).cloned())
+                    .unwrap_or_else(|| parameter.clone())
+            } else {
+                least_upper_bound(&entries, fresh.as_ref(), subsorts).ok_or_else(|| {
+                    ParseError::SortInference {
+                        message: format!(
+                            "could not compute a unique least upper bound for parametric production bounds: {}",
+                            entries
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    }
+                })?
+            };
+            arguments.push(argument);
+        }
         let instantiation = origin
             .parameters
             .iter()
             .cloned()
             .zip(arguments)
             .collect::<BTreeMap<_, _>>();
-        (
+        Ok((
             declared
                 .iter()
                 .map(|sort| substitute_sort(sort, &instantiation))
                 .collect(),
             substitute_sort(&origin.result, &instantiation),
-        )
+        ))
     }
 
     /// Port of `AddEmptyLists.getSort`: the sort of a parse node as the completion pass sees
@@ -624,7 +628,7 @@ impl Grammar {
         term: &ParsedTerm,
         expected: Option<&Sort>,
         subsorts: &PartialOrder<Sort>,
-    ) -> Sort {
+    ) -> Result<Sort, ParseError> {
         let k = Sort::new("K");
         let expected = expected.map(|sort| {
             if subsorts.greater_than(sort, &k) {
@@ -640,13 +644,12 @@ impl Grammar {
                 children,
                 ..
             } => match &self.productions[*production].parametric_origin {
-                Some(origin) => {
-                    self.list_instantiation(origin, parameters, expected, children, subsorts)
-                        .1
-                }
-                None => self.productions[*production].result.clone(),
+                Some(origin) => Ok(self
+                    .list_instantiation(origin, parameters, expected, children, subsorts)?
+                    .1),
+                None => Ok(self.productions[*production].result.clone()),
             },
-            _ => parsed_sort(self, term),
+            _ => Ok(parsed_sort(self, term)),
         }
     }
 }
@@ -693,31 +696,34 @@ fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
 }
 
 /// Port of `AddSortInjections.lub` over the parser's subsort order: the unique minimal common
-/// upper bound that is neither below `KBott` nor above `K`. A single entry is returned as is;
-/// otherwise a non-parametric `expected` sort discards the candidates that do not fit below it,
-/// as Java's `expectedSort` argument does.
+/// upper bound that is neither below `KBott` nor above `K`. A non-parametric `expected` sort
+/// discards candidates that do not fit below it, as Java's `expectedSort` argument does. These
+/// admissibility filters apply even when deduplication leaves one input bound.
 fn least_upper_bound(
     sorts: &[Sort],
     expected: Option<&Sort>,
     subsorts: &PartialOrder<Sort>,
 ) -> Option<Sort> {
     let unique = sorts.iter().cloned().collect::<BTreeSet<_>>();
-    if unique.len() == 1 {
-        return unique.into_iter().next();
-    }
     let k = Sort::new("K");
     let k_bottom = Sort::new("KBott");
+    let admissible = |bound: &Sort| {
+        !subsorts.less_than_eq(bound, &k_bottom)
+            && !subsorts.greater_than(bound, &k)
+            && expected
+                .filter(|expected| expected.parameters.is_empty())
+                .is_none_or(|expected| subsorts.less_than_eq(bound, expected))
+    };
+    if unique.len() == 1
+        && let Some(bound) = unique.first()
+        && admissible(bound)
+    {
+        return Some(bound.clone());
+    }
     let bounds = subsorts
         .upper_bounds(unique.iter())
         .into_iter()
-        .filter(|bound| {
-            !subsorts.less_than_eq(bound, &k_bottom) && !subsorts.greater_than(bound, &k)
-        })
-        .filter(|bound| {
-            expected
-                .filter(|expected| expected.parameters.is_empty())
-                .is_none_or(|expected| subsorts.less_than_eq(bound, expected))
-        })
+        .filter(admissible)
         .collect::<BTreeSet<_>>();
     let minimal = subsorts.minimal(bounds.iter());
     (minimal.len() == 1).then(|| minimal.into_iter().next().expect("one minimum"))
@@ -889,6 +895,108 @@ mod tests {
     fn inserts_a_left_associative_singleton_list() {
         let grammar = list_grammar(true);
         assert_list_parse_snapshot!(grammar, "box a");
+    }
+
+    #[test]
+    fn filters_singleton_completion_bounds_before_selecting_the_lub() {
+        let k_bottom = Sort::new("KBott");
+        let int = Sort::new("Int");
+        let bool_sort = Sort::new("Bool");
+        let k = Sort::new("K");
+        let order = PartialOrder::new([
+            (k_bottom.clone(), int.clone()),
+            (k_bottom.clone(), bool_sort.clone()),
+            (int.clone(), k.clone()),
+            (bool_sort, k),
+        ])
+        .unwrap();
+
+        assert_eq!(least_upper_bound(&[k_bottom], None, &order), None);
+        let relation_free = Sort::new("RelationFree");
+        assert_eq!(
+            least_upper_bound(std::slice::from_ref(&relation_free), None, &order),
+            Some(relation_free.clone())
+        );
+        assert_eq!(
+            least_upper_bound(&[relation_free], Some(&int), &order),
+            None
+        );
+    }
+
+    #[test]
+    fn propagates_nested_parametric_completion_failures() {
+        let parameter = Sort::new("P");
+        let grammar = Grammar::from_sentences(&[
+            production(
+                "A",
+                vec![ProductionItem::Terminal("a".into())],
+                Some("a"),
+                false,
+            ),
+            production(
+                "B",
+                vec![ProductionItem::Terminal("b".into())],
+                Some("b"),
+                false,
+            ),
+            Sentence::Production {
+                label: Some(Label::new("pair")),
+                parameters: vec![parameter.clone()],
+                sort: Sort::new("R"),
+                items: vec![
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: parameter,
+                        name: None,
+                    },
+                ],
+                attributes: Attributes::default(),
+            },
+        ])
+        .unwrap();
+        let find = |label: &str| {
+            grammar
+                .productions
+                .iter()
+                .position(|production| {
+                    production
+                        .label
+                        .as_ref()
+                        .is_some_and(|candidate| candidate.name == label)
+                })
+                .unwrap()
+        };
+        let leaf = |production| ParsedTerm::Production {
+            production,
+            children: Vec::new(),
+            metadata: TermMetadata::default(),
+        };
+        let pair = grammar
+            .productions
+            .iter()
+            .position(|production| {
+                production
+                    .parametric_origin
+                    .as_ref()
+                    .and_then(|origin| origin.label.as_ref())
+                    .is_some_and(|label| label.name == "pair")
+            })
+            .unwrap();
+        let term = ParsedTerm::InstantiatedProduction {
+            production: pair,
+            parameters: vec![Sort::new("K")],
+            children: vec![leaf(find("a")), leaf(find("b"))],
+            metadata: TermMetadata::default(),
+        };
+        let order = PartialOrder::new(grammar.subsort_relations.iter().cloned()).unwrap();
+
+        assert!(matches!(
+            grammar.list_sort(&term, Some(&Sort::new("R")), &order),
+            Err(ParseError::SortInference { message }) if message.contains("least upper bound")
+        ));
     }
 
     #[test]
