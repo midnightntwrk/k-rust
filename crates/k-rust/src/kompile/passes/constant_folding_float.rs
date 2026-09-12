@@ -571,6 +571,38 @@ mod tests {
     }
 
     #[test]
+    fn folds_reference_float_edge_values_and_contexts() {
+        // Pinned K 4a46d123 agrees on each represented value and p/x context. Ordinary finite
+        // decimal presentation is frontend-specific and is not part of that comparison.
+        for (hook, operands, expected) in [
+            ("FLOAT.neg", &["0.0"][..], "-0e+00p53x11"),
+            (
+                "FLOAT.floor",
+                &["-10.5"][..],
+                "-1.1000000000000000e+01p53x11",
+            ),
+            (
+                "FLOAT.ceil",
+                &["-10.5"][..],
+                "-1.0000000000000000e+01p53x11",
+            ),
+            (
+                "FLOAT.rem",
+                &["7.0", "2.0"][..],
+                "-1.0000000000000000e+00p53x11",
+            ),
+            ("FLOAT.div", &["0.0", "0.0"][..], "NaNp53x11"),
+            ("FLOAT.div", &["1.0", "0.0"][..], "Infinityp53x11"),
+        ] {
+            let values = operands
+                .iter()
+                .map(|operand| Value::Float(float(operand)))
+                .collect();
+            assert_eq!(folded_float(hook, values).token(), expected, "{hook}");
+        }
+    }
+
+    #[test]
     fn respects_ieee_exponent_ranges_and_subnormals() {
         let precision = Value::Int(24.into());
         let exponent = Value::Int(8.into());
