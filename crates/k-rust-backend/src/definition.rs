@@ -48,12 +48,6 @@ pub(crate) enum SubsortValidation {
     Ignore,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RuleIndexOrder {
-    Canonical,
-    Definition,
-}
-
 /// Transitive strict ordering between overloaded KORE symbols.
 ///
 /// A relation `(greater, lesser)` records that `greater` overloads `lesser`. Symbols which share
@@ -175,6 +169,8 @@ pub enum DefinitionError {
     DuplicateSort(String),
     DuplicateSymbol(String),
     DuplicateAlias(String),
+    DuplicateRewriteOrderId(String),
+    MissingRewriteOrderIds(Vec<String>),
     DuplicateName {
         name: String,
         first_module: String,
@@ -254,6 +250,15 @@ impl fmt::Display for DefinitionError {
             Self::DuplicateSort(sort) => write!(formatter, "Duplicate sort '{sort}'"),
             Self::DuplicateSymbol(symbol) => write!(formatter, "Duplicate symbol '{symbol}'"),
             Self::DuplicateAlias(alias) => write!(formatter, "Duplicate alias '{alias}'"),
+            Self::DuplicateRewriteOrderId(unique_id) => {
+                write!(formatter, "Duplicate rewrite-order UNIQUE_ID '{unique_id}'")
+            }
+            Self::MissingRewriteOrderIds(unique_ids) => write!(
+                formatter,
+                "Rewrite order is missing executable UNIQUE_ID{}: {}",
+                if unique_ids.len() == 1 { "" } else { "s" },
+                unique_ids.join(", ")
+            ),
             Self::DuplicateName { name, .. } => write!(formatter, "Duplicated name: {name}."),
             Self::DuplicateParameter(parameter) => {
                 write!(formatter, "Duplicate sort parameter '{parameter}'")
@@ -387,24 +392,59 @@ impl BackendDefinition {
         definition: &kore::Definition,
         main_module: &str,
     ) -> Result<Self, DefinitionError> {
-        Self::internalize_with_rule_order(definition, main_module, RuleIndexOrder::Canonical)
+        Self::internalize_canonical(definition, main_module)
     }
 
-    /// Internalizes rules in parsed definition order for source-compiled `krun` execution.
+    /// Internalizes a definition and orders semantic rewrites by their stable identifiers.
     ///
-    /// Raw KORE surfaces must use [`Self::internalize`] so their rule index follows pinned Haskell
-    /// Kore's reverse canonical module and sentence order.
-    pub fn internalize_in_definition_order(
+    /// This is the source-compiled execution boundary: the frontend supplies the order from its
+    /// transformed definition before KORE emission structurally sorts the rules. Function,
+    /// simplification, predicate, and definedness theories retain canonical KORE order. Every
+    /// executable rewrite must have exactly one entry; extra frontend entries are accepted.
+    pub fn internalize_for_source_execution<T: AsRef<str>>(
         definition: &kore::Definition,
         main_module: &str,
+        rewrite_order: &[T],
     ) -> Result<Self, DefinitionError> {
-        Self::internalize_with_rule_order(definition, main_module, RuleIndexOrder::Definition)
+        let mut result = Self::internalize(definition, main_module)?;
+        let mut ranks = BTreeMap::new();
+        for (rank, unique_id) in rewrite_order.iter().enumerate() {
+            let unique_id = unique_id.as_ref();
+            if ranks.insert(unique_id, rank).is_some() {
+                return Err(DefinitionError::DuplicateRewriteOrderId(
+                    unique_id.to_owned(),
+                ));
+            }
+        }
+        let missing = result
+            .rewrite_theory
+            .values()
+            .flat_map(BTreeMap::values)
+            .flatten()
+            .filter(|rule| !ranks.contains_key(rule.attributes.unique_id.as_str()))
+            .map(|rule| rule.attributes.unique_id.clone())
+            .collect::<BTreeSet<_>>();
+        if !missing.is_empty() {
+            return Err(DefinitionError::MissingRewriteOrderIds(
+                missing.into_iter().collect(),
+            ));
+        }
+        for priority_groups in result.rewrite_theory.values_mut() {
+            for rules in priority_groups.values_mut() {
+                rules.sort_by_key(|rule| {
+                    ranks
+                        .get(rule.attributes.unique_id.as_str())
+                        .copied()
+                        .expect("all executable rewrites were checked above")
+                });
+            }
+        }
+        Ok(result)
     }
 
-    fn internalize_with_rule_order(
+    fn internalize_canonical(
         definition: &kore::Definition,
         main_module: &str,
-        rule_index_order: RuleIndexOrder,
     ) -> Result<Self, DefinitionError> {
         let mut module_map = BTreeMap::new();
         for module in &definition.modules {
@@ -516,25 +556,14 @@ impl BackendDefinition {
         let mut overloads = Vec::new();
         let rule_orders = ordered
             .iter()
-            .map(|module| {
-                (
-                    module.name.as_str(),
-                    rule_sentence_indices(module, rule_index_order),
-                )
-            })
+            .map(|module| (module.name.as_str(), sorted_rule_sentence_indices(module)))
             .collect::<BTreeMap<_, _>>();
-        let axiom_modules = match rule_index_order {
-            RuleIndexOrder::Canonical => {
-                let import_orders = ordered
-                    .iter()
-                    .map(|module| (module.name.as_str(), sorted_import_sentence_indices(module)))
-                    .collect::<BTreeMap<_, _>>();
-                let mut modules = Vec::new();
-                visit_modules_preorder(main_module, &module_map, &import_orders, &mut modules)?;
-                modules
-            }
-            RuleIndexOrder::Definition => ordered.clone(),
-        };
+        let import_orders = ordered
+            .iter()
+            .map(|module| (module.name.as_str(), sorted_import_sentence_indices(module)))
+            .collect::<BTreeMap<_, _>>();
+        let mut axiom_modules = Vec::new();
+        visit_modules_preorder(main_module, &module_map, &import_orders, &mut axiom_modules)?;
         for module in axiom_modules {
             for &index in &rule_orders[module.name.as_str()] {
                 let sentence = &module.sentences[index];
@@ -1457,24 +1486,6 @@ fn sorted_rule_sentence_indices(module: &kore::Module) -> Vec<usize> {
         .collect::<Vec<_>>();
     rules.sort_by(|(_, left), (_, right)| left.compare(right));
     rules.into_iter().rev().map(|(index, _)| index).collect()
-}
-
-fn rule_sentence_indices(module: &kore::Module, order: RuleIndexOrder) -> Vec<usize> {
-    match order {
-        RuleIndexOrder::Canonical => sorted_rule_sentence_indices(module),
-        RuleIndexOrder::Definition => module
-            .sentences
-            .iter()
-            .enumerate()
-            .filter_map(|(index, sentence)| {
-                matches!(
-                    sentence,
-                    kore::Sentence::Axiom { .. } | kore::Sentence::Claim { .. }
-                )
-                .then_some(index)
-            })
-            .collect(),
-    }
 }
 
 #[cfg(test)]
@@ -2660,7 +2671,7 @@ mod tests {
     }
 
     #[test]
-    fn rule_index_orders_select_canonical_or_definition_import_traversal() {
+    fn indexes_main_module_before_imports_in_reverse_canonical_import_order() {
         let syntax = parse_definition(indoc! {r#"
             []
             module BASE
@@ -2705,13 +2716,6 @@ mod tests {
         assert_eq!(
             classified_rule_labels(&definition),
             ["main", "b", "base", "a", "base"]
-        );
-
-        let definition = BackendDefinition::internalize_in_definition_order(&syntax, "MAIN")
-            .expect("definition should internalize");
-        assert_eq!(
-            classified_rule_labels(&definition),
-            ["base", "a", "b", "main"]
         );
     }
 
@@ -2758,29 +2762,54 @@ mod tests {
         }
     }
 
-    #[test]
-    fn definition_order_policy_indexes_axioms_in_sentence_order() {
-        let syntax = parse_definition(indoc! {r#"
+    fn source_execution_order_definition() -> kore::Definition {
+        parse_definition(indoc! {r#"
             []
             module MAIN
                 sort SortS{} []
                 symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(a{}(), \top{SortS{}}()),
-                    a{}()
-                ) [label{}("first")]
+                    b{}()
+                ) [UNIQUE'Unds'ID{}("first")]
                 axiom{} \rewrites{SortS{}}(
                     \and{SortS{}}(a{}(), \top{SortS{}}()),
-                    a{}()
-                ) [label{}("second")]
+                    c{}()
+                ) [UNIQUE'Unds'ID{}("second")]
             endmodule []
         "#})
-        .expect("definition should parse");
+        .expect("source-execution definition should parse")
+    }
 
-        let definition = BackendDefinition::internalize_in_definition_order(&syntax, "MAIN")
-            .expect("definition should internalize");
+    #[test]
+    fn source_execution_rejects_missing_and_duplicate_rewrite_order_ids() {
+        let syntax = source_execution_order_definition();
+        assert_eq!(
+            BackendDefinition::internalize_for_source_execution(&syntax, "MAIN", &["first"])
+                .unwrap_err(),
+            DefinitionError::MissingRewriteOrderIds(vec!["second".into()])
+        );
+        assert_eq!(
+            BackendDefinition::internalize_for_source_execution(
+                &syntax,
+                "MAIN",
+                &["first", "first", "second"],
+            )
+            .unwrap_err(),
+            DefinitionError::DuplicateRewriteOrderId("first".into())
+        );
+    }
 
-        assert_eq!(classified_rule_labels(&definition), ["first", "second"]);
+    #[test]
+    fn source_execution_accepts_frontend_order_entries_not_emitted_as_rewrites() {
+        BackendDefinition::internalize_for_source_execution(
+            &source_execution_order_definition(),
+            "MAIN",
+            &["first", "equation-or-macro", "second"],
+        )
+        .expect("extra frontend ranks do not make rewrite precedence ambiguous");
     }
 
     fn reference_definition_fixture(name: &str) -> kore::Definition {
@@ -3654,6 +3683,98 @@ mod tests {
             ceil.rhs,
             crate::rule::RuleRhs::Predicates(ref predicates) if predicates.is_empty()
         ));
+    }
+
+    #[test]
+    fn source_execution_order_changes_only_the_rewrite_theory() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortValue{} []
+                symbol value{}() : SortValue{} [constructor{}()]
+                symbol other{}() : SortValue{} [constructor{}()]
+                symbol wrap{}(SortValue{}) : SortValue{} [constructor{}()]
+                symbol f{}(SortValue{}) : SortValue{} [function{}()]
+                axiom{} \rewrites{SortValue{}}(
+                    \and{SortValue{}}(value{}(), \top{SortValue{}}()),
+                    other{}()
+                ) [UNIQUE'Unds'ID{}("rewrite-value")]
+                axiom{} \rewrites{SortValue{}}(
+                    \and{SortValue{}}(value{}(), \top{SortValue{}}()),
+                    wrap{}(other{}())
+                ) [UNIQUE'Unds'ID{}("rewrite-wrap")]
+                axiom{R}
+                    \implies{R}(
+                        \and{R}(
+                            \top{R}(),
+                            \and{R}(
+                                \in{SortValue{}, R}(X0:SortValue{}, wrap{}(X:SortValue{})),
+                                \top{R}()
+                            )
+                        ),
+                        \equals{SortValue{}, R}(
+                            f{}(X0:SortValue{}),
+                            \and{SortValue{}}(value{}(), \top{SortValue{}}())
+                        )
+                    )
+                    [label{}("evaluate-f"), UNIQUE'Unds'ID{}("function")]
+                axiom{R}
+                    \implies{R}(
+                        \top{R}(),
+                        \equals{SortValue{}, R}(
+                            f{}(X:SortValue{}),
+                            \and{SortValue{}}(X:SortValue{}, \top{SortValue{}}())
+                        )
+                    )
+                    [label{}("simplify-f"), UNIQUE'Unds'ID{}("simplification"), simplification{}()]
+                axiom{R}
+                    \implies{R}(
+                        \top{R}(),
+                        \equals{R, R}(
+                            \ceil{SortValue{}, R}(f{}(X:SortValue{})),
+                            \top{R}()
+                        )
+                    )
+                    [label{}("ceil-f"), UNIQUE'Unds'ID{}("ceil")]
+            endmodule []
+        "#})
+        .expect("mixed-theory definition should parse");
+        let canonical = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("mixed-theory definition should internalize");
+        let canonical_order = canonical
+            .rewrite_theory
+            .values()
+            .flat_map(BTreeMap::values)
+            .flatten()
+            .map(|rule| rule.attributes.unique_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(canonical_order.len(), 2);
+        let requested = canonical_order.iter().rev().cloned().collect::<Vec<_>>();
+
+        let ordered =
+            BackendDefinition::internalize_for_source_execution(&syntax, "MAIN", &requested)
+                .expect("explicit rewrite order should internalize");
+        let ordered_rewrites = ordered
+            .rewrite_theory
+            .values()
+            .flat_map(BTreeMap::values)
+            .flatten()
+            .map(|rule| rule.attributes.unique_id.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ordered_rewrites, requested);
+        assert_eq!(ordered.function_theory, canonical.function_theory);
+        assert_eq!(
+            ordered.simplification_theory,
+            canonical.simplification_theory
+        );
+        assert_eq!(
+            ordered.predicate_simplification_theory,
+            canonical.predicate_simplification_theory
+        );
+        assert_eq!(ordered.ceil_theory, canonical.ceil_theory);
+        assert_eq!(ordered.claims, canonical.claims);
+        assert_eq!(ordered.classified_axioms, canonical.classified_axioms);
     }
 
     #[test]

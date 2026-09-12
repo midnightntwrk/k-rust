@@ -7092,6 +7092,58 @@ mod tests {
     }
 
     #[test]
+    fn explicit_rewrite_order_precedes_a_trivial_fallback() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortValue{} []
+                sort SortState{} []
+                symbol target{}() : SortValue{} [constructor{}()]
+                symbol state{}(SortValue{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(X:SortValue{}),
+                        \top{SortState{}}()
+                    ),
+                    \bottom{SortState{}}()
+                ) [label{}("late-generic"), UNIQUE'Unds'ID{}("late-generic")]
+
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(target{}()),
+                        \top{SortState{}}()
+                    ),
+                    done{}()
+                ) [label{}("early-specific"), UNIQUE'Unds'ID{}("early-specific")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition = BackendDefinition::internalize_for_source_execution(
+            &syntax,
+            "MAIN",
+            &["early-specific", "late-generic"],
+        )
+        .expect("definition should internalize");
+        let initial = Pattern {
+            term: internal_term(&definition, "state{}(target{}())"),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let result =
+            rewrite_step_sequential_with_solver(&definition, &initial, &mut fresh, &NoSolver);
+
+        let RewriteResult::Finished(applied) = result else {
+            panic!("the explicit earlier rewrite must precede the trivial fallback: {result:?}");
+        };
+        assert_eq!(applied.unique_id, "early-specific");
+        assert_eq!(applied.label.as_deref(), Some("early-specific"));
+        assert_eq!(applied.pattern.term, internal_term(&definition, "done{}()"));
+    }
+
+    #[test]
     fn freshens_existentials_against_the_current_pattern() {
         let definition = definition(
             r#"

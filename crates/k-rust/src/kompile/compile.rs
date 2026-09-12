@@ -8,8 +8,9 @@ use std::{
 
 use crate::{
     definition::{
-        CheckMode, Definition, ResolvedDefinition, StructuralCheckBackend, StructuralCheckOptions,
-        checks::check_definition_with_options, expand_configurations_with_diagnostics,
+        CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence, StructuralCheckBackend,
+        StructuralCheckOptions, checks::check_definition_with_options,
+        expand_configurations_with_diagnostics,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     kast::{Sort, Term},
@@ -18,6 +19,7 @@ use crate::{
 };
 
 use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
+use super::passes::number_sentence;
 use super::{
     ModuleToKoreOptions, add_cool_like_attributes, add_implicit_computation_cell,
     add_semantics_module, add_sort_injections_to_definition, check_simplification_rules,
@@ -157,6 +159,11 @@ pub struct CompiledKoreArtifacts {
     /// Standalone surface patterns must use this exact context so macro expansion, cell syntax,
     /// and production identities agree with the compilation that emitted `definition_kore`.
     pub execution_definition: Definition,
+    /// Executable semantic rewrite precedence from the transformed source definition.
+    ///
+    /// KORE emission structurally sorts rules, so source-backed execution joins this order to the
+    /// emitted axioms by their final `UNIQUE_ID`. Equivalent duplicate rules occur only once.
+    pub execution_rewrite_order: Vec<String>,
 }
 
 /// A compilation failure with its precise pipeline stage and any structured diagnostics.
@@ -224,6 +231,10 @@ pub fn compile_loaded_definition(
 ) -> Result<CompiledKoreArtifacts, CompileError> {
     let (execution_definition, definition, mut diagnostics) =
         transform_loaded_definition(loaded, &options)?;
+    let execution_rewrite_order = stage(
+        "collect execution rewrite order",
+        collect_execution_rewrite_order(&execution_definition),
+    )?;
     let resolved = stage(
         "resolve transformed definition",
         ResolvedDefinition::resolve(&definition),
@@ -290,7 +301,108 @@ pub fn compile_loaded_definition(
         diagnostics,
         configuration_variables,
         execution_definition,
+        execution_rewrite_order,
     })
+}
+
+fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String>, String> {
+    fn visit<'a>(
+        name: &str,
+        modules: &BTreeMap<&str, &'a FlatModule>,
+        visiting: &mut Vec<&'a str>,
+        visited: &mut BTreeSet<&'a str>,
+        ordered: &mut Vec<&'a FlatModule>,
+    ) -> Result<(), String> {
+        if visited.contains(name) {
+            return Ok(());
+        }
+        if let Some(start) = visiting.iter().position(|candidate| *candidate == name) {
+            let mut cycle = visiting[start..].to_vec();
+            cycle.push(visiting[start]);
+            return Err(format!(
+                "module import cycle while ordering rewrites: {}",
+                cycle.join(" -> ")
+            ));
+        }
+        let module = modules
+            .get(name)
+            .copied()
+            .ok_or_else(|| format!("module {name} not found while ordering rewrites"))?;
+        visiting.push(module.name.as_str());
+        for import in &module.imports {
+            visit(&import.name, modules, visiting, visited, ordered)?;
+        }
+        visiting.pop();
+        visited.insert(module.name.as_str());
+        ordered.push(module);
+        Ok(())
+    }
+
+    struct Occurrence<'a> {
+        sentence: &'a Sentence,
+        module: &'a str,
+        index: usize,
+    }
+
+    fn computed_unique_id(sentence: &Sentence) -> String {
+        let mut sentence = sentence.clone();
+        sentence.attributes_mut().remove("UNIQUE_ID");
+        number_sentence(&mut sentence);
+        sentence
+            .attributes()
+            .get_str("UNIQUE_ID")
+            .expect("number_sentence assigns an identifier to every rule")
+            .to_owned()
+    }
+
+    let modules = definition
+        .modules
+        .iter()
+        .map(|module| (module.name.as_str(), module))
+        .collect::<BTreeMap<_, _>>();
+    let mut ordered = Vec::new();
+    visit(
+        &definition.main_module,
+        &modules,
+        &mut Vec::new(),
+        &mut BTreeSet::new(),
+        &mut ordered,
+    )?;
+
+    let mut occurrences = BTreeMap::<String, Occurrence<'_>>::new();
+    let mut rewrite_order = Vec::new();
+    for module in ordered {
+        for (index, sentence) in module.local_sentences.iter().enumerate() {
+            let Sentence::Rule { attributes, .. } = sentence else {
+                continue;
+            };
+            let unique_id = attributes.get_str("UNIQUE_ID").ok_or_else(|| {
+                format!(
+                    "transformed rule in module {} at local sentence {index} has no UNIQUE_ID",
+                    module.name
+                )
+            })?;
+            if let Some(previous) = occurrences.get(unique_id) {
+                if computed_unique_id(previous.sentence) != computed_unique_id(sentence) {
+                    return Err(format!(
+                        "conflicting rewrite-order UNIQUE_ID {unique_id:?} at module {} local sentence {} and module {} local sentence {index}",
+                        previous.module, previous.index, module.name
+                    ));
+                }
+                continue;
+            }
+            occurrences.insert(
+                unique_id.to_owned(),
+                Occurrence {
+                    sentence,
+                    module: &module.name,
+                    index,
+                },
+            );
+            rewrite_order.push(unique_id.to_owned());
+        }
+    }
+    Ok(rewrite_order)
 }
 
 /// Match `CompiledDefinition.initializeConfigurationVariableDefaultSorts` on the transformed
@@ -618,7 +730,7 @@ mod tests {
         outer::{LoadOptions, load_with_options},
     };
     use crate::{
-        definition::{Definition, Sentence},
+        definition::{Attributes, Definition, FlatImport, FlatModule, Sentence},
         kast::Term,
         kore::parser::parse_definition,
         outer::{ResolvedSource, load},
@@ -627,6 +739,114 @@ mod tests {
     use sha3::{Digest, Sha3_256};
 
     use super::*;
+
+    fn ranked_rule(unique_id: Option<&str>, body_label: &str) -> Sentence {
+        let mut attributes = Attributes::default();
+        if let Some(unique_id) = unique_id {
+            attributes.insert("UNIQUE_ID", serde_json::json!(unique_id));
+        }
+        Sentence::Rule {
+            body: Term::apply(body_label, Vec::new()),
+            requires: Term::apply("#Top", Vec::new()),
+            ensures: Term::apply("#Top", Vec::new()),
+            attributes,
+        }
+    }
+
+    fn ranked_module(name: &str, imports: &[&str], rules: &[(Option<&str>, &str)]) -> FlatModule {
+        FlatModule {
+            name: name.into(),
+            imports: imports
+                .iter()
+                .map(|name| FlatImport {
+                    name: (*name).into(),
+                    public: false,
+                })
+                .collect(),
+            local_sentences: rules
+                .iter()
+                .map(|(unique_id, body)| ranked_rule(*unique_id, body))
+                .collect(),
+            attributes: Attributes::default(),
+        }
+    }
+
+    #[test]
+    fn execution_rewrite_order_follows_import_and_local_sentence_order() {
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                ranked_module(
+                    "MAIN",
+                    &["LEFT", "RIGHT"],
+                    &[
+                        (Some("main-first"), "mainFirst"),
+                        (Some("main-second"), "mainSecond"),
+                    ],
+                ),
+                ranked_module(
+                    "RIGHT",
+                    &["BASE"],
+                    &[(Some("base"), "base"), (Some("right"), "right")],
+                ),
+                ranked_module(
+                    "LEFT",
+                    &["BASE"],
+                    &[
+                        (Some("left-first"), "leftFirst"),
+                        (Some("left-second"), "leftSecond"),
+                    ],
+                ),
+                ranked_module("BASE", &[], &[(Some("base"), "base")]),
+            ],
+            attributes: Attributes::default(),
+        };
+
+        assert_eq!(
+            collect_execution_rewrite_order(&definition).unwrap(),
+            [
+                "base",
+                "left-first",
+                "left-second",
+                "right",
+                "main-first",
+                "main-second",
+            ]
+        );
+    }
+
+    #[test]
+    fn execution_rewrite_order_rejects_conflicting_duplicate_ids() {
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![ranked_module(
+                "MAIN",
+                &[],
+                &[(Some("duplicate"), "first"), (Some("duplicate"), "second")],
+            )],
+            attributes: Attributes::default(),
+        };
+
+        let error = collect_execution_rewrite_order(&definition).unwrap_err();
+        assert!(
+            error.contains("module MAIN local sentence 0 and module MAIN local sentence 1"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn execution_rewrite_order_reports_missing_ids_at_their_source_position() {
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![ranked_module("MAIN", &[], &[(None, "missing")])],
+            attributes: Attributes::default(),
+        };
+
+        assert_eq!(
+            collect_execution_rewrite_order(&definition).unwrap_err(),
+            "transformed rule in module MAIN at local sentence 0 has no UNIQUE_ID"
+        );
+    }
 
     #[test]
     fn standalone_compilation_emits_verifiable_sort_predicates() {

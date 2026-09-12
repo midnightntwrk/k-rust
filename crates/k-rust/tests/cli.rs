@@ -1566,6 +1566,50 @@ fn krun_follows_the_first_rule_by_default_and_explores_with_strategy_all() {
 }
 
 #[test]
+fn krun_preserves_source_rule_order_across_kore_emission_sorting() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax State ::= "a" | "d" | "e"
+  configuration <k> $PGM:State </k>
+  rule a => e
+  rule a => d
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("Lble'Unds'MAIN'Unds'State{}()"), "{output}");
+    assert!(
+        !output.contains("Lbld'Unds'MAIN'Unds'State{}()"),
+        "{output}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_heats_a_strict_production_in_one_order_by_default_and_search_enumerates_both() {
     // Two unevaluated arguments of a `strict` production have two heating rules with equal
     // priority. K's krun (LLVM backend; kore-exec `--strategy any`) heats the first argument
