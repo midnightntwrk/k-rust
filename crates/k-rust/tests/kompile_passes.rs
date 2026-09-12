@@ -1573,6 +1573,13 @@ fn threads_configuration_through_transitive_function_calls() {
 
     let transformed = resolve_function_with_config(&definition).unwrap();
     let main = transformed.main_module().unwrap();
+    assert!(
+        main.local_sentences.iter().any(|sentence| matches!(
+            sentence,
+            Sentence::SyntaxSort { sort, .. } if sort == &Sort::new("GeneratedTopCell")
+        )),
+        "adding configuration arguments must also declare GeneratedTopCell"
+    );
     let production_arities = main
         .local_sentences
         .iter()
