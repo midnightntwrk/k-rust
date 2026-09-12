@@ -31,9 +31,9 @@ pub use checks::{
     check_duplicate_labels, check_duplicate_overloads, check_function_rule_attributes,
     check_functions, check_holes, check_is_sort_predicates, check_k_terms, check_klabels,
     check_module, check_module_with_options, check_outer_modules, check_proof_module,
-    check_regexes, check_rewrites, check_rhs_variables, check_smt_lemmas,
-    check_sort_top_uniqueness, check_sorts, check_streams, check_syntax_groups, check_tokens,
-    check_unused_symbols, check_user_lists,
+    check_regexes, check_rewrites, check_rhs_variables, check_singleton_overloads,
+    check_smt_lemmas, check_sort_top_uniqueness, check_sorts, check_streams, check_syntax_groups,
+    check_tokens, check_unused_symbols, check_user_lists,
 };
 pub(crate) use configuration::expand_configurations_allowing_reserved_cells;
 pub use configuration::{

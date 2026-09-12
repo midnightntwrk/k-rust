@@ -30,7 +30,7 @@ pub use kompile_checks::{
 };
 pub use labels::{
     check_duplicate_klabels, check_duplicate_overloads, check_function_rule_attributes,
-    check_klabels, check_unused_symbols,
+    check_klabels, check_singleton_overloads, check_unused_symbols,
 };
 pub use production_shapes::{check_configuration_cells, check_holes, check_streams};
 pub use regexes::check_regexes;

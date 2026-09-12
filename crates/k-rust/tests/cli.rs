@@ -4791,6 +4791,59 @@ fn warning_flags_are_exposed_by_every_diagnostic_subcommand() {
 }
 
 #[test]
+fn singleton_overload_warnings_follow_the_disambiguation_grammar_and_policy() {
+    let (root, _) = fixture();
+    let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/checks/singletonOverload.k");
+    let run = |name: &str, warning_args: &[&str]| {
+        let output_directory = root.join(name);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "SINGLETONOVERLOAD",
+            "--syntax-module",
+            "SINGLETONOVERLOAD-SYNTAX",
+            "--backend",
+            "rust",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+        ]);
+        command.args(warning_args);
+        command.output().unwrap()
+    };
+
+    let normal = run("normal", &[]);
+    let normal_stderr = String::from_utf8_lossy(&normal.stderr);
+    assert!(normal.status.success(), "{normal_stderr}");
+    assert_eq!(
+        normal_stderr.matches("Warning[SingletonOverload]").count(),
+        2,
+        "{normal_stderr}"
+    );
+
+    let promoted = run("promoted", &["--warnings", "all", "--warnings-to-errors"]);
+    let promoted_stderr = String::from_utf8_lossy(&promoted.stderr);
+    assert!(!promoted.status.success(), "{promoted_stderr}");
+    assert_eq!(
+        promoted_stderr.matches("Error[SingletonOverload]").count(),
+        2,
+        "{promoted_stderr}"
+    );
+
+    let suppressed = run(
+        "suppressed",
+        &["--warnings", "none", "--warnings-to-errors"],
+    );
+    let suppressed_stderr = String::from_utf8_lossy(&suppressed.stderr);
+    assert!(suppressed.status.success(), "{suppressed_stderr}");
+    assert!(!suppressed_stderr.contains("SingletonOverload"));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn warnings_to_errors_fails_kcompile_on_an_unused_variable() {
     let (root, _) = fixture();
     let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

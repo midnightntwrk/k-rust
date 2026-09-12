@@ -6,7 +6,7 @@ use super::Sentence;
 use crate::definition::{
     LOCATION_ATTRIBUTE, LabelHead, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
     ResolvedDefinition, SOURCE_ATTRIBUTE, SortCatalog, SortHead, StructuralCheckOptions,
-    match_rule_label,
+    compute_disambiguation_subsorts, compute_overloads, match_rule_label,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
@@ -281,6 +281,31 @@ pub fn check_duplicate_overloads(definition: &ResolvedDefinition) -> Vec<Diagnos
         }
     }
     diagnostics
+}
+
+/// Warn when an explicit overload annotation has no peer in the rule-disambiguation grammar.
+pub fn check_singleton_overloads(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
+    let sentences = definition.sentences(definition.main_module_id());
+    let Ok(subsorts) = compute_disambiguation_subsorts(&sentences) else {
+        return Vec::new();
+    };
+    let Ok(overloads) = compute_overloads(sentences, &subsorts) else {
+        return Vec::new();
+    };
+    overloads
+        .productions()
+        .filter_map(|(id, production)| {
+            (production.attributes().get("overload").is_some()
+                && !overloads.order().contains(&id))
+            .then(|| {
+                Diagnostic::warning(
+                    DiagnosticCode::SingletonOverload,
+                    "Production has an `overload(_)` attribute but is not an overload of any other production.",
+                    production,
+                )
+            })
+        })
+        .collect()
 }
 
 fn cell_collection_production(

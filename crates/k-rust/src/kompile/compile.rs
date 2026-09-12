@@ -9,7 +9,8 @@ use std::{
 use crate::{
     definition::{
         CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence, StructuralCheckBackend,
-        StructuralCheckOptions, checks::check_definition_with_options,
+        StructuralCheckOptions,
+        checks::{check_definition_with_options, check_singleton_overloads},
         expand_configurations_with_diagnostics,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
@@ -239,6 +240,21 @@ pub fn compile_loaded_definition(
         "resolve transformed definition",
         ResolvedDefinition::resolve(&definition),
     )?;
+    diagnostics.extend(
+        options
+            .diagnostics
+            .apply(check_singleton_overloads(&resolved)),
+    );
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        return Err(CompileError::from_diagnostics(
+            "post-compilation checks",
+            "post-compilation checks failed",
+            diagnostics,
+        ));
+    }
     let configuration_variables = stage(
         "collect configuration variables",
         configuration_variables(&resolved),
