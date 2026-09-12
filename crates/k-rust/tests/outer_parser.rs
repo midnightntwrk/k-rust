@@ -1124,6 +1124,75 @@ fn comments_and_escaped_literals_are_lexed_without_losing_spans() {
 }
 
 #[test]
+fn comments_can_touch_default_and_module_name_tokens() {
+    let source = concat!(
+        "module/* before module name */MAIN/* after module name */\n",
+        "  imports/* before import name */LIB/* after import name */\n",
+        "  syntax/* before named sort */child/* before colon */:/* before sort */Child",
+        "/* after sort */ ::= field/* before field colon */:/* before field sort */Child\n",
+        "  syntax/* before line sort */Line// after line sort\n",
+        "endmodule\n",
+    );
+    let parsed = parse("adjacent-comments.k", source).unwrap();
+
+    let module = &parsed.modules[0];
+    assert_eq!(module.name, "MAIN");
+    assert_eq!(module.imports[0].module, "LIB");
+    let [Sentence::Syntax(named), Sentence::Syntax(line)] = module.sentences.as_slice() else {
+        panic!("expected two syntax declarations")
+    };
+    assert_eq!(named.name.as_deref(), Some("child"));
+    assert_eq!(named.sort.name, "Child");
+    let k_rust::outer::SyntaxBody::Productions(blocks) = &named.body else {
+        panic!("expected a production declaration")
+    };
+    let [k_rust::outer::ProductionItem::NonTerminal { name, sort }] =
+        blocks[0].productions[0].items.as_slice()
+    else {
+        panic!("expected one named nonterminal")
+    };
+    assert_eq!(name.as_deref(), Some("field"));
+    assert_eq!(sort.name, "Child");
+    assert_eq!(line.sort.name, "Line");
+
+    assert_eq!(module.span.start.offset, source.find("module").unwrap());
+    assert_eq!(
+        module.imports[0].span.end.offset,
+        source.find("/* after import name */").unwrap()
+    );
+    assert_eq!(
+        named.span.start.offset,
+        source.find("syntax/* before named sort */").unwrap()
+    );
+    assert_eq!(
+        named.span.end.offset,
+        source.find("\n  syntax/* before line sort */Line").unwrap()
+    );
+}
+
+#[test]
+fn line_comments_follow_outer_jj_terminators() {
+    for terminator in ["\r", "\r\n", "\n"] {
+        let source =
+            format!("module MAIN imports LIB// import comment{terminator} syntax Foo endmodule");
+        let parsed = parse("line-comment.k", &source).unwrap();
+        assert_eq!(parsed.modules[0].imports[0].module, "LIB");
+        let [Sentence::Syntax(syntax)] = parsed.modules[0].sentences.as_slice() else {
+            panic!("expected one syntax declaration")
+        };
+        assert_eq!(syntax.sort.name, "Foo");
+    }
+
+    assert!(
+        parse(
+            "unterminated-line-comment.k",
+            "module MAIN endmodule// unterminated"
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn pinned_outer_corpus_families_parse_and_lower() {
     let source = include_str!("fixtures/outer/record-and-list.k");
     let parsed = parse("record-and-list.k", source).unwrap();

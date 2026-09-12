@@ -775,22 +775,19 @@ impl<'a> Parser<'a> {
     }
 
     fn at_default_sentence_boundary(&self) -> bool {
-        let end = self.offset + self.run_len(self.offset);
-        if end == self.offset {
-            return false;
-        }
-        matches!(
-            &self.input[self.offset..end],
-            "syntax"
-                | "endmodule"
-                | "rule"
-                | "claim"
-                | "configuration"
-                | "context"
-                | "imports"
-                | "module"
-                | "requires"
-        )
+        [
+            "syntax",
+            "endmodule",
+            "rule",
+            "claim",
+            "configuration",
+            "context",
+            "imports",
+            "module",
+            "requires",
+        ]
+        .into_iter()
+        .any(|word| self.word_at(self.offset, word))
     }
 
     fn consume_associativity(&mut self) -> Option<Associativity> {
@@ -852,8 +849,8 @@ impl<'a> Parser<'a> {
     fn unrestricted_word(&mut self) -> Result<String, ParseError> {
         self.skip_trivia()?;
         let start = self.offset;
-        while let Some(ch) = self.peek_char() {
-            if ch.is_whitespace() || "{}()[],|>=:\"".contains(ch) {
+        while self.peek_char().is_some() {
+            if self.at_word_boundary(self.offset) {
                 break;
             }
             self.bump();
@@ -908,11 +905,17 @@ impl<'a> Parser<'a> {
     }
 
     fn word_at(&self, offset: usize, word: &str) -> bool {
-        self.input[offset..self.end].starts_with(word)
-            && self.input[offset + word.len()..self.end]
+        self.input[offset..self.end].starts_with(word) && self.at_word_boundary(offset + word.len())
+    }
+
+    fn at_word_boundary(&self, offset: usize) -> bool {
+        let remaining = &self.input[offset..self.end];
+        remaining.is_empty()
+            || self.comment_len(offset) > 0
+            || remaining
                 .chars()
                 .next()
-                .is_none_or(|ch| ch.is_whitespace() || "{}()[],|>=:\"".contains(ch))
+                .is_some_and(|ch| ch.is_whitespace() || "{}()[],|>=:\"".contains(ch))
     }
 
     fn expect_char(&mut self, ch: char) -> Result<(), ParseError> {
@@ -948,21 +951,11 @@ impl<'a> Parser<'a> {
             while self.peek_char().is_some_and(char::is_whitespace) {
                 self.bump();
             }
-            if self.starts_with("//") {
-                while let Some(ch) = self.bump() {
-                    if ch == '\n' {
-                        break;
-                    }
-                }
+            let comment_len = self.comment_len(self.offset);
+            if comment_len > 0 {
+                self.offset += comment_len;
             } else if self.starts_with("/*") {
-                self.offset += 2;
-                while !self.done() && !self.starts_with("*/") {
-                    self.bump();
-                }
-                if self.done() {
-                    return Err(self.error("unterminated block comment"));
-                }
-                self.offset += 2;
+                return Err(self.error("unterminated block comment"));
             } else {
                 return Ok(());
             }
