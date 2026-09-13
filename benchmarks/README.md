@@ -69,6 +69,19 @@ case retains its full sample distribution in `results.json`. Keep the generated 
 beside it: timings without revisions, hardware, and runtime settings are not meaningful
 comparisons.
 
+## Finding local benchmark results
+
+Benchmark result sets are intentionally machine-local generated artifacts rather than tracked
+source. Inspect `target/benchmarks/README.md` first when it exists: it identifies the baseline that
+the current workspace considers most relevant. Otherwise, enumerate
+`target/benchmarks/results/*/REPORT.md` for curated reports and
+`target/benchmarks/results/*/summary.md` for harness-generated tables. Each case directory retains
+the exact commands, metadata, preflight logs, and raw Hyperfine JSON needed to interpret or compare
+the measurement.
+
+The repository ignores the entire `target/` tree, and `cargo clean` removes it. A benchmark result
+that must survive workspace cleanup must be copied to durable storage or committed separately.
+
 Defaults deliberately reflect the cost of the workloads: IMP compile/spec-compile uses three runs,
 IMP loads and proofs use five, KEVM compile/spec-compile uses one run, and KEVM proofs and loads use three. Loads and proofs
 get one warmup; compilation gets none. Override these counts for publication-quality runs,
