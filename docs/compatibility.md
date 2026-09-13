@@ -136,6 +136,8 @@ Normalization identifiers such as N3 are durable names defined in that register,
 
 N3 permits only the counted multi-alias freezer family exclusion.
 K's generated suffix assignment depends on unordered Scala context iteration, including `Source` and `Location` attributes; Rust retains deterministic declaration order.
+The frontend orders catalogs, emitted sentences, and checks by dependency-first declaration order; no Scala `Ordering` is reproduced.
+Sentence identity for deduplication (`sentence_equivalent`) keeps K's `Sentence` equality.
 Single-alias identities remain compared.
 N23 applies the same limited policy to generated lambda families: `kernel/src/main/java/org/kframework/compile/ResolveFun.java` assigns suffixes in `localSentences` iteration order, whose sentence hashes include the source path.
 The pinned `issue-1528`, `let-test` and `record-llvm` cases exhibit different suffix assignments from different checkout paths.
