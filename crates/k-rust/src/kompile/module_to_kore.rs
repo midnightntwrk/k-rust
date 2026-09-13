@@ -2671,7 +2671,6 @@ fn emit_owise_equation(
         let Sentence::Rule {
             body,
             requires: competitor_requires,
-            ensures: competitor_ensures,
             ..
         } = injected
         else {
@@ -2691,23 +2690,16 @@ fn emit_owise_equation(
             continue;
         }
 
-        let mut renames = BTreeMap::new();
-        // Java refreshes the complete rule before filtering ignored competitors, so unused
-        // RHS and condition variables still consume names from the shared `_GenN` counter.
-        let refreshed_body = refresh_variables(body, &mut fresh, &mut renames);
-        let refreshed_requires = refresh_variables(competitor_requires, &mut fresh, &mut renames);
-        let _refreshed_ensures = refresh_variables(competitor_ensures, &mut fresh, &mut renames);
         if ignore_owise_competitor(sentence) {
             continue;
         }
-        let refreshed_left = match refreshed_body.unannotated() {
-            Term::Rewrite { left, .. } => left.as_ref(),
-            _ => &refreshed_body,
-        };
+        let mut renames = BTreeMap::new();
+        let refreshed_left = refresh_variables(competitor_left, &mut fresh, &mut renames);
+        let refreshed_requires = refresh_variables(competitor_requires, &mut fresh, &mut renames);
         let Term::Apply {
             arguments: competitor_children,
             ..
-        } = peel_alias(refreshed_left).unannotated()
+        } = peel_alias(&refreshed_left).unannotated()
         else {
             return Err(ModuleToKoreError::UnsupportedRuleKind {
                 kind: "non-application function competitor for owise".into(),
@@ -2725,7 +2717,7 @@ fn emit_owise_equation(
             sort: predicate_sort.clone(),
             arguments: vec![condition, matches],
         };
-        let mut quantified = variable_terms([refreshed_left, &refreshed_requires])
+        let mut quantified = variable_terms([&refreshed_left, &refreshed_requires])
             .into_values()
             .collect::<Vec<_>>();
         quantified.sort_by(|left, right| {

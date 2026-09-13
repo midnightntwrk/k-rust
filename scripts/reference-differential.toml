@@ -264,6 +264,22 @@ comparisons = [
   "parsed-definition",
 ]
 
+# Ignored competitors (simplification, non-executable, the owise rule itself) precede the emitted
+# ones, so the generated owise competitor variables are numbered with gaps by the reference and
+# densely by the port; N4 renames both sides by first occurrence.
+[[compile]]
+name = "owise-ignored-competitors"
+requires = ["reference-toolchain"]
+constructs = ["owise", "multiple-competitors"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/owise-ignored-competitors.k"
+main-module = "OWISE-IGNORED-COMPETITORS"
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
+
 [[compile]]
 name = "owise"
 requires = ["reference-toolchain"]
