@@ -3,6 +3,8 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
     Sentence, SortCatalog,
@@ -166,6 +168,7 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
             if !is_rule_sentence_type(sentence_type) {
                 continue;
             }
+            measure::bump(Counter::KompileRuleBubblesParsed);
             *sentence = parse_rule_like_sentence(
                 &grammar,
                 &module.name,

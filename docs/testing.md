@@ -128,3 +128,21 @@ A contributor must be able to understand an expectation without private review n
 Keep upstream issue numbers and repository-defined normalization identifiers when they provide traceable evidence.
 Record lasting contracts and exception rationales in tracked documentation or fixture metadata; keep work assignment, completion history, and temporary investigation narratives in development history.
 A provenance record may identify a historical tool invocation, but local paths must not serve as the only explanation or as required inputs to a permanent check.
+
+## Measurement
+
+`k_rust_kore::measure` holds forty named work counters (`Counter::ALL`) that the compiler, the parser, and the backend increment at the loops whose cost they measure.
+Without the `measure` Cargo feature the increments compile to nothing and `krust` behaves exactly as before; the shipped binary is feature-off.
+Test builds enable the feature through each crate's dev-dependencies, so `cargo test --workspace` runs the counter ratchets (`crates/k-rust/tests/measure_ratchet.rs`, `crates/k-rust-backend/tests/measure_ratchet.rs`) without a CI change.
+
+To read the counters from a run, build with the feature and name the output file:
+
+```sh
+cargo build --release -p k-rust --bin krust --features measure
+KRUST_COUNTERS=counters.json target/release/krust kcompile examples/rewrite.k --main-module REWRITE --output-directory out
+```
+
+The file is one JSON document, `{"format": "krust-counters", "version": 1, "counters": {...}}`, with every counter in `Counter::ALL` order and zeros included, written at process exit on success and on failure.
+The counters are thread-local and the one-shot subcommands do their work on the main thread; `krust kore-rpc` answers requests on connection threads, so its dump shows zeros for the backend families.
+A ratchet asserts a bound on a checked-in input and a growth shape on a parameterised one; a bound that trips after a deliberate algorithm change is re-pinned in a commit that states the new measured value and why it moved.
+Renaming or removing a counter changes the dump schema and bumps `version`.

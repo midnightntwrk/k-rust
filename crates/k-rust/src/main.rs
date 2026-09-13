@@ -90,12 +90,42 @@ use serde::{Deserialize, Serialize};
 mod rpc;
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let outcome = run(Cli::parse());
+    #[cfg(feature = "measure")]
+    write_counters_if_requested();
+    match outcome {
         Ok(exit_code) => exit_code,
         Err(error) => {
             eprintln!("error: {error}");
             ExitCode::from(1)
         }
+    }
+}
+
+/// Write the main thread's `k_rust_kore::measure` counters to the file named by
+/// `KRUST_COUNTERS`, on success and on failure alike. Only `measure` builds read the variable;
+/// a write failure is reported on stderr and never changes the exit code. The document is
+/// written by hand so the keys keep `Counter::ALL` order, which `serde_json` maps do not.
+#[cfg(feature = "measure")]
+fn write_counters_if_requested() {
+    let Some(path) = env::var_os("KRUST_COUNTERS") else {
+        return;
+    };
+    let mut text = String::from(
+        "{\n  \"format\": \"krust-counters\",\n  \"version\": 1,\n  \"counters\": {\n",
+    );
+    let snapshot = k_rust_kore::measure::snapshot();
+    let mut counters = snapshot.iter().peekable();
+    while let Some((name, value)) = counters.next() {
+        let separator = if counters.peek().is_some() { "," } else { "" };
+        text.push_str(&format!("    \"{name}\": {value}{separator}\n"));
+    }
+    text.push_str("  }\n}\n");
+    if let Err(error) = fs::write(&path, text) {
+        eprintln!(
+            "warning: could not write counters to {}: {error}",
+            path.to_string_lossy()
+        );
     }
 }
 

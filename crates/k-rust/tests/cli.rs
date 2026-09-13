@@ -5787,3 +5787,86 @@ endmodule
     assert_eq!(names.last(), Some(&"print macros.kore"), "{names:?}");
     fs::remove_dir_all(root).unwrap();
 }
+
+fn rewrite_example() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/rewrite.k")
+}
+
+fn kcompile_rewrite_example(root: &Path, counters: Option<&Path>) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command
+        .arg("kcompile")
+        .arg(rewrite_example())
+        .args(["--main-module", "REWRITE", "--output-directory"])
+        .arg(root.join("compiled"))
+        .env_remove("KRUST_COUNTERS");
+    if let Some(counters) = counters {
+        command.env("KRUST_COUNTERS", counters);
+    }
+    command.output().unwrap()
+}
+
+// Test builds enable the `measure` feature through the crate's own dev-dependency, so the dump is
+// available here; a feature-off `krust` never reads `KRUST_COUNTERS`.
+#[test]
+fn krust_counters_writes_every_counter_in_schema_order_on_success_and_failure() {
+    let (root, _) = fixture();
+    let counters = root.join("counters.json");
+    let output = kcompile_rewrite_example(&root, Some(&counters));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = fs::read_to_string(&counters).unwrap();
+    let document: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(document["format"], "krust-counters");
+    assert_eq!(document["version"], 1);
+    let written = document["counters"].as_object().unwrap();
+    let expected = k_rust_kore::measure::Counter::ALL.map(k_rust_kore::measure::Counter::name);
+    assert_eq!(written.len(), expected.len());
+    // Keys appear in `Counter::ALL` order so that diffs between runs are line-stable.
+    let positions = expected
+        .iter()
+        .map(|name| text.find(&format!("\"{name}\":")).unwrap())
+        .collect::<Vec<_>>();
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(written["kompile.resolve_calls"].as_u64().unwrap() > 0);
+    // The prelude modules reachable from REWRITE carry rule bubbles too.
+    assert!(written["kompile.rule_bubbles_parsed"].as_u64().unwrap() > 0);
+    assert!(written["parser.parse_attempts"].as_u64().unwrap() > 0);
+    assert_eq!(written["rewrite.steps"], 0);
+
+    let failed_counters = root.join("failed-counters.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(root.join("missing.k"))
+        .args(["--main-module", "REWRITE", "--output-directory"])
+        .arg(root.join("failed"))
+        .env("KRUST_COUNTERS", &failed_counters)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let document: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&failed_counters).unwrap()).unwrap();
+    assert_eq!(document["counters"].as_object().unwrap().len(), 40);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kcompile_writes_no_counter_file_without_krust_counters() {
+    let (root, _) = fixture();
+    let output = kcompile_rewrite_example(&root, None);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut entries = fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, ["base.k", "compiled", "definition.k"]);
+    fs::remove_dir_all(root).unwrap();
+}

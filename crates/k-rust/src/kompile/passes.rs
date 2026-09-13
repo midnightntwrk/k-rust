@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::{
     definition::{
         Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence, sentence_equivalent,
@@ -89,6 +91,7 @@ fn rebase_local_metadata_by(
     mut after: Definition,
     production_matches: impl Fn(&Sentence, &Sentence) -> bool,
 ) -> Result<Definition, String> {
+    measure::bump(Counter::KompileRebaseCalls);
     let before = ResolvedDefinition::resolve(before).map_err(|error| error.to_string())?;
     let after_resolved = ResolvedDefinition::resolve(&after).map_err(|error| error.to_string())?;
     for module in &mut after.modules {

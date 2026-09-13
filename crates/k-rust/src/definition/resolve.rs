@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use k_rust_kore::measure::{self, Counter};
 use petgraph::Direction::Outgoing;
 use petgraph::algo::toposort;
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -204,6 +205,7 @@ impl fmt::Debug for ResolvedDefinition {
 
 impl ResolvedDefinition {
     pub fn resolve(definition: &Definition) -> Result<Self, Error> {
+        measure::bump(Counter::KompileResolveCalls);
         let mut modules = definition.modules.iter().collect::<Vec<_>>();
         modules.sort_by(|left, right| left.name.cmp(&right.name));
 
