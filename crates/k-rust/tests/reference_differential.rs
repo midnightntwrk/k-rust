@@ -1118,8 +1118,26 @@ fn executed_kore_matches_the_reference_backend() {
     let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
     let definition = definition.as_deref().map(Path::new);
-    let result = match env::var("K_DIFFERENTIAL_ORACLE_EXCLUSION").as_deref() {
-        Ok("gotstuck") => {
+    // N26: an any-strategy port result is compared as a member of the reference all-strategy
+    // result set; the exclusions are about reference leaves, which membership already tolerates.
+    let strategy = env::var("K_DIFFERENTIAL_STRATEGY");
+    let exclusion = env::var("K_DIFFERENTIAL_ORACLE_EXCLUSION");
+    let result = match (strategy.as_deref(), exclusion.as_deref()) {
+        (Ok("any"), Ok(_)) => Err(
+            "K_DIFFERENTIAL_STRATEGY=any cannot be combined with K_DIFFERENTIAL_ORACLE_EXCLUSION"
+                .into(),
+        ),
+        (Ok("any"), Err(_)) => compare_execution_any_membership(
+            &reference, &actual, definition, &module,
+        )
+        .map(|unpaired| {
+            let total = execution_disjuncts(&reference).len();
+            println!(
+                "any-strategy: {} of {total} reference leaves reached",
+                total - unpaired
+            );
+        }),
+        (Ok("all") | Err(_), Ok("gotstuck")) => {
             let stop_path = env::var("K_DIFFERENTIAL_STOP_LEAVES")
                 .expect("K_DIFFERENTIAL_STOP_LEAVES is required for the gotstuck exclusion");
             let stop_source = fs::read_to_string(stop_path).unwrap();
@@ -1132,8 +1150,13 @@ fn executed_kore_matches_the_reference_backend() {
                 &module,
             )
         }
-        Ok(exclusion) => Err(format!("unknown oracle exclusion: {exclusion}")),
-        Err(_) => compare_execution_modulo_implication(&reference, &actual, definition, &module),
+        (Ok("all") | Err(_), Ok(exclusion)) => {
+            Err(format!("unknown oracle exclusion: {exclusion}"))
+        }
+        (Ok("all") | Err(_), Err(_)) => {
+            compare_execution_modulo_implication(&reference, &actual, definition, &module)
+        }
+        (Ok(strategy), _) => Err(format!("unknown differential strategy: {strategy}")),
     };
     result.unwrap_or_else(|error| panic!("{error}"));
 }
@@ -1403,6 +1426,75 @@ fn execution_comparator_allows_only_marked_gotstuck_stop_leaves() {
     let error = compare_execution_modulo_gotstuck(&reference, &actual, &wrong_stop, None, "TEST")
         .expect_err("an unmarked actual leaf must still fail");
     assert!(error.contains("unpaired disjunct"), "{error}");
+}
+
+#[test]
+fn execution_comparator_accepts_an_any_result_that_is_a_member_of_the_all_set() {
+    // N26: a concrete any-strategy run reaches one leaf of the all-strategy set.
+    let reference = normalize_execution_pattern(
+        parse_pattern(r"\or{S{}}(\and{S{}}(a{}(), \top{S{}}()), b{}())").unwrap(),
+    );
+    for member in [r"\and{S{}}(a{}(), \top{S{}}())", "b{}()"] {
+        let actual = normalize_execution_pattern(parse_pattern(member).unwrap());
+        assert_eq!(
+            compare_execution_any_membership(&reference, &actual, None, "TEST"),
+            Ok(1),
+            "{member} is a member of the reference set"
+        );
+    }
+    // A symbolic any-strategy run may reach several leaves; the whole set is a member of itself.
+    assert_eq!(
+        compare_execution_any_membership(&reference, &reference, None, "TEST"),
+        Ok(0)
+    );
+}
+
+#[test]
+fn execution_comparator_rejects_an_any_result_outside_the_all_set() {
+    let reference = normalize_execution_pattern(parse_pattern(r"\or{S{}}(a{}(), b{}())").unwrap());
+    let other_term = normalize_execution_pattern(parse_pattern("c{}()").unwrap());
+    let error = compare_execution_any_membership(&reference, &other_term, None, "TEST")
+        .expect_err("a leaf outside the reference set cannot be paired");
+    assert!(error.contains("unpaired port disjunct: c{}()"), "{error}");
+
+    let reference =
+        normalize_execution_pattern(parse_pattern(r"\and{S{}}(a{}(), \top{S{}}())").unwrap());
+    let other_constraints =
+        normalize_execution_pattern(parse_pattern(r"\and{S{}}(a{}(), \bottom{S{}}())").unwrap());
+    let error = compare_execution_any_membership(&reference, &other_constraints, None, "TEST")
+        .expect_err("different constraints need an implication definition");
+    assert!(error.contains("constraints differ"), "{error}");
+}
+
+#[test]
+fn execution_comparator_rejects_an_empty_any_result() {
+    let reference = normalize_execution_pattern(parse_pattern(r"\or{S{}}(a{}(), b{}())").unwrap());
+    let Pattern::Or { sort, .. } = &reference else {
+        panic!("normalized disjunction");
+    };
+    let empty = Pattern::Or {
+        sort: sort.clone(),
+        arguments: Vec::new(),
+    };
+    assert!(is_empty_disjunction(&empty));
+    let error = compare_execution_any_membership(&reference, &empty, None, "TEST")
+        .expect_err("an any-strategy run must reach a leaf");
+    assert!(error.contains("empty"), "{error}");
+}
+
+#[test]
+fn execution_comparator_keeps_any_multiplicity() {
+    let reference = normalize_execution_pattern(parse_pattern(r"\or{S{}}(a{}(), b{}())").unwrap());
+    let duplicated = normalize_execution_pattern(parse_pattern(r"\or{S{}}(a{}(), a{}())").unwrap());
+    let error = compare_execution_any_membership(&reference, &duplicated, None, "TEST")
+        .expect_err("a duplicated port leaf needs a second reference copy");
+    assert!(error.contains("unpaired port disjunct: a{}()"), "{error}");
+
+    let reference = normalize_execution_pattern(parse_pattern(r"\or{S{}}(a{}(), a{}())").unwrap());
+    assert_eq!(
+        compare_execution_any_membership(&reference, &duplicated, None, "TEST"),
+        Ok(0)
+    );
 }
 
 #[test]
@@ -2534,29 +2626,13 @@ fn compare_execution_disjuncts(
 
     let reference_disjuncts = execution_disjuncts(reference);
     let actual_disjuncts = execution_disjuncts(actual);
-    let mut paired_actual = vec![false; actual_disjuncts.len()];
-    for reference_disjunct in reference_disjuncts {
-        let (reference_term, mut reference_constraints) = split_constrained(reference_disjunct);
-        let Some((actual_index, actual_disjunct)) =
-            actual_disjuncts
-                .iter()
-                .enumerate()
-                .find(|(index, actual_disjunct)| {
-                    !paired_actual[*index] && split_constrained(actual_disjunct).0 == reference_term
-                })
-        else {
-            return Err(format!("unpaired disjunct: {reference_term}"));
-        };
-        paired_actual[actual_index] = true;
-        reference_constraints.sort();
-        compare_paired_constraints(
-            reference_disjunct,
-            &reference_constraints,
-            actual_disjunct,
-            definition,
-            module,
-        )?;
-    }
+    let paired_actual = pair_disjuncts(
+        &reference_disjuncts,
+        &actual_disjuncts,
+        PairingDriver::Reference,
+        definition,
+        module,
+    )?;
     let unpaired_actual = paired_actual
         .iter()
         .enumerate()
@@ -2588,6 +2664,81 @@ fn compare_execution_disjuncts(
         return Err(format!("unpaired disjunct: {term}"));
     }
     Ok(())
+}
+
+/// N26: every port disjunct pairs with a distinct reference disjunct (term equal, constraints
+/// equal under N4/N15); reference disjuncts may stay unpaired. Used for any-strategy runs, whose
+/// result is one member (a concrete run) or a sub-multiset (a symbolic run, where successive
+/// remainders can apply further rules) of the reference all-strategy result set. Returns the
+/// number of reference disjuncts left unpaired.
+fn compare_execution_any_membership(
+    reference: &Pattern,
+    actual: &Pattern,
+    definition: Option<&Path>,
+    module: &str,
+) -> Result<usize, String> {
+    let reference_disjuncts = execution_disjuncts(reference);
+    let actual_disjuncts = execution_disjuncts(actual);
+    if actual_disjuncts.is_empty() {
+        return Err("any-strategy result is empty".into());
+    }
+    let paired_reference = pair_disjuncts(
+        &actual_disjuncts,
+        &reference_disjuncts,
+        PairingDriver::Actual,
+        definition,
+        module,
+    )?;
+    Ok(paired_reference.iter().filter(|paired| !**paired).count())
+}
+
+/// Which side drives a pairing: every driving disjunct needs a partner in the other side's pool.
+#[derive(Clone, Copy)]
+enum PairingDriver {
+    Reference,
+    Actual,
+}
+
+/// Pair every driving disjunct with a distinct pool disjunct whose term is equal and whose
+/// constraints compare equal under `compare_paired_constraints` (N4, N15), in driving order,
+/// taking the first unpaired pool candidate. Returns which pool disjuncts were paired; the first
+/// driving disjunct without a partner fails.
+fn pair_disjuncts(
+    driving: &[&Pattern],
+    pool: &[&Pattern],
+    driver: PairingDriver,
+    definition: Option<&Path>,
+    module: &str,
+) -> Result<Vec<bool>, String> {
+    let mut paired = vec![false; pool.len()];
+    for driving_disjunct in driving {
+        let (driving_term, _) = split_constrained(driving_disjunct);
+        let Some((pool_index, pool_disjunct)) =
+            pool.iter().enumerate().find(|(index, pool_disjunct)| {
+                !paired[*index] && split_constrained(pool_disjunct).0 == driving_term
+            })
+        else {
+            return Err(match driver {
+                PairingDriver::Reference => format!("unpaired disjunct: {driving_term}"),
+                PairingDriver::Actual => format!("unpaired port disjunct: {driving_term}"),
+            });
+        };
+        paired[pool_index] = true;
+        let (reference_disjunct, actual_disjunct) = match driver {
+            PairingDriver::Reference => (*driving_disjunct, *pool_disjunct),
+            PairingDriver::Actual => (*pool_disjunct, *driving_disjunct),
+        };
+        let (_, mut reference_constraints) = split_constrained(reference_disjunct);
+        reference_constraints.sort();
+        compare_paired_constraints(
+            reference_disjunct,
+            &reference_constraints,
+            actual_disjunct,
+            definition,
+            module,
+        )?;
+    }
+    Ok(paired)
 }
 
 /// Compare the constraints of two disjuncts whose terms paired.
