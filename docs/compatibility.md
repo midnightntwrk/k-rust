@@ -96,6 +96,7 @@ The older server API document is not authoritative for these measured wire detai
 Execution retains an explicit `aborted` reason for incomplete indeterminate, simplification-error and breadth-bound outcomes because Rust has no fallback engine to hide the failure.
 [RPC tests](../crates/k-rust/src/rpc.rs) cover predicate-free models, batch cancellation, and error classification; [RPC fixtures](../crates/k-rust/tests/fixtures/reference/rpc) preserve shipped-proxy responses.
 An `execute` response lists `next-states` in application order with the remainder last; the order is not part of the contract and the differential gate compares the array as a multiset (N27).
+Backend error `data` is compared by class: code, message, and the `error` sentence; context lines are the port's own diagnostics (N28).
 
 ## Definition verification
 
@@ -140,6 +141,7 @@ N23 applies the same limited policy to generated lambda families: `kernel/src/ma
 The pinned `issue-1528`, `let-test` and `record-llvm` cases exhibit different suffix assignments from different checkout paths.
 The comparator collapses multi-suffix names consistently in declarations and uses, ignores only the affected UNIQUE_ID attributes, compares the remaining sentence multiset, and prints the collapsed axiom count.
 The tradeoff is explicit: a suffix-to-body association is outside this comparison, while signatures and rule bodies remain checked.
+Variable numbering inside a generated owise competitor disjunction is the port's own; N4 renames it on both sides.
 
 A `presentation-only` conformance exclusion requires an explanation of why the represented patterns are equal.
 For example, `no-junk-macro` retains a valid constraint in Kore while Rust discharges it using the definition's own SMT lemma.

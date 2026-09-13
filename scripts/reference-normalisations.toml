@@ -289,3 +289,12 @@ anchor = "scripts/reference-rpc-differential.sh:next-states"
 anchor_symbol = "normalize_rpc_response"
 rule = "Compare the next-states array of an execute response as a multiset: sort both sides by canonical JSON (jq -S, tojson) before diffing; keep length and every element field."
 justification = "Booster lists branches in its internal rule order and the port in its own; the successor set, not its order, is the RPC contract. See docs/compatibility.md#search-results."
+
+[[normalisation]]
+id = "N28"
+gate = "rpc"
+anchor = "scripts/reference-rpc-differential.sh:error-data"
+anchor_symbol = "normalize_rpc_response"
+anchor_helpers = ["normalize_backend_error_class"]
+rule = "For a backend error response (error.code in 1..9), compare code, message, and each detail's error string; reduce every context array to its JSON type and drop term. Responses with a per-response reduction branch keep that stricter branch."
+justification = "The context lines are Kore's error-context stack and Claim.hs diagnostic framing, and the extra simplify detail is Booster's two-interpretation attempt order; pyk joins context into an exception message and no client parses it. The class of a rejection (code, message, error sentence) is the contract, as C3 states for the conformance driver. See docs/compatibility.md#rpc-behavior."
