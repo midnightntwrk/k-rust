@@ -7,6 +7,7 @@ use std::{
 };
 
 use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use rustc_hash::FxHashSet;
 
 use crate::{
@@ -29,7 +30,7 @@ use crate::{
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, substitute},
-    term::{Term, TermKind, VariableKind},
+    term::{Sort, Term, TermKind, VariableKind},
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -1191,7 +1192,7 @@ fn normalize_hooked_boolean_predicate(
             definition,
             Predicate::Equals(
                 term.clone(),
-                Term::domain_value(crate::term::Sort::simple("SortBool"), "true"),
+                Term::domain_value(Sort::builtin(BuiltinSort::Bool), "true"),
             ),
         );
         return match &normalized {
@@ -1225,7 +1226,7 @@ fn normalize_hooked_boolean_predicate(
                 Predicate::Equals(
                     term.clone(),
                     Term::domain_value(
-                        crate::term::Sort::simple("SortBool"),
+                        Sort::builtin(BuiltinSort::Bool),
                         if value { "true" } else { "false" },
                     ),
                 ),
@@ -1292,7 +1293,7 @@ fn normalize_hooked_boolean_predicate(
 }
 
 fn boolean_literal_equality(term: &Term, value: bool) -> Option<Predicate> {
-    if term.sort() != crate::term::Sort::simple("SortBool") || bool_value(term).is_some() {
+    if !term.sort().is_builtin(BuiltinSort::Bool) || bool_value(term).is_some() {
         return None;
     }
     Some(if value {
@@ -1339,7 +1340,7 @@ fn bool_value(term: &Term) -> Option<bool> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    if sort != &crate::term::Sort::simple("SortBool") {
+    if !sort.is_builtin(BuiltinSort::Bool) {
         return None;
     }
     match value.as_ref() {
@@ -1619,8 +1620,8 @@ fn is_scalar_domain_value(term: &Term) -> bool {
     matches!(
         term.kind(),
         TermKind::DomainValue { sort, .. }
-            if sort == &crate::term::Sort::simple("SortInt")
-                || sort == &crate::term::Sort::simple("SortBool")
+            if sort.is_builtin(BuiltinSort::Int)
+                || sort.is_builtin(BuiltinSort::Bool)
     )
 }
 
@@ -2017,16 +2018,16 @@ fn builtin_effect_result(
 ) -> Result<Term, SimplificationError> {
     match effect {
         BuiltinEffect::UserLog(_) => {
-            let Some(dotk) = definition.symbols.get("dotk") else {
+            let Some(dotk) = definition.symbols.get(WellKnownSymbol::DotK.as_str()) else {
                 return Err(SimplificationError::InvalidBuiltinResultSymbol {
                     hook: "IO.logString",
-                    symbol: "dotk",
+                    symbol: WellKnownSymbol::DotK.as_str(),
                 });
             };
             if !dotk.sort_variables.is_empty() || !dotk.argument_sorts.is_empty() {
                 return Err(SimplificationError::InvalidBuiltinResultSymbol {
                     hook: "IO.logString",
-                    symbol: "dotk",
+                    symbol: WellKnownSymbol::DotK.as_str(),
                 });
             }
             let mut dotk = dotk.as_ref().clone();

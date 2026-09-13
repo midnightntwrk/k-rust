@@ -4,10 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use petgraph::{algo::kosaraju_scc, graph::DiGraph};
 
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
+
 use crate::{
     matching::SortGraph,
     rule::Predicate,
-    term::{Sort, Term, TermKind, Variable},
+    term::{Term, TermKind, Variable},
 };
 
 pub type Substitution = BTreeMap<Variable, Term>;
@@ -317,7 +319,7 @@ fn substitution_equality(predicate: &Predicate) -> Option<(Term, Term)> {
         return None;
     };
     let boolean = |term: &Term| match term.kind() {
-        TermKind::DomainValue { sort, value } if sort == &crate::term::Sort::simple("SortBool") => {
+        TermKind::DomainValue { sort, value } if sort.is_builtin(BuiltinSort::Bool) => {
             match value.as_ref() {
                 "true" => Some(true),
                 "false" => Some(false),
@@ -381,17 +383,17 @@ fn strip_kseq(term: &Term) -> Term {
     else {
         return term.clone();
     };
-    if symbol.name.as_ref() != "kseq"
-        || tail_symbol.name.as_ref() != "dotk"
+    if !symbol.is(WellKnownSymbol::KSeq)
+        || !tail_symbol.is(WellKnownSymbol::DotK)
         || !tail_arguments.is_empty()
     {
         return term.clone();
     }
     match first.kind() {
-        TermKind::Injection { target, term, .. } if target == &Sort::simple("SortKItem") => {
+        TermKind::Injection { target, term, .. } if target.is_builtin(BuiltinSort::KItem) => {
             term.clone()
         }
-        _ if first.sort() == Sort::simple("SortKItem") => first.clone(),
+        _ if first.sort().is_builtin(BuiltinSort::KItem) => first.clone(),
         _ => term.clone(),
     }
 }

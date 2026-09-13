@@ -7,6 +7,8 @@ use std::{
 
 use num_bigint::BigInt;
 
+use k_rust_kore::names::BuiltinSort;
+
 use super::{
     BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
     int_term,
@@ -49,9 +51,9 @@ fn k_item_definition() -> Arc<MapDefinition> {
             element: "Lbl'UndsPipe'-'-GT-Unds'".into(),
             concat: "Lbl'Unds'Map'Unds'".into(),
         },
-        key_sort: "SortKItem".into(),
-        value_sort: "SortKItem".into(),
-        map_sort: "SortMap".into(),
+        key_sort: BuiltinSort::KItem.kore_name().into(),
+        value_sort: BuiltinSort::KItem.kore_name().into(),
+        map_sort: BuiltinSort::Map.kore_name().into(),
     })
 }
 

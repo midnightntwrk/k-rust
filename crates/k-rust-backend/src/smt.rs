@@ -5,6 +5,8 @@ use std::{
     fmt,
 };
 
+use k_rust_kore::names::BuiltinSort;
+
 use crate::{
     definition::BackendDefinition,
     rewrite::substitute_predicates,
@@ -183,8 +185,8 @@ impl TranslationState {
     pub fn translate_term(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         match term.kind() {
             TermKind::And(left, right)
-                if left.sort() == Sort::simple("SortBool")
-                    && right.sort() == Sort::simple("SortBool") =>
+                if left.sort().is_builtin(BuiltinSort::Bool)
+                    && right.sort().is_builtin(BuiltinSort::Bool) =>
             {
                 Ok(SExpr::application(
                     "and",
@@ -209,7 +211,7 @@ impl TranslationState {
                 }
             },
             TermKind::DomainValue { sort, value }
-                if sort == &Sort::simple("SortBool") || sort == &Sort::simple("SortInt") =>
+                if sort.is_builtin(BuiltinSort::Bool) || sort.is_builtin(BuiltinSort::Int) =>
             {
                 Ok(SExpr::atom(value.as_ref()))
             }
@@ -456,7 +458,10 @@ impl SmtPrelude {
         let mut declarations = definition
             .sorts
             .iter()
-            .filter(|(name, _)| name.as_ref() != "SortInt" && name.as_ref() != "SortBool")
+            .filter(|(name, _)| {
+                name.as_ref() != BuiltinSort::Int.kore_name()
+                    && name.as_ref() != BuiltinSort::Bool.kore_name()
+            })
             .map(|(name, info)| format!("(declare-sort {} {})", quote(name), info.parameters.len()))
             .collect::<Vec<_>>();
         for symbol in definition.symbols.values() {
@@ -475,7 +480,7 @@ impl SmtPrelude {
             ));
             if collection_size_hook(symbol.attributes.hook.as_deref())
                 && symbol.argument_sorts.len() == 1
-                && symbol.result_sort == Sort::simple("SortInt")
+                && symbol.result_sort.is_builtin(BuiltinSort::Int)
             {
                 declarations.push(format!(
                     "(assert (forall ((KRUST-COLLECTION {})) (>= ({name} KRUST-COLLECTION) 0)))",
@@ -594,7 +599,7 @@ fn collection_size_term(term: &Term) -> bool {
         term.kind(),
         TermKind::Application { symbol, .. }
             if collection_size_hook(symbol.attributes.hook.as_deref())
-                && term.sort() == Sort::simple("SortInt")
+                && term.sort().is_builtin(BuiltinSort::Int)
     )
 }
 
@@ -715,8 +720,8 @@ fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
 fn smt_sort(sort: &Sort) -> Result<String, TranslationError> {
     match sort {
         Sort::Variable(_) => Err(TranslationError::ParametricSort(sort.clone())),
-        Sort::Application { name, .. } if name.as_ref() == "SortInt" => Ok("Int".into()),
-        Sort::Application { name, .. } if name.as_ref() == "SortBool" => Ok("Bool".into()),
+        _ if sort.is_builtin(BuiltinSort::Int) => Ok("Int".into()),
+        _ if sort.is_builtin(BuiltinSort::Bool) => Ok("Bool".into()),
         Sort::Application { name, arguments } if arguments.is_empty() => Ok(quote(name)),
         Sort::Application { name, arguments } => Ok(format!(
             "({} {})",

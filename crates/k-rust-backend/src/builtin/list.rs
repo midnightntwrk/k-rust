@@ -5,6 +5,8 @@ use std::sync::Arc;
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
+use k_rust_kore::names::BuiltinSort;
+
 use super::{
     BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
     int_term, read_int,
@@ -39,8 +41,8 @@ pub(super) fn k_item_definition() -> Arc<ListDefinition> {
             element: "LblListItem".into(),
             concat: "Lbl'Unds'List'Unds'".into(),
         },
-        element_sort: "SortKItem".into(),
-        list_sort: "SortList".into(),
+        element_sort: BuiltinSort::KItem.kore_name().into(),
+        list_sort: BuiltinSort::List.kore_name().into(),
     })
 }
 
@@ -138,7 +140,7 @@ fn get(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::Bottom);
     }
     let Some(index_value) = read_int(index) else {
-        expect_sort("LIST.get", index, &Sort::simple("SortInt"))?;
+        expect_sort("LIST.get", index, &Sort::builtin(BuiltinSort::Int))?;
         return Ok(BuiltinResult::NotApplicable);
     };
     if index_value.sign() != Sign::Minus {
@@ -205,7 +207,7 @@ fn make(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         unreachable!()
     };
     let Some(length) = read_int(length) else {
-        expect_sort("LIST.make", length, &Sort::simple("SortInt"))?;
+        expect_sort("LIST.make", length, &Sort::builtin(BuiltinSort::Int))?;
         return Ok(BuiltinResult::NotApplicable);
     };
     if length.sign() == Sign::Minus {
@@ -239,11 +241,11 @@ fn range(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(front) = read_int(from_front) else {
-        expect_sort("LIST.range", from_front, &Sort::simple("SortInt"))?;
+        expect_sort("LIST.range", from_front, &Sort::builtin(BuiltinSort::Int))?;
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(back) = read_int(from_back) else {
-        expect_sort("LIST.range", from_back, &Sort::simple("SortInt"))?;
+        expect_sort("LIST.range", from_back, &Sort::builtin(BuiltinSort::Int))?;
         return Ok(BuiltinResult::NotApplicable);
     };
     if front.sign() == Sign::Minus || back.sign() == Sign::Minus {
@@ -315,7 +317,7 @@ fn update(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some(index) = read_int(index) else {
-        expect_sort("LIST.update", index, &Sort::simple("SortInt"))?;
+        expect_sort("LIST.update", index, &Sort::builtin(BuiltinSort::Int))?;
         return Ok(BuiltinResult::NotApplicable);
     };
     if index.sign() == Sign::Minus {
@@ -368,7 +370,7 @@ fn update_all(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::NotApplicable);
     }
     let Some(index) = read_int(index) else {
-        expect_sort("LIST.updateAll", index, &Sort::simple("SortInt"))?;
+        expect_sort("LIST.updateAll", index, &Sort::builtin(BuiltinSort::Int))?;
         return Ok(BuiltinResult::NotApplicable);
     };
     if index.sign() == Sign::Minus {

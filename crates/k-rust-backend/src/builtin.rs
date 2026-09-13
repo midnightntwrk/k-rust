@@ -14,6 +14,8 @@ mod set;
 mod string;
 mod substitution;
 
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
+
 use crate::{
     definition::BackendDefinition,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
@@ -251,7 +253,7 @@ fn io_log_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if sort != &Sort::simple("SortString") {
+    if !sort.is_builtin(BuiltinSort::String) {
         return Ok(BuiltinResult::NotApplicable);
     }
     Ok(BuiltinResult::Effect(BuiltinEffect::UserLog(
@@ -574,7 +576,7 @@ fn kequal_ite(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     let [condition, then_value, else_value] = arguments else {
         unreachable!()
     };
-    expect_sort("KEQUAL.ite", condition, &Sort::simple("SortBool"))?;
+    expect_sort("KEQUAL.ite", condition, &Sort::builtin(BuiltinSort::Bool))?;
     if then_value.sort() != else_value.sort() {
         return Err(BuiltinError::AlternativeSortsDiffer {
             then_sort: then_value.sort(),
@@ -701,8 +703,8 @@ fn k_sequence_injection(term: &Term) -> Option<&Term> {
     else {
         return None;
     };
-    (symbol.name.as_ref() == "kseq"
-        && tail_symbol.name.as_ref() == "dotk"
+    (symbol.is(WellKnownSymbol::KSeq)
+        && tail_symbol.is(WellKnownSymbol::DotK)
         && tail_arguments.is_empty())
     .then_some(first)
 }
@@ -711,7 +713,7 @@ fn read_bool(term: &Term) -> Option<bool> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    if sort != &Sort::simple("SortBool") {
+    if !sort.is_builtin(BuiltinSort::Bool) {
         return None;
     }
     match value.as_ref() {
@@ -725,20 +727,20 @@ pub(super) fn read_int(term: &Term) -> Option<BigInt> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    (sort == &Sort::simple("SortInt"))
+    sort.is_builtin(BuiltinSort::Int)
         .then(|| value.parse().ok())
         .flatten()
 }
 
 pub(super) fn bool_term(value: bool) -> Term {
     Term::domain_value(
-        Sort::simple("SortBool"),
+        Sort::builtin(BuiltinSort::Bool),
         if value { "true" } else { "false" },
     )
 }
 
 pub(super) fn int_term(value: BigInt) -> Term {
-    Term::domain_value(Sort::simple("SortInt"), value.to_string())
+    Term::domain_value(Sort::builtin(BuiltinSort::Int), value.to_string())
 }
 
 pub(super) fn expect_arity(

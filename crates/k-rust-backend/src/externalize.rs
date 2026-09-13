@@ -1,6 +1,7 @@
 //! Conversion of internal backend terms and constrained patterns back to KORE.
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
     definition::BackendDefinition,
@@ -37,7 +38,7 @@ pub fn term(term: &Term) -> kore::Pattern {
             target,
             term,
         } => application(
-            "inj",
+            WellKnownSymbol::Inj.as_str(),
             vec![sort(source), sort(target)],
             vec![self::term(term)],
         ),
@@ -165,7 +166,7 @@ pub fn booster_predicate_pattern(
 /// not mistaken for semantic equality during simplification.
 pub fn booster_rule_predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
     predicate_pattern(
-        &logical_rule_predicate(&Sort::simple("SortBool"), predicate),
+        &logical_rule_predicate(&Sort::builtin(BuiltinSort::Bool), predicate),
         result_sort,
     )
 }
@@ -544,7 +545,7 @@ fn boolean_domain_value_of_sort(boolean_sort: &Sort, term: &Term) -> Option<bool
 }
 
 fn boolean_domain_value(term: &Term) -> Option<bool> {
-    boolean_domain_value_of_sort(&Sort::simple("SortBool"), term)
+    boolean_domain_value_of_sort(&Sort::builtin(BuiltinSort::Bool), term)
 }
 
 pub fn sort(value: &Sort) -> kore::Sort {

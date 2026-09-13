@@ -6,12 +6,13 @@ use k_rust_kore::kore::{
     ast as kore,
     binary::{self as wire, BinaryError},
 };
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
     definition::{BackendDefinition, DefinitionError},
     rewrite::Pattern,
     rule::Predicate,
-    term::{Sort, Term, TermKind},
+    term::{Term, TermKind},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -106,7 +107,7 @@ fn is_true_bool(term: &Term) -> bool {
     matches!(
         term.kind(),
         TermKind::DomainValue { sort, value }
-            if sort == &Sort::simple("SortBool") && value.as_ref() == "true"
+            if sort.is_builtin(BuiltinSort::Bool) && value.as_ref() == "true"
     )
 }
 
@@ -116,7 +117,7 @@ fn strip_raw_term(syntax: kore::Pattern) -> kore::Pattern {
     let kore::Pattern::Application { symbol, arguments } = &syntax else {
         return syntax;
     };
-    if symbol.name != "rawTerm" || !symbol.sort_parameters.is_empty() {
+    if !symbol.is(WellKnownSymbol::RawTerm) || !symbol.sort_parameters.is_empty() {
         return syntax;
     }
     let [
@@ -134,20 +135,17 @@ fn strip_raw_term(syntax: kore::Pattern) -> kore::Pattern {
     let [inner] = injected.as_slice() else {
         return syntax;
     };
-    if injection.name == "inj" && is_sort_k_item(target) {
+    if injection.is(WellKnownSymbol::Inj) && target.is_builtin(BuiltinSort::KItem) {
         inner.clone()
     } else {
         syntax
     }
 }
 
-fn is_sort_k_item(sort: &kore::Sort) -> bool {
-    matches!(sort, kore::Sort::Application { name, arguments } if name == "SortKItem" && arguments.is_empty())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::term::Sort;
     use k_rust_kore::kore::{
         binary::{ConstrainedPattern, encode_pattern, encode_term},
         parser::{parse_definition, parse_pattern},

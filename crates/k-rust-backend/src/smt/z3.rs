@@ -10,6 +10,7 @@ use std::{
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::names::BuiltinSort;
 use num_bigint::BigInt;
 use z3::{
     Model, Params, SatResult, Solver,
@@ -23,7 +24,7 @@ use crate::{
     cancellation::cancellation_requested,
     rule::Predicate,
     substitution::Substitution,
-    term::{Sort, Term, Variable},
+    term::{Term, Variable},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -259,7 +260,7 @@ impl Z3Solver {
         for variable in variables {
             let term = Term::variable(variable.clone());
             let value = match &variable.sort {
-                sort if sort == &Sort::simple("SortInt") => {
+                sort if sort.is_builtin(BuiltinSort::Int) => {
                     let name = mappings
                         .get(&term)
                         .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
@@ -274,7 +275,7 @@ impl Z3Solver {
                     })?;
                     Term::domain_value(variable.sort.clone(), rendered)
                 }
-                sort if sort == &Sort::simple("SortBool") => {
+                sort if sort.is_builtin(BuiltinSort::Bool) => {
                     let name = mappings
                         .get(&term)
                         .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
@@ -388,8 +389,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        cancellation::CancellationToken, definition::BackendDefinition, rule::Predicate,
-        term::Variable,
+        cancellation::CancellationToken,
+        definition::BackendDefinition,
+        rule::Predicate,
+        term::{Sort, Variable},
     };
 
     fn definition() -> BackendDefinition {

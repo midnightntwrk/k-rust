@@ -3,6 +3,8 @@
 use num_bigint::{BigInt, Sign};
 use num_traits::{ToPrimitive, Zero};
 
+use k_rust_kore::names::BuiltinSort;
+
 use super::{
     BuiltinError, BuiltinResult, UnsupportedHookReason, check_interrupted, expect_arity, int_term,
     read_int,
@@ -295,7 +297,7 @@ pub(super) fn read_bytes(term: &Term) -> Option<Vec<u8>> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    if sort != &Sort::simple("SortBytes") {
+    if !sort.is_builtin(BuiltinSort::Bytes) {
         return None;
     }
     value
@@ -308,7 +310,8 @@ fn read_string(term: &Term) -> Option<&str> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    (sort == &Sort::simple("SortString")).then_some(value.as_ref())
+    sort.is_builtin(BuiltinSort::String)
+        .then_some(value.as_ref())
 }
 
 fn read_index(term: &Term) -> Option<usize> {
@@ -372,7 +375,7 @@ fn read_signedness(term: &Term) -> Option<Signedness> {
 
 pub(super) fn bytes_term(bytes: &[u8]) -> Term {
     Term::domain_value(
-        Sort::simple("SortBytes"),
+        Sort::builtin(BuiltinSort::Bytes),
         bytes
             .iter()
             .map(|byte| char::from(*byte))
@@ -381,7 +384,7 @@ pub(super) fn bytes_term(bytes: &[u8]) -> Term {
 }
 
 fn string_term(value: impl Into<String>) -> Term {
-    Term::domain_value(Sort::simple("SortString"), value.into())
+    Term::domain_value(Sort::builtin(BuiltinSort::String), value.into())
 }
 
 fn encode_8_bit(value: &str) -> Option<Vec<u8>> {

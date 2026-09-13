@@ -3,6 +3,8 @@
 use num_bigint::BigInt;
 use num_traits::{FromPrimitive, ToPrimitive};
 
+use k_rust_kore::names::BuiltinSort;
+
 use super::{
     BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, int_term, read_int,
 };
@@ -396,14 +398,14 @@ fn read_float(hook: &str, term: &Term) -> Result<Option<KFloat>, BuiltinError> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return Ok(None);
     };
-    if sort != &Sort::simple("SortFloat") {
+    if !sort.is_builtin(BuiltinSort::Float) {
         return Ok(None);
     }
     KFloat::parse(hook, value).map(Some)
 }
 
 fn float_term(value: KFloat) -> Term {
-    Term::domain_value(Sort::simple("SortFloat"), value.token())
+    Term::domain_value(Sort::builtin(BuiltinSort::Float), value.token())
 }
 
 fn parse_parts<'a>(hook: &str, token: &'a str) -> Result<(&'a str, u32, u32), BuiltinError> {

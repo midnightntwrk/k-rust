@@ -6,6 +6,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::names::WellKnownSymbol;
 
 use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
@@ -1513,7 +1514,7 @@ fn is_ignored_constructor_axiom(pattern: &kore::Pattern, attributes: &kore::Attr
 }
 
 fn is_injection(pattern: &kore::Pattern) -> bool {
-    matches!(pattern, kore::Pattern::Application { symbol, .. } if symbol.name == "inj")
+    matches!(pattern, kore::Pattern::Application { symbol, .. } if symbol.is(WellKnownSymbol::Inj))
 }
 
 fn has_attribute(attributes: &kore::Attributes, name: &str) -> bool {

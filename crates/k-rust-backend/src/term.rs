@@ -4,10 +4,11 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use num_bigint::BigInt;
 
 use crate::smt::SmtType;
@@ -31,6 +32,40 @@ impl Sort {
     pub fn simple(name: impl Into<Name>) -> Self {
         Self::application(name, Vec::new())
     }
+
+    /// A builtin sort, sharing one `Name` allocation per variant for the life of the process.
+    pub fn builtin(sort: BuiltinSort) -> Self {
+        Self::Application {
+            name: builtin_name(sort),
+            arguments: Vec::new(),
+        }
+    }
+
+    /// True for the nullary application of the builtin's KORE name.
+    pub fn is_builtin(&self, sort: BuiltinSort) -> bool {
+        matches!(
+            self,
+            Self::Application { name, arguments }
+                if arguments.is_empty() && name.as_ref() == sort.kore_name()
+        )
+    }
+}
+
+/// One `Name` per `BuiltinSort` variant, created on first use and indexed by the variant's
+/// position in `BuiltinSort::ALL`.
+fn builtin_name(sort: BuiltinSort) -> Name {
+    static NAMES: OnceLock<Vec<Name>> = OnceLock::new();
+    let names = NAMES.get_or_init(|| {
+        BuiltinSort::ALL
+            .iter()
+            .map(|sort| Name::from(sort.kore_name()))
+            .collect()
+    });
+    let index = BuiltinSort::ALL
+        .iter()
+        .position(|candidate| *candidate == sort)
+        .expect("every builtin sort is listed in BuiltinSort::ALL");
+    names[index].clone()
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -125,6 +160,11 @@ pub struct Symbol {
 }
 
 impl Symbol {
+    /// True when the symbol's name is the well-known symbol's spelling.
+    pub fn is(&self, symbol: WellKnownSymbol) -> bool {
+        self.name.as_ref() == symbol.as_str()
+    }
+
     pub fn constructor(
         name: impl Into<Name>,
         argument_sorts: Vec<Sort>,
@@ -248,7 +288,7 @@ impl Term {
         sort_arguments: Vec<Sort>,
         arguments: Vec<Self>,
     ) -> Self {
-        if symbol.name.as_ref() == "inj"
+        if symbol.is(WellKnownSymbol::Inj)
             && let ([source, target], [argument]) =
                 (sort_arguments.as_slice(), arguments.as_slice())
         {
@@ -578,11 +618,7 @@ impl Term {
 }
 
 fn is_int_sort(sort: &Sort) -> bool {
-    matches!(
-        sort,
-        Sort::Application { name, arguments }
-            if arguments.is_empty() && name.as_ref() == "SortInt"
-    )
+    sort.is_builtin(BuiltinSort::Int)
 }
 
 fn canonical_int_text(value: Arc<str>) -> Arc<str> {
@@ -927,5 +963,42 @@ mod tests {
             panic!("expected an internal set")
         };
         assert_eq!(elements, &[one, two]);
+    }
+
+    #[test]
+    fn builtin_sort_equals_simple_of_its_kore_name() {
+        for sort in BuiltinSort::ALL {
+            assert_eq!(
+                Sort::builtin(sort),
+                Sort::simple(sort.kore_name()),
+                "{sort:?}"
+            );
+            assert!(Sort::builtin(sort).is_builtin(sort), "{sort:?}");
+            assert!(Sort::simple(sort.kore_name()).is_builtin(sort), "{sort:?}");
+        }
+        let Sort::Application { name: first, .. } = Sort::builtin(BuiltinSort::Int) else {
+            unreachable!()
+        };
+        let Sort::Application { name: second, .. } = Sort::builtin(BuiltinSort::Int) else {
+            unreachable!()
+        };
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "builtin names share one allocation"
+        );
+    }
+
+    #[test]
+    fn is_builtin_rejects_a_parametric_application_of_the_same_name() {
+        let parametric = Sort::application(
+            BuiltinSort::Map.kore_name(),
+            vec![Sort::builtin(BuiltinSort::K)],
+        );
+        assert!(!parametric.is_builtin(BuiltinSort::Map));
+        assert!(!Sort::Variable("SortMap".into()).is_builtin(BuiltinSort::Map));
+        assert!(!Sort::builtin(BuiltinSort::Set).is_builtin(BuiltinSort::Map));
+        let symbol = Symbol::constructor("inj", Vec::new(), Sort::builtin(BuiltinSort::K));
+        assert!(symbol.is(WellKnownSymbol::Inj));
+        assert!(!symbol.is(WellKnownSymbol::KSeq));
     }
 }
