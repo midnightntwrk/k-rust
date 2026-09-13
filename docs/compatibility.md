@@ -96,6 +96,7 @@ The older server API document is not authoritative for these measured wire detai
 Execution retains an explicit `aborted` reason for incomplete indeterminate, simplification-error and breadth-bound outcomes because Rust has no fallback engine to hide the failure.
 [RPC tests](../crates/k-rust/src/rpc.rs) cover predicate-free models, batch cancellation, and error classification; [RPC fixtures](../crates/k-rust/tests/fixtures/reference/rpc) preserve shipped-proxy responses.
 An `execute` response lists `next-states` in application order with the remainder last; the order is not part of the contract and the differential gate compares the array as a multiset (N27).
+Backend error `data` is compared by class: code, message, and the `error` sentence; context lines are the port's own diagnostics (N28).
 
 ## Definition verification
 

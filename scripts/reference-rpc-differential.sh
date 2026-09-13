@@ -301,6 +301,20 @@ collect_responses() {
     "$work/$prefix-error-implies-top.json"
 }
 
+# N28: a backend error (error.code 1..9) is compared by class: code, message, and each
+# detail's error sentence. The context lines are the port's own diagnostics and the term is
+# the echoed input, so every detail keeps only its context's JSON type and loses its term.
+# Success responses and the JSON-RPC protocol errors (negative codes) pass through unchanged.
+normalize_backend_error_class() {
+  jq -S 'def by_class: if type == "object"
+                       then (if has("context") then .context |= type else . end) | del(.term)
+                       else . end;
+         if type == "object" and (.error | type) == "object"
+            and (.error.code | type) == "number" and .error.code >= 1 and .error.code <= 9
+         then .error.data |= (if type == "array" then map(by_class) else by_class end)
+         else . end'
+}
+
 normalize_rpc_response() {
   local response=$1
   local input=$2
@@ -320,7 +334,7 @@ normalize_rpc_response() {
     *)
       jq -S "$next_states" "$input"
       ;;
-  esac
+  esac | normalize_backend_error_class
 }
 
 echo "[$name:rpc] compiling the reference Haskell definition"
