@@ -211,39 +211,20 @@ impl PartialOrd for Pattern {
     }
 }
 
+/// Total order on patterns: variant rank in declaration order, then the variant's scalar fields
+/// in declaration order under their own `Ord` (strings byte-wise), then children left to right,
+/// then child count. This is the order `#[derive(Ord)]` would give; it is written out with an
+/// explicit work list because a derived comparison recurses through `Box<Pattern>` and overflows
+/// the stack on the deep patterns this crate supports (`deep.rs`). `PartialEq` goes through
+/// `cmp`, so equality is structural: two patterns are equal iff their printed KORE is equal.
 impl Ord for Pattern {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use Pattern::*;
         use std::cmp::Ordering;
-        fn rank(pattern: &Pattern) -> u8 {
-            match pattern {
-                Variable(_) => 0,
-                Application { .. } => 1,
-                Top { .. } => 2,
-                Bottom { .. } => 3,
-                And { .. } => 4,
-                Or { .. } => 5,
-                Not { .. } => 6,
-                Next { .. } => 7,
-                Implies { .. } => 8,
-                Iff { .. } => 9,
-                Exists { .. } => 10,
-                Forall { .. } => 11,
-                Mu { .. } => 12,
-                Nu { .. } => 13,
-                Ceil { .. } => 14,
-                Floor { .. } => 15,
-                Rewrites { .. } => 16,
-                Equals { .. } => 17,
-                In { .. } => 18,
-                DomainValue { .. } => 19,
-                String(_) => 20,
-                AssociativeApplication { .. } => 21,
-            }
-        }
 
         fn scalars(left: &Pattern, right: &Pattern) -> Ordering {
             match (left, right) {
+                (String(left), String(right)) => left.cmp(right),
                 (Variable(left), Variable(right)) => left.cmp(right),
                 (Application { symbol: ls, .. }, Application { symbol: rs, .. }) => ls.cmp(rs),
                 (Top { sort: left }, Top { sort: right })
@@ -338,8 +319,7 @@ impl Ord for Pattern {
                         sort: rs,
                         value: rv,
                     },
-                ) => ls.cmp(rs).then_with(|| alphanum_cmp(lv, rv)),
-                (String(left), String(right)) => left.encode_utf16().cmp(right.encode_utf16()),
+                ) => ls.cmp(rs).then_with(|| lv.cmp(rv)),
                 (
                     AssociativeApplication {
                         associativity: la,
@@ -373,8 +353,9 @@ impl Ord for Pattern {
                 continue;
             };
 
-            let ordering = rank(left)
-                .cmp(&rank(right))
+            let ordering = left
+                .discriminant()
+                .cmp(&right.discriminant())
                 .then_with(|| scalars(left, right));
             if !ordering.is_eq() {
                 return ordering;
@@ -394,39 +375,34 @@ impl Ord for Pattern {
     }
 }
 
-fn alphanum_cmp(left: &str, right: &str) -> std::cmp::Ordering {
-    fn is_digit(unit: u16) -> bool {
-        (u16::from(b'0')..=u16::from(b'9')).contains(&unit)
-    }
-
-    fn chunk(value: &[u16], start: usize) -> &[u16] {
-        let digit = is_digit(value[start]);
-        let end = value[start + 1..]
-            .iter()
-            .position(|unit| is_digit(*unit) != digit)
-            .map_or(value.len(), |offset| start + 1 + offset);
-        &value[start..end]
-    }
-
-    let (left, right): (Vec<_>, Vec<_>) = (
-        left.encode_utf16().collect(),
-        right.encode_utf16().collect(),
-    );
-    let (mut li, mut ri) = (0, 0);
-    while li < left.len() && ri < right.len() {
-        let (lc, rc) = (chunk(&left, li), chunk(&right, ri));
-        li += lc.len();
-        ri += rc.len();
-        let ordering = if is_digit(lc[0]) && is_digit(rc[0]) {
-            lc.len().cmp(&rc.len()).then_with(|| lc.cmp(rc))
-        } else {
-            lc.cmp(rc)
-        };
-        if !ordering.is_eq() {
-            return ordering;
+impl Pattern {
+    /// The variant's rank in declaration order, the first key of [`Ord`].
+    const fn discriminant(&self) -> u8 {
+        match self {
+            Pattern::String(_) => 0,
+            Pattern::Variable(_) => 1,
+            Pattern::Application { .. } => 2,
+            Pattern::Top { .. } => 3,
+            Pattern::Bottom { .. } => 4,
+            Pattern::And { .. } => 5,
+            Pattern::Or { .. } => 6,
+            Pattern::Not { .. } => 7,
+            Pattern::Next { .. } => 8,
+            Pattern::Implies { .. } => 9,
+            Pattern::Iff { .. } => 10,
+            Pattern::Rewrites { .. } => 11,
+            Pattern::Exists { .. } => 12,
+            Pattern::Forall { .. } => 13,
+            Pattern::Mu { .. } => 14,
+            Pattern::Nu { .. } => 15,
+            Pattern::Ceil { .. } => 16,
+            Pattern::Floor { .. } => 17,
+            Pattern::Equals { .. } => 18,
+            Pattern::In { .. } => 19,
+            Pattern::DomainValue { .. } => 20,
+            Pattern::AssociativeApplication { .. } => 21,
         }
     }
-    left.len().cmp(&right.len())
 }
 
 #[cfg(test)]
@@ -434,9 +410,11 @@ mod tests {
     use super::Pattern;
     use crate::kore::parser::parse_pattern;
 
+    /// One source per variant, listed in the order the variants are declared in `Pattern`.
     #[test]
-    fn scala_pattern_ordering() {
+    fn pattern_rank_follows_declaration_order() {
         let sources = [
+            "\"A\"",
             "A:A{}",
             "A{}(\\dv{A{}}(\"A\"), A:A{})",
             "\\top{A{}}()",
@@ -444,32 +422,30 @@ mod tests {
             "\\and{A{}}(\\top{A{}}(), \\bottom{A{}}())",
             "\\or{A{}}(\\top{A{}}(), \\bottom{A{}}())",
             "\\not{A{}}(\\top{A{}}())",
+            "\\next{A{}}(\\top{A{}}())",
             "\\implies{A{}}(\\top{A{}}(), \\bottom{A{}}())",
             "\\iff{A{}}(\\top{A{}}(), \\bottom{A{}}())",
+            "\\rewrites{A{}}(A{}(), A:A{})",
             "\\exists{A{}}(A:A{}, A{}())",
             "\\forall{A{}}(A:A{}, A{}())",
+            "\\mu{}(@A:A{}, A{}())",
+            "\\nu{}(@A:A{}, A{}())",
             "\\ceil{A{}, A{}}(A{}())",
             "\\floor{A{}, A{}}(A{}())",
-            "\\rewrites{A{}}(A{}(), A:A{})",
             "\\equals{A{}, A{}}(A{}(), A{}())",
             "\\in{A{}, A{}}(A{}(), A{}())",
             "\\dv{A{}}(\"A\")",
-            "\"A\"",
+            "\\left-assoc{}(A{}(A:A{}, A:A{}))",
         ];
         let patterns: Vec<Pattern> = sources
             .into_iter()
             .map(|source| parse_pattern(source).unwrap())
             .collect();
 
+        let ranks: Vec<u8> = patterns.iter().map(Pattern::discriminant).collect();
+        assert_eq!(ranks, (0..22).collect::<Vec<u8>>());
         for pair in patterns.windows(2) {
             assert!(pair[0] < pair[1], "{} should precede {}", pair[0], pair[1]);
         }
-    }
-
-    #[test]
-    fn scala_domain_values_use_alphanumeric_ordering() {
-        let pattern = |value| parse_pattern(&format!(r#"\dv{{S{{}}}}("{value}")"#)).unwrap();
-        assert!(pattern("item2") < pattern("item10"));
-        assert!(pattern("item02") > pattern("item2"));
     }
 }
