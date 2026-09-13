@@ -27,8 +27,9 @@ use k_rust::{
     },
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-        KoreVariableIdentity, SortInjector, compile_loaded_definition, compile_search_pattern,
-        encode_kore_sort, expand_macros_in_term, term_to_kore_from_resolved,
+        KoreVariableIdentity, SortInjector, compile_loaded_definition,
+        compile_loaded_definition_timed, compile_search_pattern, encode_kore_sort,
+        expand_macros_in_term, term_to_kore_from_resolved,
     },
     kore::{
         ast::{
@@ -45,9 +46,10 @@ use k_rust::{
     },
     native::FileResolver,
     outer::{
-        LoadOptions, SourceResolver, SyntaxModule, load_for_compilation, load_with_base,
-        load_with_options, resolve_syntax_module,
+        LoadOptions, SourceResolver, SyntaxModule, load_for_compilation_timed,
+        load_with_base_timed, load_with_options_timed, resolve_syntax_module,
     },
+    timings::{PhaseTiming, PhaseTimings},
 };
 use k_rust_backend::{
     builtin::BuiltinEffect,
@@ -249,6 +251,10 @@ struct KcompileArgs {
     /// Compile this specification against a prepared semantics directory.
     #[arg(long, requires = "for_proving", value_name = "PATH")]
     compiled_definition: Option<PathBuf>,
+
+    /// Write phase timings in seconds as JSON (excludes process startup and teardown).
+    #[arg(long, value_name = "FILE")]
+    timings: Option<PathBuf>,
 
     #[command(flatten)]
     warnings: WarningArgs,
@@ -499,6 +505,10 @@ struct KrunArgs {
 
     #[command(flatten)]
     smt: SmtArgs,
+
+    /// Write phase timings in seconds as JSON (excludes process startup and teardown).
+    #[arg(long, value_name = "FILE")]
+    timings: Option<PathBuf>,
 
     #[command(flatten)]
     warnings: WarningArgs,
@@ -836,6 +846,7 @@ struct KcompileOptions {
     for_proving: bool,
     definition_module: Option<String>,
     compiled_definition: Option<PathBuf>,
+    timings: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -942,6 +953,7 @@ struct KrunOptions {
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
     smt: Z3Options,
+    timings: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -1064,6 +1076,60 @@ impl ProofTimings {
     }
 }
 
+/// `kcompile --timings` output: every load, compile, and artifact-write phase in execution order,
+/// with the three group totals.
+#[derive(Serialize)]
+struct CompileTimings {
+    load_seconds: f64,
+    compile_seconds: f64,
+    write_seconds: f64,
+    phases: Vec<PhaseTiming>,
+}
+
+impl CompileTimings {
+    fn new(load: PhaseTimings, compile: PhaseTimings, write: PhaseTimings) -> Self {
+        let load_seconds = load.total_seconds();
+        let compile_seconds = compile.total_seconds();
+        let write_seconds = write.total_seconds();
+        let mut phases = load;
+        phases.extend(compile);
+        phases.extend(write);
+        Self {
+            load_seconds,
+            compile_seconds,
+            write_seconds,
+            phases: phases.phases,
+        }
+    }
+
+    fn write(&self, path: Option<&Path>) -> Result<(), Box<dyn Error>> {
+        if let Some(path) = path {
+            fs::write(path, serde_json::to_string_pretty(self)?)?;
+        }
+        Ok(())
+    }
+}
+
+/// `krun --timings` output: the in-process compilation, then each execution phase.
+#[derive(Serialize)]
+struct KrunTimings {
+    compile: CompileTimings,
+    program_parse_seconds: f64,
+    config_vars_parse_seconds: f64,
+    internalize_seconds: f64,
+    execute_seconds: f64,
+    output_seconds: f64,
+}
+
+impl KrunTimings {
+    fn write(&self, path: Option<&Path>) -> Result<(), Box<dyn Error>> {
+        if let Some(path) = path {
+            fs::write(path, serde_json::to_string_pretty(self)?)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 enum KproveInput {
     Source(CommonOptions),
@@ -1178,6 +1244,7 @@ impl From<KcompileArgs> for KcompileOptions {
             for_proving: arguments.for_proving,
             definition_module: arguments.definition_module,
             compiled_definition: arguments.compiled_definition,
+            timings: arguments.timings,
         }
     }
 }
@@ -1269,6 +1336,7 @@ impl From<KrunArgs> for KrunOptions {
             step_timeout: arguments.timeout.timeout(),
             moving_average_timeout: arguments.timeout.moving_average,
             smt: arguments.smt.options(),
+            timings: arguments.timings,
         }
     }
 }
@@ -1516,54 +1584,75 @@ fn load_definition(
     configuration_module: Option<&str>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
     load_definition_impl(options, backend, configuration_module, None, false)
-        .map(|(loaded, _)| loaded)
+        .map(|(loaded, _, _)| loaded)
 }
 
+/// Load a definition from the command line, recording entry-source resolution and every loader
+/// phase in the returned timings.
 fn load_definition_impl(
     options: &CommonOptions,
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
     compilation_syntax: Option<Option<&str>>,
     bison_lists: bool,
-) -> Result<(k_rust::outer::LoadedDefinition, Option<String>), Box<dyn Error>> {
-    let builtin_directory = options.configured_builtin_directory();
-    let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
-    if let Some(directory) = builtin_directory {
-        resolver = resolver.with_builtin_directory(directory);
-    }
-    let entry = resolver.load_entry(&options.definition)?;
-    let implicit_sources = if options.no_prelude {
-        Vec::new()
-    } else {
-        vec![
-            resolver
-                .resolve(&entry.source, "prelude.md")
-                .map_err(|message| io::Error::new(io::ErrorKind::NotFound, message))?,
-        ]
-    };
-    let load_options = LoadOptions {
-        markdown_selector: options.markdown_selector.clone(),
-        implicit_sources,
-        excluded_module_attributes: backend
-            .map(|backend| vec![backend.excluded_module_attribute().into()])
-            .unwrap_or_default(),
-        configuration_module: configuration_module.map(str::to_owned),
-        project_root: None,
-        diagnostics: options.diagnostics,
-        bison_lists,
-    };
+) -> Result<
+    (
+        k_rust::outer::LoadedDefinition,
+        Option<String>,
+        PhaseTimings,
+    ),
+    Box<dyn Error>,
+> {
+    let mut timings = PhaseTimings::default();
+    let (mut resolver, entry, load_options) = timings.time("resolve entry source", || {
+        let builtin_directory = options.configured_builtin_directory();
+        let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
+        if let Some(directory) = builtin_directory {
+            resolver = resolver.with_builtin_directory(directory);
+        }
+        let entry = resolver.load_entry(&options.definition)?;
+        let implicit_sources = if options.no_prelude {
+            Vec::new()
+        } else {
+            vec![
+                resolver
+                    .resolve(&entry.source, "prelude.md")
+                    .map_err(|message| io::Error::new(io::ErrorKind::NotFound, message))?,
+            ]
+        };
+        let load_options = LoadOptions {
+            markdown_selector: options.markdown_selector.clone(),
+            implicit_sources,
+            excluded_module_attributes: backend
+                .map(|backend| vec![backend.excluded_module_attribute().into()])
+                .unwrap_or_default(),
+            configuration_module: configuration_module.map(str::to_owned),
+            project_root: None,
+            diagnostics: options.diagnostics,
+            bison_lists,
+        };
+        Ok::<_, Box<dyn Error>>((resolver, entry, load_options))
+    })?;
     if let Some(syntax) = compilation_syntax {
-        let (loaded, syntax) =
-            load_for_compilation(entry, &options.module, syntax, &mut resolver, &load_options)
-                .inspect_err(|error| {
-                    if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {
-                        emit_diagnostics(diagnostics);
-                    }
-                })?;
-        Ok((loaded, Some(syntax)))
+        let (loaded, syntax, loader_timings) = load_for_compilation_timed(
+            entry,
+            &options.module,
+            syntax,
+            &mut resolver,
+            &load_options,
+        )
+        .inspect_err(|error| {
+            if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {
+                emit_diagnostics(diagnostics);
+            }
+        })?;
+        timings.extend(loader_timings);
+        Ok((loaded, Some(syntax), timings))
     } else {
-        let loaded = load_with_options(entry, &options.module, &mut resolver, &load_options)?;
-        Ok((loaded, None))
+        let (loaded, loader_timings) =
+            load_with_options_timed(entry, &options.module, &mut resolver, &load_options)?;
+        timings.extend(loader_timings);
+        Ok((loaded, None, timings))
     }
 }
 
@@ -1577,38 +1666,40 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             .as_deref()
             .unwrap_or(&options.common.module)
     });
-    let (mut loaded, syntax_module) = if let Some(prepared) = &options.compiled_definition {
-        let loaded = load_definition_against_prepared(
-            &options.common,
-            configuration_module.expect("--compiled-definition requires --for-proving"),
-            prepared,
-            options.bison_lists,
-        )?;
-        let syntax = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
-        (loaded, syntax)
-    } else {
-        let (loaded, syntax) = load_definition_impl(
-            &options.common,
-            Some(options.backend),
-            configuration_module,
-            Some(options.syntax_module.as_deref()),
-            options.bison_lists,
-        )?;
-        (
-            loaded,
-            SyntaxModule {
-                name: syntax.expect("fresh compilation selects syntax"),
-                fallback_warning: None,
-            },
-        )
-    };
+    let (mut loaded, syntax_module, load_timings) =
+        if let Some(prepared) = &options.compiled_definition {
+            let (loaded, load_timings) = load_definition_against_prepared(
+                &options.common,
+                configuration_module.expect("--compiled-definition requires --for-proving"),
+                prepared,
+                options.bison_lists,
+            )?;
+            let syntax = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
+            (loaded, syntax, load_timings)
+        } else {
+            let (loaded, syntax, load_timings) = load_definition_impl(
+                &options.common,
+                Some(options.backend),
+                configuration_module,
+                Some(options.syntax_module.as_deref()),
+                options.bison_lists,
+            )?;
+            (
+                loaded,
+                SyntaxModule {
+                    name: syntax.expect("fresh compilation selects syntax"),
+                    fallback_warning: None,
+                },
+                load_timings,
+            )
+        };
     let builtin_source_prefixes = options.common.builtin_source_prefixes();
     if let Some(warning) = syntax_module.fallback_warning {
         loaded
             .diagnostics
             .extend(options.common.diagnostics.apply(vec![warning]));
     }
-    let artifacts = match compile_loaded_definition(
+    let (artifacts, compile_timings) = match compile_loaded_definition_timed(
         &loaded,
         CompileOptions {
             backend: options.backend,
@@ -1624,7 +1715,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             ..CompileOptions::default()
         },
     ) {
-        Ok(artifacts) => artifacts,
+        Ok(compiled) => compiled,
         Err(error) => {
             emit_diagnostics(&error.diagnostics);
             return Err(error.into());
@@ -1632,6 +1723,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     };
     emit_diagnostics(&artifacts.diagnostics);
     fs::create_dir_all(&options.output_directory)?;
+    let mut write_timings = PhaseTimings::default();
     let bison_mode = if options.gen_glr_bison_parser {
         Some(k_rust::bison::Mode::Glr)
     } else if options.gen_bison_parser {
@@ -1642,66 +1734,73 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     if let Some(mode) = bison_mode
         && let Some(start_sort) = artifacts.configuration_variables.get("PGM")
     {
-        k_rust::bison::generate_program_parser(
-            &loaded.resolved,
-            &syntax_module.name,
-            start_sort,
-            &options.output_directory,
-            k_rust::bison::Options {
-                mode,
-                stack_max_depth: options.bison_stack_max_depth,
-            },
-        )?;
+        write_timings.time("generate bison parser", || {
+            k_rust::bison::generate_program_parser(
+                &loaded.resolved,
+                &syntax_module.name,
+                start_sort,
+                &options.output_directory,
+                k_rust::bison::Options {
+                    mode,
+                    stack_max_depth: options.bison_stack_max_depth,
+                },
+            )
+        })?;
     }
-    if options.emit_json || options.for_proving {
-        let definition = if options.compiled_definition.is_some() {
-            parsed_definition_for_json(&loaded, &syntax_module.name)?
-        } else {
-            // Fresh compilation already selected its modules before parsing. Keep that exact
-            // graph, including any distinct configuration root, in the parsed artifact.
-            let mut definition = loaded.definition.clone();
-            definition.attributes.insert(
-                "syntaxModule",
-                serde_json::Value::String(syntax_module.name.clone()),
-            );
-            definition
-        };
+    write_timings.time("write artifacts", || {
+        if options.emit_json || options.for_proving {
+            let definition = if options.compiled_definition.is_some() {
+                parsed_definition_for_json(&loaded, &syntax_module.name)?
+            } else {
+                // Fresh compilation already selected its modules before parsing. Keep that exact
+                // graph, including any distinct configuration root, in the parsed artifact.
+                let mut definition = loaded.definition.clone();
+                definition.attributes.insert(
+                    "syntaxModule",
+                    serde_json::Value::String(syntax_module.name.clone()),
+                );
+                definition
+            };
+            fs::write(
+                options.output_directory.join("parsed.json"),
+                definition_json::to_string_pretty(&definition)?,
+            )?;
+        }
+        if options.for_proving {
+            let mut sources = if let Some(prepared) = &options.compiled_definition {
+                load_prepared_manifest(prepared)?.sources
+            } else {
+                Vec::new()
+            };
+            sources.extend(loaded.files.iter().map(|file| file.source.clone()));
+            sources.sort();
+            sources.dedup();
+            let manifest = PreparedDefinitionManifest {
+                format: PREPARED_FORMAT.into(),
+                version: 1,
+                sources,
+            };
+            fs::write(
+                options.output_directory.join(PREPARED_MANIFEST),
+                serde_json::to_string_pretty(&manifest)?,
+            )?;
+        }
         fs::write(
-            options.output_directory.join("parsed.json"),
-            definition_json::to_string_pretty(&definition)?,
+            options.output_directory.join("definition.kore"),
+            artifacts.definition_kore,
         )?;
-    }
-    if options.for_proving {
-        let mut sources = if let Some(prepared) = &options.compiled_definition {
-            load_prepared_manifest(prepared)?.sources
-        } else {
-            Vec::new()
-        };
-        sources.extend(loaded.files.iter().map(|file| file.source.clone()));
-        sources.sort();
-        sources.dedup();
-        let manifest = PreparedDefinitionManifest {
-            format: PREPARED_FORMAT.into(),
-            version: 1,
-            sources,
-        };
         fs::write(
-            options.output_directory.join(PREPARED_MANIFEST),
-            serde_json::to_string_pretty(&manifest)?,
+            options.output_directory.join("syntaxDefinition.kore"),
+            artifacts.syntax_definition_kore,
         )?;
-    }
-    fs::write(
-        options.output_directory.join("definition.kore"),
-        artifacts.definition_kore,
-    )?;
-    fs::write(
-        options.output_directory.join("syntaxDefinition.kore"),
-        artifacts.syntax_definition_kore,
-    )?;
-    fs::write(
-        options.output_directory.join("macros.kore"),
-        artifacts.macros_kore,
-    )?;
+        fs::write(
+            options.output_directory.join("macros.kore"),
+            artifacts.macros_kore,
+        )?;
+        Ok::<_, Box<dyn Error>>(())
+    })?;
+    CompileTimings::new(load_timings, compile_timings, write_timings)
+        .write(options.timings.as_deref())?;
     Ok(())
 }
 
@@ -1854,7 +1953,13 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
-    let mut loaded = load_definition(&options.common, Some(CompilationBackend::Rust), None)?;
+    let (mut loaded, _, load_timings) = load_definition_impl(
+        &options.common,
+        Some(CompilationBackend::Rust),
+        None,
+        None,
+        false,
+    )?;
     let syntax_module = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
     if let Some(warning) = syntax_module.fallback_warning {
         loaded
@@ -1862,7 +1967,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             .extend(options.common.diagnostics.apply(vec![warning]));
     }
     let builtin_source_prefixes = options.common.builtin_source_prefixes();
-    let compiled = match compile_loaded_definition(
+    let (compiled, compile_timings) = match compile_loaded_definition_timed(
         &loaded,
         CompileOptions {
             backend: CompilationBackend::Rust,
@@ -1879,6 +1984,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     emit_diagnostics(&compiled.diagnostics);
 
+    let started = Instant::now();
     let available_config_vars = &compiled.configuration_variables;
     // K's krun (krun:484-489, :506-521) reads a program only when one is passed; a
     // definition without `$PGM` runs from the configuration variables alone and never
@@ -1936,6 +2042,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     } else {
         None
     };
+    let program_parse_seconds = started.elapsed().as_secs_f64();
+    let started = Instant::now();
     let program_uses_stdin = program_uses_stdin && program.is_some();
     let config_parser_modules =
         configuration_variable_parser_modules(&program_resolved, &options.common.module)?;
@@ -2067,7 +2175,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         .into());
     }
     let initial = top_cell_initializer(program, config_vars);
+    let config_vars_parse_seconds = started.elapsed().as_secs_f64();
 
+    let started = Instant::now();
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
     let function_symbols = kore_function_symbols(&syntax);
 
@@ -2093,6 +2203,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         }
         None => None,
     };
+    let internalize_seconds = started.elapsed().as_secs_f64();
+    let started = Instant::now();
     let output = run_backend(
         &backend,
         vec![Pattern {
@@ -2116,10 +2228,22 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             smt: options.smt,
         },
     )?;
+    let execute_seconds = started.elapsed().as_secs_f64();
+    let started = Instant::now();
     println!(
         "{}",
         KorePrinter::pretty(100).print_pattern(&output.pattern)
     );
+    let output_seconds = started.elapsed().as_secs_f64();
+    KrunTimings {
+        compile: CompileTimings::new(load_timings, compile_timings, PhaseTimings::default()),
+        program_parse_seconds,
+        config_vars_parse_seconds,
+        internalize_seconds,
+        execute_seconds,
+        output_seconds,
+    }
+    .write(options.timings.as_deref())?;
     Ok(ExitCode::from(output.exit_code))
 }
 
@@ -3370,7 +3494,7 @@ fn compile_proof_source(
     prepared: Option<&Path>,
 ) -> Result<KoreDefinition, Box<dyn Error>> {
     let loaded = if let Some(prepared) = prepared {
-        load_definition_against_prepared(common, definition_module, prepared, false)?
+        load_definition_against_prepared(common, definition_module, prepared, false)?.0
     } else {
         load_definition(
             common,
@@ -3402,26 +3526,33 @@ fn compile_proof_source(
     Ok(parse_kore_definition(&compiled.definition_kore)?)
 }
 
+/// Load a specification against a prepared semantics directory, recording the prepared-artifact
+/// read and every loader phase in the returned timings.
 fn load_definition_against_prepared(
     options: &CommonOptions,
     definition_module: &str,
     prepared: &Path,
     bison_lists: bool,
-) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
-    let directory = prepared_artifact_directory(prepared);
-    let manifest = load_prepared_manifest(prepared)?;
-    let base = definition_json::from_str(&fs::read_to_string(directory.join("parsed.json"))?)?;
-    let builtin_directory = options
-        .builtin_directory
-        .clone()
-        .or_else(|| env::var_os("KRUST_BUILTIN_DIRECTORY").map(PathBuf::from));
-    let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
-    if let Some(directory) = builtin_directory {
-        resolver = resolver.with_builtin_directory(directory);
-    }
-    resolver = resolver.with_prepared_sources(manifest.sources.clone());
-    let entry = resolver.load_entry(&options.definition)?;
-    Ok(load_with_base(
+) -> Result<(k_rust::outer::LoadedDefinition, PhaseTimings), Box<dyn Error>> {
+    let mut timings = PhaseTimings::default();
+    let (mut resolver, entry, manifest, base) = timings.time("read prepared definition", || {
+        let directory = prepared_artifact_directory(prepared);
+        let manifest = load_prepared_manifest(prepared)?;
+        let base: k_rust::definition::Definition =
+            definition_json::from_str(&fs::read_to_string(directory.join("parsed.json"))?)?;
+        let builtin_directory = options
+            .builtin_directory
+            .clone()
+            .or_else(|| env::var_os("KRUST_BUILTIN_DIRECTORY").map(PathBuf::from));
+        let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
+        if let Some(directory) = builtin_directory {
+            resolver = resolver.with_builtin_directory(directory);
+        }
+        resolver = resolver.with_prepared_sources(manifest.sources.clone());
+        let entry = resolver.load_entry(&options.definition)?;
+        Ok::<_, Box<dyn Error>>((resolver, entry, manifest, base))
+    })?;
+    let (loaded, loader_timings) = load_with_base_timed(
         entry,
         &options.module,
         &mut resolver,
@@ -3438,7 +3569,9 @@ fn load_definition_against_prepared(
         },
         &base,
         &manifest.sources,
-    )?)
+    )?;
+    timings.extend(loader_timings);
+    Ok((loaded, timings))
 }
 
 fn load_prepared_manifest(path: &Path) -> Result<PreparedDefinitionManifest, Box<dyn Error>> {
