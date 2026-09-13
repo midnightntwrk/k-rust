@@ -6,6 +6,7 @@ use super::{ProductionItem, Sentence};
 use crate::definition::ProductionCatalog;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Sort, Term};
+use crate::names::BuiltinSort;
 
 const CELL_BAG_MESSAGE: &str = "Cell bags are only supported on the Java backend. If you want this feature, comment on https://github.com/runtimeverification/k/issues/1419 . As a workaround, you can add the attribute type=\"Set\" and add a unique identifier to each element in the set.";
 
@@ -41,7 +42,7 @@ pub fn check_holes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
                     for position in positions {
                         if nonterminals
                             .get(position - 1)
-                            .is_some_and(|sort| sort.name == "K")
+                            .is_some_and(|sort| sort.name == BuiltinSort::K.k_name())
                         {
                             diagnostics.push(Diagnostic::error(
                                 DiagnosticCode::InvalidHole,
@@ -73,7 +74,7 @@ pub fn check_streams(
     subsorts: &crate::definition::PartialOrder<Sort>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    let list = Sort::new("List");
+    let list = Sort::builtin(BuiltinSort::List);
     for sentence in sentences {
         let Sentence::Production {
             items, attributes, ..

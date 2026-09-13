@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{Sort, Term};
+use crate::names::BuiltinSort;
 
 use super::parametric::substitute_sort;
 use super::{
@@ -461,7 +462,7 @@ impl Grammar {
         if matches!(
             child,
             ParsedTerm::Production { production, .. } if self.productions[production].bracket
-        ) || child_sort.name == "K"
+        ) || child_sort.name == BuiltinSort::K.k_name()
             || !subsorts.less_than(&child_sort, expected)
         {
             return Ok(child);

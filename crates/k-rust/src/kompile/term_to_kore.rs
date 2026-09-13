@@ -9,6 +9,7 @@ use crate::definition::{
 };
 use crate::kast::{self, Label, Sort, Term};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
+use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use super::module_to_kore::{encode_kore_identifier, encode_kore_label};
@@ -482,21 +483,24 @@ impl<'a> TermConverter<'a> {
 
     fn sequence(&self, items: &[Term]) -> Result<Pattern, TermConversionError> {
         let Some((last, prefix)) = items.split_last() else {
-            return Ok(application("dotk", Vec::new()));
+            return Ok(application(WellKnownSymbol::DotK.as_str(), Vec::new()));
         };
-        let mut result = if self.term_sort(last)? == Sort::new("K") {
+        let mut result = if self.term_sort(last)?.is_builtin(BuiltinSort::K) {
             self.pattern(last)?
         } else {
             application(
-                "kseq",
-                vec![self.pattern(last)?, application("dotk", Vec::new())],
+                WellKnownSymbol::KSeq.as_str(),
+                vec![
+                    self.pattern(last)?,
+                    application(WellKnownSymbol::DotK.as_str(), Vec::new()),
+                ],
             )
         };
         for item in prefix.iter().rev() {
-            let symbol = if self.term_sort(item)? == Sort::new("K") {
-                "append"
+            let symbol = if self.term_sort(item)?.is_builtin(BuiltinSort::K) {
+                WellKnownSymbol::Append.as_str()
             } else {
-                "kseq"
+                WellKnownSymbol::KSeq.as_str()
             };
             result = application(symbol, vec![self.pattern(item)?, result]);
         }
@@ -521,7 +525,7 @@ impl<'a> TermConverter<'a> {
         Variable {
             kind,
             name,
-            sort: self.kore_sort(sort.as_ref().unwrap_or(&Sort::new("K"))),
+            sort: self.kore_sort(sort.as_ref().unwrap_or(&Sort::builtin(BuiltinSort::K))),
         }
     }
 
@@ -587,7 +591,7 @@ impl<'a> TermConverter<'a> {
             Term::Variable { sort, .. } => sort
                 .clone()
                 .ok_or(TermConversionError::MissingSort("variable")),
-            Term::Sequence(_) => Ok(Sort::new("K")),
+            Term::Sequence(_) => Ok(Sort::builtin(BuiltinSort::K)),
             Term::Token { sort, .. } => Ok(sort.clone()),
             Term::Apply { label, arguments } => self.application_sort(term, label, arguments),
             Term::Annotated { .. } => unreachable!(),
@@ -610,7 +614,7 @@ impl<'a> TermConverter<'a> {
                 .and_then(|argument| self.term_sort(argument));
         }
         match label.name.as_str() {
-            "inj" => {
+            name if name == WellKnownSymbol::Inj.as_str() => {
                 return label
                     .parameters
                     .get(1)

@@ -6,6 +6,7 @@ use super::rhs_variables::{CheckMode, StructuralCheckOptions};
 use super::{ProductionItem, Sentence};
 use crate::definition::{ModuleId, ResolvedDefinition};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
+use crate::names::BuiltinSort;
 
 pub fn check_claims_in_definition(
     definition: &ResolvedDefinition,
@@ -118,7 +119,7 @@ pub fn check_is_sort_predicates(
             let Some(ProductionItem::Terminal(predicate)) = items.first() else {
                 continue;
             };
-            if sort.name == "Bool"
+            if sort.name == BuiltinSort::Bool.k_name()
                 && items.len() >= 3
                 && matches!(items.get(1), Some(ProductionItem::Terminal(open)) if open == "(")
                 && matches!(items.last(), Some(ProductionItem::Terminal(close)) if close == ")")

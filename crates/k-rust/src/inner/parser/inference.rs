@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{Sort, Term};
+use crate::names::BuiltinSort;
 
 use super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
@@ -818,7 +819,9 @@ fn substitute_sort_ref(sort: &Sort, substitution: &BTreeMap<Sort, SortRef>) -> S
 fn is_real_ground_sort(sort: &Sort) -> bool {
     !sort.parameters.is_empty()
         || !super::is_parser_sort(sort)
-        || matches!(sort.name.as_str(), "K" | "KItem" | "KLabel")
+        || sort.name == BuiltinSort::K.k_name()
+        || sort.name == BuiltinSort::KItem.k_name()
+        || sort.name == "KLabel"
         || sort.name.parse::<u64>().is_ok()
 }
 

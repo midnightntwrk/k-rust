@@ -27,6 +27,7 @@ use crate::definition::{
     parse_regex, sentence_equivalent,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
+use crate::names::BuiltinSort;
 use crate::provenance::SourceId;
 
 use self::disambiguation::parse_apply_priority;
@@ -47,9 +48,7 @@ use self::scanner::{Item, Layout, ScanCacheEntry, ScanWinner, compile_item};
 pub(crate) fn inferred_variable_name(term: &Term) -> Option<&str> {
     match term.unannotated() {
         Term::Variable { name, .. } => Some(name),
-        Term::Token { token, sort } if sort.name == "KConfigVar" && sort.parameters.is_empty() => {
-            Some(token)
-        }
+        Term::Token { token, sort } if sort.is_builtin(BuiltinSort::KConfigVar) => Some(token),
         _ => None,
     }
 }

@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, collections::BTreeSet, fmt};
 
 use serde_json::{Value, json};
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
@@ -109,7 +110,7 @@ fn resolve_contexts_inner(definition: &Definition) -> Result<Definition, Resolve
             &mut generated,
             [Sentence::SyntaxSort {
                 parameters: Vec::new(),
-                sort: Sort::new("K"),
+                sort: Sort::builtin(BuiltinSort::K),
                 attributes: Attributes::default(),
             }],
         );
@@ -168,7 +169,7 @@ fn resolve_context(
             freezer_items.push(ProductionItem::Terminal(",".into()));
         }
         freezer_items.push(ProductionItem::NonTerminal {
-            sort: Sort::new("K"),
+            sort: Sort::builtin(BuiltinSort::K),
             name: None,
         });
     }
@@ -176,7 +177,7 @@ fn resolve_context(
     let freezer = Sentence::Production {
         label: Some(freezer_label.clone()),
         parameters: Vec::new(),
-        sort: Sort::new("KItem"),
+        sort: Sort::builtin(BuiltinSort::KItem),
         items: freezer_items,
         attributes: Attributes::default(),
     };
@@ -557,7 +558,7 @@ fn strip_metadata(term: &Term) -> Term {
 fn bool_token(value: bool) -> Term {
     Term::Token {
         token: value.to_string(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 

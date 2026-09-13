@@ -11,11 +11,9 @@ use crate::definition::{
     ResolvedDefinition, Sentence, SortCatalog, SortHead, sentence_equivalent,
 };
 use crate::kast::{Label, Sort, Term};
+use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::{GeneratingPass, record_generated_origins};
 
-const K_SORT: &str = "K";
-const K_ITEM_SORT: &str = "KItem";
-const BOOL_SORT: &str = "Bool";
 const SORT_PARAMETER: &str = "#SortParam";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -222,8 +220,8 @@ impl<'a> SortInjector<'a> {
                 attributes,
             } => {
                 let body = self.inject_rule_body(body)?;
-                let requires = self.inject(requires, &Sort::new(BOOL_SORT))?;
-                let ensures = self.inject(ensures, &Sort::new(BOOL_SORT))?;
+                let requires = self.inject(requires, &Sort::builtin(BuiltinSort::Bool))?;
+                let ensures = self.inject(ensures, &Sort::builtin(BuiltinSort::Bool))?;
                 Ok(Sentence::Rule {
                     body,
                     requires,
@@ -238,8 +236,8 @@ impl<'a> SortInjector<'a> {
                 attributes,
             } => {
                 let body = self.inject_rule_body(body)?;
-                let requires = self.inject(requires, &Sort::new(BOOL_SORT))?;
-                let ensures = self.inject(ensures, &Sort::new(BOOL_SORT))?;
+                let requires = self.inject(requires, &Sort::builtin(BuiltinSort::Bool))?;
+                let ensures = self.inject(ensures, &Sort::builtin(BuiltinSort::Bool))?;
                 Ok(Sentence::Claim {
                     body,
                     requires,
@@ -334,7 +332,7 @@ impl<'a> SortInjector<'a> {
             return Ok(sort);
         }
         match term.unannotated() {
-            Term::InjectedLabel(_) => Ok(Sort::new(K_ITEM_SORT)),
+            Term::InjectedLabel(_) => Ok(Sort::builtin(BuiltinSort::KItem)),
             Term::Rewrite { left, right } => {
                 let left = self.term_sort_with_arity(left, expected, allow_trailing_arguments)?;
                 let right = self.term_sort_with_arity(right, expected, allow_trailing_arguments)?;
@@ -349,11 +347,11 @@ impl<'a> SortInjector<'a> {
             Term::Variable { sort, .. } => Ok(sort
                 .clone()
                 .or_else(|| expected.cloned())
-                .unwrap_or_else(|| Sort::new(K_SORT))),
-            Term::Sequence(_) => Ok(Sort::new(K_SORT)),
+                .unwrap_or_else(|| Sort::builtin(BuiltinSort::K))),
+            Term::Sequence(_) => Ok(Sort::builtin(BuiltinSort::K)),
             Term::Token { sort, .. } => Ok(sort.clone()),
             Term::Apply { label, arguments } => {
-                if label.name == "inj" {
+                if label.is(WellKnownSymbol::Inj) {
                     return label.parameters.get(1).cloned().ok_or_else(|| {
                         SortInjectionError::MissingParameters {
                             label: label.name.clone(),
@@ -447,7 +445,7 @@ impl<'a> SortInjector<'a> {
                             allow_trailing_arguments,
                         );
                     }
-                    "_:=K_" | "_:/=K_" => return Ok(Sort::new(BOOL_SORT)),
+                    "_:=K_" | "_:/=K_" => return Ok(Sort::builtin(BuiltinSort::Bool)),
                     _ => {}
                 }
                 let signature =
@@ -473,13 +471,13 @@ impl<'a> SortInjector<'a> {
         }
 
         let visited = self.visit_children(term, &actual, is_lhs)?;
-        if expected.name == K_SORT {
-            if actual.name == K_ITEM_SORT {
+        if expected.name == BuiltinSort::K.k_name() {
+            if actual.name == BuiltinSort::KItem.k_name() {
                 return Ok(Term::Sequence(vec![visited]));
             }
             return Ok(Term::Sequence(vec![injection(
                 actual,
-                Sort::new(K_ITEM_SORT),
+                Sort::builtin(BuiltinSort::KItem),
                 visited,
             )]));
         }
@@ -708,7 +706,7 @@ impl<'a> SortInjector<'a> {
                 .insert(parameter.name.clone());
         }
         let rebuilt = match term.unannotated() {
-            Term::Apply { label, .. } if label.name == "inj" => return Ok(term.clone()),
+            Term::Apply { label, .. } if label.is(WellKnownSymbol::Inj) => return Ok(term.clone()),
             Term::Apply { label, arguments }
                 if semantic_cast_sort(label).is_some() || label.name == "#OuterCast" =>
             {
@@ -751,15 +749,15 @@ impl<'a> SortInjector<'a> {
                     .iter()
                     .map(|item| {
                         let context = if is_lhs {
-                            Sort::new(K_ITEM_SORT)
+                            Sort::builtin(BuiltinSort::KItem)
                         } else {
-                            Sort::new(K_SORT)
+                            Sort::builtin(BuiltinSort::K)
                         };
                         let item_sort = self.term_sort(item, Some(&context))?;
-                        let expected = if item_sort.name == K_SORT {
-                            Sort::new(K_SORT)
+                        let expected = if item_sort.name == BuiltinSort::K.k_name() {
+                            Sort::builtin(BuiltinSort::K)
                         } else {
-                            Sort::new(K_ITEM_SORT)
+                            Sort::builtin(BuiltinSort::KItem)
                         };
                         self.inject_with_position(item, &expected, is_lhs)
                     })
@@ -1065,7 +1063,7 @@ impl<'a> SortInjector<'a> {
             bounds.insert(sort.clone());
         }
         let k_bottom = Sort::new("KBott");
-        let k = Sort::new(K_SORT);
+        let k = Sort::builtin(BuiltinSort::K);
         bounds.retain(|bound| {
             !self.subsorts.less_than_eq(bound, &k_bottom) && !self.subsorts.greater_than(bound, &k)
         });
@@ -1282,7 +1280,7 @@ pub fn add_sort_injections_from_resolved(
 
 fn injection(from: Sort, to: Sort, term: Term) -> Term {
     Term::Apply {
-        label: Label::with_parameters("inj", vec![from, to]),
+        label: Label::with_parameters(WellKnownSymbol::Inj.as_str(), vec![from, to]),
         arguments: vec![term],
     }
 }
@@ -1394,11 +1392,17 @@ fn compact_injections(term: Term) -> Term {
     let [inner_from, inner_to] = inner_label.parameters.as_slice() else {
         return term;
     };
-    if label.name != "inj" || inner_label.name != "inj" || inner_to != outer_from {
+    if !label.is(WellKnownSymbol::Inj)
+        || !inner_label.is(WellKnownSymbol::Inj)
+        || inner_to != outer_from
+    {
         return term;
     }
     Term::Apply {
-        label: Label::with_parameters("inj", vec![inner_from.clone(), outer_to.clone()]),
+        label: Label::with_parameters(
+            WellKnownSymbol::Inj.as_str(),
+            vec![inner_from.clone(), outer_to.clone()],
+        ),
         arguments: inner_arguments.clone(),
     }
 }

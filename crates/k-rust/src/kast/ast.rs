@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::{OriginRecord, SourceId};
 
 use super::printer::Printer;
@@ -29,6 +30,16 @@ impl Sort {
             parameters,
         }
     }
+
+    /// The nullary sort with the builtin's K spelling.
+    pub fn builtin(sort: BuiltinSort) -> Self {
+        Self::new(sort.k_name())
+    }
+
+    /// True for the nullary sort with the builtin's K spelling.
+    pub fn is_builtin(&self, sort: BuiltinSort) -> bool {
+        self.parameters.is_empty() && self.name == sort.k_name()
+    }
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -50,6 +61,11 @@ impl Label {
             name: name.into(),
             parameters,
         }
+    }
+
+    /// True when the label's name is the well-known KORE symbol's spelling.
+    pub fn is(&self, symbol: WellKnownSymbol) -> bool {
+        self.name == symbol.as_str()
     }
 }
 
@@ -371,5 +387,32 @@ impl Display for Label {
 impl Display for Term {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter.write_str(&Printer::new().print_term(self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_sort_agrees_with_its_k_spelling() {
+        for sort in BuiltinSort::ALL {
+            assert_eq!(Sort::builtin(sort), Sort::new(sort.k_name()), "{sort:?}");
+            assert!(Sort::builtin(sort).is_builtin(sort), "{sort:?}");
+            assert!(Sort::new(sort.k_name()).is_builtin(sort), "{sort:?}");
+            assert!(
+                !Sort::with_parameters(sort.k_name(), vec![Sort::new("Int")]).is_builtin(sort),
+                "{sort:?}"
+            );
+        }
+        assert!(!Sort::new("SortK").is_builtin(BuiltinSort::K));
+    }
+
+    #[test]
+    fn label_is_matches_the_kore_spelling_only() {
+        assert!(Label::new("inj").is(WellKnownSymbol::Inj));
+        assert!(Label::with_parameters("inj", vec![Sort::new("Int")]).is(WellKnownSymbol::Inj));
+        assert!(!Label::new("Lblinj").is(WellKnownSymbol::Inj));
+        assert!(!Label::new("inj").is(WellKnownSymbol::KSeq));
     }
 }

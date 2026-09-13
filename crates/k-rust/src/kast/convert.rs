@@ -5,6 +5,7 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::kore::ast::{Pattern, Sort as KoreSort, Symbol, Variable};
 use crate::kore::normalize;
+use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::ast::{Label, Sort, Term};
 use super::string;
@@ -126,7 +127,7 @@ impl<'a> Converter<'a> {
 
     fn sort(&self, sort: &KoreSort) -> Result<Sort, ConversionError> {
         match sort {
-            KoreSort::Variable(_) => Ok(Sort::new("K")),
+            KoreSort::Variable(_) => Ok(Sort::builtin(BuiltinSort::K)),
             KoreSort::Application { name, arguments } => {
                 let name = name.strip_prefix("Sort").ok_or_else(|| {
                     ConversionError(format!("compound KORE sort {name:?} lacks Sort prefix"))
@@ -156,18 +157,22 @@ impl<'a> Converter<'a> {
 
     fn application(&self, symbol: &Symbol, arguments: &[Pattern]) -> Result<Term, ConversionError> {
         match symbol.name.as_str() {
-            "inj" => {
+            name if name == WellKnownSymbol::Inj.as_str() => {
                 self.pattern(arguments.first().ok_or_else(|| {
                     ConversionError("inj application requires an argument".into())
                 })?)
             }
-            "kseq" | "append" => Ok(Term::sequence(
-                arguments
-                    .iter()
-                    .map(|argument| self.pattern(argument))
-                    .collect::<Result<Vec<_>, _>>()?,
-            )),
-            "dotk" => Ok(Term::Sequence(Vec::new())),
+            name if name == WellKnownSymbol::KSeq.as_str()
+                || name == WellKnownSymbol::Append.as_str() =>
+            {
+                Ok(Term::sequence(
+                    arguments
+                        .iter()
+                        .map(|argument| self.pattern(argument))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
+            }
+            name if name == WellKnownSymbol::DotK.as_str() => Ok(Term::Sequence(Vec::new())),
             _ => Ok(Term::Apply {
                 label: Label {
                     name: decode_label(&symbol.name)?,

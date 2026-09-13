@@ -7,6 +7,7 @@ use crate::definition::{
     Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{Label, Sort};
+use crate::names::BuiltinSort;
 
 use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_production};
 
@@ -44,7 +45,11 @@ pub(crate) fn concretize_parametric_productions<'a>(
     let mut all_sorts = catalog
         .all_sorts()
         .iter()
-        .filter(|sort| !is_parser_sort(sort) || matches!(sort.name.as_str(), "K" | "KItem"))
+        .filter(|sort| {
+            !is_parser_sort(sort)
+                || sort.name == BuiltinSort::K.k_name()
+                || sort.name == BuiltinSort::KItem.k_name()
+        })
         .cloned()
         .collect::<Vec<_>>();
     for builtin in [Sort::new("K"), Sort::new("KItem")] {
@@ -123,7 +128,9 @@ pub(crate) fn concretize_parametric_productions<'a>(
             all_sorts
                 .iter()
                 .filter(|concrete| {
-                    parameters.contains(sort) || !matches!(concrete.name.as_str(), "K" | "KItem")
+                    parameters.contains(sort)
+                        || (concrete.name != BuiltinSort::K.k_name()
+                            && concrete.name != BuiltinSort::KItem.k_name())
                 })
                 .map(|concrete| BTreeMap::from([(parameters[0].clone(), concrete.clone())]))
                 .collect()

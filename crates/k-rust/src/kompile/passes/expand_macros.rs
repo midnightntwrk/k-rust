@@ -5,6 +5,7 @@ use std::{
     fmt,
 };
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition,
@@ -657,7 +658,7 @@ fn with_metadata(term: Term, metadata: Option<crate::kast::TermMetadata>) -> Ter
 fn truth() -> Term {
     Term::Token {
         token: "true".into(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 

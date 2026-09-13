@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, collections::BTreeSet, fmt};
 
 use serde_json::json;
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
@@ -17,7 +18,6 @@ use crate::{
 use super::rebase_local_metadata_by;
 
 const GENERATED_COUNTER_CELL: &str = "<generatedCounter>";
-const GENERATED_COUNTER_SORT: &str = "GeneratedCounterCell";
 const GENERATED_TOP_CELL: &str = "<generatedTop>";
 const INIT_GENERATED_COUNTER_CELL: &str = "initGeneratedCounterCell";
 const INIT_GENERATED_TOP_CELL: &str = "initGeneratedTopCell";
@@ -250,7 +250,7 @@ fn transform_term(
                         fresh_counter(),
                         Term::Token {
                             token: offsets[&name].to_string(),
-                            sort: Sort::new("Int"),
+                            sort: Sort::builtin(BuiltinSort::Int),
                         },
                     ],
                 )],
@@ -315,7 +315,7 @@ fn add_fresh_cell(body: Term, count: usize) -> Term {
                             fresh_counter(),
                             Term::Token {
                                 token: count.to_string(),
-                                sort: Sort::new("Int"),
+                                sort: Sort::builtin(BuiltinSort::Int),
                             },
                         ],
                     )),
@@ -405,7 +405,8 @@ fn add_counter_to_top_production(sentence: Sentence) -> Sentence {
         && !items.iter().any(|item| {
             matches!(
                 item,
-                ProductionItem::NonTerminal { sort, .. } if sort.name == GENERATED_COUNTER_SORT
+                ProductionItem::NonTerminal { sort, .. }
+                    if sort.name == BuiltinSort::GeneratedCounterCell.k_name()
             )
         })
     {
@@ -413,7 +414,7 @@ fn add_counter_to_top_production(sentence: Sentence) -> Sentence {
         items.insert(
             position,
             ProductionItem::NonTerminal {
-                sort: Sort::new(GENERATED_COUNTER_SORT),
+                sort: Sort::builtin(BuiltinSort::GeneratedCounterCell),
                 name: None,
             },
         );
@@ -444,7 +445,9 @@ fn fix_generated_top_format(sentence: &mut Sentence) {
         .iter()
         .enumerate()
         .filter_map(|(index, item)| match item {
-            ProductionItem::NonTerminal { sort, .. } if sort.name != GENERATED_COUNTER_SORT => {
+            ProductionItem::NonTerminal { sort, .. }
+                if sort.name != BuiltinSort::GeneratedCounterCell.k_name() =>
+            {
                 Some(index + 1)
             }
             _ => None,
@@ -592,7 +595,7 @@ fn counter_config_term(initial_fresh: usize) -> Term {
             Term::apply("#cellPropertyListTerminator", Vec::new()),
             Term::Token {
                 token: initial_fresh.to_string(),
-                sort: Sort::new("Int"),
+                sort: Sort::builtin(BuiltinSort::Int),
             },
             name,
         ],
@@ -610,18 +613,18 @@ fn configuration(body: Term) -> Sentence {
 fn counter_helpers() -> [Sentence; 2] {
     let cell = Term::Variable {
         name: "Cell".into(),
-        sort: Some(Sort::new(GENERATED_COUNTER_SORT)),
+        sort: Some(Sort::builtin(BuiltinSort::GeneratedCounterCell)),
     };
     [
         Sentence::Production {
             label: Some(Label::new("getGeneratedCounterCell")),
             parameters: Vec::new(),
-            sort: Sort::new(GENERATED_COUNTER_SORT),
+            sort: Sort::builtin(BuiltinSort::GeneratedCounterCell),
             items: vec![
                 ProductionItem::Terminal("getGeneratedCounterCell".into()),
                 ProductionItem::Terminal("(".into()),
                 ProductionItem::NonTerminal {
-                    sort: Sort::new("GeneratedTopCell"),
+                    sort: Sort::builtin(BuiltinSort::GeneratedTopCell),
                     name: None,
                 },
                 ProductionItem::Terminal(")".into()),
@@ -662,7 +665,7 @@ fn incomplete_cell(label: &str, open_left: bool, body: Term, open_right: bool) -
 fn fresh_counter() -> Term {
     Term::Variable {
         name: "#Fresh".into(),
-        sort: Some(Sort::new("Int")),
+        sort: Some(Sort::builtin(BuiltinSort::Int)),
     }
 }
 
@@ -676,7 +679,7 @@ fn cell_name_token(name: &str) -> Term {
 fn truth() -> Term {
     Term::Token {
         token: "true".into(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 

@@ -12,6 +12,7 @@ use crate::definition::{
     match_rule_label, sentence_equivalent,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
+use crate::names::BuiltinSort;
 
 #[derive(Clone, Copy)]
 struct Target {
@@ -274,7 +275,7 @@ fn check_hooked_sort_constructor(
     sorts: &SortCatalog<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if sort.name == "KItem" {
+    if sort.name == BuiltinSort::KItem.k_name() {
         return;
     }
     let Some(sort_attributes) = sorts.attributes_for(&SortHead::from(sort)) else {
@@ -290,7 +291,7 @@ fn check_hooked_sort_constructor(
         .iter()
         .any(|attribute| attributes.get(attribute).is_some())
         || macro_label;
-    let k_exempt = sort.name == "K"
+    let k_exempt = sort.name == BuiltinSort::K.k_name()
         && (label
             .as_ref()
             .is_some_and(|label| matches!(label.name.as_str(), "#EmptyK" | "#KSequence"))

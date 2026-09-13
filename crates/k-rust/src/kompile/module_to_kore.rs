@@ -18,6 +18,7 @@ use crate::kore::ast::{
     Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
     Sort as KoreSort, Symbol, Variable, VariableKind,
 };
+use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::{
     GeneratingPass, ProvenanceLink, seed_generated_sentence_origin, sentence_origin_links,
 };
@@ -614,7 +615,9 @@ fn definition_attributes(
                 sort,
                 attributes,
                 ..
-            } if sort.name == "GeneratedTopCell" && attributes.get("initializer").is_some() => {
+            } if sort.name == BuiltinSort::GeneratedTopCell.k_name()
+                && attributes.get("initializer").is_some() =>
+            {
                 Some(label)
             }
             _ => None,
@@ -945,7 +948,7 @@ fn generate_map_ceil_rules(
         let equals = Term::Apply {
             label: Label::with_parameters(
                 "#Equals",
-                vec![Sort::new("Bool"), sort_parameter.clone()],
+                vec![Sort::builtin(BuiltinSort::Bool), sort_parameter.clone()],
             ),
             arguments: vec![in_keys, bool_token(false)],
         };
@@ -1030,7 +1033,7 @@ fn annotated_application(label: Label, arguments: Vec<Term>, production: Product
 fn bool_token(value: bool) -> Term {
     Term::Token {
         token: value.to_string(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 
@@ -1470,7 +1473,7 @@ fn no_junk_axioms(
                 alternatives.push(alternative);
             }
         }
-        if sort.name != "K" {
+        if sort.name != BuiltinSort::K.k_name() {
             for subsort in sorts
                 .sorted_all_sorts()
                 .filter(|subsort| subsorts.less_than(subsort, sort))
@@ -1488,7 +1491,7 @@ fn no_junk_axioms(
                     variable: variable.clone(),
                     body: Box::new(Pattern::Application {
                         symbol: Symbol {
-                            name: "inj".into(),
+                            name: WellKnownSymbol::Inj.as_str().into(),
                             sort_parameters: vec![subsort, result_sort.clone()],
                         },
                         arguments: vec![Pattern::Variable(variable)],
@@ -1936,7 +1939,7 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
     let [ProductionItem::NonTerminal { sort: subsort, .. }] = items.as_slice() else {
         return None;
     };
-    if sort.name == "K" {
+    if sort.name == BuiltinSort::K.k_name() {
         return None;
     }
 
@@ -1954,7 +1957,7 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
     };
     let injection = Pattern::Application {
         symbol: Symbol {
-            name: "inj".into(),
+            name: WellKnownSymbol::Inj.as_str().into(),
             sort_parameters: vec![subsort.clone(), sort.clone()],
         },
         arguments: vec![Pattern::Variable(from)],
@@ -2104,7 +2107,7 @@ fn inject_if_needed(pattern: Pattern, from: &KoreSort, to: &KoreSort) -> Pattern
     } else {
         Pattern::Application {
             symbol: Symbol {
-                name: "inj".into(),
+                name: WellKnownSymbol::Inj.as_str().into(),
                 sort_parameters: vec![from.clone(), to.clone()],
             },
             arguments: vec![pattern],
@@ -2250,7 +2253,7 @@ fn emit_rule_or_claim(
         }
         return emit_macro_axiom(left, right, attributes, valued, injector, converter);
     }
-    if !claim && body_sort != Sort::new("GeneratedTopCell") {
+    if !claim && !body_sort.is_builtin(BuiltinSort::GeneratedTopCell) {
         return Err(ModuleToKoreError::ExpectedGeneratedTopCell {
             actual: body_sort,
             rule: body.to_string(),
@@ -2384,7 +2387,7 @@ fn equation_info<'a>(
     let anywhere = attributes.get("anywhere").is_some();
     // Java's ModuleToKORE supplies a synthetic polymorphic production for `inj`; it is part of
     // the KORE prelude rather than the compiled K module's production catalog.
-    if label.name == "inj" {
+    if label.is(WellKnownSymbol::Inj) {
         if !simplification && !anywhere {
             return Ok(None);
         }
@@ -3067,7 +3070,7 @@ fn side_condition(
             sort: result_sort.clone(),
         });
     }
-    let bool_sort = encode_kore_sort(&Sort::new("Bool"));
+    let bool_sort = encode_kore_sort(&Sort::builtin(BuiltinSort::Bool));
     Ok(Pattern::Equals {
         operand_sort: bool_sort.clone(),
         result_sort: result_sort.clone(),
@@ -3082,7 +3085,7 @@ fn side_condition(
 fn is_true(term: &Term) -> bool {
     matches!(
         term.unannotated(),
-        Term::Token { token, sort } if token == "true" && sort == &Sort::new("Bool")
+        Term::Token { token, sort } if token == "true" && sort.is_builtin(BuiltinSort::Bool)
     )
 }
 
@@ -3176,7 +3179,7 @@ fn transitive_impure_labels(
                 let Term::Apply { label, .. } = term.unannotated() else {
                     return;
                 };
-                if label.name == "inj" {
+                if label.is(WellKnownSymbol::Inj) {
                     return;
                 }
                 let dependency = LabelHead::from(label);
@@ -3226,7 +3229,7 @@ fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
     let Term::Apply { label, arguments } = left.unannotated() else {
         return None;
     };
-    if label.name != "inj" {
+    if !label.is(WellKnownSymbol::Inj) {
         return Some(LabelHead::from(label));
     }
     let Term::Apply { label, .. } = arguments.first()?.unannotated() else {
@@ -3247,7 +3250,8 @@ fn sort_declarations(
         .collect::<BTreeSet<_>>();
     let mut declarations = Vec::new();
     for head in sorts.sorted_defined_heads() {
-        if matches!(head.as_str(), "K" | "KItem") {
+        if head.as_str() == BuiltinSort::K.k_name() || head.as_str() == BuiltinSort::KItem.k_name()
+        {
             continue;
         }
         let source_attributes = sorts.attributes_for(head).cloned().unwrap_or_default();
@@ -3806,7 +3810,7 @@ pub fn encode_kore_label(label: &Label) -> Symbol {
 
 fn encode_kore_label_with_formals(label: &Label, formals: &[Sort]) -> Symbol {
     Symbol {
-        name: if label.name == "inj" {
+        name: if label.is(WellKnownSymbol::Inj) {
             label.name.clone()
         } else {
             format!("Lbl{}", encode_kore_identifier(&label.name))

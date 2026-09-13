@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, fmt};
 
 use serde_json::Value;
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, FlatImport, ProductionItem, ResolvedDefinition, Sentence,
@@ -521,7 +522,7 @@ fn java_split(text: &str, delimiter: char) -> Vec<&str> {
 fn bool_token(value: bool) -> Term {
     Term::Token {
         token: value.to_string(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 

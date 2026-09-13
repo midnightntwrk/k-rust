@@ -7,6 +7,7 @@ use crate::definition::{Attributes, ResolvedDefinition, Sentence, sentence_equiv
 use crate::inner::{RuleError, parse_rule_content};
 use crate::kast::{Sort, Term};
 use crate::kore::ast::{Pattern, VariableKind};
+use crate::names::BuiltinSort;
 
 use super::fresh_names::GeneratedVariableIdentity;
 use super::passes::{
@@ -165,8 +166,8 @@ pub fn compile_search_pattern(
         .try_into()
         .expect("two input roots produce two expanded roots");
 
-    let top = Sort::new("GeneratedTopCell");
-    let bool_sort = Sort::new("Bool");
+    let top = Sort::builtin(BuiltinSort::GeneratedTopCell);
+    let bool_sort = Sort::builtin(BuiltinSort::Bool);
     let injector = SortInjector::new(execution_definition, module)?;
     let actual = injector.term_sort(&body, None)?;
     if actual != top {
@@ -218,7 +219,7 @@ pub fn compile_search_pattern(
 fn is_true(term: &Term) -> bool {
     matches!(
         term.unannotated(),
-        Term::Token { token, sort } if token == "true" && sort == &Sort::new("Bool")
+        Term::Token { token, sort } if token == "true" && sort.is_builtin(BuiltinSort::Bool)
     )
 }
 

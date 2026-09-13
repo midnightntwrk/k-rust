@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence},
     kast::{Sort, Term},
@@ -285,7 +286,7 @@ impl<'a> Minimizer<'a> {
 fn is_true(term: &Term) -> bool {
     matches!(
         term,
-        Term::Token { token, sort } if token == "true" && sort.name == "Bool"
+        Term::Token { token, sort } if token == "true" && sort.name == BuiltinSort::Bool.k_name()
     )
 }
 

@@ -19,6 +19,7 @@ use k_rust::kore::{
     json as kore_json,
     parser::parse_module,
 };
+use k_rust::names::WellKnownSymbol;
 use k_rust_backend::{
     cancellation::{CancellationToken, cancellation_requested},
     definition::{BackendDefinition, DefinitionError},
@@ -965,7 +966,7 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
                 format!("{source} is not a subsort of {target}"),
                 find_application(
                     pattern,
-                    "inj",
+                    WellKnownSymbol::Inj.as_str(),
                     Some(1),
                     None,
                     Some((source.as_str(), target.as_str())),

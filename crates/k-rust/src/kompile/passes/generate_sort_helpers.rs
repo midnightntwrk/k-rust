@@ -2,6 +2,7 @@
 
 use serde_json::{Value, json};
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
@@ -27,13 +28,15 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
         // Supply their token sort at the compilation root when the source does
         // not provide one. Imported prelude declarations remain authoritative.
         if module_id == resolved.main_module_id()
-            && !sorts.token_sorts().contains(&Sort::new("Bool"))
+            && !sorts
+                .token_sorts()
+                .contains(&Sort::builtin(BuiltinSort::Bool))
         {
             let mut attributes = Attributes::default();
             attributes.insert("token", json!(""));
             generated.push(Sentence::SyntaxSort {
                 parameters: Vec::new(),
-                sort: Sort::new("Bool"),
+                sort: Sort::builtin(BuiltinSort::Bool),
                 attributes,
             });
         }
@@ -42,12 +45,12 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
             let production = Sentence::Production {
                 label: Some(label.clone()),
                 parameters: Vec::new(),
-                sort: Sort::new("Bool"),
+                sort: Sort::builtin(BuiltinSort::Bool),
                 items: vec![
                     ProductionItem::Terminal(label.name.clone()),
                     ProductionItem::Terminal("(".into()),
                     ProductionItem::NonTerminal {
-                        sort: Sort::new("K"),
+                        sort: Sort::builtin(BuiltinSort::K),
                         name: None,
                     },
                     ProductionItem::Terminal(")".into()),
@@ -69,7 +72,7 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
         if !generated.is_empty() {
             let k_sort = Sentence::SyntaxSort {
                 parameters: Vec::new(),
-                sort: Sort::new("K"),
+                sort: Sort::builtin(BuiltinSort::K),
                 attributes: Attributes::default(),
             };
             if !module.local_sentences.contains(&k_sort) {
@@ -108,7 +111,7 @@ pub fn regenerate_sort_predicate_syntax(definition: &Definition) -> Result<Defin
                 ProductionItem::Terminal(label.name.clone()),
                 ProductionItem::Terminal("(".into()),
                 ProductionItem::NonTerminal {
-                    sort: Sort::new("K"),
+                    sort: Sort::builtin(BuiltinSort::K),
                     name: None,
                 },
                 ProductionItem::Terminal(")".into()),
@@ -141,7 +144,10 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
             .collect::<Vec<_>>();
         let mut generated = Vec::new();
         for sort in sorts.all_sorts() {
-            if is_parser_sort(sort) && !matches!(sort.name.as_str(), "K" | "KItem") {
+            if is_parser_sort(sort)
+                && sort.name != BuiltinSort::K.k_name()
+                && sort.name != BuiltinSort::KItem.k_name()
+            {
                 continue;
             }
             let label = Label::new(format!("project:{sort}"));
@@ -190,7 +196,7 @@ fn sort_projection(sort: &Sort, label: Label) -> [Sentence; 2] {
                 ProductionItem::Terminal(label.name.clone()),
                 ProductionItem::Terminal("(".into()),
                 ProductionItem::NonTerminal {
-                    sort: Sort::new("K"),
+                    sort: Sort::builtin(BuiltinSort::K),
                     name: None,
                 },
                 ProductionItem::Terminal(")".into()),
@@ -321,7 +327,7 @@ fn named_projections(
 fn truth() -> Term {
     Term::Token {
         token: "true".into(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 

@@ -8,6 +8,7 @@ use std::{
 
 use k_rust_kore::measure::{self, Counter};
 
+use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::{
         CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence, StructuralCheckBackend,
@@ -465,7 +466,9 @@ pub fn configuration_variables(
         loop {
             term = term.unannotated();
             match term {
-                Term::Apply { label, arguments } if label.name == "inj" && arguments.len() == 1 => {
+                Term::Apply { label, arguments }
+                    if label.is(WellKnownSymbol::Inj) && arguments.len() == 1 =>
+                {
                     term = &arguments[0];
                 }
                 Term::Sequence(items) if items.len() == 1 => {
@@ -489,11 +492,11 @@ pub fn configuration_variables(
         let Term::Token { token, sort } = unwrap_singleton(key) else {
             return None;
         };
-        (sort.name == "KConfigVar").then_some(token.as_str())
+        (sort.name == BuiltinSort::KConfigVar.k_name()).then_some(token.as_str())
     }
 
     fn is_generic_k(sort: &Sort) -> bool {
-        sort.parameters.is_empty() && matches!(sort.name.as_str(), "K" | "KItem")
+        sort.is_builtin(BuiltinSort::K) || sort.is_builtin(BuiltinSort::KItem)
     }
 
     fn insert_sort(
@@ -515,7 +518,7 @@ pub fn configuration_variables(
             }
             (false, true) => Ok(()),
             (true, true) => {
-                if sort.name == "KItem" {
+                if sort.is_builtin(BuiltinSort::KItem) {
                     sorts.insert(name, sort);
                 }
                 Ok(())
