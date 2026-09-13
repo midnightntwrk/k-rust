@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{
         Definition, LabelHead, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
@@ -11,7 +12,6 @@ use crate::{
 };
 
 const GENERATED_COUNTER_CELL: &str = "<generatedCounter>";
-const MACRO_ATTRIBUTES: &[&str] = &["macro", "macro-rec", "alias", "alias-rec"];
 
 /// Apply Java's `AddImplicitComputationCell` definition transformation.
 pub fn add_implicit_computation_cell(definition: &Definition) -> Result<Definition, String> {
@@ -33,7 +33,7 @@ fn add_implicit_computation_cell_inner(definition: &Definition) -> Result<Defini
     let configuration_productions = resolved.production_catalog(resolved.main_module_id());
     let cell_sorts = configuration_productions
         .productions()
-        .filter(|(_, production)| production.attributes().get("cell").is_some())
+        .filter(|(_, production)| production.attributes().has(AttributeKey::Cell))
         .filter_map(|(_, production)| match production {
             Sentence::Production { sort, .. } => Some(sort.clone()),
             _ => None,
@@ -47,7 +47,7 @@ fn add_implicit_computation_cell_inner(definition: &Definition) -> Result<Defini
                 sort,
                 attributes,
                 ..
-            } if attributes.get("cell").is_some() && attributes.get("maincell").is_some() => {
+            } if attributes.has(AttributeKey::Cell) && attributes.has(AttributeKey::Maincell) => {
                 Some((sort.clone(), label.clone()))
             }
             _ => None,
@@ -86,11 +86,9 @@ fn add_implicit_computation_cell_inner(definition: &Definition) -> Result<Defini
 }
 
 fn skip_sentence(sentence: &Sentence) -> bool {
-    MACRO_ATTRIBUTES
-        .iter()
-        .any(|attribute| sentence.attributes().get(attribute).is_some())
-        || sentence.attributes().get("anywhere").is_some()
-        || sentence.attributes().get("simplification").is_some()
+    sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
+        || sentence.attributes().has(AttributeKey::Anywhere)
+        || sentence.attributes().has(AttributeKey::Simplification)
 }
 
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
@@ -122,7 +120,7 @@ fn is_function_application(
                 production,
                 Sentence::Production { label: Some(candidate), .. } if candidate.name == label.name
             ) {
-                return production.attributes().get("function").is_some();
+                return production.attributes().has(AttributeKey::Function);
             }
         }
         let candidates = productions.productions_for(&LabelHead::from(label));
@@ -130,7 +128,7 @@ fn is_function_application(
             && productions
                 .production(candidates[0])
                 .attributes()
-                .get("function")
+                .value(AttributeKey::Function)
                 .is_some();
     }
     productions

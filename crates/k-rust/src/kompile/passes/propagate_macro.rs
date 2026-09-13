@@ -1,13 +1,10 @@
 //! Propagate production macro kinds onto their defining rules.
 
-use serde_json::Value;
-
+use crate::definition::AttributeKey;
 use crate::{
     definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
     kast::Term,
 };
-
-const MACRO_ATTRIBUTES: &[&str] = &["macro", "macro-rec", "alias", "alias-rec"];
 
 /// Apply Java's `PropagateMacro` transformation.
 pub fn propagate_macro_attributes(definition: &Definition) -> Result<Definition, String> {
@@ -25,7 +22,7 @@ pub fn propagate_macro_attributes(definition: &Definition) -> Result<Definition,
             else {
                 continue;
             };
-            if attributes.get("simplification").is_some() {
+            if attributes.has(AttributeKey::Simplification) {
                 continue;
             }
             let Term::Rewrite { left, .. } = body.unannotated() else {
@@ -41,11 +38,11 @@ pub fn propagate_macro_attributes(definition: &Definition) -> Result<Definition,
             else {
                 continue;
             };
-            if let Some(attribute) = MACRO_ATTRIBUTES
-                .iter()
-                .find(|attribute| production_attributes.get(attribute).is_some())
+            if let Some(attribute) = AttributeKey::MACRO_LIKE
+                .into_iter()
+                .find(|attribute| production_attributes.has(*attribute))
             {
-                attributes.insert(*attribute, Value::String(String::new()));
+                attributes.mark(attribute);
             }
         }
     }

@@ -2,8 +2,7 @@
 
 use std::{collections::BTreeSet, fmt};
 
-use serde_json::json;
-
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
@@ -270,7 +269,7 @@ impl Resolver<'_, '_> {
                 vec![Term::variable("#Owise")],
             );
             let mut owise = attributes.clone();
-            owise.insert("owise", json!(""));
+            owise.mark(AttributeKey::Owise);
             let negative = self.lambda_rule(
                 &lambda,
                 &owise_pattern,
@@ -600,9 +599,9 @@ fn lambda_production(
     }
     items.push(ProductionItem::Terminal(")".into()));
     let mut attributes = Attributes::default();
-    attributes.insert("function", json!(""));
+    attributes.mark(AttributeKey::Function);
     if total {
-        attributes.insert("total", json!(""));
+        attributes.mark(AttributeKey::Total);
     }
     Sentence::Production {
         label: Some(lambda.clone()),

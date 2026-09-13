@@ -2,6 +2,7 @@
 
 use std::{fmt, ops::Range};
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -211,7 +212,7 @@ fn stream_productions(
         else {
             continue;
         };
-        let Some(stream) = attributes.get_str("stream") else {
+        let Some(stream) = attributes.string(AttributeKey::Stream) else {
             continue;
         };
         if !matches!(stream, "stdin" | "stdout") {
@@ -250,7 +251,7 @@ fn stream_productions(
 
 fn stream_name(sentence: &Sentence) -> Option<&str> {
     match sentence {
-        Sentence::Production { attributes, .. } => attributes.get_str("stream"),
+        Sentence::Production { attributes, .. } => attributes.string(AttributeKey::Stream),
         _ => None,
     }
 }
@@ -373,18 +374,18 @@ fn stream_module_sentences(
                 requires,
                 ensures,
                 attributes,
-            } if attributes.get("stream").is_some() => Some(Sentence::Rule {
+            } if attributes.has(AttributeKey::Stream) => Some(Sentence::Rule {
                 body: rename_label(body.clone(), &builtin_label, &stream.label),
                 requires: requires.clone(),
                 ensures: ensures.clone(),
                 attributes: attributes.clone(),
             }),
-            Sentence::Rule { attributes, .. } if attributes.get("projection").is_some() => {
+            Sentence::Rule { attributes, .. } if attributes.has(AttributeKey::Projection) => {
                 Some(sentence.clone())
             }
             Sentence::Production {
                 sort, attributes, ..
-            } if sort.name == "Stream" || attributes.get("projection").is_some() => {
+            } if sort.name == "Stream" || attributes.has(AttributeKey::Projection) => {
                 Some(sentence.clone())
             }
             _ => None,
@@ -459,7 +460,7 @@ fn stdin_unblock_template(
         .filter_map(|sentence| match sentence {
             Sentence::Rule {
                 body, attributes, ..
-            } if attributes.get_str("label") == Some("STDIN-STREAM.stdinUnblock") => {
+            } if attributes.string(AttributeKey::Label) == Some("STDIN-STREAM.stdinUnblock") => {
                 Some(without_production_metadata(body.clone()))
             }
             _ => None,

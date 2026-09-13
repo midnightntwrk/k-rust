@@ -1,5 +1,6 @@
 //! Remove unit applications from associative collection terms before KORE emission.
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
     kast::Term,
@@ -54,12 +55,14 @@ fn transform(
                 _ => None,
             };
             let optional_cell = attributes.is_some_and(|attributes| {
-                attributes.get("cell").is_some() && attributes.get_str("multiplicity") == Some("?")
+                attributes.has(AttributeKey::Cell)
+                    && attributes.string(AttributeKey::Multiplicity) == Some("?")
             });
             if !optional_cell
-                && let Some(unit) = attributes.and_then(|attributes| attributes.get_str("unit"))
+                && let Some(unit) =
+                    attributes.and_then(|attributes| attributes.string(AttributeKey::Unit))
             {
-                if attributes.is_none_or(|attributes| attributes.get("assoc").is_none()) {
+                if attributes.is_none_or(|attributes| !attributes.has(AttributeKey::Assoc)) {
                     return Err(format!(
                         "production for {} has a unit attribute but is not associative",
                         label.name

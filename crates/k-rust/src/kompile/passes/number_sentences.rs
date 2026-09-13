@@ -5,19 +5,20 @@ use std::{collections::BTreeMap, fmt::Write};
 use serde_json::Value;
 use sha3::{Digest, Sha3_256};
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{Attributes, Definition, Sentence},
     kast::Term,
 };
 
-const PRESERVED_ATTRIBUTES: &[&str] = &[
-    "concrete",
-    "symbolic",
-    "owise",
-    "priority",
-    "simplification",
-    "anywhere",
-    "non-executable",
+const PRESERVED_ATTRIBUTES: [AttributeKey; 7] = [
+    AttributeKey::Concrete,
+    AttributeKey::Symbolic,
+    AttributeKey::Owise,
+    AttributeKey::Priority,
+    AttributeKey::Simplification,
+    AttributeKey::Anywhere,
+    AttributeKey::NonExecutable,
 ];
 
 /// Apply Java's `NumberSentences` transformation to every rule and claim.
@@ -35,19 +36,14 @@ pub(crate) fn number_sentence(sentence: &mut Sentence) {
     let (Sentence::Rule { attributes, .. } | Sentence::Claim { attributes, .. }) = sentence else {
         return;
     };
-    if attributes.get("UNIQUE_ID").is_some() {
+    if attributes.has(AttributeKey::UniqueId) {
         return;
     }
 
-    let semantic_attributes = Attributes::new(
+    let semantic_attributes = Attributes::from_pairs(
         PRESERVED_ATTRIBUTES
-            .iter()
-            .filter_map(|key| {
-                attributes
-                    .get(key)
-                    .map(|value| ((*key).to_owned(), value.clone()))
-            })
-            .collect::<BTreeMap<_, _>>(),
+            .into_iter()
+            .filter_map(|key| attributes.value(key).map(|value| (key, value.clone()))),
     );
     let text = unique_id_text(sentence, &semantic_attributes);
     let digest = Sha3_256::digest(text.as_bytes());
@@ -57,7 +53,7 @@ pub(crate) fn number_sentence(sentence: &mut Sentence) {
     }
     match sentence {
         Sentence::Rule { attributes, .. } | Sentence::Claim { attributes, .. } => {
-            attributes.insert("UNIQUE_ID", Value::String(id));
+            attributes.set(AttributeKey::UniqueId, Value::String(id));
         }
         _ => unreachable!("guard selected a rule or claim"),
     }

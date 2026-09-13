@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, collections::BTreeSet, fmt};
 
 use petgraph::{Direction::Incoming, graph::DiGraph, graph::NodeIndex};
 
+use crate::definition::AttributeKey;
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::{
@@ -262,7 +263,7 @@ fn compute_with_config_functions(
     let anywhere = rules
         .rules()
         .filter(|(_, rule)| !is_macro(rule.attributes()))
-        .filter(|(_, rule)| rule.attributes().get("anywhere").is_some())
+        .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
         .filter_map(|(_, rule)| anywhere_lhs_label(rule))
         .collect::<BTreeSet<_>>();
 
@@ -416,7 +417,7 @@ fn resolve_with_config_body(
     };
     if productions
         .attributes_for(&LabelHead::from(function_label))
-        .is_none_or(|attributes| attributes.get("function").is_none())
+        .is_none_or(|attributes| !attributes.has(AttributeKey::Function))
     {
         diagnostics.push(error_at(
             "Found term that is not a cell or a function at the top of a rule.",
