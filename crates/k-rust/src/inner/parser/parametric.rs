@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::definition::regex::Regex as KRegex;
 use crate::definition::{
-    Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
+    AttributeKey, Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{Label, Sort};
 use crate::names::BuiltinSort;
@@ -316,7 +316,9 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         token: attributes.get("token").is_some(),
         transparent: attributes.get("bracket").is_some(),
         bracket: attributes.get("bracket").is_some(),
-        bracket_label: attributes.label("bracketLabel").map(|label| label.name),
+        bracket_label: attributes
+            .label(AttributeKey::BracketLabel)
+            .map(|label| label.name),
         apply_priority: attributes.get_str("applyPriority"),
         function: attributes.get("function").is_some(),
         macro_like: ["macro", "macro-rec", "alias", "alias-rec"]

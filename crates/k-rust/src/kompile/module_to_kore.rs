@@ -8,7 +8,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use serde_json::{Value, json};
 
 use crate::definition::{
-    AssociativityRelations, Attributes as KAttributes, Definition as KDefinition,
+    AssociativityRelations, AttributeKey, Attributes as KAttributes, Definition as KDefinition,
     LOCATION_ATTRIBUTE, LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog,
     ProductionId, ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog,
     SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead, match_rule_label, sentence_equivalent,
@@ -540,7 +540,7 @@ pub fn declaration_modules_from_resolved_with_options(
         else {
             continue;
         };
-        let Some(mut bracket_label) = attributes.label("bracketLabel") else {
+        let Some(mut bracket_label) = attributes.label(AttributeKey::BracketLabel) else {
             continue;
         };
         if attributes.get_str("bracketLabel").is_some() {

@@ -12,12 +12,13 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     definition::{
-        Definition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, Sentence,
+        AttributeKey, Definition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE,
+        Sentence,
     },
     kast::{Term, TermMetadata, TermSpan},
 };
 
-pub const ORIGIN_ATTRIBUTE: &str = "org.krust.provenance.Origin";
+pub const ORIGIN_ATTRIBUTE: &str = AttributeKey::Origin.as_str();
 
 /// Generated leaf categories whose derivation is represented by their nearest parent receipt.
 pub const DECLARED_ORIGIN_FREE_NODE_KINDS: [&str; 3] =

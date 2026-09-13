@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Write};
 
 use crate::definition::{
-    Attributes, ProductionId, ProductionItem, Sentence, SortCatalog, SortHead,
+    AttributeKey, Attributes, ProductionId, ProductionItem, Sentence, SortCatalog, SortHead,
     compute_associativities, compute_overloads, compute_priorities, compute_subsorts,
     sentence_equivalent,
 };
@@ -786,17 +786,16 @@ fn write_subsort_action(
     .expect("writing to a string cannot fail");
 
     if attributes.get("userListTerminator").is_some() {
-        let nil = attributes.label("userListTerminator").ok_or_else(|| {
+        let nil = attributes
+            .label(AttributeKey::UserListTerminator)
+            .ok_or_else(|| GrammarError::InvalidUserListMetadata {
+                sort: result.clone(),
+            })?;
+        let cons = attributes.label(AttributeKey::UserList).ok_or_else(|| {
             GrammarError::InvalidUserListMetadata {
                 sort: result.clone(),
             }
         })?;
-        let cons =
-            attributes
-                .label("userList")
-                .ok_or_else(|| GrammarError::InvalidUserListMetadata {
-                    sort: result.clone(),
-                })?;
         let nil = c_kore_label(&nil);
         let cons = c_kore_label(&cons);
         writeln!(

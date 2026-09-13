@@ -8,21 +8,20 @@ use std::{
 
 use serde_json::Value;
 
+use super::attribute_keys::AttributeKey;
 use crate::kast::json::JsonLabel;
 use crate::kast::{Label, Sort, Term};
 use crate::provenance::{ORIGIN_ATTRIBUTE, OriginReceipt, OriginRecord, SourceId};
 
-pub const LOCATION_ATTRIBUTE: &str = "org.kframework.attributes.Location";
-pub const SOURCE_ATTRIBUTE: &str = "org.kframework.attributes.Source";
-pub const SOURCE_ID_ATTRIBUTE: &str = "org.kframework.attributes.SourceId";
-pub const SENTENCE_START_OFFSET_ATTRIBUTE: &str = "org.krust.provenance.SentenceStartOffset";
-pub const SENTENCE_END_OFFSET_ATTRIBUTE: &str = "org.krust.provenance.SentenceEndOffset";
+// String aliases of registry rows, kept for callers that index the map by name.
+pub const LOCATION_ATTRIBUTE: &str = AttributeKey::Location.as_str();
+pub const SOURCE_ATTRIBUTE: &str = AttributeKey::Source.as_str();
+pub const SOURCE_ID_ATTRIBUTE: &str = AttributeKey::SourceId.as_str();
+pub const SENTENCE_START_OFFSET_ATTRIBUTE: &str = AttributeKey::SentenceStartOffset.as_str();
+pub const SENTENCE_END_OFFSET_ATTRIBUTE: &str = AttributeKey::SentenceEndOffset.as_str();
 
 pub(super) fn is_provenance_only_attribute(key: &str) -> bool {
-    matches!(
-        key,
-        ORIGIN_ATTRIBUTE | SENTENCE_START_OFFSET_ATTRIBUTE | SENTENCE_END_OFFSET_ATTRIBUTE
-    )
+    AttributeKey::from_name(key).is_some_and(AttributeKey::is_provenance_only)
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -149,9 +148,29 @@ impl Attributes {
         self.get(key).and_then(Value::as_str)
     }
 
+    /// Whether a well-known key is present.
+    pub fn has(&self, key: AttributeKey) -> bool {
+        self.get(key.as_str()).is_some()
+    }
+
+    /// Whether any of the well-known keys is present.
+    pub fn has_any(&self, keys: &[AttributeKey]) -> bool {
+        keys.iter().any(|key| self.has(*key))
+    }
+
+    /// The value of a well-known key.
+    pub fn value(&self, key: AttributeKey) -> Option<&Value> {
+        self.get(key.as_str())
+    }
+
+    /// The string value of a well-known key; `None` when absent or not a string.
+    pub fn string(&self, key: AttributeKey) -> Option<&str> {
+        self.get_str(key.as_str())
+    }
+
     /// Read a typed K label while accepting the string form emitted by older krust builds.
-    pub fn label(&self, key: &str) -> Option<Label> {
-        match self.get(key)? {
+    pub fn label(&self, key: AttributeKey) -> Option<Label> {
+        match self.value(key)? {
             Value::String(name) => Some(Label::new(name.clone())),
             value => serde_json::from_value::<JsonLabel>(value.clone())
                 .ok()
@@ -178,6 +197,31 @@ impl Attributes {
         } else {
             self.entries.remove(key)
         }
+    }
+
+    /// Write a well-known key.
+    pub fn set(&mut self, key: AttributeKey, value: Value) -> Option<Value> {
+        self.insert(key.as_str(), value)
+    }
+
+    /// Write a well-known key as a bare marker (the empty string K uses for a parameterless key).
+    pub fn mark(&mut self, key: AttributeKey) -> Option<Value> {
+        self.set(key, Value::String(String::new()))
+    }
+
+    /// Remove a well-known key.
+    pub fn unset(&mut self, key: AttributeKey) -> Option<Value> {
+        self.remove(key.as_str())
+    }
+
+    /// Build a map from well-known keys.
+    pub fn from_pairs<I: IntoIterator<Item = (AttributeKey, Value)>>(pairs: I) -> Self {
+        Self::new(
+            pairs
+                .into_iter()
+                .map(|(key, value)| (key.as_str().to_owned(), value))
+                .collect(),
+        )
     }
 
     pub fn is_empty(&self) -> bool {
@@ -236,18 +280,18 @@ impl Attributes {
     }
 
     pub fn source(&self) -> Option<&str> {
-        self.get_str(SOURCE_ATTRIBUTE)
+        self.string(AttributeKey::Source)
     }
 
     pub fn source_id(&self) -> Option<SourceId> {
-        self.get(SOURCE_ID_ATTRIBUTE)?
+        self.value(AttributeKey::SourceId)?
             .as_u64()
             .and_then(|value| usize::try_from(value).ok())
             .map(SourceId)
     }
 
     pub fn location(&self) -> Option<Location> {
-        let values = self.get(LOCATION_ATTRIBUTE)?.as_array()?;
+        let values = self.value(AttributeKey::Location)?.as_array()?;
         let [start_line, start_column, end_line, end_column] = values.as_slice() else {
             return None;
         };

@@ -21,8 +21,8 @@ use std::sync::OnceLock;
 use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::{
-    AssociativityRelations, Attributes, PartialOrder, ProductionCatalog, ProductionId,
-    ProductionItem, Regex as KRegex, RegexBody, Sentence, compute_associativities,
+    AssociativityRelations, AttributeKey, Attributes, PartialOrder, ProductionCatalog,
+    ProductionId, ProductionItem, Regex as KRegex, RegexBody, Sentence, compute_associativities,
     compute_disambiguation_subsorts, compute_overloads, compute_priorities, compute_subsorts,
     parse_regex, sentence_equivalent,
 };
@@ -1293,7 +1293,9 @@ impl Grammar {
                     token: attributes.get("token").is_some(),
                     transparent: attributes.get("bracket").is_some(),
                     bracket: attributes.get("bracket").is_some(),
-                    bracket_label: attributes.label("bracketLabel").map(|label| label.name),
+                    bracket_label: attributes
+                        .label(AttributeKey::BracketLabel)
+                        .map(|label| label.name),
                     apply_priority: attributes.get_str("applyPriority"),
                     function: attributes.get("function").is_some(),
                     macro_like: ["macro", "macro-rec", "alias", "alias-rec"]
@@ -1979,7 +1981,7 @@ impl Grammar {
             return Ok(());
         }
         let bracket_label = source_attributes
-            .and_then(|attributes| attributes.label("bracketLabel"))
+            .and_then(|attributes| attributes.label(AttributeKey::BracketLabel))
             .map_or_else(|| format!("#bracket:{result}"), |label| label.name);
         self.add_production_with_lexical(
             result,
