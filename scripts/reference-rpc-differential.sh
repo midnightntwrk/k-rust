@@ -304,15 +304,21 @@ collect_responses() {
 normalize_rpc_response() {
   local response=$1
   local input=$2
+  # N27: next-states lists the successors in engine-internal rule order; compare it as a
+  # multiset (sorted by canonical JSON, length and every element field kept). jq -S sorts keys
+  # only on output, so the sort key canonicalizes them itself.
+  local next_states='def canonical: walk(if type == "object" then to_entries | sort_by(.key) | from_entries else . end) | tojson;
+    if (.result? | type) == "object" and (.result["next-states"]? | type) == "array"
+    then .result["next-states"] |= sort_by(canonical) else . end'
   case "$response" in
     error-add-module-malformed)
-      jq -S '.error.data.error |= type' "$input"
+      jq -S "$next_states | .error.data.error |= type" "$input"
       ;;
     error-execute-bad-symbol)
-      jq -S '.error.data |= map({error: (.error | type)})' "$input"
+      jq -S "$next_states | .error.data |= map({error: (.error | type)})" "$input"
       ;;
     *)
-      jq -S . "$input"
+      jq -S "$next_states" "$input"
       ;;
   esac
 }

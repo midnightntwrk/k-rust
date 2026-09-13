@@ -111,6 +111,7 @@ Differential gates compare disjunctions as multisets so ordering is ignored whil
 For `--bound N`, selected results must be distinct members of the same query's unbounded solution set, up to the bound; which members are selected is unspecified.
 The CLI test `krun_search_bound_returns_a_subset_of_the_unbounded_solutions` checks this property against the port's own unbounded search.
 Which successor `--strategy any` follows among equal-priority rules is likewise unspecified; the differential gate checks that the port's any-strategy result is a member of the reference all-strategy set (N26).
+The RPC `next-states` array is a set of successors and is compared as a multiset (N27).
 
 The port retains every execution leaf when Kore's graph traversal drops `Stop` leaves in the presence of a `Remaining` leaf.
 Normalization N17 limits the corresponding differential exception to marked depth-bounded cases and requires the reference leaves to remain a sub-multiset of the Rust leaves.

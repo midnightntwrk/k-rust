@@ -281,3 +281,11 @@ anchor_helpers = ["pair_disjuncts", "executed_kore_matches_the_reference_backend
 rule = "For an any-strategy run, require the port result to be a non-empty sub-multiset of the reference all-strategy result: every port disjunct pairs with a distinct reference disjunct by equal term and N4/N15-equal constraints; unpaired reference disjuncts are allowed and counted."
 justification = "A single-successor execution is one member of the successor set; which member an engine follows among equal-priority rules is engine-internal, exactly as docs/compatibility.md#search-results already states for --bound N. The port's --strategy all runs stay under the exact multiset comparison (N7)."
 env = "K_DIFFERENTIAL_STRATEGY=any"
+
+[[normalisation]]
+id = "N27"
+gate = "rpc"
+anchor = "scripts/reference-rpc-differential.sh:next-states"
+anchor_symbol = "normalize_rpc_response"
+rule = "Compare the next-states array of an execute response as a multiset: sort both sides by canonical JSON (jq -S, tojson) before diffing; keep length and every element field."
+justification = "Booster lists branches in its internal rule order and the port in its own; the successor set, not its order, is the RPC contract. See docs/compatibility.md#search-results."
