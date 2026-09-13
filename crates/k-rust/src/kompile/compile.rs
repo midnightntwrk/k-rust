@@ -6,6 +6,8 @@ use std::{
     str::FromStr,
 };
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::{
     definition::{
         CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence, StructuralCheckBackend,
@@ -254,6 +256,14 @@ pub fn compile_loaded_definition_timed(
     let timings = &mut timings;
     let (execution_definition, definition, mut diagnostics) =
         transform_loaded_definition(loaded, &options, timings)?;
+    measure::add(
+        Counter::KompileSentencesTransformed,
+        definition
+            .modules
+            .iter()
+            .map(|module| module.local_sentences.len() as u64)
+            .sum(),
+    );
     let execution_rewrite_order = stage(timings, "collect execution rewrite order", || {
         collect_execution_rewrite_order(&execution_definition)
     })?;

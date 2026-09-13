@@ -979,6 +979,7 @@ dependencies = [
  "gmp-mpfr-sys",
  "indoc",
  "insta",
+ "k-rust",
  "k-rust-backend",
  "k-rust-kore",
  "num-bigint",
@@ -1001,6 +1002,7 @@ name = "k-rust-backend"
 version = "0.3.0"
 dependencies = [
  "indoc",
+ "k-rust-backend",
  "k-rust-kore",
  "k256",
  "num-bigint",

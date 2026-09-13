@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use k_rust_kore::measure::{self, Counter};
 use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::{
@@ -421,6 +422,7 @@ fn execute_using(
         );
     }
     while let Some(mut state) = pending.pop_front() {
+        measure::bump(Counter::RewriteSteps);
         let mut step_timer = timeout_controller.begin_step();
         macro_rules! finish_if_interrupted {
             () => {
@@ -1388,6 +1390,7 @@ fn rewrite_step_all(
                     applied: found,
                     trivial: found_trivial,
                 } => {
+                    measure::bump(Counter::RewriteRulesApplied);
                     applied.extend(found);
                     trivial.extend(found_trivial);
                 }
@@ -1524,6 +1527,7 @@ fn rewrite_step_any(
                 applied: results,
                 trivial: found_trivial,
             } => {
+                measure::bump(Counter::RewriteRulesApplied);
                 for application in results {
                     extend_unique(
                         &mut remainder_conditions,
@@ -1686,6 +1690,7 @@ pub(crate) fn recover_indeterminate_match(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<RecoveredMatch, SimplificationError> {
+    measure::bump(Counter::RewriteIndeterminateRecoveries);
     let mut unresolved = Vec::new();
     let mut conditions = Vec::new();
     for (pattern, subject) in remainder {
@@ -2258,6 +2263,7 @@ fn apply_rule_with_match(
     assume_initial_defined: bool,
     matched: Option<PartialRuleMatch>,
 ) -> RuleAttempt {
+    measure::bump(Counter::RewriteRuleAttempts);
     let (matching, mut inherited_conditions) = if let Some(matched) = matched {
         let matching = if matched.remainder.is_empty() {
             MatchResult::Success(matched.substitution)
@@ -2284,7 +2290,10 @@ fn apply_rule_with_match(
         inherited_conditions.iter().cloned(),
     );
     let (mut substitution, mut match_conditions) = match matching {
-        MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
+        MatchResult::Failed(_) => {
+            measure::bump(Counter::RewriteMatchFailures);
+            return RuleAttempt::NotApplicable;
+        }
         MatchResult::Indeterminate {
             substitution,
             remainder,
@@ -2311,7 +2320,10 @@ fn apply_rule_with_match(
             );
             extend_unique(&mut inherited_knowledge, recovered.conditions);
             match recovered.result {
-                MatchResult::Failed(_) => return RuleAttempt::NotApplicable,
+                MatchResult::Failed(_) => {
+                    measure::bump(Counter::RewriteMatchFailures);
+                    return RuleAttempt::NotApplicable;
+                }
                 MatchResult::Success(substitution) => (substitution, Vec::new()),
                 MatchResult::Indeterminate {
                     substitution,

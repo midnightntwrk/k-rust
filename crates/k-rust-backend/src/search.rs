@@ -2,6 +2,8 @@
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
@@ -458,6 +460,7 @@ fn search_graph_using(
             continue;
         }
         if !expanded.insert((state.depth, state.pattern.clone())) {
+            measure::bump(Counter::SearchStatesDeduplicated);
             continue;
         }
         let at_depth_bound = state.depth >= options.max_depth;

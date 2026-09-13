@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
+use k_rust_kore::measure::{self, Counter};
 use z3::ast::{Ast, Bool, Datatype};
 use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solver};
 
@@ -14,6 +15,12 @@ use super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
     cmp_packed_structurally, inferred_variable_name, packed_terms_in_structural_order,
 };
+
+/// Every check-sat call of sort inference goes through here so `parser.z3_checks` counts them.
+fn check(solver: &Solver) -> SatResult {
+    measure::bump(Counter::ParserZ3Checks);
+    solver.check()
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 enum CastContext {
@@ -108,7 +115,7 @@ impl Grammar {
         encoding.exclude_klabel_parameters(&solver)?;
         encoding.restrict_to_real_sorts(&solver);
         let seed = encoding.seed_model(&solver)?;
-        match solver.check() {
+        match check(&solver) {
             SatResult::Unsat => {
                 return Err(encoding.explain_unsat_packed(&term, &expected, root_context));
             }
@@ -319,7 +326,7 @@ impl Grammar {
         encoding.exclude_klabel_parameters(&solver)?;
         encoding.restrict_to_real_sorts(&solver);
         let seed = encoding.seed_model(&solver)?;
-        match solver.check() {
+        match check(&solver) {
             SatResult::Unsat => {
                 return Err(encoding.explain_unsat(&term, &expected, root_context));
             }
@@ -1158,7 +1165,7 @@ impl<'a> Encoding<'a> {
         for constraint in constraints {
             solver.push();
             solver.assert(&constraint.constraint);
-            match solver.check() {
+            match check(&solver) {
                 SatResult::Sat => {
                     solver.pop(1);
                     solver.assert(&constraint.constraint);
@@ -1168,7 +1175,7 @@ impl<'a> Encoding<'a> {
                 }
                 SatResult::Unsat => {
                     solver.pop(1);
-                    if !matches!(solver.check(), SatResult::Sat) {
+                    if !matches!(check(&solver), SatResult::Sat) {
                         return Err(z3_error("Unknown sort inference error."));
                     }
                     let model = solver
@@ -1370,7 +1377,7 @@ impl<'a> Encoding<'a> {
         solver.push();
         let seed = (|| {
             self.assert_preferred(solver, &constraints)?;
-            match solver.check() {
+            match check(solver) {
                 SatResult::Sat => self
                     .read_model(
                         &solver
@@ -1404,7 +1411,7 @@ impl<'a> Encoding<'a> {
             let candidate = low + (high - low).div_ceil(2);
             solver.push();
             solver.assert(Bool::pb_ge(&weighted, candidate as i32));
-            let status = solver.check();
+            let status = check(solver);
             solver.pop(1);
             match status {
                 SatResult::Sat => low = candidate,
@@ -1460,7 +1467,7 @@ impl<'a> Encoding<'a> {
             if overloads == 0 && tops == 0 {
                 return Ok(None);
             }
-            match solver.check() {
+            match check(solver) {
                 SatResult::Sat => self
                     .read_model(&solver.get_model().ok_or_else(|| {
                         z3_error("Z3 returned sat without an overload branch model")
@@ -1496,7 +1503,7 @@ impl<'a> Encoding<'a> {
             let mut values = if let Some(seed) = first.take() {
                 seed
             } else {
-                match solver.check() {
+                match check(solver) {
                     SatResult::Unsat => break,
                     SatResult::Unknown => {
                         return Err(z3_error(
@@ -1549,7 +1556,7 @@ impl<'a> Encoding<'a> {
                     .collect::<Result<Vec<_>, ParseError>>()?;
                 solver.assert(and_all(&greater));
                 solver.assert(or_all(&distinct));
-                let status = solver.check();
+                let status = check(solver);
                 if status == SatResult::Sat {
                     values = self.read_model(
                         &solver

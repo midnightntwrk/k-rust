@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use k_rust_kore::measure::{self, Counter};
 use num_bigint::BigInt;
 
 use crate::smt::SmtType;
@@ -570,6 +571,7 @@ impl Term {
     }
 
     fn new(kind: TermKind, mut attributes: TermAttributes) -> Self {
+        measure::bump(Counter::TermConstructed);
         attributes.hash = calculate_hash(&kind);
         Self(Arc::new(TermData { attributes, kind }))
     }

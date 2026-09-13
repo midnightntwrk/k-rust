@@ -5,6 +5,8 @@ use std::{
     sync::Arc,
 };
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::{
     builtin::{BuiltinResult, evaluate_hook},
     definition::BackendDefinition,
@@ -317,6 +319,7 @@ fn match_terms_with_context(
     pattern: &Term,
     subject: &Term,
 ) -> MatchResult {
+    measure::bump(Counter::MatchingProblems);
     if pattern == subject {
         return MatchResult::Success(Substitution::new());
     }
@@ -818,6 +821,7 @@ fn solve_map_pair(
         solutions = next;
     }
 
+    measure::bump(Counter::MatchingCollectionProblems);
     let problem = MapCollectionProblem {
         mode,
         backend: definition,
@@ -1177,6 +1181,7 @@ fn solve_set_pair(
         pattern_elements.remove(&element);
         subject_elements.remove(&element);
     }
+    measure::bump(Counter::MatchingCollectionProblems);
     let problem = SetCollectionProblem {
         mode,
         backend: definition,
@@ -2091,6 +2096,7 @@ impl Matcher<'_> {
     }
 
     fn match_one(&mut self, pattern: Term, subject: Term) -> Result<(), FailReason> {
+        measure::bump(Counter::MatchingPairs);
         if self.mode == MatchMode::Implies && pattern == subject {
             return Ok(());
         }

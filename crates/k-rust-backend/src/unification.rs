@@ -6,6 +6,8 @@
 
 use std::collections::VecDeque;
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::{
     definition::BackendDefinition,
     matching::{InjectionEquality, match_injection_equality, occurs_below_only_constructors},
@@ -56,6 +58,7 @@ pub fn unify_term_pairs(
         constraints: Vec::new(),
         unsupported: Vec::new(),
     };
+    measure::bump(Counter::UnificationProblems);
     if let Err(failure) = unifier.run() {
         return UnificationResult::Bottom(failure);
     }

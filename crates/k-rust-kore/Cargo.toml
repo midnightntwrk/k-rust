@@ -17,3 +17,7 @@ serde_json.workspace = true
 indoc.workspace = true
 insta.workspace = true
 proptest.workspace = true
+
+[features]
+# Thread-local work counters (`measure` module); off in the shipped binary.
+measure = []
