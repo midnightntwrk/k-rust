@@ -17,6 +17,7 @@ use crate::{
     kast::{Sort, Term},
     kore::printer::Printer as KorePrinter,
     outer::LoadedDefinition,
+    timings::PhaseTimings,
 };
 
 use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
@@ -209,13 +210,20 @@ impl fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
-fn stage<T>(name: &'static str, result: Result<T, impl fmt::Display>) -> Result<T, CompileError> {
-    result.map_err(|error| CompileError::from_error(name, error))
+/// Run one named pipeline stage inside the timer and label its failure with the stage name.
+fn stage<T, E: fmt::Display>(
+    timings: &mut PhaseTimings,
+    name: &'static str,
+    run: impl FnOnce() -> Result<T, E>,
+) -> Result<T, CompileError> {
+    timings
+        .time(name, run)
+        .map_err(|error| CompileError::from_error(name, error))
 }
 
 macro_rules! diagnostic_stage {
-    ($policy:expr, $name:literal, $result:expr) => {
-        $result.map_err(|error| {
+    ($policy:expr, $timings:expr, $name:literal, $result:expr) => {
+        $timings.time($name, || $result).map_err(|error| {
             let message = error.to_string();
             CompileError::from_diagnostics($name, message, $policy.apply(error.diagnostics))
         })?
@@ -230,21 +238,33 @@ pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<CompiledKoreArtifacts, CompileError> {
+    compile_loaded_definition_timed(loaded, options).map(|(artifacts, _)| artifacts)
+}
+
+/// [`compile_loaded_definition`] that also returns the wall-clock duration of every pipeline
+/// stage in execution order.
+///
+/// The stage names are the pipeline's documented order; `crates/k-rust/tests/phase_timings.rs`
+/// pins the list.
+pub fn compile_loaded_definition_timed(
+    loaded: &LoadedDefinition,
+    options: CompileOptions,
+) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
+    let mut timings = PhaseTimings::default();
+    let timings = &mut timings;
     let (execution_definition, definition, mut diagnostics) =
-        transform_loaded_definition(loaded, &options)?;
-    let execution_rewrite_order = stage(
-        "collect execution rewrite order",
-        collect_execution_rewrite_order(&execution_definition),
-    )?;
-    let resolved = stage(
-        "resolve transformed definition",
-        ResolvedDefinition::resolve(&definition),
-    )?;
-    diagnostics.extend(
-        options
-            .diagnostics
-            .apply(check_singleton_overloads(&resolved)),
-    );
+        transform_loaded_definition(loaded, &options, timings)?;
+    let execution_rewrite_order = stage(timings, "collect execution rewrite order", || {
+        collect_execution_rewrite_order(&execution_definition)
+    })?;
+    let resolved = stage(timings, "resolve transformed definition", || {
+        ResolvedDefinition::resolve(&definition)
+    })?;
+    diagnostics.extend(options.diagnostics.apply(
+        timings.time("singleton overload checks", || {
+            check_singleton_overloads(&resolved)
+        }),
+    ));
     if diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -255,10 +275,9 @@ pub fn compile_loaded_definition(
             diagnostics,
         ));
     }
-    let configuration_variables = stage(
-        "collect configuration variables",
-        configuration_variables(&resolved),
-    )?;
+    let configuration_variables = stage(timings, "collect configuration variables", || {
+        configuration_variables(&resolved)
+    })?;
     let hook_namespaces = options
         .hook_namespaces
         .clone()
@@ -266,10 +285,9 @@ pub fn compile_loaded_definition(
     diagnostics.extend(
         options
             .diagnostics
-            .apply(unadmitted_hook_namespace_diagnostics(
-                &resolved,
-                &hook_namespaces,
-            )),
+            .apply(timings.time("hook namespace checks", || {
+                unadmitted_hook_namespace_diagnostics(&resolved, &hook_namespaces)
+            })),
     );
     if diagnostics
         .iter()
@@ -281,8 +299,7 @@ pub fn compile_loaded_definition(
             diagnostics,
         ));
     }
-    let generated = stage(
-        "emit KORE",
+    let generated = stage(timings, "emit KORE", || {
         module_to_kore_from_resolved_with_options(
             &resolved,
             &definition.main_module,
@@ -295,30 +312,38 @@ pub fn compile_loaded_definition(
                     CheckMode::Definition => None,
                 },
             },
-        ),
-    )?;
+        )
+    })?;
 
     let printer = KorePrinter::pretty(options.kore_width);
-    let definition_kore = with_newline(printer.print_definition(&generated.semantics_definition()));
-    let syntax_definition_kore =
-        with_newline(printer.print_definition(&generated.syntax_definition()));
-    let macros_kore = with_newline(
-        generated
-            .macros
-            .iter()
-            .map(|sentence| printer.print_sentence(sentence))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    Ok(CompiledKoreArtifacts {
-        definition_kore,
-        syntax_definition_kore,
-        macros_kore,
-        diagnostics,
-        configuration_variables,
-        execution_definition,
-        execution_rewrite_order,
-    })
+    let definition_kore = timings.time("print definition.kore", || {
+        with_newline(printer.print_definition(&generated.semantics_definition()))
+    });
+    let syntax_definition_kore = timings.time("print syntaxDefinition.kore", || {
+        with_newline(printer.print_definition(&generated.syntax_definition()))
+    });
+    let macros_kore = timings.time("print macros.kore", || {
+        with_newline(
+            generated
+                .macros
+                .iter()
+                .map(|sentence| printer.print_sentence(sentence))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    });
+    Ok((
+        CompiledKoreArtifacts {
+            definition_kore,
+            syntax_definition_kore,
+            macros_kore,
+            diagnostics,
+            configuration_variables,
+            execution_definition,
+            execution_rewrite_order,
+        },
+        std::mem::take(timings),
+    ))
 }
 
 fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String>, String> {
@@ -575,27 +600,28 @@ fn unadmitted_hook_namespace_diagnostics(
 fn transform_loaded_definition(
     loaded: &LoadedDefinition,
     options: &CompileOptions,
+    timings: &mut PhaseTimings,
 ) -> Result<(Definition, Definition, Vec<Diagnostic>), CompileError> {
     // Loader-produced definitions are already expanded, while structured embedders can construct
     // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
-    let (definition, configuration_diagnostics) = stage(
-        "expand structured configurations",
-        expand_configurations_with_diagnostics(&loaded.definition),
-    )?;
-    let resolved = stage(
-        "resolve structured configurations",
-        ResolvedDefinition::resolve(&definition),
-    )?;
-    let checked = options.diagnostics.apply(stage(
-        "definition checks",
-        check_definition_with_options(
-            &resolved,
-            options.backend.structural_check_options(
-                options.check_mode.clone(),
-                options.builtin_source_prefixes.clone(),
-            ),
-        ),
-    )?);
+    let (definition, configuration_diagnostics) =
+        stage(timings, "expand structured configurations", || {
+            expand_configurations_with_diagnostics(&loaded.definition)
+        })?;
+    let resolved = stage(timings, "resolve structured configurations", || {
+        ResolvedDefinition::resolve(&definition)
+    })?;
+    let checked = options
+        .diagnostics
+        .apply(stage(timings, "definition checks", || {
+            check_definition_with_options(
+                &resolved,
+                options.backend.structural_check_options(
+                    options.check_mode.clone(),
+                    options.builtin_source_prefixes.clone(),
+                ),
+            )
+        })?);
     let mut diagnostics = loaded.diagnostics.clone();
     diagnostics.extend(options.diagnostics.apply(configuration_diagnostics));
     diagnostics.extend(checked);
@@ -612,120 +638,140 @@ fn transform_loaded_definition(
 
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve commutative rules",
         resolve_comm(&definition)
     );
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve I/O streams",
         resolve_io(&definition)
     );
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve local functions",
         resolve_fun(&definition)
     );
-    let definition = stage(
-        "seed sort predicate syntax",
-        generate_sort_predicate_syntax(&definition),
-    )?;
+    let definition = stage(timings, "seed sort predicate syntax", || {
+        generate_sort_predicate_syntax(&definition)
+    })?;
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve function configuration",
         resolve_function_with_config(&definition)
     );
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve strictness",
         resolve_strict(&definition)
     );
-    let definition = resolve_anon_vars(&definition);
+    let definition = timings.time("resolve anonymous variables", || {
+        resolve_anon_vars(&definition)
+    });
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve contexts",
         resolve_contexts(&definition)
     );
-    let definition = number_sentences(&definition);
+    let definition = timings.time("number sentences", || number_sentences(&definition));
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve heat/cool attributes",
         resolve_heat_cool_attributes(&definition)
     );
-    let definition = resolve_semantic_casts(&definition);
-    let definition = stage("add KItem subsorts", subsort_kitem(&definition))?;
+    let definition = timings.time("resolve semantic casts", || {
+        resolve_semantic_casts(&definition)
+    });
+    let definition = stage(timings, "add KItem subsorts", || subsort_kitem(&definition))?;
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "constant folding",
         constant_fold(&definition)
     );
-    let definition = stage(
-        "propagate macro attributes",
-        propagate_macro_attributes(&definition),
-    )?;
-    let definition = stage("guard or-patterns", guard_or_patterns(&definition))?;
+    let definition = stage(timings, "propagate macro attributes", || {
+        propagate_macro_attributes(&definition)
+    })?;
+    let definition = stage(timings, "guard or-patterns", || {
+        guard_or_patterns(&definition)
+    })?;
     let (definition, fresh_config_count) = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve fresh configuration constants",
         resolve_fresh_config_constants(&definition)
     );
-    let definition = stage(
-        "generate sort predicate syntax",
-        generate_sort_predicate_syntax(&definition),
-    )?;
-    let definition = stage(
-        "generate sort projections",
-        generate_sort_projections(&definition),
-    )?;
+    let definition = stage(timings, "generate sort predicate syntax", || {
+        generate_sort_predicate_syntax(&definition)
+    })?;
+    let definition = stage(timings, "generate sort projections", || {
+        generate_sort_projections(&definition)
+    })?;
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "expand macros",
         expand_macros(&definition)
     );
-    let definition = stage(
-        "add implicit computation cell",
-        add_implicit_computation_cell(&definition),
-    )?;
+    let definition = stage(timings, "add implicit computation cell", || {
+        add_implicit_computation_cell(&definition)
+    })?;
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "resolve fresh constants",
         resolve_fresh_constants(&definition, fresh_config_count)
     );
-    let definition = stage(
-        "regenerate sort predicate syntax",
-        regenerate_sort_predicate_syntax(&definition),
-    )?;
-    let definition = stage(
-        "regenerate sort projections",
-        generate_sort_projections(&definition),
-    )?;
+    let definition = stage(timings, "regenerate sort predicate syntax", || {
+        regenerate_sort_predicate_syntax(&definition)
+    })?;
+    let definition = stage(timings, "regenerate sort projections", || {
+        generate_sort_projections(&definition)
+    })?;
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "check simplification rules",
         check_simplification_rules(&definition)
     );
-    let definition = stage("finalize KItem subsorts", subsort_kitem(&definition))?;
+    let definition = stage(timings, "finalize KItem subsorts", || {
+        subsort_kitem(&definition)
+    })?;
     let definition = diagnostic_stage!(
         options.diagnostics,
+        timings,
         "concretize cells",
         concretize_cells(&definition)
     );
     // Coverage instrumentation and the optional unsafe-anywhere removal are identity stages
     // because neither optional mode is exposed by the frontend API yet.
-    let definition = stage("add semantics module", add_semantics_module(&definition))?;
-    let definition = resolve_config_var(&definition);
-    let definition = add_cool_like_attributes(&definition);
-    let definition = generate_sort_predicate_rules(&definition);
-    let definition = number_sentences(&definition);
+    let definition = stage(timings, "add semantics module", || {
+        add_semantics_module(&definition)
+    })?;
+    let definition = timings.time("resolve configuration variables", || {
+        resolve_config_var(&definition)
+    });
+    let definition = timings.time("add cool-like attributes", || {
+        add_cool_like_attributes(&definition)
+    });
+    let definition = timings.time("generate sort predicate rules", || {
+        generate_sort_predicate_rules(&definition)
+    });
+    let definition = timings.time("number sentences (final)", || number_sentences(&definition));
     let execution_definition = definition;
-    let definition = stage(
-        "add sort injections",
-        add_sort_injections_to_definition(&execution_definition),
-    )?;
-    let definition = stage("remove units", remove_unit(&definition))?;
-    let definition = stage(
-        "minimize term construction",
-        minimize_term_construction(&definition),
-    )?;
+    let definition = stage(timings, "add sort injections", || {
+        add_sort_injections_to_definition(&execution_definition)
+    })?;
+    let definition = stage(timings, "remove units", || remove_unit(&definition))?;
+    let definition = stage(timings, "minimize term construction", || {
+        minimize_term_construction(&definition)
+    })?;
     Ok((execution_definition, definition, diagnostics))
 }
 
@@ -1051,8 +1097,10 @@ mod tests {
         .unwrap();
         let options = CompileOptions::default();
 
-        let (_, first, _) = transform_loaded_definition(&loaded, &options).unwrap();
-        let (_, second, _) = transform_loaded_definition(&loaded, &options).unwrap();
+        let (_, first, _) =
+            transform_loaded_definition(&loaded, &options, &mut PhaseTimings::default()).unwrap();
+        let (_, second, _) =
+            transform_loaded_definition(&loaded, &options, &mut PhaseTimings::default()).unwrap();
         let first = origin_receipts(&first);
         let second = origin_receipts(&second);
 
