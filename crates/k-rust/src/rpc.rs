@@ -541,7 +541,6 @@ impl RpcService {
             } => {
                 let mut next_states = branches
                     .iter()
-                    .rev()
                     .map(|applied| {
                         execute_applied_state(&definition, applied, &configuration_variables)
                     })

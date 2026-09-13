@@ -2813,7 +2813,9 @@ endmodule []
         "{}",
         String::from_utf8_lossy(&any.stderr)
     );
-    assert_eq!(String::from_utf8(any.stdout).unwrap(), "e{}()\n");
+    // Equal priority: any follows the first applicable rule in definition.kore declaration
+    // order, a-to-b before a-to-c, so the single successor chain ends at d.
+    assert_eq!(String::from_utf8(any.stdout).unwrap(), "d{}()\n");
 
     let breadth = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -3801,22 +3803,23 @@ fn kprove_filters_claims_imported_into_the_specification_module() {
             String::from_utf8_lossy(&trusted.stdout),
             String::from_utf8_lossy(&trusted.stderr)
         );
+        // Claims are reported in declaration order (imported-spec.k: pass, fail1, fail2).
         assert_eq!(
             String::from_utf8(trusted.stdout).unwrap(),
-            "claim SPLIT-LEMMAS.fail2: proven (trusted)\n\
+            "claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n\
          claim SPLIT-LEMMAS.fail1: proven (trusted)\n\
-         claim SPLIT-LEMMAS.pass: proven (3 states, 0 unexplored)\n"
+         claim SPLIT-LEMMAS.fail2: proven (trusted)\n"
         );
 
         let recorded: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
         let claims = recorded["claims"].as_array().unwrap();
         assert_eq!(claims.len(), 3, "{recorded}");
-        for claim in &claims[..2] {
+        for claim in &claims[1..] {
             assert_eq!(claim["status"], "trusted");
             assert_eq!(claim["seconds"], 0.0);
         }
-        assert_eq!(recorded["proof_seconds"], claims[2]["seconds"]);
+        assert_eq!(recorded["proof_seconds"], claims[0]["seconds"]);
 
         // Control: without filtering every imported claim is attempted.
         let batch = Command::new(env!("CARGO_BIN_EXE_krust"))

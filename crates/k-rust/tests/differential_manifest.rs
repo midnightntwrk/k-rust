@@ -391,7 +391,9 @@ fn execution_gate_krust_krun_invocations(script: &str) -> Vec<&str> {
 /// step (`--strategy any`; docs/compatibility.md#search-results), so a Haskell-paired execution
 /// comparison must ask krust for the Haskell-equivalent branching: the krust side of every
 /// `[[execution]]` program and search passes `--strategy all`, and the reference side keeps
-/// kore-exec's default.
+/// kore-exec's default. The `[[execution.any]]` rows are the one exception: krust keeps its
+/// krun default there and the comparator checks membership in the reference set (N26,
+/// `K_DIFFERENTIAL_STRATEGY=any`).
 #[test]
 fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
     assert!(
@@ -399,17 +401,35 @@ fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
         "the execution gate compiles the reference definition with the Haskell backend"
     );
     let invocations = execution_gate_krust_krun_invocations(EXECUTION_SCRIPT);
-    assert_eq!(
-        invocations.len(),
-        2,
-        "one krust krun invocation for the programs and one for the searches"
-    );
-    for invocation in invocations {
+    let [programs, searches, any_runs] = invocations.as_slice() else {
+        panic!(
+            "one krust krun invocation each for the programs, the searches, and the any runs: {invocations:#?}"
+        );
+    };
+    for invocation in [programs, searches] {
         assert!(
             invocation.contains("--strategy all"),
             "a Haskell-paired krust krun must explore every applicable rule:\n{invocation}"
         );
     }
+    assert!(
+        !any_runs.contains("--strategy"),
+        "an [[execution.any]] run keeps krust's krun default:\n{any_runs}"
+    );
+    let any_loop = &EXECUTION_SCRIPT[EXECUTION_SCRIPT
+        .find(any_runs)
+        .expect("the any run is part of the script")..];
+    let any_comparison = any_loop
+        .find("compare_execution_any ")
+        .expect("the any run is compared through compare_execution_any");
+    assert!(
+        !any_loop[..any_comparison].contains("compare_execution "),
+        "the any run must not reach the exact comparator"
+    );
+    assert!(
+        EXECUTION_SCRIPT.contains("K_DIFFERENTIAL_STRATEGY=any \\\n"),
+        "compare_execution_any selects the N26 membership comparator"
+    );
     let reference_invocations = EXECUTION_SCRIPT
         .split("run_reference_krun ")
         .skip(1)
@@ -420,7 +440,11 @@ fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
             &call[..end]
         })
         .collect::<Vec<_>>();
-    assert_eq!(reference_invocations.len(), 2);
+    assert_eq!(
+        reference_invocations.len(),
+        3,
+        "one reference krun invocation each for the programs, the searches, and the any runs"
+    );
     for invocation in reference_invocations {
         assert!(
             !invocation.contains("--strategy"),
@@ -523,14 +547,14 @@ fn every_gate_normalisation_is_registered() {
         .iter()
         .map(|row| row["id"].as_str().expect("normalisation id"))
         .collect::<BTreeSet<_>>();
-    let expected = (1..=25)
+    let expected = (1..=27)
         .filter(|id| *id != 2)
         .map(|id| format!("N{id}"))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids.into_iter().map(str::to_owned).collect::<BTreeSet<_>>(),
         expected,
-        "the gate register must contain N1 and N3 through N25; global UNIQUE_ID exclusion N2 is retired"
+        "the gate register must contain N1 and N3 through N27; global UNIQUE_ID exclusion N2 is retired"
     );
     let row = |id: &str| {
         rows.iter()

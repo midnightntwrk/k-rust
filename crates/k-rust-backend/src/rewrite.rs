@@ -7159,12 +7159,12 @@ mod tests {
                 .iter()
                 .map(|branch| branch.label.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            vec!["right", "left"]
+            vec!["left", "right"]
         );
     }
 
     #[test]
-    fn any_mode_uses_canonical_rule_order_within_a_priority() {
+    fn any_mode_uses_declaration_order_within_a_priority() {
         let heat = r#"
             axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(
@@ -7184,31 +7184,50 @@ mod tests {
             ) [label{}("lookup")]
         "#;
 
-        for rules in [format!("{heat}{lookup}"), format!("{lookup}{heat}")] {
-            let definition = definition(&rules);
-            let solver = FixedSolver {
-                satisfiability: Ok(Satisfiability::Sat),
-                validity: Ok(Validity::Indeterminate),
-            };
-            let mut fresh = 0;
+        // Equal priority: rules are tried in declaration order. Declared first, lookup consumes
+        // the whole subject and heat is never tried; declared second, it only reaches the
+        // remainder of heat's indeterminate application.
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
 
-            let result = rewrite_step_sequential_with_solver(
-                &definition,
-                &subject(&definition, "value"),
-                &mut fresh,
-                &solver,
-            );
+        let lookup_first = definition(&format!("{lookup}{heat}"));
+        let mut fresh = 0;
+        let result = rewrite_step_sequential_with_solver(
+            &lookup_first,
+            &subject(&lookup_first, "value"),
+            &mut fresh,
+            &solver,
+        );
+        let RewriteResult::Finished(application) = result else {
+            panic!("lookup should consume the whole subject before heat: {result:?}");
+        };
+        assert_eq!(application.label.as_deref(), Some("lookup"));
+        assert!(application.pattern.constraints.is_empty());
+        assert_eq!(
+            application.pattern.term,
+            internal_term(&lookup_first, r#"\dv{SortS{}}("lookup")"#)
+        );
 
-            let RewriteResult::Finished(application) = result else {
-                panic!("lookup should consume the whole subject before heat: {result:?}");
-            };
-            assert_eq!(application.label.as_deref(), Some("lookup"));
-            assert!(application.pattern.constraints.is_empty());
-            assert_eq!(
-                application.pattern.term,
-                internal_term(&definition, r#"\dv{SortS{}}("lookup")"#)
-            );
-        }
+        let heat_first = definition(&format!("{heat}{lookup}"));
+        let mut fresh = 0;
+        let result = rewrite_step_sequential_with_solver(
+            &heat_first,
+            &subject(&heat_first, "value"),
+            &mut fresh,
+            &solver,
+        );
+        let RewriteResult::Branch { branches, .. } = &result else {
+            panic!("heat is tried first and its indeterminate application branches: {result:?}");
+        };
+        assert_eq!(
+            branches
+                .iter()
+                .map(|branch| branch.label.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["heat", "lookup"]
+        );
     }
 
     #[test]
@@ -8118,7 +8137,7 @@ mod tests {
                 .iter()
                 .map(|entry| entry.label.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            ["initial-right", "right-merged"]
+            ["initial-left", "left-merged"]
         );
     }
 
@@ -8640,8 +8659,8 @@ mod tests {
         assert_eq!(
             result.effects,
             [
-                BuiltinEffect::UserLog("right".into()),
                 BuiltinEffect::UserLog("left".into()),
+                BuiltinEffect::UserLog("right".into()),
             ]
         );
         assert_eq!(observed, result.effects);
@@ -8690,7 +8709,7 @@ mod tests {
                     other => panic!("branch payload was not normalized: {other:?}"),
                 })
                 .collect::<Vec<_>>(),
-            vec!["right", "left"]
+            vec!["left", "right"]
         );
     }
 
@@ -8834,7 +8853,7 @@ mod tests {
                 .iter()
                 .map(|leaf| leaf.trace[0].label.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            vec!["right", "left"]
+            vec!["left", "right"]
         );
     }
 
@@ -8867,7 +8886,7 @@ mod tests {
                     other => panic!("expected a domain value, found {other:?}"),
                 })
                 .collect::<Vec<_>>(),
-            vec!["right", "left"]
+            vec!["left", "right"]
         );
     }
 
@@ -8903,13 +8922,14 @@ mod tests {
             },
         );
 
+        // Equal priority: the first applicable rule in declaration order wins.
         assert_eq!(result.leaves.len(), 1);
         assert_eq!(result.leaves[0].depth, 1);
         assert!(matches!(
             result.leaves[0].pattern.term.kind(),
-            TermKind::DomainValue { value, .. } if value.as_ref() == "right"
+            TermKind::DomainValue { value, .. } if value.as_ref() == "left"
         ));
-        assert_eq!(result.leaves[0].trace[0].label.as_deref(), Some("right"));
+        assert_eq!(result.leaves[0].trace[0].label.as_deref(), Some("left"));
     }
 
     #[cfg(feature = "z3")]
@@ -8997,19 +9017,11 @@ mod tests {
     #[cfg(feature = "z3")]
     #[test]
     fn sequential_remainders_retain_the_initial_antecedent() {
+        // Rules are tried in declaration order: `second` (X = 1 or 2) covers half of the
+        // antecedent Y = 0 or 1 and leaves the Y = 0 remainder to `first`. Declared the other
+        // way round, `first` covers the whole antecedent and no remainder is ever formed.
         let definition = definition(
             r#"
-            axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(
-                    wrap{}(X:SortS{}),
-                    \or{SortS{}}(
-                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("0")),
-                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("1")),
-                        \bottom{SortS{}}()
-                    )
-                ),
-                \dv{SortS{}}("first")
-            ) [label{}("first")]
             axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(
                     wrap{}(X:SortS{}),
@@ -9021,6 +9033,17 @@ mod tests {
                 ),
                 \dv{SortS{}}("second")
             ) [label{}("second")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \or{SortS{}}(
+                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("0")),
+                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("1")),
+                        \bottom{SortS{}}()
+                    )
+                ),
+                \dv{SortS{}}("first")
+            ) [label{}("first")]
             "#,
         );
         let variable = Term::variable(Variable::new("Y", Sort::simple("SortS")));

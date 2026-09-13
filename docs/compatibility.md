@@ -95,6 +95,7 @@ A `cancel` request inside a batch returns `-32601`, `Cancel not supported`, foll
 The older server API document is not authoritative for these measured wire details.
 Execution retains an explicit `aborted` reason for incomplete indeterminate, simplification-error and breadth-bound outcomes because Rust has no fallback engine to hide the failure.
 [RPC tests](../crates/k-rust/src/rpc.rs) cover predicate-free models, batch cancellation, and error classification; [RPC fixtures](../crates/k-rust/tests/fixtures/reference/rpc) preserve shipped-proxy responses.
+An `execute` response lists `next-states` in application order with the remainder last; the order is not part of the contract and the differential gate compares the array as a multiset (N27).
 
 ## Definition verification
 
@@ -110,6 +111,9 @@ The order is `k-rust-kore`'s `Pattern` order (variant declaration rank, then fie
 Differential gates compare disjunctions as multisets so ordering is ignored while multiplicity is still checked.
 For `--bound N`, selected results must be distinct members of the same query's unbounded solution set, up to the bound; which members are selected is unspecified.
 The CLI test `krun_search_bound_returns_a_subset_of_the_unbounded_solutions` checks this property against the port's own unbounded search.
+Which successor `--strategy any` follows among equal-priority rules is likewise unspecified; the differential gate checks that the port's any-strategy result is a member of the reference all-strategy set (N26).
+The port follows the first applicable rule in priority order, then `definition.kore` declaration order (main module first, imports depth-first in their written order); which rule the reference follows is engine-internal.
+The RPC `next-states` array is a set of successors and is compared as a multiset (N27).
 
 The port retains every execution leaf when Kore's graph traversal drops `Stop` leaves in the presence of a `Remaining` leaf.
 Normalization N17 limits the corresponding differential exception to marked depth-bounded cases and requires the reference leaves to remain a sub-multiset of the Rust leaves.
