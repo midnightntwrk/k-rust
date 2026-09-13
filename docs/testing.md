@@ -15,6 +15,7 @@ Live differential tests are supplementary evidence; they are not required for ev
 | Broad upstream corpus exploration and acceptance tracking | `scripts/conformance/run.py` and `scripts/conformance/expectations.toml` | Upstream recipes, recorded outputs, and confirmed live oracles |
 
 A backend semantic contract belongs with backend tests even when it was discovered through a CLI command.
+Within `crates/k-rust-backend`, a contract stated through `pub` items belongs in `tests/backend/`, one that needs a `pub(crate)` entry point in `src/tests/`, and the invariant of a private helper stays inline next to the helper.
 A separate CLI test is warranted when argument handling, initialization, rendering, or process status contributes to the defect.
 Snapshots are an assertion format within these homes, not a separate test system.
 

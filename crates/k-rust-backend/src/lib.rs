@@ -26,3 +26,6 @@ pub mod term;
 pub mod timeout;
 pub mod transition;
 pub mod unification;
+
+#[cfg(test)]
+mod tests;
