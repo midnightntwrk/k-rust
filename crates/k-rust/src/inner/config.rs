@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
     Sentence, sentence_equivalent,
@@ -104,7 +105,7 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
 
 fn content_start_offset(attributes: &Attributes) -> usize {
     attributes
-        .get("contentStartOffset")
+        .value(AttributeKey::ContentStartOffset)
         .and_then(serde_json::Value::as_u64)
         .and_then(|offset| usize::try_from(offset).ok())
         .unwrap_or(0)
@@ -280,7 +281,7 @@ pub(super) fn implicit_kseq_bracket(resolved: &ResolvedDefinition) -> Option<&At
         .local_sentences
         .iter()
         .find_map(|sentence| match sentence {
-            Sentence::Production { attributes, .. } if attributes.get("bracket").is_some() => {
+            Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Bracket) => {
                 Some(attributes)
             }
             _ => None,

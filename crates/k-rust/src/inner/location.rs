@@ -1,3 +1,4 @@
+use crate::definition::AttributeKey;
 use crate::definition::{Attributes, Location};
 use crate::kast::TermSpan;
 
@@ -7,7 +8,7 @@ pub(super) fn span_location(
     span: TermSpan,
 ) -> Option<Location> {
     let content_offset = attributes
-        .get("contentStartOffset")
+        .value(AttributeKey::ContentStartOffset)
         .and_then(serde_json::Value::as_u64)
         .and_then(|offset| usize::try_from(offset).ok())
         .unwrap_or(0);
@@ -16,11 +17,11 @@ pub(super) fn span_location(
     let prefix = contents.get(..start)?;
     let through = contents.get(start..end)?;
     let mut line = attributes
-        .get("contentStartLine")
+        .value(AttributeKey::ContentStartLine)
         .and_then(serde_json::Value::as_u64)
         .and_then(|line| u32::try_from(line).ok())?;
     let mut column = attributes
-        .get("contentStartColumn")
+        .value(AttributeKey::ContentStartColumn)
         .and_then(serde_json::Value::as_u64)
         .and_then(|column| u32::try_from(column).ok())?;
     advance(&mut line, &mut column, prefix);

@@ -313,27 +313,25 @@ pub(super) fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) 
 
 fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
     ProductionOptions {
-        token: attributes.get("token").is_some(),
-        transparent: attributes.get("bracket").is_some(),
-        bracket: attributes.get("bracket").is_some(),
+        token: attributes.has(AttributeKey::Token),
+        transparent: attributes.has(AttributeKey::Bracket),
+        bracket: attributes.has(AttributeKey::Bracket),
         bracket_label: attributes
             .label(AttributeKey::BracketLabel)
             .map(|label| label.name),
-        apply_priority: attributes.get_str("applyPriority"),
-        function: attributes.get("function").is_some(),
-        macro_like: ["macro", "macro-rec", "alias", "alias-rec"]
-            .iter()
-            .any(|key| attributes.get(key).is_some()),
-        prefer: attributes.get("prefer").is_some(),
-        avoid: attributes.get("avoid").is_some(),
+        apply_priority: attributes.string(AttributeKey::ApplyPriority),
+        function: attributes.has(AttributeKey::Function),
+        macro_like: attributes.has_any(&AttributeKey::MACRO_LIKE),
+        prefer: attributes.has(AttributeKey::Prefer),
+        avoid: attributes.has(AttributeKey::Avoid),
         source_production: None,
         source_production_text: None,
         source: attributes.source(),
         location: attributes.location(),
-        user_list: attributes.get("userList").is_some(),
-        user_list_nonempty: attributes.get_str("userList") == Some("+"),
-        precedence: attributes.get_str("prec"),
-        hook: attributes.get_str("hook"),
+        user_list: attributes.has(AttributeKey::UserList),
+        user_list_nonempty: attributes.string(AttributeKey::UserList) == Some("+"),
+        precedence: attributes.string(AttributeKey::Prec),
+        hook: attributes.string(AttributeKey::Hook),
         parsing_only_subsort: false,
     }
 }

@@ -5,6 +5,7 @@ use std::fmt;
 
 use k_rust_kore::measure::{self, Counter};
 
+use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
     Sentence, SortCatalog,
@@ -240,16 +241,14 @@ fn parse_rule_like_sentence(
     contents: &str,
     attributes: Attributes,
 ) -> Result<Sentence, RuleError> {
-    let is_anywhere = [
-        "anywhere",
-        "simplification",
-        "macro",
-        "macro-rec",
-        "alias",
-        "alias-rec",
-    ]
-    .iter()
-    .any(|key| attributes.get(key).is_some());
+    let is_anywhere = attributes.has_any(&[
+        AttributeKey::Anywhere,
+        AttributeKey::Simplification,
+        AttributeKey::Macro,
+        AttributeKey::MacroRec,
+        AttributeKey::Alias,
+        AttributeKey::AliasRec,
+    ]);
     let parsed = if let Some(source) = attributes.source_id() {
         grammar.parse_with_context(
             &Sort::new("#RuleContent"),
@@ -271,7 +270,7 @@ fn parse_rule_like_sentence(
 
 fn content_start_offset(attributes: &Attributes) -> usize {
     attributes
-        .get("contentStartOffset")
+        .value(AttributeKey::ContentStartOffset)
         .and_then(serde_json::Value::as_u64)
         .and_then(|offset| usize::try_from(offset).ok())
         .unwrap_or(0)
@@ -427,12 +426,12 @@ fn rule_grammar(
             else {
                 continue;
             };
-            if attributes.get("cell").is_none() {
+            if !attributes.has(AttributeKey::Cell) {
                 continue;
             }
             if !visible.iter().any(|existing| matches!(existing,
                 Sentence::Production { label: existing_label, sort: existing_sort, attributes, .. }
-                if existing_label == label && existing_sort == sort && attributes.get("cell").is_some()
+                if existing_label == label && existing_sort == sort && attributes.has(AttributeKey::Cell)
             )) {
                 visible.push(sentence);
             }
@@ -494,7 +493,7 @@ fn rule_grammar(
         .filter(|sentence| {
             !matches!(
                 sentence,
-                Sentence::Production { attributes, .. } if attributes.get("cell").is_some()
+                Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell)
             )
         })
         .map(|sentence| (*sentence).clone())
@@ -544,7 +543,7 @@ fn rule_grammar(
         else {
             continue;
         };
-        if attributes.get("cellCollection").is_some() && attributes.get("assoc").is_some() {
+        if attributes.has(AttributeKey::CellCollection) && attributes.has(AttributeKey::Assoc) {
             grammar.add_left_associative(label.name.clone());
         }
     }
@@ -553,7 +552,7 @@ fn rule_grammar(
         .filter_map(|sentence| match sentence {
             Sentence::Production {
                 sort, attributes, ..
-            } if attributes.get("bracket").is_some() => Some(sort.clone()),
+            } if attributes.has(AttributeKey::Bracket) => Some(sort.clone()),
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -609,9 +608,9 @@ fn rule_grammar(
 fn sort_predicate_production(sort: &Sort) -> Sentence {
     let label = Label::new(format!("is{sort}"));
     let mut attributes = Attributes::default();
-    attributes.insert("function", serde_json::json!(""));
-    attributes.insert("total", serde_json::json!(""));
-    attributes.insert("generatedRuleSyntax", serde_json::json!(""));
+    attributes.mark(AttributeKey::Function);
+    attributes.mark(AttributeKey::Total);
+    attributes.mark(AttributeKey::GeneratedRuleSyntax);
     Sentence::Production {
         label: Some(label.clone()),
         parameters: Vec::new(),
@@ -632,9 +631,9 @@ fn sort_predicate_production(sort: &Sort) -> Sentence {
 fn sort_projection_production(sort: &Sort) -> Sentence {
     let label = Label::new(format!("project:{sort}"));
     let mut attributes = Attributes::default();
-    attributes.insert("function", serde_json::json!(""));
-    attributes.insert("projection", serde_json::json!(""));
-    attributes.insert("generatedRuleSyntax", serde_json::json!(""));
+    attributes.mark(AttributeKey::Function);
+    attributes.mark(AttributeKey::Projection);
+    attributes.mark(AttributeKey::GeneratedRuleSyntax);
     Sentence::Production {
         label: Some(label.clone()),
         parameters: Vec::new(),
@@ -911,7 +910,7 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
     let has_as = has_label("#KAs");
     let parameter = Sort::new("Sort");
     let mut generated_attributes = Attributes::default();
-    generated_attributes.insert("generatedRuleSyntax", serde_json::Value::Null);
+    generated_attributes.set(AttributeKey::GeneratedRuleSyntax, serde_json::Value::Null);
     if !has_rewrite {
         sentences.push(Sentence::Production {
             label: Some(Label::with_parameters("#KRewrite", vec![parameter.clone()])),
@@ -952,7 +951,7 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
     }
     if !has_label("#fun2") {
         let mut attributes = generated_attributes.clone();
-        attributes.insert("prefer", serde_json::Value::String(String::new()));
+        attributes.mark(AttributeKey::Prefer);
         sentences.push(Sentence::Production {
             label: Some(Label::with_parameters("#fun2", vec![parameter.clone()])),
             parameters: vec![parameter.clone()],
@@ -1041,8 +1040,8 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
             continue;
         }
         let mut attributes = generated_attributes.clone();
-        attributes.insert("function", serde_json::Value::String(String::new()));
-        attributes.insert("total", serde_json::Value::String(String::new()));
+        attributes.mark(AttributeKey::Function);
+        attributes.mark(AttributeKey::Total);
         sentences.push(Sentence::Production {
             label: Some(Label::new(label)),
             parameters: Vec::new(),
@@ -1108,7 +1107,7 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
         .filter_map(|sentence| match sentence {
             Sentence::Production {
                 sort, attributes, ..
-            } if attributes.get("cell").is_some() => Some(sort.clone()),
+            } if attributes.has(AttributeKey::Cell) => Some(sort.clone()),
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -1117,7 +1116,7 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
         .filter_map(|sentence| match sentence {
             Sentence::SyntaxSort {
                 sort, attributes, ..
-            } if attributes.get("cellCollection").is_some() => Some(sort.clone()),
+            } if attributes.has(AttributeKey::CellCollection) => Some(sort.clone()),
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -1130,7 +1129,7 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
                 items,
                 attributes,
                 ..
-            } if attributes.get("cell").is_some() => {
+            } if attributes.has(AttributeKey::Cell) => {
                 let (Some(label), Some(first), Some(last)) =
                     (label.clone(), items.first().cloned(), items.last().cloned())
                 else {
@@ -1177,7 +1176,7 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
             }
             Sentence::Production {
                 sort, attributes, ..
-            } if attributes.get("cellFragment").is_some() => {
+            } if attributes.has(AttributeKey::CellFragment) => {
                 grammar.add(
                     Sort::new("Cell"),
                     vec![ProductionItem::NonTerminal {

@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
+use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
     ResolveError, ResolvedDefinition, Sentence, SortCatalog, sentence_equivalent,
@@ -272,7 +273,7 @@ fn program_sentences(
         || definition
             .module(module)
             .attributes
-            .get("not-lr1")
+            .value(AttributeKey::NotLr1)
             .is_none()
     {
         append_unique(
@@ -297,7 +298,7 @@ fn with_kitem_subsorts(mut sentences: Vec<Sentence>) -> Vec<Sentence> {
             .collect::<Vec<_>>()
     };
     let mut generated = Attributes::default();
-    generated.insert("generatedRuleSyntax", serde_json::json!(""));
+    generated.mark(AttributeKey::GeneratedRuleSyntax);
     for sort in sorts {
         sentences.push(Sentence::Production {
             label: None,
@@ -344,7 +345,7 @@ fn collect_public_signature(
         || definition
             .module(module)
             .attributes
-            .get("not-lr1")
+            .value(AttributeKey::NotLr1)
             .is_none()
     {
         append_unique(sentences, definition.public_sentences(module));
