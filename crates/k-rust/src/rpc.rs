@@ -3532,7 +3532,7 @@ mod tests {
     }
 
     #[test]
-    fn reference_rpc_cancel_in_batch_answers_32601() {
+    fn cancel_in_batch_fixture_answers_32601() {
         let mut service = service();
         let request =
             include_str!("../tests/fixtures/reference/rpc/cancel-in-batch/cancel-request.json");
