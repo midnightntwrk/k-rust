@@ -2248,9 +2248,12 @@ mod tests {
         .join("\n");
         let definition = definition(A_TO_B_AND_C, &claims);
 
+        // Overlapping equal-priority rules are applied in declaration order, each to the
+        // remainder of the previous one; a-to-b consumes the concrete subject, so a-to-c is
+        // never applied.
         let first = prove_claim(
             &definition,
-            claim_with_label(&definition, "one-a-c"),
+            claim_with_label(&definition, "one-a-b"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -2264,12 +2267,12 @@ mod tests {
                     kind: TraceKind::Rewrite,
                     label: Some(label),
                     ..
-                }] if label == "a-to-c")
+                }] if label == "a-to-b")
         ));
 
         let second = prove_claim(
             &definition,
-            claim_with_label(&definition, "one-a-b"),
+            claim_with_label(&definition, "one-a-c"),
             ProofOptions::default(),
             &NoSolver,
         )
@@ -2278,7 +2281,7 @@ mod tests {
         assert!(second.leaves.iter().all(|leaf| {
             leaf.trace
                 .iter()
-                .all(|entry| entry.label.as_deref() != Some("a-to-b"))
+                .all(|entry| entry.label.as_deref() != Some("a-to-c"))
         }));
     }
 
@@ -2897,23 +2900,25 @@ mod tests {
 
     #[test]
     fn distinguishes_existential_and_universal_rewrite_paths() {
+        // a-to-b is declared first, so the one-path proof follows it; the all-path proof
+        // explores the a-to-c path as well and finds it stuck at c.
         let claims = [
-            modal_claim(ReachabilityMode::OnePath, "a", "c", false),
-            modal_claim(ReachabilityMode::AllPath, "a", "c", false),
+            modal_claim(ReachabilityMode::OnePath, "a", "b", false),
+            modal_claim(ReachabilityMode::AllPath, "a", "b", false),
         ]
         .join("\n");
         let definition = definition(A_TO_B_AND_C, &claims);
 
         let one_path = prove_claim(
             &definition,
-            claim_with_label(&definition, "one-a-c"),
+            claim_with_label(&definition, "one-a-b"),
             ProofOptions::default(),
             &NoSolver,
         )
         .unwrap();
         let all_path = prove_claim(
             &definition,
-            claim_with_label(&definition, "all-a-c"),
+            claim_with_label(&definition, "all-a-b"),
             ProofOptions {
                 max_counterexamples: 2,
                 ..ProofOptions::default()
@@ -2927,7 +2932,7 @@ mod tests {
         assert!(one_path.leaves.iter().all(|leaf| {
             leaf.trace
                 .iter()
-                .all(|entry| entry.label.as_deref() != Some("a-to-b"))
+                .all(|entry| entry.label.as_deref() != Some("a-to-c"))
         }));
         assert_eq!(all_path.status, ProofStatus::Disproved);
         assert_eq!(all_path.leaves.len(), 2);
@@ -2971,10 +2976,12 @@ mod tests {
                 .collect()
         );
 
+        // The default limit of one counterexample stops the proof at the stuck b leaf, which the
+        // declaration order reaches first; the c path stays unexplored.
         let limited = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
         assert_eq!(limited.status, ProofStatus::Disproved);
-        assert_eq!(limited.leaves.len(), 2);
-        assert_eq!(limited.unexplored_states, 0);
+        assert_eq!(limited.leaves.len(), 1);
+        assert_eq!(limited.unexplored_states, 1);
     }
 
     #[test]
@@ -3369,7 +3376,13 @@ mod tests {
                 .expect("claim should execute");
 
                 assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
-                let (first, second) = ("bc", "ab");
+                // Claims are tried in declaration order; the first covers its guarded sub-case
+                // and its complement reaches the second.
+                let (first, second) = if reverse_claims {
+                    ("bc", "ab")
+                } else {
+                    ("ab", "bc")
+                };
                 assert!(
                     result.leaves.iter().all(|leaf| {
                         matches!(
