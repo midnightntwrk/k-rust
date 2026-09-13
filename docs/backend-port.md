@@ -21,7 +21,8 @@ fallback is not completion.
 The intended workspace structure is:
 
 - `k-rust-kore`: host-independent KORE syntax, parser, printer, and serialization shared across
-  the frontend and backend.
+  the frontend and backend, and the measurement counters (`k_rust_kore::measure`) every crate
+  increments.
 - `k-rust-backend`: definition verification and internalization, matching, substitution,
   simplification, SMT reasoning, and rewriting. It depends on `k-rust-kore`, not on the frontend.
 - `k-rust`: the K frontend and the unified `krust` binary. It compiles K to KORE and invokes

@@ -24,8 +24,10 @@ z3 = { workspace = true, optional = true }
 
 [dev-dependencies]
 indoc.workspace = true
+k-rust-kore = { workspace = true, features = ["measure"] }
 proptest.workspace = true
 
 [features]
+measure = ["k-rust-kore/measure"]
 z3 = ["dep:z3"]
 z3-gh-release = ["z3", "z3/gh-release"]
