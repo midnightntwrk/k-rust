@@ -7,7 +7,10 @@ use crate::{
     definition::BackendDefinition,
     rewrite::{Pattern, Truth, predicates_truth},
     rule::Predicate,
-    term::{CollectionSymbols, Sort, Term, TermKind, Variable},
+    term::{
+        CollectionSymbols, Sort, Term, TermKind, Variable,
+        names::{VariableProvenance, split_fresh_counter, split_marker},
+    },
 };
 
 pub fn term(term: &Term) -> kore::Pattern {
@@ -569,9 +572,6 @@ fn variable_pattern(variable: &Variable) -> kore::Variable {
     }
 }
 
-/// The provenance markers the backend prefixes to rule-side variable names.
-const PROVENANCE_MARKERS: [&str; 3] = ["Rule#", "Ex#", "Eq#"];
-
 /// Externalize an internal variable name as the KORE identifier the reference engines print.
 ///
 /// Booster keeps the `Rule#`/`Ex#` provenance markers internally and drops the `#` when it
@@ -585,21 +585,9 @@ const PROVENANCE_MARKERS: [&str; 3] = ["Rule#", "Ex#", "Eq#"];
 /// the K frontend never produces names starting with `Rule`, `Ex` or `Eq` without the `Var`
 /// prefix, so externalized names do not collide with user variables.
 pub fn external_variable_name(name: &str) -> String {
-    let (marker, rest) = PROVENANCE_MARKERS
-        .iter()
-        .find_map(|marker| {
-            name.strip_prefix(marker)
-                .map(|rest| (&marker[..marker.len() - 1], rest))
-        })
-        .unwrap_or(("", name));
-    let (base, counter) = match rest.rsplit_once('!') {
-        Some((base, counter))
-            if !counter.is_empty() && counter.bytes().all(|byte| byte.is_ascii_digit()) =>
-        {
-            (base, counter)
-        }
-        _ => (rest, ""),
-    };
+    let (marker, rest) = split_marker(name, &VariableProvenance::ALL);
+    let marker = marker.map_or("", VariableProvenance::external_prefix);
+    let (base, counter) = split_fresh_counter(rest);
     let mut external = String::with_capacity(name.len());
     for (index, character) in marker
         .chars()

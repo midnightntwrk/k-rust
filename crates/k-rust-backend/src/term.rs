@@ -13,6 +13,8 @@ use num_bigint::BigInt;
 
 use crate::smt::SmtType;
 
+pub mod names;
+
 pub type Name = Arc<str>;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

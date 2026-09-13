@@ -11,7 +11,7 @@ use k_rust_kore::names::WellKnownSymbol;
 use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
     substitution::{Substitution, substitute},
-    term::{Name, Term, TermKind, Variable},
+    term::{Name, Term, TermKind, Variable, names::VariableProvenance},
 };
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -383,16 +383,16 @@ pub fn internalize_axiom(
                 .collect::<Result<BTreeSet<_>, DefinitionError>>()?;
             let rhs_renaming = |variable: &Variable| {
                 if existential_variables.contains(variable) {
-                    prefixed(variable, "Ex#")
+                    variable.with_provenance(VariableProvenance::Existential)
                 } else {
-                    prefixed(variable, "Rule#")
+                    variable.with_provenance(VariableProvenance::Rule)
                 }
             };
             let rhs = rename_rhs(rhs, rhs_renaming);
             let ensures = rename_predicates(&ensures, rhs_renaming);
             let existentials = existential_variables
                 .iter()
-                .map(|variable| prefixed(variable, "Ex#"))
+                .map(|variable| variable.with_provenance(VariableProvenance::Existential))
                 .collect::<BTreeSet<_>>();
             let lhs_alternatives = term_disjuncts(lhs);
             let split = lhs_alternatives.len() > 1;
@@ -409,9 +409,13 @@ pub fn internalize_axiom(
                     Ok(InternalizedRule::Term(
                         RuleKind::Rewrite,
                         make_rule(
-                            rename_term(&lhs, |variable| prefixed(variable, "Rule#")),
+                            rename_term(&lhs, |variable| {
+                                variable.with_provenance(VariableProvenance::Rule)
+                            }),
                             rhs.clone(),
-                            rename_predicates(&requires, |variable| prefixed(variable, "Rule#")),
+                            rename_predicates(&requires, |variable| {
+                                variable.with_provenance(VariableProvenance::Rule)
+                            }),
                             ensures.clone(),
                             attributes.clone(),
                             existentials.clone(),
@@ -440,7 +444,8 @@ pub fn internalize_axiom(
                 )?;
                 let rhs =
                     internalize_predicates(definition, rhs, sort_parameters, subsort_validation)?;
-                let rename = |variable: &Variable| prefixed(variable, "Eq#");
+                let rename =
+                    |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
                 let mut lhs = rename_predicates(&[lhs], rename);
                 return Ok(vec![InternalizedRule::Predicate(PredicateRewriteRule {
                     lhs: lhs.pop().expect("one predicate was internalized"),
@@ -463,7 +468,8 @@ pub fn internalize_axiom(
                 internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
             let (rhs, ensures) =
                 internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
-            let rename = |variable: &Variable| prefixed(variable, "Eq#");
+            let rename =
+                |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             Ok(vec![InternalizedRule::Term(
                 RuleKind::Simplification,
                 make_rule(
@@ -535,7 +541,8 @@ pub fn internalize_axiom(
                 internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
             let (rhs, ensures) =
                 internalize_term_rhs(definition, rhs, sort_parameters, subsort_validation)?;
-            let rename = |variable: &Variable| prefixed(variable, "Eq#");
+            let rename =
+                |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             let rhs = rename_rhs(rhs, rename);
             let requires = rename_predicates(&requires, rename);
             let ensures = rename_predicates(&ensures, rename);
@@ -573,7 +580,8 @@ pub fn internalize_axiom(
             let requires =
                 internalize_predicates(definition, requires, sort_parameters, subsort_validation)?;
             let rhs = internalize_predicates(definition, rhs, sort_parameters, subsort_validation)?;
-            let rename = |variable: &Variable| prefixed(variable, "Eq#");
+            let rename =
+                |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             let lhs = rename_term(&lhs, rename);
             let requires = rename_predicates(&requires, rename);
             let rhs = rename_predicates(&rhs, rename);
@@ -1200,10 +1208,6 @@ fn visit_symbols(term: &Term, visitor: &mut impl FnMut(&crate::term::Symbol)) {
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
     }
-}
-
-fn prefixed(variable: &Variable, prefix: &str) -> Variable {
-    variable.with_name(format!("{prefix}{}", variable.name))
 }
 
 fn rename_term(term: &Term, rename: impl Fn(&Variable) -> Variable) -> Term {
