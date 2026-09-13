@@ -49,3 +49,11 @@ z3 = { version = "0.20.2", default-features = false }
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+# Release code with line tables so a sampling profiler resolves inlined frames.
+# lto stays at the release default so the profile measures what the
+# differential gates and scripts/benchmark.sh run.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"

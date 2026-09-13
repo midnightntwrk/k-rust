@@ -91,6 +91,51 @@ Every measured proof first runs once outside Hyperfine and must produce the expe
 verdict. `--skip-preflight` exists for repeated local experiments, but should not be used for
 recorded results. `--allow-unpinned` is likewise intended only for explicitly exploratory runs.
 
+## Profiling
+
+Hyperfine says how long a whole invocation takes; a sampling profile says where the time goes.
+`scripts/profile.sh` records one of the benchmark's krust workloads under
+[samply](https://github.com/mstange/samply) and writes a profile the Firefox Profiler opens.
+
+Build the binary once with the `profiling` Cargo profile:
+
+```sh
+cargo build --profile profiling -p k-rust --bin krust --locked
+```
+
+`[profile.profiling]` inherits `release` and adds line tables (`debug = "line-tables-only"`, `strip = "none"`), so the machine code is what `release` runs and every inlined frame still resolves to a source line.
+`lto` stays at the release default, unlike `dist`, because the differential gates and this benchmark run `release` builds.
+
+Record a workload:
+
+```sh
+scripts/profile.sh --workload imp-compile
+scripts/profile.sh --workload imp-prove --claim IMP-SIMPLE-SPEC.sum-loop
+scripts/profile.sh --workload kevm-compile --dry-run
+```
+
+The workloads are the benchmark's own commands: `imp-compile` and `kevm-compile` are the `compile` phase's krust command, `imp-prove` is the `execute` phase's `kprove` on a prepared bundle (default claim `IMP-SIMPLE-SPEC.sum-loop`).
+Checkouts, pin checks, and `--allow-unpinned` work as for `scripts/benchmark.sh`; `KRUST_BIN` defaults to `target/profiling/krust` and must carry line tables.
+Prepared proof bundles live under `target/profiles/work/<suite>/` and are reused like `BENCHMARK_WORK_ROOT`; set `PROFILE_WORK_ROOT` to a fresh directory after a compiler or option change.
+
+Each run writes `target/profiles/<timestamp>-<workload>/` (or `--output DIR`) with:
+
+- `profile.json.gz`, the samply profile; open it with `samply load DIR/profile.json.gz`.
+- `command.txt`, the exact preparation, unprofiled, and record commands.
+- `metadata.json`: revisions, tool versions, the binary's sha256, host, sampling rate and sample count, and the wall time and peak RSS of both runs.
+- `unprofiled.*` and `profiled.*`: stdout, stderr, and `meta.toml` of the two runs, from `scripts/conformance/measure.py`.
+- `timings.json` from `kprove --timings` (and from `kcompile --timings` once the binary supports it), and `counters.json` when the binary was built with the `measure` feature (`KRUST_COUNTERS` is exported for every run and ignored otherwise).
+
+The workload runs twice: once unprofiled, for the baseline wall time and peak RSS, and once under `samply record`.
+The profiled run's numbers are also recorded but include samply's own work, so quote the unprofiled ones.
+The script fails when the profile holds zero samples; the first run on a new host is the check that `perf_event` delivers software-clock samples there.
+Where `perf_event_open` is refused outright (the agent sandbox on this machine filters the syscall with seccomp, so `samply record` fails with `Operation not permitted`), `--skip-profile` records everything except the profile.
+
+`kevm-compile` needs gigabytes of memory and a memory scope such as `scripts/reference-memory-guard.sh` or `systemd-run --user --scope -p MemoryMax=8G`.
+As an `agent-N` user the script prints the resolved command and exits 3 unless `--allow-sandbox-kevm` is given, so an agent does not start it by accident.
+
+Profiles are machine-local artifacts like benchmark results: they live under the ignored `target/` tree, `cargo clean` removes them, and a profile worth keeping is copied elsewhere together with its `metadata.json`.
+
 ## Interpreting the numbers
 
 | Phase | Timed work | Comparison |
