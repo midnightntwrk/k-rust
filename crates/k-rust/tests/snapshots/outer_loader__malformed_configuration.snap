@@ -20,6 +20,7 @@ Configuration(
         error: NoParse {
             position: 4,
             expected: [
+                "\"#token\"",
                 "\"(\"",
                 "\".\"",
                 "\".Bag\"",
@@ -34,6 +35,7 @@ Configuration(
                 "Bool",
                 "Cell",
                 "K",
+                "KBott",
                 "KConfigVar",
                 "KItem",
                 "r\"(\\\\!|\\\\?|@)?([A-Z][A-Za-z0-9'_]*|_|_[A-Z][A-Za-z0-9'_]*)\"",

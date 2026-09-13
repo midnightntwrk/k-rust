@@ -91,7 +91,7 @@ test('reports the compiler MPFR folding boundary', () => {
   assert.throws(
     () =>
       compileDefinition({
-        definition: `
+        definition: String.raw`
           module MAIN
             syntax Float [hook(FLOAT.Float)]
             syntax Float ::= r"[0-9]+\\.[0-9]+" [token]

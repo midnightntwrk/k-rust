@@ -1918,7 +1918,8 @@ fn krun_surface_pattern_reports_command_line_parse_locations() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("<command line>"), "{stderr}");
-    assert!(stderr.contains("1:1"), "{stderr}");
+    // The incomplete cell fails at EOF, immediately after the opening tag.
+    assert!(stderr.contains("1:4"), "{stderr}");
 
     fs::remove_dir_all(root).unwrap();
 }

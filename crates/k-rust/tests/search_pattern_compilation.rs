@@ -397,7 +397,16 @@ fn search_pattern_compilation_retains_parse_error_provenance() {
         panic!("expected rule parse error: {error:?}")
     };
     assert_eq!(error.source.as_deref(), Some(PATTERN_SOURCE));
-    assert_eq!(error.location, Some(PATTERN_LOCATION));
+    // EOF is a zero-width point three columns after the supplied pattern origin.
+    assert_eq!(
+        error.location,
+        Some(Location {
+            start_line: 7,
+            start_column: 6,
+            end_line: 7,
+            end_column: 6,
+        })
+    );
 }
 
 #[test]
