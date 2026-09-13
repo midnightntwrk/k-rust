@@ -9,7 +9,7 @@ use crate::{
     rule::Predicate,
     term::{
         CollectionSymbols, Sort, Term, TermKind, Variable,
-        names::{VariableProvenance, split_fresh_counter, split_marker},
+        names::{HookName, HookNamespace, VariableProvenance, split_fresh_counter, split_marker},
     },
 };
 
@@ -266,11 +266,13 @@ fn boolean_term_predicate(boolean_sort: &Sort, term: &Term, expected: bool) -> O
             Predicate::And(vec![operand(0, false)?, operand(1, false)?])
         }),
         (hook, [left, right])
-            if (hook.ends_with(".eq") || hook.ends_with(".ne"))
-                && !matches!(hook, "FLOAT.eq" | "FLOAT.ne") =>
+            if HookName::parse(hook).is_some_and(|hook| {
+                matches!(hook.operation, "eq" | "ne") && hook.kind() != HookNamespace::Float
+            }) =>
         {
             let equality = Predicate::Equals(left.clone(), right.clone());
-            let equality_expected = expected == hook.ends_with(".eq");
+            let equality_expected =
+                expected == HookName::parse(hook).is_some_and(|hook| hook.operation == "eq");
             Some(if equality_expected {
                 equality
             } else {
@@ -341,7 +343,10 @@ fn predicate_as_boolean_term(
                         .attributes
                         .hook
                         .as_deref()
-                        .is_some_and(|hook| hook.ends_with(".eq") && hook != "FLOAT.eq")
+                        .and_then(HookName::parse)
+                        .is_some_and(|hook| {
+                            hook.operation == "eq" && hook.kind() != HookNamespace::Float
+                        })
                         && symbol.sort_variables.is_empty()
                         && symbol.result_sort == boolean_sort
                         && symbol.argument_sorts == [left.sort(), right.sort()]

@@ -1,4 +1,4 @@
-//! Backend-internal variable naming: provenance markers and fresh counters.
+//! Backend-internal variable naming: provenance markers, fresh counters, and hook names.
 //!
 //! The marker is part of the name string on purpose: `Ord for Variable` is derived over
 //! (`kind`, `sort`, `name`) and every `BTreeSet<Variable>` in the rewriter iterates in that
@@ -87,6 +87,87 @@ impl Variable {
     }
 }
 
+/// A hook attribute value, `NAMESPACE.operation`.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct HookName<'a> {
+    pub namespace: &'a str,
+    pub operation: &'a str,
+}
+
+impl<'a> HookName<'a> {
+    /// `None` when there is no `.`; the namespace is everything before the first `.`.
+    pub fn parse(hook: &'a str) -> Option<Self> {
+        hook.split_once('.').map(|(namespace, operation)| Self {
+            namespace,
+            operation,
+        })
+    }
+
+    pub fn kind(self) -> HookNamespace {
+        match self.namespace {
+            "INT" => HookNamespace::Int,
+            "BOOL" => HookNamespace::Bool,
+            "KEQUAL" => HookNamespace::KEqual,
+            "IO" => HookNamespace::Io,
+            "LIST" => HookNamespace::List,
+            "MAP" => HookNamespace::Map,
+            "SET" => HookNamespace::Set,
+            "BYTES" => HookNamespace::Bytes,
+            "FLOAT" => HookNamespace::Float,
+            "STRING" => HookNamespace::String,
+            "SUBSTITUTION" => HookNamespace::Substitution,
+            namespace if PLUGIN_HOOK_NAMESPACES.contains(&namespace) => HookNamespace::Plugin,
+            _ => HookNamespace::Other,
+        }
+    }
+}
+
+/// Hook namespaces this backend dispatches beyond K's fixed builtin set.
+///
+/// Java K only treats these plugin namespaces as hooked when `kompile --hook-namespaces` names
+/// them; the Rust backend implements them natively, so KORE emitted for it admits them by default.
+pub const PLUGIN_HOOK_NAMESPACES: [&str; 3] = ["KRYPTO", "HASH", "SECP256K1"];
+
+/// The namespaces the backend evaluates natively or through the crypto plugin.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum HookNamespace {
+    Int,
+    Bool,
+    KEqual,
+    Io,
+    List,
+    Map,
+    Set,
+    Bytes,
+    Float,
+    String,
+    Substitution,
+    /// `KRYPTO`, `HASH`, `SECP256K1`: `builtin::krypto`.
+    Plugin,
+    Other,
+}
+
+impl HookNamespace {
+    /// The namespace's spelling; `None` for the plugin family (three spellings) and for
+    /// `Other`.
+    pub const fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::Int => Some("INT"),
+            Self::Bool => Some("BOOL"),
+            Self::KEqual => Some("KEQUAL"),
+            Self::Io => Some("IO"),
+            Self::List => Some("LIST"),
+            Self::Map => Some("MAP"),
+            Self::Set => Some("SET"),
+            Self::Bytes => Some("BYTES"),
+            Self::Float => Some("FLOAT"),
+            Self::String => Some("STRING"),
+            Self::Substitution => Some("SUBSTITUTION"),
+            Self::Plugin | Self::Other => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +224,57 @@ mod tests {
         assert_eq!(split_fresh_counter("VarX"), ("VarX", ""));
         assert_eq!(split_fresh_counter("X!"), ("X!", ""));
         assert_eq!(split_fresh_counter("X!1a"), ("X!1a", ""));
+    }
+
+    #[test]
+    fn hook_name_parses_at_the_first_dot() {
+        assert_eq!(
+            HookName::parse("MAP.lookup"),
+            Some(HookName {
+                namespace: "MAP",
+                operation: "lookup"
+            })
+        );
+        assert_eq!(
+            HookName::parse("KRYPTO.foo.bar"),
+            Some(HookName {
+                namespace: "KRYPTO",
+                operation: "foo.bar"
+            })
+        );
+        assert_eq!(HookName::parse("nodot"), None);
+    }
+
+    #[test]
+    fn hook_namespace_kind_matches_every_spelling() {
+        for namespace in [
+            HookNamespace::Int,
+            HookNamespace::Bool,
+            HookNamespace::KEqual,
+            HookNamespace::Io,
+            HookNamespace::List,
+            HookNamespace::Map,
+            HookNamespace::Set,
+            HookNamespace::Bytes,
+            HookNamespace::Float,
+            HookNamespace::String,
+            HookNamespace::Substitution,
+        ] {
+            let spelling = namespace.as_str().expect("named namespace");
+            let hook = format!("{spelling}.op");
+            assert_eq!(HookName::parse(&hook).map(HookName::kind), Some(namespace));
+        }
+        for plugin in PLUGIN_HOOK_NAMESPACES {
+            let hook = format!("{plugin}.op");
+            assert_eq!(
+                HookName::parse(&hook).map(HookName::kind),
+                Some(HookNamespace::Plugin)
+            );
+        }
+        assert_eq!(
+            HookName::parse("KVAR.KVar").map(HookName::kind),
+            Some(HookNamespace::Other)
+        );
+        assert_eq!(HookNamespace::Plugin.as_str(), None);
     }
 }

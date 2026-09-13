@@ -24,7 +24,7 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         CollectionMetadata, CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name,
-        Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable,
+        Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable, names::HookName,
     },
 };
 
@@ -1583,7 +1583,15 @@ fn validate_binder_attribute(
             "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.".into(),
         ));
     };
-    if sorts.get(name).and_then(|info| info.hook.as_deref()) != Some("KVAR.KVar") {
+    if sorts
+        .get(name)
+        .and_then(|info| info.hook.as_deref())
+        .and_then(HookName::parse)
+        != Some(HookName {
+            namespace: "KVAR",
+            operation: "KVar",
+        })
+    {
         return Err(DefinitionError::MalformedAttribute(
             "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.".into(),
         ));

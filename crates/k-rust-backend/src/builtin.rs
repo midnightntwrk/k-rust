@@ -19,7 +19,10 @@ use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::BackendDefinition,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
-    term::{Sort, SymbolType, Term, TermKind},
+    term::{
+        Sort, SymbolType, Term, TermKind,
+        names::{HookName, HookNamespace},
+    },
     timeout::interruption_requested,
 };
 
@@ -154,11 +157,7 @@ fn evaluate_with_context(
     evaluate_hook_with_context(hook, arguments, Some(&result_sort), sort_graph, definition)
 }
 
-/// Hook namespaces this backend dispatches beyond K's fixed builtin set.
-///
-/// Java K only treats these plugin namespaces as hooked when `kompile --hook-namespaces` names
-/// them; the Rust backend implements them natively, so KORE emitted for it admits them by default.
-pub const PLUGIN_HOOK_NAMESPACES: [&str; 3] = ["KRYPTO", "HASH", "SECP256K1"];
+pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
 
 pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     evaluate_hook_with_context(hook, arguments, None, None, None)
@@ -214,27 +213,22 @@ fn evaluate_hook_with_context(
         "KEQUAL.eq" => kequal(arguments, false, sort_graph),
         "KEQUAL.ne" => kequal(arguments, true, sort_graph),
         "IO.logString" => return io_log_string(arguments),
-        hook if hook.starts_with("LIST.") => return list::evaluate(hook, arguments),
-        hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
-        hook if hook.starts_with("SET.") => return set::evaluate(hook, arguments),
-        hook if hook.starts_with("BYTES.") => return bytes::evaluate(hook, arguments),
-        hook if hook.starts_with("FLOAT.") => return float::evaluate(hook, arguments),
-        hook if hook
-            .split_once('.')
-            .is_some_and(|(namespace, _)| PLUGIN_HOOK_NAMESPACES.contains(&namespace)) =>
-        {
-            return krypto::evaluate(hook, arguments);
-        }
-        hook if hook.starts_with("STRING.") => {
-            return string::evaluate(hook, arguments, result_sort);
-        }
-        hook if hook.starts_with("SUBSTITUTION.") => {
-            return substitution::evaluate(hook, arguments, definition);
-        }
         _ => {
-            return Ok(BuiltinResult::Unsupported(
-                UnsupportedHookReason::NotImplemented,
-            ));
+            return match HookName::parse(hook).map(HookName::kind) {
+                Some(HookNamespace::List) => list::evaluate(hook, arguments),
+                Some(HookNamespace::Map) => map::evaluate(hook, arguments),
+                Some(HookNamespace::Set) => set::evaluate(hook, arguments),
+                Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
+                Some(HookNamespace::Float) => float::evaluate(hook, arguments),
+                Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments),
+                Some(HookNamespace::String) => string::evaluate(hook, arguments, result_sort),
+                Some(HookNamespace::Substitution) => {
+                    substitution::evaluate(hook, arguments, definition)
+                }
+                _ => Ok(BuiltinResult::Unsupported(
+                    UnsupportedHookReason::NotImplemented,
+                )),
+            };
         }
     }?;
     Ok(result.into())
