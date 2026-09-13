@@ -4,11 +4,12 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
+use super::matching_oracle::{match_map_terms_all, match_set_terms_all};
 use crate::{
     definition::BackendDefinition,
     matching::*,
     substitution::Substitution,
-    term::{CollectionSymbols, MapDefinition, Sort, Term, TermKind, Variable},
+    term::{CollectionSymbols, MapDefinition, Name, Sort, Term, TermKind, Variable},
 };
 
 fn variable(name: &str, sort: Sort) -> Variable {
@@ -831,4 +832,218 @@ fn carries_an_open_set_subject_frame_through_every_selection() {
             .contains(&subject_rest)
     }));
     assert!(solutions.iter().any(|solution| !solution.fresh.is_empty()));
+}
+
+fn set_definition() -> Arc<crate::term::SetDefinition> {
+    Arc::new(crate::term::SetDefinition {
+        symbols: collection_symbols("set"),
+        element_sort: "SetElement".into(),
+        list_sort: "SetSort".into(),
+    })
+}
+
+fn sort_graph() -> SortGraph {
+    let mut graph = SortGraph::default();
+    graph.insert("SomeSort", [Name::from("ASubsort")]);
+    graph.insert("ASubsort", []);
+    for name in ["MapKey", "MapValue", "MapSort", "ListSort", "SetSort"] {
+        graph.insert(name, []);
+    }
+    graph
+}
+
+#[test]
+fn enumerates_every_symbolic_map_key_selection() {
+    let definition = map_definition();
+    let key_variable = variable("KEY", Sort::simple("MapKey"));
+    let value_variable = variable("VALUE", Sort::simple("MapValue"));
+    let rest_variable = variable("REST", Sort::simple("MapSort"));
+    let first_key = domain_value(Sort::simple("MapKey"), "first");
+    let first_value = domain_value(Sort::simple("MapValue"), "first-value");
+    let second_key = domain_value(Sort::simple("MapKey"), "second");
+    let second_value = domain_value(Sort::simple("MapValue"), "second-value");
+    let pattern = Term::map(
+        definition.clone(),
+        vec![(
+            Term::variable(key_variable.clone()),
+            Term::variable(value_variable.clone()),
+        )],
+        Some(Term::variable(rest_variable.clone())),
+    );
+    let subject = Term::map(
+        definition.clone(),
+        vec![
+            (first_key.clone(), first_value.clone()),
+            (second_key.clone(), second_value.clone()),
+        ],
+        None,
+    );
+
+    assert_eq!(
+        match_map_terms_all(
+            MatchMode::Rewrite,
+            &sort_graph(),
+            &pattern,
+            &subject,
+            &Substitution::new(),
+        ),
+        Some(vec![
+            Substitution::from([
+                (key_variable.clone(), first_key.clone()),
+                (
+                    rest_variable.clone(),
+                    Term::map(
+                        definition.clone(),
+                        vec![(second_key.clone(), second_value.clone())],
+                        None,
+                    ),
+                ),
+                (value_variable.clone(), first_value.clone()),
+            ]),
+            Substitution::from([
+                (key_variable, second_key),
+                (
+                    rest_variable,
+                    Term::map(definition, vec![(first_key, first_value)], None),
+                ),
+                (value_variable, second_value),
+            ]),
+        ])
+    );
+}
+
+#[test]
+fn enumerates_map_entry_permutations_without_splitting_values_from_keys() {
+    let definition = map_definition();
+    let first_key_variable = variable("KEY1", Sort::simple("MapKey"));
+    let first_value_variable = variable("VALUE1", Sort::simple("MapValue"));
+    let second_key_variable = variable("KEY2", Sort::simple("MapKey"));
+    let second_value_variable = variable("VALUE2", Sort::simple("MapValue"));
+    let first_key = domain_value(Sort::simple("MapKey"), "first");
+    let first_value = domain_value(Sort::simple("MapValue"), "first-value");
+    let second_key = domain_value(Sort::simple("MapKey"), "second");
+    let second_value = domain_value(Sort::simple("MapValue"), "second-value");
+    let pattern = Term::map(
+        definition.clone(),
+        vec![
+            (
+                Term::variable(first_key_variable.clone()),
+                Term::variable(first_value_variable.clone()),
+            ),
+            (
+                Term::variable(second_key_variable.clone()),
+                Term::variable(second_value_variable.clone()),
+            ),
+        ],
+        None,
+    );
+    let subject = Term::map(
+        definition,
+        vec![
+            (first_key.clone(), first_value.clone()),
+            (second_key.clone(), second_value.clone()),
+        ],
+        None,
+    );
+
+    assert_eq!(
+        match_map_terms_all(
+            MatchMode::Rewrite,
+            &sort_graph(),
+            &pattern,
+            &subject,
+            &Substitution::new(),
+        ),
+        Some(vec![
+            Substitution::from([
+                (first_key_variable.clone(), first_key.clone()),
+                (first_value_variable.clone(), first_value.clone()),
+                (second_key_variable.clone(), second_key.clone()),
+                (second_value_variable.clone(), second_value.clone()),
+            ]),
+            Substitution::from([
+                (first_key_variable, second_key),
+                (first_value_variable, second_value),
+                (second_key_variable, first_key),
+                (second_value_variable, first_value),
+            ]),
+        ])
+    );
+}
+
+#[test]
+fn enumerates_every_symbolic_set_selection() {
+    let definition = set_definition();
+    let element_variable = variable("ELEMENT", Sort::simple("SetElement"));
+    let rest_variable = variable("REST", Sort::simple("SetSort"));
+    let first = domain_value(Sort::simple("SetElement"), "first");
+    let second = domain_value(Sort::simple("SetElement"), "second");
+    let pattern = Term::set(
+        definition.clone(),
+        vec![Term::variable(element_variable.clone())],
+        Some(Term::variable(rest_variable.clone())),
+    );
+    let subject = Term::set(
+        definition.clone(),
+        vec![first.clone(), second.clone()],
+        None,
+    );
+
+    assert_eq!(
+        match_set_terms_all(
+            MatchMode::Rewrite,
+            &sort_graph(),
+            &pattern,
+            &subject,
+            &Substitution::new(),
+        ),
+        Some(vec![
+            Substitution::from([
+                (element_variable.clone(), first.clone()),
+                (
+                    rest_variable.clone(),
+                    Term::set(definition.clone(), vec![second.clone()], None),
+                ),
+            ]),
+            Substitution::from([
+                (element_variable, second),
+                (rest_variable, Term::set(definition, vec![first], None)),
+            ]),
+        ])
+    );
+}
+
+#[test]
+fn enumerates_set_element_permutations_without_reuse() {
+    let definition = set_definition();
+    let first_variable = variable("FIRST", Sort::simple("SetElement"));
+    let second_variable = variable("SECOND", Sort::simple("SetElement"));
+    let first = domain_value(Sort::simple("SetElement"), "first");
+    let second = domain_value(Sort::simple("SetElement"), "second");
+    let pattern = Term::set(
+        definition.clone(),
+        vec![
+            Term::variable(first_variable.clone()),
+            Term::variable(second_variable.clone()),
+        ],
+        None,
+    );
+    let subject = Term::set(definition, vec![first.clone(), second.clone()], None);
+
+    assert_eq!(
+        match_set_terms_all(
+            MatchMode::Rewrite,
+            &sort_graph(),
+            &pattern,
+            &subject,
+            &Substitution::new(),
+        ),
+        Some(vec![
+            Substitution::from([
+                (first_variable.clone(), first.clone()),
+                (second_variable.clone(), second.clone()),
+            ]),
+            Substitution::from([(first_variable, second), (second_variable, first),]),
+        ])
+    );
 }
