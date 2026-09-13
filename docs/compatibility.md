@@ -106,6 +106,7 @@ The [definition fixture index](../crates/k-rust/tests/fixtures/reference/definit
 ## Search results
 
 Search output uses deterministic structural KORE order; reproducing Kore's internal `MultiOr` ordering is not a compatibility requirement.
+The order is `k-rust-kore`'s `Pattern` order (variant declaration rank, then fields in declaration order, byte-wise strings) and may change between releases.
 Differential gates compare disjunctions as multisets so ordering is ignored while multiplicity is still checked.
 For `--bound N`, selected results must be distinct members of the same query's unbounded solution set, up to the bound; which members are selected is unspecified.
 The CLI test `krun_search_bound_returns_a_subset_of_the_unbounded_solutions` checks this property against the port's own unbounded search.
