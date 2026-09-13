@@ -12,8 +12,8 @@ pub use ast::*;
 pub use checks::{check_brackets, check_list_declarations};
 pub use loader::{
     LoadError, LoadOptions, LoadedDefinition, ResolvedSource, SourceResolver, SyntaxModule, load,
-    load_for_compilation, load_structured, load_with_base, load_with_options,
-    resolve_syntax_module,
+    load_for_compilation, load_for_compilation_timed, load_structured, load_with_base,
+    load_with_base_timed, load_with_options, load_with_options_timed, resolve_syntax_module,
 };
 pub use lower::lower;
 pub use markdown::{

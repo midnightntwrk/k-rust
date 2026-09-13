@@ -5653,3 +5653,137 @@ fn reference_krun_evaluates_a_named_field_projection_program() {
     assert!(output.contains(r#"\dv{SortInt{}}("10")"#), "{output}");
     assert!(!output.contains("project"), "{output}");
 }
+
+#[test]
+fn kcompile_writes_phase_timings_json() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Input ::= Int | "twice" "(" Int ")" [macro]
+  rule twice(I) => I +Int I
+  configuration <k> $PGM:Input </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let timings_path = root.join("kcompile-timings.json");
+    let output_directory = root.join("compiled");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--output-directory",
+            output_directory.to_str().unwrap(),
+            "--timings",
+            timings_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    assert!(output_directory.join("definition.kore").is_file());
+    let timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
+    for key in ["load_seconds", "compile_seconds", "write_seconds"] {
+        assert!(timings[key].as_f64().unwrap() >= 0.0, "{key}: {timings}");
+    }
+    let phases = timings["phases"].as_array().unwrap();
+    let names = phases
+        .iter()
+        .map(|phase| phase["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(names[0], "resolve entry source", "{names:?}");
+    assert_eq!(names[1], "parse sources", "{names:?}");
+    assert!(names.contains(&"lower files"), "{names:?}");
+    assert!(names.contains(&"print definition.kore"), "{names:?}");
+    assert_eq!(names.last(), Some(&"write artifacts"), "{names:?}");
+    assert!(
+        phases
+            .iter()
+            .all(|phase| phase["seconds"].as_f64().unwrap() >= 0.0),
+        "{timings}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_writes_phase_timings_json() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax Input ::= Int | "twice" "(" Int ")" [macro]
+  rule twice(I) => I +Int I
+  configuration <k> $PGM:Input </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let timings_path = root.join("krun-timings.json");
+    let krun = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Input",
+            "--expression",
+            "twice(21)",
+            "--depth",
+            "1",
+            "--timings",
+            timings_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        krun.status.success(),
+        "{}",
+        String::from_utf8_lossy(&krun.stderr)
+    );
+    let stdout = String::from_utf8(krun.stdout).unwrap();
+    assert!(stdout.contains(r#"\dv{SortInt{}}("42")"#), "{stdout}");
+    let timings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
+    for key in [
+        "program_parse_seconds",
+        "config_vars_parse_seconds",
+        "internalize_seconds",
+        "execute_seconds",
+        "output_seconds",
+    ] {
+        assert!(timings[key].as_f64().unwrap() >= 0.0, "{key}: {timings}");
+    }
+    let compile = &timings["compile"];
+    assert!(
+        compile["load_seconds"].as_f64().unwrap() >= 0.0,
+        "{timings}"
+    );
+    assert!(
+        compile["compile_seconds"].as_f64().unwrap() >= 0.0,
+        "{timings}"
+    );
+    assert_eq!(compile["write_seconds"], 0.0, "{timings}");
+    let names = compile["phases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|phase| phase["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(names[0], "resolve entry source", "{names:?}");
+    assert!(names.contains(&"lower files"), "{names:?}");
+    assert_eq!(names.last(), Some(&"print macros.kore"), "{names:?}");
+    fs::remove_dir_all(root).unwrap();
+}

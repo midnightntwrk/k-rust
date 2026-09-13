@@ -10,7 +10,7 @@ mod term_to_kore;
 
 pub use compile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
-    compile_loaded_definition,
+    compile_loaded_definition, compile_loaded_definition_timed,
 };
 pub use fresh_names::GeneratedVariableIdentity;
 pub use module_to_kore::{

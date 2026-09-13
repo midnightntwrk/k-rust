@@ -14,3 +14,4 @@ pub use k_rust_kore::kore;
 pub mod native;
 pub mod outer;
 pub mod provenance;
+pub mod timings;

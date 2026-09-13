@@ -17,6 +17,7 @@ use crate::{
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
     provenance::{LogicalSourceId, SourceTable},
+    timings::PhaseTimings,
 };
 
 use super::{MarkdownError, extract_fenced_k_code_with_map};
@@ -244,7 +245,19 @@ pub fn load_with_options(
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
-    load_impl(entry, main_module, resolver, options, None, &[], None).map(|(loaded, _)| loaded)
+    load_with_options_timed(entry, main_module, resolver, options).map(|(loaded, _)| loaded)
+}
+
+/// [`load_with_options`] that also returns the wall-clock duration of every load phase in
+/// execution order.
+pub fn load_with_options_timed(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
+    load_impl(entry, main_module, resolver, options, None, &[], None)
+        .map(|(loaded, _, timings)| (loaded, timings))
 }
 
 /// Load a fresh compilation using the semantic/syntax import closures, frontend utility
@@ -261,7 +274,20 @@ pub fn load_for_compilation(
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
 ) -> Result<(LoadedDefinition, String), LoadError> {
-    let (loaded, syntax) = load_impl(
+    load_for_compilation_timed(entry, main_module, syntax_module, resolver, options)
+        .map(|(loaded, syntax, _)| (loaded, syntax))
+}
+
+/// [`load_for_compilation`] that also returns the wall-clock duration of every load phase in
+/// execution order.
+pub fn load_for_compilation_timed(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    syntax_module: Option<&str>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+) -> Result<(LoadedDefinition, String, PhaseTimings), LoadError> {
+    let (loaded, syntax, timings) = load_impl(
         entry,
         main_module,
         resolver,
@@ -273,6 +299,7 @@ pub fn load_for_compilation(
     Ok((
         loaded,
         syntax.expect("compilation loading selects a syntax module"),
+        timings,
     ))
 }
 
@@ -289,6 +316,27 @@ pub fn load_with_base(
     base: &Definition,
     provided_sources: &[String],
 ) -> Result<LoadedDefinition, LoadError> {
+    load_with_base_timed(
+        entry,
+        main_module,
+        resolver,
+        options,
+        base,
+        provided_sources,
+    )
+    .map(|(loaded, _)| loaded)
+}
+
+/// [`load_with_base`] that also returns the wall-clock duration of every load phase in
+/// execution order.
+pub fn load_with_base_timed(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+    base: &Definition,
+    provided_sources: &[String],
+) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
     load_impl(
         entry,
         main_module,
@@ -298,7 +346,7 @@ pub fn load_with_base(
         provided_sources,
         None,
     )
-    .map(|(loaded, _)| loaded)
+    .map(|(loaded, _, timings)| (loaded, timings))
 }
 
 fn load_impl(
@@ -309,8 +357,9 @@ fn load_impl(
     base: Option<&Definition>,
     provided_sources: &[String],
     compilation: Option<selection::CompilationSelection<'_>>,
-) -> Result<(LoadedDefinition, Option<String>), LoadError> {
+) -> Result<(LoadedDefinition, Option<String>, PhaseTimings), LoadError> {
     let main_module = main_module.into();
+    let mut timings = PhaseTimings::default();
     let mut loader = Loader {
         resolver,
         options,
@@ -320,21 +369,27 @@ fn load_impl(
         source_table: SourceTable::default(),
         diagnostics: Vec::new(),
     };
-    for source in &options.implicit_sources {
-        loader.visit(source.clone())?;
-    }
-    loader.visit(entry)?;
-    let selected_files = validate_and_select_modules(&loader.files)?;
+    timings.time("parse sources", || {
+        for source in &options.implicit_sources {
+            loader.visit(source.clone())?;
+        }
+        loader.visit(entry)
+    })?;
+    let selected_files = timings.time("select source files", || {
+        validate_and_select_modules(&loader.files)
+    })?;
     let files_to_lower = selected_files.as_deref().unwrap_or(&loader.files);
 
-    let mut definition = lower_files(
-        files_to_lower,
-        &main_module,
-        LowerOptions {
-            bison_lists: options.bison_lists,
-        },
-    )
-    .map_err(LoadError::SourceDiagnostics)?;
+    let mut definition = timings.time("lower files", || {
+        lower_files(
+            files_to_lower,
+            &main_module,
+            LowerOptions {
+                bison_lists: options.bison_lists,
+            },
+        )
+        .map_err(LoadError::SourceDiagnostics)
+    })?;
     if let Some(base) = base {
         let base_modules = base
             .modules
@@ -352,7 +407,7 @@ fn load_impl(
         definition.modules = modules;
         definition.main_module = main_module;
     }
-    finish_load(
+    let (loaded, syntax_module) = finish_load(
         definition,
         loader.files,
         loader.source_table,
@@ -360,7 +415,9 @@ fn load_impl(
         options,
         false,
         compilation,
-    )
+        &mut timings,
+    )?;
+    Ok((loaded, syntax_module, timings))
 }
 
 /// Prepare an already-structured definition with the embedded builtin source closure.
@@ -386,20 +443,28 @@ pub fn load_structured(
         source_table: SourceTable::default(),
         diagnostics: Vec::new(),
     };
-    for source in &options.implicit_sources {
-        loader.visit(source.clone())?;
-    }
-    let selected_files = validate_and_select_modules(&loader.files)?;
+    let mut timings = PhaseTimings::default();
+    timings.time("parse sources", || {
+        for source in &options.implicit_sources {
+            loader.visit(source.clone())?;
+        }
+        Ok::<_, LoadError>(())
+    })?;
+    let selected_files = timings.time("select source files", || {
+        validate_and_select_modules(&loader.files)
+    })?;
     let files_to_lower = selected_files.as_deref().unwrap_or(&loader.files);
 
-    let mut implicit = lower_files(
-        files_to_lower,
-        definition.main_module.clone(),
-        LowerOptions {
-            bison_lists: options.bison_lists,
-        },
-    )
-    .map_err(LoadError::SourceDiagnostics)?;
+    let mut implicit = timings.time("lower files", || {
+        lower_files(
+            files_to_lower,
+            definition.main_module.clone(),
+            LowerOptions {
+                bison_lists: options.bison_lists,
+            },
+        )
+        .map_err(LoadError::SourceDiagnostics)
+    })?;
     implicit.modules.append(&mut definition.modules);
     implicit.main_module = definition.main_module;
     implicit.attributes = definition.attributes;
@@ -411,10 +476,12 @@ pub fn load_structured(
         options,
         true,
         None,
+        &mut timings,
     )
     .map(|(loaded, _)| loaded)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finish_load(
     definition: Definition,
     files: Vec<SourceFile>,
@@ -423,12 +490,16 @@ fn finish_load(
     options: &LoadOptions,
     remove_unused_default_configuration: bool,
     compilation: Option<selection::CompilationSelection<'_>>,
+    timings: &mut PhaseTimings,
 ) -> Result<(LoadedDefinition, Option<String>), LoadError> {
-    let definition = apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)?;
-    let resolved =
-        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+    let definition = timings.time("apply sort synonyms", || {
+        apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)
+    })?;
+    let resolved = timings.time("resolve outer definition", || {
+        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)
+    })?;
     let mut diagnostics = diagnostics;
-    let outer_diagnostics = check_outer_modules(&resolved);
+    let outer_diagnostics = timings.time("check outer modules", || check_outer_modules(&resolved));
     let has_outer_errors = outer_diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -439,40 +510,52 @@ fn finish_load(
         ));
     }
 
-    let (definition, syntax_module) = if let Some(compilation) = compilation {
-        let syntax = resolve_syntax_module(&resolved, compilation.syntax_module)?;
-        if let Some(warning) = syntax.fallback_warning {
-            diagnostics.push(warning);
+    let (definition, syntax_module) = timings.time("select modules", || {
+        let (definition, syntax_module) = if let Some(compilation) = compilation {
+            let syntax = resolve_syntax_module(&resolved, compilation.syntax_module)?;
+            if let Some(warning) = syntax.fallback_warning {
+                diagnostics.push(warning);
+            }
+            let definition =
+                selection::select_modules(definition, &resolved, &syntax.name, options)?;
+            (definition, Some(syntax.name))
+        } else {
+            (definition, None)
+        };
+        drop(resolved);
+        let mut definition =
+            exclude_modules_by_attributes(definition, &options.excluded_module_attributes)?;
+        if remove_unused_default_configuration {
+            definition = without_unused_default_configuration(
+                definition,
+                options.configuration_module.as_deref(),
+            )?;
         }
-        let definition = selection::select_modules(definition, &resolved, &syntax.name, options)?;
-        (definition, Some(syntax.name))
-    } else {
-        (definition, None)
-    };
-    drop(resolved);
-    let mut definition =
-        exclude_modules_by_attributes(definition, &options.excluded_module_attributes)?;
-    if remove_unused_default_configuration {
-        definition = without_unused_default_configuration(
+        let definition = add_implicit_configuration_imports(
             definition,
             options.configuration_module.as_deref(),
         )?;
-    }
-    let definition =
-        add_implicit_configuration_imports(definition, options.configuration_module.as_deref())?;
-    let definition =
-        resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)?;
+        Ok::<_, LoadError>((definition, syntax_module))
+    })?;
+    let definition = timings.time("resolve configuration bubbles", || {
+        resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)
+    })?;
     let (mut definition, configuration_diagnostics) =
-        crate::definition::expand_configurations_with_diagnostics(&definition)
-            .map_err(LoadError::ConfigurationExpansion)?;
+        timings.time("expand configurations", || {
+            crate::definition::expand_configurations_with_diagnostics(&definition)
+                .map_err(LoadError::ConfigurationExpansion)
+        })?;
     diagnostics.extend(configuration_diagnostics);
     remove_temporary_cell_sort_declarations(&mut definition);
-    let resolved =
-        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
-    let mut expanded_diagnostics = Vec::new();
-    for (module_id, module) in resolved.modules() {
-        expanded_diagnostics.extend(check_sorts(module, &resolved.sort_catalog(module_id)));
-    }
+    let expanded_diagnostics = timings.time("resolve and check sorts", || {
+        let resolved =
+            ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+        let mut expanded_diagnostics = Vec::new();
+        for (module_id, module) in resolved.modules() {
+            expanded_diagnostics.extend(check_sorts(module, &resolved.sort_catalog(module_id)));
+        }
+        Ok::<_, LoadError>(expanded_diagnostics)
+    })?;
     let has_expanded_errors = expanded_diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -483,9 +566,12 @@ fn finish_load(
         ));
     }
 
-    let definition = resolve_rule_bubbles(&definition).map_err(LoadError::RuleParsing)?;
-    let resolved =
-        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+    let definition = timings.time("resolve rule bubbles", || {
+        resolve_rule_bubbles(&definition).map_err(LoadError::RuleParsing)
+    })?;
+    let resolved = timings.time("resolve loaded definition", || {
+        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)
+    })?;
     let diagnostics = options.diagnostics.apply(diagnostics);
     if diagnostics
         .iter()

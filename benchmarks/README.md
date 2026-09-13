@@ -163,6 +163,11 @@ and solver/claim setup separately. Per-claim durations and verdicts are included
 diagnostic sample, not the Hyperfine sample distribution, and excludes output and teardown.
 Trusted claims and claims restored from saved proofs appear with `trusted` and `saved` statuses and zero proof time.
 
+`krust kcompile --timings FILE` and `krust krun --timings FILE` write the same kind of diagnostic sample for compilation and execution.
+The kcompile file lists every entry-source resolution, load, compile, and artifact-write phase in execution order under `phases`, with `load_seconds`, `compile_seconds`, and `write_seconds` as the group totals.
+The krun file nests that object under `compile` (its `write_seconds` is zero because nothing is written) and adds `program_parse_seconds`, `config_vars_parse_seconds`, `internalize_seconds`, `execute_seconds`, and `output_seconds`.
+The benchmark cases do not write these two files; the flags are for one-off diagnosis of where a compile or run spends its time.
+
 Only `prove` compares fresh-spec command latency: both tools receive a source spec and prepared
 semantics. Canonical `kprove` still compiles the spec, so comparing it to Rust's `execute` would
 give Rust an unfair preparation advantage. There is no canonical load-only or isolated proof
