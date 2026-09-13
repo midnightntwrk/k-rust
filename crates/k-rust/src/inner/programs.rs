@@ -18,7 +18,10 @@ const PROGRAM_PARSING_POSTFIX: &str = "-PROGRAM-PARSING";
 pub enum ProgramError {
     Definition(ResolveError),
     MissingModule(String),
-    Grammar { module: String, error: ParseError },
+    Grammar {
+        module: String,
+        error: Box<ParseError>,
+    },
     Parse(ProgramParseError),
 }
 
@@ -87,7 +90,7 @@ impl ProgramParser {
             Grammar::from_program_sentences(&sentences, &source_catalog).map_err(|error| {
                 ProgramError::Grammar {
                     module: module.to_owned(),
-                    error,
+                    error: Box::new(error),
                 }
             })?;
         Ok(Self {

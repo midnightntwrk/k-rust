@@ -58,6 +58,13 @@ struct ParseProvenance {
     base_offset: usize,
 }
 
+#[derive(Clone, Copy)]
+struct ParseContext {
+    is_anywhere: bool,
+    provenance: ParseProvenance,
+    diagnostic_provenance: bool,
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PredictionMode {
     Filtered,
@@ -1384,25 +1391,21 @@ impl Grammar {
             source,
             base_offset,
         };
-        let mut pruned = false;
-        let result = self.parse_attempt(
-            start,
-            input,
+        let context = ParseContext {
             is_anywhere,
             provenance,
             diagnostic_provenance,
-            PredictionMode::Filtered,
-            &mut pruned,
-        );
+        };
+        let mut pruned = false;
+        let result =
+            self.parse_attempt(start, input, context, PredictionMode::Filtered, &mut pruned);
         // Failed first scans still contribute to chart-derived diagnostics. Retry the complete
         // pipeline so every error, including inference and ambiguity errors, stays unchanged.
         if result.is_err() && pruned {
             self.parse_attempt(
                 start,
                 input,
-                is_anywhere,
-                provenance,
-                diagnostic_provenance,
+                context,
                 PredictionMode::Unfiltered,
                 &mut pruned,
             )
@@ -1415,12 +1418,15 @@ impl Grammar {
         &self,
         start: &Sort,
         input: &str,
-        is_anywhere: bool,
-        provenance: ParseProvenance,
-        diagnostic_provenance: bool,
+        context: ParseContext,
         prediction_mode: PredictionMode,
         pruned: &mut bool,
     ) -> Result<Term, ParseError> {
+        let ParseContext {
+            is_anywhere,
+            provenance,
+            diagnostic_provenance,
+        } = context;
         #[cfg(test)]
         PARSE_ATTEMPTS.set(PARSE_ATTEMPTS.get() + 1);
         let prediction_analysis = (prediction_mode == PredictionMode::Filtered).then(|| {
@@ -3141,12 +3147,14 @@ mod chart_tests {
             grammar.parse_attempt(
                 &Sort::new(start),
                 input,
-                false,
-                ParseProvenance {
-                    source: SourceId(0),
-                    base_offset: 0,
+                ParseContext {
+                    is_anywhere: false,
+                    provenance: ParseProvenance {
+                        source: SourceId(0),
+                        base_offset: 0,
+                    },
+                    diagnostic_provenance: false,
                 },
-                false,
                 PredictionMode::Unfiltered,
                 &mut false,
             )
@@ -3382,12 +3390,14 @@ mod chart_tests {
             let result = grammar.parse_attempt(
                 &Sort::new("Start"),
                 "p?",
-                false,
-                ParseProvenance {
-                    source: SourceId(0),
-                    base_offset: 0,
+                ParseContext {
+                    is_anywhere: false,
+                    provenance: ParseProvenance {
+                        source: SourceId(0),
+                        base_offset: 0,
+                    },
+                    diagnostic_provenance: false,
                 },
-                false,
                 PredictionMode::Filtered,
                 &mut pruned,
             );

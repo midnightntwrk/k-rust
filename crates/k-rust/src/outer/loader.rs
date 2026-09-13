@@ -830,7 +830,7 @@ fn validate_and_select_modules(files: &[SourceFile]) -> Result<Option<Vec<Source
             let equivalent = first.basename.is_some()
                 && first.basename == basename
                 && first.location == location(module.span)
-                && &*first_normalized == &normalized;
+                && *first_normalized == normalized;
             if !equivalent {
                 return Err(LoadError::DuplicateModule {
                     name: module.name.clone(),

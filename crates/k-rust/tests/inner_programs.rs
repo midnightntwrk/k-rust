@@ -617,9 +617,9 @@ fn reference_rejects_rust_only_regex_syntax() {
         matches!(
             error,
             ProgramError::Grammar {
-                error: ParseError::InvalidRegex { ref message, .. },
+                ref error,
                 ..
-            } if message.contains("Unexpected token '?'")
+            } if matches!(error.as_ref(), ParseError::InvalidRegex { message, .. } if message.contains("Unexpected token '?'"))
         ),
         "{error:?}"
     );

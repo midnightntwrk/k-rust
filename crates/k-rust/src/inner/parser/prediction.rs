@@ -177,8 +177,8 @@ impl PredictionAnalysis {
 mod tests {
     use super::super::{
         CHART_COMPLETION_CANDIDATES, NONTERMINAL_PREDICTIONS_SKIPPED, PARSE_ATTEMPTS,
-        PREDICTION_ANALYSIS_BUILDS, ParseError, ParseProvenance, PredictionMode, ScanWinner,
-        SourceId, Term, TermMetadata,
+        PREDICTION_ANALYSIS_BUILDS, ParseContext, ParseError, ParseProvenance, PredictionMode,
+        ScanWinner, SourceId, Term, TermMetadata,
     };
     use super::*;
     use crate::definition::{Attributes, ProductionCatalog, ProductionItem, Sentence};
@@ -209,12 +209,14 @@ mod tests {
         grammar.parse_attempt(
             &Sort::new("Start"),
             input,
-            false,
-            ParseProvenance {
-                source: SourceId(7),
-                base_offset: 100,
+            ParseContext {
+                is_anywhere: false,
+                provenance: ParseProvenance {
+                    source: SourceId(7),
+                    base_offset: 100,
+                },
+                diagnostic_provenance: true,
             },
-            true,
             PredictionMode::Unfiltered,
             &mut false,
         )

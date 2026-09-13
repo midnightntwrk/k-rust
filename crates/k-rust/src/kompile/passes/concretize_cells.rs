@@ -687,31 +687,30 @@ impl<'a> Concretizer<'a> {
             .get(&self.model.root)
             .ok_or_else(|| "No root cell found".to_owned())?;
         if let Term::Apply { label, arguments } = term.unannotated() {
-            if is_matching_logic_builtin(&label.name) {
-                if let Some(recurse) =
+            if is_matching_logic_builtin(&label.name)
+                && let Some(recurse) =
                     self.ml_result_sort_children(&term, label, arguments.len())?
-                {
-                    if recurse.iter().any(|recurse| *recurse) {
-                        let metadata = term.metadata().cloned();
-                        let Term::Apply { label, arguments } = term.into_unannotated() else {
-                            unreachable!()
-                        };
-                        let arguments = arguments
-                            .into_iter()
-                            .zip(recurse)
-                            .map(|(argument, recurse)| {
-                                if recurse {
-                                    self.add_root(argument)
-                                } else {
-                                    Ok(argument)
-                                }
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let rebuilt = Term::Apply { label, arguments };
-                        return Ok(with_metadata(rebuilt, metadata));
-                    }
-                    return Ok(term);
+            {
+                if recurse.iter().any(|recurse| *recurse) {
+                    let metadata = term.metadata().cloned();
+                    let Term::Apply { label, arguments } = term.into_unannotated() else {
+                        unreachable!()
+                    };
+                    let arguments = arguments
+                        .into_iter()
+                        .zip(recurse)
+                        .map(|(argument, recurse)| {
+                            if recurse {
+                                self.add_root(argument)
+                            } else {
+                                Ok(argument)
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let rebuilt = Term::Apply { label, arguments };
+                    return Ok(with_metadata(rebuilt, metadata));
                 }
+                return Ok(term);
             }
             if label.name == root.label.name {
                 return Ok(term);

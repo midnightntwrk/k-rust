@@ -294,16 +294,16 @@ pub fn check_singleton_overloads(definition: &ResolvedDefinition) -> Vec<Diagnos
     };
     overloads
         .productions()
-        .filter_map(|(id, production)| {
-            (production.attributes().get("overload").is_some()
-                && !overloads.order().contains(&id))
-            .then(|| {
-                Diagnostic::warning(
-                    DiagnosticCode::SingletonOverload,
-                    "Production has an `overload(_)` attribute but is not an overload of any other production.",
-                    production,
-                )
-            })
+        .filter(|(id, production)| {
+            production.attributes().get("overload").is_some()
+                && !overloads.order().contains(id)
+        })
+        .map(|(_, production)| {
+            Diagnostic::warning(
+                DiagnosticCode::SingletonOverload,
+                "Production has an `overload(_)` attribute but is not an overload of any other production.",
+                production,
+            )
         })
         .collect()
 }
