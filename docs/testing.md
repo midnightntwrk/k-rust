@@ -89,6 +89,38 @@ That fallback is supplementary evidence: it depends on the same Rust implication
 Implication correctness must therefore have direct Rust contract tests, including variable-renaming invariance and negative controls.
 An unavailable or inconclusive equivalence check must not be counted as a successful comparison.
 
+## Harness recipes
+
+These recipes hold on any host; machine-specific paths and memory-guard settings belong in local notes.
+
+Compare a krust definition against an existing reference `definition.kore` without re-running the compile gate:
+
+```sh
+K_REFERENCE_KORE=<reference definition.kore> K_RUST_KORE=<krust definition.kore> \
+  cargo test -p k-rust --test reference_differential -- \
+  --ignored --exact emitted_kore_matches_the_reference_frontend --nocapture --test-threads=1
+```
+
+The `--ignored` flag is required: without it the test is skipped and the run exits 0.
+A kompile-stage mismatch report names every axiom that mentions a differing generated symbol, so one differing `#lambda` or `#freezer` name hides a second difference in the same axioms; the comparator collapses multi-suffix `#lambda` families first (`scripts/reference-normalisations.toml` N23) and prints the collapsed axiom count per case, and what remains is the difference to read.
+
+Reproduce one conformance driver step with the `krust_cmd` recorded in the run's `results.toml` rather than with a hand-written command.
+The checked-inference probe of a regression case has the shape
+
+```sh
+KRUST_TYPE_INFERENCE_MODE=checked krust kcompile test.k --main-module TEST --backend llvm \
+  --output-directory <tmp> -I . --builtin-directory <k checkout>/k-distribution/include/kframework/builtin \
+  [--warnings all] [--warnings-to-errors]
+```
+
+and must run under the same memory guard as the gates.
+`--backend llvm` excludes modules attributed `symbolic` and `--backend rust` excludes modules attributed `concrete` (`CompilationBackend::excluded_module_attribute`), so a checked-inference verdict may differ between the two backends.
+
+The symbolic and MIR execution gates pass the initial pattern to the comparator through `K_DIFFERENTIAL_INITIAL_PATTERN`; every result variable that is not free in it is treated as engine-named and renamed (N4).
+`kore-exec --depth N` lists the leaves stuck within `N` steps and drops the leaves that merely reached the limit whenever a stuck leaf exists (`Kore/Exec/GraphTraversal.hs` `checkLeftUnproven`), so one-step symbolic fixtures in `scripts/reference-differential.toml` pin `depth = 2`.
+
+A `driver-delta` label in a ratchet report marks a rank decrease that stays at or above the floor while the driver version changed (`scripts/conformance/ratchet.py`); it is not a pass, and the decrease must be diagnosed like a regression.
+
 ## Durable regression descriptions
 
 Committed filenames, test names, fixture metadata, and comments must identify the behavior or scenario they describe.
