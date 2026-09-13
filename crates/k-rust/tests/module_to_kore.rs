@@ -964,7 +964,7 @@ fn rejects_existential_variables_in_equations() {
 }
 
 declaration_snapshot!(
-    emits_visible_imported_declarations_in_scala_order,
+    emits_visible_imported_declarations_in_declaration_order,
     r#"
         module BASE
           syntax Atom ::= "atom" [symbol(atom)]

@@ -1229,6 +1229,27 @@ fn execution_normalizer_commutes_existential_binder_chains() {
 }
 
 #[test]
+fn compile_normalizer_commutes_no_confusion_pairs() {
+    let canonical = |source: &str| {
+        let mut pattern = parse_pattern(source).unwrap();
+        canonicalize_pattern(&mut pattern);
+        pattern
+    };
+    let reference = canonical(r"\not{S{}}(\and{S{}}(Lblpair{}(X0:S{}, X1:T{}), Lblzero{}()))");
+    let swapped = canonical(r"\not{S{}}(\and{S{}}(Lblzero{}(), Lblpair{}(Y0:S{}, Y1:T{})))");
+    assert_eq!(reference, swapped);
+
+    let other_constructor =
+        canonical(r"\not{S{}}(\and{S{}}(Lblone{}(), Lblpair{}(Y0:S{}, Y1:T{})))");
+    assert_ne!(reference, other_constructor);
+    let other_sort = canonical(r"\not{S{}}(\and{S{}}(Lblpair{}(Y0:T{}, Y1:T{}), Lblzero{}()))");
+    assert_ne!(reference, other_sort);
+
+    let not_a_pair = r"\not{S{}}(\and{S{}}(Lblpair{}(X0:S{}, f{}(X1:T{})), Lblzero{}()))";
+    assert_eq!(canonical(not_a_pair), parse_pattern(not_a_pair).unwrap());
+}
+
+#[test]
 fn execution_normalizer_commutes_same_sort_binders_while_preserving_their_roles() {
     let initial = parse_pattern("t{}()").unwrap();
     let reference = parse_pattern(
@@ -3558,6 +3579,10 @@ fn compare_definitions(reference: Definition, actual: Definition) {
         "multi-suffix lambda axioms: {}",
         report.multi_suffix_lambda_axioms
     );
+    println!(
+        "no-confusion pairs canonicalised (N30, both sides): {}",
+        NO_CONFUSION_PAIRS.swap(0, std::sync::atomic::Ordering::Relaxed)
+    );
     if let CompareVerdict::Differs(message) = report.verdict {
         panic!("{message}");
     }
@@ -3916,6 +3941,7 @@ fn canonicalize_attributes(attributes: &mut Attributes) {
 }
 
 fn canonicalize_pattern(pattern: &mut Pattern) {
+    canonicalize_no_confusion_pairs(pattern);
     // N5/N6: stabilize set-derived binders, alpha-normalize each scope, and only then sort
     // disjunctions. This makes N4's free-variable first-occurrence traversal independent of the
     // reference's binder and competitor set order.
@@ -3923,6 +3949,66 @@ fn canonicalize_pattern(pattern: &mut Pattern) {
     alpha_normalize_bound_variables(pattern);
     canonicalize_existentials(pattern);
     rename_generated_variables(pattern);
+}
+
+/// N30: pairs canonicalised so far in this comparison (reference and port sides together).
+static NO_CONFUSION_PAIRS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// N30: a no-confusion axiom `\not(\and(P(X0..), Q(Y0..)))` compares with its two constructor
+/// applications ordered by symbol and argument sorts and their free variables renamed by
+/// position.
+///
+/// K emits one such axiom per unordered pair of distinct constructors of a sort and picks the
+/// `X` side by `Production.ord` (ModuleToKORE.java, "no confusion different constructors"); the
+/// port picks it by declaration order. `\and` is commutative and the free `X*`/`Y*` names are
+/// alpha-equivalent under the axiom's closure, so the canonical form hides nothing semantic. The
+/// shape (top-level negated binary conjunction of two applications over variables) identifies the
+/// family; no other emitted axiom has it.
+fn canonicalize_no_confusion_pairs(pattern: &mut Pattern) {
+    let Pattern::Not { argument, .. } = pattern else {
+        return;
+    };
+    let Pattern::And { arguments, .. } = argument.as_mut() else {
+        return;
+    };
+    if arguments.len() != 2 || !arguments.iter().all(is_application_over_variables) {
+        return;
+    }
+    arguments.sort_by_cached_key(no_confusion_conjunct_key);
+    for (side, conjunct) in arguments.iter_mut().enumerate() {
+        let Pattern::Application { arguments, .. } = conjunct else {
+            unreachable!("checked above");
+        };
+        for (position, argument) in arguments.iter_mut().enumerate() {
+            let Pattern::Variable(variable) = argument else {
+                unreachable!("checked above");
+            };
+            variable.name = format!("{CANONICAL_NAME}Pair{side}Arg{position}");
+        }
+    }
+    NO_CONFUSION_PAIRS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn is_application_over_variables(pattern: &Pattern) -> bool {
+    matches!(
+        pattern,
+        Pattern::Application { arguments, .. }
+            if arguments.iter().all(|argument| matches!(argument, Pattern::Variable(_)))
+    )
+}
+
+fn no_confusion_conjunct_key(pattern: &Pattern) -> (Symbol, Vec<k_rust::kore::ast::Sort>) {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        unreachable!("only applications over variables are keyed");
+    };
+    let sorts = arguments
+        .iter()
+        .map(|argument| match argument {
+            Pattern::Variable(variable) => variable.sort.clone(),
+            _ => unreachable!("only applications over variables are keyed"),
+        })
+        .collect();
+    (symbol.clone(), sorts)
 }
 
 fn alpha_normalize_bound_variables(pattern: &mut Pattern) {

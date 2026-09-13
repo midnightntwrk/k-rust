@@ -16,15 +16,6 @@ module MAIN
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("atom")
   ]
-  symbol Lbldone{}() : SortResult{}
-  [
-    constructor{}(),
-    functional{}(),
-    injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,42)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("done")
-  ]
   symbol Lblwrap{}(SortAtom{}) : SortResult{}
   [
     constructor{}(),
@@ -33,6 +24,15 @@ module MAIN
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,21,7,47)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("wrap")
+  ]
+  symbol Lbldone{}() : SortResult{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,42)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("done")
   ]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,1,9,10)"),
@@ -58,20 +58,6 @@ module MAIN
     symbol'Kywd'{}("atom"),
     terminals{}("1")
   ]
-  symbol Lbldone{}() : SortResult{}
-  [
-    constructor{}(),
-    format{}(),
-    functional{}(),
-    injective{}(),
-    left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,42)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priorities{}(),
-    right{}(),
-    symbol'Kywd'{}("done"),
-    terminals{}("1")
-  ]
   symbol Lblwrap{}(SortAtom{}) : SortResult{}
   [
     constructor{}(),
@@ -85,5 +71,19 @@ module MAIN
     right{}(),
     symbol'Kywd'{}("wrap"),
     terminals{}("10")
+  ]
+  symbol Lbldone{}() : SortResult{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,42)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("done"),
+    terminals{}("1")
   ]
 endmodule []

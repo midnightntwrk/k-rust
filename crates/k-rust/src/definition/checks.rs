@@ -3,7 +3,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::ast::{ProductionItem, Sentence};
-use super::ordering::Error as OrderingError;
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
@@ -45,7 +44,6 @@ const IGNORED_TOKEN_SORTS: [&str; 2] = ["KBott", "KLabel"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
-    Ordering(OrderingError),
     CircularSubsort(Cycle<Sort>),
     CircularPriority(Cycle<String>),
 }
@@ -53,7 +51,6 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Ordering(error) => error.fmt(formatter),
             Self::CircularSubsort(error) => error.fmt(formatter),
             Self::CircularPriority(error) => error.fmt(formatter),
         }
@@ -86,8 +83,10 @@ fn check_module_with_options_and_catalog(
     sort_catalog: &SortCatalog<'_>,
 ) -> Result<Vec<Diagnostic>, Error> {
     let sentences = definition
-        .sorted_local_sentences(module)
-        .map_err(Error::Ordering)?;
+        .module(module)
+        .local_sentences
+        .iter()
+        .collect::<Vec<_>>();
     let subsorts = definition
         .subsorts(module)
         .map_err(Error::CircularSubsort)?;

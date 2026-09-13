@@ -625,7 +625,7 @@ impl<'a> SortInjector<'a> {
         let Term::Apply { label, arguments } = term.unannotated() else {
             return Ok(None);
         };
-        for (_, production) in self.productions.sorted_productions() {
+        for (_, production) in self.productions.productions() {
             let Sentence::Production { attributes, .. } = production else {
                 unreachable!()
             };

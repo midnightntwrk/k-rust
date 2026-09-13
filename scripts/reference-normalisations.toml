@@ -298,3 +298,12 @@ anchor_symbol = "normalize_rpc_response"
 anchor_helpers = ["normalize_backend_error_class"]
 rule = "For a backend error response (error.code in 1..9), compare code, message, and each detail's error string; reduce every context array to its JSON type and drop term. Responses with a per-response reduction branch keep that stricter branch."
 justification = "The context lines are Kore's error-context stack and Claim.hs diagnostic framing, and the extra simplify detail is Booster's two-interpretation attempt order; pyk joins context into an exception message and no client parses it. The class of a rejection (code, message, error sentence) is the contract, as C3 states for the conformance driver. See docs/compatibility.md#rpc-behavior."
+
+[[normalisation]]
+id = "N30"
+gate = "compile"
+anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_no_confusion_pairs"
+anchor_symbol = "canonicalize_no_confusion_pairs"
+anchor_helpers = ["is_application_over_variables", "no_confusion_conjunct_key"]
+rule = "For the no-confusion axioms `\\not(\\and(P(X0..), Q(Y0..)))` (the `constructor{}()` family, identified by their shape: a top-level negated binary conjunction of two applications over variables), order the two conjuncts by symbol and argument sorts and rename the free variables by position before the N13 multiset comparison. The comparison prints the number of pairs canonicalised on both sides."
+justification = "K emits one axiom per unordered pair of distinct constructors of a sort and puts the `Production.ord`-smaller production on the `X` side; the port puts the earlier-declared one there. `\\and` is commutative and the free names are alpha-equivalent under the axiom's closure, so the canonical form hides nothing semantic."

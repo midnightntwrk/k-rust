@@ -138,7 +138,6 @@ fn derives_visible_local_sorted_and_grouped_sentence_views() {
         &[RuleId(1), RuleId(2)].into_iter().collect()
     );
     assert_eq!(catalog.local_rules().count(), 2);
-    assert_eq!(catalog.sorted_rules().count(), 3);
     assert_eq!(catalog.rules_for(&Label::new("base")), [RuleId(0)]);
     assert_eq!(catalog.rules_for(&Label::new("local")), [RuleId(1)]);
     assert_eq!(catalog.rules_for(&Label::new("")), [RuleId(2)]);

@@ -9,7 +9,7 @@ use super::{
     Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolveError,
     ResolvedDefinition, Sentence,
     attribute_keys::{KeyParameter, builtin_key},
-    sentence_equivalent, sort_sentences,
+    sentence_equivalent,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::string::unquote;
@@ -145,8 +145,6 @@ fn expand_configurations_inner(
             generator.generate_top(body, ensures)?;
         }
 
-        sort_sentences(&mut generated)
-            .expect("configuration expansion emits only orderable sentence kinds");
         output.extend(generated);
         transformed.modules[module_index].local_sentences = output;
     }

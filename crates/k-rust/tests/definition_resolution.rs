@@ -316,7 +316,7 @@ fn resolves_the_upstream_reduced_fixture() {
         ["BOOL-SYNTAX", "IMP"]
     );
     for (module, _) in resolved.modules() {
-        resolved.sorted_local_sentences(module).unwrap();
+        assert!(!resolved.sentences(module).is_empty());
     }
 }
 

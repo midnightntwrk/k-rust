@@ -1054,6 +1054,45 @@ fn rhs_check_reports_unbound_variables_and_preserves_fresh_exceptions() {
 }
 
 #[test]
+fn module_check_diagnostics_do_not_depend_on_declaration_order() {
+    let unbound = |name: &str, line: u64| Sentence::Rule {
+        body: rewrite(token("0"), Term::variable(name)),
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[
+            (SOURCE_ATTRIBUTE, json!("checks.k")),
+            (LOCATION_ATTRIBUTE, json!([line, 1, line, 20])),
+        ]),
+    };
+    let check = |sentences: Vec<Sentence>| {
+        let resolved = resolved_definition(
+            "MAIN",
+            vec![FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: sentences,
+                attributes: Attributes::default(),
+            }],
+        );
+        check_module(&resolved, resolved.main_module_id()).unwrap()
+    };
+
+    let in_source_order = check(vec![unbound("A", 1), unbound("B", 2)]);
+    let reversed = check(vec![unbound("B", 2), unbound("A", 1)]);
+
+    assert_eq!(
+        in_source_order
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnboundVariable)
+            .count(),
+        2,
+        "{in_source_order:?}"
+    );
+    assert_eq!(in_source_order, reversed);
+    assert!(in_source_order.windows(2).all(|pair| pair[0] <= pair[1]));
+}
+
+#[test]
 fn unbound_variables_attribute_allows_named_exceptions() {
     let sentence = Sentence::Rule {
         body: rewrite(

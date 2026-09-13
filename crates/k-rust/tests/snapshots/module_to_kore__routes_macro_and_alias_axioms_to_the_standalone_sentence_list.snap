@@ -6,26 +6,6 @@ description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"done(\" Exp \")\"
 module MAIN
   import K []
   sort SortExp{} []
-  symbol Lblalias'Kywd'{}(SortExp{}) : SortExp{}
-  [
-    alias'Kywd'{}(),
-    functional{}(),
-    injective{}(),
-    macro{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,57)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("alias")
-  ]
-  symbol LblaliasRec{}(SortExp{}) : SortExp{}
-  [
-    alias-rec{}(),
-    functional{}(),
-    injective{}(),
-    macro{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,67)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("aliasRec")
-  ]
   symbol Lbldone{}(SortExp{}) : SortExp{}
   [
     constructor{}(),
@@ -35,13 +15,14 @@ module MAIN
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("done")
   ]
-  symbol LblfunctionMacro{}(SortExp{}) : SortExp{}
+  symbol Lblplain{}(SortExp{}) : SortExp{}
   [
-    function{}(),
-    macro{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,83)"),
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("functionMacro")
+    symbol'Kywd'{}("plain")
   ]
   symbol Lblmacro{}(SortExp{}) : SortExp{}
   [
@@ -62,21 +43,34 @@ module MAIN
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("macroRec")
   ]
-  symbol Lblplain{}(SortExp{}) : SortExp{}
+  symbol Lblalias'Kywd'{}(SortExp{}) : SortExp{}
   [
-    constructor{}(),
+    alias'Kywd'{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,57)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("plain")
+    symbol'Kywd'{}("alias")
   ]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblalias'Kywd'{}(K0:SortExp{})))
-    [functional{}()]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblaliasRec{}(K0:SortExp{})))
-    [functional{}()]
+  symbol LblaliasRec{}(SortExp{}) : SortExp{}
+  [
+    alias-rec{}(),
+    functional{}(),
+    injective{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("aliasRec")
+  ]
+  symbol LblfunctionMacro{}(SortExp{}) : SortExp{}
+  [
+    function{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,83)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("functionMacro")
+  ]
   axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lbldone{}(K0:SortExp{})))
     [functional{}()]
@@ -90,12 +84,6 @@ module MAIN
     \not{SortExp{}}(\and{SortExp{}}(Lbldone{}(X0:SortExp{}), Lblplain{}(Y0:SortExp{})))
     [constructor{}()]
   axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblmacro{}(K0:SortExp{})))
-    [functional{}()]
-  axiom{R}
-    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblmacroRec{}(K0:SortExp{})))
-    [functional{}()]
-  axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblplain{}(K0:SortExp{})))
     [functional{}()]
   axiom{}
@@ -104,6 +92,18 @@ module MAIN
       Lblplain{}(\and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}))
     )
     [constructor{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblmacro{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblmacroRec{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblalias'Kywd'{}(K0:SortExp{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LblaliasRec{}(K0:SortExp{})))
+    [functional{}()]
   axiom{}
     \or{SortExp{}}(
       \exists{SortExp{}}(X0:SortExp{}, Lbldone{}(X0:SortExp{})),
@@ -133,36 +133,6 @@ endmodule [
 module MAIN
   import K []
   sort SortExp{} []
-  symbol Lblalias'Kywd'{}(SortExp{}) : SortExp{}
-  [
-    alias'Kywd'{}(),
-    format{}(),
-    functional{}(),
-    injective{}(),
-    left{}(),
-    macro{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,57)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priorities{}(),
-    right{}(),
-    symbol'Kywd'{}("alias"),
-    terminals{}("101")
-  ]
-  symbol LblaliasRec{}(SortExp{}) : SortExp{}
-  [
-    alias-rec{}(),
-    format{}(),
-    functional{}(),
-    injective{}(),
-    left{}(),
-    macro{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,67)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priorities{}(),
-    right{}(),
-    symbol'Kywd'{}("aliasRec"),
-    terminals{}("101")
-  ]
   symbol Lbldone{}(SortExp{}) : SortExp{}
   [
     constructor{}(),
@@ -177,17 +147,18 @@ module MAIN
     symbol'Kywd'{}("done"),
     terminals{}("101")
   ]
-  symbol LblfunctionMacro{}(SortExp{}) : SortExp{}
+  symbol Lblplain{}(SortExp{}) : SortExp{}
   [
+    constructor{}(),
     format{}(),
-    function{}(),
+    functional{}(),
+    injective{}(),
     left{}(),
-    macro{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,83)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
-    symbol'Kywd'{}("functionMacro"),
+    symbol'Kywd'{}("plain"),
     terminals{}("101")
   ]
   symbol Lblmacro{}(SortExp{}) : SortExp{}
@@ -219,23 +190,76 @@ module MAIN
     symbol'Kywd'{}("macroRec"),
     terminals{}("101")
   ]
-  symbol Lblplain{}(SortExp{}) : SortExp{}
+  symbol Lblalias'Kywd'{}(SortExp{}) : SortExp{}
   [
-    constructor{}(),
+    alias'Kywd'{}(),
     format{}(),
     functional{}(),
     injective{}(),
     left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,57)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     priorities{}(),
     right{}(),
-    symbol'Kywd'{}("plain"),
+    symbol'Kywd'{}("alias"),
+    terminals{}("101")
+  ]
+  symbol LblaliasRec{}(SortExp{}) : SortExp{}
+  [
+    alias-rec{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,67)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("aliasRec"),
+    terminals{}("101")
+  ]
+  symbol LblfunctionMacro{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,83)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("functionMacro"),
     terminals{}("101")
   ]
 endmodule []
 
 // macros
+axiom{R}
+  \equals{SortExp{}, R}(
+    Lblmacro{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+  )
+  [
+    macro{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priority{}("50")
+  ]
+
+axiom{R}
+  \equals{SortExp{}, R}(
+    LblmacroRec{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
+    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
+  )
+  [
+    macro-rec{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,38)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priority{}("50")
+  ]
+
 axiom{R}
   \equals{SortExp{}, R}(
     Lblalias'Kywd'{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
@@ -278,30 +302,6 @@ axiom{R}
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,14,43)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
-  ]
-
-axiom{R}
-  \equals{SortExp{}, R}(
-    Lblmacro{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-  )
-  [
-    macro{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,35)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priority{}("50")
-  ]
-
-axiom{R}
-  \equals{SortExp{}, R}(
-    LblmacroRec{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{})),
-    Lbldone{}(Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}))
-  )
-  [
-    macro-rec{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,38)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priority{}("50")
   ]
 
 axiom{R}

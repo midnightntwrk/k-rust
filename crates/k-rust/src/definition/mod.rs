@@ -5,8 +5,8 @@ pub(crate) mod attribute_keys;
 pub mod catalog;
 pub mod checks;
 pub mod configuration;
+pub mod equivalence;
 pub mod json;
-pub mod ordering;
 pub mod partial_order;
 pub mod regex;
 pub mod relations;
@@ -39,10 +39,7 @@ pub(crate) use configuration::expand_configurations_allowing_reserved_cells;
 pub use configuration::{
     ConfigurationError, expand_configurations, expand_configurations_with_diagnostics,
 };
-pub use ordering::{
-    Error as OrderingError, compare_attributes, compare_sentences, compare_terms,
-    sentence_equivalent, sort_sentences,
-};
+pub use equivalence::{sentence_equivalent, term_equivalent};
 pub use partial_order::{Cycle as PartialOrderCycle, PartialOrder};
 pub use regex::{
     CharClass as RegexCharClass, ParseError as RegexParseError, Regex, RegexBody,
