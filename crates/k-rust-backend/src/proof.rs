@@ -7,6 +7,8 @@ use std::{
     time::Duration,
 };
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
     definedness::ceil_term,
@@ -198,6 +200,7 @@ pub fn prove_claim(
         ProofSearchOrder::DepthFirst => pending.pop_back(),
     } {
         explored_states += 1;
+        measure::bump(Counter::ProofStatesExplored);
         let mut step_timer = timeout_controller.begin_step();
         macro_rules! finish_if_timed_out {
             () => {
@@ -270,6 +273,7 @@ pub fn prove_claim(
         let mut implication_indeterminate = false;
         let mut implication_remainder = None;
         if state.depth >= options.min_depth {
+            measure::bump(Counter::ProofImplicationChecks);
             let implication = check_disjunctive_implication_with_existentials(
                 definition,
                 &state.pattern,

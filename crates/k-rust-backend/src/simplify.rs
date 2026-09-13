@@ -6,6 +6,7 @@ use std::{
     sync::Arc,
 };
 
+use k_rust_kore::measure::{self, Counter};
 use rustc_hash::FxHashSet;
 
 use crate::{
@@ -1468,6 +1469,7 @@ fn simplify_with_budget(
     let mut effects = Vec::new();
     let mut exhausted = None;
     loop {
+        measure::bump(Counter::SimplifyRounds);
         if cancellation_requested() {
             return Err(SimplificationError::Cancelled);
         }
@@ -1902,6 +1904,7 @@ fn simplify_root(
         BuiltinResult::NotApplicable => None,
         BuiltinResult::Unsupported(reason) => Some(reason),
         builtin => {
+            measure::bump(Counter::SimplifyBuiltinEvaluations);
             let TermKind::Application { symbol, .. } = term.kind() else {
                 unreachable!("only applications have builtin hooks")
             };
@@ -2156,6 +2159,7 @@ fn apply_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Simplification>, SimplificationError> {
+    measure::bump(Counter::SimplifyEquationAttempts);
     let substitution =
         match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
             MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable),

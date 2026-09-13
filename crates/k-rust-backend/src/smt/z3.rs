@@ -9,6 +9,7 @@ use std::{
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use k_rust_kore::measure::{self, Counter};
 use num_bigint::BigInt;
 use z3::{
     Model, Params, SatResult, Solver,
@@ -151,6 +152,7 @@ impl Z3Solver {
         if cancellation_requested() {
             return Satisfiability::Unknown("request cancelled".into());
         }
+        measure::bump(Counter::SmtQueries);
         if let Some(result) = self
             .result_cache
             .lock()
@@ -169,6 +171,7 @@ impl Z3Solver {
     }
 
     fn solve_uncached(&self, script: &str) -> Satisfiability {
+        measure::bump(Counter::SmtSolverRuns);
         #[cfg(test)]
         self.uncached_solve_count.fetch_add(1, Ordering::Relaxed);
 
