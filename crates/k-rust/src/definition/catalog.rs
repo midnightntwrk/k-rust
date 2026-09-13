@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::ast::{Attributes, ProductionItem, Sentence};
-use super::ordering::sentence_equivalent;
+use super::equivalence::sentence_equivalent;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, Sort};
 

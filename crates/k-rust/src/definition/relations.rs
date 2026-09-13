@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::ast::{Associativity, ProductionItem, Sentence};
 use super::catalog::{ProductionCatalog, ProductionId};
-use super::ordering::sentence_equivalent;
+use super::equivalence::sentence_equivalent;
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::Sort;

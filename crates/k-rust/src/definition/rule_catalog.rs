@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::ast::Sentence;
 use super::catalog::{ProductionCatalog, is_macro};
-use super::ordering::sentence_equivalent;
+use super::equivalence::sentence_equivalent;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, Term};
 

@@ -14,7 +14,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
-use super::ordering::sentence_equivalent;
+use super::equivalence::sentence_equivalent;
 use crate::kast::{Label, Sort, Term};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
