@@ -3,5 +3,9 @@
 
 #[path = "backend/matching.rs"]
 mod matching;
+#[path = "backend/rewrite.rs"]
+mod rewrite;
 #[path = "backend/simplify.rs"]
 mod simplify;
+#[path = "backend/support.rs"]
+mod support;
