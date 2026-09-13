@@ -271,3 +271,13 @@ anchor_helpers = [
 rule = "Only for a manifest row explicitly classified as ambiguous, require both parser outputs to be complete KORE patterns, recursively flatten same-sort binary Lblamb trees, retain duplicate alternatives, sort alternatives by compact KORE bytes, and rebuild a deterministic binary tree. Every unambiguous parser output must remain byte-identical."
 justification = "Alternative order in a generated GLR grammar can change the nesting of an ambiguity tree without changing its alternatives. The manifest authorizes this test-only transformation only for individually reviewed ambiguous inputs; generated scanner and grammar source bytes are outside the compatibility contract."
 env = "K_BISON_PARSER_ALLOW_AMBIGUITY=1"
+
+[[normalisation]]
+id = "N26"
+gate = "execution"
+anchor = "crates/k-rust/tests/reference_differential.rs:compare_execution_any_membership"
+anchor_symbol = "compare_execution_any_membership"
+anchor_helpers = ["pair_disjuncts", "executed_kore_matches_the_reference_backend"]
+rule = "For an any-strategy run, require the port result to be a non-empty sub-multiset of the reference all-strategy result: every port disjunct pairs with a distinct reference disjunct by equal term and N4/N15-equal constraints; unpaired reference disjuncts are allowed and counted."
+justification = "A single-successor execution is one member of the successor set; which member an engine follows among equal-priority rules is engine-internal, exactly as docs/compatibility.md#search-results already states for --bound N. The port's --strategy all runs stay under the exact multiset comparison (N7)."
+env = "K_DIFFERENTIAL_STRATEGY=any"

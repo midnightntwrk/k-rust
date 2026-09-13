@@ -107,6 +107,24 @@ compare_execution() {
       executed_kore_matches_the_reference_backend
 }
 
+# N26: the port ran plain krust krun (--strategy any, one successor per step); its result must
+# be a non-empty sub-multiset of the reference all-strategy result. The comparator prints how
+# many reference leaves the port reached, so the test output is not captured.
+compare_execution_any() {
+  local reference=$1
+  local actual=$2
+  local definition=$3
+  local module=$4
+  K_REFERENCE_EXECUTION="$reference" \
+    K_RUST_EXECUTION="$actual" \
+    K_DIFFERENTIAL_DEFINITION="$definition" \
+    K_DIFFERENTIAL_MODULE="$module" \
+    K_DIFFERENTIAL_STRATEGY=any \
+    cargo test --quiet --manifest-path "$workspace/Cargo.toml" \
+      -p k-rust --test reference_differential -- --ignored --exact \
+      executed_kore_matches_the_reference_backend --nocapture
+}
+
 mapfile -t available < <(
   jq -r '.execution[] |
     select((.requires | index("semantics-support")) == null) | .name' <<<"$manifest_json"
@@ -306,6 +324,52 @@ for name in "${selected[@]}"; do
     compare_execution \
       "$work/$name-$search_name.reference.kore" \
       "$work/$name-$search_name.rust.kore" \
+      "$definition/definition.kore" \
+      "$main_module"
+  done
+
+  # [[execution.any]]: the reference explores every successor (kore-exec --strategy all) while
+  # krust follows one (its krun default); see docs/compatibility.md#search-results (N26).
+  mapfile -t any_runs < <(
+    jq -r '(.any // [])[] | [.name, .program, .depth] | join("\u001f")' <<<"$suite"
+  )
+  for any_run in "${any_runs[@]}"; do
+    IFS=$'\x1f' read -r any_name program depth <<<"$any_run"
+    if [[ ! -f "$program" ]]; then
+      echo "error: missing $name program: $program" >&2
+      exit 2
+    fi
+    program_name=$(basename "$program")
+    echo "[$name:$any_name] executing with reference krun (all successors)"
+    run_reference_krun "$work/$name-$any_name.reference.kore" \
+      0 \
+      "$program" \
+      --definition "$definition" \
+      --parser "$workspace/scripts/reference-kast-parser.sh" \
+      "${configuration_args[@]}" \
+      --depth "$depth" \
+      --smt none \
+      --output kore
+
+    echo "[$name:$any_name] executing with krust krun (any strategy)"
+    (
+      ulimit -v "$rust_memory_kib"
+      export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
+      cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
+        -p k-rust --bin krust -- \
+        krun "$source" \
+        --main-module "$main_module" \
+        --sort "$program_sort" \
+        "$program" \
+        "${configuration_args[@]}" \
+        --depth "$depth" \
+        --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
+        >"$work/$name-$any_name.rust.kore"
+    )
+
+    compare_execution_any \
+      "$work/$name-$any_name.reference.kore" \
+      "$work/$name-$any_name.rust.kore" \
       "$definition/definition.kore" \
       "$main_module"
   done

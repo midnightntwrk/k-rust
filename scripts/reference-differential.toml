@@ -1210,6 +1210,11 @@ program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/branchi
 mode = "--search-final"
 depth = 1
 
+[[execution.any]]
+name = "start-depth-one"
+program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/branching-execution/start.pgm"
+depth = 1
+
 [[execution]]
 name = "concrete-symbolic-rules"
 requires = ["reference-toolchain"]
