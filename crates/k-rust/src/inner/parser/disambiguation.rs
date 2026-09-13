@@ -3,6 +3,8 @@
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
+use k_rust_kore::measure::{self, Counter};
+
 use super::{
     AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
     cmp_packed_structurally, lower_term, packed_terms_in_structural_order,
@@ -301,8 +303,7 @@ impl Grammar {
         if let Some((_, filtered)) = memo.get(&identity) {
             return filtered.clone();
         }
-        #[cfg(test)]
-        super::PACKED_PRIORITY_COMPUTATIONS.set(super::PACKED_PRIORITY_COMPUTATIONS.get() + 1);
+        measure::bump(Counter::ParserPackedPriorityComputations);
         let filtered = (|| -> PackedTransformResult {
             match &term.node {
                 PackedNode::InstantiatedProduction { .. } => {
@@ -1017,14 +1018,12 @@ impl Grammar {
                     children,
                     metadata,
                 } => {
-                    #[cfg(test)]
                     if self.productions[*production]
                         .label
                         .as_ref()
                         .is_some_and(|label| label.name == "#KApply")
                     {
-                        super::PACKED_APPLICATION_RESOLUTIONS
-                            .set(super::PACKED_APPLICATION_RESOLUTIONS.get() + 1);
+                        measure::bump(Counter::ParserPackedApplicationResolutions);
                     }
                     let children = children
                         .iter()

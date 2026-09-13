@@ -18,6 +18,8 @@ use std::fmt;
 use std::rc::Rc;
 use std::sync::OnceLock;
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::definition::{
     AssociativityRelations, Attributes, PartialOrder, ProductionCatalog, ProductionId,
     ProductionItem, Regex as KRegex, RegexBody, Sentence, compute_associativities,
@@ -514,17 +516,50 @@ struct PackedTerm {
 #[cfg(test)]
 thread_local! {
     static CHART_WORK_COUNTERS: Cell<ChartWorkCounters> = const { Cell::new(ChartWorkCounters::ZERO) };
-    static PACKED_STRUCTURAL_COMPARISONS: Cell<usize> = const { Cell::new(0) };
-    static UNPACKED_NODES: Cell<usize> = const { Cell::new(0) };
-    static PACKED_APPLICATION_RESOLUTIONS: Cell<usize> = const { Cell::new(0) };
-    static PACKED_PRIORITY_COMPUTATIONS: Cell<usize> = const { Cell::new(0) };
-    static CHART_COMPLETION_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-    static CHART_PREDICTION_ATTEMPTS: Cell<usize> = const { Cell::new(0) };
-    static PARSE_ATTEMPTS: Cell<usize> = const { Cell::new(0) };
-    static PREDICTION_ANALYSIS_BUILDS: Cell<usize> = const { Cell::new(0) };
-    static TERMINAL_PREDICTIONS_SKIPPED: Cell<usize> = const { Cell::new(0) };
-    static NONTERMINAL_PREDICTIONS_SKIPPED: Cell<usize> = const { Cell::new(0) };
 }
+
+/// A test view of one `k_rust_kore::measure` counter with the `set`/`get` shape of the scalar
+/// `Cell` counters the parser tests were written against.
+#[cfg(test)]
+#[derive(Clone, Copy)]
+struct CounterCell(Counter);
+
+#[cfg(test)]
+impl CounterCell {
+    fn get(self) -> usize {
+        measure::snapshot().get(self.0) as usize
+    }
+
+    fn set(self, value: usize) {
+        let current = measure::snapshot().get(self.0);
+        measure::add(self.0, (value as u64).wrapping_sub(current));
+    }
+}
+
+#[cfg(test)]
+const PACKED_STRUCTURAL_COMPARISONS: CounterCell =
+    CounterCell(Counter::ParserPackedStructuralComparisons);
+#[cfg(test)]
+const UNPACKED_NODES: CounterCell = CounterCell(Counter::ParserUnpackedNodes);
+#[cfg(test)]
+const PACKED_APPLICATION_RESOLUTIONS: CounterCell =
+    CounterCell(Counter::ParserPackedApplicationResolutions);
+#[cfg(test)]
+const PACKED_PRIORITY_COMPUTATIONS: CounterCell =
+    CounterCell(Counter::ParserPackedPriorityComputations);
+#[cfg(test)]
+const CHART_COMPLETION_CANDIDATES: CounterCell =
+    CounterCell(Counter::ParserChartCompletionCandidates);
+#[cfg(test)]
+const CHART_PREDICTION_ATTEMPTS: CounterCell = CounterCell(Counter::ParserChartPredictionAttempts);
+#[cfg(test)]
+const PARSE_ATTEMPTS: CounterCell = CounterCell(Counter::ParserParseAttempts);
+#[cfg(test)]
+const PREDICTION_ANALYSIS_BUILDS: CounterCell =
+    CounterCell(Counter::ParserPredictionAnalysisBuilds);
+#[cfg(test)]
+const NONTERMINAL_PREDICTIONS_SKIPPED: CounterCell =
+    CounterCell(Counter::ParserNonterminalPredictionsSkipped);
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -662,8 +697,7 @@ impl Ord for PackedTerm {
         // The fingerprint is a fast ordering key, not an identity. Equal keys still compare the
         // complete structure, so even an FNV collision cannot merge distinct parses.
         self.fingerprint.cmp(&other.fingerprint).then_with(|| {
-            #[cfg(test)]
-            PACKED_STRUCTURAL_COMPARISONS.set(PACKED_STRUCTURAL_COMPARISONS.get() + 1);
+            measure::bump(Counter::ParserPackedStructuralComparisons);
             self.node.cmp(&other.node)
         })
     }
@@ -741,8 +775,7 @@ impl PackedTerm {
     }
 
     fn unpack(&self) -> ParsedTerm {
-        #[cfg(test)]
-        UNPACKED_NODES.set(UNPACKED_NODES.get() + 1);
+        measure::bump(Counter::ParserUnpackedNodes);
         match &self.node {
             PackedNode::Production {
                 production,
@@ -1427,8 +1460,7 @@ impl Grammar {
             provenance,
             diagnostic_provenance,
         } = context;
-        #[cfg(test)]
-        PARSE_ATTEMPTS.set(PARSE_ATTEMPTS.get() + 1);
+        measure::bump(Counter::ParserParseAttempts);
         let prediction_analysis = (prediction_mode == PredictionMode::Filtered).then(|| {
             self.prediction_analysis
                 .get_or_init(|| PredictionAnalysis::new(self))
@@ -1456,20 +1488,27 @@ impl Grammar {
             // Empty charts can lie inside a UTF-8 character; only evaluate layout on dispatch.
             let mut canonical_position = None;
             while let Some(state) = charts[position].agenda.pop_front() {
+                measure::bump(Counter::ParserChartAgendaPops);
+                #[cfg(any(test, feature = "measure"))]
+                let revisit = !charts[position].popped.insert(state);
+                #[cfg(any(test, feature = "measure"))]
+                if revisit {
+                    measure::bump(Counter::ParserChartRevisitPops);
+                }
                 #[cfg(test)]
-                let revisit = {
-                    let revisit = !charts[position].popped.insert(state);
-                    update_chart_work_counters(|counters| {
-                        counters.agenda_pops += 1;
-                        if revisit {
-                            counters.revisit_pops += 1;
-                        }
-                    });
-                    revisit
-                };
+                update_chart_work_counters(|counters| {
+                    counters.agenda_pops += 1;
+                    if revisit {
+                        counters.revisit_pops += 1;
+                    }
+                });
                 let Some(derivations) = charts[position].states.get(&state).cloned() else {
                     continue;
                 };
+                measure::add(
+                    Counter::ParserChartDerivationsRead,
+                    derivations.len() as u64,
+                );
                 #[cfg(test)]
                 let derivation_count = {
                     let derivation_count = derivations.len();
@@ -1519,16 +1558,13 @@ impl Grammar {
                                             }),
                                     )
                                 {
-                                    #[cfg(test)]
                                     if matches!(
                                         self.productions[predicted].items.first(),
                                         Some(Item::NonTerminal(_))
                                     ) {
-                                        NONTERMINAL_PREDICTIONS_SKIPPED
-                                            .set(NONTERMINAL_PREDICTIONS_SKIPPED.get() + 1);
+                                        measure::bump(Counter::ParserNonterminalPredictionsSkipped);
                                     } else {
-                                        TERMINAL_PREDICTIONS_SKIPPED
-                                            .set(TERMINAL_PREDICTIONS_SKIPPED.get() + 1);
+                                        measure::bump(Counter::ParserTerminalPredictionsSkipped);
                                     }
                                     // This bucket's initial state would be new. Preserve its
                                     // snapshot invalidation so packed sharing and anonymous
@@ -1537,8 +1573,7 @@ impl Grammar {
                                     *pruned = true;
                                     continue;
                                 }
-                                #[cfg(test)]
-                                CHART_PREDICTION_ATTEMPTS.set(CHART_PREDICTION_ATTEMPTS.get() + 1);
+                                measure::bump(Counter::ParserChartPredictionAttempts);
                                 self.add_chart_state(
                                     &mut charts[position],
                                     State {
@@ -1615,14 +1650,11 @@ impl Grammar {
                         let mut nodes = BTreeSet::new();
                         let mut invalid = Vec::new();
                         for children in &derivations {
+                            measure::bump(Counter::ParserChartCompletionCandidates);
                             #[cfg(test)]
-                            {
-                                CHART_COMPLETION_CANDIDATES
-                                    .set(CHART_COMPLETION_CANDIDATES.get() + 1);
-                                update_chart_work_counters(|counters| {
-                                    counters.primary_completion_candidates += 1;
-                                });
-                            }
+                            update_chart_work_counters(|counters| {
+                                counters.primary_completion_candidates += 1;
+                            });
                             let term = build_packed_term(
                                 state.production,
                                 production,
@@ -2563,7 +2595,9 @@ struct Chart {
     waiting: BTreeMap<Sort, Vec<State>>,
     completed: BTreeMap<Sort, Vec<State>>,
     agenda: VecDeque<State>,
-    #[cfg(test)]
+    // Revisit accounting (`parser.chart_revisit_pops`) needs the set of states popped so far;
+    // it is kept only where something reads it.
+    #[cfg(any(test, feature = "measure"))]
     popped: BTreeSet<State>,
     // Java exposes one completed node for each stable (sort, origin, end) chart boundary. Retain
     // that identity until the chart changes; `add` invalidates this snapshot before reprocessing.
@@ -2578,7 +2612,7 @@ impl Default for Chart {
             waiting: BTreeMap::new(),
             completed: BTreeMap::new(),
             agenda: VecDeque::new(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "measure"))]
             popped: BTreeSet::new(),
             completed_nodes: RefCell::new(BTreeMap::new()),
         }
@@ -2649,7 +2683,6 @@ impl Derivations {
         }
     }
 
-    #[cfg(test)]
     fn len(&self) -> usize {
         match self {
             Self::Empty => 0,
@@ -2732,6 +2765,7 @@ impl Chart {
         state: State,
         derivations: impl IntoIterator<Item = Derivation>,
     ) -> Result<bool, ParseError> {
+        measure::bump(Counter::ParserChartAddCalls);
         #[cfg(test)]
         update_chart_work_counters(|counters| counters.add_calls += 1);
         let mut derivations = derivations.into_iter().peekable();
@@ -2748,6 +2782,7 @@ impl Chart {
         if !changed {
             return Ok(false);
         }
+        measure::bump(Counter::ParserChartStateChanges);
         #[cfg(test)]
         update_chart_work_counters(|counters| {
             if new_state {
@@ -2907,10 +2942,12 @@ fn completed_nodes(
         provenance.base_offset,
     );
     if let Some(completed) = chart.completed_nodes.borrow().get(&key) {
+        measure::bump(Counter::ParserCompletedNodesHits);
         #[cfg(test)]
         update_chart_work_counters(|counters| counters.completed_nodes_hits += 1);
         return completed.clone();
     }
+    measure::bump(Counter::ParserCompletedNodesMisses);
     #[cfg(test)]
     update_chart_work_counters(|counters| counters.completed_nodes_misses += 1);
     let mut nodes = BTreeSet::new();
@@ -2922,13 +2959,11 @@ fn completed_nodes(
         let derivations = &chart.states[state];
         let production = &grammar.productions[state.production];
         for children in derivations {
+            measure::bump(Counter::ParserChartCompletionCandidates);
             #[cfg(test)]
-            {
-                CHART_COMPLETION_CANDIDATES.set(CHART_COMPLETION_CANDIDATES.get() + 1);
-                update_chart_work_counters(|counters| {
-                    counters.helper_completion_candidates += 1;
-                });
-            }
+            update_chart_work_counters(|counters| {
+                counters.helper_completion_candidates += 1;
+            });
             let term = build_packed_term(
                 state.production,
                 production,

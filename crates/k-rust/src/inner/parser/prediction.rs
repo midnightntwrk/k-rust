@@ -2,6 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use k_rust_kore::measure::{self, Counter};
+
 use super::{Grammar, Item, Sort};
 
 #[derive(Clone, Copy, Debug)]
@@ -20,8 +22,7 @@ pub(super) struct PredictionAnalysis {
 
 impl PredictionAnalysis {
     pub(super) fn new(grammar: &Grammar) -> Self {
-        #[cfg(test)]
-        super::PREDICTION_ANALYSIS_BUILDS.set(super::PREDICTION_ANALYSIS_BUILDS.get() + 1);
+        measure::bump(Counter::ParserPredictionAnalysisBuilds);
         // Hidden program-list descriptors still exist in `productions` for reconstruction.
         // Only the predictor's active buckets participate in recognition.
         let sorts = grammar
