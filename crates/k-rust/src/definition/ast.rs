@@ -11,7 +11,7 @@ use serde_json::Value;
 use super::attribute_keys::AttributeKey;
 use crate::kast::json::JsonLabel;
 use crate::kast::{Label, Sort, Term};
-use crate::provenance::{ORIGIN_ATTRIBUTE, OriginReceipt, OriginRecord, SourceId};
+use crate::provenance::{OriginReceipt, OriginRecord, SourceId};
 
 // String aliases of registry rows, kept for callers that index the map by name.
 pub const LOCATION_ATTRIBUTE: &str = AttributeKey::Location.as_str();
@@ -116,7 +116,7 @@ impl fmt::Debug for Attributes {
 impl Attributes {
     pub fn new(mut entries: BTreeMap<String, Value>) -> Self {
         let origin = entries
-            .remove(ORIGIN_ATTRIBUTE)
+            .remove(AttributeKey::Origin.as_str())
             .map(|value| Arc::new(OriginReceipt::from_value(value)));
         Self {
             entries,
@@ -131,13 +131,13 @@ impl Attributes {
         };
         self.materialized_entries.get_or_init(|| {
             let mut entries = self.entries.clone();
-            entries.insert(ORIGIN_ATTRIBUTE.into(), origin.value().clone());
+            entries.insert(AttributeKey::Origin.as_str().into(), origin.value().clone());
             entries
         })
     }
 
     pub fn get(&self, key: &str) -> Option<&Value> {
-        if key == ORIGIN_ATTRIBUTE {
+        if key == AttributeKey::Origin.as_str() {
             self.origin.as_deref().map(OriginReceipt::value)
         } else {
             self.entries.get(key)
@@ -181,7 +181,7 @@ impl Attributes {
     pub fn insert(&mut self, key: impl Into<String>, value: Value) -> Option<Value> {
         let key = key.into();
         self.invalidate_materialized_entries();
-        if key == ORIGIN_ATTRIBUTE {
+        if key == AttributeKey::Origin.as_str() {
             self.origin
                 .replace(Arc::new(OriginReceipt::from_value(value)))
                 .map(receipt_into_value)
@@ -192,7 +192,7 @@ impl Attributes {
 
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         self.invalidate_materialized_entries();
-        if key == ORIGIN_ATTRIBUTE {
+        if key == AttributeKey::Origin.as_str() {
             self.origin.take().map(receipt_into_value)
         } else {
             self.entries.remove(key)

@@ -7,10 +7,8 @@ use super::catalog::{ProductionCatalog, ProductionId};
 use super::equivalence::sentence_equivalent;
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
+use crate::definition::AttributeKey;
 use crate::kast::Sort;
-
-const KLABEL_ATTRIBUTE: &str = "klabel";
-const OVERLOAD_ATTRIBUTE: &str = "overload";
 
 #[derive(Clone, Debug)]
 pub struct OverloadOrder<'a> {
@@ -119,7 +117,7 @@ pub fn compute_disambiguation_subsorts(
         else {
             continue;
         };
-        if !parameters.is_empty() || attributes.get("userList").is_none() {
+        if !parameters.is_empty() || !attributes.has(AttributeKey::UserList) {
             continue;
         }
         let nonterminals = items
@@ -214,11 +212,11 @@ pub fn compute_overloads<'a>(
         else {
             unreachable!()
         };
-        if let Some(group) = attributes.get_str(OVERLOAD_ATTRIBUTE) {
+        if let Some(group) = attributes.string(AttributeKey::Overload) {
             explicit.entry(group.into()).or_default().push(id);
         }
         if let Some(group) = attributes
-            .get_str(KLABEL_ATTRIBUTE)
+            .string(AttributeKey::Klabel)
             .or_else(|| label.as_ref().map(|label| label.name.as_str()))
         {
             legacy.entry(group.into()).or_default().push(id);

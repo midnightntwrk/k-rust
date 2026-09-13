@@ -5,11 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::ast::{Attributes, Sentence};
 use super::catalog::SortHead;
 use super::resolve::{ModuleId, ResolvedDefinition};
+use crate::definition::AttributeKey;
 use crate::kast::Sort;
-
-const HOOK_ATTRIBUTE: &str = "hook";
-const TOKEN_ATTRIBUTE: &str = "token";
-const USER_LIST_ATTRIBUTE: &str = "userList";
 
 #[derive(Clone, Debug)]
 pub struct SortCatalog<'a> {
@@ -101,7 +98,7 @@ impl<'a> SortCatalog<'a> {
             .iter()
             .filter_map(|(head, attributes)| {
                 attributes
-                    .get_str(HOOK_ATTRIBUTE)
+                    .string(AttributeKey::Hook)
                     .map(|hook| (head.as_str().to_owned(), hook.to_owned()))
             })
             .collect();
@@ -114,7 +111,7 @@ impl<'a> SortCatalog<'a> {
                 }
                 | Sentence::SyntaxSort {
                     sort, attributes, ..
-                } if attributes.get(TOKEN_ATTRIBUTE).is_some() => Some(sort.clone()),
+                } if attributes.has(AttributeKey::Token) => Some(sort.clone()),
                 _ => None,
             })
             .collect();
@@ -123,7 +120,7 @@ impl<'a> SortCatalog<'a> {
             .filter_map(|sentence| match sentence {
                 Sentence::Production {
                     sort, attributes, ..
-                } if attributes.get(USER_LIST_ATTRIBUTE).is_some() => Some(sort.clone()),
+                } if attributes.has(AttributeKey::UserList) => Some(sort.clone()),
                 _ => None,
             })
             .collect();

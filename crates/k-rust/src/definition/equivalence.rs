@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::ast::{Attributes, ProductionItem, Sentence};
+use crate::definition::AttributeKey;
 use crate::kast::Term;
 
 /// Scala sentence equality, including `Production`'s custom equality override.
@@ -74,8 +75,10 @@ pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {
                 && production_items_equivalent(left_items, right_items)
                 && production_label_attribute(left_label.as_ref(), left_attributes)
                     == production_label_attribute(right_label.as_ref(), right_attributes)
-                && left_attributes.get_str("function") == right_attributes.get_str("function")
-                && left_attributes.get_str("symbol") == right_attributes.get_str("symbol")
+                && left_attributes.string(AttributeKey::Function)
+                    == right_attributes.string(AttributeKey::Function)
+                && left_attributes.string(AttributeKey::Symbol)
+                    == right_attributes.string(AttributeKey::Symbol)
         }
         (
             Sentence::SyntaxAssociativity {
@@ -216,7 +219,7 @@ fn production_label_attribute<'a>(
     attributes: &'a Attributes,
 ) -> Option<&'a str> {
     attributes
-        .get_str("klabel")
+        .string(AttributeKey::Klabel)
         .or_else(|| label.map(|label| label.name.as_str()))
 }
 

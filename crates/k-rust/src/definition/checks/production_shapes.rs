@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{ProductionItem, Sentence};
+use crate::definition::AttributeKey;
 use crate::definition::ProductionCatalog;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Sort, Term};
@@ -18,8 +19,8 @@ pub fn check_holes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
             Sentence::Production {
                 items, attributes, ..
             } => {
-                for attribute in ["strict", "seqstrict"] {
-                    let Some(value) = attributes.get_str(attribute) else {
+                for attribute in [AttributeKey::Strict, AttributeKey::Seqstrict] {
+                    let Some(value) = attributes.string(attribute) else {
                         continue;
                     };
                     let positions =
@@ -82,7 +83,7 @@ pub fn check_streams(
         else {
             continue;
         };
-        if attributes.get("cell").is_none() || attributes.get("stream").is_none() {
+        if !attributes.has(AttributeKey::Cell) || !attributes.has(AttributeKey::Stream) {
             continue;
         }
         match items.get(1) {
@@ -120,7 +121,7 @@ pub fn check_configuration_cells(
         else {
             continue;
         };
-        if attributes.get("cell").is_none() {
+        if !attributes.has(AttributeKey::Cell) {
             continue;
         }
         for item in items {
@@ -139,8 +140,8 @@ pub fn check_configuration_cells(
                 ));
             }
         }
-        if attributes.get_str("multiplicity") == Some("*")
-            && attributes.get_str("type").unwrap_or("Bag") == "Bag"
+        if attributes.string(AttributeKey::Multiplicity) == Some("*")
+            && attributes.string(AttributeKey::Type).unwrap_or("Bag") == "Bag"
         {
             diagnostics.push(Diagnostic::error(
                 DiagnosticCode::UnsupportedCellBag,
@@ -252,7 +253,7 @@ fn visible_cell_labels(productions: &ProductionCatalog<'_>) -> BTreeMap<Sort, St
         else {
             continue;
         };
-        if attributes.get("cell").is_some() {
+        if attributes.has(AttributeKey::Cell) {
             labels
                 .entry(sort.clone())
                 .or_insert_with(|| label.name.clone());

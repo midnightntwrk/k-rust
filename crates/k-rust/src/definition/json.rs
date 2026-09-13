@@ -9,15 +9,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::ast::{
-    Associativity, Attributes, Definition, FlatImport, FlatModule, ProductionItem,
-    SOURCE_ID_ATTRIBUTE, Sentence,
+    Associativity, Attributes, Definition, FlatImport, FlatModule, ProductionItem, Sentence,
 };
+use crate::definition::AttributeKey;
 use crate::kast::json::{self as term_json, JsonLabel, JsonSort, JsonTerm};
 use crate::{
     kast::{Label, ResolvedProductionId, Term, TermMetadata, TermSpan},
     provenance::{
-        DestinationAnchor, GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord,
-        ProvenanceLink, SourceId, SourceOffsetMap, SourceOffsetSegment, SourceTable,
+        DestinationAnchor, GeneratingPass, LogicalSourceId, OriginRecord, ProvenanceLink, SourceId,
+        SourceOffsetMap, SourceOffsetSegment, SourceTable,
     },
 };
 
@@ -384,18 +384,18 @@ fn encode_attribute_sources(
     attributes: &mut Attributes,
     source_table: &SourceTable,
 ) -> Result<(), Error> {
-    if let Some(source) = attributes.get(SOURCE_ID_ATTRIBUTE) {
+    if let Some(source) = attributes.value(AttributeKey::SourceId) {
         let source = source
             .as_u64()
             .and_then(|source| usize::try_from(source).ok())
             .map(SourceId)
             .ok_or_else(|| Error::InvalidProvenance("source id is not a valid index".into()))?;
-        attributes.insert(
-            SOURCE_ID_ATTRIBUTE,
+        attributes.set(
+            AttributeKey::SourceId,
             serde_json::to_value(json_source(source_table, source)?)?,
         );
     }
-    if let Some(mut origin) = attributes.get(ORIGIN_ATTRIBUTE).cloned() {
+    if let Some(mut origin) = attributes.value(AttributeKey::Origin).cloned() {
         map_origin_attribute_sources(&mut origin, |value| {
             let source = value
                 .as_u64()
@@ -414,13 +414,13 @@ fn decode_attribute_sources(
     attributes: &mut Attributes,
     source_table: &SourceTable,
 ) -> Result<(), Error> {
-    if let Some(source) = attributes.get(SOURCE_ID_ATTRIBUTE).cloned() {
-        attributes.insert(
-            SOURCE_ID_ATTRIBUTE,
+    if let Some(source) = attributes.value(AttributeKey::SourceId).cloned() {
+        attributes.set(
+            AttributeKey::SourceId,
             Value::from(source_id_from_value(source, source_table)?.0),
         );
     }
-    if let Some(origin) = attributes.get(ORIGIN_ATTRIBUTE).cloned() {
+    if let Some(origin) = attributes.value(AttributeKey::Origin).cloned() {
         let origin = decode_origin(serde_json::from_value(origin)?, source_table)?;
         attributes.set_origin_record(origin);
     }

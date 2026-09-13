@@ -2357,8 +2357,7 @@ pub(super) fn named_projection_productions<'a>(
         else {
             continue;
         };
-        if attributes.get("function").is_some() || crate::definition::catalog::is_macro(attributes)
-        {
+        if attributes.get("function").is_some() || attributes.has_any(&AttributeKey::MACRO_LIKE) {
             continue;
         }
         let fields = items

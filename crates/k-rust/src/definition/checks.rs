@@ -6,6 +6,7 @@ use super::ast::{ProductionItem, Sentence};
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
+use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, Term};
 
@@ -39,7 +40,11 @@ pub use rhs_variables::{
 pub use smt_lemmas::check_smt_lemmas;
 pub use sorts::{check_outer_modules, check_sorts, check_user_lists};
 
-const ALLOWED_TOKEN_ATTRIBUTES: [&str; 3] = ["function", "token", "bracket"];
+const ALLOWED_TOKEN_ATTRIBUTES: [AttributeKey; 3] = [
+    AttributeKey::Function,
+    AttributeKey::Token,
+    AttributeKey::Bracket,
+];
 const IGNORED_TOKEN_SORTS: [&str; 2] = ["KBott", "KLabel"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -222,7 +227,7 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
 pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
-        if sentence.attributes().get_str("label") == Some("STDIN-STREAM.stdinUnblock") {
+        if sentence.attributes().string(AttributeKey::Label) == Some("STDIN-STREAM.stdinUnblock") {
             continue;
         }
         let mut counts = BTreeMap::<String, usize>::new();
@@ -272,7 +277,7 @@ pub fn check_duplicate_labels(sentences: &[&Sentence]) -> Vec<Diagnostic> {
         if matches!(sentence, Sentence::ContextAlias { .. }) {
             continue;
         }
-        let Some(label) = sentence.attributes().get_str("label") else {
+        let Some(label) = sentence.attributes().string(AttributeKey::Label) else {
             continue;
         };
         if !labels.insert(label) {
@@ -347,27 +352,27 @@ pub fn check_associativity(
         };
         let leq_left = subsorts.less_than_eq(sort, left);
         let leq_right = subsorts.less_than_eq(sort, right);
-        if attributes.get("left").is_some() && !leq_right {
+        if attributes.has(AttributeKey::Left) && !leq_right {
             diagnostics.push(invalid_assoc(
-                "left",
+                AttributeKey::Left.as_str(),
                 format!(
                     "The sub-sorting relation {sort} <= {right} does not hold, so the left attribute has no effect."
                 ),
                 sentence,
             ));
         }
-        if attributes.get("right").is_some() && !leq_left {
+        if attributes.has(AttributeKey::Right) && !leq_left {
             diagnostics.push(invalid_assoc(
-                "right",
+                AttributeKey::Right.as_str(),
                 format!(
                     "The sub-sorting relation {sort} <= {left} does not hold, so the right attribute has no effect."
                 ),
                 sentence,
             ));
         }
-        if attributes.get("non-assoc").is_some() && !(leq_left && leq_right) {
+        if attributes.has(AttributeKey::NonAssoc) && !(leq_left && leq_right) {
             diagnostics.push(invalid_assoc(
-                "non-assoc",
+                AttributeKey::NonAssoc.as_str(),
                 format!(
                     "One of the sub-sorting relations {sort} <= {left} or {sort} <= {right} does not hold, so the non-assoc attribute has no effect."
                 ),
@@ -421,9 +426,7 @@ pub fn check_tokens(
             continue;
         };
         if sort.name.starts_with('#')
-            || ALLOWED_TOKEN_ATTRIBUTES
-                .iter()
-                .any(|attribute| attributes.get(attribute).is_some())
+            || attributes.has_any(&ALLOWED_TOKEN_ATTRIBUTES)
             || IGNORED_TOKEN_SORTS.contains(&sort.name.as_str())
             || !token_sorts.contains(sort)
             || label

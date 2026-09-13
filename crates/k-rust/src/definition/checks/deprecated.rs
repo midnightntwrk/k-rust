@@ -1,6 +1,7 @@
 //! Warnings for terms parsed through deprecated productions.
 
 use super::{Sentence, checked_terms};
+use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog, ProductionId};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
@@ -44,7 +45,7 @@ fn uses_deprecated_production(term: &Term, productions: &ProductionCatalog<'_>) 
             _ => true,
         };
         if metadata_matches {
-            return production.attributes().get("deprecated").is_some();
+            return production.attributes().has(AttributeKey::Deprecated);
         }
     }
     let Term::Apply { label, .. } = term.unannotated() else {
@@ -52,7 +53,7 @@ fn uses_deprecated_production(term: &Term, productions: &ProductionCatalog<'_>) 
     };
     let candidates = productions.productions_for(&LabelHead::from(label));
     matches!(candidates, [production]
-        if productions.production(*production).attributes().get("deprecated").is_some())
+        if productions.production(*production).attributes().has(AttributeKey::Deprecated))
 }
 
 fn visit_with_metadata(term: &Term, visitor: &mut impl FnMut(&Term)) {

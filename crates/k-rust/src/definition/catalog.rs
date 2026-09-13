@@ -3,14 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::ast::{Attributes, ProductionItem, Sentence};
+use super::attribute_keys::AttributeKey;
 use super::equivalence::sentence_equivalent;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, Sort};
-
-const FUNCTION_ATTRIBUTE: &str = "function";
-const FRESH_GENERATOR_ATTRIBUTE: &str = "freshGenerator";
-const MACRO_ATTRIBUTES: [&str; 4] = ["macro", "macro-rec", "alias", "alias-rec"];
-const TOKEN_ATTRIBUTE: &str = "token";
 
 /// A production identity scoped to one [`ProductionCatalog`].
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -325,7 +321,7 @@ impl<'a> ProductionCatalog<'a> {
             else {
                 unreachable!()
             };
-            if attributes.get(FRESH_GENERATOR_ATTRIBUTE).is_none() {
+            if !attributes.has(AttributeKey::FreshGenerator) {
                 continue;
             }
             let Some(label) = label else {
@@ -366,10 +362,10 @@ impl<'a> ProductionCatalog<'a> {
                 .entry(SortHead::from(sort))
                 .or_default()
                 .push(id);
-            if attributes.get(TOKEN_ATTRIBUTE).is_some() {
+            if attributes.has(AttributeKey::Token) {
                 self.token_by_sort.entry(sort.clone()).or_default().push(id);
             }
-            if is_macro(attributes) {
+            if attributes.has_any(&AttributeKey::MACRO_LIKE) {
                 self.macro_labels
                     .insert(label.clone().unwrap_or_else(|| Label::new("")));
             }
@@ -378,7 +374,7 @@ impl<'a> ProductionCatalog<'a> {
             };
             let head = LabelHead::from(label);
             self.by_label.entry(head.clone()).or_default().push(id);
-            if attributes.get(FUNCTION_ATTRIBUTE).is_some() {
+            if attributes.has(AttributeKey::Function) {
                 self.function_labels.insert(head.clone());
             }
             if parameters.is_empty() {
@@ -427,10 +423,4 @@ fn production_label(sentence: &Sentence) -> Option<&Label> {
         return None;
     };
     label.as_ref()
-}
-
-pub(crate) fn is_macro(attributes: &Attributes) -> bool {
-    MACRO_ATTRIBUTES
-        .iter()
-        .any(|attribute| attributes.get(attribute).is_some())
 }
