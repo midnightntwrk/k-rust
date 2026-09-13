@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::definition::{
-    Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ResolveError,
-    ResolvedDefinition, Sentence, SortCatalog, SortHead,
+    AttributeKey, Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
+    ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{self, Label, Sort, Term, identifier};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
@@ -384,7 +384,7 @@ impl<'a> TermConverter<'a> {
             || self
                 .productions
                 .attributes_for(&LabelHead::from(label))
-                .is_some_and(|attributes| attributes.get("mlBinder").is_some())
+                .is_some_and(|attributes| attributes.has(AttributeKey::MlBinder))
     }
 
     fn is_anonymous(&self, name: &str) -> bool {
@@ -545,7 +545,7 @@ impl<'a> TermConverter<'a> {
         let hook = self
             .sorts
             .attributes_for(&SortHead::from(sort))
-            .and_then(|attributes| attributes.get_str("hook"));
+            .and_then(|attributes| attributes.string(AttributeKey::Hook));
         match hook {
             Some("STRING.String") => self.unquote_token(token, sort),
             Some("BYTES.Bytes") => token

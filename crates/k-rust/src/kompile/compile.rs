@@ -11,8 +11,8 @@ use k_rust_kore::measure::{self, Counter};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::{
-        CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence, StructuralCheckBackend,
-        StructuralCheckOptions,
+        AttributeKey, CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence,
+        StructuralCheckBackend, StructuralCheckOptions,
         checks::{check_definition_with_options, check_singleton_overloads},
         expand_configurations_with_diagnostics,
     },
@@ -398,11 +398,11 @@ fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String
 
     fn computed_unique_id(sentence: &Sentence) -> String {
         let mut sentence = sentence.clone();
-        sentence.attributes_mut().remove("UNIQUE_ID");
+        sentence.attributes_mut().unset(AttributeKey::UniqueId);
         number_sentence(&mut sentence);
         sentence
             .attributes()
-            .get_str("UNIQUE_ID")
+            .string(AttributeKey::UniqueId)
             .expect("number_sentence assigns an identifier to every rule")
             .to_owned()
     }
@@ -428,7 +428,7 @@ fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String
             let Sentence::Rule { attributes, .. } = sentence else {
                 continue;
             };
-            let unique_id = attributes.get_str("UNIQUE_ID").ok_or_else(|| {
+            let unique_id = attributes.string(AttributeKey::UniqueId).ok_or_else(|| {
                 format!(
                     "transformed rule in module {} at local sentence {index} has no UNIQUE_ID",
                     module.name
@@ -584,10 +584,10 @@ fn unadmitted_hook_namespace_diagnostics(
         let crate::definition::Sentence::Production { attributes, .. } = sentence else {
             continue;
         };
-        if attributes.get("function").is_none() {
+        if !attributes.has(AttributeKey::Function) {
             continue;
         }
-        let Some(hook) = attributes.get_str("hook") else {
+        let Some(hook) = attributes.string(AttributeKey::Hook) else {
             continue;
         };
         let Some((namespace, _)) = hook.split_once('.') else {

@@ -7,8 +7,8 @@ use std::fmt;
 use serde_json::json;
 
 use crate::definition::{
-    Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ResolveError,
-    ResolvedDefinition, Sentence, SortCatalog, SortHead, sentence_equivalent,
+    AttributeKey, Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
+    ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead, sentence_equivalent,
 };
 use crate::kast::{Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
@@ -270,8 +270,8 @@ impl<'a> SortInjector<'a> {
         let mut attributes = attributes.clone();
         let parameters = self.used_sort_parameters.borrow();
         if !parameters.is_empty() {
-            attributes.insert(
-                "sortParams",
+            attributes.set(
+                AttributeKey::SortParams,
                 json!({
                     "node": "KSort",
                     "name": "",
@@ -527,7 +527,7 @@ impl<'a> SortInjector<'a> {
                     attributes,
                 } if parameters.is_empty()
                     && sort == expected
-                    && attributes.get("userList").is_some() =>
+                    && attributes.has(AttributeKey::UserList) =>
                 {
                     let arguments = items
                         .iter()
@@ -577,7 +577,7 @@ impl<'a> SortInjector<'a> {
                     attributes,
                 } if parameters.is_empty()
                     && sort == expected
-                    && attributes.get("userList").is_some()
+                    && attributes.has(AttributeKey::UserList)
                     && !items.iter().any(|item| {
                         matches!(item, crate::definition::ProductionItem::NonTerminal { .. })
                     }) =>
@@ -616,7 +616,7 @@ impl<'a> SortInjector<'a> {
         let hook = self
             .sorts
             .attributes_for(&SortHead::from(expected))
-            .and_then(|attributes| attributes.get_str("hook"));
+            .and_then(|attributes| attributes.string(AttributeKey::Hook));
         if !matches!(hook, Some("MAP.Map" | "SET.Set" | "LIST.List")) {
             return Ok(None);
         }
@@ -628,8 +628,8 @@ impl<'a> SortInjector<'a> {
                 unreachable!()
             };
             let (Some(wrapped_label), Some(element_label)) = (
-                attributes.get_str("wrapElement"),
-                attributes.get_str("element"),
+                attributes.string(AttributeKey::WrapElement),
+                attributes.string(AttributeKey::Element),
             ) else {
                 continue;
             };
@@ -646,9 +646,9 @@ impl<'a> SortInjector<'a> {
             if !wraps_actual {
                 continue;
             }
-            let is_map = attributes.get("comm").is_some()
-                && attributes.get("idem").is_none()
-                && attributes.get("bag").is_none();
+            let is_map = attributes.has(AttributeKey::Comm)
+                && !attributes.has(AttributeKey::Idem)
+                && !attributes.has(AttributeKey::Bag);
             if !is_map {
                 return Ok(Some(Term::apply(element_label, vec![visited])));
             }
