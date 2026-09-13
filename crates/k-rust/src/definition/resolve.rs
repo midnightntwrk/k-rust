@@ -14,9 +14,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
-use super::ordering::{
-    Error as OrderingError, compare_sentences, compare_terms, sentence_equivalent,
-};
+use super::ordering::sentence_equivalent;
 use crate::kast::{Label, Sort, Term};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -158,6 +156,8 @@ enum FirstItem<'a> {
 }
 
 // Ordinary Term equality also compares variable sorts; sentence equality does not.
+// The key only has to agree with `term_equivalent`: equivalent bodies compare equal, and
+// the order among the rest is a deterministic preorder walk with no fidelity claim.
 struct SentenceBody<'a>(&'a Term);
 
 impl PartialEq for SentenceBody<'_> {
@@ -176,8 +176,92 @@ impl PartialOrd for SentenceBody<'_> {
 
 impl Ord for SentenceBody<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        compare_terms(self.0, other.0)
+        compare_erased_terms(self.0, other.0)
     }
+}
+
+/// Preorder comparison of the unannotated term with variable sorts erased.
+fn compare_erased_terms(left: &Term, right: &Term) -> Ordering {
+    fn variant(term: &Term) -> u8 {
+        match term {
+            Term::InjectedLabel(_) => 0,
+            Term::Rewrite { .. } => 1,
+            Term::As { .. } => 2,
+            Term::Variable { .. } => 3,
+            Term::Sequence(_) => 4,
+            Term::Apply { .. } => 5,
+            Term::Token { .. } => 6,
+            Term::Annotated { .. } => unreachable!("annotations are stripped before comparison"),
+        }
+    }
+    fn slices(left: &[Term], right: &[Term]) -> Ordering {
+        left.len().cmp(&right.len()).then_with(|| {
+            left.iter()
+                .zip(right)
+                .map(|(left, right)| compare_erased_terms(left, right))
+                .find(|ordering| ordering.is_ne())
+                .unwrap_or(Ordering::Equal)
+        })
+    }
+
+    let left = left.unannotated();
+    let right = right.unannotated();
+    variant(left)
+        .cmp(&variant(right))
+        .then_with(|| match (left, right) {
+            (Term::InjectedLabel(left), Term::InjectedLabel(right)) => left.cmp(right),
+            (
+                Term::Rewrite {
+                    left: left_lhs,
+                    right: left_rhs,
+                },
+                Term::Rewrite {
+                    left: right_lhs,
+                    right: right_rhs,
+                },
+            ) => compare_erased_terms(left_lhs, right_lhs)
+                .then_with(|| compare_erased_terms(left_rhs, right_rhs)),
+            (
+                Term::As {
+                    pattern: left_pattern,
+                    alias: left_alias,
+                },
+                Term::As {
+                    pattern: right_pattern,
+                    alias: right_alias,
+                },
+            ) => compare_erased_terms(left_pattern, right_pattern)
+                .then_with(|| compare_erased_terms(left_alias, right_alias)),
+            (Term::Variable { name: left, .. }, Term::Variable { name: right, .. }) => {
+                left.cmp(right)
+            }
+            (Term::Sequence(left), Term::Sequence(right)) => slices(left, right),
+            (
+                Term::Apply {
+                    label: left_label,
+                    arguments: left_arguments,
+                },
+                Term::Apply {
+                    label: right_label,
+                    arguments: right_arguments,
+                },
+            ) => left_label
+                .cmp(right_label)
+                .then_with(|| slices(left_arguments, right_arguments)),
+            (
+                Term::Token {
+                    token: left_token,
+                    sort: left_sort,
+                },
+                Term::Token {
+                    token: right_token,
+                    sort: right_sort,
+                },
+            ) => left_token
+                .cmp(right_token)
+                .then_with(|| left_sort.cmp(right_sort)),
+            _ => unreachable!("equal variants have matching shapes"),
+        })
 }
 
 #[derive(Clone)]
@@ -446,24 +530,6 @@ impl ResolvedDefinition {
                 }
             })
             .collect()
-    }
-
-    pub fn sorted_local_sentences(
-        &self,
-        module: ModuleId,
-    ) -> Result<Vec<&Sentence>, OrderingError> {
-        let mut sentences = self
-            .module(module)
-            .local_sentences
-            .iter()
-            .collect::<Vec<_>>();
-        for sentence in &sentences {
-            compare_sentences(sentence, sentence)?;
-        }
-        sentences.sort_by(|left, right| {
-            compare_sentences(left, right).expect("sentence kinds were prevalidated")
-        });
-        Ok(sentences)
     }
 }
 

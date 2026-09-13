@@ -466,7 +466,7 @@ pub fn declaration_modules_from_resolved_with_options(
 
     let mut semantic_sentences = common.clone();
     let mut syntax_sentences = common;
-    for (id, production) in productions.sorted_productions() {
+    for (id, production) in productions.productions() {
         let Sentence::Production {
             label: Some(label),
             parameters,
@@ -528,7 +528,7 @@ pub fn declaration_modules_from_resolved_with_options(
         semantic_sentences.push(declaration(semantic_attributes));
         syntax_sentences.push(declaration(syntax_attributes));
     }
-    for (id, production) in productions.sorted_productions() {
+    for (id, production) in productions.productions() {
         let Sentence::Production {
             label: None,
             parameters,
@@ -607,7 +607,7 @@ fn definition_attributes(
 ) -> Attributes {
     let mut attributes = Vec::new();
     if let Some(label) = productions
-        .sorted_productions()
+        .productions()
         .find_map(|(_, production)| match production {
             Sentence::Production {
                 label: Some(label),
@@ -695,25 +695,25 @@ pub fn module_to_kore_from_resolved_with_options(
             .default_claims_to_all_path
             .then_some(ReachabilityMode::AllPath));
     let mut production_rebases = BTreeMap::<ModuleId, Vec<ProductionId>>::new();
-    let mut sorted_rules = Vec::with_capacity(rules.sorted_rules().len());
-    for (_, rule) in rules.sorted_rules() {
+    let mut module_rules = Vec::with_capacity(rules.rules().len());
+    for (_, rule) in rules.rules() {
         let owner = sentence_owner(definition, rule).unwrap_or(module_id);
         let propagated = propagate_macro_attribute(rule, &productions);
         if owner == module_id {
-            sorted_rules.push(propagated);
+            module_rules.push(propagated);
             continue;
         }
         if let std::collections::btree_map::Entry::Vacant(entry) = production_rebases.entry(owner) {
             entry.insert(production_rebase(definition, owner, &productions)?);
         }
-        sorted_rules.push(rebase_sentence_metadata(
+        module_rules.push(rebase_sentence_metadata(
             &definition.module(owner).name,
             &production_rebases[&owner],
             propagated,
         )?);
     }
     if options.generate_map_ceil_axioms {
-        sorted_rules.extend(generate_map_ceil_rules(&productions)?);
+        module_rules.extend(generate_map_ceil_rules(&productions)?);
     }
     let constructors = constructor_productions(&productions, &overloads, &rules);
 
@@ -736,7 +736,7 @@ pub fn module_to_kore_from_resolved_with_options(
     // the error order. Only successful results from the first owise scan are reusable by later
     // owise scans over this immutable, already-rebased rule list.
     let mut owise_injections = Vec::new();
-    for rule in &sorted_rules {
+    for rule in &module_rules {
         let emitted = emit_rule_or_claim(
             rule,
             false,
@@ -744,7 +744,7 @@ pub fn module_to_kore_from_resolved_with_options(
             &productions,
             &injector,
             &converter,
-            &sorted_rules,
+            &module_rules,
             &mut owise_injections,
             default_reachability,
         )?;
@@ -790,7 +790,7 @@ pub fn module_to_kore_from_resolved_with_options(
             &productions,
             &injector,
             &converter,
-            &sorted_rules,
+            &module_rules,
             &mut owise_injections,
             default_reachability,
         )?;
@@ -855,7 +855,7 @@ fn generate_map_ceil_rules(
     productions: &ProductionCatalog<'_>,
 ) -> Result<Vec<Sentence>, ModuleToKoreError> {
     let mut rules = Vec::new();
-    for (in_keys_id, production) in productions.sorted_productions() {
+    for (in_keys_id, production) in productions.productions() {
         let Sentence::Production {
             label: Some(in_keys_label),
             items: in_keys_items,
@@ -1186,7 +1186,7 @@ fn generated_axioms(
     let mut semantics = Vec::new();
     let mut syntax = Vec::new();
     let mut no_confusion_pairs = BTreeSet::new();
-    for (id, production) in productions.sorted_productions() {
+    for (id, production) in productions.productions() {
         if let Some(axiom) = subsort_axiom(production) {
             semantics.push(axiom.clone());
             syntax.push(axiom);
@@ -1210,11 +1210,11 @@ fn generated_axioms(
     }
     semantics.extend(no_junk_axioms(productions, sorts, subsorts));
 
-    for (lesser, _) in overloads.catalog().sorted_productions() {
+    for (lesser, _) in overloads.catalog().productions() {
         let Some(greater_productions) = overloads.order().relations_from(&lesser) else {
             continue;
         };
-        for (greater, _) in overloads.catalog().sorted_productions() {
+        for (greater, _) in overloads.catalog().productions() {
             if greater_productions.contains(&greater) {
                 let axiom = overload_axiom(overloads, lesser, greater)?;
                 semantics.push(axiom.clone());
@@ -1236,7 +1236,7 @@ fn constructor_productions(
         .map(|(_, rule)| match_rule_label(rule))
         .collect::<BTreeSet<_>>();
     productions
-        .sorted_productions()
+        .productions()
         .filter_map(|(id, production)| {
             let Sentence::Production {
                 label: Some(label),
@@ -1309,7 +1309,7 @@ fn no_confusion_axioms(
         Sentence::Production { sort, .. } => SortHead::from(sort),
         _ => unreachable!("production catalogs contain productions"),
     };
-    for (other_id, other_production) in productions.sorted_productions() {
+    for (other_id, other_production) in productions.productions() {
         if other_id == id
             || !constructors.contains(&other_id)
             || emitted_pairs.contains(&(id, other_id))
@@ -1416,7 +1416,7 @@ fn no_junk_axioms(
         let mut used_variable_names = BTreeSet::new();
         let mut variable_suffixes = BTreeMap::new();
         let mut has_token = false;
-        for (_, production) in productions.sorted_productions() {
+        for (_, production) in productions.productions() {
             let Sentence::Production {
                 label,
                 sort: production_sort,
@@ -2190,7 +2190,7 @@ fn emit_rule_or_claim(
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
     converter: &TermConverter<'_>,
-    sorted_rules: &[Sentence],
+    module_rules: &[Sentence],
     owise_injections: &mut Vec<Option<Sentence>>,
     default_reachability: Option<ReachabilityMode>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
@@ -2238,7 +2238,7 @@ fn emit_rule_or_claim(
             converter,
             productions,
             injector,
-            sorted_rules,
+            module_rules,
             owise_injections,
         );
     }
@@ -2514,7 +2514,7 @@ fn emit_equation(
     converter: &TermConverter<'_>,
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
-    sorted_rules: &[Sentence],
+    module_rules: &[Sentence],
     owise_injections: &mut Vec<Option<Sentence>>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let parameters = equation_parameters(attributes);
@@ -2543,7 +2543,7 @@ fn emit_equation(
             &converter,
             productions,
             injector,
-            sorted_rules,
+            module_rules,
             owise_injections,
             parameters,
             &avoid_variables,
@@ -2636,7 +2636,7 @@ fn emit_owise_equation(
     converter: &TermConverter<'_>,
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_>,
-    sorted_rules: &[Sentence],
+    module_rules: &[Sentence],
     owise_injections: &mut Vec<Option<Sentence>>,
     parameters: Vec<String>,
     avoid_variables: &BTreeSet<String>,
@@ -2658,10 +2658,10 @@ fn emit_owise_equation(
     }
     if owise_injections.is_empty() {
         // Initialize lazily so modules without owise equations pay no cache allocation.
-        owise_injections.resize_with(sorted_rules.len(), || None);
+        owise_injections.resize_with(module_rules.len(), || None);
     }
     let mut competitors = Vec::new();
-    for (index, sentence) in sorted_rules.iter().enumerate() {
+    for (index, sentence) in module_rules.iter().enumerate() {
         if owise_injections[index].is_none() {
             owise_injections[index] = Some(injector.inject_sentence(sentence)?);
         }
@@ -3189,7 +3189,7 @@ fn transitive_impure_labels(
     }
 
     let mut impure = productions
-        .sorted_productions()
+        .productions()
         .filter_map(|(_, production)| match production {
             Sentence::Production {
                 label: Some(label),
@@ -3284,7 +3284,7 @@ fn collection_attribute_overrides(
     overrides: &mut BTreeMap<String, Vec<Pattern>>,
 ) -> Result<(), DeclarationError> {
     let production = productions
-        .sorted_productions()
+        .productions()
         .map(|(_, production)| production)
         .find(|production| {
             matches!(

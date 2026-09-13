@@ -8,6 +8,33 @@ module MAIN
   sort SortInt{} [hasDomainValues{}()]
   sort SortNumber{} []
   sort SortValue{} []
+  symbol Lblnarrow{}(SortInt{}) : SortInt{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,71)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("narrow")
+  ]
+  symbol Lblwide{}(SortNumber{}) : SortNumber{}
+  [
+    anywhere{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,73)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("wide")
+  ]
+  symbol Lblwidest{}(SortValue{}) : SortValue{}
+  [
+    anywhere{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,20,9,75)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("widest")
+  ]
   symbol LblasInt{}(SortInt{}) : SortValue{}
   [
     constructor{}(),
@@ -44,33 +71,6 @@ module MAIN
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("fromNumber")
   ]
-  symbol Lblnarrow{}(SortInt{}) : SortInt{}
-  [
-    constructor{}(),
-    functional{}(),
-    injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,71)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("narrow")
-  ]
-  symbol Lblwide{}(SortNumber{}) : SortNumber{}
-  [
-    anywhere{}(),
-    functional{}(),
-    injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,73)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("wide")
-  ]
-  symbol Lblwidest{}(SortValue{}) : SortValue{}
-  [
-    anywhere{}(),
-    functional{}(),
-    injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,20,9,75)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("widest")
-  ]
   axiom{R}
     \exists{R}(
       Val:SortNumber{},
@@ -84,67 +84,6 @@ module MAIN
     )
     [subsort{SortNumber{}, SortValue{}}()]
   axiom{R}
-    \exists{R}(Val:SortValue{}, \equals{SortValue{}, R}(Val:SortValue{}, LblasInt{}(K0:SortInt{})))
-    [functional{}()]
-  axiom{}
-    \implies{SortValue{}}(
-      \and{SortValue{}}(LblasInt{}(X0:SortInt{}), LblasInt{}(Y0:SortInt{})),
-      LblasInt{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
-    )
-    [constructor{}()]
-  axiom{}
-    \not{SortValue{}}(\and{SortValue{}}(LblasInt{}(X0:SortInt{}), LblasNumber{}(Y0:SortNumber{})))
-    [constructor{}()]
-  axiom{}
-    \not{SortValue{}}(\and{SortValue{}}(LblasInt{}(X0:SortInt{}), Lblwidest{}(Y0:SortValue{})))
-    [constructor{}()]
-  axiom{R}
-    \exists{R}(
-      Val:SortValue{},
-      \equals{SortValue{}, R}(Val:SortValue{}, LblasNumber{}(K0:SortNumber{}))
-    )
-    [functional{}()]
-  axiom{}
-    \implies{SortValue{}}(
-      \and{SortValue{}}(LblasNumber{}(X0:SortNumber{}), LblasNumber{}(Y0:SortNumber{})),
-      LblasNumber{}(\and{SortNumber{}}(X0:SortNumber{}, Y0:SortNumber{}))
-    )
-    [constructor{}()]
-  axiom{}
-    \not{SortValue{}}(
-      \and{SortValue{}}(LblasNumber{}(X0:SortNumber{}), Lblwidest{}(Y0:SortValue{}))
-    )
-    [constructor{}()]
-  axiom{R}
-    \exists{R}(Val:SortInt{}, \equals{SortInt{}, R}(Val:SortInt{}, LblfromInt{}(K0:SortInt{})))
-    [functional{}()]
-  axiom{}
-    \implies{SortInt{}}(
-      \and{SortInt{}}(LblfromInt{}(X0:SortInt{}), LblfromInt{}(Y0:SortInt{})),
-      LblfromInt{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
-    )
-    [constructor{}()]
-  axiom{}
-    \not{SortInt{}}(\and{SortInt{}}(LblfromInt{}(X0:SortInt{}), Lblnarrow{}(Y0:SortInt{})))
-    [constructor{}()]
-  axiom{R}
-    \exists{R}(
-      Val:SortNumber{},
-      \equals{SortNumber{}, R}(Val:SortNumber{}, LblfromNumber{}(K0:SortInt{}))
-    )
-    [functional{}()]
-  axiom{}
-    \implies{SortNumber{}}(
-      \and{SortNumber{}}(LblfromNumber{}(X0:SortInt{}), LblfromNumber{}(Y0:SortInt{})),
-      LblfromNumber{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
-    )
-    [constructor{}()]
-  axiom{}
-    \not{SortNumber{}}(
-      \and{SortNumber{}}(LblfromNumber{}(X0:SortInt{}), Lblwide{}(Y0:SortNumber{}))
-    )
-    [constructor{}()]
-  axiom{R}
     \exists{R}(Val:SortInt{}, \equals{SortInt{}, R}(Val:SortInt{}, Lblnarrow{}(K0:SortInt{})))
     [functional{}()]
   axiom{}
@@ -152,6 +91,9 @@ module MAIN
       \and{SortInt{}}(Lblnarrow{}(X0:SortInt{}), Lblnarrow{}(Y0:SortInt{})),
       Lblnarrow{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
     )
+    [constructor{}()]
+  axiom{}
+    \not{SortInt{}}(\and{SortInt{}}(Lblnarrow{}(X0:SortInt{}), LblfromInt{}(Y0:SortInt{})))
     [constructor{}()]
   axiom{R}
     \exists{R}(
@@ -163,6 +105,11 @@ module MAIN
     \implies{SortNumber{}}(
       \and{SortNumber{}}(Lblwide{}(X0:SortNumber{}), Lblwide{}(Y0:SortNumber{})),
       Lblwide{}(\and{SortNumber{}}(X0:SortNumber{}, Y0:SortNumber{}))
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortNumber{}}(
+      \and{SortNumber{}}(Lblwide{}(X0:SortNumber{}), LblfromNumber{}(Y0:SortInt{}))
     )
     [constructor{}()]
   axiom{R}
@@ -178,43 +125,84 @@ module MAIN
     )
     [constructor{}()]
   axiom{}
+    \not{SortValue{}}(\and{SortValue{}}(Lblwidest{}(X0:SortValue{}), LblasInt{}(Y0:SortInt{})))
+    [constructor{}()]
+  axiom{}
+    \not{SortValue{}}(
+      \and{SortValue{}}(Lblwidest{}(X0:SortValue{}), LblasNumber{}(Y0:SortNumber{}))
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(Val:SortValue{}, \equals{SortValue{}, R}(Val:SortValue{}, LblasInt{}(K0:SortInt{})))
+    [functional{}()]
+  axiom{}
+    \implies{SortValue{}}(
+      \and{SortValue{}}(LblasInt{}(X0:SortInt{}), LblasInt{}(Y0:SortInt{})),
+      LblasInt{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortValue{}}(\and{SortValue{}}(LblasInt{}(X0:SortInt{}), LblasNumber{}(Y0:SortNumber{})))
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortValue{},
+      \equals{SortValue{}, R}(Val:SortValue{}, LblasNumber{}(K0:SortNumber{}))
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortValue{}}(
+      \and{SortValue{}}(LblasNumber{}(X0:SortNumber{}), LblasNumber{}(Y0:SortNumber{})),
+      LblasNumber{}(\and{SortNumber{}}(X0:SortNumber{}, Y0:SortNumber{}))
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(Val:SortInt{}, \equals{SortInt{}, R}(Val:SortInt{}, LblfromInt{}(K0:SortInt{})))
+    [functional{}()]
+  axiom{}
+    \implies{SortInt{}}(
+      \and{SortInt{}}(LblfromInt{}(X0:SortInt{}), LblfromInt{}(Y0:SortInt{})),
+      LblfromInt{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortNumber{},
+      \equals{SortNumber{}, R}(Val:SortNumber{}, LblfromNumber{}(K0:SortInt{}))
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortNumber{}}(
+      \and{SortNumber{}}(LblfromNumber{}(X0:SortInt{}), LblfromNumber{}(Y0:SortInt{})),
+      LblfromNumber{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
+    )
+    [constructor{}()]
+  axiom{}
     \or{SortInt{}}(
       \top{SortInt{}}(),
-      \exists{SortInt{}}(X0:SortInt{}, LblfromInt{}(X0:SortInt{})),
       \exists{SortInt{}}(X0:SortInt{}, Lblnarrow{}(X0:SortInt{})),
+      \exists{SortInt{}}(X0:SortInt{}, LblfromInt{}(X0:SortInt{})),
       \bottom{SortInt{}}()
     )
     [constructor{}()]
   axiom{}
     \or{SortNumber{}}(
-      \exists{SortNumber{}}(X0:SortInt{}, LblfromNumber{}(X0:SortInt{})),
-      \exists{SortNumber{}}(X0V2:SortNumber{}, Lblwide{}(X0V2:SortNumber{})),
+      \exists{SortNumber{}}(X0:SortNumber{}, Lblwide{}(X0:SortNumber{})),
+      \exists{SortNumber{}}(X0V2:SortInt{}, LblfromNumber{}(X0V2:SortInt{})),
       \exists{SortNumber{}}(Val:SortInt{}, inj{SortInt{}, SortNumber{}}(Val:SortInt{})),
       \bottom{SortNumber{}}()
     )
     [constructor{}()]
   axiom{}
     \or{SortValue{}}(
-      \exists{SortValue{}}(X0:SortInt{}, LblasInt{}(X0:SortInt{})),
-      \exists{SortValue{}}(X0V2:SortNumber{}, LblasNumber{}(X0V2:SortNumber{})),
-      \exists{SortValue{}}(X0V3:SortValue{}, Lblwidest{}(X0V3:SortValue{})),
+      \exists{SortValue{}}(X0:SortValue{}, Lblwidest{}(X0:SortValue{})),
+      \exists{SortValue{}}(X0V2:SortInt{}, LblasInt{}(X0V2:SortInt{})),
+      \exists{SortValue{}}(X0V3:SortNumber{}, LblasNumber{}(X0V3:SortNumber{})),
       \exists{SortValue{}}(Val:SortInt{}, inj{SortInt{}, SortValue{}}(Val:SortInt{})),
       \exists{SortValue{}}(ValV2:SortNumber{}, inj{SortNumber{}, SortValue{}}(ValV2:SortNumber{})),
       \bottom{SortValue{}}()
     )
     [constructor{}()]
-  axiom{R}
-    \equals{SortValue{}, R}(
-      LblasNumber{}(inj{SortInt{}, SortNumber{}}(K0:SortInt{})),
-      LblasInt{}(K0:SortInt{})
-    )
-    [symbol-overload{}(LblasNumber{}(), LblasInt{}())]
-  axiom{R}
-    \equals{SortNumber{}, R}(
-      LblfromNumber{}(K0:SortInt{}),
-      inj{SortInt{}, SortNumber{}}(LblfromInt{}(K0:SortInt{}))
-    )
-    [symbol-overload{}(LblfromNumber{}(), LblfromInt{}())]
   axiom{R}
     \equals{SortNumber{}, R}(
       Lblwide{}(inj{SortInt{}, SortNumber{}}(K0:SortInt{})),
@@ -233,6 +221,18 @@ module MAIN
       inj{SortNumber{}, SortValue{}}(Lblwide{}(K0:SortNumber{}))
     )
     [symbol-overload{}(Lblwidest{}(), Lblwide{}())]
+  axiom{R}
+    \equals{SortValue{}, R}(
+      LblasNumber{}(inj{SortInt{}, SortNumber{}}(K0:SortInt{})),
+      LblasInt{}(K0:SortInt{})
+    )
+    [symbol-overload{}(LblasNumber{}(), LblasInt{}())]
+  axiom{R}
+    \equals{SortNumber{}, R}(
+      LblfromNumber{}(K0:SortInt{}),
+      inj{SortInt{}, SortNumber{}}(LblfromInt{}(K0:SortInt{}))
+    )
+    [symbol-overload{}(LblfromNumber{}(), LblfromInt{}())]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,16,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
@@ -244,6 +244,48 @@ module MAIN
   sort SortInt{} [hasDomainValues{}()]
   sort SortNumber{} []
   sort SortValue{} []
+  symbol Lblnarrow{}(SortInt{}) : SortInt{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,71)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("narrow"),
+    terminals{}("101")
+  ]
+  symbol Lblwide{}(SortNumber{}) : SortNumber{}
+  [
+    anywhere{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,73)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("wide"),
+    terminals{}("101")
+  ]
+  symbol Lblwidest{}(SortValue{}) : SortValue{}
+  [
+    anywhere{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,20,9,75)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("widest"),
+    terminals{}("101")
+  ]
   symbol LblasInt{}(SortInt{}) : SortValue{}
   [
     constructor{}(),
@@ -300,48 +342,6 @@ module MAIN
     symbol'Kywd'{}("fromNumber"),
     terminals{}("101")
   ]
-  symbol Lblnarrow{}(SortInt{}) : SortInt{}
-  [
-    constructor{}(),
-    format{}(),
-    functional{}(),
-    injective{}(),
-    left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,71)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priorities{}(),
-    right{}(),
-    symbol'Kywd'{}("narrow"),
-    terminals{}("101")
-  ]
-  symbol Lblwide{}(SortNumber{}) : SortNumber{}
-  [
-    anywhere{}(),
-    format{}(),
-    functional{}(),
-    injective{}(),
-    left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,21,8,73)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priorities{}(),
-    right{}(),
-    symbol'Kywd'{}("wide"),
-    terminals{}("101")
-  ]
-  symbol Lblwidest{}(SortValue{}) : SortValue{}
-  [
-    anywhere{}(),
-    format{}(),
-    functional{}(),
-    injective{}(),
-    left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,20,9,75)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priorities{}(),
-    right{}(),
-    symbol'Kywd'{}("widest"),
-    terminals{}("101")
-  ]
   axiom{R}
     \exists{R}(
       Val:SortNumber{},
@@ -354,18 +354,6 @@ module MAIN
       \equals{SortValue{}, R}(Val:SortValue{}, inj{SortNumber{}, SortValue{}}(From:SortNumber{}))
     )
     [subsort{SortNumber{}, SortValue{}}()]
-  axiom{R}
-    \equals{SortValue{}, R}(
-      LblasNumber{}(inj{SortInt{}, SortNumber{}}(K0:SortInt{})),
-      LblasInt{}(K0:SortInt{})
-    )
-    [symbol-overload{}(LblasNumber{}(), LblasInt{}())]
-  axiom{R}
-    \equals{SortNumber{}, R}(
-      LblfromNumber{}(K0:SortInt{}),
-      inj{SortInt{}, SortNumber{}}(LblfromInt{}(K0:SortInt{}))
-    )
-    [symbol-overload{}(LblfromNumber{}(), LblfromInt{}())]
   axiom{R}
     \equals{SortNumber{}, R}(
       Lblwide{}(inj{SortInt{}, SortNumber{}}(K0:SortInt{})),
@@ -384,6 +372,18 @@ module MAIN
       inj{SortNumber{}, SortValue{}}(Lblwide{}(K0:SortNumber{}))
     )
     [symbol-overload{}(Lblwidest{}(), Lblwide{}())]
+  axiom{R}
+    \equals{SortValue{}, R}(
+      LblasNumber{}(inj{SortInt{}, SortNumber{}}(K0:SortInt{})),
+      LblasInt{}(K0:SortInt{})
+    )
+    [symbol-overload{}(LblasNumber{}(), LblasInt{}())]
+  axiom{R}
+    \equals{SortNumber{}, R}(
+      LblfromNumber{}(K0:SortInt{}),
+      inj{SortInt{}, SortNumber{}}(LblfromInt{}(K0:SortInt{}))
+    )
+    [symbol-overload{}(LblfromNumber{}(), LblfromInt{}())]
 endmodule []
 
 // macros

@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::ast::{Attributes, ProductionItem, Sentence};
-use super::ordering::{compare_sentences, sentence_equivalent};
+use super::ordering::sentence_equivalent;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, Sort};
 
@@ -147,7 +147,6 @@ impl std::error::Error for FreshGeneratorError {}
 pub struct ProductionCatalog<'a> {
     productions: Vec<&'a Sentence>,
     local: BTreeSet<ProductionId>,
-    sorted: Vec<ProductionId>,
     by_label: BTreeMap<LabelHead, Vec<ProductionId>>,
     by_sort: BTreeMap<SortHead, Vec<ProductionId>>,
     token_by_sort: BTreeMap<Sort, Vec<ProductionId>>,
@@ -189,17 +188,9 @@ impl<'a> ProductionCatalog<'a> {
             .map(|(index, _)| ProductionId(index))
             .collect();
 
-        let mut sorted = (0..productions.len()).map(ProductionId).collect::<Vec<_>>();
-        sorted.sort_by(|left, right| {
-            compare_sentences(productions[left.0], productions[right.0])
-                .expect("productions always have Scala ordering")
-                .then(left.cmp(right))
-        });
-
         let mut catalog = Self {
             productions,
             local,
-            sorted,
             by_label: BTreeMap::new(),
             by_sort: BTreeMap::new(),
             token_by_sort: BTreeMap::new(),
@@ -252,19 +243,6 @@ impl<'a> ProductionCatalog<'a> {
 
     pub fn is_local(&self, id: ProductionId) -> bool {
         self.local.contains(&id)
-    }
-
-    pub fn sorted_ids(&self) -> &[ProductionId] {
-        &self.sorted
-    }
-
-    pub fn sorted_productions(
-        &self,
-    ) -> impl ExactSizeIterator<Item = (ProductionId, &'a Sentence)> + '_ {
-        self.sorted
-            .iter()
-            .copied()
-            .map(|id| (id, self.production(id)))
     }
 
     pub fn productions_by_label(&self) -> &BTreeMap<LabelHead, Vec<ProductionId>> {

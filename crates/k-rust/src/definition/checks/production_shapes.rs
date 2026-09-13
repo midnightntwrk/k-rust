@@ -241,7 +241,7 @@ fn is_k_hole(term: &Term) -> bool {
 
 fn visible_cell_labels(productions: &ProductionCatalog<'_>) -> BTreeMap<Sort, String> {
     let mut labels = BTreeMap::new();
-    for (_, production) in productions.sorted_productions() {
+    for (_, production) in productions.productions() {
         let Sentence::Production {
             label: Some(label),
             sort,

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::ast::Sentence;
 use super::catalog::{ProductionCatalog, is_macro};
-use super::ordering::{compare_sentences, sentence_equivalent};
+use super::ordering::sentence_equivalent;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, Term};
 
@@ -21,7 +21,6 @@ pub struct ContextId(pub usize);
 pub struct RuleCatalog<'a> {
     rules: Vec<&'a Sentence>,
     local_rules: BTreeSet<RuleId>,
-    sorted_rules: Vec<RuleId>,
     rules_by_label: BTreeMap<Label, Vec<RuleId>>,
     claims: Vec<&'a Sentence>,
     local_claims: BTreeSet<ClaimId>,
@@ -48,12 +47,6 @@ impl<'a> RuleCatalog<'a> {
 
         let local_rules = local_ids(&rules, &local, RuleId);
         let local_claims = local_ids(&claims, &local, ClaimId);
-        let mut sorted_rules = (0..rules.len()).map(RuleId).collect::<Vec<_>>();
-        sorted_rules.sort_by(|left, right| {
-            compare_sentences(rules[left.0], rules[right.0])
-                .expect("rules always have Scala ordering")
-                .then(left.cmp(right))
-        });
 
         let mut rules_by_label = BTreeMap::<Label, Vec<RuleId>>::new();
         let mut macro_labels = BTreeSet::new();
@@ -69,7 +62,6 @@ impl<'a> RuleCatalog<'a> {
         Self {
             rules,
             local_rules,
-            sorted_rules,
             rules_by_label,
             claims,
             local_claims,
@@ -99,17 +91,6 @@ impl<'a> RuleCatalog<'a> {
 
     pub fn local_rules(&self) -> impl ExactSizeIterator<Item = (RuleId, &'a Sentence)> + '_ {
         self.local_rules
-            .iter()
-            .copied()
-            .map(|id| (id, self.rule(id)))
-    }
-
-    pub fn sorted_rule_ids(&self) -> &[RuleId] {
-        &self.sorted_rules
-    }
-
-    pub fn sorted_rules(&self) -> impl ExactSizeIterator<Item = (RuleId, &'a Sentence)> + '_ {
-        self.sorted_rules
             .iter()
             .copied()
             .map(|id| (id, self.rule(id)))

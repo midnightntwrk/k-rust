@@ -214,7 +214,7 @@ fn signatures_ignore_terminals_and_exclude_parametric_productions() {
 }
 
 #[test]
-fn sorted_ids_use_scala_order_with_a_deterministic_tie_breaker() {
+fn ids_follow_visible_declaration_order() {
     let first = production(
         Some(Label::new("z")),
         Vec::new(),
@@ -222,14 +222,14 @@ fn sorted_ids_use_scala_order_with_a_deterministic_tie_breaker() {
         Vec::new(),
         Attributes::default(),
     );
-    let tied_first = production(
+    let second = production(
         Some(Label::new("same")),
         Vec::new(),
         Sort::new("First"),
         Vec::new(),
         Attributes::default(),
     );
-    let tied_second = production(
+    let third = production(
         Some(Label::new("same")),
         Vec::new(),
         Sort::new("Second"),
@@ -243,26 +243,29 @@ fn sorted_ids_use_scala_order_with_a_deterministic_tie_breaker() {
         Vec::new(),
         Attributes::default(),
     );
-    let catalog = k_rust::definition::ProductionCatalog::from_visible([
-        &first,
-        &tied_first,
-        &tied_second,
-        &last,
-    ]);
+    let catalog =
+        k_rust::definition::ProductionCatalog::from_visible([&first, &second, &third, &last]);
 
     assert_eq!(
-        catalog
-            .sorted_ids()
-            .iter()
-            .map(|id| label_of(catalog.production(*id)).unwrap())
-            .collect::<Vec<_>>(),
-        ["a", "same", "same", "z"]
+        catalog.ids().collect::<Vec<_>>(),
+        [
+            ProductionId(0),
+            ProductionId(1),
+            ProductionId(2),
+            ProductionId(3)
+        ]
     );
     assert_eq!(
-        catalog.sorted_ids()[1..3],
+        catalog
+            .productions()
+            .map(|(_, production)| label_of(production).unwrap())
+            .collect::<Vec<_>>(),
+        ["z", "same", "same", "a"]
+    );
+    assert_eq!(
+        catalog.productions_for(&LabelHead::new("same")),
         [ProductionId(1), ProductionId(2)]
     );
-    assert_eq!(catalog.sorted_productions().count(), 4);
 }
 
 #[test]

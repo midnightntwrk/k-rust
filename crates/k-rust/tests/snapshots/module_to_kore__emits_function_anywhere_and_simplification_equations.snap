@@ -17,6 +17,13 @@ module MAIN
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("_+_")
   ]
+  symbol Lblinc{}(SortExp{}) : SortExp{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("inc")
+  ]
   symbol Lbldouble{}(SortExp{}) : SortExp{}
   [
     anywhere{}(),
@@ -32,13 +39,6 @@ module MAIN
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,19,7,54)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("eq")
-  ]
-  symbol Lblinc{}(SortExp{}) : SortExp{}
-  [
-    function{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,56)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    symbol'Kywd'{}("inc")
   ]
   axiom{R}
     \exists{R}(
@@ -79,6 +79,46 @@ module MAIN
     )
     [constructor{}()]
   axiom{} \or{SortInt{}}(\top{SortInt{}}(), \bottom{SortInt{}}()) [constructor{}()]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbleq{}(
+            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
+          ),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortExp{}, R}(
+            X0:SortExp{},
+            Lbl'UndsPlusUnds'{}(
+              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortExp{}, R}(
+        Lblinc{}(X0:SortExp{}),
+        \and{SortExp{}}(
+          Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+          \equals{SortBool{}, SortExp{}}(
+            Lbleq{}(
+              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
+              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("2"))
+            ),
+            \dv{SortBool{}}("true")
+          )
+        )
+      )
+    )
+    [
+      label{}("eval-inc"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,12,22)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
+    ]
   axiom{R}
     \implies{R}(
       \top{R}(),
@@ -125,46 +165,6 @@ module MAIN
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,3,18,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
     ]
-  axiom{R}
-    \implies{R}(
-      \and{R}(
-        \equals{SortBool{}, R}(
-          Lbleq{}(
-            Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-            inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("1"))
-          ),
-          \dv{SortBool{}}("true")
-        ),
-        \and{R}(
-          \in{SortExp{}, R}(
-            X0:SortExp{},
-            Lbl'UndsPlusUnds'{}(
-              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("0"))
-            )
-          ),
-          \top{R}()
-        )
-      ),
-      \equals{SortExp{}, R}(
-        Lblinc{}(X0:SortExp{}),
-        \and{SortExp{}}(
-          Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-          \equals{SortBool{}, SortExp{}}(
-            Lbleq{}(
-              Lbl'Hash'SemanticCastToExp{}(VarX:SortExp{}),
-              inj{SortInt{}, SortExp{}}(\dv{SortInt{}}("2"))
-            ),
-            \dv{SortBool{}}("true")
-          )
-        )
-      )
-    )
-    [
-      label{}("eval-inc"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,12,22)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
-    ]
   claim{R}
     \implies{R}(
       \top{R}(),
@@ -203,6 +203,18 @@ module MAIN
     symbol'Kywd'{}("_+_"),
     terminals{}("010")
   ]
+  symbol Lblinc{}(SortExp{}) : SortExp{}
+  [
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("inc"),
+    terminals{}("101")
+  ]
   symbol Lbldouble{}(SortExp{}) : SortExp{}
   [
     anywhere{}(),
@@ -228,18 +240,6 @@ module MAIN
     right{}(),
     symbol'Kywd'{}("eq"),
     terminals{}("010")
-  ]
-  symbol Lblinc{}(SortExp{}) : SortExp{}
-  [
-    format{}(),
-    function{}(),
-    left{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,56)"),
-    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
-    priorities{}(),
-    right{}(),
-    symbol'Kywd'{}("inc"),
-    terminals{}("101")
   ]
   axiom{R}
     \exists{R}(

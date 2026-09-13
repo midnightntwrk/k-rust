@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 use crate::definition::regex::Regex as KRegex;
 use crate::definition::{
     Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
-    compare_sentences,
 };
 use crate::kast::{Label, Sort};
 
@@ -55,16 +54,13 @@ pub(crate) fn concretize_parametric_productions<'a>(
     }
     all_sorts.sort();
 
-    let mut formal_sources = sentences
+    let formal_sources = sentences
         .iter()
         .copied()
         .filter(|sentence| {
             matches!(sentence, Sentence::Production { parameters, .. } if !parameters.is_empty())
         })
         .collect::<Vec<_>>();
-    formal_sources.sort_by(|left, right| {
-        compare_sentences(left, right).expect("production sentences have a structural order")
-    });
 
     let mut families = Vec::new();
     for sentence in formal_sources {
@@ -426,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_concretization_is_independent_of_sentence_order() {
+    fn shared_concretization_families_follow_sentence_order() {
         let sentences = parametric_sentences();
         let references = sentences.iter().collect::<Vec<_>>();
         let expected = concretize_parametric_productions(&references);
@@ -435,7 +431,10 @@ mod tests {
         let references = reversed.iter().collect::<Vec<_>>();
         let actual = concretize_parametric_productions(&references);
 
-        assert_eq!(actual, expected);
+        let mut expected_families = expected.families;
+        expected_families.reverse();
+        assert_eq!(actual.families, expected_families);
+        assert_eq!(actual.parsing_only_subsorts, expected.parsing_only_subsorts);
         assert!(actual.parsing_only_subsorts.iter().all(|bridge| {
             matches!(&bridge.sentence, Sentence::Production { label: None, parameters, attributes, .. }
                 if parameters.is_empty() && attributes.entries().is_empty())
@@ -474,13 +473,13 @@ mod tests {
         assert_eq!(
             summary.iter().map(String::as_str).collect::<Vec<_>>(),
             vec![
-                "KItem ::= Int [S=Int] from 1 parameter(s)",
-                "KItem ::= MInt{8} [S=MInt{8}] from 1 parameter(s)",
                 "Int ::= \"case1(\" Int \",\" K \")\" [P=Int, R=K] from 2 parameter(s)",
                 "K ::= \"case1(\" K \",\" K \")\" [P=K, R=K] from 2 parameter(s)",
                 "KItem ::= \"case1(\" KItem \",\" K \")\" [P=KItem, R=K] from 2 parameter(s)",
                 "MInt{8} ::= \"case1(\" MInt{8} \",\" K \")\" [P=MInt{8}, R=K] from 2 parameter(s)",
                 "MInt{8} ::= \"case2(\" MInt{8} \",\" MInt{K} \")\" [W=8, X=K] from 2 parameter(s)",
+                "KItem ::= Int [S=Int] from 1 parameter(s)",
+                "KItem ::= MInt{8} [S=MInt{8}] from 1 parameter(s)",
                 "Int ::= \"case4(\" K \")\" [S=K] from 1 parameter(s)",
             ]
         );
