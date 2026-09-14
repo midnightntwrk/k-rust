@@ -9,7 +9,7 @@ use super::{
     AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
     cmp_packed_structurally, lower_term, packed_terms_in_structural_order,
 };
-use crate::kast::{Sort, Term, TermSpan, string};
+use crate::kast::{GeneratedLabel, Sort, Term, TermSpan, string};
 
 use super::canonical_packed_error;
 
@@ -757,7 +757,11 @@ impl Grammar {
                 child: child_label.clone(),
             });
         }
-        if (parent_label == "#SyntacticCast" || parent_label.starts_with("#SemanticCastTo"))
+        if (parent_label == "#SyntacticCast"
+            || matches!(
+                GeneratedLabel::of_name(parent_label),
+                Some(GeneratedLabel::SemanticCast { .. })
+            ))
             && matches!(child.items.last(), Some(Item::NonTerminal(_)))
         {
             return Some(ParseError::CastPriority {

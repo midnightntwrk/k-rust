@@ -6,7 +6,7 @@ use super::Sentence;
 use super::term_position::{TermPosition, positioned_children};
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{Label, Term};
+use crate::kast::{GeneratedLabel, Term};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StructuralCheckBackend {
@@ -248,7 +248,7 @@ fn gather_variables(
     }
 
     if let Term::Apply { label, arguments } = term.unannotated()
-        && is_semantic_cast(label)
+        && matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
         && let Some(argument) = arguments.first()
     {
         gather_variables(
@@ -369,7 +369,7 @@ fn compute_unbound(
             }
             return;
         }
-        if is_semantic_cast(label)
+        if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
             && let Some(argument) = arguments.first()
         {
             compute_unbound(argument, position, in_k_lhs, bound, unbound);
@@ -380,13 +380,6 @@ fn compute_unbound(
     for (child, child_position) in positioned_children(term, position) {
         compute_unbound(child, child_position, in_k_lhs, bound, unbound);
     }
-}
-
-fn is_semantic_cast(label: &Label) -> bool {
-    label
-        .name
-        .strip_prefix("#SemanticCastTo")
-        .is_some_and(|name| !name.is_empty())
 }
 
 fn unbound_variable_names(sentence: &Sentence) -> BTreeSet<String> {

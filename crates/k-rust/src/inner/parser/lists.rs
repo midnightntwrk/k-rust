@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::definition::{PartialOrder, ProductionItem};
-use crate::kast::{Sort, Term};
+use crate::kast::{GeneratedLabel, Sort, Term};
 use crate::names::BuiltinSort;
 
 use super::parametric::substitute_sort;
@@ -339,7 +339,7 @@ impl Grammar {
                 let shields_children = descriptor.label.as_ref().is_some_and(|label| {
                     label.name == "#SyntacticCast"
                         || label.name == "#SyntacticCastBraced"
-                        || label.name.starts_with("#SemanticCastTo")
+                        || matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
                 });
                 // Rewrite operands are parsed through generic K productions, but sort inference
                 // still requires both sides to share the function result sort. Preserve that

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::rc::Rc;
 
 use crate::definition::{PartialOrder, ProductionItem};
-use crate::kast::{Sort, Term};
+use crate::kast::{GeneratedLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
 
 use super::{
@@ -349,7 +349,7 @@ impl Grammar {
                 let sort = variable_sorts.get(&id).ok_or_else(|| {
                     inference_error(format!("no inferred sort was produced for variable {name}"))
                 })?;
-                let label = format!("#SemanticCastTo{sort}");
+                let label = Label::semantic_cast(sort).name;
                 let production = self
                     .productions
                     .iter()
@@ -380,10 +380,9 @@ impl Grammar {
                 metadata,
             } => {
                 let descriptor = &self.productions[production];
-                let is_cast = descriptor
-                    .label
-                    .as_ref()
-                    .is_some_and(|label| label.name.starts_with("#SemanticCastTo"));
+                let is_cast = descriptor.label.as_ref().is_some_and(|label| {
+                    matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                });
                 let children = children
                     .into_iter()
                     .enumerate()

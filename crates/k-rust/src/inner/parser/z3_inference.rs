@@ -9,7 +9,7 @@ use z3::ast::{Ast, Bool, Datatype};
 use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solver};
 
 use crate::definition::{PartialOrder, SortHead};
-use crate::kast::{Sort, Term};
+use crate::kast::{GeneratedLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
 
 use super::{
@@ -1913,7 +1913,7 @@ impl<'a> Encoding<'a> {
         term: Rc<PackedTerm>,
         sort: &Sort,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        let label = format!("#SemanticCastTo{sort}");
+        let label = Label::semantic_cast(sort).name;
         let production = self
             .grammar
             .productions
@@ -2177,7 +2177,7 @@ impl<'a> Encoding<'a> {
     }
 
     fn wrap_with_cast(&self, term: ParsedTerm, sort: &Sort) -> Result<ParsedTerm, ParseError> {
-        let label = format!("#SemanticCastTo{sort}");
+        let label = Label::semantic_cast(sort).name;
         let production = self
             .grammar
             .productions
@@ -2252,9 +2252,14 @@ fn nonterminal_sorts(production: &Production) -> Vec<&Sort> {
 }
 
 fn cast_context_for(production: &Production) -> CastContext {
-    match production.label.as_ref().map(|label| label.name.as_str()) {
-        Some(label) if label.starts_with("#SemanticCastTo") => CastContext::Semantic,
-        Some("#SyntacticCast" | "#SyntacticCastBraced") => CastContext::Strict,
+    let Some(label) = production.label.as_ref() else {
+        return CastContext::None;
+    };
+    if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. })) {
+        return CastContext::Semantic;
+    }
+    match label.name.as_str() {
+        "#SyntacticCast" | "#SyntacticCastBraced" => CastContext::Strict,
         _ => CastContext::None,
     }
 }

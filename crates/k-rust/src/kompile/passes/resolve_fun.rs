@@ -7,7 +7,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term},
+    kast::{GeneratedLabel, Label, Sort, Term},
     kompile::{SortInjectionError, SortInjector, fresh_names::FreshNames},
     provenance::{GeneratingPass, record_generated_origins},
 };
@@ -264,10 +264,10 @@ impl Resolver<'_, '_> {
                 LambdaResult::Constant(bool_token(true)),
             );
             self.rules.push(positive);
-            let owise_pattern = Term::apply(
-                format!("#SemanticCastTo{parameter_sort}"),
-                vec![Term::variable("#Owise")],
-            );
+            let owise_pattern = Term::Apply {
+                label: Label::semantic_cast(&parameter_sort),
+                arguments: vec![Term::variable("#Owise")],
+            };
             let mut owise = attributes.clone();
             owise.mark(AttributeKey::Owise);
             let negative = self.lambda_rule(
@@ -425,7 +425,8 @@ fn collect_lhs_variables(term: &Term, in_lhs: bool, bound: &mut BTreeSet<String>
         }
         Term::Variable { .. } => {}
         Term::Apply { label, arguments }
-            if label.name.starts_with("#SemanticCastTo") && arguments.len() == 1 =>
+            if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                && arguments.len() == 1 =>
         {
             collect_lhs_variables(&arguments[0], in_lhs, bound);
         }
@@ -526,9 +527,11 @@ fn collect_rhs_variables(
         }),
         Term::Variable { .. } => {}
         Term::Apply { label, arguments }
-            if label.name.starts_with("#SemanticCastTo") && arguments.len() == 1 =>
+            if let Some(GeneratedLabel::SemanticCast { sort_text }) = label.generated()
+                && arguments.len() == 1 =>
         {
-            let sort = Sort::new(label.name.trim_start_matches("#SemanticCastTo"));
+            // The cast's sort text is kept as a sort name, as before this vocabulary existed.
+            let sort = Sort::new(sort_text);
             collect_rhs_variables(&arguments[0], Some(&sort), position, visitor);
         }
         Term::Rewrite { left, right } => {
@@ -616,7 +619,8 @@ fn underlying_variable(term: &Term) -> Option<(String, Option<Sort>)> {
     match term.unannotated() {
         Term::Variable { name, sort } => Some((name.clone(), sort.clone())),
         Term::Apply { label, arguments }
-            if label.name.starts_with("#SemanticCastTo") && arguments.len() == 1 =>
+            if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                && arguments.len() == 1 =>
         {
             underlying_variable(&arguments[0])
         }

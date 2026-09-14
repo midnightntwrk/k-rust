@@ -8,7 +8,7 @@ use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{Label, Sort, Term};
+use crate::kast::{GeneratedLabel, Label, Sort, Term};
 
 mod attributes;
 mod deprecated;
@@ -479,7 +479,7 @@ fn valid_as_alias(alias: &Term) -> bool {
     match alias.unannotated() {
         Term::Variable { .. } => true,
         Term::Apply { label, arguments }
-            if label.name.starts_with("#SemanticCastTo")
+            if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
                 && matches!(arguments.as_slice(), [argument] if matches!(argument.unannotated(), Term::Variable { .. })) =>
         {
             true

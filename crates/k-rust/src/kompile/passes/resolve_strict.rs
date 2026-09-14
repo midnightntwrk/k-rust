@@ -489,7 +489,10 @@ fn replace_here(term: Term, replacement: &Term) -> Term {
 }
 
 fn semantic_cast(sort: &Sort, term: Term) -> Term {
-    Term::apply(format!("#SemanticCastTo{sort}"), vec![term])
+    Term::Apply {
+        label: Label::semantic_cast(sort),
+        arguments: vec![term],
+    }
 }
 
 fn reduce_and(terms: impl IntoIterator<Item = Term>) -> Option<Term> {

@@ -651,7 +651,7 @@ pub(super) fn add_casts(
         grammar.add(
             label_sort.clone(),
             semantic_cast_items,
-            Some(Label::new(format!("#SemanticCastTo{label_sort}"))),
+            Some(Label::semantic_cast(&label_sort)),
             false,
             false,
         )?;

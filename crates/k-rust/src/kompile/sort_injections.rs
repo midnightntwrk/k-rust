@@ -360,7 +360,7 @@ impl<'a> SortInjector<'a> {
                         }
                     });
                 }
-                if let Some(sort) = semantic_cast_sort(label) {
+                if let Some(sort) = label.semantic_cast_sort() {
                     return Ok(sort);
                 }
                 if label.name == "#OuterCast" {
@@ -708,7 +708,7 @@ impl<'a> SortInjector<'a> {
         let rebuilt = match term.unannotated() {
             Term::Apply { label, .. } if label.is(WellKnownSymbol::Inj) => return Ok(term.clone()),
             Term::Apply { label, arguments }
-                if semantic_cast_sort(label).is_some() || label.name == "#OuterCast" =>
+                if label.semantic_cast_sort().is_some() || label.name == "#OuterCast" =>
             {
                 let [argument] = arguments.as_slice() else {
                     return Err(SortInjectionError::InvalidArity {
@@ -1291,14 +1291,6 @@ fn copy_metadata(source: &Term, term: Term) -> Term {
     } else {
         term
     }
-}
-
-fn semantic_cast_sort(label: &Label) -> Option<Sort> {
-    label
-        .name
-        .strip_prefix("#SemanticCastTo")
-        .filter(|name| !name.is_empty())
-        .and_then(|name| crate::kast::parser::parse_sort_text(name).ok())
 }
 
 fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) -> Sort {

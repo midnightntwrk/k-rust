@@ -12,7 +12,7 @@ use crate::{
         Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term},
+    kast::{GeneratedLabel, Label, Sort, Term},
     provenance::{
         GeneratingPass, record_generated_origins, seed_generated_sentence_origin,
         sentence_origin_links,
@@ -330,7 +330,8 @@ fn is_hole(term: &Term) -> bool {
     match term.unannotated() {
         Term::Variable { name, .. } => name == "HOLE",
         Term::Apply { label, arguments }
-            if label.name.starts_with("#SemanticCastTo") && arguments.len() == 1 =>
+            if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                && arguments.len() == 1 =>
         {
             matches!(
                 arguments[0].unannotated(),
@@ -398,7 +399,11 @@ fn freezer_hint(cooled: &Term, hole_position: usize) -> String {
     let Term::Apply { label, arguments } = cooled.unannotated() else {
         return String::new();
     };
-    let name = if label.name == "#SemanticCastToK" {
+    let is_k_cast = label.generated()
+        == Some(GeneratedLabel::SemanticCast {
+            sort_text: BuiltinSort::K.k_name(),
+        });
+    let name = if is_k_cast {
         arguments
             .first()
             .and_then(|argument| match argument.unannotated() {

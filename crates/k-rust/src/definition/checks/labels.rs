@@ -10,7 +10,7 @@ use crate::definition::{
     compute_overloads, match_rule_label,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::Term;
+use crate::kast::{Label, Term};
 
 const FIXED_INTERNAL_LABELS: [&str; 13] = [
     "#cells",
@@ -37,7 +37,7 @@ pub(super) fn internal_labels(
         .into_iter()
         .collect();
     for sort in sorts.all_sorts() {
-        labels.insert(format!("#SemanticCastTo{sort}"));
+        labels.insert(Label::semantic_cast(sort).name);
         labels.insert(format!("project:{sort}"));
         labels.insert(format!("is{sort}"));
     }

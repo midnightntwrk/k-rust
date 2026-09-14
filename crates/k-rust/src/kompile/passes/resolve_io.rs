@@ -10,7 +10,7 @@ use crate::{
         sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term},
+    kast::{GeneratedLabel, Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -557,13 +557,13 @@ fn supported_stdin_pattern(arguments: &[Term]) -> Option<String> {
     else {
         return None;
     };
-    if !cast.name.starts_with("#SemanticCastTo")
-        || arguments.len() != 1
-        || !matches!(arguments[0].unannotated(), Term::Variable { .. })
-    {
+    let Some(GeneratedLabel::SemanticCast { sort_text }) = cast.generated() else {
+        return None;
+    };
+    if arguments.len() != 1 || !matches!(arguments[0].unannotated(), Term::Variable { .. }) {
         return None;
     }
-    cast.name.strip_prefix("#SemanticCastTo").map(str::to_owned)
+    Some(sort_text.to_owned())
 }
 
 fn is_nullary_apply(term: &Term, name: &str) -> bool {
@@ -576,7 +576,11 @@ fn instantiate_unblock(term: Term, user_cell: &Label, sort: &str, builtin_cell: 
             instantiate_unblock(*term, user_cell, sort, builtin_cell).with_metadata(metadata)
         }
         Term::Apply { label, arguments }
-            if label.name == "#SemanticCastToString" && arguments.len() == 1 =>
+            if label.generated()
+                == Some(GeneratedLabel::SemanticCast {
+                    sort_text: BuiltinSort::String.k_name(),
+                })
+                && arguments.len() == 1 =>
         {
             match arguments[0].unannotated() {
                 Term::Variable { name, .. } if name == "?Sort" => Term::Token {

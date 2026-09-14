@@ -595,7 +595,7 @@ impl<'a> TermConverter<'a> {
         label: &Label,
         arguments: &[Term],
     ) -> Result<Sort, TermConversionError> {
-        if let Some(sort) = semantic_cast_sort(label) {
+        if let Some(sort) = label.semantic_cast_sort() {
             return Ok(sort);
         }
         if label.name == "#OuterCast" {
@@ -774,14 +774,6 @@ fn application(name: &str, arguments: Vec<Pattern>) -> Pattern {
         },
         arguments,
     }
-}
-
-fn semantic_cast_sort(label: &Label) -> Option<Sort> {
-    label
-        .name
-        .strip_prefix("#SemanticCastTo")
-        .filter(|name| !name.is_empty())
-        .and_then(|name| kast::parser::parse_sort_text(name).ok())
 }
 
 fn invalid_sort(label: &Label) -> TermConversionError {
