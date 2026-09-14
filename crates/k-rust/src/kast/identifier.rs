@@ -274,6 +274,8 @@ fn unit_for_code(code: &str) -> Option<u16> {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
     #[test]
@@ -288,5 +290,94 @@ mod tests {
         assert_eq!(encode("éα"), "'00e903b1'");
         assert_eq!(encode("😀"), "'d83dde00'");
         assert_eq!(encode("\n"), "'000a'");
+    }
+
+    #[test]
+    fn keywords_round_trip_through_the_keyword_code() {
+        for keyword in KEYWORDS {
+            let encoded = encode(keyword);
+            assert_eq!(encoded, format!("{keyword}'Kywd'"));
+            assert_eq!(decode(&encoded).as_deref(), Ok(keyword));
+        }
+        assert_eq!(decode("'Kywd'"), Ok(String::new()));
+    }
+
+    #[test]
+    fn table_is_its_own_inverse_and_runs_share_one_apostrophe_pair() {
+        for (unit, code) in TABLE {
+            let character = String::from_utf16(&[unit]).unwrap();
+            assert_eq!(
+                decode(&format!("'{code}'")),
+                Ok(character.clone()),
+                "{code}"
+            );
+            assert_eq!(encode(&character), format!("'{code}'"), "{code}");
+        }
+        assert_eq!(encode("-"), "-");
+        assert_eq!(encode("#!"), "'HashBang'");
+        assert_eq!(encode("a b"), "a'Spce'b");
+        assert_eq!(encode_label("_+_"), "Lbl'UndsPlusUnds'");
+        assert_eq!(decode_label("Lbl'UndsPlusUnds'"), Ok("_+_".into()));
+        assert_eq!(decode_label("inj"), Ok("inj".into()));
+        assert_eq!(encode_sort_name("Map"), "SortMap");
+        assert_eq!(decode_sort_name("SortMap"), Ok("Map".into()));
+        assert_eq!(
+            decode_sort_name("Map"),
+            Err(DecodeError::MissingSortPrefix {
+                encoded: "Map".into()
+            })
+        );
+        assert_eq!(encode_variable("X", VariableKind::Element), "VarX");
+        assert_eq!(encode_variable("X", VariableKind::Set), "@VarX");
+        assert_eq!(
+            decode_variable("@Var'Unds'K"),
+            (VariableKind::Set, Ok("_K".into()))
+        );
+        assert_eq!(
+            decode_variable("X"),
+            (VariableKind::Element, Ok("X".into()))
+        );
+        assert_eq!(
+            decode("'Hash"),
+            Err(DecodeError::Unterminated {
+                encoded: "'Hash".into()
+            })
+        );
+        assert_eq!(
+            decode("'Ha'"),
+            Err(DecodeError::Truncated {
+                encoded: "'Ha'".into()
+            })
+        );
+        assert_eq!(
+            decode("'Zzzz'"),
+            Err(DecodeError::UnknownCode {
+                code: "Zzzz".into()
+            })
+        );
+        assert_eq!(
+            decode("'d83d'"),
+            Err(DecodeError::InvalidUtf16 {
+                encoded: "'d83d'".into()
+            })
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn decode_inverts_encode(name in "\\PC*") {
+            let encoded = encode(&name);
+            prop_assert_eq!(decode(&encoded), Ok(name.clone()));
+            prop_assert_eq!(decode_label(&encode_label(&name)), Ok(name.clone()));
+            prop_assert_eq!(decode_sort_name(&encode_sort_name(&name)), Ok(name.clone()));
+            for kind in [VariableKind::Element, VariableKind::Set] {
+                prop_assert_eq!(
+                    decode_variable(&encode_variable(&name, kind)),
+                    (kind, Ok(name.clone()))
+                );
+            }
+        }
     }
 }
