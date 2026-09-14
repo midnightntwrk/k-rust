@@ -31,7 +31,10 @@ use crate::{
         CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing, SortGraph,
         match_terms_in_definition, solve_collection_pairs_in_definition,
     },
-    rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
+    rule::{
+        Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, applicable_groups,
+        term_index,
+    },
     simplify::{
         ConditionIndeterminacy, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, PatternSimplification,
         RuleCondition, SimplificationError, SimplificationOptions,
@@ -1787,7 +1790,7 @@ fn rewrite_step_all(
     io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
     let index = term_index(&pattern.term);
-    let priority_groups = applicable_groups(definition, &index);
+    let priority_groups = applicable_groups(&definition.rewrite_theory, &index);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
@@ -1921,7 +1924,7 @@ fn rewrite_step_any(
     io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
     let index = term_index(&pattern.term);
-    let priority_groups = applicable_groups(definition, &index);
+    let priority_groups = applicable_groups(&definition.rewrite_theory, &index);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
@@ -2061,29 +2064,6 @@ fn rewrite_step_any(
             trivial,
         },
     }
-}
-
-fn applicable_groups(
-    definition: &BackendDefinition,
-    index: &TermIndex,
-) -> std::collections::BTreeMap<u8, Vec<std::sync::Arc<RewriteRule>>> {
-    let mut groups = std::collections::BTreeMap::new();
-    let covered = if index == &TermIndex::Variable {
-        vec![index]
-    } else {
-        vec![index, &TermIndex::Variable]
-    };
-    for covered in covered {
-        if let Some(found) = definition.rewrite_theory.get(covered) {
-            for (priority, rules) in found {
-                groups
-                    .entry(*priority)
-                    .or_insert_with(Vec::new)
-                    .extend(rules.iter().cloned());
-            }
-        }
-    }
-    groups
 }
 
 enum RuleAttempt {

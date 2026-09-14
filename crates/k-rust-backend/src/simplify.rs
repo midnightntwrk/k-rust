@@ -35,7 +35,10 @@ use crate::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
         retain_substitution_predicates, substitute_predicates, violates_finite_constructor_domain,
     },
-    rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
+    rule::{
+        Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, Theory, applicable_groups,
+        term_index,
+    },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
@@ -2676,26 +2679,6 @@ fn apply_theory(
     } else {
         TheoryScan::NotApplicable
     })
-}
-
-fn applicable_groups(theory: &Theory, index: &TermIndex) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
-    let mut result = BTreeMap::new();
-    let indexes = if index == &TermIndex::Variable {
-        vec![index]
-    } else {
-        vec![index, &TermIndex::Variable]
-    };
-    for index in indexes {
-        if let Some(groups) = theory.get(index) {
-            for (priority, rules) in groups {
-                result
-                    .entry(*priority)
-                    .or_insert_with(Vec::new)
-                    .extend(rules.iter().cloned());
-            }
-        }
-    }
-    result
 }
 
 enum EquationAttempt<T> {

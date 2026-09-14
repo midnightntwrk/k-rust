@@ -673,6 +673,33 @@ pub fn term_index(term: &Term) -> TermIndex {
     }
 }
 
+/// The rules a subject with `index` may match, per priority and in trial order: the rules
+/// under `index`, then the rules under `TermIndex::Variable`, each group in declaration order
+/// (CQ-05a). `Variable` subjects see only the variable-indexed rules. One `Arc` clone per
+/// candidate; `Counter::RewriteRuleAttempts` counts what the caller does with them (row B1).
+pub(crate) fn applicable_groups(
+    theory: &Theory,
+    index: &TermIndex,
+) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
+    let mut groups = BTreeMap::new();
+    let covered = if index == &TermIndex::Variable {
+        vec![index]
+    } else {
+        vec![index, &TermIndex::Variable]
+    };
+    for covered in covered {
+        if let Some(found) = theory.get(covered) {
+            for (priority, rules) in found {
+                groups
+                    .entry(*priority)
+                    .or_insert_with(Vec::new)
+                    .extend(rules.iter().cloned());
+            }
+        }
+    }
+    groups
+}
+
 pub(crate) fn internalize_rule_pattern(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
