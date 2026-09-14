@@ -2,6 +2,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{
         Location,
@@ -98,7 +99,7 @@ fn check_attribute_list(
     if production
         && let Some(group) = attributes
             .iter()
-            .find(|attribute| attribute.key == "group")
+            .find(|attribute| attribute.key == AttributeKey::Group.as_str())
             .and_then(|attribute| attribute.value.as_deref())
         && !GROUPS.is_match(group)
     {
@@ -140,7 +141,7 @@ pub fn check_brackets(file: &SourceFile) -> Vec<Diagnostic> {
                 continue;
             };
             for production in blocks.iter().flat_map(|block| &block.productions) {
-                if !has_attribute(production, "bracket") {
+                if !has_attribute(production, AttributeKey::Bracket) {
                     continue;
                 }
                 let nonterminals: Vec<_> = production
@@ -165,11 +166,11 @@ pub fn check_brackets(file: &SourceFile) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn has_attribute(production: &Production, key: &str) -> bool {
+fn has_attribute(production: &Production, key: AttributeKey) -> bool {
     production
         .attributes
         .iter()
-        .any(|attribute| attribute.key == key)
+        .any(|attribute| attribute.key == key.as_str())
 }
 
 fn check_production(

@@ -8,6 +8,7 @@ use std::{
     path::Path,
 };
 
+use crate::definition::AttributeKey;
 use crate::{
     builtin,
     definition::{
@@ -595,7 +596,7 @@ fn remove_temporary_cell_sort_declarations(definition: &mut Definition) {
     for module in &mut definition.modules {
         module.local_sentences.retain(|sentence| {
             !matches!(sentence, Sentence::SyntaxSort { attributes, .. }
-                if attributes.get("temporary-cell-sort-decl").is_some())
+                if attributes.has(AttributeKey::TemporaryCellSortDecl))
         });
     }
 }

@@ -18,8 +18,8 @@ use k_rust::{
         strip_exists,
     },
     definition::{
-        Attributes, CheckMode, LOCATION_ATTRIBUTE, SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE, Sentence,
-        checks::check_definition, json as definition_json,
+        AttributeKey, Attributes, CheckMode, Sentence, checks::check_definition,
+        json as definition_json,
     },
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, definition_with_named_projections, parse_program_for_presentation},
@@ -1399,15 +1399,15 @@ fn command_line_pattern_attributes(contents: &str) -> Attributes {
         }
     }
     let mut attributes = Attributes::default();
-    attributes.insert(SOURCE_ATTRIBUTE, serde_json::json!("<command line>"));
-    attributes.insert(SOURCE_ID_ATTRIBUTE, serde_json::json!(0));
-    attributes.insert(
-        LOCATION_ATTRIBUTE,
+    attributes.set(AttributeKey::Source, serde_json::json!("<command line>"));
+    attributes.set(AttributeKey::SourceId, serde_json::json!(0));
+    attributes.set(
+        AttributeKey::Location,
         serde_json::json!([1, 1, end_line, end_column]),
     );
-    attributes.insert("contentStartOffset", serde_json::json!(0));
-    attributes.insert("contentStartLine", serde_json::json!(1));
-    attributes.insert("contentStartColumn", serde_json::json!(1));
+    attributes.set(AttributeKey::ContentStartOffset, serde_json::json!(0));
+    attributes.set(AttributeKey::ContentStartLine, serde_json::json!(1));
+    attributes.set(AttributeKey::ContentStartColumn, serde_json::json!(1));
     attributes
 }
 
@@ -1786,8 +1786,8 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                 // Fresh compilation already selected its modules before parsing. Keep that exact
                 // graph, including any distinct configuration root, in the parsed artifact.
                 let mut definition = loaded.definition.clone();
-                definition.attributes.insert(
-                    "syntaxModule",
+                definition.attributes.set(
+                    AttributeKey::SyntaxModule,
                     serde_json::Value::String(syntax_module.name.clone()),
                 );
                 definition
@@ -1907,8 +1907,8 @@ fn parsed_definition_for_json(
     definition
         .modules
         .retain(|module| retained.contains(&module.name));
-    definition.attributes.insert(
-        "syntaxModule",
+    definition.attributes.set(
+        AttributeKey::SyntaxModule,
         serde_json::Value::String(syntax_module.into()),
     );
     Ok(definition)
@@ -4078,10 +4078,10 @@ fn configuration_variable_parser_modules(
         let Sentence::Production { attributes, .. } = sentence else {
             continue;
         };
-        if attributes.get("cell").is_none() {
+        if !attributes.has(AttributeKey::Cell) {
             continue;
         }
-        let Some(parser) = attributes.get_str("parser") else {
+        let Some(parser) = attributes.string(AttributeKey::Parser) else {
             continue;
         };
         for entry in parser.split(';') {

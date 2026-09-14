@@ -11,10 +11,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    definition::{
-        AttributeKey, Definition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE,
-        Sentence,
-    },
+    definition::{AttributeKey, Definition, Sentence},
     kast::{Term, TermMetadata, TermSpan},
 };
 
@@ -539,17 +536,17 @@ fn sentence_origins(
 fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
     let mut counterparts = vec![None; after.len()];
     let mut used = vec![false; before.len()];
-    for key in ["UNIQUE_ID", "label"] {
+    for key in [AttributeKey::UniqueId, AttributeKey::Label] {
         for (after_index, sentence) in after.iter().enumerate() {
             if counterparts[after_index].is_some() {
                 continue;
             }
-            let Some(value) = sentence.attributes().get_str(key) else {
+            let Some(value) = sentence.attributes().string(key) else {
                 continue;
             };
             if after
                 .iter()
-                .filter(|candidate| candidate.attributes().get_str(key) == Some(value))
+                .filter(|candidate| candidate.attributes().string(key) == Some(value))
                 .count()
                 != 1
             {
@@ -558,7 +555,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             let matching_before = before
                 .iter()
                 .enumerate()
-                .filter(|(_, candidate)| candidate.attributes().get_str(key) == Some(value))
+                .filter(|(_, candidate)| candidate.attributes().string(key) == Some(value))
                 .map(|(index, _)| index)
                 .collect::<Vec<_>>();
             if let [before_index] = matching_before.as_slice()
@@ -585,8 +582,8 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
 fn sentence_name(sentence: &Sentence, index: usize) -> String {
     sentence
         .attributes()
-        .get_str("UNIQUE_ID")
-        .or_else(|| sentence.attributes().get_str("label"))
+        .string(AttributeKey::UniqueId)
+        .or_else(|| sentence.attributes().string(AttributeKey::Label))
         .map(str::to_owned)
         .unwrap_or_else(|| format!("{}:{index}", sentence_kind(sentence)))
 }
@@ -618,7 +615,7 @@ pub(crate) fn sentence_origin_links(sentence: &Sentence) -> Vec<ProvenanceLink> 
     let stored = stored_sentence_origin_links(sentence);
     if !stored.is_empty() {
         stored
-    } else if let Some(unique_id) = sentence.attributes().get_str("UNIQUE_ID") {
+    } else if let Some(unique_id) = sentence.attributes().string(AttributeKey::UniqueId) {
         vec![ProvenanceLink::Sentence {
             unique_id: unique_id.into(),
         }]
@@ -647,11 +644,11 @@ fn sentence_is_termless(sentence: &Sentence) -> bool {
 fn sentence_source_span(sentence: &Sentence) -> Option<TermSpan> {
     let attributes = sentence.attributes();
     let start = attributes
-        .get(SENTENCE_START_OFFSET_ATTRIBUTE)?
+        .value(AttributeKey::SentenceStartOffset)?
         .as_u64()
         .and_then(|value| usize::try_from(value).ok())?;
     let end = attributes
-        .get(SENTENCE_END_OFFSET_ATTRIBUTE)?
+        .value(AttributeKey::SentenceEndOffset)?
         .as_u64()
         .and_then(|value| usize::try_from(value).ok())?;
     (start <= end).then_some(TermSpan {

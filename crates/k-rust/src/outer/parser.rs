@@ -2,6 +2,7 @@ use std::{error::Error, fmt, rc::Rc, sync::LazyLock};
 
 use regex::Regex;
 
+use crate::definition::AttributeKey;
 use crate::definition::attribute_keys::{KeyParameter, builtin_key};
 use crate::kast::Sort;
 
@@ -113,7 +114,7 @@ impl<'a> Parser<'a> {
         };
         let module_is_private = attributes
             .iter()
-            .any(|attribute| attribute.key == "private");
+            .any(|attribute| attribute.key == AttributeKey::Private.as_str());
         let mut imports = Vec::new();
         let mut sentences = Vec::new();
         loop {
