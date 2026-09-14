@@ -15,6 +15,7 @@ use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
 use super::equivalence::sentence_equivalent;
+use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -518,15 +519,15 @@ impl ResolvedDefinition {
     /// Scala's `publicSentences`: the local sentences exported by a module signature.
     pub fn public_sentences(&self, module: ModuleId) -> Vec<&Sentence> {
         let module = self.module(module);
-        let module_is_private = module.attributes.get("private").is_some();
+        let module_is_private = module.attributes.has(AttributeKey::Private);
         module
             .local_sentences
             .iter()
             .filter(|sentence| {
                 if module_is_private {
-                    sentence.attributes().get("public").is_some()
+                    sentence.attributes().has(AttributeKey::Public)
                 } else {
-                    sentence.attributes().get("private").is_none()
+                    !sentence.attributes().has(AttributeKey::Private)
                 }
             })
             .collect()

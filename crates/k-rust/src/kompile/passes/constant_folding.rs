@@ -5,6 +5,7 @@ use std::{cmp::Ordering, collections::BTreeMap, fmt, str::FromStr};
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{
         Definition, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition, Sentence,
@@ -184,10 +185,10 @@ impl<'a> Folder<'a> {
         else {
             unreachable!()
         };
-        let Some(hook) = attributes.get_str("hook") else {
+        let Some(hook) = attributes.string(AttributeKey::Hook) else {
             return Ok(None);
         };
-        if attributes.get("impure").is_some()
+        if attributes.has(AttributeKey::Impure)
             || !matches!(
                 hook.split_once('.').map(|pair| pair.0),
                 Some("BOOL" | "INT" | "STRING" | "FLOAT")
@@ -308,7 +309,7 @@ impl<'a> Folder<'a> {
         match self
             .sorts
             .attributes_for(&SortHead::from(sort))
-            .and_then(|attributes| attributes.get_str("hook"))
+            .and_then(|attributes| attributes.string(AttributeKey::Hook))
         {
             Some("BOOL.Bool") => bool::from_str(token)
                 .map(Value::Bool)
@@ -335,7 +336,7 @@ impl<'a> Folder<'a> {
         let string_sort = self
             .sorts
             .attributes_for(&SortHead::from(sort))
-            .and_then(|attributes| attributes.get_str("hook"))
+            .and_then(|attributes| attributes.string(AttributeKey::Hook))
             .is_some_and(|hook| matches!(hook, "STRING.String" | "BYTES.Bytes"));
         match value {
             Value::Bool(value) => value.to_string(),

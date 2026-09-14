@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use super::Sentence;
 use super::labels::internal_labels;
 use super::term_position::{TermPosition, positioned_children};
+use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog, SortCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
@@ -36,7 +37,7 @@ pub fn check_functions(
         let body = match sentence {
             Sentence::Rule {
                 body, attributes, ..
-            } if attributes.get("simplification").is_none() => body,
+            } if !attributes.has(AttributeKey::Simplification) => body,
             Sentence::Context { body, .. } | Sentence::ContextAlias { body, .. } => body,
             _ => continue,
         };
@@ -108,8 +109,8 @@ fn visit_term(
     }
 
     let attributes = attributes.expect("checked above");
-    let hook = attributes.get_str("hook").unwrap_or("");
-    if attributes.get("function").is_some()
+    let hook = attributes.string(AttributeKey::Hook).unwrap_or("");
+    if attributes.has(AttributeKey::Function)
         && position.lhs
         && !*at_top
         && !COLLECTION_HOOKS.contains(&hook)

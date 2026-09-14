@@ -5,13 +5,13 @@ use std::fmt;
 
 use petgraph::Direction::Incoming;
 use petgraph::graph::{DiGraph, NodeIndex};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::definition::{
-    AssociativityRelations, Attributes as KAttributes, Definition as KDefinition,
-    LOCATION_ATTRIBUTE, LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog,
-    ProductionId, ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog,
-    SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead, match_rule_label, sentence_equivalent,
+    AssociativityRelations, AttributeKey, Attributes as KAttributes, Definition as KDefinition,
+    LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog, ProductionId,
+    ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
+    SortCatalog, SortHead, match_rule_label, sentence_equivalent,
 };
 use crate::kast::{Label, ResolvedProductionId, Sort, Term, identifier};
 use crate::kore::ast::{
@@ -450,7 +450,7 @@ pub fn declaration_modules_from_resolved_with_options(
     let anywhere_labels = definition
         .rule_catalog(module_id)
         .rules()
-        .filter(|(_, rule)| rule.attributes().get("anywhere").is_some())
+        .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
         .map(|(_, rule)| match_rule_label(rule).name)
         .collect::<BTreeSet<_>>();
     let priorities = definition
@@ -510,7 +510,7 @@ pub fn declaration_modules_from_resolved_with_options(
             hook_namespaces,
         )?;
         let hooked =
-            attributes.get("function").is_some() && is_real_hook(attributes, hook_namespaces);
+            attributes.has(AttributeKey::Function) && is_real_hook(attributes, hook_namespaces);
         let declaration = |attributes| KoreSentence::SymbolDeclaration {
             hooked,
             symbol: encode_kore_label_with_formals(label, parameters),
@@ -540,10 +540,10 @@ pub fn declaration_modules_from_resolved_with_options(
         else {
             continue;
         };
-        let Some(mut bracket_label) = attributes.label("bracketLabel") else {
+        let Some(mut bracket_label) = attributes.label(AttributeKey::BracketLabel) else {
             continue;
         };
-        if attributes.get_str("bracketLabel").is_some() {
+        if attributes.string(AttributeKey::BracketLabel).is_some() {
             bracket_label.parameters = parameters.clone();
         }
         let label = bracket_label;
@@ -616,7 +616,7 @@ fn definition_attributes(
                 attributes,
                 ..
             } if sort.name == BuiltinSort::GeneratedTopCell.k_name()
-                && attributes.get("initializer").is_some() =>
+                && attributes.has(AttributeKey::Initializer) =>
             {
                 Some(label)
             }
@@ -637,7 +637,7 @@ fn definition_attributes(
     if let Some(source) = definition.module(module_id).attributes.source() {
         attributes.push(Pattern::Application {
             symbol: Symbol {
-                name: identifier::encode(SOURCE_ATTRIBUTE),
+                name: identifier::encode(AttributeKey::Source.as_str()),
                 sort_parameters: Vec::new(),
             },
             arguments: vec![Pattern::String(format!("Source({source})"))],
@@ -839,14 +839,14 @@ fn specification_claims<'a>(
 
 fn describe_source_sentence(sentence: &Sentence) -> String {
     let attributes = sentence.attributes();
-    if let Some(label) = attributes.get_str("label") {
+    if let Some(label) = attributes.string(AttributeKey::Label) {
         return label.to_owned();
     }
-    if let Some(unique_id) = attributes.get_str("UNIQUE_ID") {
+    if let Some(unique_id) = attributes.string(AttributeKey::UniqueId) {
         return unique_id.to_owned();
     }
-    if let Some(location) = attributes.get(LOCATION_ATTRIBUTE) {
-        return attribute_value_string(LOCATION_ATTRIBUTE, location);
+    if let Some(location) = attributes.value(AttributeKey::Location) {
+        return attribute_value_string(AttributeKey::Location.as_str(), location);
     }
     match sentence {
         Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => body.to_string(),
@@ -868,7 +868,7 @@ fn generate_map_ceil_rules(
         else {
             continue;
         };
-        if attributes.get_str("hook") != Some("MAP.in_keys") {
+        if attributes.string(AttributeKey::Hook) != Some("MAP.in_keys") {
             continue;
         }
         let in_keys_sorts = nonterminal_sorts(in_keys_items);
@@ -957,7 +957,7 @@ fn generate_map_ceil_rules(
             arguments: vec![equals, ceils],
         };
         let mut attributes = KAttributes::default();
-        attributes.insert("simplification", json!(""));
+        attributes.mark(AttributeKey::Simplification);
         let mut rule = Sentence::Rule {
             body: Term::Rewrite {
                 left: Box::new(left),
@@ -1011,7 +1011,7 @@ fn hooked_production(
         else {
             return None;
         };
-        (attributes.get_str("hook") == Some(hook))
+        (attributes.string(AttributeKey::Hook) == Some(hook))
             .then(|| (*id, label.clone(), nonterminal_sorts(items)))
     })
 }
@@ -1235,7 +1235,7 @@ fn constructor_productions(
 ) -> BTreeSet<ProductionId> {
     let anywhere_labels = rules
         .rules()
-        .filter(|(_, rule)| rule.attributes().get("anywhere").is_some())
+        .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
         .map(|(_, rule)| match_rule_label(rule))
         .collect::<BTreeSet<_>>();
     productions
@@ -1249,13 +1249,10 @@ fn constructor_productions(
             else {
                 return None;
             };
-            let algebraic = ["assoc", "comm", "idem"]
-                .iter()
-                .any(|key| attributes.get(key).is_some());
-            let is_macro = ["macro", "macro-rec", "alias", "alias-rec"]
-                .iter()
-                .any(|key| attributes.get(key).is_some());
-            (attributes.get("function").is_none()
+            let algebraic =
+                attributes.has_any(&[AttributeKey::Assoc, AttributeKey::Comm, AttributeKey::Idem]);
+            let is_macro = attributes.has_any(&AttributeKey::MACRO_LIKE);
+            (!attributes.has(AttributeKey::Function)
                 && !algebraic
                 && !is_macro
                 && !anywhere_labels.contains(label)
@@ -1430,14 +1427,14 @@ fn no_junk_axioms(
                 unreachable!("production catalogs contain productions")
             };
             if SortHead::from(production_sort) != result_head
-                || attributes.get("function").is_some()
+                || attributes.has(AttributeKey::Function)
                 || is_subsort_production(production)
                 || is_builtin_production(production)
                 || is_macro_production(production)
             {
                 continue;
             }
-            if attributes.get("token").is_some() && !has_token {
+            if attributes.has(AttributeKey::Token) && !has_token {
                 alternatives.push(Pattern::Top {
                     sort: result_sort.clone(),
                 });
@@ -1502,7 +1499,7 @@ fn no_junk_axioms(
         if !has_token
             && sorts
                 .attributes_for(&result_head)
-                .is_some_and(|attributes| attributes.get("token").is_some())
+                .is_some_and(|attributes| attributes.has(AttributeKey::Token))
         {
             alternatives.push(Pattern::Top {
                 sort: result_sort.clone(),
@@ -1632,9 +1629,7 @@ fn is_subsort_production(production: &Sentence) -> bool {
 }
 
 fn is_macro_production(production: &Sentence) -> bool {
-    ["macro", "macro-rec", "alias", "alias-rec"]
-        .iter()
-        .any(|attribute| production.attributes().get(attribute).is_some())
+    production.attributes().has_any(&AttributeKey::MACRO_LIKE)
 }
 
 fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
@@ -1648,7 +1643,7 @@ fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
     else {
         return None;
     };
-    if attributes.get("function").is_some() && attributes.get("total").is_none() {
+    if attributes.has(AttributeKey::Function) && !attributes.has(AttributeKey::Total) {
         return None;
     }
     let result_sort = encode_kore_sort_with_formals(sort, parameters);
@@ -1715,11 +1710,11 @@ fn algebraic_axioms(
     else {
         unreachable!("production catalogs contain productions")
     };
-    let assoc = attributes.get("assoc").is_some();
-    let idem = attributes.get("idem").is_some();
+    let assoc = attributes.has(AttributeKey::Assoc);
+    let idem = attributes.has(AttributeKey::Idem);
     let unit = attributes
-        .get_str("unit")
-        .filter(|_| attributes.get("function").is_some());
+        .string(AttributeKey::Unit)
+        .filter(|_| attributes.has(AttributeKey::Function));
     if !assoc && !idem && unit.is_none() {
         return Ok(Vec::new());
     }
@@ -2116,9 +2111,9 @@ fn inject_if_needed(pattern: Pattern, from: &KoreSort, to: &KoreSort) -> Pattern
 }
 
 fn reachability_mode(attributes: &KAttributes) -> Option<ReachabilityMode> {
-    if attributes.get("one-path").is_some() {
+    if attributes.has(AttributeKey::OnePath) {
         Some(ReachabilityMode::OnePath)
-    } else if attributes.get("all-path").is_some() {
+    } else if attributes.has(AttributeKey::AllPath) {
         Some(ReachabilityMode::AllPath)
     } else {
         None
@@ -2126,13 +2121,11 @@ fn reachability_mode(attributes: &KAttributes) -> Option<ReachabilityMode> {
 }
 
 fn is_macro_rule(sentence: &Sentence) -> bool {
-    ["macro", "macro-rec", "alias", "alias-rec"]
-        .iter()
-        .any(|attribute| sentence.attributes().get(attribute).is_some())
+    sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
 }
 
 fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalog<'_>) -> Sentence {
-    if is_macro_rule(sentence) || sentence.attributes().get("simplification").is_some() {
+    if is_macro_rule(sentence) || sentence.attributes().has(AttributeKey::Simplification) {
         return sentence.clone();
     }
     let Sentence::Rule {
@@ -2162,14 +2155,14 @@ fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalo
     else {
         unreachable!("production catalogs contain productions")
     };
-    let Some(attribute) = ["macro", "macro-rec", "alias", "alias-rec"]
+    let Some(attribute) = AttributeKey::MACRO_LIKE
         .into_iter()
-        .find(|attribute| production_attributes.get(attribute).is_some())
+        .find(|attribute| production_attributes.has(*attribute))
     else {
         return sentence.clone();
     };
     let mut attributes = attributes.clone();
-    attributes.insert(attribute, Value::String(String::new()));
+    attributes.mark(attribute);
     Sentence::Rule {
         body: body.clone(),
         requires: requires.clone(),
@@ -2351,17 +2344,17 @@ fn emit_macro_axiom(
     };
     let mut attributes = attributes.clone();
     let priority = attributes
-        .get("priority")
-        .map(|value| attribute_value_string("priority", value))
+        .value(AttributeKey::Priority)
+        .map(|value| attribute_value_string(AttributeKey::Priority.as_str(), value))
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| {
-            if attributes.get("owise").is_some() {
+            if attributes.has(AttributeKey::Owise) {
                 "200".into()
             } else {
                 "50".into()
             }
         });
-    attributes.insert("priority", Value::String(priority));
+    attributes.set(AttributeKey::Priority, Value::String(priority));
     equation_sentence(false, pattern, &attributes, valued, parameters)
 }
 
@@ -2383,8 +2376,8 @@ fn equation_info<'a>(
     let Term::Apply { label, arguments } = application.unannotated() else {
         return Ok(None);
     };
-    let simplification = attributes.get("simplification").is_some();
-    let anywhere = attributes.get("anywhere").is_some();
+    let simplification = attributes.has(AttributeKey::Simplification);
+    let anywhere = attributes.has(AttributeKey::Anywhere);
     // Java's ModuleToKORE supplies a synthetic polymorphic production for `inj`; it is part of
     // the KORE prelude rather than the compiled K module's production catalog.
     if label.is(WellKnownSymbol::Inj) {
@@ -2425,7 +2418,7 @@ fn equation_info<'a>(
     else {
         unreachable!("production catalogs contain productions")
     };
-    if production_attributes.get("function").is_none() && !simplification && !anywhere {
+    if !production_attributes.has(AttributeKey::Function) && !simplification && !anywhere {
         return Ok(None);
     }
     let substitution = parameters
@@ -2531,7 +2524,7 @@ fn emit_equation(
         sort: result_sort.clone(),
         arguments: vec![converter.convert(right)?, ensures],
     };
-    if attributes.get("owise").is_some() {
+    if attributes.has(AttributeKey::Owise) {
         if claim {
             return Err(ModuleToKoreError::UnsupportedRuleKind {
                 kind: "owise claim".into(),
@@ -2792,9 +2785,11 @@ fn emit_owise_equation(
 }
 
 fn ignore_owise_competitor(sentence: &Sentence) -> bool {
-    ["owise", "simplification", "non-executable"]
-        .into_iter()
-        .any(|attribute| sentence.attributes().get(attribute).is_some())
+    sentence.attributes().has_any(&[
+        AttributeKey::Owise,
+        AttributeKey::Simplification,
+        AttributeKey::NonExecutable,
+    ])
 }
 
 fn equation_variables(equation: &EquationInfo<'_>, converter: &TermConverter<'_>) -> Vec<Variable> {
@@ -2932,9 +2927,9 @@ fn variable_list_attribute_overrides(
 ) -> Result<BTreeMap<String, Vec<Pattern>>, ModuleToKoreError> {
     let mut variables = BTreeMap::new();
     collect_pattern_variables(pattern, &mut variables);
-    ["concrete", "symbolic"]
+    [AttributeKey::Concrete, AttributeKey::Symbolic]
         .into_iter()
-        .filter_map(|key| attributes.get_str(key).map(|value| (key, value)))
+        .filter_map(|key| attributes.string(key).map(|value| (key.as_str(), value)))
         .map(|(key, value)| {
             let arguments = value
                 .split(',')
@@ -3035,7 +3030,7 @@ fn visit_pattern_variables<'a>(pattern: &'a Pattern, visitor: &mut impl FnMut(&'
 fn equation_parameters(attributes: &KAttributes) -> Vec<String> {
     let mut parameters = vec!["R".into()];
     let Some(sort_parameters) = attributes
-        .get("sortParams")
+        .value(AttributeKey::SortParams)
         .and_then(Value::as_object)
         .and_then(|sort| sort.get("params"))
         .and_then(Value::as_array)
@@ -3154,7 +3149,7 @@ fn transitive_impure_labels(
     let anywhere_labels = rules
         .rules()
         .filter(|(_, rule)| !is_macro_rule(rule))
-        .filter(|(_, rule)| rule.attributes().get("anywhere").is_some())
+        .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
         .filter_map(|(_, rule)| anywhere_lhs_label(rule))
         .collect::<BTreeSet<_>>();
 
@@ -3201,7 +3196,7 @@ fn transitive_impure_labels(
                 label: Some(label),
                 attributes,
                 ..
-            } if attributes.get("impure").is_some() => Some(LabelHead::from(label)),
+            } if attributes.has(AttributeKey::Impure) => Some(LabelHead::from(label)),
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -3259,22 +3254,28 @@ fn sort_declarations(
         }
         let source_attributes = sorts.attributes_for(head).cloned().unwrap_or_default();
         let mut entries = source_attributes.semantic_entries().clone();
-        entries.remove("hasDomainValues");
+        entries.remove(AttributeKey::HasDomainValues.as_str());
         if token_heads.contains(head) {
-            entries.insert("hasDomainValues".into(), Value::String(String::new()));
+            entries.insert(
+                AttributeKey::HasDomainValues.as_str().into(),
+                Value::String(String::new()),
+            );
         }
         if head.parameters() == 0 && head.as_str().parse::<i32>().is_ok() {
-            entries.insert("nat".into(), Value::String(head.as_str().into()));
+            entries.insert(
+                AttributeKey::Nat.as_str().into(),
+                Value::String(head.as_str().into()),
+            );
         }
         let mut overrides = BTreeMap::new();
         if source_attributes
-            .get_str("hook")
+            .string(AttributeKey::Hook)
             .is_some_and(|hook| COLLECTION_HOOKS.contains(&hook))
         {
             collection_attribute_overrides(head, productions, &mut overrides)?;
         }
         declarations.push(KoreSentence::SortDeclaration {
-            hooked: source_attributes.get("hook").is_some(),
+            hooked: source_attributes.has(AttributeKey::Hook),
             name: identifier::encode_sort_name(head.as_str()),
             parameters: (0..head.parameters())
                 .map(|parameter| format!("SortS{parameter}"))
@@ -3297,7 +3298,7 @@ fn collection_attribute_overrides(
             matches!(
                 production,
                 Sentence::Production { sort, attributes, .. }
-                    if SortHead::from(sort) == *head && attributes.get_str("element").is_some()
+                    if SortHead::from(sort) == *head && attributes.string(AttributeKey::Element).is_some()
             )
         })
         .ok_or_else(|| DeclarationError::InvalidCollectionSort {
@@ -3317,13 +3318,22 @@ fn collection_attribute_overrides(
             message: "the collection concatenation production has no label".into(),
         })?;
     for (key, label_name) in [
-        ("element", attributes.get_str("element")),
-        ("concat", Some(label.name.as_str())),
-        ("unit", attributes.get_str("unit")),
-        ("update", attributes.get_str("update")),
+        (
+            AttributeKey::Element,
+            attributes.string(AttributeKey::Element),
+        ),
+        (AttributeKey::Concat, Some(label.name.as_str())),
+        (AttributeKey::Unit, attributes.string(AttributeKey::Unit)),
+        (
+            AttributeKey::Update,
+            attributes.string(AttributeKey::Update),
+        ),
     ] {
         if let Some(label_name) = label_name {
-            overrides.insert(key.into(), vec![label_pattern(label_name, productions)?]);
+            overrides.insert(
+                key.as_str().into(),
+                vec![label_pattern(label_name, productions)?],
+            );
         }
     }
     Ok(())
@@ -3346,57 +3356,80 @@ fn symbol_attributes(
 ) -> Result<Attributes, DeclarationError> {
     let mut entries = source.semantic_entries().clone();
     for key in [
-        "constructor",
-        "hook",
-        "assoc",
-        "bracket",
-        "colors",
-        "comm",
-        "format",
-        "left",
-        "right",
+        AttributeKey::Constructor,
+        AttributeKey::Hook,
+        AttributeKey::Assoc,
+        AttributeKey::Bracket,
+        AttributeKey::Colors,
+        AttributeKey::Comm,
+        AttributeKey::Format,
+        AttributeKey::Left,
+        AttributeKey::Right,
     ] {
-        entries.remove(key);
+        entries.remove(key.as_str());
     }
 
-    let function = source.get("function").is_some();
+    let function = source.has(AttributeKey::Function);
     let base_constructor = !function
-        && source.get("assoc").is_none()
-        && source.get("comm").is_none()
-        && source.get("idem").is_none();
+        && !source.has(AttributeKey::Assoc)
+        && !source.has(AttributeKey::Comm)
+        && !source.has(AttributeKey::Idem);
     let injective = base_constructor;
-    let macro_like = ["macro", "macro-rec", "alias", "alias-rec"]
-        .iter()
-        .any(|key| source.get(key).is_some());
+    let macro_like = source.has_any(&AttributeKey::MACRO_LIKE);
     let anywhere = overloaded_greater.contains(&id) || anywhere_labels.contains(&label.name);
     if is_real_hook(source, hook_namespaces)
-        && let Some(hook) = source.get("hook")
+        && let Some(hook) = source.value(AttributeKey::Hook)
     {
-        entries.insert("hook".into(), hook.clone());
+        entries.insert(AttributeKey::Hook.as_str().into(), hook.clone());
     }
     if base_constructor && !macro_like && !anywhere {
-        entries.insert("constructor".into(), Value::String(String::new()));
+        entries.insert(
+            AttributeKey::Constructor.as_str().into(),
+            Value::String(String::new()),
+        );
     }
-    if !function || source.get("total").is_some() {
-        entries.insert("functional".into(), Value::String(String::new()));
+    if !function || source.has(AttributeKey::Total) {
+        entries.insert(
+            AttributeKey::Functional.as_str().into(),
+            Value::String(String::new()),
+        );
     }
     if anywhere {
-        entries.insert("anywhere".into(), Value::String(String::new()));
+        entries.insert(
+            AttributeKey::Anywhere.as_str().into(),
+            Value::String(String::new()),
+        );
     }
     if impure_labels.contains(&label.name) {
-        entries.insert("impure".into(), Value::String(String::new()));
+        entries.insert(
+            AttributeKey::Impure.as_str().into(),
+            Value::String(String::new()),
+        );
     }
     if injective {
-        entries.insert("injective".into(), Value::String(String::new()));
+        entries.insert(
+            AttributeKey::Injective.as_str().into(),
+            Value::String(String::new()),
+        );
     }
     if macro_like {
-        entries.insert("macro".into(), Value::String(String::new()));
+        entries.insert(
+            AttributeKey::Macro.as_str().into(),
+            Value::String(String::new()),
+        );
     }
 
     let mut overrides = BTreeMap::new();
-    for key in ["unit", "element", "update"] {
-        if let Some(label) = entries.get(key).and_then(Value::as_str) {
-            overrides.insert(key.into(), vec![label_pattern(label, productions)?]);
+    for key in [
+        AttributeKey::Unit,
+        AttributeKey::Element,
+        AttributeKey::Update,
+    ] {
+        if let Some(label) = entries.get(key.as_str()).and_then(Value::as_str) {
+            overrides.insert(
+                key.as_str().into(),
+                vec![label_pattern(label, productions)?],
+            );
         }
     }
     if with_syntax {
@@ -3421,7 +3454,7 @@ fn add_syntax_attributes(
     overrides: &mut BTreeMap<String, Vec<Pattern>>,
 ) {
     let Some(mut format) = source
-        .get_str("format")
+        .string(AttributeKey::Format)
         .map(str::to_owned)
         .or_else(|| default_format(items))
     else {
@@ -3442,21 +3475,32 @@ fn add_syntax_attributes(
         };
         format = replace_format_slot(&format, index + 1, &replacement);
     }
-    entries.insert("format".into(), Value::String(format.clone()));
-    for key in ["assoc", "bracket", "colors", "comm"] {
-        if let Some(value) = source.get(key) {
-            entries.insert(key.into(), value.clone());
+    entries.insert(
+        AttributeKey::Format.as_str().into(),
+        Value::String(format.clone()),
+    );
+    for key in [
+        AttributeKey::Assoc,
+        AttributeKey::Bracket,
+        AttributeKey::Colors,
+        AttributeKey::Comm,
+    ] {
+        if let Some(value) = source.value(key) {
+            entries.insert(key.as_str().into(), value.clone());
         }
     }
-    if let Some(color) = source.get_str("color") {
+    if let Some(color) = source.string(AttributeKey::Color) {
         let colors = format
             .match_indices("%c")
             .map(|_| color)
             .collect::<Vec<_>>();
-        entries.insert("colors".into(), Value::String(colors.join(",")));
+        entries.insert(
+            AttributeKey::Colors.as_str().into(),
+            Value::String(colors.join(",")),
+        );
     }
     entries.insert(
-        "terminals".into(),
+        AttributeKey::Terminals.as_str().into(),
         Value::String(
             items
                 .iter()
@@ -3470,17 +3514,21 @@ fn add_syntax_attributes(
                 .collect(),
         ),
     );
-    let has_user_label = ["symbol", "klabel"]
-        .iter()
-        .any(|key| source.get_str(key).is_some_and(|label| !label.is_empty()));
-    if source.get("bracket").is_some() && !has_user_label {
+    let has_user_label = [AttributeKey::Symbol, AttributeKey::Klabel]
+        .into_iter()
+        .any(|key| source.string(key).is_some_and(|label| !label.is_empty()));
+    if source.has(AttributeKey::Bracket) && !has_user_label {
         return;
     }
-    entries.insert("priorities".into(), Value::String(String::new()));
-    entries.insert("left".into(), Value::String(String::new()));
-    entries.insert("right".into(), Value::String(String::new()));
+    for key in [
+        AttributeKey::Priorities,
+        AttributeKey::Left,
+        AttributeKey::Right,
+    ] {
+        entries.insert(key.as_str().into(), Value::String(String::new()));
+    }
     overrides.insert(
-        "priorities".into(),
+        AttributeKey::Priorities.as_str().into(),
         syntax_relations
             .priorities
             .get(&label.name)
@@ -3488,7 +3536,7 @@ fn add_syntax_attributes(
             .unwrap_or_default(),
     );
     overrides.insert(
-        "left".into(),
+        AttributeKey::Left.as_str().into(),
         syntax_relations
             .left
             .get(&label.name)
@@ -3496,7 +3544,7 @@ fn add_syntax_attributes(
             .unwrap_or_default(),
     );
     overrides.insert(
-        "right".into(),
+        AttributeKey::Right.as_str().into(),
         syntax_relations
             .right
             .get(&label.name)
@@ -3586,10 +3634,15 @@ fn replace_format_slot(format: &str, slot: usize, replacement: &str) -> String {
 }
 
 fn valued_attributes(sentences: &[&Sentence]) -> BTreeSet<String> {
-    let mut valued = ["nat", "terminals", "colors", "priority"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>();
+    let mut valued = [
+        AttributeKey::Nat,
+        AttributeKey::Terminals,
+        AttributeKey::Colors,
+        AttributeKey::Priority,
+    ]
+    .into_iter()
+    .map(|key| key.as_str().to_owned())
+    .collect::<BTreeSet<_>>();
     for attributes in sentences.iter().map(|sentence| sentence.attributes()) {
         for (key, value) in attributes.semantic_entries() {
             if !attribute_value_string(key, value).is_empty() {
@@ -3597,11 +3650,11 @@ fn valued_attributes(sentences: &[&Sentence]) -> BTreeSet<String> {
             }
         }
     }
-    if valued.contains("token") {
-        valued.remove("hasDomainValues");
+    if valued.contains(AttributeKey::Token.as_str()) {
+        valued.remove(AttributeKey::HasDomainValues.as_str());
     }
     // Java uses this frontend-only typed attribute solely to declare axiom sort variables.
-    valued.remove("sortParams");
+    valued.remove(AttributeKey::SortParams.as_str());
     valued
 }
 
@@ -3617,7 +3670,10 @@ fn emit_attributes(
         .collect::<BTreeSet<_>>();
     let patterns = keys
         .into_iter()
-        .filter(|key| overrides.contains_key(key) || should_emit(key))
+        .filter(|key| {
+            overrides.contains_key(key)
+                || AttributeKey::from_name(key).is_some_and(AttributeKey::emits)
+        })
         .map(|key| {
             let arguments = overrides.get(&key).cloned().unwrap_or_else(|| {
                 if valued.contains(&key) {
@@ -3644,13 +3700,14 @@ fn emit_attributes(
 }
 
 fn attribute_value_string(key: &str, value: &Value) -> String {
-    if key == LOCATION_ATTRIBUTE
+    let key = AttributeKey::from_name(key);
+    if key == Some(AttributeKey::Location)
         && let Some(values) = value.as_array()
         && let [start_line, start_column, end_line, end_column] = values.as_slice()
     {
         return format!("Location({start_line},{start_column},{end_line},{end_column})");
     }
-    if key == SOURCE_ATTRIBUTE
+    if key == Some(AttributeKey::Source)
         && let Some(source) = value.as_str()
     {
         return format!("Source({source})");
@@ -3688,70 +3745,8 @@ fn label_pattern(
     })
 }
 
-fn should_emit(key: &str) -> bool {
-    matches!(
-        key,
-        "alias"
-            | "alias-rec"
-            | "anywhere"
-            | "assoc"
-            | "binder"
-            | "bracket"
-            | "cell"
-            | "circularity"
-            | "colors"
-            | "comm"
-            | "concrete"
-            | "constructor"
-            | "cool"
-            | "depends"
-            | "deprecated"
-            | "element"
-            | "format"
-            | "freshGenerator"
-            | "function"
-            | "functional"
-            | "hook"
-            | "idem"
-            | "impure"
-            | "injective"
-            | "klabel"
-            | "label"
-            | "macro"
-            | "macro-rec"
-            | "memo"
-            | "non-executable"
-            | "no-evaluators"
-            | "owise"
-            | "preserves-definedness"
-            | "priority"
-            | "simplification"
-            | "smtlib"
-            | "smt-hook"
-            | "smt-lemma"
-            | "symbol"
-            | "symbolic"
-            | "syntactic"
-            | "token"
-            | "total"
-            | "trusted"
-            | "unit"
-            | "update"
-            | "concat"
-            | "cool-like"
-            | "hasDomainValues"
-            | "nat"
-            | "priorities"
-            | "symbol-overload"
-            | "terminals"
-            | "UNIQUE_ID"
-            | LOCATION_ATTRIBUTE
-            | SOURCE_ATTRIBUTE
-    )
-}
-
 fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
-    attributes.get_str("hook").is_some_and(|hook| {
+    attributes.string(AttributeKey::Hook).is_some_and(|hook| {
         hook.split_once('.').is_some_and(|(namespace, _)| {
             BUILTIN_HOOK_NAMESPACES.contains(&namespace)
                 || hook_namespaces.iter().any(|admitted| admitted == namespace)

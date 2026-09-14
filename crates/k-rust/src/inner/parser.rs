@@ -21,8 +21,8 @@ use std::sync::OnceLock;
 use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::{
-    AssociativityRelations, Attributes, PartialOrder, ProductionCatalog, ProductionId,
-    ProductionItem, Regex as KRegex, RegexBody, Sentence, compute_associativities,
+    AssociativityRelations, AttributeKey, Attributes, PartialOrder, ProductionCatalog,
+    ProductionId, ProductionItem, Regex as KRegex, RegexBody, Sentence, compute_associativities,
     compute_disambiguation_subsorts, compute_overloads, compute_priorities, compute_subsorts,
     parse_regex, sentence_equivalent,
 };
@@ -417,7 +417,7 @@ pub(crate) struct ParametricOrigin {
 
 impl ParametricOrigin {
     fn hook(&self) -> Option<&str> {
-        self.attributes.get_str("hook")
+        self.attributes.string(AttributeKey::Hook)
     }
 }
 
@@ -1109,7 +1109,7 @@ impl Grammar {
                 &*sentence,
                 Sentence::Production { items, attributes, .. }
                     if matches!(
-                        attributes.get_str("userList"),
+                        attributes.string(AttributeKey::UserList),
                         Some("*") | Some("+")
                     )
                         && !items
@@ -1290,25 +1290,25 @@ impl Grammar {
                 items,
                 label.clone(),
                 ProductionOptions {
-                    token: attributes.get("token").is_some(),
-                    transparent: attributes.get("bracket").is_some(),
-                    bracket: attributes.get("bracket").is_some(),
-                    bracket_label: attributes.label("bracketLabel").map(|label| label.name),
-                    apply_priority: attributes.get_str("applyPriority"),
-                    function: attributes.get("function").is_some(),
-                    macro_like: ["macro", "macro-rec", "alias", "alias-rec"]
-                        .iter()
-                        .any(|key| attributes.get(key).is_some()),
-                    prefer: attributes.get("prefer").is_some(),
-                    avoid: attributes.get("avoid").is_some(),
+                    token: attributes.has(AttributeKey::Token),
+                    transparent: attributes.has(AttributeKey::Bracket),
+                    bracket: attributes.has(AttributeKey::Bracket),
+                    bracket_label: attributes
+                        .label(AttributeKey::BracketLabel)
+                        .map(|label| label.name),
+                    apply_priority: attributes.string(AttributeKey::ApplyPriority),
+                    function: attributes.has(AttributeKey::Function),
+                    macro_like: attributes.has_any(&AttributeKey::MACRO_LIKE),
+                    prefer: attributes.has(AttributeKey::Prefer),
+                    avoid: attributes.has(AttributeKey::Avoid),
                     source_production,
                     source_production_text: source_production_text.as_deref(),
                     source: attributes.source(),
                     location: attributes.location(),
-                    user_list: attributes.get("userList").is_some(),
-                    user_list_nonempty: attributes.get_str("userList") == Some("+"),
-                    precedence: attributes.get_str("prec"),
-                    hook: attributes.get_str("hook"),
+                    user_list: attributes.has(AttributeKey::UserList),
+                    user_list_nonempty: attributes.string(AttributeKey::UserList) == Some("+"),
+                    precedence: attributes.string(AttributeKey::Prec),
+                    hook: attributes.string(AttributeKey::Hook),
                     parsing_only_subsort: false,
                 },
                 &lexical,
@@ -1979,7 +1979,7 @@ impl Grammar {
             return Ok(());
         }
         let bracket_label = source_attributes
-            .and_then(|attributes| attributes.label("bracketLabel"))
+            .and_then(|attributes| attributes.label(AttributeKey::BracketLabel))
             .map_or_else(|| format!("#bracket:{result}"), |label| label.name);
         self.add_production_with_lexical(
             result,
@@ -1990,7 +1990,7 @@ impl Grammar {
                 bracket: true,
                 bracket_label: Some(bracket_label),
                 apply_priority: source_attributes
-                    .and_then(|attributes| attributes.get_str("applyPriority")),
+                    .and_then(|attributes| attributes.string(AttributeKey::ApplyPriority)),
                 ..ProductionOptions::default()
             },
             &BTreeMap::new(),
@@ -2355,8 +2355,7 @@ pub(super) fn named_projection_productions<'a>(
         else {
             continue;
         };
-        if attributes.get("function").is_some() || crate::definition::catalog::is_macro(attributes)
-        {
+        if attributes.has(AttributeKey::Function) || attributes.has_any(&AttributeKey::MACRO_LIKE) {
             continue;
         }
         let fields = items
@@ -2378,8 +2377,8 @@ pub(super) fn named_projection_productions<'a>(
         }
         for (field_sort, name) in fields {
             let mut generated_attributes = Attributes::default();
-            generated_attributes.insert("function", serde_json::json!(""));
-            generated_attributes.insert("generatedRuleSyntax", serde_json::json!(""));
+            generated_attributes.mark(AttributeKey::Function);
+            generated_attributes.mark(AttributeKey::GeneratedRuleSyntax);
             generated.push(Sentence::Production {
                 label: Some(Label::new(format!("project:{}:{name}", label.name))),
                 parameters: Vec::new(),
@@ -2404,7 +2403,7 @@ fn catalog_production(
     catalog: &ProductionCatalog<'_>,
     sentence: &Sentence,
 ) -> Option<ProductionId> {
-    if matches!(sentence, Sentence::Production { attributes, .. } if attributes.get("generatedRuleSyntax").is_some())
+    if matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::GeneratedRuleSyntax))
     {
         return None;
     }
@@ -2446,12 +2445,14 @@ fn render_production(sentence: &Sentence) -> Option<String> {
         .iter()
         .filter(|(key, _)| {
             !matches!(
-                key.as_str(),
-                "org.kframework.attributes.Source"
-                    | "org.kframework.attributes.Location"
-                    | "org.kframework.attributes.SourceId"
-                    | "org.krust.provenance.SentenceStartOffset"
-                    | "org.krust.provenance.SentenceEndOffset"
+                AttributeKey::from_name(key),
+                Some(
+                    AttributeKey::Source
+                        | AttributeKey::Location
+                        | AttributeKey::SourceId
+                        | AttributeKey::SentenceStartOffset
+                        | AttributeKey::SentenceEndOffset
+                )
             )
         })
         .map(|(key, value)| match value {
@@ -2482,7 +2483,7 @@ fn render_added_production(
         .join(" ");
     let mut attributes = Vec::new();
     if token {
-        attributes.push("token".to_owned());
+        attributes.push(AttributeKey::Token.as_str().to_owned());
     }
     if let Some(precedence) = precedence {
         attributes.push(format!("prec({precedence})"));
@@ -5393,7 +5394,7 @@ mod chart_tests {
             }
         };
         let mut cell_attributes = Attributes::default();
-        cell_attributes.insert("cell", serde_json::json!(""));
+        cell_attributes.mark(AttributeKey::Cell);
         let sentences = vec![
             production("Cell", None, Some("<cell>"), Some("cell"), cell_attributes),
             production("Big", Some("Small"), None, None, Attributes::default()),
@@ -5411,7 +5412,7 @@ mod chart_tests {
             .iter()
             .filter(|sentence| {
                 !matches!(sentence, Sentence::Production { attributes, .. }
-                if attributes.get("cell").is_some())
+                if attributes.has(AttributeKey::Cell))
             })
             .collect::<Vec<_>>();
         let grammar =

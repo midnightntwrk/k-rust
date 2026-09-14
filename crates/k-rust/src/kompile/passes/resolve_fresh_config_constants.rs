@@ -2,6 +2,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, Sentence},
@@ -43,7 +44,7 @@ pub fn resolve_fresh_config_constants(
             else {
                 continue;
             };
-            if attributes.get("initializer").is_none() {
+            if !attributes.has(AttributeKey::Initializer) {
                 continue;
             }
             let taken = std::mem::replace(body, Term::Sequence(Vec::new()));

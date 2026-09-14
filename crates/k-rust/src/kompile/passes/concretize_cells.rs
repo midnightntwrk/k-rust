@@ -5,6 +5,7 @@ use std::{
     fmt,
 };
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -192,7 +193,9 @@ impl CellModel {
                     items,
                     attributes,
                     ..
-                } if attributes.get("cell").is_some() && attributes.get("internal").is_none() => {
+                } if attributes.has(AttributeKey::Cell)
+                    && !attributes.has(AttributeKey::Internal) =>
+                {
                     Some((
                         sort.clone(),
                         label.clone(),
@@ -233,10 +236,10 @@ impl CellModel {
                     sort,
                     attributes,
                     ..
-                } if attributes.get("cellCollection").is_some() => Some((
+                } if attributes.has(AttributeKey::CellCollection) => Some((
                     sort.clone(),
                     label.clone(),
-                    attributes.get_str("unit").map(Label::new),
+                    attributes.string(AttributeKey::Unit).map(Label::new),
                 )),
                 _ => None,
             })
@@ -250,7 +253,7 @@ impl CellModel {
                     items,
                     attributes,
                     ..
-                } if attributes.get("initializer").is_some() => Some((
+                } if attributes.has(AttributeKey::Initializer) => Some((
                     sort.clone(),
                     label.clone(),
                     items
@@ -286,7 +289,7 @@ impl CellModel {
             for child_sort in nonterminals {
                 if cell_sorts.contains(&child_sort) {
                     let child_attributes = &cell_attributes[&child_sort];
-                    let multiplicity = if child_attributes.get_str("unit").is_some() {
+                    let multiplicity = if child_attributes.string(AttributeKey::Unit).is_some() {
                         Multiplicity::Optional
                     } else {
                         Multiplicity::One
@@ -295,7 +298,7 @@ impl CellModel {
                         sort: child_sort.clone(),
                         multiplicity,
                         value_sort: child_sort.clone(),
-                        unit: child_attributes.get_str("unit").map(Label::new),
+                        unit: child_attributes.string(AttributeKey::Unit).map(Label::new),
                         concat: None,
                         default: initializers.get(&child_sort).cloned(),
                     });
@@ -436,7 +439,7 @@ impl CellModel {
             else {
                 continue;
             };
-            if attributes.get("assoc").is_none()
+            if !attributes.has(AttributeKey::Assoc)
                 || items
                     .iter()
                     .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
@@ -448,7 +451,7 @@ impl CellModel {
             close_operators.entry(sort.clone()).or_insert((
                 label.clone(),
                 true,
-                attributes.get("comm").is_some(),
+                attributes.has(AttributeKey::Comm),
             ));
         }
         Ok(Self {
@@ -1622,16 +1625,8 @@ fn fragment_predicate(info: &FragmentInfo, model: &CellModel) -> Term {
 }
 
 fn skip_root_wrapping(attributes: &Attributes) -> bool {
-    [
-        "macro",
-        "macro-rec",
-        "alias",
-        "alias-rec",
-        "anywhere",
-        "simplification",
-    ]
-    .iter()
-    .any(|attribute| attributes.get(attribute).is_some())
+    attributes.has_any(&AttributeKey::MACRO_LIKE)
+        || attributes.has_any(&[AttributeKey::Anywhere, AttributeKey::Simplification])
 }
 
 fn is_matching_logic_builtin(label: &str) -> bool {

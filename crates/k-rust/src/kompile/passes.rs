@@ -4,6 +4,7 @@ use std::fmt;
 
 use k_rust_kore::measure::{self, Counter};
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{
         Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence, sentence_equivalent,
@@ -256,13 +257,14 @@ fn resolve_comm_inner(definition: &Definition) -> Result<Definition, ResolveComm
                 sentences.push(sentence.clone());
                 continue;
             };
-            if attributes.get("simplification").is_none() || attributes.get("comm").is_none() {
+            if !attributes.has(AttributeKey::Simplification) || !attributes.has(AttributeKey::Comm)
+            {
                 sentences.push(sentence.clone());
                 continue;
             }
 
             let mut attributes = attributes.clone();
-            attributes.remove("comm");
+            attributes.unset(AttributeKey::Comm);
             let swapped = commute_lhs(body, true, &productions, sentence, &mut diagnostics);
             if swapped != *body {
                 sentences.push(Sentence::Rule {
@@ -324,7 +326,7 @@ fn commute_lhs(
             let Some(attributes) = productions.attributes_for(&LabelHead::from(label)) else {
                 return term.clone();
             };
-            if attributes.get("comm").is_some() {
+            if attributes.has(AttributeKey::Comm) {
                 if let [left, right] = arguments.as_slice() {
                     Term::Apply {
                         label: label.clone(),

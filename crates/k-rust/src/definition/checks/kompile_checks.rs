@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use super::rhs_variables::{CheckMode, StructuralCheckOptions};
 use super::{ProductionItem, Sentence};
+use crate::definition::AttributeKey;
 use crate::definition::{ModuleId, ResolvedDefinition};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::names::BuiltinSort;
@@ -74,7 +75,7 @@ pub fn check_proof_module(
                 ));
             }
             if matches!(sentence, Sentence::Rule { .. })
-                && sentence.attributes().get("simplification").is_none()
+                && !sentence.attributes().has(AttributeKey::Simplification)
             {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::ProofModuleRule,
@@ -229,6 +230,6 @@ fn is_existing_sort_token(
     matches!(
         sentence,
         Sentence::Production { sort, attributes, .. }
-            if attributes.get("token").is_some() && definition_sorts.contains(sort)
+            if attributes.has(AttributeKey::Token) && definition_sorts.contains(sort)
     )
 }

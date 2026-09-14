@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::definition::{ResolvedDefinition, Sentence};
+use crate::definition::{AttributeKey, ResolvedDefinition, Sentence};
 use crate::inner::{concretize_parametric_productions, prepared_bison_program_sentences};
 use crate::kast::Sort;
 
@@ -15,7 +15,6 @@ use self::scanner::Scanner;
 
 const MAIN_C: &str = include_str!("../../cparser/main.c");
 const NODE_H: &str = include_str!("../../cparser/node.h");
-const PARSING_ONLY_SUBSORT_ATTRIBUTE: &str = "#bisonParsingOnlySubsort";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Mode {
@@ -136,10 +135,7 @@ fn concrete_program_sentences(sentences: Vec<Sentence>) -> Vec<Sentence> {
                 let Sentence::Production { attributes, .. } = &mut sentence else {
                     unreachable!()
                 };
-                attributes.insert(
-                    PARSING_ONLY_SUBSORT_ATTRIBUTE,
-                    serde_json::Value::String(String::new()),
-                );
+                attributes.mark(AttributeKey::BisonParsingOnlySubsort);
                 sentence
             }),
     );

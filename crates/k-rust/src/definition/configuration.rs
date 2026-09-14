@@ -11,6 +11,7 @@ use super::{
     attribute_keys::{KeyParameter, builtin_key},
     sentence_equivalent,
 };
+use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::string::unquote;
 use crate::kast::{Label, Sort, Term};
@@ -300,8 +301,7 @@ impl Generator<'_, '_> {
                         .catalog
                         .production(*id)
                         .attributes()
-                        .get("recordPrd")
-                        .is_some() =>
+                        .has(AttributeKey::RecordPrd) =>
                 {
                     Some(production)
                 }
@@ -367,7 +367,7 @@ impl Generator<'_, '_> {
             return Err(self.error(format!("Cell name <{start}> is reserved by K.")));
         }
         let properties = self.parse_properties(properties, start)?;
-        let multiplicity = match properties.get_str("multiplicity") {
+        let multiplicity = match properties.string(AttributeKey::Multiplicity) {
             None | Some("1") => Multiplicity::One,
             Some("?") => Multiplicity::Optional,
             Some("*") => Multiplicity::Star,
@@ -377,7 +377,7 @@ impl Generator<'_, '_> {
                 )));
             }
         };
-        let stream = properties.get("stream").is_some();
+        let stream = properties.has(AttributeKey::Stream);
         let children = self.generate(contents, None)?;
         let has_variables = children.initializer_takes_map
             || has_configuration_or_regular_variable(contents)
@@ -405,7 +405,7 @@ impl Generator<'_, '_> {
         has_variables: bool,
     ) -> Result<GeneratedNode, ConfigurationError> {
         let sort = Sort::new(cell_sort_name(cell_name));
-        if properties.get("maincell").is_some() {
+        if properties.has(AttributeKey::Maincell) {
             if !children.leaf || children.child_sorts.len() != 1 {
                 return Err(self.error(format!(
                     "main cell <{cell_name}> must contain exactly one leaf term"
@@ -415,12 +415,18 @@ impl Generator<'_, '_> {
         }
         let label = format!("<{cell_name}>");
         let init_label = init_label(&sort);
-        let collection_sort = properties.get_str("type").unwrap_or("Bag").to_owned();
+        let collection_sort = properties
+            .string(AttributeKey::Type)
+            .unwrap_or("Bag")
+            .to_owned();
 
         let items = cell_items(cell_name, &children.child_sorts);
         let mut cell_attributes = merge_attributes(&properties, self.attributes);
-        if properties.get("format").is_none() {
-            cell_attributes.insert("format", json!(cell_format(children.child_sorts.len())));
+        if !properties.has(AttributeKey::Format) {
+            cell_attributes.set(
+                AttributeKey::Format,
+                json!(cell_format(children.child_sorts.len())),
+            );
         }
 
         if multiplicity != Multiplicity::Optional && !self.label_exists(&label) {
@@ -433,7 +439,9 @@ impl Generator<'_, '_> {
         }
 
         let initializer_takes_map = has_variables || stream;
-        if multiplicity != Multiplicity::One && has_variables && properties.get("initial").is_none()
+        if multiplicity != Multiplicity::One
+            && has_variables
+            && !properties.has(AttributeKey::Initial)
         {
             self.diagnostics.push(Diagnostic::warning_at(
                 DiagnosticCode::CellCollectionVarWithoutInitial,
@@ -470,7 +478,7 @@ impl Generator<'_, '_> {
             },
             requires: truth(),
             ensures: ensures.cloned().unwrap_or_else(truth),
-            attributes: attributes(&[("initializer", json!(""))]),
+            attributes: Attributes::from_pairs([(AttributeKey::Initializer, json!(""))]),
         });
 
         if !children.leaf {
@@ -500,7 +508,7 @@ impl Generator<'_, '_> {
                 ));
                 if !self.label_exists(&label) {
                     let mut attributes = cell_attributes;
-                    attributes.insert("unit", json!(unit_label));
+                    attributes.set(AttributeKey::Unit, json!(unit_label));
                     self.push(production(
                         Some(label.clone()),
                         sort.clone(),
@@ -526,7 +534,7 @@ impl Generator<'_, '_> {
             ),
         };
 
-        if properties.get("exit").is_some() {
+        if properties.has(AttributeKey::Exit) {
             self.generate_exit(cell_name, &label);
         }
         Ok(GeneratedNode {
@@ -558,7 +566,7 @@ impl Generator<'_, '_> {
                         Some(absent.clone()),
                         optional,
                         vec![ProductionItem::Terminal(absent)],
-                        attributes(&[("cellOptAbsent", sort_value(child))]),
+                        Attributes::from_pairs([(AttributeKey::CellOptAbsent, sort_value(child))]),
                     ));
                 }
             } else {
@@ -571,7 +579,7 @@ impl Generator<'_, '_> {
                 Some(fragment_label),
                 fragment_sort,
                 items,
-                attributes(&[("cellFragment", sort_value(sort))]),
+                Attributes::from_pairs([(AttributeKey::CellFragment, sort_value(sort))]),
             ));
         }
     }
@@ -598,9 +606,12 @@ impl Generator<'_, '_> {
         self.push(Sentence::SyntaxSort {
             parameters: vec![],
             sort: sort.clone(),
-            attributes: attributes(&[
-                ("hook", json!(format!("{upper}.{collection_type}"))),
-                ("cellCollection", json!("")),
+            attributes: Attributes::from_pairs([
+                (
+                    AttributeKey::Hook,
+                    json!(format!("{upper}.{collection_type}")),
+                ),
+                (AttributeKey::CellCollection, json!("")),
             ]),
         });
         self.push(production(
@@ -638,10 +649,10 @@ impl Generator<'_, '_> {
             Some(item_label),
             sort.clone(),
             item_items,
-            attributes(&[
-                ("hook", json!(format!("{upper}.element"))),
-                ("function", json!("")),
-                ("format", json!(format)),
+            Attributes::from_pairs([
+                (AttributeKey::Hook, json!(format!("{upper}.element"))),
+                (AttributeKey::Function, json!("")),
+                (AttributeKey::Format, json!(format)),
             ]),
         ));
         let unit = format!(".{}", sort.name);
@@ -649,33 +660,33 @@ impl Generator<'_, '_> {
             Some(unit.clone()),
             sort.clone(),
             vec![ProductionItem::Terminal(unit.clone())],
-            attributes(&[
-                ("hook", json!(format!("{upper}.unit"))),
-                ("function", json!("")),
+            Attributes::from_pairs([
+                (AttributeKey::Hook, json!(format!("{upper}.unit"))),
+                (AttributeKey::Function, json!("")),
             ]),
         ));
         let concat = format!("_{}_", sort.name);
-        let mut concat_attributes = attributes(&[
-            ("assoc", json!("")),
-            ("cellCollection", json!("")),
-            ("element", json!(format!("{}Item", sort.name))),
-            ("wrapElement", json!(format!("<{cell_name}>"))),
-            ("unit", json!(unit)),
-            ("hook", json!(format!("{upper}.concat"))),
-            ("avoid", json!("")),
-            ("function", json!("")),
+        let mut concat_attributes = Attributes::from_pairs([
+            (AttributeKey::Assoc, json!("")),
+            (AttributeKey::CellCollection, json!("")),
+            (AttributeKey::Element, json!(format!("{}Item", sort.name))),
+            (AttributeKey::WrapElement, json!(format!("<{cell_name}>"))),
+            (AttributeKey::Unit, json!(unit)),
+            (AttributeKey::Hook, json!(format!("{upper}.concat"))),
+            (AttributeKey::Avoid, json!("")),
+            (AttributeKey::Function, json!("")),
         ]);
         match collection_type {
             "Set" => {
-                concat_attributes.insert("idem", json!(""));
-                concat_attributes.insert("comm", json!(""));
+                concat_attributes.mark(AttributeKey::Idem);
+                concat_attributes.mark(AttributeKey::Comm);
             }
             "Map" => {
-                concat_attributes.insert("comm", json!(""));
+                concat_attributes.mark(AttributeKey::Comm);
             }
             "Bag" => {
-                concat_attributes.insert("comm", json!(""));
-                concat_attributes.insert("bag", json!(""));
+                concat_attributes.mark(AttributeKey::Comm);
+                concat_attributes.mark(AttributeKey::Bag);
             }
             "List" => {}
             _ => unreachable!(),
@@ -713,10 +724,10 @@ impl Generator<'_, '_> {
                 nonterminal_sort(map_sort.clone()),
                 ProductionItem::Terminal(")".into()),
             ],
-            attributes(&[
-                ("hook", json!("MAP.in_keys")),
-                ("function", json!("")),
-                ("total", json!("")),
+            Attributes::from_pairs([
+                (AttributeKey::Hook, json!("MAP.in_keys")),
+                (AttributeKey::Function, json!("")),
+                (AttributeKey::Total, json!("")),
             ]),
         ));
         let key_label = format!("{}Key", map_sort.name);
@@ -729,7 +740,10 @@ impl Generator<'_, '_> {
                 nonterminal_sort(cell_sort.clone()),
                 ProductionItem::Terminal(")".into()),
             ],
-            attributes(&[("function", json!("")), ("total", json!(""))]),
+            Attributes::from_pairs([
+                (AttributeKey::Function, json!("")),
+                (AttributeKey::Total, json!("")),
+            ]),
         ));
         let key = Term::Variable {
             name: "Key".into(),
@@ -765,7 +779,7 @@ impl Generator<'_, '_> {
                     nonterminal("GeneratedTopCell"),
                     ProductionItem::Terminal(")".into()),
                 ],
-                attributes(&[("function", json!(""))]),
+                Attributes::from_pairs([(AttributeKey::Function, json!(""))]),
             ));
         }
         self.push(Sentence::SyntaxSort {
@@ -802,10 +816,10 @@ impl Generator<'_, '_> {
         cell_name: &str,
     ) -> Result<Attributes, ConfigurationError> {
         let mut properties = Attributes::default();
-        properties.insert("cell", json!(""));
-        properties.insert("cellName", json!(cell_name));
+        properties.mark(AttributeKey::Cell);
+        properties.set(AttributeKey::CellName, json!(cell_name));
         if cell_name == "k" {
-            properties.insert("maincell", json!(""));
+            properties.mark(AttributeKey::Maincell);
         }
         parse_property_list(term, &mut properties).map_err(|message| self.error(message))?;
         Ok(properties)
@@ -1037,7 +1051,7 @@ fn semantic_cast_sort(label: &Label) -> Option<Sort> {
 fn optional_initializer(label: &str, has_variables: bool, properties: &Attributes) -> Term {
     if has_variables {
         Term::apply(label, vec![init_variable()])
-    } else if properties.get("initial").is_some() {
+    } else if properties.has(AttributeKey::Initial) {
         Term::apply(label, vec![])
     } else {
         Term::apply("#cells", vec![])
@@ -1055,9 +1069,12 @@ fn initializer_production(label: &str, sort: Sort, takes_map: bool) -> Sentence 
     } else {
         vec![ProductionItem::Terminal(label.into())]
     };
-    let mut attributes = attributes(&[("initializer", json!("")), ("function", json!(""))]);
+    let mut attributes = Attributes::from_pairs([
+        (AttributeKey::Initializer, json!("")),
+        (AttributeKey::Function, json!("")),
+    ]);
     if !takes_map {
-        attributes.insert("total", json!(""));
+        attributes.mark(AttributeKey::Total);
     }
     production(Some(label.into()), sort, items, attributes)
 }
@@ -1158,15 +1175,6 @@ fn nonterminal(name: &str) -> ProductionItem {
 
 fn nonterminal_sort(sort: Sort) -> ProductionItem {
     ProductionItem::NonTerminal { sort, name: None }
-}
-
-fn attributes(entries: &[(&str, Value)]) -> Attributes {
-    Attributes::new(
-        entries
-            .iter()
-            .map(|(key, value)| ((*key).into(), value.clone()))
-            .collect(),
-    )
 }
 
 fn merge_attributes(base: &Attributes, overlay: &Attributes) -> Attributes {

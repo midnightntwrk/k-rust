@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
+use crate::definition::AttributeKey;
 use crate::definition::{ProductionItem, Sentence, parse_regex};
 
 use super::{Error, quote_c_string};
@@ -78,7 +79,7 @@ impl Scanner {
                     }
 
                     let declared = attributes
-                        .get_str("prec")
+                        .string(AttributeKey::Prec)
                         .map(|value| {
                             value.parse::<i32>().map_err(|_| {
                                 Error::render(format!("invalid token precedence {value:?}"))

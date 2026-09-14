@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Write};
 
 use crate::definition::{
-    Attributes, ProductionId, ProductionItem, Sentence, SortCatalog, SortHead,
+    AttributeKey, Attributes, ProductionId, ProductionItem, Sentence, SortCatalog, SortHead,
     compute_associativities, compute_overloads, compute_priorities, compute_subsorts,
     sentence_equivalent,
 };
@@ -12,7 +12,7 @@ use crate::kast::{Label, Sort};
 use crate::kompile::{encode_kore_label, encode_kore_sort};
 
 use super::scanner::{Scanner, TokenKey};
-use super::{Error, Mode, PARSING_ONLY_SUBSORT_ATTRIBUTE, quote_c_string};
+use super::{Error, Mode, quote_c_string};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum GrammarError {
@@ -173,7 +173,7 @@ fn render_inner(
     let semantic_sentences = || {
         sentences.iter().filter(|sentence| {
             !matches!(sentence, Sentence::Production { attributes, .. }
-                if attributes.get(PARSING_ONLY_SUBSORT_ATTRIBUTE).is_some())
+                if attributes.has(AttributeKey::BisonParsingOnlySubsort))
         })
     };
     let subsorts = compute_subsorts(semantic_sentences(), false)
@@ -372,8 +372,8 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
         else {
             continue;
         };
-        if attributes.get_str("userList").is_some()
-            && attributes.get("userListTerminator").is_none()
+        if attributes.string(AttributeKey::UserList).is_some()
+            && !attributes.has(AttributeKey::UserListTerminator)
         {
             lists.entry(sort.clone()).or_default().push(sentence);
         } else {
@@ -443,9 +443,9 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
                 message: "terminator production has no constructor label".into(),
             });
         };
-        let list_kind = recursive_attributes.get_str("userList");
+        let list_kind = recursive_attributes.string(AttributeKey::UserList);
         if !matches!(list_kind, Some("+") | Some("*"))
-            || terminator_attributes.get_str("userList") != list_kind
+            || terminator_attributes.string(AttributeKey::UserList) != list_kind
         {
             return Err(GrammarError::InvalidUserList {
                 sort,
@@ -487,10 +487,13 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
                 source: recursive.clone(),
             });
             let mut attributes = recursive_attributes.clone();
-            attributes.remove("userList");
-            attributes.insert("userList", serde_json::Value::String(cons.name.clone()));
-            attributes.insert(
-                "userListTerminator",
+            attributes.unset(AttributeKey::UserList);
+            attributes.set(
+                AttributeKey::UserList,
+                serde_json::Value::String(cons.name.clone()),
+            );
+            attributes.set(
+                AttributeKey::UserListTerminator,
                 serde_json::Value::String(nil.name.clone()),
             );
             let source = Sentence::Production {
@@ -559,7 +562,7 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
 
 fn transparent_production(result: Sort, child: Sort) -> GrammarProduction {
     let mut attributes = Attributes::default();
-    attributes.insert("notInjection", serde_json::Value::String(String::new()));
+    attributes.mark(AttributeKey::NotInjection);
     let items = vec![ProductionItem::NonTerminal {
         sort: child,
         name: None,
@@ -687,22 +690,22 @@ fn write_production(
         unreachable!("grammar productions retain a production sentence")
     };
     let has_location = sort_attributes(sort_catalog, sort)
-        .get("locations")
+        .value(AttributeKey::Locations)
         .is_some();
     // K's Production.isSubsort requires both a unary nonterminal shape and no
     // klabel. A labeled unary production is an ordinary constructor.
     let is_subsort = label.is_none() && subsort_child(items).is_some();
 
-    if attributes.get("token").is_some() && !is_subsort {
+    if attributes.has(AttributeKey::Token) && !is_subsort {
         write_token_action(output, sort, sort_catalog, has_location);
-    } else if attributes.get("token").is_none()
+    } else if !attributes.has(AttributeKey::Token)
         && is_subsort
-        && attributes.get("notInjection").is_none()
+        && !attributes.has(AttributeKey::NotInjection)
     {
         write_subsort_action(output, sort, items, attributes, has_location)?;
-    } else if attributes.get("token").is_some() && is_subsort {
+    } else if attributes.has(AttributeKey::Token) && is_subsort {
         write_token_subsort_action(output, sort, has_location);
-    } else if is_subsort && attributes.get("notInjection").is_some() {
+    } else if is_subsort && attributes.has(AttributeKey::NotInjection) {
         let [child] = nonterminals.as_slice() else {
             return Err(GrammarError::InvalidSubsort { sort: sort.clone() });
         };
@@ -721,7 +724,7 @@ fn write_production(
             overloads,
             has_location,
         );
-    } else if attributes.get("bracket").is_some() {
+    } else if attributes.has(AttributeKey::Bracket) {
         let [child] = nonterminals.as_slice() else {
             return Err(GrammarError::InvalidBracket { sort: sort.clone() });
         };
@@ -731,9 +734,9 @@ fn write_production(
     }
 
     if glr {
-        let precedence = if attributes.get("prefer").is_some() {
+        let precedence = if attributes.has(AttributeKey::Prefer) {
             3
-        } else if attributes.get("avoid").is_some() {
+        } else if attributes.has(AttributeKey::Avoid) {
             1
         } else {
             2
@@ -751,7 +754,7 @@ fn write_token_action(
     sort_catalog: &SortCatalog<'_>,
     has_location: bool,
 ) {
-    let hook = sort_attributes(sort_catalog, sort).get_str("hook");
+    let hook = sort_attributes(sort_catalog, sort).string(AttributeKey::Hook);
     let symbol = match hook {
         Some("STRING.String") => "$1.token",
         Some("BYTES.Bytes") => "$1.token+1",
@@ -785,18 +788,17 @@ fn write_subsort_action(
     )
     .expect("writing to a string cannot fail");
 
-    if attributes.get("userListTerminator").is_some() {
-        let nil = attributes.label("userListTerminator").ok_or_else(|| {
+    if attributes.has(AttributeKey::UserListTerminator) {
+        let nil = attributes
+            .label(AttributeKey::UserListTerminator)
+            .ok_or_else(|| GrammarError::InvalidUserListMetadata {
+                sort: result.clone(),
+            })?;
+        let cons = attributes.label(AttributeKey::UserList).ok_or_else(|| {
             GrammarError::InvalidUserListMetadata {
                 sort: result.clone(),
             }
         })?;
-        let cons =
-            attributes
-                .label("userList")
-                .ok_or_else(|| GrammarError::InvalidUserListMetadata {
-                    sort: result.clone(),
-                })?;
         let nil = c_kore_label(&nil);
         let cons = c_kore_label(&cons);
         writeln!(
@@ -910,7 +912,7 @@ fn write_labeled_action(
             c_kore_sort(lesser_result),
             u8::from(
                 sort_attributes(sort_catalog, lesser_result)
-                    .get("locations")
+                    .value(AttributeKey::Locations)
                     .is_some()
             )
         )

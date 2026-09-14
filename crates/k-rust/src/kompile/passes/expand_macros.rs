@@ -5,6 +5,7 @@ use std::{
     fmt,
 };
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -21,8 +22,6 @@ use crate::{
     },
     provenance::{GeneratingPass, record_generated_origins},
 };
-
-const MACRO_ATTRIBUTES: &[&str] = &["macro", "macro-rec", "alias", "alias-rec"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExpandMacrosError {
@@ -74,7 +73,8 @@ fn expand_macros_inner(definition: &Definition) -> Result<Definition, ExpandMacr
             }
         };
         for sentence in &mut module.local_sentences {
-            if matches!(sentence, Sentence::Rule { attributes, .. } if is_macro(attributes)) {
+            if matches!(sentence, Sentence::Rule { attributes, .. } if attributes.has_any(&AttributeKey::MACRO_LIKE))
+            {
                 continue;
             }
             if matches!(
@@ -543,7 +543,7 @@ fn macro_rule(
         return None;
     };
     let left = rewrite_projection(body, false);
-    let production_attributes = if attributes.get("simplification").is_some() {
+    let production_attributes = if attributes.has(AttributeKey::Simplification) {
         None
     } else {
         match left.unannotated() {
@@ -551,13 +551,16 @@ fn macro_rule(
             _ => None,
         }
     };
-    if !is_macro(attributes) && !production_attributes.is_some_and(is_macro) {
+    if !attributes.has_any(&AttributeKey::MACRO_LIKE)
+        && !production_attributes
+            .is_some_and(|attributes| attributes.has_any(&AttributeKey::MACRO_LIKE))
+    {
         return None;
     }
-    let recursive = attributes.get("macro-rec").is_some()
-        || attributes.get("alias-rec").is_some()
+    let recursive = attributes.has(AttributeKey::MacroRec)
+        || attributes.has(AttributeKey::AliasRec)
         || production_attributes.is_some_and(|attributes| {
-            attributes.get("macro-rec").is_some() || attributes.get("alias-rec").is_some()
+            attributes.has(AttributeKey::MacroRec) || attributes.has(AttributeKey::AliasRec)
         });
     Some(MacroRule {
         id,
@@ -624,7 +627,7 @@ fn contains_macro_symbol(sentence: &Sentence, productions: &ProductionCatalog<'_
             if let Term::Apply { label, .. } = term.unannotated()
                 && productions
                     .attributes_for(&LabelHead::from(label))
-                    .is_some_and(is_macro)
+                    .is_some_and(|attributes| attributes.has_any(&AttributeKey::MACRO_LIKE))
             {
                 found = true;
             }
@@ -633,18 +636,12 @@ fn contains_macro_symbol(sentence: &Sentence, productions: &ProductionCatalog<'_
     found
 }
 
-fn is_macro(attributes: &Attributes) -> bool {
-    MACRO_ATTRIBUTES
-        .iter()
-        .any(|attribute| attributes.get(attribute).is_some())
-}
-
 fn macro_priority(attributes: &Attributes) -> Result<i64, String> {
-    if let Some(value) = attributes.get_str("priority") {
+    if let Some(value) = attributes.string(AttributeKey::Priority) {
         value.parse().map_err(|_| {
             format!("Invalid value for priority attribute: {value}. Must be an integer.")
         })
-    } else if attributes.get("owise").is_some() {
+    } else if attributes.has(AttributeKey::Owise) {
         Ok(200)
     } else {
         Ok(50)

@@ -2,8 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -32,7 +33,7 @@ pub fn add_semantics_module(definition: &Definition) -> Result<Definition, Strin
         .iter()
         .map(|module| module.name.as_str())
         .collect::<BTreeSet<_>>();
-    let syntax_module = definition.attributes.get_str("syntaxModule");
+    let syntax_module = definition.attributes.string(AttributeKey::SyntaxModule);
     let imports = [
         Some(definition.main_module.as_str()),
         syntax_module,
@@ -87,7 +88,7 @@ pub fn add_cool_like_attributes(definition: &Definition) -> Definition {
                     Sentence::Rule { attributes, .. }
                     | Sentence::Context { attributes, .. }
                     | Sentence::ContextAlias { attributes, .. } => {
-                        attributes.insert("cool-like", json!(""));
+                        attributes.mark(AttributeKey::CoolLike);
                     }
                     _ => unreachable!(),
                 }
@@ -110,7 +111,7 @@ pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
                     attributes,
                     ..
                 } => attributes
-                    .get("predicate")
+                    .value(AttributeKey::Predicate)
                     .and_then(sort_from_json)
                     .map(|sort| (label.name.clone(), sort)),
                 _ => None,
@@ -183,7 +184,7 @@ fn contains_cool_like(term: &Term, productions: &crate::definition::ProductionCa
         Term::Apply { label, arguments } => {
             let main_cell = productions
                 .attributes_for(&LabelHead::from(label))
-                .is_some_and(|attributes| attributes.get("maincell").is_some());
+                .is_some_and(|attributes| attributes.has(AttributeKey::Maincell));
             let starts_with_variable = arguments.first().is_some_and(|argument| {
                 matches!(argument.unannotated(), Term::Sequence(items)
                     if items.len() > 1
@@ -226,7 +227,7 @@ fn project_left(term: &Term) -> &Term {
 fn predicate_rule(predicate: &str, argument: Term, result: bool, owise: bool) -> Sentence {
     let mut attributes = Attributes::default();
     if owise {
-        attributes.insert("owise", json!(""));
+        attributes.mark(AttributeKey::Owise);
     }
     Sentence::Rule {
         body: Term::Rewrite {

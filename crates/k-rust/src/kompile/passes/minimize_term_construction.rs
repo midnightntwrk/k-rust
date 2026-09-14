@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence},
@@ -51,7 +52,7 @@ fn minimize_term_construction_inner(
             else {
                 continue;
             };
-            if attributes.get("simplification").is_some() {
+            if attributes.has(AttributeKey::Simplification) {
                 continue;
             }
             let fresh = FreshNames::for_terms([&*body, &*requires, &*ensures]);
@@ -279,7 +280,7 @@ impl<'a> Minimizer<'a> {
                 self.main_productions
                     .attributes_for(&LabelHead::from(label))
             })
-            .and_then(|attributes| attributes.get_str("hook"))
+            .and_then(|attributes| attributes.string(AttributeKey::Hook))
     }
 }
 

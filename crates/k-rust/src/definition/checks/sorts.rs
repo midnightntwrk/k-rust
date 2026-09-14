@@ -3,11 +3,11 @@
 use super::super::{
     ProductionItem, ResolvedDefinition, ResolvedModule, Sentence, SortCatalog, SortHead,
 };
+use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Sort;
 
 const MINT_SORT: &str = "MInt";
-const USER_LIST_ATTRIBUTE: &str = "userList";
 
 /// Java `Module.checkSorts` (`outer.scala:486-516`).
 pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
@@ -106,7 +106,7 @@ pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<D
         else {
             continue;
         };
-        if attributes.get(USER_LIST_ATTRIBUTE).is_none() {
+        if !attributes.has(AttributeKey::UserList) {
             continue;
         }
 
@@ -121,7 +121,7 @@ pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<D
                 return false;
             };
             candidate_sort == sort
-                && candidate_attributes.get(USER_LIST_ATTRIBUTE).is_some()
+                && candidate_attributes.has(AttributeKey::UserList)
                 && (
                     candidate_attributes.source(),
                     candidate_attributes.location(),

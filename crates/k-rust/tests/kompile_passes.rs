@@ -1776,6 +1776,75 @@ fn function_dependencies_ignore_anywhere_macro_classification() {
 }
 
 #[test]
+fn anywhere_macro_like_rules_are_not_anywhere_rules_for_with_config() {
+    // `compute_with_config_functions` collects the head labels of the module's non-macro
+    // `anywhere` rules as dependency targets, mirroring K's
+    // `ComputeTransitiveFunctionDependencies`. A rule carrying `anywhere` together with any
+    // macro-like key is a macro, not an `anywhere` rule. `helper` is a constructor here, so
+    // its rule reaches the pass only through that set: the configuration `reader` needs must
+    // not be threaded to `caller` through a macro-like `anywhere` rule.
+    for macro_kind in ["macro", "macro-rec", "alias", "alias-rec"] {
+        let function = attributes(&[("function", json!(""))]);
+        let helper_attributes = attributes(&[("anywhere", json!("")), (macro_kind, json!(""))]);
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![module(
+                "MAIN",
+                vec![
+                    production("reader", "Int", function.clone()),
+                    production("helper", "Int", Attributes::default()),
+                    production("caller", "Int", function),
+                    rule(
+                        rewrite(
+                            application("reader", Vec::new()),
+                            Term::Variable {
+                                name: "!Fresh".into(),
+                                sort: Some(Sort::new("Int")),
+                            },
+                        ),
+                        Attributes::default(),
+                    ),
+                    rule(
+                        rewrite(
+                            application("helper", Vec::new()),
+                            application("reader", Vec::new()),
+                        ),
+                        helper_attributes,
+                    ),
+                    rule(
+                        rewrite(
+                            application("caller", Vec::new()),
+                            application("helper", Vec::new()),
+                        ),
+                        Attributes::default(),
+                    ),
+                ],
+            )],
+            attributes: Attributes::default(),
+        };
+
+        let transformed = resolve_function_with_config(&definition).unwrap();
+        let arities = transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label),
+                    items,
+                    ..
+                } => Some((label.name.as_str(), items.len())),
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(arities["reader"], 1, "{macro_kind}");
+        assert_eq!(arities["helper"], 0, "{macro_kind}");
+        assert_eq!(arities["caller"], 0, "{macro_kind}");
+    }
+}
+
+#[test]
 fn lowers_with_config_rules_to_a_top_cell_alias() {
     let definition = Definition {
         main_module: "MAIN".into(),

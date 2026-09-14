@@ -3,10 +3,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::Sentence;
+use crate::definition::AttributeKey;
 use crate::definition::{
-    LOCATION_ATTRIBUTE, LabelHead, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
-    ResolvedDefinition, SOURCE_ATTRIBUTE, SortCatalog, SortHead, StructuralCheckOptions,
-    compute_disambiguation_subsorts, compute_overloads, match_rule_label,
+    LabelHead, ModuleId, ProductionCatalog, ProductionId, ProductionItem, ResolvedDefinition,
+    SortCatalog, SortHead, StructuralCheckOptions, compute_disambiguation_subsorts,
+    compute_overloads, match_rule_label,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
@@ -158,11 +159,11 @@ pub fn check_unused_symbols(
             else {
                 continue;
             };
-            let Some(source) = attributes.get_str(SOURCE_ATTRIBUTE) else {
+            let Some(source) = attributes.string(AttributeKey::Source) else {
                 continue;
             };
             defined.insert(label.name.clone(), (*module, production));
-            if let Some(location) = attributes.get(LOCATION_ATTRIBUTE) {
+            if let Some(location) = attributes.value(AttributeKey::Location) {
                 co_located
                     .entry((source.into(), location.to_string()))
                     .or_default()
@@ -193,10 +194,10 @@ pub fn check_unused_symbols(
             continue;
         };
         let attributes = production.attributes();
-        let Some(source) = attributes.get_str(SOURCE_ATTRIBUTE) else {
+        let Some(source) = attributes.string(AttributeKey::Source) else {
             continue;
         };
-        if let Some(location) = attributes.get(LOCATION_ATTRIBUTE)
+        if let Some(location) = attributes.value(AttributeKey::Location)
             && let Some(labels) = co_located.get(&(source.into(), location.to_string()))
         {
             used.extend(labels.iter().cloned());
@@ -208,11 +209,11 @@ pub fn check_unused_symbols(
         .filter(|(label, (module, production))| {
             let attributes = production.attributes();
             !used.contains(label)
-                && attributes.get("maincell").is_none()
-                && attributes.get("unused").is_none()
+                && !attributes.has(AttributeKey::Maincell)
+                && !attributes.has(AttributeKey::Unused)
                 && label != "<generatedTop>"
                 && !cell_collection_production(definition, *module, production)
-                && attributes.get_str(SOURCE_ATTRIBUTE).is_some_and(|source| {
+                && attributes.string(AttributeKey::Source).is_some_and(|source| {
                     !options
                         .builtin_source_prefixes
                         .iter()
@@ -237,7 +238,7 @@ pub fn check_duplicate_overloads(definition: &ResolvedDefinition) -> Vec<Diagnos
     };
     let mut groups = BTreeMap::<String, BTreeSet<ProductionId>>::new();
     for (id, production) in overloads.productions() {
-        if let Some(key) = production.attributes().get_str("overload") {
+        if let Some(key) = production.attributes().string(AttributeKey::Overload) {
             groups.entry(key.into()).or_default().insert(id);
         }
     }
@@ -258,8 +259,7 @@ pub fn check_duplicate_overloads(definition: &ResolvedDefinition) -> Vec<Diagnos
             overloads
                 .production(*id)
                 .attributes()
-                .get("userList")
-                .is_some()
+                .has(AttributeKey::UserList)
         });
         let limit = if user_lists { 2 } else { 1 };
         if group_components.len() <= limit {
@@ -295,7 +295,7 @@ pub fn check_singleton_overloads(definition: &ResolvedDefinition) -> Vec<Diagnos
     overloads
         .productions()
         .filter(|(id, production)| {
-            production.attributes().get("overload").is_some()
+            production.attributes().has(AttributeKey::Overload)
                 && !overloads.order().contains(id)
         })
         .map(|(_, production)| {
@@ -319,7 +319,7 @@ fn cell_collection_production(
     else {
         return false;
     };
-    attributes.get("cell").is_some()
+    attributes.has(AttributeKey::Cell)
         && items.iter().any(|item| {
             let ProductionItem::NonTerminal { sort, .. } = item else {
                 return false;
@@ -327,7 +327,7 @@ fn cell_collection_production(
             definition
                 .sort_catalog(module)
                 .attributes_for(&SortHead::from(sort))
-                .is_some_and(|attributes| attributes.get("cellCollection").is_some())
+                .is_some_and(|attributes| attributes.has(AttributeKey::CellCollection))
         })
 }
 
@@ -358,21 +358,24 @@ pub fn check_function_rule_attributes(definition: &ResolvedDefinition) -> Vec<Di
             .map(|(_, rule)| rule)
             .collect::<Vec<_>>();
         let all_concrete = function_rules.iter().all(|rule| {
-            has_no_arg(rule, "concrete") || rule.attributes().get("simplification").is_some()
+            has_no_arg(rule, AttributeKey::Concrete)
+                || rule.attributes().has(AttributeKey::Simplification)
         });
         let all_symbolic = function_rules.iter().all(|rule| {
-            has_no_arg(rule, "symbolic") || rule.attributes().get("simplification").is_some()
+            has_no_arg(rule, AttributeKey::Symbolic)
+                || rule.attributes().has(AttributeKey::Simplification)
         });
         for rule in function_rules {
             let attributes = rule.attributes();
-            if (has_no_arg(rule, "concrete") && attributes.get("symbolic").is_some())
-                || (has_no_arg(rule, "symbolic") && attributes.get("concrete").is_some())
+            if (has_no_arg(rule, AttributeKey::Concrete) && attributes.has(AttributeKey::Symbolic))
+                || (has_no_arg(rule, AttributeKey::Symbolic)
+                    && attributes.has(AttributeKey::Concrete))
             {
                 diagnostics.push(both_concrete_and_symbolic(rule));
             }
-            if attributes.get("concrete").is_some()
+            if attributes.has(AttributeKey::Concrete)
                 && !all_concrete
-                && attributes.get("simplification").is_none()
+                && !attributes.has(AttributeKey::Simplification)
             {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InconsistentFunctionRuleAttributes,
@@ -380,9 +383,9 @@ pub fn check_function_rule_attributes(definition: &ResolvedDefinition) -> Vec<Di
                     rule,
                 ));
             }
-            if attributes.get("symbolic").is_some()
+            if attributes.has(AttributeKey::Symbolic)
                 && !all_symbolic
-                && attributes.get("simplification").is_none()
+                && !attributes.has(AttributeKey::Simplification)
             {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InconsistentFunctionRuleAttributes,
@@ -395,14 +398,14 @@ pub fn check_function_rule_attributes(definition: &ResolvedDefinition) -> Vec<Di
 
     for (_, rule) in rules.rules() {
         let attributes = rule.attributes();
-        if attributes.get("simplification").is_none()
-            || attributes.get("concrete").is_none()
-            || attributes.get("symbolic").is_none()
+        if !attributes.has(AttributeKey::Simplification)
+            || !attributes.has(AttributeKey::Concrete)
+            || !attributes.has(AttributeKey::Symbolic)
         {
             continue;
         }
-        let concrete = attribute_names(rule, "concrete");
-        let symbolic = attribute_names(rule, "symbolic");
+        let concrete = attribute_names(rule, AttributeKey::Concrete);
+        let symbolic = attribute_names(rule, AttributeKey::Symbolic);
         if concrete.is_empty() || symbolic.is_empty() {
             diagnostics.push(both_concrete_and_symbolic(rule));
             continue;
@@ -448,15 +451,15 @@ fn main_module_closure(definition: &ResolvedDefinition) -> BTreeSet<ModuleId> {
     modules
 }
 
-fn has_no_arg(rule: &Sentence, attribute: &str) -> bool {
-    rule.attributes().get_str(attribute) == Some("")
+fn has_no_arg(rule: &Sentence, attribute: AttributeKey) -> bool {
+    rule.attributes().string(attribute) == Some("")
 }
 
-fn attribute_names(rule: &Sentence, attribute: &str) -> BTreeSet<String> {
+fn attribute_names(rule: &Sentence, attribute: AttributeKey) -> BTreeSet<String> {
     // Keep empty names: Java's `String.split`/`CollectionUtils.intersection`
     // combination reports two empty attributes as the overlap `[]`.
     rule.attributes()
-        .get_str(attribute)
+        .string(attribute)
         .into_iter()
         .flat_map(|names| names.split(','))
         .map(str::trim)

@@ -1,6 +1,7 @@
 //! SMT-lemma symbol validation ported from Java `CheckSmtLemmas`.
 
 use super::Sentence;
+use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
@@ -17,7 +18,7 @@ pub fn check_smt_lemmas(
         else {
             continue;
         };
-        if attributes.get("smt-lemma").is_none() {
+        if !attributes.has(AttributeKey::SmtLemma) {
             continue;
         }
         body.visit_preorder(&mut |term| {
@@ -30,7 +31,7 @@ pub fn check_smt_lemmas(
             }
             if ids.iter().all(|id| {
                 let attributes = productions.production(*id).attributes();
-                attributes.get("smt-hook").is_none() && attributes.get("smtlib").is_none()
+                !attributes.has(AttributeKey::SmtHook) && !attributes.has(AttributeKey::Smtlib)
             }) {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidSmtLemma,

@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, Sentence},
@@ -88,12 +89,7 @@ fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence, add_predicate
 
     if !add_predicates
         || casts.is_empty()
-        || sentence.attributes().entries().keys().any(|attribute| {
-            matches!(
-                attribute.as_str(),
-                "macro" | "macro-rec" | "alias" | "alias-rec"
-            )
-        })
+        || sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
     {
         return;
     }

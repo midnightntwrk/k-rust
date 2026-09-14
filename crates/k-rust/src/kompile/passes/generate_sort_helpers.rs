@@ -2,6 +2,7 @@
 
 use serde_json::{Value, json};
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -33,7 +34,7 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
                 .contains(&Sort::builtin(BuiltinSort::Bool))
         {
             let mut attributes = Attributes::default();
-            attributes.insert("token", json!(""));
+            attributes.mark(AttributeKey::Token);
             generated.push(Sentence::SyntaxSort {
                 parameters: Vec::new(),
                 sort: Sort::builtin(BuiltinSort::Bool),
@@ -55,15 +56,11 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
                     },
                     ProductionItem::Terminal(")".into()),
                 ],
-                attributes: Attributes::new(
-                    [
-                        ("function".into(), Value::String(String::new())),
-                        ("total".into(), Value::String(String::new())),
-                        ("predicate".into(), sort_json(sort)),
-                    ]
-                    .into_iter()
-                    .collect(),
-                ),
+                attributes: Attributes::from_pairs([
+                    (AttributeKey::Function, Value::String(String::new())),
+                    (AttributeKey::Total, Value::String(String::new())),
+                    (AttributeKey::Predicate, sort_json(sort)),
+                ]),
             };
             if !visible.contains(&&production) && !module.local_sentences.contains(&production) {
                 generated.push(production);
@@ -104,7 +101,7 @@ pub fn regenerate_sort_predicate_syntax(definition: &Definition) -> Result<Defin
             else {
                 continue;
             };
-            if attributes.get("predicate").is_none() {
+            if !attributes.has(AttributeKey::Predicate) {
                 continue;
             }
             *items = vec![
@@ -184,9 +181,9 @@ fn sort_projection(sort: &Sort, label: Label) -> [Sentence; 2] {
         sort: Some(sort.clone()),
     };
     let mut projection_attributes = Attributes::default();
-    projection_attributes.insert("projection", json!(""));
+    projection_attributes.mark(AttributeKey::Projection);
     let mut production_attributes = projection_attributes.clone();
-    production_attributes.insert("function", json!(""));
+    production_attributes.mark(AttributeKey::Function);
     [
         Sentence::Production {
             label: Some(label.clone()),
@@ -234,7 +231,7 @@ fn named_projections(
     else {
         return Vec::new();
     };
-    if attributes.get("function").is_some() || productions.macro_labels().contains(source_label) {
+    if attributes.has(AttributeKey::Function) || productions.macro_labels().contains(source_label) {
         return Vec::new();
     }
     let nonterminals = items
@@ -266,7 +263,7 @@ fn named_projections(
             !main_productions
                 .production(**id)
                 .attributes()
-                .get("function")
+                .value(AttributeKey::Function)
                 .is_some()
         })
         .count()
@@ -286,9 +283,9 @@ fn named_projections(
         };
         let label = Label::new(format!("project:{}:{field_name}", source_label.name));
         let mut attributes = Attributes::default();
-        attributes.insert("function", json!(""));
+        attributes.mark(AttributeKey::Function);
         if total {
-            attributes.insert("total", json!(""));
+            attributes.mark(AttributeKey::Total);
         }
         generated.push(Sentence::Production {
             label: Some(label.clone()),

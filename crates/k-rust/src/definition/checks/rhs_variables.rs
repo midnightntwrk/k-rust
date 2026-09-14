@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use super::Sentence;
 use super::term_position::{TermPosition, positioned_children};
+use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Term};
 
@@ -89,7 +90,7 @@ fn check_rule_variables(
     check_pattern_value(ensures, TermPosition::CONDITION, sentence, diagnostics);
 
     let error_existential = !options.symbolic
-        && sentence.attributes().get_str("label") != Some("STDIN-STREAM.stdinUnblock");
+        && sentence.attributes().string(AttributeKey::Label) != Some("STDIN-STREAM.stdinUnblock");
     let requires_is_lhs = is_claim || options.backend == StructuralCheckBackend::Rust;
     let requires_position = if requires_is_lhs {
         TermPosition::BODY
@@ -391,7 +392,7 @@ fn is_semantic_cast(label: &Label) -> bool {
 fn unbound_variable_names(sentence: &Sentence) -> BTreeSet<String> {
     sentence
         .attributes()
-        .get_str("unboundVariables")
+        .string(AttributeKey::UnboundVariables)
         .into_iter()
         .flat_map(|names| names.split(','))
         .map(str::trim)

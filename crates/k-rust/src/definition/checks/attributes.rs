@@ -1,6 +1,7 @@
 //! Attribute well-formedness checks ported from Java `CheckAtt` and `CheckBracket`.
 
 use super::Sentence;
+use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, LabelHead, OverloadOrder, ProductionCatalog, ProductionItem, ResolvedModule,
     SortCatalog, SortHead,
@@ -37,7 +38,7 @@ pub fn check_attributes(module: &ResolvedModule) -> Vec<Diagnostic> {
             target,
             Some(sentence),
         ));
-        if let Some(label) = sentence.attributes().get_str("label")
+        if let Some(label) = sentence.attributes().string(AttributeKey::Label)
             && (label.contains('`') || label.chars().any(char::is_whitespace))
         {
             diagnostics.push(Diagnostic::error(
@@ -140,11 +141,11 @@ fn check_rule(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let attributes = rule.attributes();
-    if attributes.get("non-executable").is_some() {
+    if attributes.has(AttributeKey::NonExecutable) {
         let label = match_rule_label(rule);
         let is_function = productions
             .attributes_for(&LabelHead::from(&label))
-            .is_some_and(|attributes| attributes.get("function").is_some());
+            .is_some_and(|attributes| attributes.has(AttributeKey::Function));
         if !is_function {
             diagnostics.push(invalid_attribute(
                 "non-executable attribute is only supported on function rules.",
@@ -152,33 +153,33 @@ fn check_rule(
             ));
         }
     }
-    if attributes.get("simplification").is_some() {
+    if attributes.has(AttributeKey::Simplification) {
         for (attribute, message) in [
             (
-                "owise",
+                AttributeKey::Owise,
                 "owise attribute is not supported on simplification rules.",
             ),
             (
-                "priority",
+                AttributeKey::Priority,
                 "priority attribute is not supported on simplification rules.",
             ),
             (
-                "anywhere",
+                AttributeKey::Anywhere,
                 "anywhere attribute is not supported on simplification rules.",
             ),
         ] {
-            if attributes.get(attribute).is_some() {
+            if attributes.has(attribute) {
                 diagnostics.push(invalid_attribute(message, rule));
             }
         }
     }
-    if attributes.get("anywhere").is_some() && attributes.get("symbolic").is_some() {
+    if attributes.has(AttributeKey::Anywhere) && attributes.has(AttributeKey::Symbolic) {
         diagnostics.push(invalid_attribute(
             "anywhere attribute is not supported on symbolic rules.",
             rule,
         ));
     }
-    if attributes.get("syntactic").is_some() && attributes.get("simplification").is_none() {
+    if attributes.has(AttributeKey::Syntactic) && !attributes.has(AttributeKey::Simplification) {
         diagnostics.push(invalid_attribute(
             "syntactic attribute is only supported on simplification rules.",
             rule,
@@ -226,25 +227,25 @@ fn check_production(
     check_format(production, items, nonterminals.len(), diagnostics);
     check_bracket(production, sort, &nonterminals, diagnostics);
 
-    if attributes.get("functional").is_some() {
+    if attributes.has(AttributeKey::Functional) {
         diagnostics.push(deprecated_attribute(
             "The attribute 'functional' has been deprecated on symbols. Use the combination of attributes 'function' and 'total' instead.",
             production,
         ));
     }
-    if attributes.get("total").is_some() && attributes.get("function").is_none() {
+    if attributes.has(AttributeKey::Total) && !attributes.has(AttributeKey::Function) {
         diagnostics.push(invalid_attribute(
             "The attribute 'total' cannot be applied to a production which does not have the 'function' attribute.",
             production,
         ));
     }
-    if attributes.get("terminator-symbol").is_some() && attributes.get("userList").is_none() {
+    if attributes.has(AttributeKey::TerminatorSymbol) && !attributes.has(AttributeKey::UserList) {
         diagnostics.push(invalid_attribute(
             "The attribute 'terminator-symbol' cannot be applied to a production that does not declare a syntactic list.",
             production,
         ));
     }
-    if attributes.get("latex").is_some() {
+    if attributes.has(AttributeKey::Latex) {
         diagnostics.push(deprecated_attribute(
             "The attribute 'latex' has been deprecated and all of its functionality has been removed. Using it will be an error in the future.",
             production,
@@ -281,22 +282,24 @@ fn check_hooked_sort_constructor(
     let Some(sort_attributes) = sorts.attributes_for(&SortHead::from(sort)) else {
         return;
     };
-    if sort_attributes.get("hook").is_none() {
+    if !sort_attributes.has(AttributeKey::Hook) {
         return;
     }
     let macro_label = label
         .as_ref()
         .is_some_and(|label| productions.macro_labels().contains(label));
-    let constructor_exempt = ["function", "bracket", "token", "macro"]
-        .iter()
-        .any(|attribute| attributes.get(attribute).is_some())
-        || macro_label;
+    let constructor_exempt = attributes.has_any(&[
+        AttributeKey::Function,
+        AttributeKey::Bracket,
+        AttributeKey::Token,
+        AttributeKey::Macro,
+    ]) || macro_label;
     let k_exempt = sort.name == BuiltinSort::K.k_name()
         && (label
             .as_ref()
             .is_some_and(|label| matches!(label.name.as_str(), "#EmptyK" | "#KSequence"))
             || is_subsort);
-    let cell_collection_exempt = sort_attributes.get("cellCollection").is_some() && is_subsort;
+    let cell_collection_exempt = sort_attributes.has(AttributeKey::CellCollection) && is_subsort;
     if !constructor_exempt && !k_exempt && !cell_collection_exempt {
         diagnostics.push(invalid_attribute(
             format!("Cannot add new constructors to hooked sort {sort}"),
@@ -311,7 +314,7 @@ fn check_binder(
     sorts: &SortCatalog<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if production.attributes().get("binder").is_none() {
+    if !production.attributes().has(AttributeKey::Binder) {
         return;
     }
     if nonterminals.len() < 2 {
@@ -323,7 +326,7 @@ fn check_binder(
     }
     let first_hook = sorts
         .attributes_for(&SortHead::from(nonterminals[0]))
-        .and_then(|attributes| attributes.get_str("hook"));
+        .and_then(|attributes| attributes.string(AttributeKey::Hook));
     if first_hook != Some("KVAR.KVar") {
         diagnostics.push(invalid_attribute(
             "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.",
@@ -340,10 +343,10 @@ fn check_format(
 ) {
     let attributes = production.attributes();
     let colors = attributes
-        .get_str("colors")
+        .string(AttributeKey::Colors)
         .map(|colors| colors.split(',').count());
     let mut color_escapes = 0;
-    if let Some(format) = attributes.get_str("format") {
+    if let Some(format) = attributes.string(AttributeKey::Format) {
         let bytes = format.as_bytes();
         let mut index = 0;
         while index < bytes.len() {
@@ -392,7 +395,7 @@ fn check_format(
             }
             index += 1;
         }
-    } else if attributes.get("token").is_none()
+    } else if !attributes.has(AttributeKey::Token)
         && !matches!(
             production,
             Sentence::Production { sort, .. }
@@ -430,7 +433,7 @@ fn check_bracket(
     nonterminals: &[&crate::kast::Sort],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if production.attributes().get("bracket").is_some()
+    if production.attributes().has(AttributeKey::Bracket)
         && (nonterminals.len() != 1 || nonterminals[0] != result)
     {
         diagnostics.push(Diagnostic::error(
@@ -448,8 +451,8 @@ fn check_symbol_attributes(
     attributes: &Attributes,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let klabel = attributes.get_str("klabel");
-    let symbol = attributes.get_str("symbol");
+    let klabel = attributes.string(AttributeKey::Klabel);
+    let symbol = attributes.string(AttributeKey::Symbol);
     if let Some(klabel) = klabel {
         match symbol {
             Some("") => diagnostics.push(deprecated_attribute(
@@ -475,7 +478,7 @@ fn check_symbol_attributes(
                 production,
             )),
         }
-        if attributes.get("overload").is_some() {
+        if attributes.has(AttributeKey::Overload) {
             diagnostics.push(invalid_attribute(
                 format!(
                     "The attributes `klabel` and `overload` may not occur together. Either remove `klabel({klabel})`, or replace it by `symbol({klabel})`"
@@ -484,7 +487,7 @@ fn check_symbol_attributes(
             ));
         }
     }
-    if !has_label && attributes.get("overload").is_some() {
+    if !has_label && attributes.has(AttributeKey::Overload) {
         diagnostics.push(invalid_attribute(
             "Production would not be a KORE symbol and therefore cannot be overloaded. Add a `symbol(_)` attribute to the production.",
             production,

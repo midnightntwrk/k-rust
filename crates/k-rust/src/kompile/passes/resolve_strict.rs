@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, fmt};
 
 use serde_json::Value;
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -68,8 +69,11 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
             let Sentence::Production { attributes, .. } = sentence else {
                 continue;
             };
-            for (key, sequential) in [("strict", false), ("seqstrict", true)] {
-                if attributes.get(key).is_none() {
+            for (key, sequential) in [
+                (AttributeKey::Strict, false),
+                (AttributeKey::Seqstrict, true),
+            ] {
+                if !attributes.has(key) {
                     continue;
                 }
                 match resolve_production(sentence, key, sequential, &module.name, &aliases) {
@@ -126,7 +130,7 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
 
 fn resolve_production(
     production: &Sentence,
-    key: &str,
+    key: AttributeKey,
     sequential: bool,
     module_name: &str,
     labeled: &BTreeMap<String, Vec<&Sentence>>,
@@ -229,8 +233,8 @@ fn resolve_production(
         }
     }
 
-    if attributes.get("hybrid").is_some() {
-        let hybrid = attribute_text(attributes, "hybrid").unwrap_or_default();
+    if attributes.has(AttributeKey::Hybrid) {
+        let hybrid = attribute_text(attributes, AttributeKey::Hybrid).unwrap_or_default();
         let predicates = if hybrid.is_empty() {
             vec!["isKResult".to_owned()]
         } else {
@@ -298,7 +302,7 @@ fn generate_contexts(
         for alias in aliases {
             let mut arguments = base_arguments.clone();
             let mut this_hole = hole.clone();
-            if let Some(context_label) = attribute_text(&alias.attributes, "context") {
+            if let Some(context_label) = attribute_text(&alias.attributes, AttributeKey::Context) {
                 this_hole = Term::Rewrite {
                     left: Box::new(hole.clone()),
                     right: Box::new(Term::apply(&context_label, vec![hole.clone()])),
@@ -310,8 +314,8 @@ fn generate_contexts(
                 arguments,
             };
             let body = replace_here(alias.body.clone(), &replacement);
-            let result_text =
-                attribute_text(&alias.attributes, "result").unwrap_or_else(|| "KResult".into());
+            let result_text = attribute_text(&alias.attributes, AttributeKey::Result)
+                .unwrap_or_else(|| "KResult".into());
             let result = parse_sort(&result_text).map_err(|error| {
                 vec![error_at(
                     format!("Invalid result sort {result_text:?} in context alias: {error}"),
@@ -335,14 +339,14 @@ fn generate_contexts(
             };
             let requires = Term::apply("_andBool_", vec![requires, alias.requires.clone()]);
             let mut attributes = merge_attributes(production_attributes, &alias.attributes);
-            let source_label = attribute_text(production_attributes, "klabel")
+            let source_label = attribute_text(production_attributes, AttributeKey::Klabel)
                 .unwrap_or_else(|| production_label.name.clone());
             let compact_label = source_label
                 .chars()
                 .filter(|character| *character != '`' && !character.is_whitespace())
                 .collect::<String>();
-            attributes.insert(
-                "label",
+            attributes.set(
+                AttributeKey::Label,
                 Value::String(format!("{module_name}.{compact_label}{position}")),
             );
             generated.push(Sentence::Context {
@@ -434,7 +438,7 @@ fn labeled_sentences(
 ) -> BTreeMap<String, Vec<&Sentence>> {
     let mut labeled = BTreeMap::<String, Vec<&Sentence>>::new();
     for sentence in definition.sentences(module) {
-        if let Some(label) = attribute_text(sentence.attributes(), "label") {
+        if let Some(label) = attribute_text(sentence.attributes(), AttributeKey::Label) {
             labeled.entry(label).or_default().push(sentence);
         }
     }
@@ -443,8 +447,8 @@ fn labeled_sentences(
 
 fn default_alias(production_attributes: &Attributes) -> Alias {
     let mut attributes = Attributes::default();
-    if let Some(result) = production_attributes.get("result") {
-        attributes.insert("result", result.clone());
+    if let Some(result) = production_attributes.value(AttributeKey::Result) {
+        attributes.set(AttributeKey::Result, result.clone());
     }
     Alias {
         body: Term::variable("HERE"),
@@ -503,8 +507,8 @@ fn merge_attributes(left: &Attributes, right: &Attributes) -> Attributes {
     result
 }
 
-fn attribute_text(attributes: &Attributes, key: &str) -> Option<String> {
-    attributes.get(key).map(|value| match value {
+fn attribute_text(attributes: &Attributes, key: AttributeKey) -> Option<String> {
+    attributes.value(key).map(|value| match value {
         Value::String(value) => value.clone(),
         Value::Null => String::new(),
         value => value.to_string(),

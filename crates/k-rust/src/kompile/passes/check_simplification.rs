@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{Definition, LabelHead, ResolvedDefinition, Sentence, match_rule_label},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
@@ -45,7 +46,7 @@ pub fn check_simplification_rules(
             .expect("resolved definition contains every source module");
         let productions = resolved.production_catalog(module_id);
         for sentence in &module.local_sentences {
-            if !matches!(sentence, Sentence::Rule { attributes, .. } if attributes.get("simplification").is_some())
+            if !matches!(sentence, Sentence::Rule { attributes, .. } if attributes.has(AttributeKey::Simplification))
             {
                 continue;
             }
@@ -53,9 +54,9 @@ pub fn check_simplification_rules(
             let valid = productions
                 .attributes_for(&LabelHead::from(&label))
                 .is_some_and(|attributes| {
-                    attributes.get("function").is_some()
-                        || attributes.get("functional").is_some()
-                        || attributes.get("mlOp").is_some()
+                    attributes.has(AttributeKey::Function)
+                        || attributes.has(AttributeKey::Functional)
+                        || attributes.has(AttributeKey::MlOp)
                 });
             if !valid {
                 diagnostics.push(Diagnostic::error(

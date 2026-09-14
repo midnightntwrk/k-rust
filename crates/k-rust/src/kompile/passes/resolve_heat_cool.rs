@@ -2,6 +2,7 @@
 
 use std::{fmt, mem};
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
@@ -57,8 +58,8 @@ fn resolve_heat_cool_attributes_inner(
         let sorts = resolved.sort_catalog(module_id);
         for sentence in &mut module.local_sentences {
             let attributes = sentence.attributes();
-            let heat = attributes.get("heat").is_some();
-            let cool = attributes.get("cool").is_some();
+            let heat = attributes.has(AttributeKey::Heat);
+            let cool = attributes.has(AttributeKey::Cool);
             if !heat && !cool {
                 continue;
             }
@@ -69,7 +70,7 @@ fn resolve_heat_cool_attributes_inner(
             if !matches!(sentence, Sentence::Rule { .. } | Sentence::Context { .. }) {
                 continue;
             }
-            let result_sort = attributes.get_str("result").unwrap_or("KResult");
+            let result_sort = attributes.string(AttributeKey::Result).unwrap_or("KResult");
             let predicate_label = format!("is{result_sort}");
             let predicate_exists = !productions
                 .productions_for(&LabelHead::new(predicate_label.clone()))

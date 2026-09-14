@@ -2,8 +2,9 @@
 
 use std::{collections::BTreeMap, collections::BTreeSet, fmt};
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -78,7 +79,7 @@ fn resolve_contexts_inner(definition: &Definition) -> Result<Definition, Resolve
         .filter_map(|sentence| {
             sentence
                 .attributes()
-                .get_str("label")
+                .string(AttributeKey::Label)
                 .map(|label| (label.to_owned(), sentence.attributes().clone()))
         })
         .collect::<BTreeMap<_, _>>();
@@ -186,10 +187,10 @@ fn resolve_context(
         arguments: variables.into_values().collect(),
     };
 
-    let heat_attributes = rule_attributes(attributes, "heat", "-heat");
-    let cool_attributes = rule_attributes(attributes, "cool", "-cool");
+    let heat_attributes = rule_attributes(attributes, AttributeKey::Heat, "-heat");
+    let cool_attributes = rule_attributes(attributes, AttributeKey::Cool, "-cool");
     for rule_attributes in [&heat_attributes, &cool_attributes] {
-        if let Some(label) = rule_attributes.get_str("label")
+        if let Some(label) = rule_attributes.string(AttributeKey::Label)
             && let Some(conflict) = sentence_labels.get(label)
         {
             return Err(vec![error_at(
@@ -355,7 +356,7 @@ fn contains_main_cell(term: &Term, productions: &ProductionCatalog<'_>) -> bool 
 fn is_main_cell(label: &Label, productions: &ProductionCatalog<'_>) -> bool {
     productions
         .attributes_for(&LabelHead::from(label))
-        .is_some_and(|attributes| attributes.get("maincell").is_some())
+        .is_some_and(|attributes| attributes.has(AttributeKey::Maincell))
 }
 
 fn find_cooled(term: &Term, productions: &ProductionCatalog<'_>) -> Option<Term> {
@@ -427,11 +428,14 @@ fn unique_freezer_label(labels: &mut BTreeSet<Label>, hint: &str) -> Label {
     }
 }
 
-fn rule_attributes(source: &Attributes, marker: &str, suffix: &str) -> Attributes {
+fn rule_attributes(source: &Attributes, marker: AttributeKey, suffix: &str) -> Attributes {
     let mut attributes = source.clone();
-    attributes.insert(marker, json!(""));
-    if let Some(label) = source.get_str("label") {
-        attributes.insert("label", Value::String(format!("{label}{suffix}")));
+    attributes.mark(marker);
+    if let Some(label) = source.string(AttributeKey::Label) {
+        attributes.set(
+            AttributeKey::Label,
+            Value::String(format!("{label}{suffix}")),
+        );
     }
     attributes
 }

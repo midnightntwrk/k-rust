@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, collections::BTreeSet, fmt};
 
 use serde_json::json;
 
+use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -91,7 +92,7 @@ fn resolve_fresh_constants_inner(
 
         let has_cells = productions
             .productions()
-            .any(|(_, production)| production.attributes().get("cell").is_some());
+            .any(|(_, production)| production.attributes().has(AttributeKey::Cell));
         let configuration =
             if module.name == definition.main_module && !visible_generated_top && has_cells {
                 match generated_top_configuration(&resolved, module_id, &productions, initial_fresh)
@@ -170,7 +171,7 @@ fn transform_sentence(
                 ensures: transform_term(ensures, &fresh, &offsets, generators)?,
                 attributes,
             };
-            if with_fresh.attributes().get("initializer").is_some()
+            if with_fresh.attributes().has(AttributeKey::Initializer)
                 && rewrite_left(rule_body(&with_fresh))
                     .as_apply()
                     .is_some_and(|(label, _)| label.name == INIT_GENERATED_TOP_CELL)
@@ -466,7 +467,7 @@ fn fix_generated_top_format(sentence: &mut Sentence) {
         format.push_str(&format!("%d%n%{}", last + 2));
         format
     };
-    attributes.insert("format", json!(format));
+    attributes.set(AttributeKey::Format, json!(format));
 }
 
 fn generated_top_configuration(
@@ -484,13 +485,13 @@ fn generated_top_configuration(
                 label: Some(label),
                 attributes,
                 ..
-            } if attributes.get("cell").is_some() => Some((label, attributes)),
+            } if attributes.has(AttributeKey::Cell) => Some((label, attributes)),
             _ => None,
         })
         .ok_or_else(|| format!("No cell production found for root sort {root_sort}"))?;
     let cell_name = root
         .1
-        .get_str("cellName")
+        .string(AttributeKey::CellName)
         .ok_or_else(|| format!("Root cell {} has no cellName attribute", root.0.name))?;
     let name = cell_name_token("generatedTop");
     Ok(configuration(Term::apply(
@@ -520,7 +521,7 @@ fn root_cell_sort(
         .filter_map(|(_, production)| match production {
             Sentence::Production {
                 sort, attributes, ..
-            } if attributes.get("cell").is_some() => Some(sort.clone()),
+            } if attributes.has(AttributeKey::Cell) => Some(sort.clone()),
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -529,7 +530,7 @@ fn root_cell_sort(
         .filter_map(|(_, production)| match production {
             Sentence::Production {
                 sort, attributes, ..
-            } if attributes.get("cellCollection").is_some() => Some(sort.clone()),
+            } if attributes.has(AttributeKey::CellCollection) => Some(sort.clone()),
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -547,7 +548,7 @@ fn root_cell_sort(
         else {
             continue;
         };
-        if attributes.get("cell").is_none() || !cells.contains(sort) {
+        if !attributes.has(AttributeKey::Cell) || !cells.contains(sort) {
             continue;
         }
         for item in items {
@@ -629,7 +630,7 @@ fn counter_helpers() -> [Sentence; 2] {
                 },
                 ProductionItem::Terminal(")".into()),
             ],
-            attributes: attributes(&[("function", json!(""))]),
+            attributes: Attributes::from_pairs([(AttributeKey::Function, json!(""))]),
         },
         Sentence::Rule {
             body: Term::Rewrite {
@@ -681,15 +682,6 @@ fn truth() -> Term {
         token: "true".into(),
         sort: Sort::builtin(BuiltinSort::Bool),
     }
-}
-
-fn attributes(entries: &[(&str, serde_json::Value)]) -> Attributes {
-    Attributes::new(
-        entries
-            .iter()
-            .map(|(key, value)| ((*key).into(), value.clone()))
-            .collect(),
-    )
 }
 
 fn rule_body(sentence: &Sentence) -> &Term {

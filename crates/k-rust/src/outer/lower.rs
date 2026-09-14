@@ -2,12 +2,11 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
+use crate::definition::AttributeKey;
 use crate::{
     definition::{
         Associativity as FlatAssociativity, Attributes, Definition, FlatImport, FlatModule,
-        LOCATION_ATTRIBUTE, Location, ProductionItem as FlatProductionItem,
-        SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, SOURCE_ATTRIBUTE,
-        SOURCE_ID_ATTRIBUTE, Sentence as FlatSentence, json::label_json,
+        Location, ProductionItem as FlatProductionItem, Sentence as FlatSentence, json::label_json,
     },
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::{Label, Sort},
@@ -124,7 +123,7 @@ fn lower_module(
             sort,
             attributes: attrs_with_entry(
                 Attributes::default(),
-                "temporary-cell-sort-decl",
+                AttributeKey::TemporaryCellSortDecl,
                 json!(""),
             ),
         });
@@ -267,12 +266,12 @@ fn lower_production(
 
     let label = effective_label(module, result_sort, production, false);
     let mut attributes = sentence_source_attributes(file, production.span, &production.attributes);
-    if has_attribute(&production.attributes, "bracket") {
+    if has_attribute(&production.attributes, AttributeKey::Bracket) {
         let label = Label::with_parameters(
             bracket_label(module, result_sort, production),
             parameters.to_vec(),
         );
-        attributes.insert("bracketLabel", label_json(&label));
+        attributes.set(AttributeKey::BracketLabel, label_json(&label));
     }
     output.push(FlatSentence::Production {
         label: label.map(|name| Label::with_parameters(name, parameters.to_vec())),
@@ -283,9 +282,9 @@ fn lower_production(
     });
 
     for (key, associativity) in [
-        ("left", FlatAssociativity::Left),
-        ("right", FlatAssociativity::Right),
-        ("non-assoc", FlatAssociativity::NonAssoc),
+        (AttributeKey::Left, FlatAssociativity::Left),
+        (AttributeKey::Right, FlatAssociativity::Right),
+        (AttributeKey::NonAssoc, FlatAssociativity::NonAssoc),
     ] {
         if has_attribute(&production.attributes, key)
             && let Some(tag) = effective_label(module, result_sort, production, false)
@@ -316,7 +315,10 @@ fn lower_user_list(
         .unwrap_or_else(|| prefix_label(module, result_sort, production, true));
     let mut recursive_attributes =
         sentence_source_attributes(file, production.span, &production.attributes);
-    recursive_attributes.insert("userList", json!(if non_empty { "+" } else { "*" }));
+    recursive_attributes.set(
+        AttributeKey::UserList,
+        json!(if non_empty { "+" } else { "*" }),
+    );
     output.push(FlatSentence::Production {
         label: Some(Label::with_parameters(
             recursive_label.clone(),
@@ -352,11 +354,12 @@ fn lower_user_list(
         attributes: recursive_attributes,
     });
 
-    let explicit_terminator = attribute_value(&production.attributes, "terminator-symbol");
+    let explicit_terminator =
+        attribute_value(&production.attributes, AttributeKey::TerminatorSymbol);
     let has_symbol = production
         .attributes
         .iter()
-        .any(|attribute| attribute.key == "symbol");
+        .any(|attribute| attribute.key == AttributeKey::Symbol.as_str());
     let terminator = explicit_terminator.map_or_else(
         || {
             format!(
@@ -388,11 +391,18 @@ fn lower_user_list(
     );
     let mut terminator_attributes =
         sentence_source_attributes(file, production.span, &production.attributes);
-    for key in ["format", "strict", "terminator-symbol"] {
+    for key in [
+        AttributeKey::Format,
+        AttributeKey::Strict,
+        AttributeKey::TerminatorSymbol,
+    ] {
         terminator_attributes = without_attribute(terminator_attributes, key);
     }
-    terminator_attributes.insert("userList", json!(if non_empty { "+" } else { "*" }));
-    terminator_attributes.insert("symbol", json!(unqualified_terminator));
+    terminator_attributes.set(
+        AttributeKey::UserList,
+        json!(if non_empty { "+" } else { "*" }),
+    );
+    terminator_attributes.set(AttributeKey::Symbol, json!(unqualified_terminator));
     output.push(FlatSentence::Production {
         label: Some(Label::with_parameters(terminator, parameters.to_vec())),
         parameters: parameters.to_vec(),
@@ -419,18 +429,21 @@ fn lower_item(item: &ProductionItem) -> FlatProductionItem {
 
 fn lower_bubble(file: &SourceFile, module: &Module, bubble: &Bubble) -> FlatSentence {
     let mut attributes = sentence_source_attributes(file, bubble.span, &bubble.attributes);
-    attributes.insert(
-        "contentStartOffset",
+    attributes.set(
+        AttributeKey::ContentStartOffset,
         json!(bubble.content_span.start.offset),
     );
-    attributes.insert("contentStartLine", json!(bubble.content_span.start.line));
-    attributes.insert(
-        "contentStartColumn",
+    attributes.set(
+        AttributeKey::ContentStartLine,
+        json!(bubble.content_span.start.line),
+    );
+    attributes.set(
+        AttributeKey::ContentStartColumn,
         json!(bubble.content_span.start.column),
     );
     if let Some(label) = &bubble.label {
-        attributes.insert(
-            "label",
+        attributes.set(
+            AttributeKey::Label,
             json!(if bubble.kind == BubbleKind::ContextAlias {
                 label.clone()
             } else {
@@ -457,7 +470,7 @@ fn block_tags(module: &Module, result_sort: &Sort, block: &PriorityBlock) -> Vec
         .productions
         .iter()
         .filter_map(|production| {
-            if has_attribute(&production.attributes, "bracket") {
+            if has_attribute(&production.attributes, AttributeKey::Bracket) {
                 Some(bracket_label(module, result_sort, production))
             } else {
                 effective_label(module, result_sort, production, false)
@@ -477,7 +490,7 @@ fn build_tag_index(files: &[SourceFile]) -> TagIndex {
                 continue;
             };
             for production in blocks.iter().flat_map(|block| &block.productions) {
-                let compiled = if has_attribute(&production.attributes, "bracket") {
+                let compiled = if has_attribute(&production.attributes, AttributeKey::Bracket) {
                     Some(bracket_label(module, &syntax.sort, production))
                 } else {
                     effective_label(module, &syntax.sort, production, false)
@@ -488,7 +501,7 @@ fn build_tag_index(files: &[SourceFile]) -> TagIndex {
                 if let Some(source) = tag_key(module, production) {
                     insert_tag(&mut index, source, compiled.clone());
                 }
-                if let Some(groups) = attribute_value(&production.attributes, "group") {
+                if let Some(groups) = attribute_value(&production.attributes, AttributeKey::Group) {
                     for group in groups
                         .split(',')
                         .map(str::trim)
@@ -506,14 +519,14 @@ fn build_tag_index(files: &[SourceFile]) -> TagIndex {
 /// The source-side label key used by K's definition-wide `Context.tags` index.
 fn tag_key(module: &Module, production: &Production) -> Option<String> {
     let declared = declared_label(production);
-    let bracket = has_attribute(&production.attributes, "bracket");
+    let bracket = has_attribute(&production.attributes, AttributeKey::Bracket);
     let syntactic_subsort = matches!(
         production.items.as_slice(),
         [ProductionItem::NonTerminal { .. }]
     );
     if !bracket
         && declared.is_none()
-        && (syntactic_subsort || has_attribute(&production.attributes, "token"))
+        && (syntactic_subsort || has_attribute(&production.attributes, AttributeKey::Token))
     {
         return None;
     }
@@ -550,9 +563,9 @@ fn resolve_tags(
 }
 
 fn declared_label(production: &Production) -> Option<String> {
-    attribute_value(&production.attributes, "symbol")
+    attribute_value(&production.attributes, AttributeKey::Symbol)
         .filter(|symbol| !symbol.is_empty())
-        .or_else(|| attribute_value(&production.attributes, "klabel"))
+        .or_else(|| attribute_value(&production.attributes, AttributeKey::Klabel))
         .map(|label| label.replace(' ', ""))
 }
 
@@ -570,8 +583,8 @@ fn effective_label(
     if !bracket
         && declared.is_none()
         && (syntactic_subsort
-            || has_attribute(&production.attributes, "token")
-            || has_attribute(&production.attributes, "bracket"))
+            || has_attribute(&production.attributes, AttributeKey::Token)
+            || has_attribute(&production.attributes, AttributeKey::Bracket))
     {
         return None;
     }
@@ -579,7 +592,7 @@ fn effective_label(
         && production
             .attributes
             .iter()
-            .any(|attribute| attribute.key == "symbol")
+            .any(|attribute| attribute.key == AttributeKey::Symbol.as_str())
     {
         return Some(declared);
     }
@@ -667,10 +680,10 @@ fn source_attributes(file: &SourceFile, span: Span, attributes: &[Attribute]) ->
             json!(attribute.value.as_deref().unwrap_or_default()),
         );
     }
-    result.insert(SOURCE_ATTRIBUTE, json!(file.source));
-    result.insert(SOURCE_ID_ATTRIBUTE, json!(file.source_id.0));
-    result.insert(
-        LOCATION_ATTRIBUTE,
+    result.set(AttributeKey::Source, json!(file.source));
+    result.set(AttributeKey::SourceId, json!(file.source_id.0));
+    result.set(
+        AttributeKey::Location,
         json!([
             span.start.line,
             span.start.column,
@@ -687,33 +700,35 @@ fn sentence_source_attributes(
     attributes: &[Attribute],
 ) -> Attributes {
     let mut result = source_attributes(file, span, attributes);
-    result.insert(SENTENCE_START_OFFSET_ATTRIBUTE, json!(span.start.offset));
-    result.insert(SENTENCE_END_OFFSET_ATTRIBUTE, json!(span.end.offset));
+    result.set(AttributeKey::SentenceStartOffset, json!(span.start.offset));
+    result.set(AttributeKey::SentenceEndOffset, json!(span.end.offset));
     result
 }
 
-fn has_attribute(attributes: &[Attribute], key: &str) -> bool {
-    attributes.iter().any(|attribute| attribute.key == key)
-}
-
-fn attribute_value<'a>(attributes: &'a [Attribute], key: &str) -> Option<&'a str> {
+fn has_attribute(attributes: &[Attribute], key: AttributeKey) -> bool {
     attributes
         .iter()
-        .find(|attribute| attribute.key == key)
+        .any(|attribute| attribute.key == key.as_str())
+}
+
+fn attribute_value(attributes: &[Attribute], key: AttributeKey) -> Option<&str> {
+    attributes
+        .iter()
+        .find(|attribute| attribute.key == key.as_str())
         .and_then(|attribute| attribute.value.as_deref())
 }
 
-fn attrs_with_entry(mut attributes: Attributes, key: &str, value: Value) -> Attributes {
-    attributes.insert(key, value);
+fn attrs_with_entry(mut attributes: Attributes, key: AttributeKey, value: Value) -> Attributes {
+    attributes.set(key, value);
     attributes
 }
 
-fn without_attribute(attributes: Attributes, key: &str) -> Attributes {
+fn without_attribute(attributes: Attributes, key: AttributeKey) -> Attributes {
     Attributes::new(
         attributes
             .entries()
             .iter()
-            .filter(|(attribute, _)| attribute.as_str() != key)
+            .filter(|(attribute, _)| attribute.as_str() != key.as_str())
             .map(|(attribute, value)| (attribute.clone(), value.clone()))
             .collect(),
     )
