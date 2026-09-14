@@ -8,7 +8,7 @@
 
 use std::{
     cell::Cell,
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fmt,
     sync::Arc,
 };
