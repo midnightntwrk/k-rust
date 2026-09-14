@@ -7,11 +7,9 @@ use crate::{
     definition::{
         Definition, LabelHead, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
     },
-    kast::{Label, Sort, Term},
+    kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
-
-const GENERATED_COUNTER_CELL: &str = "<generatedCounter>";
 
 /// Apply Java's `AddImplicitComputationCell` definition transformation.
 pub fn add_implicit_computation_cell(definition: &Definition) -> Result<Definition, String> {
@@ -142,7 +140,7 @@ fn should_consider(items: &[&Term], is_claim: bool) -> bool {
     } else if items.len() == 2 && is_claim {
         matches!(
             items[1].unannotated(),
-            Term::Apply { label, .. } if label.name == GENERATED_COUNTER_CELL
+            Term::Apply { label, .. } if label.name == GeneratedCell::Counter.label()
         )
     } else {
         false
@@ -174,7 +172,7 @@ fn is_cell(term: &Term, productions: &ProductionCatalog<'_>, cell_sorts: &BTreeS
 fn flatten_cells(term: &Term) -> Vec<&Term> {
     fn flatten<'a>(term: &'a Term, output: &mut Vec<&'a Term>) {
         match term.unannotated() {
-            Term::Apply { label, arguments } if label.name == "#cells" => {
+            Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {
                 for argument in arguments {
                     flatten(argument, output);
                 }
@@ -206,9 +204,9 @@ fn incomplete_cell(label: &Label, body: Term) -> Term {
     Term::Apply {
         label: label.clone(),
         arguments: vec![
-            Term::apply("#noDots", Vec::new()),
+            Term::apply(InternalLabel::NoDots.as_str(), Vec::new()),
             body,
-            Term::apply("#dots", Vec::new()),
+            Term::apply(InternalLabel::Dots.as_str(), Vec::new()),
         ],
     }
 }

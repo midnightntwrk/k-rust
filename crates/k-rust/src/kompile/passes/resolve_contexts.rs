@@ -425,7 +425,7 @@ fn unique_freezer_label(labels: &mut BTreeSet<Label>, hint: &str) -> Label {
         } else {
             (attempt + 1).to_string()
         };
-        let label = Label::new(format!("#freezer{hint}_{suffix}"));
+        let label = Label::freezer(hint, &suffix);
         if labels.insert(label.clone()) {
             return label;
         }

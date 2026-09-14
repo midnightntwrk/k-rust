@@ -8,7 +8,7 @@ use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{GeneratedLabel, Label, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
 
 mod attributes;
 mod deprecated;
@@ -45,7 +45,8 @@ const ALLOWED_TOKEN_ATTRIBUTES: [AttributeKey; 3] = [
     AttributeKey::Token,
     AttributeKey::Bracket,
 ];
-const IGNORED_TOKEN_SORTS: [&str; 2] = ["KBott", "KLabel"];
+const IGNORED_TOKEN_SORTS: [&str; 2] =
+    [FrontendSort::KBott.as_str(), FrontendSort::KLabel.as_str()];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -389,9 +390,9 @@ pub fn check_sort_top_uniqueness(
     subsorts: &PartialOrder<Sort>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    let cell = Sort::new("Cell");
-    let k_list = Sort::new("KList");
-    let bag = Sort::new("Bag");
+    let cell = Sort::frontend(FrontendSort::Cell);
+    let k_list = Sort::frontend(FrontendSort::KList);
+    let bag = Sort::frontend(FrontendSort::Bag);
     for sentence in sentences {
         let sort = match sentence {
             Sentence::Production { sort, .. } | Sentence::SyntaxSort { sort, .. } => sort,
@@ -581,7 +582,9 @@ fn visit_rewrite_term(
                 ));
             }
         }
-        Term::Apply { label, arguments } if label.name == "#fun2" && arguments.len() >= 2 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Fun2) && arguments.len() >= 2 =>
+        {
             let saved = save_function_state(state);
             state.in_rewrite = false;
             state.has_rewrite = false;
@@ -601,7 +604,9 @@ fn visit_rewrite_term(
                 visit_rewrite_term(argument, state, diagnostics, sentence);
             }
         }
-        Term::Apply { label, arguments } if label.name == "#fun3" && arguments.len() >= 3 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Fun3) && arguments.len() >= 3 =>
+        {
             let saved = save_function_state(state);
             state.in_rewrite = true;
             state.has_rewrite = true;
@@ -615,7 +620,9 @@ fn visit_rewrite_term(
                 visit_rewrite_term(argument, state, diagnostics, sentence);
             }
         }
-        Term::Apply { label, arguments } if label.name == "#withConfig" && arguments.len() >= 2 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::WithConfig) && arguments.len() >= 2 =>
+        {
             let was_in_function_context = state.in_function_context;
             let was_in_function_body = state.in_function_body;
             if state.in_function_context || state.in_function_body {

@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use crate::{
     definition::{Definition, ModuleId, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
+    kast::WellKnownModule,
 };
 
 use super::{LoadError, LoadOptions, is_configuration_sentence};
@@ -87,7 +88,14 @@ pub(super) fn select_modules(
         .module_id(configuration)
         .ok_or_else(|| LoadError::MissingConfigurationModule(configuration.into()))?;
     let mut roots = BTreeSet::from([main, syntax, configuration]);
-    for name in ["K-REFLECTION", "STDIN-STREAM", "STDOUT-STREAM", "MAP"] {
+    for name in [
+        WellKnownModule::KReflection,
+        WellKnownModule::StdinStream,
+        WellKnownModule::StdoutStream,
+        WellKnownModule::Map,
+    ]
+    .map(WellKnownModule::as_str)
+    {
         if let Some(module) = resolved.module_id(name) {
             roots.insert(module);
         }
@@ -116,7 +124,7 @@ pub(super) fn select_modules(
     // Java supplies the original default configuration separately after selection/exclusion.
     // Retain its closure only when configuration resolution will need the fallback.
     if !has_configuration_after_exclusion(resolved, configuration, options)
-        && let Some(default) = resolved.module_id("DEFAULT-CONFIGURATION")
+        && let Some(default) = resolved.module_id(WellKnownModule::DefaultConfiguration.as_str())
         && !options
             .excluded_module_attributes
             .iter()

@@ -9,7 +9,7 @@ use z3::ast::{Ast, Bool, Datatype};
 use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solver};
 
 use crate::definition::{PartialOrder, SortHead};
-use crate::kast::{GeneratedLabel, Label, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
 
 use super::{
@@ -180,15 +180,15 @@ impl Grammar {
                 return None;
             };
             let descriptor = &self.productions[*production];
-            if descriptor.result.name == "#RuleContent" {
+            if descriptor.result.is_frontend(FrontendSort::RuleContent) {
                 term = strip_packed_brackets(self, children.first()?);
                 continue;
             }
-            if descriptor.result.name == "#RuleBody"
+            if descriptor.result.is_frontend(FrontendSort::RuleBody)
                 && descriptor
                     .label
                     .as_ref()
-                    .is_some_and(|label| label.name == "#withConfig")
+                    .is_some_and(|label| label.is(InternalLabel::WithConfig))
             {
                 term = strip_packed_brackets(self, children.first()?);
                 continue;
@@ -196,7 +196,7 @@ impl Grammar {
             if !descriptor
                 .label
                 .as_ref()
-                .is_some_and(|label| label.name == "#KRewrite")
+                .is_some_and(|label| label.is(InternalLabel::KRewrite))
                 || children.len() != 2
             {
                 return None;
@@ -236,7 +236,7 @@ impl Grammar {
             && self.productions[*production]
                 .label
                 .as_ref()
-                .is_some_and(|label| label.name == "#KRewrite")
+                .is_some_and(|label| label.is(InternalLabel::KRewrite))
             && children.len() == 2
         {
             path.push_str("_c0");
@@ -287,7 +287,7 @@ impl Grammar {
             && self.productions[*production]
                 .label
                 .as_ref()
-                .is_some_and(|label| label.name == "#KRewrite")
+                .is_some_and(|label| label.is(InternalLabel::KRewrite))
             && children.len() == 2
         {
             term = strip_packed_brackets(self, &children[0]);
@@ -607,7 +607,7 @@ impl<'a> Encoding<'a> {
                         && descriptor
                             .label
                             .as_ref()
-                            .is_some_and(|label| label.name == "#KRewrite")
+                            .is_some_and(|label| label.is(InternalLabel::KRewrite))
                         && index == 1
                         && children.len() == 2
                     {
@@ -772,7 +772,7 @@ impl<'a> Encoding<'a> {
                         && descriptor
                             .label
                             .as_ref()
-                            .is_some_and(|label| label.name == "#KRewrite")
+                            .is_some_and(|label| label.is(InternalLabel::KRewrite))
                         && index == 1
                         && children.len() == 2
                     {
@@ -1331,10 +1331,13 @@ impl<'a> Encoding<'a> {
     }
 
     fn exclude_klabel_parameters(&self, solver: &Solver) -> Result<(), ParseError> {
-        if !self.head_indexes.contains_key(&SortHead::nullary("KLabel")) {
+        if !self
+            .head_indexes
+            .contains_key(&SortHead::nullary(FrontendSort::KLabel.as_str()))
+        {
             return Ok(());
         }
-        let klabel = self.sort_value(&Sort::new("KLabel"), &BTreeMap::new())?;
+        let klabel = self.sort_value(&Sort::frontend(FrontendSort::KLabel), &BTreeMap::new())?;
         for parameter in &self.parameters {
             let value = self
                 .variables
@@ -1354,7 +1357,11 @@ impl<'a> Encoding<'a> {
     /// selected inference constants.
     fn top_preferences(&self, select: impl Fn(&str) -> bool) -> Result<Vec<Bool>, ParseError> {
         let mut constraints = Vec::new();
-        for preferred in ["K", "KItem", "Bag"] {
+        for preferred in [
+            BuiltinSort::K.k_name(),
+            BuiltinSort::KItem.k_name(),
+            FrontendSort::Bag.as_str(),
+        ] {
             let sort = Sort::new(preferred);
             if !self.ground_sorts.contains(&sort) {
                 continue;
@@ -1759,7 +1766,7 @@ impl<'a> Encoding<'a> {
                     && descriptor
                         .label
                         .as_ref()
-                        .is_some_and(|label| label.name == "#KRewrite")
+                        .is_some_and(|label| label.is(InternalLabel::KRewrite))
                     && children.len() == 2)
                     .then(|| self.declared_packed_model_sort(&children[0], model));
                 let function_body_sort = is_top_sort_production(descriptor)
@@ -2039,7 +2046,7 @@ impl<'a> Encoding<'a> {
                     && descriptor
                         .label
                         .as_ref()
-                        .is_some_and(|label| label.name == "#KRewrite")
+                        .is_some_and(|label| label.is(InternalLabel::KRewrite))
                     && children.len() == 2)
                     .then(|| {
                         declared_model_sort(
@@ -2258,8 +2265,10 @@ fn cast_context_for(production: &Production) -> CastContext {
     if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. })) {
         return CastContext::Semantic;
     }
-    match label.name.as_str() {
-        "#SyntacticCast" | "#SyntacticCastBraced" => CastContext::Strict,
+    match InternalLabel::of(&label.name) {
+        Some(InternalLabel::SyntacticCast | InternalLabel::SyntacticCastBraced) => {
+            CastContext::Strict
+        }
         _ => CastContext::None,
     }
 }
@@ -2475,12 +2484,12 @@ fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
             } => {
                 let descriptor = &grammar.productions[*production];
                 if (descriptor.bracket && children.len() == 1)
-                    || descriptor.result.name == "#RuleContent"
-                    || (descriptor.result.name == "#RuleBody"
+                    || descriptor.result.is_frontend(FrontendSort::RuleContent)
+                    || (descriptor.result.is_frontend(FrontendSort::RuleBody)
                         && descriptor
                             .label
                             .as_ref()
-                            .is_some_and(|label| label.name == "#withConfig"))
+                            .is_some_and(|label| label.is(InternalLabel::WithConfig)))
                 {
                     if let Some(child) = children.first() {
                         visit(grammar, child, format!("{path}_c0"), targets);
@@ -2488,7 +2497,7 @@ fn top_rewrite_paths(grammar: &Grammar, root: &ParsedTerm) -> HashSet<String> {
                 } else if descriptor
                     .label
                     .as_ref()
-                    .is_some_and(|label| label.name == "#KRewrite")
+                    .is_some_and(|label| label.is(InternalLabel::KRewrite))
                     && children.len() == 2
                 {
                     targets.insert(path);
@@ -2517,12 +2526,12 @@ fn packed_top_rewrites(grammar: &Grammar, root: &Rc<PackedTerm>) -> HashSet<*con
             } => {
                 let descriptor = &grammar.productions[*production];
                 if (descriptor.bracket && children.len() == 1)
-                    || descriptor.result.name == "#RuleContent"
-                    || (descriptor.result.name == "#RuleBody"
+                    || descriptor.result.is_frontend(FrontendSort::RuleContent)
+                    || (descriptor.result.is_frontend(FrontendSort::RuleBody)
                         && descriptor
                             .label
                             .as_ref()
-                            .is_some_and(|label| label.name == "#withConfig"))
+                            .is_some_and(|label| label.is(InternalLabel::WithConfig)))
                 {
                     if let Some(child) = children.first() {
                         visit(grammar, child, targets);
@@ -2530,7 +2539,7 @@ fn packed_top_rewrites(grammar: &Grammar, root: &Rc<PackedTerm>) -> HashSet<*con
                 } else if descriptor
                     .label
                     .as_ref()
-                    .is_some_and(|label| label.name == "#KRewrite")
+                    .is_some_and(|label| label.is(InternalLabel::KRewrite))
                     && children.len() == 2
                 {
                     targets.insert(Rc::as_ptr(term));
@@ -2579,10 +2588,9 @@ fn is_token_leaf(leaf: &Term) -> bool {
 }
 
 fn is_top_sort_production(production: &Production) -> bool {
-    matches!(
-        production.result.name.as_str(),
-        "#RuleContent" | "#RuleBody"
-    )
+    [FrontendSort::RuleContent, FrontendSort::RuleBody]
+        .iter()
+        .any(|sort| production.result.name == sort.as_str())
 }
 
 fn is_real_ground_sort(sort: &Sort) -> bool {
@@ -2590,15 +2598,23 @@ fn is_real_ground_sort(sort: &Sort) -> bool {
         || !is_parser_sort(sort)
         || sort.name == BuiltinSort::K.k_name()
         || sort.name == BuiltinSort::KItem.k_name()
-        || sort.name == "KLabel"
+        || sort.is_frontend(FrontendSort::KLabel)
         || sort.name.parse::<u64>().is_ok()
 }
 
 fn is_parser_sort(sort: &Sort) -> bool {
-    matches!(
-        sort.name.as_str(),
-        "KBott" | "K" | "KLabel" | "KList" | "KItem" | "KConfigVar" | "KString"
-    ) || sort.name.starts_with('#')
+    [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
+        .iter()
+        .any(|builtin| sort.name == builtin.k_name())
+        || [
+            FrontendSort::KBott,
+            FrontendSort::KLabel,
+            FrontendSort::KList,
+            FrontendSort::KString,
+        ]
+        .iter()
+        .any(|frontend| sort.name == frontend.as_str())
+        || sort.name.starts_with('#')
         || sort.name.parse::<u64>().is_ok()
 }
 

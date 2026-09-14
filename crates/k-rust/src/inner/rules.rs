@@ -10,7 +10,7 @@ use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
     Sentence, SortCatalog,
 };
-use crate::kast::{Label, Sort, Term};
+use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
 
 use super::config::{
@@ -333,11 +333,15 @@ fn up_sentence(
             },
         ));
     };
-    let (body, requires, ensures) = match (label.name.as_str(), arguments.as_slice()) {
-        ("#ruleNoConditions", [body]) => (body.clone(), truth(), truth()),
-        ("#ruleRequires", [body, requires]) => (body.clone(), requires.clone(), truth()),
-        ("#ruleEnsures", [body, ensures]) => (body.clone(), truth(), ensures.clone()),
-        ("#ruleRequiresEnsures", [body, requires, ensures]) => {
+    let (body, requires, ensures) = match (InternalLabel::of(&label.name), arguments.as_slice()) {
+        (Some(InternalLabel::RuleNoConditions), [body]) => (body.clone(), truth(), truth()),
+        (Some(InternalLabel::RuleRequires), [body, requires]) => {
+            (body.clone(), requires.clone(), truth())
+        }
+        (Some(InternalLabel::RuleEnsures), [body, ensures]) => {
+            (body.clone(), truth(), ensures.clone())
+        }
+        (Some(InternalLabel::RuleRequiresEnsures), [body, requires, ensures]) => {
             (body.clone(), requires.clone(), ensures.clone())
         }
         _ => {
@@ -367,7 +371,8 @@ fn up_sentence(
             attributes,
         }),
         "context" | "alias" => {
-            if label.name == "#ruleEnsures" || label.name == "#ruleRequiresEnsures" {
+            if label.is(InternalLabel::RuleEnsures) || label.is(InternalLabel::RuleRequiresEnsures)
+            {
                 return Err(RuleError::IllegalEnsures {
                     module: module.to_owned(),
                     sentence_type: sentence_type.to_owned(),
@@ -467,7 +472,7 @@ fn rule_grammar(
                 ..
             } if parameters.contains(sort)
                 && matches!(items.as_slice(), [ProductionItem::NonTerminal { sort: child, .. }]
-                    if child.name == "KBott")
+                    if child.name == FrontendSort::KBott.as_str())
         )
     });
     let explicit_top_sorts = visible
@@ -499,14 +504,14 @@ fn rule_grammar(
         .map(|sentence| (*sentence).clone())
         .collect::<Vec<_>>();
     parsing_sentences.extend(concrete_sorts.iter().filter_map(|sort| {
-        let predicate = format!("is{sort}");
+        let predicate = Label::sort_predicate(sort).name;
         (!visible.iter().any(|sentence| {
             matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == predicate)
         }))
         .then(|| sort_predicate_production(sort))
     }));
     parsing_sentences.extend(concrete_sorts.iter().filter_map(|sort| {
-        let projection = format!("project:{sort}");
+        let projection = Label::projection(sort).name;
         (!visible.iter().any(|sentence| {
             matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == projection)
         }))
@@ -515,7 +520,7 @@ fn rule_grammar(
     parsing_sentences.extend(named_projection_productions(visible.iter().copied()));
     if !parsing_sentences
         .iter()
-        .any(|sentence| matches!(sentence, Sentence::SyntaxSort { sort, .. } if sort.name == "Bag"))
+        .any(|sentence| matches!(sentence, Sentence::SyntaxSort { sort, .. } if sort.name == FrontendSort::Bag.as_str()))
     {
         parsing_sentences.push(Sentence::SyntaxSort {
             parameters: Vec::new(),
@@ -606,7 +611,7 @@ fn rule_grammar(
 }
 
 fn sort_predicate_production(sort: &Sort) -> Sentence {
-    let label = Label::new(format!("is{sort}"));
+    let label = Label::sort_predicate(sort);
     let mut attributes = Attributes::default();
     attributes.mark(AttributeKey::Function);
     attributes.mark(AttributeKey::Total);
@@ -629,7 +634,7 @@ fn sort_predicate_production(sort: &Sort) -> Sentence {
 }
 
 fn sort_projection_production(sort: &Sort) -> Sentence {
-    let label = Label::new(format!("project:{sort}"));
+    let label = Label::projection(sort);
     let mut attributes = Attributes::default();
     attributes.mark(AttributeKey::Function);
     attributes.mark(AttributeKey::Projection);
@@ -676,12 +681,7 @@ fn concrete_sorts(sentences: &[&Sentence]) -> BTreeSet<Sort> {
             _ => Vec::new(),
         })
         .filter(|sort| {
-            (sort.parameters.is_empty() || instantiations.contains(sort))
-                && !sort.name.starts_with('#')
-                && !matches!(
-                    sort.name.as_str(),
-                    "K" | "KItem" | "KBott" | "KConfigVar" | "Cell" | "Bag"
-                )
+            (sort.parameters.is_empty() || instantiations.contains(sort)) && !sort.is_reserved()
         })
         .collect()
 }
@@ -906,8 +906,8 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
         })
         .collect::<BTreeSet<_>>();
     let has_label = |name: &str| labels.contains(name);
-    let has_rewrite = has_label("#KRewrite");
-    let has_as = has_label("#KAs");
+    let has_rewrite = has_label(InternalLabel::KRewrite.as_str());
+    let has_as = has_label(InternalLabel::KAs.as_str());
     let parameter = Sort::new("Sort");
     let mut generated_attributes = Attributes::default();
     generated_attributes.set(AttributeKey::GeneratedRuleSyntax, serde_json::Value::Null);
@@ -949,7 +949,7 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
             attributes: generated_attributes.clone(),
         });
     }
-    if !has_label("#fun2") {
+    if !has_label(InternalLabel::Fun2.as_str()) {
         let mut attributes = generated_attributes.clone();
         attributes.mark(AttributeKey::Prefer);
         sentences.push(Sentence::Production {
@@ -976,7 +976,7 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
     }
     let result_parameter = Sort::new("Sort1");
     let argument_parameter = Sort::new("Sort2");
-    if !has_label("#fun3") {
+    if !has_label(InternalLabel::Fun3.as_str()) {
         sentences.push(Sentence::Production {
             label: Some(Label::with_parameters(
                 "#fun3",
@@ -1007,7 +1007,7 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
             attributes: generated_attributes.clone(),
         });
     }
-    if !has_label("#let") {
+    if !has_label(InternalLabel::Let.as_str()) {
         sentences.push(Sentence::Production {
             label: Some(Label::with_parameters(
                 "#let",
@@ -1035,7 +1035,11 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
             attributes: generated_attributes.clone(),
         });
     }
-    for (label, terminal) in [("_:=K_", ":=K"), ("_:/=K_", ":/=K")] {
+    for (label, terminal) in [
+        (InternalLabel::KEqualsK, ":=K"),
+        (InternalLabel::KNotEqualsK, ":/=K"),
+    ] {
+        let label = label.as_str();
         if has_label(label) {
             continue;
         }
@@ -1061,7 +1065,7 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
         });
     }
     if !sentences.iter().any(|sentence| {
-        matches!(sentence, Sentence::SyntaxAssociativity { tags, .. } if tags.iter().any(|tag| tag == "#KRewrite"))
+        matches!(sentence, Sentence::SyntaxAssociativity { tags, .. } if tags.iter().any(|tag| tag == InternalLabel::KRewrite.as_str()))
     }) {
         sentences.push(Sentence::SyntaxAssociativity {
             associativity: crate::definition::Associativity::NonAssoc,

@@ -17,6 +17,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
+    kast::WellKnownModule,
     provenance::{LogicalSourceId, SourceTable},
     timings::PhaseTimings,
 };
@@ -608,7 +609,7 @@ fn without_unused_default_configuration(
     if !definition
         .modules
         .iter()
-        .any(|module| module.name == "DEFAULT-CONFIGURATION")
+        .any(|module| module.name == WellKnownModule::DefaultConfiguration.as_str())
     {
         return Ok(definition);
     }
@@ -616,11 +617,11 @@ fn without_unused_default_configuration(
     let mut without_default = definition.clone();
     without_default
         .modules
-        .retain(|module| module.name != "DEFAULT-CONFIGURATION");
+        .retain(|module| module.name != WellKnownModule::DefaultConfiguration.as_str());
     for module in &mut without_default.modules {
         module
             .imports
-            .retain(|import| import.name != "DEFAULT-CONFIGURATION");
+            .retain(|import| import.name != WellKnownModule::DefaultConfiguration.as_str());
     }
     let resolved =
         ResolvedDefinition::resolve(&without_default).map_err(LoadError::DefinitionResolution)?;
@@ -692,8 +693,11 @@ fn add_implicit_configuration_imports(
     let has_default = definition
         .modules
         .iter()
-        .any(|module| module.name == "DEFAULT-CONFIGURATION");
-    let has_map = definition.modules.iter().any(|module| module.name == "MAP");
+        .any(|module| module.name == WellKnownModule::DefaultConfiguration.as_str());
+    let has_map = definition
+        .modules
+        .iter()
+        .any(|module| module.name == WellKnownModule::Map.as_str());
 
     if has_default {
         let resolved =
@@ -715,10 +719,10 @@ fn add_implicit_configuration_imports(
             if !module
                 .imports
                 .iter()
-                .any(|import| import.name == "DEFAULT-CONFIGURATION")
+                .any(|import| import.name == WellKnownModule::DefaultConfiguration.as_str())
             {
                 module.imports.push(FlatImport {
-                    name: "DEFAULT-CONFIGURATION".into(),
+                    name: WellKnownModule::DefaultConfiguration.as_str().into(),
                     public: true,
                 });
             }
@@ -729,10 +733,14 @@ fn add_implicit_configuration_imports(
         for module in &mut definition.modules {
             let has_local_configuration =
                 module.local_sentences.iter().any(is_configuration_sentence);
-            if has_local_configuration && !module.imports.iter().any(|import| import.name == "MAP")
+            if has_local_configuration
+                && !module
+                    .imports
+                    .iter()
+                    .any(|import| import.name == WellKnownModule::Map.as_str())
             {
                 module.imports.push(FlatImport {
-                    name: "MAP".into(),
+                    name: WellKnownModule::Map.as_str().into(),
                     public: true,
                 });
             }

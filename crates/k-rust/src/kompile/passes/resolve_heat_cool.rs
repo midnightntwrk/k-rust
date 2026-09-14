@@ -6,7 +6,7 @@ use crate::definition::AttributeKey;
 use crate::{
     definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
-    kast::Term,
+    kast::{FrontendSort, Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -70,8 +70,10 @@ fn resolve_heat_cool_attributes_inner(
             if !matches!(sentence, Sentence::Rule { .. } | Sentence::Context { .. }) {
                 continue;
             }
-            let result_sort = attributes.string(AttributeKey::Result).unwrap_or("KResult");
-            let predicate_label = format!("is{result_sort}");
+            let result_sort = attributes
+                .string(AttributeKey::Result)
+                .unwrap_or(FrontendSort::KResult.as_str());
+            let predicate_label = Label::sort_predicate(&Sort::new(result_sort)).name;
             let predicate_exists = !productions
                 .productions_for(&LabelHead::new(predicate_label.clone()))
                 .is_empty()

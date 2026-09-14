@@ -12,14 +12,13 @@ use crate::{
         Sentence, SortHead, match_rule_label, sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term},
+    kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
 use super::rebase_local_metadata_by;
 
 const CONFIGURATION_VARIABLE: &str = "#Configuration";
-const GENERATED_TOP_CELL_LABEL: &str = "<generatedTop>";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveFunctionWithConfigError {
@@ -232,7 +231,7 @@ pub fn resolve_config_var(definition: &Definition) -> Definition {
                 let left = rewrite_left(body);
                 if matches!(
                     left.unannotated(),
-                    Term::Apply { label, .. } if label.name == GENERATED_TOP_CELL_LABEL
+                    Term::Apply { label, .. } if label.name == GeneratedCell::Top.label()
                 ) {
                     let right = rewrite_right(body);
                     *body = Term::Rewrite {
@@ -340,7 +339,7 @@ fn rule_needs_config(rule: &Sentence) -> bool {
     };
     if matches!(
         body.unannotated(),
-        Term::Apply { label, .. } if label.name == "#withConfig"
+        Term::Apply { label, .. } if label.is(InternalLabel::WithConfig)
     ) {
         return true;
     }
@@ -386,7 +385,7 @@ fn resolve_with_config_body(
     let Term::Apply { label, arguments } = body.unannotated() else {
         return body;
     };
-    if label.name != "#withConfig" {
+    if !label.is(InternalLabel::WithConfig) {
         return body;
     }
     let [function, cell] = arguments.as_slice() else {
@@ -436,15 +435,15 @@ fn resolve_with_config_body(
         return body;
     };
 
-    let configuration = if cell_label.name == GENERATED_TOP_CELL_LABEL {
+    let configuration = if cell_label.name == GeneratedCell::Top.label() {
         cell.clone()
     } else {
         Term::Apply {
-            label: Label::new(GENERATED_TOP_CELL_LABEL),
+            label: Label::new(GeneratedCell::Top.label()),
             arguments: vec![
-                Term::apply("#dots", vec![]),
+                Term::apply(InternalLabel::Dots.as_str(), vec![]),
                 cell.clone(),
-                Term::apply("#dots", vec![]),
+                Term::apply(InternalLabel::Dots.as_str(), vec![]),
             ],
         }
     };

@@ -8,7 +8,7 @@ use super::term_position::{TermPosition, positioned_children};
 use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog, SortCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::Term;
+use crate::kast::{InternalLabel, Term};
 
 const COLLECTION_HOOKS: [&str; 13] = [
     "LIST.element",
@@ -80,7 +80,7 @@ fn visit_term(
         return;
     };
 
-    if label.name == "#withConfig" {
+    if label.is(InternalLabel::WithConfig) {
         visit_arguments(
             term,
             position,

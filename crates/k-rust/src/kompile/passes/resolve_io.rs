@@ -10,7 +10,7 @@ use crate::{
         sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{GeneratedLabel, Label, Sort, Term},
+    kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, WellKnownModule},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -66,7 +66,10 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
 
     for module_index in 0..output.modules.len() {
         let module_name = output.modules[module_index].name.clone();
-        if matches!(module_name.as_str(), "STDIN-STREAM" | "STDOUT-STREAM") {
+        if [WellKnownModule::StdinStream, WellKnownModule::StdoutStream]
+            .iter()
+            .any(|well_known| module_name == well_known.as_str())
+        {
             continue;
         }
         let module_id = resolved
@@ -130,7 +133,7 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
         });
 
         output.modules[module_index].local_sentences = sentences;
-        for import in ["K-IO", "K-REFLECTION"] {
+        for import in ["K-IO", WellKnownModule::KReflection.as_str()] {
             if definition
                 .modules
                 .iter()
@@ -153,7 +156,10 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
     }
 
     for module in &mut output.modules {
-        if matches!(module.name.as_str(), "STDIN-STREAM" | "STDOUT-STREAM") {
+        if [WellKnownModule::StdinStream, WellKnownModule::StdoutStream]
+            .iter()
+            .any(|well_known| module.name == well_known.as_str())
+        {
             module.imports.clear();
             module.local_sentences.clear();
         }
@@ -385,7 +391,9 @@ fn stream_module_sentences(
             }
             Sentence::Production {
                 sort, attributes, ..
-            } if sort.name == "Stream" || attributes.has(AttributeKey::Projection) => {
+            } if sort.is_frontend(FrontendSort::Stream)
+                || attributes.has(AttributeKey::Projection) =>
+            {
                 Some(sentence.clone())
             }
             _ => None,
@@ -531,7 +539,9 @@ fn supported_stdin_pattern(arguments: &[Term]) -> Option<String> {
     let [first, middle, last] = arguments else {
         return None;
     };
-    if !is_nullary_apply(first, "#noDots") || !is_nullary_apply(last, "#dots") {
+    if !is_nullary_apply(first, InternalLabel::NoDots.as_str())
+        || !is_nullary_apply(last, InternalLabel::Dots.as_str())
+    {
         return None;
     }
     let Term::Rewrite { left, right } = middle.unannotated() else {

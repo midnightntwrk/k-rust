@@ -5,9 +5,7 @@ use super::super::{
 };
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::Sort;
-
-const MINT_SORT: &str = "MInt";
+use crate::kast::{FrontendSort, Sort};
 
 /// Java `Module.checkSorts` (`outer.scala:486-516`).
 pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
@@ -75,7 +73,7 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
 }
 
 fn check_parametric_sort(sort: &Sort, sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
-    if !sort.parameters.is_empty() && sort.name != MINT_SORT {
+    if !sort.parameters.is_empty() && sort.name != FrontendSort::MInt.as_str() {
         diagnostics.push(Diagnostic::error(
             DiagnosticCode::UnsupportedParametricSort,
             format!("User-defined parametric sorts are currently unsupported: {sort}"),

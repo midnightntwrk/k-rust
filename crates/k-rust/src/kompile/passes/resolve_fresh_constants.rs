@@ -12,16 +12,11 @@ use crate::{
         Sentence, expand_configurations_allowing_reserved_cells, sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term},
+    kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
 use super::rebase_local_metadata_by;
-
-const GENERATED_COUNTER_CELL: &str = "<generatedCounter>";
-const GENERATED_TOP_CELL: &str = "<generatedTop>";
-const INIT_GENERATED_COUNTER_CELL: &str = "initGeneratedCounterCell";
-const INIT_GENERATED_TOP_CELL: &str = "initGeneratedTopCell";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveFreshConstantsError {
@@ -73,10 +68,10 @@ fn resolve_fresh_constants_inner(
         };
         let visible_generated_top = productions
             .defined_labels()
-            .any(|label| label.as_str() == GENERATED_TOP_CELL);
+            .any(|label| label.as_str() == GeneratedCell::Top.label());
         let local_generated_top = productions
             .local_labels()
-            .contains(&LabelHead::new(GENERATED_TOP_CELL));
+            .contains(&LabelHead::new(GeneratedCell::Top.label()));
 
         for sentence in &mut module.local_sentences {
             let original = sentence.clone();
@@ -174,7 +169,7 @@ fn transform_sentence(
             if with_fresh.attributes().has(AttributeKey::Initializer)
                 && rewrite_left(rule_body(&with_fresh))
                     .as_apply()
-                    .is_some_and(|(label, _)| label.name == INIT_GENERATED_TOP_CELL)
+                    .is_some_and(|(label, _)| label.name == GeneratedCell::Top.initializer())
             {
                 return add_counter_initializer(with_fresh);
             }
@@ -302,11 +297,11 @@ fn add_fresh_cell(body: Term, count: usize) -> Term {
         return body;
     }
     Term::apply(
-        "#cells",
+        InternalLabel::Cells.as_str(),
         vec![
             body,
             incomplete_cell(
-                GENERATED_COUNTER_CELL,
+                GeneratedCell::Counter.label(),
                 false,
                 Term::Rewrite {
                     left: Box::new(fresh_counter()),
@@ -330,7 +325,7 @@ fn add_fresh_cell(body: Term, count: usize) -> Term {
 fn rule_defines_function(sentence: &Sentence, productions: &ProductionCatalog<'_>) -> bool {
     let mut left = rewrite_left(rule_body(sentence));
     if let Some((label, arguments)) = left.as_apply()
-        && label.name == "#withConfig"
+        && label.is(InternalLabel::WithConfig)
         && let Some(first) = arguments.first()
     {
         left = first.clone();
@@ -373,7 +368,10 @@ fn add_counter_initializer(sentence: Sentence) -> Result<Sentence, String> {
         return Err("Malformed generated top-cell initializer contents".into());
     };
     let mut cells = cells.clone();
-    cells.push(Term::apply(INIT_GENERATED_COUNTER_CELL, Vec::new()));
+    cells.push(Term::apply(
+        GeneratedCell::Counter.initializer(),
+        Vec::new(),
+    ));
     *body = Term::Apply {
         label: cells_label.clone(),
         arguments: cells,
@@ -402,7 +400,7 @@ fn add_counter_to_top_production(sentence: Sentence) -> Sentence {
     };
     if label
         .as_ref()
-        .is_some_and(|label| label.name == GENERATED_TOP_CELL)
+        .is_some_and(|label| label.name == GeneratedCell::Top.label())
         && !items.iter().any(|item| {
             matches!(
                 item,
@@ -439,7 +437,7 @@ fn fix_generated_top_format(sentence: &mut Sentence) {
     else {
         return;
     };
-    if label.name != GENERATED_TOP_CELL {
+    if label.name != GeneratedCell::Top.label() {
         return;
     }
     let positions = items
@@ -493,16 +491,22 @@ fn generated_top_configuration(
         .1
         .string(AttributeKey::CellName)
         .ok_or_else(|| format!("Root cell {} has no cellName attribute", root.0.name))?;
-    let name = cell_name_token("generatedTop");
+    let name = cell_name_token(GeneratedCell::Top.name());
     Ok(configuration(Term::apply(
-        "#configCell",
+        InternalLabel::ConfigCell.as_str(),
         vec![
             name.clone(),
-            Term::apply("#cellPropertyListTerminator", Vec::new()),
             Term::apply(
-                "#cells",
+                InternalLabel::CellPropertyListTerminator.as_str(),
+                Vec::new(),
+            ),
+            Term::apply(
+                InternalLabel::Cells.as_str(),
                 vec![
-                    Term::apply("#externalCell", vec![cell_name_token(cell_name)]),
+                    Term::apply(
+                        InternalLabel::ExternalCell.as_str(),
+                        vec![cell_name_token(cell_name)],
+                    ),
                     counter_config_term(initial_fresh),
                 ],
             ),
@@ -588,12 +592,15 @@ fn counter_configuration(initial_fresh: usize) -> Sentence {
 }
 
 fn counter_config_term(initial_fresh: usize) -> Term {
-    let name = cell_name_token("generatedCounter");
+    let name = cell_name_token(GeneratedCell::Counter.name());
     Term::apply(
-        "#configCell",
+        InternalLabel::ConfigCell.as_str(),
         vec![
             name.clone(),
-            Term::apply("#cellPropertyListTerminator", Vec::new()),
+            Term::apply(
+                InternalLabel::CellPropertyListTerminator.as_str(),
+                Vec::new(),
+            ),
             Term::Token {
                 token: initial_fresh.to_string(),
                 sort: Sort::builtin(BuiltinSort::Int),
@@ -637,7 +644,7 @@ fn counter_helpers() -> [Sentence; 2] {
                 left: Box::new(Term::apply(
                     "getGeneratedCounterCell",
                     vec![incomplete_cell(
-                        GENERATED_TOP_CELL,
+                        GeneratedCell::Top.label(),
                         true,
                         cell.clone(),
                         true,
@@ -656,9 +663,25 @@ fn incomplete_cell(label: &str, open_left: bool, body: Term, open_right: bool) -
     Term::apply(
         label,
         vec![
-            Term::apply(if open_left { "#dots" } else { "#noDots" }, Vec::new()),
+            Term::apply(
+                if open_left {
+                    InternalLabel::Dots
+                } else {
+                    InternalLabel::NoDots
+                }
+                .as_str(),
+                Vec::new(),
+            ),
             body,
-            Term::apply(if open_right { "#dots" } else { "#noDots" }, Vec::new()),
+            Term::apply(
+                if open_right {
+                    InternalLabel::Dots
+                } else {
+                    InternalLabel::NoDots
+                }
+                .as_str(),
+                Vec::new(),
+            ),
         ],
     )
 }
@@ -673,7 +696,7 @@ fn fresh_counter() -> Term {
 fn cell_name_token(name: &str) -> Term {
     Term::Token {
         token: name.into(),
-        sort: Sort::new("#CellName"),
+        sort: Sort::frontend(FrontendSort::CellName),
     }
 }
 
@@ -728,7 +751,8 @@ fn both_generated_top_productions(source: &Sentence, target: &Sentence) -> bool 
         (
             Sentence::Production { label: Some(source), .. },
             Sentence::Production { label: Some(target), .. }
-        ) if source.name == GENERATED_TOP_CELL && target.name == GENERATED_TOP_CELL
+        ) if source.name == GeneratedCell::Top.label()
+            && target.name == GeneratedCell::Top.label()
     )
 }
 

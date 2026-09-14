@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::definition::{PartialOrder, ProductionItem};
-use crate::kast::{GeneratedLabel, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term};
 use crate::names::BuiltinSort;
 
 use super::parametric::substitute_sort;
@@ -337,8 +337,8 @@ impl Grammar {
                     )));
                 }
                 let shields_children = descriptor.label.as_ref().is_some_and(|label| {
-                    label.name == "#SyntacticCast"
-                        || label.name == "#SyntacticCastBraced"
+                    label.is(InternalLabel::SyntacticCast)
+                        || label.is(InternalLabel::SyntacticCastBraced)
                         || matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
                 });
                 // Rewrite operands are parsed through generic K productions, but sort inference
@@ -348,7 +348,7 @@ impl Grammar {
                 let rewrite_list_sort = descriptor
                     .label
                     .as_ref()
-                    .is_some_and(|label| label.name == "#KRewrite")
+                    .is_some_and(|label| label.is(InternalLabel::KRewrite))
                     .then(|| {
                         children
                             .iter()
@@ -415,7 +415,7 @@ impl Grammar {
                 let rewrite_list_sort = descriptor
                     .label
                     .as_ref()
-                    .is_some_and(|label| label.name == "#KRewrite")
+                    .is_some_and(|label| label.is(InternalLabel::KRewrite))
                     .then(|| {
                         children
                             .iter()
@@ -707,7 +707,7 @@ fn least_upper_bound(
 ) -> Option<Sort> {
     let unique = sorts.iter().cloned().collect::<BTreeSet<_>>();
     let k = Sort::new("K");
-    let k_bottom = Sort::new("KBott");
+    let k_bottom = Sort::frontend(FrontendSort::KBott);
     let admissible = |bound: &Sort| {
         !subsorts.less_than_eq(bound, &k_bottom)
             && !subsorts.greater_than(bound, &k)

@@ -17,7 +17,7 @@ use crate::{
         expand_configurations_with_diagnostics,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
-    kast::{Sort, Term},
+    kast::{GeneratedLabel, Sort, Term},
     kore::printer::Printer as KorePrinter,
     outer::LoadedDefinition,
     timings::PhaseTimings,
@@ -532,7 +532,16 @@ pub fn configuration_variables(
     fn collect(term: &Term, sorts: &mut BTreeMap<String, Sort>) -> Result<(), String> {
         match term.unannotated() {
             Term::Apply { label, arguments } => {
-                if let Some(projected) = label.name.strip_prefix("project:")
+                // Java strips the `project:` prefix and names the sort by the rest, so a
+                // field projection keeps naming the sort `label:field` as it always did.
+                let projected = match label.generated() {
+                    Some(GeneratedLabel::Projection { sort_text }) => Some(sort_text.to_owned()),
+                    Some(GeneratedLabel::FieldProjection { label, field }) => {
+                        Some(format!("{label}:{field}"))
+                    }
+                    _ => None,
+                };
+                if let Some(projected) = projected
                     && let [argument] = arguments.as_slice()
                     && let Some(name) = lookup_name(argument)
                 {

@@ -10,7 +10,7 @@ use crate::{
         Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence, sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode},
-    kast::{ResolvedProductionId, Term},
+    kast::{InternalLabel, ResolvedProductionId, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -314,7 +314,7 @@ fn commute_lhs(
                 diagnostics,
             )),
         },
-        Term::Apply { label, arguments } if label.name == "#withConfig" => Term::Apply {
+        Term::Apply { label, arguments } if label.is(InternalLabel::WithConfig) => Term::Apply {
             label: label.clone(),
             arguments: arguments
                 .iter()

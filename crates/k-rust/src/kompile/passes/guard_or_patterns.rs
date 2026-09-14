@@ -2,7 +2,7 @@
 
 use crate::{
     definition::{Definition, ResolvedDefinition, Sentence},
-    kast::Term,
+    kast::{InternalLabel, Term},
     kompile::{SortInjector, fresh_names::FreshNames},
     provenance::{GeneratingPass, record_generated_origins},
 };
@@ -47,7 +47,7 @@ fn transform(
 ) -> Result<Term, crate::kompile::SortInjectionError> {
     let metadata = term.metadata().cloned();
     let rebuilt = match term.into_unannotated() {
-        Term::Apply { label, arguments } if label.name == "#Or" => {
+        Term::Apply { label, arguments } if label.is(InternalLabel::Or) => {
             let application = Term::Apply { label, arguments };
             let application = match metadata.clone() {
                 Some(metadata) => application.with_metadata(metadata),

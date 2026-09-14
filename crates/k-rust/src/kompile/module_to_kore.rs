@@ -13,7 +13,10 @@ use crate::definition::{
     ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
     SortCatalog, SortHead, match_rule_label, sentence_equivalent,
 };
-use crate::kast::{Label, ResolvedProductionId, Sort, Term, identifier};
+use crate::kast::{
+    FrontendSort, InternalLabel, Label, ResolvedProductionId, Sort, Term, WellKnownModule,
+    identifier,
+};
 use crate::kore::ast::{
     Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
     Sort as KoreSort, Symbol, Variable, VariableKind,
@@ -28,7 +31,6 @@ use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
 
-const PROGRAM_BUILTIN_MODULE: &str = "K";
 const COLLECTION_HOOKS: [&str; 4] = ["SET.Set", "MAP.Map", "LIST.List", "RANGEMAP.RangeMap"];
 // Java `Hooks.namespaces`: hooks outside this set are only emitted as hooked symbols when the
 // compilation admits their namespace through `ModuleToKoreOptions::hook_namespaces`.
@@ -52,22 +54,6 @@ pub(crate) const BUILTIN_HOOK_NAMESPACES: [&str; 19] = [
     "UNIFICATION",
     "JSON",
     "TIMER",
-];
-const BUILTIN_LABELS: [&str; 14] = [
-    "#Bottom",
-    "#Top",
-    "#Or",
-    "#And",
-    "#Not",
-    "#Ceil",
-    "#Floor",
-    "#Equals",
-    "#Implies",
-    "#Exists",
-    "#Forall",
-    "#AG",
-    "weakExistsFinally",
-    "weakAlwaysFinally",
 ];
 
 /// The declaration views and standalone macro axioms produced by `ModuleToKORE`.
@@ -460,7 +446,7 @@ pub fn declaration_modules_from_resolved_with_options(
     let syntax_relations = SyntaxRelations::new(&priorities, &associativities);
 
     let mut common = vec![KoreSentence::Import {
-        module: PROGRAM_BUILTIN_MODULE.into(),
+        module: WellKnownModule::K.as_str().into(),
         attributes: Attributes::default(),
     }];
     common.extend(sort_declarations(&sorts, &productions, &valued_attributes)?);
@@ -905,7 +891,8 @@ fn generate_map_ceil_rules(
             productions.production(element_id),
         ]);
 
-        let sort_parameter = Sort::with_parameters("#SortParam", vec![Sort::new("Q")]);
+        let sort_parameter =
+            Sort::with_parameters(FrontendSort::SortParam.as_str(), vec![Sort::new("Q")]);
         let rest = typed_variable("@Rest", map_sort.clone());
         let arguments = element_sorts
             .iter()
@@ -913,7 +900,10 @@ fn generate_map_ceil_rules(
             .map(|(index, sort)| typed_variable(format!("@K{index}"), sort.clone()))
             .collect::<Vec<_>>();
         let top = Term::Apply {
-            label: Label::with_parameters("#Top", vec![sort_parameter.clone()]),
+            label: Label::with_parameters(
+                InternalLabel::Top.as_str(),
+                vec![sort_parameter.clone()],
+            ),
             arguments: Vec::new(),
         };
         let ceils =
@@ -922,12 +912,15 @@ fn generate_map_ceil_rules(
                 .zip(&element_sorts)
                 .skip(1)
                 .fold(top, |left, (argument, sort)| Term::Apply {
-                    label: Label::with_parameters("#And", vec![sort_parameter.clone()]),
+                    label: Label::with_parameters(
+                        InternalLabel::And.as_str(),
+                        vec![sort_parameter.clone()],
+                    ),
                     arguments: vec![
                         left,
                         Term::Apply {
                             label: Label::with_parameters(
-                                "#Ceil",
+                                InternalLabel::Ceil.as_str(),
                                 vec![sort.clone(), sort_parameter.clone()],
                             ),
                             arguments: vec![argument.clone()],
@@ -937,7 +930,10 @@ fn generate_map_ceil_rules(
         let element = annotated_application(element_label, arguments.clone(), element_id);
         let concat = annotated_application(concat_label, vec![element, rest.clone()], concat_id);
         let left = Term::Apply {
-            label: Label::with_parameters("#Ceil", vec![map_sort.clone(), sort_parameter.clone()]),
+            label: Label::with_parameters(
+                InternalLabel::Ceil.as_str(),
+                vec![map_sort.clone(), sort_parameter.clone()],
+            ),
             arguments: vec![concat],
         };
         let in_keys = annotated_application(
@@ -947,13 +943,13 @@ fn generate_map_ceil_rules(
         );
         let equals = Term::Apply {
             label: Label::with_parameters(
-                "#Equals",
+                InternalLabel::Equals.as_str(),
                 vec![Sort::builtin(BuiltinSort::Bool), sort_parameter.clone()],
             ),
             arguments: vec![in_keys, bool_token(false)],
         };
         let right = Term::Apply {
-            label: Label::with_parameters("#And", vec![sort_parameter]),
+            label: Label::with_parameters(InternalLabel::And.as_str(), vec![sort_parameter]),
             arguments: vec![equals, ceils],
         };
         let mut attributes = KAttributes::default();
@@ -2281,8 +2277,8 @@ fn emit_rule_or_claim(
         right = Pattern::Application {
             symbol: Symbol {
                 name: match mode {
-                    ReachabilityMode::OnePath => "weakExistsFinally",
-                    ReachabilityMode::AllPath => "weakAlwaysFinally",
+                    ReachabilityMode::OnePath => InternalLabel::WeakExistsFinally.as_str(),
+                    ReachabilityMode::AllPath => InternalLabel::WeakAlwaysFinally.as_str(),
                 }
                 .into(),
                 sort_parameters: vec![result_sort.clone()],
@@ -3755,7 +3751,7 @@ fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
 }
 
 fn is_builtin_label(label: &str) -> bool {
-    BUILTIN_LABELS.contains(&label)
+    InternalLabel::of(label).is_some_and(|label| InternalLabel::MATCHING_LOGIC.contains(&label))
 }
 
 /// Encode a K label as a KORE symbol head.

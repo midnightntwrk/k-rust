@@ -8,7 +8,7 @@ use sha3::{Digest, Sha3_256};
 use crate::definition::AttributeKey;
 use crate::{
     definition::{Attributes, Definition, Sentence},
-    kast::Term,
+    kast::{FrontendSort, Term},
 };
 
 const PRESERVED_ATTRIBUTES: [AttributeKey; 7] = [
@@ -157,7 +157,7 @@ fn normalize_label(label: &crate::kast::Label) -> crate::kast::Label {
     if label
         .parameters
         .iter()
-        .any(|sort| sort.name == "#SortParam")
+        .any(|sort| sort.name == FrontendSort::SortParam.as_str())
     {
         crate::kast::Label::with_parameters(
             label.name.clone(),

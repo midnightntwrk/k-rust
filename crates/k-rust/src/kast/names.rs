@@ -69,6 +69,7 @@ pub enum InternalLabel {
     Token,
     /// `#klabel`, the textual KAST injected-label wrapper.
     KLabel,
+    RuleNoConditions,
     RuleRequires,
     RuleEnsures,
     RuleRequiresEnsures,
@@ -86,7 +87,7 @@ pub enum InternalLabel {
 }
 
 impl InternalLabel {
-    pub const ALL: [Self; 45] = [
+    pub const ALL: [Self; 46] = [
         Self::KRewrite,
         Self::WithConfig,
         Self::Cells,
@@ -121,6 +122,7 @@ impl InternalLabel {
         Self::KList,
         Self::Token,
         Self::KLabel,
+        Self::RuleNoConditions,
         Self::RuleRequires,
         Self::RuleEnsures,
         Self::RuleRequiresEnsures,
@@ -207,6 +209,7 @@ impl InternalLabel {
             Self::KList => "#KList",
             Self::Token => "#token",
             Self::KLabel => "#klabel",
+            Self::RuleNoConditions => "#ruleNoConditions",
             Self::RuleRequires => "#ruleRequires",
             Self::RuleEnsures => "#ruleEnsures",
             Self::RuleRequiresEnsures => "#ruleRequiresEnsures",
@@ -258,6 +261,7 @@ impl InternalLabel {
             "#KList" => Some(Self::KList),
             "#token" => Some(Self::Token),
             "#klabel" => Some(Self::KLabel),
+            "#ruleNoConditions" => Some(Self::RuleNoConditions),
             "#ruleRequires" => Some(Self::RuleRequires),
             "#ruleEnsures" => Some(Self::RuleEnsures),
             "#ruleRequiresEnsures" => Some(Self::RuleRequiresEnsures),

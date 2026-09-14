@@ -6,7 +6,7 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, Sentence},
-    kast::{Sort, Term},
+    kast::{Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -103,10 +103,10 @@ fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence, add_predicate
             let sort = label
                 .semantic_cast_sort()
                 .expect("the cast set contains semantic-cast applications");
-            Term::apply(
-                format!("is{sort}"),
-                vec![transform(cast.clone(), &casts, &typed_variables)],
-            )
+            Term::Apply {
+                label: Label::sort_predicate(&sort),
+                arguments: vec![transform(cast.clone(), &casts, &typed_variables)],
+            }
         })
         .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
         .expect("at least one semantic cast was collected");

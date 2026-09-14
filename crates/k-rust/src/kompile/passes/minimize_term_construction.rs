@@ -6,7 +6,7 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence},
-    kast::{Sort, Term},
+    kast::{InternalLabel, Sort, Term},
     kompile::fresh_names::FreshNames,
     provenance::{GeneratingPass, record_generated_origins},
 };
@@ -149,7 +149,7 @@ impl<'a> Minimizer<'a> {
             }
             Term::Apply { label, arguments } => {
                 let hook = self.hook(label);
-                if is_blocked_collection_hook(hook) || label.name == "#Or" {
+                if is_blocked_collection_hook(hook) || label.is(InternalLabel::Or) {
                     return Ok(());
                 }
                 if hook == Some("MAP.element") {
@@ -233,7 +233,8 @@ impl<'a> Minimizer<'a> {
                         .map(|(index, argument)| self.transform(argument, position, index == 0))
                         .collect()
                 } else {
-                    let blocked = in_bad || is_blocked_collection_hook(hook) || label.name == "#Or";
+                    let blocked =
+                        in_bad || is_blocked_collection_hook(hook) || label.is(InternalLabel::Or);
                     arguments
                         .iter()
                         .map(|argument| self.transform(argument, position, blocked))

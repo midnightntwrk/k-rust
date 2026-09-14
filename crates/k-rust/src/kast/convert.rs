@@ -9,6 +9,7 @@ use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::ast::{Label, Sort, Term};
 use super::identifier::{self, DecodeError};
+use super::names::{FrontendSort, InternalLabel};
 use super::string;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,19 +48,36 @@ impl<'a> Converter<'a> {
             Pattern::Variable(variable) => self.variable(variable),
             Pattern::Application { symbol, arguments } => self.application(symbol, arguments),
             Pattern::Top { sort } => Ok(Term::Apply {
-                label: Label::with_parameters("#Top", vec![self.sort(sort)?]),
+                label: Label::with_parameters(InternalLabel::Top.as_str(), vec![self.sort(sort)?]),
                 arguments: Vec::new(),
             }),
             Pattern::Bottom { sort } => Ok(Term::Apply {
-                label: Label::with_parameters("#Bottom", vec![self.sort(sort)?]),
+                label: Label::with_parameters(
+                    InternalLabel::Bottom.as_str(),
+                    vec![self.sort(sort)?],
+                ),
                 arguments: Vec::new(),
             }),
-            Pattern::And { sort, arguments } => self.associative("#And", "#Top", sort, arguments),
-            Pattern::Or { sort, arguments } => self.associative("#Or", "#Bottom", sort, arguments),
-            Pattern::Not { sort, argument } => self.ml("#Not", [sort], [argument.as_ref()]),
-            Pattern::Implies { sort, left, right } => {
-                self.ml("#Implies", [sort], [left.as_ref(), right.as_ref()])
+            Pattern::And { sort, arguments } => self.associative(
+                InternalLabel::And.as_str(),
+                InternalLabel::Top.as_str(),
+                sort,
+                arguments,
+            ),
+            Pattern::Or { sort, arguments } => self.associative(
+                InternalLabel::Or.as_str(),
+                InternalLabel::Bottom.as_str(),
+                sort,
+                arguments,
+            ),
+            Pattern::Not { sort, argument } => {
+                self.ml(InternalLabel::Not.as_str(), [sort], [argument.as_ref()])
             }
+            Pattern::Implies { sort, left, right } => self.ml(
+                InternalLabel::Implies.as_str(),
+                [sort],
+                [left.as_ref(), right.as_ref()],
+            ),
             Pattern::Rewrites { left, right, .. } => Ok(Term::Rewrite {
                 left: Box::new(self.pattern(left)?),
                 right: Box::new(self.pattern(right)?),
@@ -70,7 +88,7 @@ impl<'a> Converter<'a> {
                 body,
             } => Ok(Term::Apply {
                 label: Label::with_parameters(
-                    "#Exists",
+                    InternalLabel::Exists.as_str(),
                     vec![self.sort(&variable.sort)?, self.sort(sort)?],
                 ),
                 arguments: vec![self.variable(variable)?, self.pattern(body)?],
@@ -81,7 +99,7 @@ impl<'a> Converter<'a> {
                 body,
             } => Ok(Term::Apply {
                 label: Label::with_parameters(
-                    "#Forall",
+                    InternalLabel::Forall.as_str(),
                     vec![self.sort(&variable.sort)?, self.sort(sort)?],
                 ),
                 arguments: vec![self.variable(variable)?, self.pattern(body)?],
@@ -90,19 +108,27 @@ impl<'a> Converter<'a> {
                 operand_sort,
                 result_sort,
                 argument,
-            } => self.ml("#Ceil", [operand_sort, result_sort], [argument.as_ref()]),
+            } => self.ml(
+                InternalLabel::Ceil.as_str(),
+                [operand_sort, result_sort],
+                [argument.as_ref()],
+            ),
             Pattern::Floor {
                 operand_sort,
                 result_sort,
                 argument,
-            } => self.ml("#Floor", [operand_sort, result_sort], [argument.as_ref()]),
+            } => self.ml(
+                InternalLabel::Floor.as_str(),
+                [operand_sort, result_sort],
+                [argument.as_ref()],
+            ),
             Pattern::Equals {
                 operand_sort,
                 result_sort,
                 left,
                 right,
             } => self.ml(
-                "#Equals",
+                InternalLabel::Equals.as_str(),
                 [operand_sort, result_sort],
                 [left.as_ref(), right.as_ref()],
             ),
@@ -117,7 +143,7 @@ impl<'a> Converter<'a> {
             }
             Pattern::String(value) => Ok(Term::Token {
                 token: value.clone(),
-                sort: Sort::new("KString"),
+                sort: Sort::frontend(FrontendSort::KString),
             }),
             Pattern::Iff { .. } => {
                 Err(ConversionError("Iff patterns currently unsupported".into()))

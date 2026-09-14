@@ -8,7 +8,7 @@ use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
     },
-    kast::{Label, Sort, Term},
+    kast::{FrontendSort, Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -42,7 +42,7 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
             });
         }
         for sort in sorts.local_sorts() {
-            let label = Label::new(format!("is{sort}"));
+            let label = Label::sort_predicate(sort);
             let production = Sentence::Production {
                 label: Some(label.clone()),
                 parameters: Vec::new(),
@@ -147,7 +147,7 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
             {
                 continue;
             }
-            let label = Label::new(format!("project:{sort}"));
+            let label = Label::projection(sort);
             if defined_labels.contains(&LabelHead::from(&label)) {
                 continue;
             }
@@ -248,10 +248,9 @@ fn named_projections(
         .iter()
         .filter_map(|(_, name)| name.as_ref())
         .any(|name| {
-            defined_labels.contains(&LabelHead::new(format!(
-                "project:{}:{name}",
-                source_label.name
-            )))
+            defined_labels.contains(&LabelHead::new(
+                Label::field_projection(&source_label.name, name).name,
+            ))
         })
     {
         return Vec::new();
@@ -281,7 +280,7 @@ fn named_projections(
         let Some(field_name) = field_name else {
             continue;
         };
-        let label = Label::new(format!("project:{}:{field_name}", source_label.name));
+        let label = Label::field_projection(&source_label.name, field_name);
         let mut attributes = Attributes::default();
         attributes.mark(AttributeKey::Function);
         if total {
@@ -337,9 +336,17 @@ fn sort_json(sort: &Sort) -> Value {
 }
 
 fn is_parser_sort(sort: &Sort) -> bool {
-    matches!(
-        sort.name.as_str(),
-        "KBott" | "K" | "KLabel" | "KList" | "KItem" | "KConfigVar" | "KString"
-    ) || sort.name.starts_with('#')
+    [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
+        .iter()
+        .any(|builtin| sort.name == builtin.k_name())
+        || [
+            FrontendSort::KBott,
+            FrontendSort::KLabel,
+            FrontendSort::KList,
+            FrontendSort::KString,
+        ]
+        .iter()
+        .any(|frontend| sort.name == frontend.as_str())
+        || sort.name.starts_with('#')
         || sort.name.parse::<u64>().is_ok()
 }

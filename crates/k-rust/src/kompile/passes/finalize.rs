@@ -10,11 +10,9 @@ use crate::{
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ResolvedDefinition, Sentence,
     },
-    kast::{Sort, Term},
+    kast::{Sort, Term, WellKnownModule},
     provenance::{GeneratingPass, record_generated_origins},
 };
-
-const LANGUAGE_PARSING: &str = "LANGUAGE-PARSING";
 
 /// Add Java's synthetic `LANGUAGE-PARSING` module.
 ///
@@ -24,7 +22,7 @@ pub fn add_semantics_module(definition: &Definition) -> Result<Definition, Strin
     if definition
         .modules
         .iter()
-        .any(|module| module.name == LANGUAGE_PARSING)
+        .any(|module| module.name == WellKnownModule::LanguageParsing.as_str())
     {
         return Ok(definition.clone());
     }
@@ -54,7 +52,7 @@ pub fn add_semantics_module(definition: &Definition) -> Result<Definition, Strin
     });
     let mut output = definition.clone();
     output.modules.push(FlatModule {
-        name: LANGUAGE_PARSING.into(),
+        name: WellKnownModule::LanguageParsing.as_str().into(),
         imports,
         local_sentences: Vec::new(),
         attributes: Attributes::default(),

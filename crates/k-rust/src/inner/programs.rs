@@ -8,12 +8,11 @@ use crate::definition::{
     Attributes, Definition, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
     ResolveError, ResolvedDefinition, Sentence, SortCatalog, sentence_equivalent,
 };
+use crate::kast::names::PROGRAM_PARSING_POSTFIX;
 use crate::kast::{Sort, Term};
 use crate::provenance::SourceId;
 
 use super::parser::{Grammar, ParseError, is_parser_sort, named_projection_productions};
-
-const PROGRAM_PARSING_POSTFIX: &str = "-PROGRAM-PARSING";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProgramError {

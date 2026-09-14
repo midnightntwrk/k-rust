@@ -7,7 +7,7 @@ use crate::definition::{
     AttributeKey, Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
     ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
-use crate::kast::{self, Label, Sort, Term, identifier};
+use crate::kast::{self, FrontendSort, InternalLabel, Label, Sort, Term, identifier};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
@@ -226,35 +226,35 @@ impl<'a> TermConverter<'a> {
                 .map(|argument| self.pattern(argument))
                 .collect::<Result<Vec<_>, _>>()
         };
-        match label.name.as_str() {
-            "#Top" => {
+        match InternalLabel::of(&label.name) {
+            Some(InternalLabel::Top) => {
                 self.require_arity(label, arguments, 0)?;
                 Ok(Pattern::Top {
                     sort: self.parameter(label, 0)?,
                 })
             }
-            "#Bottom" => {
+            Some(InternalLabel::Bottom) => {
                 self.require_arity(label, arguments, 0)?;
                 Ok(Pattern::Bottom {
                     sort: self.parameter(label, 0)?,
                 })
             }
-            "#And" => Ok(Pattern::And {
+            Some(InternalLabel::And) => Ok(Pattern::And {
                 sort: self.parameter(label, 0)?,
                 arguments: patterns()?,
             }),
-            "#Or" => Ok(Pattern::Or {
+            Some(InternalLabel::Or) => Ok(Pattern::Or {
                 sort: self.parameter(label, 0)?,
                 arguments: patterns()?,
             }),
-            "#Not" => {
+            Some(InternalLabel::Not) => {
                 self.require_arity(label, arguments, 1)?;
                 Ok(Pattern::Not {
                     sort: self.parameter(label, 0)?,
                     argument: Box::new(self.pattern(&arguments[0])?),
                 })
             }
-            "#Implies" => {
+            Some(InternalLabel::Implies) => {
                 self.require_arity(label, arguments, 2)?;
                 Ok(Pattern::Implies {
                     sort: self.parameter(label, 0)?,
@@ -262,12 +262,12 @@ impl<'a> TermConverter<'a> {
                     right: Box::new(self.pattern(&arguments[1])?),
                 })
             }
-            "#Ceil" | "#Floor" => {
+            Some(InternalLabel::Ceil | InternalLabel::Floor) => {
                 self.require_arity(label, arguments, 1)?;
                 let operand_sort = self.parameter(label, 0)?;
                 let result_sort = self.parameter(label, 1)?;
                 let argument = Box::new(self.pattern(&arguments[0])?);
-                if label.name == "#Ceil" {
+                if label.is(InternalLabel::Ceil) {
                     Ok(Pattern::Ceil {
                         operand_sort,
                         result_sort,
@@ -281,7 +281,7 @@ impl<'a> TermConverter<'a> {
                     })
                 }
             }
-            "#Equals" => {
+            Some(InternalLabel::Equals) => {
                 self.require_arity(label, arguments, 2)?;
                 Ok(Pattern::Equals {
                     operand_sort: self.parameter(label, 0)?,
@@ -290,8 +290,10 @@ impl<'a> TermConverter<'a> {
                     right: Box::new(self.pattern(&arguments[1])?),
                 })
             }
-            "#Exists" | "#Forall" => self.quantifier(label, arguments),
-            "#AG" => Ok(Pattern::Application {
+            Some(InternalLabel::Exists | InternalLabel::Forall) => {
+                self.quantifier(label, arguments)
+            }
+            Some(InternalLabel::AG) => Ok(Pattern::Application {
                 symbol: Symbol {
                     name: "allPathGlobally".into(),
                     sort_parameters: label
@@ -302,17 +304,19 @@ impl<'a> TermConverter<'a> {
                 },
                 arguments: patterns()?,
             }),
-            "weakExistsFinally" | "weakAlwaysFinally" => Ok(Pattern::Application {
-                symbol: Symbol {
-                    name: label.name.clone(),
-                    sort_parameters: label
-                        .parameters
-                        .iter()
-                        .map(|sort| self.kore_sort(sort))
-                        .collect(),
-                },
-                arguments: patterns()?,
-            }),
+            Some(InternalLabel::WeakExistsFinally | InternalLabel::WeakAlwaysFinally) => {
+                Ok(Pattern::Application {
+                    symbol: Symbol {
+                        name: label.name.clone(),
+                        sort_parameters: label
+                            .parameters
+                            .iter()
+                            .map(|sort| self.kore_sort(sort))
+                            .collect(),
+                    },
+                    arguments: patterns()?,
+                })
+            }
             _ => Ok(Pattern::Application {
                 symbol: self.convert_label(label),
                 arguments: patterns()?,
@@ -364,7 +368,7 @@ impl<'a> TermConverter<'a> {
         variable: Variable,
         body: Pattern,
     ) -> Pattern {
-        if label.name == "#Exists" {
+        if label.is(InternalLabel::Exists) {
             Pattern::Exists {
                 sort,
                 variable,
@@ -380,7 +384,9 @@ impl<'a> TermConverter<'a> {
     }
 
     fn is_ml_binder(&self, label: &Label) -> bool {
-        matches!(label.name.as_str(), "#Exists" | "#Forall")
+        [InternalLabel::Exists, InternalLabel::Forall]
+            .iter()
+            .any(|internal| label.is(*internal))
             || self
                 .productions
                 .attributes_for(&LabelHead::from(label))
@@ -521,7 +527,7 @@ impl<'a> TermConverter<'a> {
     }
 
     fn kore_sort(&self, sort: &Sort) -> crate::kore::ast::Sort {
-        if sort.name == "#SortParam"
+        if sort.name == FrontendSort::SortParam.as_str()
             && let [parameter] = sort.parameters.as_slice()
             && parameter.parameters.is_empty()
             && self.sort_variables.contains(&parameter.name)
@@ -598,36 +604,45 @@ impl<'a> TermConverter<'a> {
         if let Some(sort) = label.semantic_cast_sort() {
             return Ok(sort);
         }
-        if label.name == "#OuterCast" {
+        if label.is(InternalLabel::OuterCast) {
             return arguments
                 .first()
                 .ok_or_else(|| invalid_sort(label))
                 .and_then(|argument| self.term_sort(argument));
         }
-        match label.name.as_str() {
-            name if name == WellKnownSymbol::Inj.as_str() => {
+        if label.is(WellKnownSymbol::Inj) {
+            return label
+                .parameters
+                .get(1)
+                .cloned()
+                .ok_or_else(|| invalid_sort(label));
+        }
+        match InternalLabel::of(&label.name) {
+            Some(InternalLabel::Ceil | InternalLabel::Floor | InternalLabel::Equals) => {
                 return label
                     .parameters
                     .get(1)
                     .cloned()
                     .ok_or_else(|| invalid_sort(label));
             }
-            "#Ceil" | "#Floor" | "#Equals" => {
-                return label
-                    .parameters
-                    .get(1)
-                    .cloned()
-                    .ok_or_else(|| invalid_sort(label));
-            }
-            "#Top" | "#Bottom" | "#And" | "#Or" | "#Not" | "#Implies" | "#AG"
-            | "weakExistsFinally" | "weakAlwaysFinally" => {
+            Some(
+                InternalLabel::Top
+                | InternalLabel::Bottom
+                | InternalLabel::And
+                | InternalLabel::Or
+                | InternalLabel::Not
+                | InternalLabel::Implies
+                | InternalLabel::AG
+                | InternalLabel::WeakExistsFinally
+                | InternalLabel::WeakAlwaysFinally,
+            ) => {
                 return label
                     .parameters
                     .first()
                     .cloned()
                     .ok_or_else(|| invalid_sort(label));
             }
-            "#Exists" | "#Forall" => {
+            Some(InternalLabel::Exists | InternalLabel::Forall) => {
                 return label
                     .parameters
                     .last()

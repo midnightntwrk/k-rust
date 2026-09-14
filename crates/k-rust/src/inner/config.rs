@@ -7,7 +7,7 @@ use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
     Sentence, sentence_equivalent,
 };
-use crate::kast::{Label, Sort, Term};
+use crate::kast::{InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
 
 use super::location::span_location;
@@ -158,22 +158,24 @@ fn up_configuration(
             },
         ));
     };
-    match (label.name.as_str(), arguments.as_slice()) {
-        ("#ruleNoConditions", [body]) => Ok(Sentence::Configuration {
+    match (InternalLabel::of(&label.name), arguments.as_slice()) {
+        (Some(InternalLabel::RuleNoConditions), [body]) => Ok(Sentence::Configuration {
             body: body.clone(),
             ensures: truth(),
             attributes,
         }),
-        ("#ruleEnsures", [body, ensures]) => Ok(Sentence::Configuration {
+        (Some(InternalLabel::RuleEnsures), [body, ensures]) => Ok(Sentence::Configuration {
             body: body.clone(),
             ensures: ensures.clone(),
             attributes,
         }),
-        ("#ruleRequires" | "#ruleRequiresEnsures", _) => Err(ConfigError::IllegalRequires {
-            module: module.to_owned(),
-            source: attributes.source().map(str::to_owned),
-            location: attributes.location(),
-        }),
+        (Some(InternalLabel::RuleRequires | InternalLabel::RuleRequiresEnsures), _) => {
+            Err(ConfigError::IllegalRequires {
+                module: module.to_owned(),
+                source: attributes.source().map(str::to_owned),
+                location: attributes.location(),
+            })
+        }
         _ => Err(bubble_error(
             module,
             &attributes,
@@ -255,12 +257,7 @@ fn configuration_grammar(
         )?;
     }
 
-    concrete_sorts.retain(|sort| {
-        !matches!(
-            sort.name.as_str(),
-            "K" | "KItem" | "KBott" | "KConfigVar" | "Cell" | "Bag" | "#RuleBody" | "#RuleContent"
-        ) && !sort.name.starts_with('#')
-    });
+    concrete_sorts.retain(|sort| !sort.is_reserved());
     for sort in concrete_sorts {
         if sort.name != BuiltinSort::Bool.k_name() {
             add_subsort(&mut grammar, "KItem", sort.clone())?;

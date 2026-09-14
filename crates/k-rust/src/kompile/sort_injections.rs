@@ -10,11 +10,9 @@ use crate::definition::{
     AttributeKey, Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
     ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead, sentence_equivalent,
 };
-use crate::kast::{Label, Sort, Term};
+use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::{GeneratingPass, record_generated_origins};
-
-const SORT_PARAMETER: &str = "#SortParam";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SortInjectionError {
@@ -289,7 +287,10 @@ impl<'a> SortInjector<'a> {
     fn fresh_sort_parameter(&self) -> Sort {
         let index = self.next_sort_parameter.get();
         self.next_sort_parameter.set(index + 1);
-        Sort::with_parameters(SORT_PARAMETER, vec![Sort::new(format!("Q{index}"))])
+        Sort::with_parameters(
+            FrontendSort::SortParam.as_str(),
+            vec![Sort::new(format!("Q{index}"))],
+        )
     }
 
     /// Infer a term's sort in an optional positional context.
@@ -363,7 +364,7 @@ impl<'a> SortInjector<'a> {
                 if let Some(sort) = label.semantic_cast_sort() {
                     return Ok(sort);
                 }
-                if label.name == "#OuterCast" {
+                if label.is(InternalLabel::OuterCast) {
                     let [argument] = arguments.as_slice() else {
                         return Err(SortInjectionError::InvalidArity {
                             label: label.name.clone(),
@@ -373,31 +374,26 @@ impl<'a> SortInjector<'a> {
                     };
                     return self.term_sort_with_arity(argument, expected, allow_trailing_arguments);
                 }
-                if matches!(
-                    label.name.as_str(),
-                    "#Top"
-                        | "#Bottom"
-                        | "#And"
-                        | "#Or"
-                        | "#Not"
-                        | "#Implies"
-                        | "#Ceil"
-                        | "#Floor"
-                        | "#Equals"
-                        | "#Exists"
-                        | "#Forall"
-                        | "#AG"
-                        | "weakExistsFinally"
-                        | "weakAlwaysFinally"
-                ) && self.has_production(term, label)
+                if InternalLabel::of(&label.name)
+                    .is_some_and(|internal| InternalLabel::MATCHING_LOGIC.contains(&internal))
+                    && self.has_production(term, label)
                 {
                     return Ok(self
                         .signature(term, label, arguments, expected, allow_trailing_arguments)?
                         .result);
                 }
-                match label.name.as_str() {
-                    "#Top" | "#Bottom" | "#And" | "#Or" | "#Not" | "#Implies" | "#AG"
-                    | "weakExistsFinally" | "weakAlwaysFinally" => {
+                match InternalLabel::of(&label.name) {
+                    Some(
+                        InternalLabel::Top
+                        | InternalLabel::Bottom
+                        | InternalLabel::And
+                        | InternalLabel::Or
+                        | InternalLabel::Not
+                        | InternalLabel::Implies
+                        | InternalLabel::AG
+                        | InternalLabel::WeakExistsFinally
+                        | InternalLabel::WeakAlwaysFinally,
+                    ) => {
                         return label.parameters.first().cloned().ok_or_else(|| {
                             SortInjectionError::MissingParameters {
                                 label: label.name.clone(),
@@ -406,7 +402,7 @@ impl<'a> SortInjector<'a> {
                             }
                         });
                     }
-                    "#Ceil" | "#Floor" | "#Equals" => {
+                    Some(InternalLabel::Ceil | InternalLabel::Floor | InternalLabel::Equals) => {
                         return label.parameters.get(1).cloned().ok_or_else(|| {
                             SortInjectionError::MissingParameters {
                                 label: label.name.clone(),
@@ -415,7 +411,7 @@ impl<'a> SortInjector<'a> {
                             }
                         });
                     }
-                    "#Exists" | "#Forall" => {
+                    Some(InternalLabel::Exists | InternalLabel::Forall) => {
                         return label.parameters.last().cloned().ok_or_else(|| {
                             SortInjectionError::MissingParameters {
                                 label: label.name.clone(),
@@ -424,28 +420,30 @@ impl<'a> SortInjector<'a> {
                             }
                         });
                     }
-                    "#fun2" if arguments.len() >= 2 => {
+                    Some(InternalLabel::Fun2) if arguments.len() >= 2 => {
                         return self.term_sort_with_arity(
                             &arguments[0],
                             expected,
                             allow_trailing_arguments,
                         );
                     }
-                    "#fun3" if arguments.len() >= 3 => {
+                    Some(InternalLabel::Fun3) if arguments.len() >= 3 => {
                         return self.term_sort_with_arity(
                             &arguments[1],
                             expected,
                             allow_trailing_arguments,
                         );
                     }
-                    "#let" if arguments.len() >= 3 => {
+                    Some(InternalLabel::Let) if arguments.len() >= 3 => {
                         return self.term_sort_with_arity(
                             &arguments[2],
                             expected,
                             allow_trailing_arguments,
                         );
                     }
-                    "_:=K_" | "_:/=K_" => return Ok(Sort::builtin(BuiltinSort::Bool)),
+                    Some(InternalLabel::KEqualsK | InternalLabel::KNotEqualsK) => {
+                        return Ok(Sort::builtin(BuiltinSort::Bool));
+                    }
                     _ => {}
                 }
                 let signature =
@@ -507,7 +505,10 @@ impl<'a> SortInjector<'a> {
             .clone()
             .into_unannotated()
             .with_metadata(argument_metadata);
-        Some(Term::apply(format!("project:{target}"), vec![argument]))
+        Some(Term::Apply {
+            label: Label::projection(target),
+            arguments: vec![argument],
+        })
     }
 
     fn user_list_wrapper(&self, actual: &Sort, expected: &Sort, visited: Term) -> Option<Term> {
@@ -698,7 +699,7 @@ impl<'a> SortInjector<'a> {
         actual: &Sort,
         is_lhs: bool,
     ) -> Result<Term, SortInjectionError> {
-        if actual.name == SORT_PARAMETER
+        if actual.name == FrontendSort::SortParam.as_str()
             && let Some(parameter) = actual.parameters.first()
         {
             self.used_sort_parameters
@@ -708,7 +709,7 @@ impl<'a> SortInjector<'a> {
         let rebuilt = match term.unannotated() {
             Term::Apply { label, .. } if label.is(WellKnownSymbol::Inj) => return Ok(term.clone()),
             Term::Apply { label, arguments }
-                if label.semantic_cast_sort().is_some() || label.name == "#OuterCast" =>
+                if label.semantic_cast_sort().is_some() || label.is(InternalLabel::OuterCast) =>
             {
                 let [argument] = arguments.as_slice() else {
                     return Err(SortInjectionError::InvalidArity {
@@ -909,7 +910,7 @@ impl<'a> SortInjector<'a> {
     fn parametric_lub(&self, sorts: &[Sort], fallback: &Sort) -> Result<Sort, SortInjectionError> {
         let concrete = sorts
             .iter()
-            .filter(|sort| sort.name != SORT_PARAMETER)
+            .filter(|sort| sort.name != FrontendSort::SortParam.as_str())
             .cloned()
             .collect::<Vec<_>>();
         if concrete.is_empty() {
@@ -917,7 +918,7 @@ impl<'a> SortInjector<'a> {
         }
         self.least_upper_bound(
             &concrete,
-            (fallback.name != SORT_PARAMETER).then_some(fallback),
+            (fallback.name != FrontendSort::SortParam.as_str()).then_some(fallback),
         )
     }
 
@@ -1029,7 +1030,7 @@ impl<'a> SortInjector<'a> {
     ) -> Result<Sort, SortInjectionError> {
         let mut entries = sorts
             .iter()
-            .filter(|sort| sort.name != SORT_PARAMETER)
+            .filter(|sort| sort.name != FrontendSort::SortParam.as_str())
             .cloned()
             .collect::<Vec<_>>();
         if entries.is_empty() {
@@ -1062,13 +1063,13 @@ impl<'a> SortInjector<'a> {
             // upperBounds includes every supplied element itself.
             bounds.insert(sort.clone());
         }
-        let k_bottom = Sort::new("KBott");
+        let k_bottom = Sort::frontend(FrontendSort::KBott);
         let k = Sort::builtin(BuiltinSort::K);
         bounds.retain(|bound| {
             !self.subsorts.less_than_eq(bound, &k_bottom) && !self.subsorts.greater_than(bound, &k)
         });
         if let Some(expected) = expected
-            && expected.name != SORT_PARAMETER
+            && expected.name != FrontendSort::SortParam.as_str()
             && expected.parameters.is_empty()
         {
             bounds.retain(|bound| self.subsorts.less_than_eq(bound, expected));

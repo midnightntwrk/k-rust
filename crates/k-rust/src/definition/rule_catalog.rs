@@ -7,7 +7,7 @@ use super::attribute_keys::AttributeKey;
 use super::catalog::ProductionCatalog;
 use super::equivalence::sentence_equivalent;
 use super::resolve::{ModuleId, ResolvedDefinition};
-use crate::kast::{Label, Term};
+use crate::kast::{InternalLabel, Label, Term};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RuleId(pub usize);
@@ -188,7 +188,7 @@ pub fn match_rule_label(rule: &Sentence) -> Label {
 
 fn matched_term_label(term: &Term) -> Option<&Label> {
     if let Term::Apply { label, arguments } = term.unannotated() {
-        if label.name == "#withConfig" {
+        if label.is(InternalLabel::WithConfig) {
             match arguments.first() {
                 Some(term) if matches!(term.unannotated(), Term::Apply { .. }) => {
                     let Term::Apply { label, .. } = term.unannotated() else {
