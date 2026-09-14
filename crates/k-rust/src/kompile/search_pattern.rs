@@ -5,7 +5,7 @@ use std::fmt;
 
 use crate::definition::{Attributes, ResolvedDefinition, Sentence, sentence_equivalent};
 use crate::inner::{RuleError, parse_rule_content};
-use crate::kast::{Sort, Term};
+use crate::kast::{Sort, Term, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
 use crate::names::BuiltinSort;
 
@@ -16,7 +16,7 @@ use super::passes::{
 };
 use super::sort_injections::{SortInjectionError, SortInjector, rewrite_projection};
 use super::term_to_kore::{TermConversionError, TermConverter};
-use super::{ConcretizeCellsError, concretize_cells_in_sentence, encode_kore_identifier};
+use super::{ConcretizeCellsError, concretize_cells_in_sentence};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct KoreVariableIdentity {
@@ -225,12 +225,13 @@ fn is_true(term: &Term) -> bool {
 
 fn encode_generated_identity(identity: GeneratedVariableIdentity) -> KoreVariableIdentity {
     match identity.kind {
-        VariableKind::Element => {
-            KoreVariableIdentity::element(format!("Var{}", encode_kore_identifier(&identity.name)))
-        }
+        VariableKind::Element => KoreVariableIdentity::element(identifier::encode_variable(
+            &identity.name,
+            VariableKind::Element,
+        )),
         VariableKind::Set => {
             let name = identity.name.strip_prefix('@').unwrap_or(&identity.name);
-            KoreVariableIdentity::set(format!("@Var{}", encode_kore_identifier(name)))
+            KoreVariableIdentity::set(identifier::encode_variable(name, VariableKind::Set))
         }
     }
 }

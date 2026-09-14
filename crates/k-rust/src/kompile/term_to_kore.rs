@@ -7,12 +7,12 @@ use crate::definition::{
     Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ResolveError,
     ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
-use crate::kast::{self, Label, Sort, Term};
+use crate::kast::{self, Label, Sort, Term, identifier};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
-use super::module_to_kore::{encode_kore_identifier, encode_kore_label};
+use super::module_to_kore::encode_kore_label;
 
 /// A failure to recover information required by KORE from the compact public KAST.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -508,23 +508,14 @@ impl<'a> TermConverter<'a> {
     }
 
     fn variable(&self, name: &str, sort: &Option<Sort>) -> Variable {
-        let (kind, name) = name.strip_prefix('@').map_or_else(
-            || {
-                (
-                    VariableKind::Element,
-                    format!("Var{}", encode_kore_identifier(name)),
-                )
-            },
-            |name| {
-                (
-                    VariableKind::Set,
-                    format!("@Var{}", encode_kore_identifier(name)),
-                )
-            },
-        );
+        let (kind, name) = name
+            .strip_prefix('@')
+            .map_or((VariableKind::Element, name), |name| {
+                (VariableKind::Set, name)
+            });
         Variable {
             kind,
-            name,
+            name: identifier::encode_variable(name, kind),
             sort: self.kore_sort(sort.as_ref().unwrap_or(&Sort::builtin(BuiltinSort::K))),
         }
     }
@@ -540,7 +531,7 @@ impl<'a> TermConverter<'a> {
             crate::kore::ast::Sort::Variable(sort.name.clone())
         } else {
             crate::kore::ast::Sort::Application {
-                name: format!("Sort{}", encode_kore_identifier(&sort.name)),
+                name: identifier::encode_sort_name(&sort.name),
                 arguments: sort
                     .parameters
                     .iter()

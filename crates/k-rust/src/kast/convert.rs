@@ -3,11 +3,12 @@
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 
-use crate::kore::ast::{Pattern, Sort as KoreSort, Symbol, Variable};
+use crate::kore::ast::{Pattern, Sort as KoreSort, Symbol, Variable, VariableKind};
 use crate::kore::normalize;
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::ast::{Label, Sort, Term};
+use super::identifier::{self, DecodeError};
 use super::string;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,6 +21,12 @@ impl Display for ConversionError {
 }
 
 impl std::error::Error for ConversionError {}
+
+impl From<DecodeError> for ConversionError {
+    fn from(error: DecodeError) -> Self {
+        Self(error.to_string())
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Converter<'a> {
@@ -128,29 +135,24 @@ impl<'a> Converter<'a> {
     fn sort(&self, sort: &KoreSort) -> Result<Sort, ConversionError> {
         match sort {
             KoreSort::Variable(_) => Ok(Sort::builtin(BuiltinSort::K)),
-            KoreSort::Application { name, arguments } => {
-                let name = name.strip_prefix("Sort").ok_or_else(|| {
-                    ConversionError(format!("compound KORE sort {name:?} lacks Sort prefix"))
-                })?;
-                Ok(Sort::with_parameters(
-                    decode_identifier(name)?,
-                    arguments
-                        .iter()
-                        .map(|sort| self.sort(sort))
-                        .collect::<Result<_, _>>()?,
-                ))
-            }
+            KoreSort::Application { name, arguments } => Ok(Sort::with_parameters(
+                identifier::decode_sort_name(name)?,
+                arguments
+                    .iter()
+                    .map(|sort| self.sort(sort))
+                    .collect::<Result<_, _>>()?,
+            )),
         }
     }
 
     fn variable(&self, variable: &Variable) -> Result<Term, ConversionError> {
-        let (prefix, name) = variable
-            .name
-            .strip_prefix('@')
-            .map_or(("", variable.name.as_str()), |name| ("@", name));
-        let encoded = name.strip_prefix("Var").unwrap_or(name);
+        let (kind, name) = identifier::decode_variable(&variable.name);
+        let prefix = match kind {
+            VariableKind::Element => "",
+            VariableKind::Set => "@",
+        };
         Ok(Term::Variable {
-            name: format!("{prefix}{}", decode_identifier(encoded)?),
+            name: format!("{prefix}{}", name?),
             sort: Some(self.sort(&variable.sort)?),
         })
     }
@@ -175,7 +177,7 @@ impl<'a> Converter<'a> {
             name if name == WellKnownSymbol::DotK.as_str() => Ok(Term::Sequence(Vec::new())),
             _ => Ok(Term::Apply {
                 label: Label {
-                    name: decode_label(&symbol.name)?,
+                    name: identifier::decode_label(&symbol.name)?,
                     parameters: symbol
                         .sort_parameters
                         .iter()
@@ -250,96 +252,6 @@ pub fn convert(pattern: &Pattern) -> Result<Term, ConversionError> {
 
 pub fn convert_sort(sort: &KoreSort) -> Result<Sort, ConversionError> {
     Converter::new(&HashMap::new()).sort(sort)
-}
-
-fn decode_label(name: &str) -> Result<String, ConversionError> {
-    decode_identifier(name.strip_prefix("Lbl").unwrap_or(name))
-}
-
-fn decode_identifier(encoded: &str) -> Result<String, ConversionError> {
-    let mut output = String::new();
-    let mut encoded_units = Vec::new();
-    let mut literal = true;
-    let mut offset = 0;
-    while offset < encoded.len() {
-        let character = encoded[offset..].chars().next().unwrap();
-        if character == '\'' {
-            if !literal {
-                output.push_str(&String::from_utf16(&encoded_units).map_err(|_| {
-                    ConversionError(format!("invalid UTF-16 in encoded identifier {encoded:?}"))
-                })?);
-                encoded_units.clear();
-            }
-            literal = !literal;
-            offset += 1;
-        } else if literal {
-            output.push(character);
-            offset += character.len_utf8();
-        } else {
-            let end = offset + 4;
-            let code = encoded.get(offset..end).ok_or_else(|| {
-                ConversionError(format!("truncated encoded identifier {encoded:?}"))
-            })?;
-            if let Ok(unit) = u16::from_str_radix(code, 16) {
-                encoded_units.push(unit);
-            } else {
-                encoded_units.extend(
-                    decode_code(code)
-                        .ok_or_else(|| {
-                            ConversionError(format!("unknown KORE identifier code {code:?}"))
-                        })?
-                        .encode_utf16(),
-                );
-            }
-            offset = end;
-        }
-    }
-    if literal {
-        Ok(output)
-    } else {
-        Err(ConversionError(format!(
-            "unterminated encoded identifier {encoded:?}"
-        )))
-    }
-}
-
-fn decode_code(code: &str) -> Option<&'static str> {
-    Some(match code {
-        "Spce" => " ",
-        "Bang" => "!",
-        "Quot" => "\"",
-        "Hash" => "#",
-        "Dolr" => "$",
-        "Perc" => "%",
-        "And-" => "&",
-        "Apos" => "'",
-        "LPar" => "(",
-        "RPar" => ")",
-        "Star" => "*",
-        "Plus" => "+",
-        "Comm" => ",",
-        "Stop" => ".",
-        "Slsh" => "/",
-        "Coln" => ":",
-        "SCln" => ";",
-        "-LT-" => "<",
-        "Eqls" => "=",
-        "-GT-" => ">",
-        "Ques" => "?",
-        "-AT-" => "@",
-        "LSqB" => "[",
-        "RSqB" => "]",
-        "Bash" => "\\",
-        "Xor-" => "^",
-        "Unds" => "_",
-        "BQuo" => "`",
-        "LBra" => "{",
-        "Pipe" => "|",
-        "RBra" => "}",
-        "Tild" => "~",
-        "Kywd" => "",
-        _ => return None,
-    })
 }
 
 #[cfg(test)]
