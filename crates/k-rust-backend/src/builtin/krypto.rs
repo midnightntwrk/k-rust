@@ -11,6 +11,8 @@ use sha2::{Digest, Sha256, Sha512_256};
 use sha3::{Keccak256, Sha3_256};
 use substrate_bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Group, Gt, pairing_batch};
 
+use k_rust_kore::names::BuiltinSort;
+
 use super::{
     BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, bytes, check_interrupted,
     expect_arity, read_int,
@@ -425,7 +427,7 @@ fn failed_recovery() -> BuiltinResult {
 }
 
 fn string_term(value: impl Into<String>) -> Term {
-    Term::domain_value(Sort::simple("SortString"), value.into())
+    Term::domain_value(Sort::builtin(BuiltinSort::String), value.into())
 }
 
 #[cfg(test)]

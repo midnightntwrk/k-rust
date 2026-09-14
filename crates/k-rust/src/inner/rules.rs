@@ -10,6 +10,7 @@ use crate::definition::{
     Sentence, SortCatalog,
 };
 use crate::kast::{Label, Sort, Term};
+use crate::names::BuiltinSort;
 
 use super::config::{
     BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort,
@@ -451,7 +452,7 @@ fn rule_grammar(
                 sort,
                 items,
                 ..
-            } if sort.name == "KItem"
+            } if sort.name == BuiltinSort::KItem.k_name()
                 && matches!(items.as_slice(), [ProductionItem::NonTerminal { sort: child, .. }]
                     if parameters.contains(child))
         )
@@ -479,10 +480,12 @@ fn rule_grammar(
                 sort,
                 items,
                 ..
-            } if parameters.is_empty() && sort.name == "KItem" => match items.as_slice() {
-                [ProductionItem::NonTerminal { sort: child, .. }] => Some(child.clone()),
-                _ => None,
-            },
+            } if parameters.is_empty() && sort.name == BuiltinSort::KItem.k_name() => {
+                match items.as_slice() {
+                    [ProductionItem::NonTerminal { sort: child, .. }] => Some(child.clone()),
+                    _ => None,
+                }
+            }
             _ => None,
         })
         .collect::<BTreeSet<_>>();
@@ -588,7 +591,7 @@ fn rule_grammar(
     for sort in concrete_sorts {
         #[cfg(not(feature = "z3-inference"))]
         add_rule_sort(&mut grammar, &sort)?;
-        if sort.name != "Bool" {
+        if sort.name != BuiltinSort::Bool.k_name() {
             if !has_generated_top_sort && !explicit_top_sorts.contains(&sort) {
                 add_subsort(&mut grammar, "KItem", sort.clone())?;
             }

@@ -1,12 +1,16 @@
 //! Conversion of internal backend terms and constrained patterns back to KORE.
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
     definition::BackendDefinition,
     rewrite::{Pattern, Truth, predicates_truth},
     rule::Predicate,
-    term::{CollectionSymbols, Sort, Term, TermKind, Variable},
+    term::{
+        CollectionSymbols, Sort, Term, TermKind, Variable,
+        names::{HookName, HookNamespace, VariableProvenance, split_fresh_counter, split_marker},
+    },
 };
 
 pub fn term(term: &Term) -> kore::Pattern {
@@ -37,7 +41,7 @@ pub fn term(term: &Term) -> kore::Pattern {
             target,
             term,
         } => application(
-            "inj",
+            WellKnownSymbol::Inj.as_str(),
             vec![sort(source), sort(target)],
             vec![self::term(term)],
         ),
@@ -165,7 +169,7 @@ pub fn booster_predicate_pattern(
 /// not mistaken for semantic equality during simplification.
 pub fn booster_rule_predicate_pattern(predicate: &Predicate, result_sort: &Sort) -> kore::Pattern {
     predicate_pattern(
-        &logical_rule_predicate(&Sort::simple("SortBool"), predicate),
+        &logical_rule_predicate(&Sort::builtin(BuiltinSort::Bool), predicate),
         result_sort,
     )
 }
@@ -262,11 +266,13 @@ fn boolean_term_predicate(boolean_sort: &Sort, term: &Term, expected: bool) -> O
             Predicate::And(vec![operand(0, false)?, operand(1, false)?])
         }),
         (hook, [left, right])
-            if (hook.ends_with(".eq") || hook.ends_with(".ne"))
-                && !matches!(hook, "FLOAT.eq" | "FLOAT.ne") =>
+            if HookName::parse(hook).is_some_and(|hook| {
+                matches!(hook.operation, "eq" | "ne") && hook.kind() != HookNamespace::Float
+            }) =>
         {
             let equality = Predicate::Equals(left.clone(), right.clone());
-            let equality_expected = expected == hook.ends_with(".eq");
+            let equality_expected =
+                expected == HookName::parse(hook).is_some_and(|hook| hook.operation == "eq");
             Some(if equality_expected {
                 equality
             } else {
@@ -337,7 +343,10 @@ fn predicate_as_boolean_term(
                         .attributes
                         .hook
                         .as_deref()
-                        .is_some_and(|hook| hook.ends_with(".eq") && hook != "FLOAT.eq")
+                        .and_then(HookName::parse)
+                        .is_some_and(|hook| {
+                            hook.operation == "eq" && hook.kind() != HookNamespace::Float
+                        })
                         && symbol.sort_variables.is_empty()
                         && symbol.result_sort == boolean_sort
                         && symbol.argument_sorts == [left.sort(), right.sort()]
@@ -544,7 +553,7 @@ fn boolean_domain_value_of_sort(boolean_sort: &Sort, term: &Term) -> Option<bool
 }
 
 fn boolean_domain_value(term: &Term) -> Option<bool> {
-    boolean_domain_value_of_sort(&Sort::simple("SortBool"), term)
+    boolean_domain_value_of_sort(&Sort::builtin(BuiltinSort::Bool), term)
 }
 
 pub fn sort(value: &Sort) -> kore::Sort {
@@ -568,9 +577,6 @@ fn variable_pattern(variable: &Variable) -> kore::Variable {
     }
 }
 
-/// The provenance markers the backend prefixes to rule-side variable names.
-const PROVENANCE_MARKERS: [&str; 3] = ["Rule#", "Ex#", "Eq#"];
-
 /// Externalize an internal variable name as the KORE identifier the reference engines print.
 ///
 /// Booster keeps the `Rule#`/`Ex#` provenance markers internally and drops the `#` when it
@@ -584,21 +590,9 @@ const PROVENANCE_MARKERS: [&str; 3] = ["Rule#", "Ex#", "Eq#"];
 /// the K frontend never produces names starting with `Rule`, `Ex` or `Eq` without the `Var`
 /// prefix, so externalized names do not collide with user variables.
 pub fn external_variable_name(name: &str) -> String {
-    let (marker, rest) = PROVENANCE_MARKERS
-        .iter()
-        .find_map(|marker| {
-            name.strip_prefix(marker)
-                .map(|rest| (&marker[..marker.len() - 1], rest))
-        })
-        .unwrap_or(("", name));
-    let (base, counter) = match rest.rsplit_once('!') {
-        Some((base, counter))
-            if !counter.is_empty() && counter.bytes().all(|byte| byte.is_ascii_digit()) =>
-        {
-            (base, counter)
-        }
-        _ => (rest, ""),
-    };
+    let (marker, rest) = split_marker(name, &VariableProvenance::ALL);
+    let marker = marker.map_or("", VariableProvenance::external_prefix);
+    let (base, counter) = split_fresh_counter(rest);
     let mut external = String::with_capacity(name.len());
     for (index, character) in marker
         .chars()

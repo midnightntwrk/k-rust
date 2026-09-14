@@ -5,8 +5,9 @@ use std::fmt;
 
 use crate::definition::{Attributes, ResolvedDefinition, Sentence, sentence_equivalent};
 use crate::inner::{RuleError, parse_rule_content};
-use crate::kast::{Sort, Term};
+use crate::kast::{Sort, Term, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
+use crate::names::BuiltinSort;
 
 use super::fresh_names::GeneratedVariableIdentity;
 use super::passes::{
@@ -15,7 +16,7 @@ use super::passes::{
 };
 use super::sort_injections::{SortInjectionError, SortInjector, rewrite_projection};
 use super::term_to_kore::{TermConversionError, TermConverter};
-use super::{ConcretizeCellsError, concretize_cells_in_sentence, encode_kore_identifier};
+use super::{ConcretizeCellsError, concretize_cells_in_sentence};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct KoreVariableIdentity {
@@ -165,8 +166,8 @@ pub fn compile_search_pattern(
         .try_into()
         .expect("two input roots produce two expanded roots");
 
-    let top = Sort::new("GeneratedTopCell");
-    let bool_sort = Sort::new("Bool");
+    let top = Sort::builtin(BuiltinSort::GeneratedTopCell);
+    let bool_sort = Sort::builtin(BuiltinSort::Bool);
     let injector = SortInjector::new(execution_definition, module)?;
     let actual = injector.term_sort(&body, None)?;
     if actual != top {
@@ -218,18 +219,19 @@ pub fn compile_search_pattern(
 fn is_true(term: &Term) -> bool {
     matches!(
         term.unannotated(),
-        Term::Token { token, sort } if token == "true" && sort == &Sort::new("Bool")
+        Term::Token { token, sort } if token == "true" && sort.is_builtin(BuiltinSort::Bool)
     )
 }
 
 fn encode_generated_identity(identity: GeneratedVariableIdentity) -> KoreVariableIdentity {
     match identity.kind {
-        VariableKind::Element => {
-            KoreVariableIdentity::element(format!("Var{}", encode_kore_identifier(&identity.name)))
-        }
+        VariableKind::Element => KoreVariableIdentity::element(identifier::encode_variable(
+            &identity.name,
+            VariableKind::Element,
+        )),
         VariableKind::Set => {
             let name = identity.name.strip_prefix('@').unwrap_or(&identity.name);
-            KoreVariableIdentity::set(format!("@Var{}", encode_kore_identifier(name)))
+            KoreVariableIdentity::set(identifier::encode_variable(name, VariableKind::Set))
         }
     }
 }

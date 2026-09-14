@@ -5,6 +5,7 @@ use std::{
     fmt,
 };
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ProductionId,
@@ -212,7 +213,7 @@ impl CellModel {
                 collection_members: BTreeMap::new(),
                 parents: BTreeMap::new(),
                 levels: BTreeMap::new(),
-                root: Sort::new("GeneratedTopCell"),
+                root: Sort::builtin(BuiltinSort::GeneratedTopCell),
                 close_operators: BTreeMap::new(),
             });
         }
@@ -1119,8 +1120,11 @@ impl<'a> Concretizer<'a> {
                 label.name
             ));
         }
-        let cell_sort = cell.leaf_sort.clone().unwrap_or_else(|| Sort::new("K"));
-        if cell_sort.name == "K" {
+        let cell_sort = cell
+            .leaf_sort
+            .clone()
+            .unwrap_or_else(|| Sort::builtin(BuiltinSort::K));
+        if cell_sort.name == BuiltinSort::K.k_name() {
             let mut items = Vec::new();
             if open_left {
                 items.push(self.fresh_variable(Some(cell_sort.clone()), "_DotVar"));
@@ -1613,7 +1617,7 @@ fn fragment_predicate(info: &FragmentInfo, model: &CellModel) -> Term {
         .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
         .unwrap_or_else(|| Term::Token {
             token: "true".into(),
-            sort: Sort::new("Bool"),
+            sort: Sort::builtin(BuiltinSort::Bool),
         })
 }
 

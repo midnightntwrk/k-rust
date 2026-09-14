@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod convert;
+pub mod identifier;
 pub mod json;
 pub mod parser;
 pub mod printer;

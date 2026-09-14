@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use num_bigint::BigInt;
 
+use k_rust_kore::names::BuiltinSort;
+
 use super::{
     BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, int_term,
 };
@@ -40,8 +42,8 @@ pub(super) fn k_item_set_definition() -> Arc<SetDefinition> {
             element: "LblSetItem".into(),
             concat: "Lbl'Unds'Set'Unds'".into(),
         },
-        element_sort: "SortKItem".into(),
-        list_sort: "SortSet".into(),
+        element_sort: BuiltinSort::KItem.kore_name().into(),
+        list_sort: BuiltinSort::Set.kore_name().into(),
     })
 }
 

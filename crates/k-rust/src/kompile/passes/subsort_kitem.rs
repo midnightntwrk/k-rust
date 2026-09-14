@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
     kast::Sort,
@@ -39,7 +40,7 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
             let production = Sentence::Production {
                 label: None,
                 parameters: Vec::new(),
-                sort: Sort::new("KItem"),
+                sort: Sort::builtin(BuiltinSort::KItem),
                 items: vec![ProductionItem::NonTerminal {
                     sort: sort.clone(),
                     name: None,

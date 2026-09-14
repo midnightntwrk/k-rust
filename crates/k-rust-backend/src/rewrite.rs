@@ -8,6 +8,7 @@ use std::{
 };
 
 use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::names::BuiltinSort;
 use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::{
@@ -28,7 +29,10 @@ use crate::{
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution, substitute, substitution_binding},
-    term::{Sort, Symbol, SymbolType, Term, TermKind, Variable},
+    term::{
+        Sort, Symbol, SymbolType, Term, TermKind, Variable,
+        names::{VariableProvenance, split_marker, with_fresh_counter},
+    },
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     transition::{
         ObservationEvent, ObservationHead, ObservationLog, ObservationOptions, PatternDigest,
@@ -1851,7 +1855,8 @@ fn solve_collection_remainders_with_narrowing(
 ) -> Option<Vec<CollectionSolution>> {
     let mut names_to_avoid = pattern_variable_names(pattern);
     let mut fresh_frame = |sort: &Sort| {
-        let seed = Variable::new("Ex#Frame", sort.clone());
+        let seed =
+            Variable::new("Frame", sort.clone()).with_provenance(VariableProvenance::Existential);
         let fresh = fresh_variable(&seed, &mut names_to_avoid, fresh_counter);
         let TermKind::Variable(variable) = fresh.kind() else {
             unreachable!("fresh terms are variables")
@@ -2077,12 +2082,13 @@ fn freshen_unbound_rule_variables(
         .collect::<Vec<_>>();
     let mut fresh_variables = BTreeSet::new();
     for variable in unbound {
-        let base_name = variable
-            .name
-            .strip_prefix("Rule#")
-            .or_else(|| variable.name.strip_prefix("Eq#"))
-            .unwrap_or(variable.name.as_ref());
-        let existential = variable.with_name(format!("Ex#{base_name}"));
+        let (_, base_name) = split_marker(
+            &variable.name,
+            &[VariableProvenance::Rule, VariableProvenance::Equation],
+        );
+        let existential = variable
+            .with_name(base_name)
+            .with_provenance(VariableProvenance::Existential);
         let fresh = fresh_variable(&existential, &mut names_to_avoid, fresh_counter);
         let TermKind::Variable(fresh_variable) = fresh.kind() else {
             unreachable!("fresh terms are variables")
@@ -3289,7 +3295,7 @@ fn recover_boolean_matches(
         .map(|(_, pair)| pair.clone())
         .collect::<Vec<_>>();
     let expected = Term::domain_value(
-        Sort::simple("SortBool"),
+        Sort::builtin(BuiltinSort::Bool),
         if split.expected { "true" } else { "false" },
     );
 
@@ -3434,7 +3440,7 @@ fn recover_map_not_in_keys_matches(
             &mut conditions,
             [Predicate::Equals(
                 membership,
-                Term::domain_value(Sort::simple("SortBool"), "false"),
+                Term::domain_value(Sort::builtin(BuiltinSort::Bool), "false"),
             )],
         );
     }
@@ -3628,7 +3634,7 @@ fn bool_domain_value(term: &Term) -> Option<bool> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    if sort != &Sort::simple("SortBool") {
+    if !sort.is_builtin(BuiltinSort::Bool) {
         return None;
     }
     match value.as_ref() {
@@ -3686,7 +3692,7 @@ fn recover_ite_matches(
         let mut substitution = compose(&found, &substitution);
         branch_remainder.extend(untouched.iter().cloned());
         let value = Term::domain_value(
-            Sort::simple("SortBool"),
+            Sort::builtin(BuiltinSort::Bool),
             if value { "true" } else { "false" },
         );
         let mut condition = substitute(&condition, &substitution);
@@ -3796,7 +3802,8 @@ fn recover_overload_symbolic_match(
         .enumerate()
         .map(|(index, sort)| {
             fresh_variable(
-                &Variable::new(format!("Ex#Overload{index}"), sort.clone()),
+                &Variable::new(format!("Overload{index}"), sort.clone())
+                    .with_provenance(VariableProvenance::Existential),
                 &mut names_to_avoid,
                 fresh_counter,
             )
@@ -3994,13 +4001,13 @@ pub(crate) fn check_concreteness(
                     .variables
                     .iter()
                     .find(|variable| {
-                        variable
-                            .name
-                            .as_ref()
-                            .strip_prefix("Rule#")
-                            .or_else(|| variable.name.as_ref().strip_prefix("Eq#"))
-                            == Some(name.as_ref())
-                            && sort_name(&variable.sort) == Some(sort.as_ref())
+                        matches!(
+                            split_marker(
+                                &variable.name,
+                                &[VariableProvenance::Rule, VariableProvenance::Equation],
+                            ),
+                            (Some(_), rest) if rest == name.as_ref()
+                        ) && sort_name(&variable.sort) == Some(sort.as_ref())
                     })
                     .cloned()
                     .map(|variable| (variable, *kind))
@@ -4049,12 +4056,14 @@ fn freshen_existential(
     variable: &Variable,
     names_to_avoid: &mut BTreeSet<crate::term::Name>,
 ) -> Term {
-    let mut name = variable
-        .name
-        .strip_prefix("Ex#")
-        .or_else(|| variable.name.strip_prefix("Rule#"))
-        .unwrap_or(variable.name.as_ref())
-        .to_owned();
+    // `rule.existentials` only carries `Ex#` names (`internalize_axiom`); the `Rule` arm mirrors
+    // Booster and `Eq#` is deliberately not accepted here.
+    let mut name = split_marker(
+        &variable.name,
+        &[VariableProvenance::Existential, VariableProvenance::Rule],
+    )
+    .1
+    .to_owned();
     while !names_to_avoid.insert(name.as_str().into()) {
         name = increment_name_counter(&name);
     }
@@ -4084,7 +4093,7 @@ fn fresh_variable(
     fresh_counter: &mut u64,
 ) -> Term {
     let name = loop {
-        let name = format!("{}!{}", variable.name, *fresh_counter);
+        let name = with_fresh_counter(&variable.name, *fresh_counter);
         *fresh_counter += 1;
         if names_to_avoid.insert(name.as_str().into()) {
             break name;
@@ -4290,12 +4299,12 @@ fn predicate_truth(predicate: &Predicate) -> Truth {
 fn bool_term_truth(term: &Term) -> Truth {
     match term.kind() {
         TermKind::DomainValue { sort, value }
-            if sort == &Sort::simple("SortBool") && value.as_ref() == "true" =>
+            if sort.is_builtin(BuiltinSort::Bool) && value.as_ref() == "true" =>
         {
             Truth::True
         }
         TermKind::DomainValue { sort, value }
-            if sort == &Sort::simple("SortBool") && value.as_ref() == "false" =>
+            if sort.is_builtin(BuiltinSort::Bool) && value.as_ref() == "false" =>
         {
             Truth::False
         }

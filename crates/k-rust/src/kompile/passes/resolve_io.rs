@@ -2,6 +2,7 @@
 
 use std::{fmt, ops::Range};
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Definition, FlatImport, LabelHead, ModuleId, ResolvedDefinition, Sentence,
@@ -579,11 +580,11 @@ fn instantiate_unblock(term: Term, user_cell: &Label, sort: &str, builtin_cell: 
             match arguments[0].unannotated() {
                 Term::Variable { name, .. } if name == "?Sort" => Term::Token {
                     token: format!("\"{sort}\""),
-                    sort: Sort::new("String"),
+                    sort: Sort::builtin(BuiltinSort::String),
                 },
                 Term::Variable { name, .. } if name == "?Delimiters" => Term::Token {
                     token: "\" \\n\\t\\r\"".into(),
-                    sort: Sort::new("String"),
+                    sort: Sort::builtin(BuiltinSort::String),
                 },
                 _ => Term::Apply {
                     label,

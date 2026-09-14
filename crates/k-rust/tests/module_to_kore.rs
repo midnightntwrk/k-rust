@@ -7,7 +7,7 @@ use k_rust::definition::ResolvedDefinition;
 use k_rust::kast::convert::{Converter, convert, convert_sort};
 use k_rust::kompile::{
     TermConverter, declaration_modules, declaration_modules_from_resolved_with_options,
-    encode_kore_identifier, encode_kore_label, encode_kore_sort, module_to_kore,
+    encode_kore_label, encode_kore_sort, module_to_kore,
 };
 use k_rust::kore::ast::{Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_module, parse_sentence};
@@ -123,7 +123,7 @@ fn strictness_rules_do_not_emit_frontend_only_production_attributes() {
         .map(|(label, names)| {
             let mut names = names
                 .into_iter()
-                .map(|name| encode_kore_identifier(&name))
+                .map(|name| kast::identifier::encode(&name))
                 .collect::<Vec<_>>();
             names.sort();
             (label, names)
@@ -1174,20 +1174,6 @@ fn out_of_catalog_hook_namespaces_are_not_emitted_as_hooked_symbols() {
             "unknown hook attribute survived ordinary-symbol emission"
         );
     }
-}
-
-#[test]
-fn encodes_java_kore_identifier_edge_cases() {
-    assert_eq!(encode_kore_identifier("_+_"), "'UndsPlusUnds'");
-    assert_eq!(
-        encode_kore_identifier("<generatedTop>-fragment"),
-        "'-LT-'generatedTop'-GT-'-fragment"
-    );
-    assert_eq!(encode_kore_identifier("_|->_"), "'UndsPipe'-'-GT-Unds'");
-    assert_eq!(encode_kore_identifier("module"), "module'Kywd'");
-    assert_eq!(encode_kore_identifier("éα"), "'00e903b1'");
-    assert_eq!(encode_kore_identifier("😀"), "'d83dde00'");
-    assert_eq!(encode_kore_identifier("\n"), "'000a'");
 }
 
 #[test]

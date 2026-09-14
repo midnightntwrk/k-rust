@@ -13,11 +13,12 @@ use crate::definition::{
     ProductionId, ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog,
     SOURCE_ATTRIBUTE, Sentence, SortCatalog, SortHead, match_rule_label, sentence_equivalent,
 };
-use crate::kast::{Label, ResolvedProductionId, Sort, Term};
+use crate::kast::{Label, ResolvedProductionId, Sort, Term, identifier};
 use crate::kore::ast::{
     Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
     Sort as KoreSort, Symbol, Variable, VariableKind,
 };
+use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::{
     GeneratingPass, ProvenanceLink, seed_generated_sentence_origin, sentence_origin_links,
 };
@@ -577,7 +578,7 @@ pub fn declaration_modules_from_resolved_with_options(
         });
     }
 
-    let module_name = encode_kore_identifier(module);
+    let module_name = identifier::encode(module);
     let module_attributes = emit_attributes(
         definition.module(module_id).attributes.semantic_entries(),
         &valued_attributes,
@@ -614,7 +615,9 @@ fn definition_attributes(
                 sort,
                 attributes,
                 ..
-            } if sort.name == "GeneratedTopCell" && attributes.get("initializer").is_some() => {
+            } if sort.name == BuiltinSort::GeneratedTopCell.k_name()
+                && attributes.get("initializer").is_some() =>
+            {
                 Some(label)
             }
             _ => None,
@@ -634,7 +637,7 @@ fn definition_attributes(
     if let Some(source) = definition.module(module_id).attributes.source() {
         attributes.push(Pattern::Application {
             symbol: Symbol {
-                name: encode_kore_identifier(SOURCE_ATTRIBUTE),
+                name: identifier::encode(SOURCE_ATTRIBUTE),
                 sort_parameters: Vec::new(),
             },
             arguments: vec![Pattern::String(format!("Source({source})"))],
@@ -945,7 +948,7 @@ fn generate_map_ceil_rules(
         let equals = Term::Apply {
             label: Label::with_parameters(
                 "#Equals",
-                vec![Sort::new("Bool"), sort_parameter.clone()],
+                vec![Sort::builtin(BuiltinSort::Bool), sort_parameter.clone()],
             ),
             arguments: vec![in_keys, bool_token(false)],
         };
@@ -1030,7 +1033,7 @@ fn annotated_application(label: Label, arguments: Vec<Term>, production: Product
 fn bool_token(value: bool) -> Term {
     Term::Token {
         token: value.to_string(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 
@@ -1470,7 +1473,7 @@ fn no_junk_axioms(
                 alternatives.push(alternative);
             }
         }
-        if sort.name != "K" {
+        if sort.name != BuiltinSort::K.k_name() {
             for subsort in sorts
                 .sorted_all_sorts()
                 .filter(|subsort| subsorts.less_than(subsort, sort))
@@ -1488,7 +1491,7 @@ fn no_junk_axioms(
                     variable: variable.clone(),
                     body: Box::new(Pattern::Application {
                         symbol: Symbol {
-                            name: "inj".into(),
+                            name: WellKnownSymbol::Inj.as_str().into(),
                             sort_parameters: vec![subsort, result_sort.clone()],
                         },
                         arguments: vec![Pattern::Variable(variable)],
@@ -1936,7 +1939,7 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
     let [ProductionItem::NonTerminal { sort: subsort, .. }] = items.as_slice() else {
         return None;
     };
-    if sort.name == "K" {
+    if sort.name == BuiltinSort::K.k_name() {
         return None;
     }
 
@@ -1954,7 +1957,7 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
     };
     let injection = Pattern::Application {
         symbol: Symbol {
-            name: "inj".into(),
+            name: WellKnownSymbol::Inj.as_str().into(),
             sort_parameters: vec![subsort.clone(), sort.clone()],
         },
         arguments: vec![Pattern::Variable(from)],
@@ -2104,7 +2107,7 @@ fn inject_if_needed(pattern: Pattern, from: &KoreSort, to: &KoreSort) -> Pattern
     } else {
         Pattern::Application {
             symbol: Symbol {
-                name: "inj".into(),
+                name: WellKnownSymbol::Inj.as_str().into(),
                 sort_parameters: vec![from.clone(), to.clone()],
             },
             arguments: vec![pattern],
@@ -2250,7 +2253,7 @@ fn emit_rule_or_claim(
         }
         return emit_macro_axiom(left, right, attributes, valued, injector, converter);
     }
-    if !claim && body_sort != Sort::new("GeneratedTopCell") {
+    if !claim && !body_sort.is_builtin(BuiltinSort::GeneratedTopCell) {
         return Err(ModuleToKoreError::ExpectedGeneratedTopCell {
             actual: body_sort,
             rule: body.to_string(),
@@ -2384,7 +2387,7 @@ fn equation_info<'a>(
     let anywhere = attributes.get("anywhere").is_some();
     // Java's ModuleToKORE supplies a synthetic polymorphic production for `inj`; it is part of
     // the KORE prelude rather than the compiled K module's production catalog.
-    if label.name == "inj" {
+    if label.is(WellKnownSymbol::Inj) {
         if !simplification && !anywhere {
             return Ok(None);
         }
@@ -2938,8 +2941,11 @@ fn variable_list_attribute_overrides(
                 .map(str::trim)
                 .filter(|name| !name.is_empty())
                 .map(|name| {
-                    let encoded = encode_kore_identifier(name.trim_start_matches('@'));
-                    let candidates = [format!("Var{encoded}"), format!("@Var{encoded}")];
+                    let name = name.trim_start_matches('@');
+                    let candidates = [
+                        identifier::encode_variable(name, VariableKind::Element),
+                        identifier::encode_variable(name, VariableKind::Set),
+                    ];
                     candidates
                         .iter()
                         .find_map(|name| variables.get(name).cloned())
@@ -3067,7 +3073,7 @@ fn side_condition(
             sort: result_sort.clone(),
         });
     }
-    let bool_sort = encode_kore_sort(&Sort::new("Bool"));
+    let bool_sort = encode_kore_sort(&Sort::builtin(BuiltinSort::Bool));
     Ok(Pattern::Equals {
         operand_sort: bool_sort.clone(),
         result_sort: result_sort.clone(),
@@ -3082,7 +3088,7 @@ fn side_condition(
 fn is_true(term: &Term) -> bool {
     matches!(
         term.unannotated(),
-        Term::Token { token, sort } if token == "true" && sort == &Sort::new("Bool")
+        Term::Token { token, sort } if token == "true" && sort.is_builtin(BuiltinSort::Bool)
     )
 }
 
@@ -3176,7 +3182,7 @@ fn transitive_impure_labels(
                 let Term::Apply { label, .. } = term.unannotated() else {
                     return;
                 };
-                if label.name == "inj" {
+                if label.is(WellKnownSymbol::Inj) {
                     return;
                 }
                 let dependency = LabelHead::from(label);
@@ -3226,7 +3232,7 @@ fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
     let Term::Apply { label, arguments } = left.unannotated() else {
         return None;
     };
-    if label.name != "inj" {
+    if !label.is(WellKnownSymbol::Inj) {
         return Some(LabelHead::from(label));
     }
     let Term::Apply { label, .. } = arguments.first()?.unannotated() else {
@@ -3247,7 +3253,8 @@ fn sort_declarations(
         .collect::<BTreeSet<_>>();
     let mut declarations = Vec::new();
     for head in sorts.sorted_defined_heads() {
-        if matches!(head.as_str(), "K" | "KItem") {
+        if head.as_str() == BuiltinSort::K.k_name() || head.as_str() == BuiltinSort::KItem.k_name()
+        {
             continue;
         }
         let source_attributes = sorts.attributes_for(head).cloned().unwrap_or_default();
@@ -3268,7 +3275,7 @@ fn sort_declarations(
         }
         declarations.push(KoreSentence::SortDeclaration {
             hooked: source_attributes.get("hook").is_some(),
-            name: format!("Sort{}", encode_kore_identifier(head.as_str())),
+            name: identifier::encode_sort_name(head.as_str()),
             parameters: (0..head.parameters())
                 .map(|parameter| format!("SortS{parameter}"))
                 .collect(),
@@ -3626,7 +3633,7 @@ fn emit_attributes(
             });
             Pattern::Application {
                 symbol: Symbol {
-                    name: encode_kore_identifier(&key),
+                    name: identifier::encode(&key),
                     sort_parameters: Vec::new(),
                 },
                 arguments,
@@ -3756,49 +3763,6 @@ fn is_builtin_label(label: &str) -> bool {
     BUILTIN_LABELS.contains(&label)
 }
 
-/// Encode a K name with Java `ModuleToKORE`'s KORE identifier encoding.
-pub fn encode_kore_identifier(name: &str) -> String {
-    if matches!(
-        name,
-        "module"
-            | "endmodule"
-            | "sort"
-            | "hooked-sort"
-            | "symbol"
-            | "hooked-symbol"
-            | "alias"
-            | "axiom"
-    ) {
-        return format!("{name}'Kywd'");
-    }
-    let mut encoded = String::new();
-    let mut in_identifier = true;
-    for unit in name.encode_utf16() {
-        if is_identifier_unit(unit) {
-            if !in_identifier {
-                encoded.push('\'');
-                in_identifier = true;
-            }
-            encoded.push(char::from_u32(u32::from(unit)).expect("ASCII identifier unit"));
-        } else {
-            if in_identifier {
-                encoded.push('\'');
-                in_identifier = false;
-            }
-            if let Some(mnemonic) = mnemonic(unit) {
-                encoded.push_str(mnemonic);
-            } else {
-                use std::fmt::Write;
-                write!(encoded, "{unit:04x}").expect("writing to a string cannot fail");
-            }
-        }
-    }
-    if !in_identifier {
-        encoded.push('\'');
-    }
-    encoded
-}
-
 /// Encode a K label as a KORE symbol head.
 pub fn encode_kore_label(label: &Label) -> Symbol {
     encode_kore_label_with_formals(label, &[])
@@ -3806,10 +3770,10 @@ pub fn encode_kore_label(label: &Label) -> Symbol {
 
 fn encode_kore_label_with_formals(label: &Label, formals: &[Sort]) -> Symbol {
     Symbol {
-        name: if label.name == "inj" {
+        name: if label.is(WellKnownSymbol::Inj) {
             label.name.clone()
         } else {
-            format!("Lbl{}", encode_kore_identifier(&label.name))
+            identifier::encode_label(&label.name)
         },
         sort_parameters: label
             .parameters
@@ -3825,7 +3789,7 @@ pub fn encode_kore_sort(sort: &Sort) -> KoreSort {
 }
 
 fn encode_kore_sort_with_formals(sort: &Sort, formals: &[Sort]) -> KoreSort {
-    let name = format!("Sort{}", encode_kore_identifier(&sort.name));
+    let name = identifier::encode_sort_name(&sort.name);
     if formals.contains(sort) {
         KoreSort::Variable(name)
     } else {
@@ -3838,50 +3802,6 @@ fn encode_kore_sort_with_formals(sort: &Sort, formals: &[Sort]) -> KoreSort {
                 .collect(),
         }
     }
-}
-
-fn is_identifier_unit(unit: u16) -> bool {
-    (unit <= u16::from(u8::MAX) && char::from(unit as u8).is_ascii_alphanumeric())
-        || unit == u16::from(b'-')
-}
-
-fn mnemonic(unit: u16) -> Option<&'static str> {
-    Some(match unit {
-        0x20 => "Spce",
-        0x21 => "Bang",
-        0x22 => "Quot",
-        0x23 => "Hash",
-        0x24 => "Dolr",
-        0x25 => "Perc",
-        0x26 => "And-",
-        0x27 => "Apos",
-        0x28 => "LPar",
-        0x29 => "RPar",
-        0x2a => "Star",
-        0x2b => "Plus",
-        0x2c => "Comm",
-        0x2d => "-",
-        0x2e => "Stop",
-        0x2f => "Slsh",
-        0x3a => "Coln",
-        0x3b => "SCln",
-        0x3c => "-LT-",
-        0x3d => "Eqls",
-        0x3e => "-GT-",
-        0x3f => "Ques",
-        0x40 => "-AT-",
-        0x5b => "LSqB",
-        0x5c => "Bash",
-        0x5d => "RSqB",
-        0x5e => "Xor-",
-        0x5f => "Unds",
-        0x60 => "BQuo",
-        0x7b => "LBra",
-        0x7c => "Pipe",
-        0x7d => "RBra",
-        0x7e => "Tild",
-        _ => return None,
-    })
 }
 
 #[cfg(test)]

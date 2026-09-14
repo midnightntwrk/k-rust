@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ResolvedDefinition, Sentence,
@@ -117,7 +118,7 @@ pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
             .collect::<BTreeSet<_>>();
         let mut generated = Vec::new();
         for (predicate, sort) in predicates {
-            if sort.name == "K" && sort.parameters.is_empty() {
+            if sort.is_builtin(BuiltinSort::K) {
                 generated.push(predicate_rule(
                     &predicate,
                     Term::Variable {
@@ -241,6 +242,6 @@ fn predicate_rule(predicate: &str, argument: Term, result: bool, owise: bool) ->
 fn bool_token(value: bool) -> Term {
     Term::Token {
         token: value.to_string(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }

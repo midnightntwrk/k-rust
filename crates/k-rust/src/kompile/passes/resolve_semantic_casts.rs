@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, Sentence},
     kast::{Sort, Term},
@@ -131,14 +132,14 @@ fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence, add_predicate
 fn bool_true() -> Term {
     Term::Token {
         token: "true".into(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 
 fn is_true(term: &Term) -> bool {
     matches!(
         term.unannotated(),
-        Term::Token { token, sort } if token == "true" && sort == &Sort::new("Bool")
+        Term::Token { token, sort } if token == "true" && sort.is_builtin(BuiltinSort::Bool)
     )
 }
 

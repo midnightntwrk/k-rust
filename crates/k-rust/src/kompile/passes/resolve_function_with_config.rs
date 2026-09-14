@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, collections::BTreeSet, fmt};
 
 use petgraph::{Direction::Incoming, graph::DiGraph, graph::NodeIndex};
 
+use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
@@ -18,7 +19,6 @@ use super::rebase_local_metadata_by;
 
 const CONFIGURATION_VARIABLE: &str = "#Configuration";
 const GENERATED_TOP_CELL_LABEL: &str = "<generatedTop>";
-const GENERATED_TOP_CELL_SORT: &str = "GeneratedTopCell";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveFunctionWithConfigError {
@@ -80,7 +80,7 @@ fn resolve_function_with_config_inner(
         let top_sort_defined = resolved
             .sort_catalog(module_id)
             .defined_heads()
-            .contains(&SortHead::new(GENERATED_TOP_CELL_SORT, 0));
+            .contains(&SortHead::new(BuiltinSort::GeneratedTopCell.k_name(), 0));
         let mut changed_production = false;
         let mut sentences = Vec::with_capacity(module.local_sentences.len() + 1);
 
@@ -154,10 +154,10 @@ fn resolve_function_with_config_inner(
                     if !matches!(
                         items.last(),
                         Some(ProductionItem::NonTerminal { sort, .. })
-                            if sort == &Sort::new(GENERATED_TOP_CELL_SORT)
+                            if sort.is_builtin(BuiltinSort::GeneratedTopCell)
                     ) {
                         items.push(ProductionItem::NonTerminal {
-                            sort: Sort::new(GENERATED_TOP_CELL_SORT),
+                            sort: Sort::builtin(BuiltinSort::GeneratedTopCell),
                             name: None,
                         });
                     }
@@ -178,7 +178,7 @@ fn resolve_function_with_config_inner(
         if changed_production && !top_sort_defined {
             sentences.push(Sentence::SyntaxSort {
                 parameters: Vec::new(),
-                sort: Sort::new(GENERATED_TOP_CELL_SORT),
+                sort: Sort::builtin(BuiltinSort::GeneratedTopCell),
                 attributes: Attributes::default(),
             });
         }
@@ -285,7 +285,7 @@ fn compute_with_config_functions(
                 let Term::Apply { label, .. } = term.unannotated() else {
                     return;
                 };
-                if label.name == "inj" {
+                if label.is(WellKnownSymbol::Inj) {
                     return;
                 }
                 let dependency = LabelHead::from(label);
@@ -520,7 +520,7 @@ fn is_configuration_argument(term: &Term) -> bool {
 fn configuration_variable() -> Term {
     Term::Variable {
         name: CONFIGURATION_VARIABLE.to_owned(),
-        sort: Some(Sort::new(GENERATED_TOP_CELL_SORT)),
+        sort: Some(Sort::builtin(BuiltinSort::GeneratedTopCell)),
     }
 }
 
@@ -559,7 +559,7 @@ fn function_production_equivalent(
         && matches!(
             target_items.last(),
             Some(ProductionItem::NonTerminal { sort, name: None })
-                if sort == &Sort::new(GENERATED_TOP_CELL_SORT)
+                if sort.is_builtin(BuiltinSort::GeneratedTopCell)
         )
 }
 
@@ -574,7 +574,7 @@ fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
     let Term::Apply { label, arguments } = left.unannotated() else {
         return None;
     };
-    if label.name != "inj" {
+    if !label.is(WellKnownSymbol::Inj) {
         return Some(LabelHead::from(label));
     }
     let inner = arguments.first()?;

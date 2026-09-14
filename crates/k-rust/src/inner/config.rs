@@ -7,6 +7,7 @@ use crate::definition::{
     Sentence, sentence_equivalent,
 };
 use crate::kast::{Label, Sort, Term};
+use crate::names::BuiltinSort;
 
 use super::location::span_location;
 use super::parser::{Grammar, ParseError};
@@ -260,7 +261,7 @@ fn configuration_grammar(
         ) && !sort.name.starts_with('#')
     });
     for sort in concrete_sorts {
-        if sort.name != "Bool" {
+        if sort.name != BuiltinSort::Bool.k_name() {
             add_subsort(&mut grammar, "KItem", sort.clone())?;
             add_subsort(&mut grammar, sort.name.as_str(), Sort::new("KConfigVar"))?;
             add_subsort(&mut grammar, sort.name.as_str(), Sort::new("#KVariable"))?;

@@ -2,6 +2,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
@@ -82,7 +83,10 @@ fn transform(
     let metadata = term.metadata().cloned();
     let rebuilt = match term.into_unannotated() {
         Term::Variable { name, sort } if on_rhs && name.starts_with('!') => {
-            if sort.as_ref() != Some(&Sort::new("Int")) {
+            if !sort
+                .as_ref()
+                .is_some_and(|sort| sort.is_builtin(BuiltinSort::Int))
+            {
                 diagnostics.push(Diagnostic::error_at(
                     DiagnosticCode::InvalidFreshConstant,
                     "Can't resolve fresh configuration variable not of sort Int",
@@ -103,7 +107,7 @@ fn transform(
                 };
                 Term::Token {
                     token: value.to_string(),
-                    sort: Sort::new("Int"),
+                    sort: Sort::builtin(BuiltinSort::Int),
                 }
             }
         }

@@ -14,10 +14,15 @@ mod set;
 mod string;
 mod substitution;
 
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
+
 use crate::{
     definition::BackendDefinition,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
-    term::{Sort, SymbolType, Term, TermKind},
+    term::{
+        Sort, SymbolType, Term, TermKind,
+        names::{HookName, HookNamespace},
+    },
     timeout::interruption_requested,
 };
 
@@ -152,11 +157,7 @@ fn evaluate_with_context(
     evaluate_hook_with_context(hook, arguments, Some(&result_sort), sort_graph, definition)
 }
 
-/// Hook namespaces this backend dispatches beyond K's fixed builtin set.
-///
-/// Java K only treats these plugin namespaces as hooked when `kompile --hook-namespaces` names
-/// them; the Rust backend implements them natively, so KORE emitted for it admits them by default.
-pub const PLUGIN_HOOK_NAMESPACES: [&str; 3] = ["KRYPTO", "HASH", "SECP256K1"];
+pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
 
 pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     evaluate_hook_with_context(hook, arguments, None, None, None)
@@ -212,27 +213,22 @@ fn evaluate_hook_with_context(
         "KEQUAL.eq" => kequal(arguments, false, sort_graph),
         "KEQUAL.ne" => kequal(arguments, true, sort_graph),
         "IO.logString" => return io_log_string(arguments),
-        hook if hook.starts_with("LIST.") => return list::evaluate(hook, arguments),
-        hook if hook.starts_with("MAP.") => return map::evaluate(hook, arguments),
-        hook if hook.starts_with("SET.") => return set::evaluate(hook, arguments),
-        hook if hook.starts_with("BYTES.") => return bytes::evaluate(hook, arguments),
-        hook if hook.starts_with("FLOAT.") => return float::evaluate(hook, arguments),
-        hook if hook
-            .split_once('.')
-            .is_some_and(|(namespace, _)| PLUGIN_HOOK_NAMESPACES.contains(&namespace)) =>
-        {
-            return krypto::evaluate(hook, arguments);
-        }
-        hook if hook.starts_with("STRING.") => {
-            return string::evaluate(hook, arguments, result_sort);
-        }
-        hook if hook.starts_with("SUBSTITUTION.") => {
-            return substitution::evaluate(hook, arguments, definition);
-        }
         _ => {
-            return Ok(BuiltinResult::Unsupported(
-                UnsupportedHookReason::NotImplemented,
-            ));
+            return match HookName::parse(hook).map(HookName::kind) {
+                Some(HookNamespace::List) => list::evaluate(hook, arguments),
+                Some(HookNamespace::Map) => map::evaluate(hook, arguments),
+                Some(HookNamespace::Set) => set::evaluate(hook, arguments),
+                Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
+                Some(HookNamespace::Float) => float::evaluate(hook, arguments),
+                Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments),
+                Some(HookNamespace::String) => string::evaluate(hook, arguments, result_sort),
+                Some(HookNamespace::Substitution) => {
+                    substitution::evaluate(hook, arguments, definition)
+                }
+                _ => Ok(BuiltinResult::Unsupported(
+                    UnsupportedHookReason::NotImplemented,
+                )),
+            };
         }
     }?;
     Ok(result.into())
@@ -251,7 +247,7 @@ fn io_log_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if sort != &Sort::simple("SortString") {
+    if !sort.is_builtin(BuiltinSort::String) {
         return Ok(BuiltinResult::NotApplicable);
     }
     Ok(BuiltinResult::Effect(BuiltinEffect::UserLog(
@@ -574,7 +570,7 @@ fn kequal_ite(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     let [condition, then_value, else_value] = arguments else {
         unreachable!()
     };
-    expect_sort("KEQUAL.ite", condition, &Sort::simple("SortBool"))?;
+    expect_sort("KEQUAL.ite", condition, &Sort::builtin(BuiltinSort::Bool))?;
     if then_value.sort() != else_value.sort() {
         return Err(BuiltinError::AlternativeSortsDiffer {
             then_sort: then_value.sort(),
@@ -701,8 +697,8 @@ fn k_sequence_injection(term: &Term) -> Option<&Term> {
     else {
         return None;
     };
-    (symbol.name.as_ref() == "kseq"
-        && tail_symbol.name.as_ref() == "dotk"
+    (symbol.is(WellKnownSymbol::KSeq)
+        && tail_symbol.is(WellKnownSymbol::DotK)
         && tail_arguments.is_empty())
     .then_some(first)
 }
@@ -711,7 +707,7 @@ fn read_bool(term: &Term) -> Option<bool> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    if sort != &Sort::simple("SortBool") {
+    if !sort.is_builtin(BuiltinSort::Bool) {
         return None;
     }
     match value.as_ref() {
@@ -725,20 +721,20 @@ pub(super) fn read_int(term: &Term) -> Option<BigInt> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    (sort == &Sort::simple("SortInt"))
+    sort.is_builtin(BuiltinSort::Int)
         .then(|| value.parse().ok())
         .flatten()
 }
 
 pub(super) fn bool_term(value: bool) -> Term {
     Term::domain_value(
-        Sort::simple("SortBool"),
+        Sort::builtin(BuiltinSort::Bool),
         if value { "true" } else { "false" },
     )
 }
 
 pub(super) fn int_term(value: BigInt) -> Term {
-    Term::domain_value(Sort::simple("SortInt"), value.to_string())
+    Term::domain_value(Sort::builtin(BuiltinSort::Int), value.to_string())
 }
 
 pub(super) fn expect_arity(

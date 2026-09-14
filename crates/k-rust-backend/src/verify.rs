@@ -7,6 +7,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::names::BuiltinSort;
 
 use crate::{
     alias::AliasDefinition,
@@ -145,7 +146,7 @@ impl<'a> VerifyContext<'a> {
     fn pattern(&mut self, pattern: &kore::Pattern) -> Result<Sort, VerificationError> {
         use kore::Pattern;
         match pattern {
-            Pattern::String(_) => Ok(Sort::simple("SortString")),
+            Pattern::String(_) => Ok(Sort::builtin(BuiltinSort::String)),
             Pattern::Variable(variable) => {
                 let sort = self.sort(&variable.sort)?;
                 let key = (variable.kind, variable.name.clone());

@@ -14,10 +14,10 @@ use super::{
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::string::unquote;
 use crate::kast::{Label, Sort, Term};
+use crate::names::BuiltinSort;
 use crate::provenance::{GeneratingPass, record_generated_origins};
 
 const CELL_NAME_SORT: &str = "#CellName";
-const CONFIG_VAR_SORT: &str = "KConfigVar";
 const GENERATED_TOP_CELL_NAME: &str = "generatedTop";
 const GENERATED_COUNTER_CELL_NAME: &str = "generatedCounter";
 
@@ -236,7 +236,7 @@ impl Generator<'_, '_> {
             }),
             Term::Sequence(_) | Term::Variable { .. } | Term::InjectedLabel(_) => {
                 Ok(GeneratedNode {
-                    child_sorts: vec![Sort::new("K")],
+                    child_sorts: vec![Sort::builtin(BuiltinSort::K)],
                     initializer: leaf_initializer(term),
                     leaf: true,
                     initializer_takes_map: has_configuration_or_regular_variable(term),
@@ -411,7 +411,7 @@ impl Generator<'_, '_> {
                     "main cell <{cell_name}> must contain exactly one leaf term"
                 )));
             }
-            children.child_sorts = vec![Sort::new("K")];
+            children.child_sorts = vec![Sort::builtin(BuiltinSort::K)];
         }
         let label = format!("<{cell_name}>");
         let init_label = init_label(&sort);
@@ -705,7 +705,7 @@ impl Generator<'_, '_> {
     ) {
         self.push(production(
             Some(format!("{}:in_keys", map_sort.name)),
-            Sort::new("Bool"),
+            Sort::builtin(BuiltinSort::Bool),
             vec![
                 nonterminal_sort(key_sort.clone()),
                 ProductionItem::Terminal("in_keys".into()),
@@ -758,7 +758,7 @@ impl Generator<'_, '_> {
         if !self.label_exists("getExitCode") {
             self.push(production(
                 Some("getExitCode".into()),
-                Sort::new("Int"),
+                Sort::builtin(BuiltinSort::Int),
                 vec![
                     ProductionItem::Terminal("getExitCode".into()),
                     ProductionItem::Terminal("(".into()),
@@ -770,12 +770,12 @@ impl Generator<'_, '_> {
         }
         self.push(Sentence::SyntaxSort {
             parameters: vec![],
-            sort: Sort::new("GeneratedTopCell"),
+            sort: Sort::builtin(BuiltinSort::GeneratedTopCell),
             attributes: Attributes::default(),
         });
         let exit = Term::Variable {
             name: "Exit".into(),
-            sort: Some(Sort::new("Int")),
+            sort: Some(Sort::builtin(BuiltinSort::Int)),
         };
         self.push(Sentence::Rule {
             body: Term::Rewrite {
@@ -950,7 +950,7 @@ fn contains_external_map_initializer(
 fn has_configuration_or_regular_variable(term: &Term) -> bool {
     let mut found = false;
     term.visit_preorder(&mut |term| match term {
-        Term::Token { sort, .. } if sort.name == CONFIG_VAR_SORT => found = true,
+        Term::Token { sort, .. } if sort.name == BuiltinSort::KConfigVar.k_name() => found = true,
         Term::Variable { .. } => found = true,
         _ => {}
     });
@@ -961,17 +961,17 @@ fn leaf_initializer(term: &Term) -> Term {
     fn transform(term: &Term, sort: Option<&Sort>) -> Term {
         let replaces_source_node = matches!(
             term.unannotated(),
-            Term::Token { sort, .. } if sort.name == CONFIG_VAR_SORT
+            Term::Token { sort, .. } if sort.name == BuiltinSort::KConfigVar.k_name()
         );
         let transformed = match term.unannotated() {
             Term::Token {
                 token,
                 sort: token_sort,
-            } if token_sort.name == CONFIG_VAR_SORT => {
+            } if token_sort.name == BuiltinSort::KConfigVar.k_name() => {
                 let project = sort
-                    .filter(|sort| sort.name != "K")
+                    .filter(|sort| sort.name != BuiltinSort::K.k_name())
                     .cloned()
-                    .unwrap_or_else(|| Sort::new("KItem"));
+                    .unwrap_or_else(|| Sort::builtin(BuiltinSort::KItem));
                 Term::apply(
                     format!("project:{project}"),
                     vec![Term::apply(
@@ -1113,14 +1113,14 @@ fn incomplete_cell_with_dots(label: &str, child: Term, open_left: bool, open_rig
 fn init_variable() -> Term {
     Term::Variable {
         name: "Init".into(),
-        sort: Some(Sort::new("Map")),
+        sort: Some(Sort::builtin(BuiltinSort::Map)),
     }
 }
 
 fn truth() -> Term {
     Term::Token {
         token: "true".into(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 

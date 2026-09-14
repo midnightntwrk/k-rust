@@ -8,6 +8,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
     alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
@@ -23,7 +24,7 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         CollectionMetadata, CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name,
-        Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable,
+        Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable, names::HookName,
     },
 };
 
@@ -947,7 +948,7 @@ impl BackendDefinition {
     ) -> Result<Term, DefinitionError> {
         match pattern {
             kore::Pattern::String(value) => Ok(Term::domain_value(
-                Sort::simple("SortString"),
+                Sort::builtin(BuiltinSort::String),
                 value.as_str(),
             )),
             kore::Pattern::Variable(variable) => {
@@ -1142,7 +1143,7 @@ impl BackendDefinition {
                 Some(&variable.sort)
             }
             kore::Pattern::DomainValue { sort, .. } => Some(sort),
-            kore::Pattern::String(_) => return Ok(Sort::simple("SortString")),
+            kore::Pattern::String(_) => return Ok(Sort::builtin(BuiltinSort::String)),
             kore::Pattern::Application { .. } | kore::Pattern::AssociativeApplication { .. } => {
                 None
             }
@@ -1197,7 +1198,7 @@ impl BackendDefinition {
             .zip(sort_arguments.iter().cloned())
             .collect::<BTreeMap<_, _>>();
         if subsort_validation == SubsortValidation::Check
-            && syntax.name == "inj"
+            && syntax.is(WellKnownSymbol::Inj)
             && let [source, target] = sort_arguments.as_slice()
             && !self
                 .sort_graph
@@ -1212,7 +1213,7 @@ impl BackendDefinition {
         // Booster's injection branch records the declared source sort directly and does not run
         // the ordinary symbol-argument sort check. Preserve that boundary behavior as well as its
         // precedence over validation performed by an enclosing application.
-        if syntax.name != "inj" {
+        if !syntax.is(WellKnownSymbol::Inj) {
             for (index, (expected, argument)) in symbol
                 .argument_sorts
                 .iter()
@@ -1582,7 +1583,15 @@ fn validate_binder_attribute(
             "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.".into(),
         ));
     };
-    if sorts.get(name).and_then(|info| info.hook.as_deref()) != Some("KVAR.KVar") {
+    if sorts
+        .get(name)
+        .and_then(|info| info.hook.as_deref())
+        .and_then(HookName::parse)
+        != Some(HookName {
+            namespace: "KVAR",
+            operation: "KVar",
+        })
+    {
         return Err(DefinitionError::MalformedAttribute(
             "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.".into(),
         ));
@@ -1796,7 +1805,7 @@ fn subsort_attribute(
         ));
     };
     if left_variable != variable
-        || injection.name != "inj"
+        || !injection.is(WellKnownSymbol::Inj)
         || injection.sort_parameters.as_slice()
             != [
                 symbol.sort_parameters[0].clone(),

@@ -11,6 +11,7 @@ use std::{
 };
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use k_rust::names::{BuiltinSort, WellKnownSymbol};
 use k_rust::{
     backend::{
         collect_free_kore_variables, implication_sort_variables, special_implication_result,
@@ -2116,7 +2117,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         })?;
         let parser_module = match config_parser_modules.get(name) {
             Some(parser_module) => parser_module.as_str(),
-            None if matches!(name, "IO" | "STDIN") && sort == &KastSort::new("String") => {
+            None if matches!(name, "IO" | "STDIN") && sort.is_builtin(BuiltinSort::String) => {
                 "STRING-SYNTAX"
             }
             None => &options.common.module,
@@ -2143,8 +2144,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let injector = config_injectors
             .get(parser_module)
             .expect("configuration injector was inserted above");
-        let parse_sort = if sort.name == "K" {
-            KastSort::new("KItem")
+        let parse_sort = if sort.name == BuiltinSort::K.k_name() {
+            KastSort::builtin(BuiltinSort::KItem)
         } else {
             sort.clone()
         };
@@ -2158,12 +2159,12 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
     let io = options.io.unwrap_or(options.search.is_none());
-    let string_sort = KastSort::new("String");
+    let string_sort = KastSort::builtin(BuiltinSort::String);
     if available_config_vars.get("IO") == Some(&string_sort) && !seen_config_vars.contains("IO") {
         config_vars.push((
             "$IO".into(),
             string_domain_value(if io { "on" } else { "off" }),
-            kore_sort("SortString"),
+            kore_sort(BuiltinSort::String.kore_name()),
         ));
         seen_config_vars.insert("IO".into());
     }
@@ -2178,7 +2179,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         config_vars.push((
             "$STDIN".into(),
             string_domain_value(input),
-            kore_sort("SortString"),
+            kore_sort(BuiltinSort::String.kore_name()),
         ));
         seen_config_vars.insert("STDIN".into());
     }
@@ -3127,14 +3128,10 @@ fn exit_code_of(
 }
 
 fn term_exit_code(term: &Term) -> Option<u8> {
-    let TermKind::DomainValue {
-        sort: BackendSort::Application { name, arguments },
-        value,
-    } = term.kind()
-    else {
+    let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
-    if name.as_ref() != "SortInt" || !arguments.is_empty() {
+    if !sort.is_builtin(BuiltinSort::Int) {
         return None;
     }
     let value = value.parse::<BigInt>().ok()?;
@@ -4131,10 +4128,10 @@ fn top_cell_initializer(
 }
 
 fn configuration_map_entry(name: &str, value: KorePattern, value_sort: KoreSort) -> KorePattern {
-    let config_var_sort = kore_sort("SortKConfigVar");
-    let item_sort = kore_sort("SortKItem");
+    let config_var_sort = kore_sort(BuiltinSort::KConfigVar.kore_name());
+    let item_sort = kore_sort(BuiltinSort::KItem.kore_name());
     let key = kore_application(
-        "inj",
+        WellKnownSymbol::Inj.as_str(),
         vec![config_var_sort.clone(), item_sort.clone()],
         vec![KorePattern::DomainValue {
             sort: config_var_sort,
@@ -4144,7 +4141,11 @@ fn configuration_map_entry(name: &str, value: KorePattern, value_sort: KoreSort)
     let value = if value_sort == item_sort {
         value
     } else {
-        kore_application("inj", vec![value_sort, item_sort], vec![value])
+        kore_application(
+            WellKnownSymbol::Inj.as_str(),
+            vec![value_sort, item_sort],
+            vec![value],
+        )
     };
     kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, value])
 }
@@ -4172,7 +4173,7 @@ fn kore_sort(name: &str) -> KoreSort {
 
 fn string_domain_value(value: impl Into<String>) -> KorePattern {
     KorePattern::DomainValue {
-        sort: kore_sort("SortString"),
+        sort: kore_sort(BuiltinSort::String.kore_name()),
         value: value.into(),
     }
 }

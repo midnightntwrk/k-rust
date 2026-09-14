@@ -7,11 +7,12 @@ use crate::definition::{
     Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId, ResolveError,
     ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
-use crate::kast::{self, Label, Sort, Term};
+use crate::kast::{self, Label, Sort, Term, identifier};
 use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
+use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
-use super::module_to_kore::{encode_kore_identifier, encode_kore_label};
+use super::module_to_kore::encode_kore_label;
 
 /// A failure to recover information required by KORE from the compact public KAST.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -482,21 +483,24 @@ impl<'a> TermConverter<'a> {
 
     fn sequence(&self, items: &[Term]) -> Result<Pattern, TermConversionError> {
         let Some((last, prefix)) = items.split_last() else {
-            return Ok(application("dotk", Vec::new()));
+            return Ok(application(WellKnownSymbol::DotK.as_str(), Vec::new()));
         };
-        let mut result = if self.term_sort(last)? == Sort::new("K") {
+        let mut result = if self.term_sort(last)?.is_builtin(BuiltinSort::K) {
             self.pattern(last)?
         } else {
             application(
-                "kseq",
-                vec![self.pattern(last)?, application("dotk", Vec::new())],
+                WellKnownSymbol::KSeq.as_str(),
+                vec![
+                    self.pattern(last)?,
+                    application(WellKnownSymbol::DotK.as_str(), Vec::new()),
+                ],
             )
         };
         for item in prefix.iter().rev() {
-            let symbol = if self.term_sort(item)? == Sort::new("K") {
-                "append"
+            let symbol = if self.term_sort(item)?.is_builtin(BuiltinSort::K) {
+                WellKnownSymbol::Append.as_str()
             } else {
-                "kseq"
+                WellKnownSymbol::KSeq.as_str()
             };
             result = application(symbol, vec![self.pattern(item)?, result]);
         }
@@ -504,24 +508,15 @@ impl<'a> TermConverter<'a> {
     }
 
     fn variable(&self, name: &str, sort: &Option<Sort>) -> Variable {
-        let (kind, name) = name.strip_prefix('@').map_or_else(
-            || {
-                (
-                    VariableKind::Element,
-                    format!("Var{}", encode_kore_identifier(name)),
-                )
-            },
-            |name| {
-                (
-                    VariableKind::Set,
-                    format!("@Var{}", encode_kore_identifier(name)),
-                )
-            },
-        );
+        let (kind, name) = name
+            .strip_prefix('@')
+            .map_or((VariableKind::Element, name), |name| {
+                (VariableKind::Set, name)
+            });
         Variable {
             kind,
-            name,
-            sort: self.kore_sort(sort.as_ref().unwrap_or(&Sort::new("K"))),
+            name: identifier::encode_variable(name, kind),
+            sort: self.kore_sort(sort.as_ref().unwrap_or(&Sort::builtin(BuiltinSort::K))),
         }
     }
 
@@ -536,7 +531,7 @@ impl<'a> TermConverter<'a> {
             crate::kore::ast::Sort::Variable(sort.name.clone())
         } else {
             crate::kore::ast::Sort::Application {
-                name: format!("Sort{}", encode_kore_identifier(&sort.name)),
+                name: identifier::encode_sort_name(&sort.name),
                 arguments: sort
                     .parameters
                     .iter()
@@ -587,7 +582,7 @@ impl<'a> TermConverter<'a> {
             Term::Variable { sort, .. } => sort
                 .clone()
                 .ok_or(TermConversionError::MissingSort("variable")),
-            Term::Sequence(_) => Ok(Sort::new("K")),
+            Term::Sequence(_) => Ok(Sort::builtin(BuiltinSort::K)),
             Term::Token { sort, .. } => Ok(sort.clone()),
             Term::Apply { label, arguments } => self.application_sort(term, label, arguments),
             Term::Annotated { .. } => unreachable!(),
@@ -610,7 +605,7 @@ impl<'a> TermConverter<'a> {
                 .and_then(|argument| self.term_sort(argument));
         }
         match label.name.as_str() {
-            "inj" => {
+            name if name == WellKnownSymbol::Inj.as_str() => {
                 return label
                     .parameters
                     .get(1)

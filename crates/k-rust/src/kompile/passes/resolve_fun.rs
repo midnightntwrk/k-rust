@@ -4,6 +4,7 @@ use std::{collections::BTreeSet, fmt};
 
 use serde_json::json;
 
+use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
@@ -227,12 +228,14 @@ impl Resolver<'_, '_> {
         // of the concrete argument sort.
         let variable_pattern = underlying_variable(&left).is_some();
         let parameter_sort = match (lhs_sort, argument_sort) {
-            _ if matches!(left.unannotated(), Term::Variable { .. }) => Sort::new("K"),
+            _ if matches!(left.unannotated(), Term::Variable { .. }) => {
+                Sort::builtin(BuiltinSort::K)
+            }
             (Some(lhs), Some(argument)) => self
                 .injector
                 .least_upper_bound(&[lhs.clone(), argument.clone()], None)
                 .unwrap_or_else(|_| common_k_sort(&lhs, &argument)),
-            _ => Sort::new("K"),
+            _ => Sort::builtin(BuiltinSort::K),
         };
         let closure = closure_variables(&body);
         let predicate = matches!(source_label.name.as_str(), "_:=K_" | "_:/=K_");
@@ -240,10 +243,10 @@ impl Resolver<'_, '_> {
         let total =
             matches!(source_label.name.as_str(), "#fun2" | "#fun3" | "#let") && variable_pattern;
         let result_sort = if predicate {
-            Sort::new("Bool")
+            Sort::builtin(BuiltinSort::Bool)
         } else {
             self.term_sort(&right, &attributes)
-                .unwrap_or_else(|| Sort::new("K"))
+                .unwrap_or_else(|| Sort::builtin(BuiltinSort::K))
         };
         self.productions.push(lambda_production(
             &lambda,
@@ -588,7 +591,10 @@ fn lambda_production(
     for variable in closure {
         items.push(ProductionItem::Terminal(",".into()));
         items.push(ProductionItem::NonTerminal {
-            sort: variable.sort.clone().unwrap_or_else(|| Sort::new("K")),
+            sort: variable
+                .sort
+                .clone()
+                .unwrap_or_else(|| Sort::builtin(BuiltinSort::K)),
             name: None,
         });
     }
@@ -716,17 +722,17 @@ fn rename_fresh_constants(term: Term) -> Term {
 fn common_k_sort(left: &Sort, right: &Sort) -> Sort {
     if left == right {
         left.clone()
-    } else if left.name == "K" || right.name == "K" {
-        Sort::new("K")
+    } else if left.name == BuiltinSort::K.k_name() || right.name == BuiltinSort::K.k_name() {
+        Sort::builtin(BuiltinSort::K)
     } else {
-        Sort::new("KItem")
+        Sort::builtin(BuiltinSort::KItem)
     }
 }
 
 fn bool_token(value: bool) -> Term {
     Term::Token {
         token: value.to_string(),
-        sort: Sort::new("Bool"),
+        sort: Sort::builtin(BuiltinSort::Bool),
     }
 }
 

@@ -10,6 +10,7 @@ use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solv
 
 use crate::definition::{PartialOrder, SortHead};
 use crate::kast::{Sort, Term};
+use crate::names::BuiltinSort;
 
 use super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
@@ -2582,7 +2583,9 @@ fn is_top_sort_production(production: &Production) -> bool {
 fn is_real_ground_sort(sort: &Sort) -> bool {
     !sort.parameters.is_empty()
         || !is_parser_sort(sort)
-        || matches!(sort.name.as_str(), "K" | "KItem" | "KLabel")
+        || sort.name == BuiltinSort::K.k_name()
+        || sort.name == BuiltinSort::KItem.k_name()
+        || sort.name == "KLabel"
         || sort.name.parse::<u64>().is_ok()
 }
 
