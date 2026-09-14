@@ -6,12 +6,7 @@
 //! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index, O(1) membership per
 //! conjunct, budget-bounded re-entry through the ceil and predicate theories (row B8).
 
-use std::{
-    cell::Cell,
-    collections::BTreeSet,
-    fmt,
-    sync::Arc,
-};
+use std::{cell::Cell, collections::BTreeSet, fmt, sync::Arc};
 
 use k_rust_kore::measure::{self, Counter};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
