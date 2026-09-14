@@ -262,7 +262,7 @@ fn compute_with_config_functions(
     let functions = productions.function_labels();
     let anywhere = rules
         .rules()
-        .filter(|(_, rule)| !is_macro(rule.attributes()))
+        .filter(|(_, rule)| !rule.attributes().has_any(&AttributeKey::MACRO_LIKE))
         .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
         .filter_map(|(_, rule)| anywhere_lhs_label(rule))
         .collect::<BTreeSet<_>>();
@@ -583,10 +583,6 @@ fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
         return None;
     };
     Some(LabelHead::from(label))
-}
-
-fn is_macro(attributes: &Attributes) -> bool {
-    attributes.get("macro").is_some() || attributes.get("macro-recursive").is_some()
 }
 
 fn contains_rewrite(term: &Term) -> bool {
