@@ -5,9 +5,12 @@ use std::{
     sync::Arc,
 };
 
-use crate::names::{BuiltinSort, WellKnownSymbol};
+use crate::names::BuiltinSort;
+#[cfg(test)]
+use crate::names::WellKnownSymbol;
 use crate::provenance::{OriginRecord, SourceId};
 
+use super::names::LabelName;
 use super::printer::Printer;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -63,9 +66,10 @@ impl Label {
         }
     }
 
-    /// True when the label's name is the well-known KORE symbol's spelling.
-    pub fn is(&self, symbol: WellKnownSymbol) -> bool {
-        self.name == symbol.as_str()
+    /// True when the label's name is the well-known KORE symbol's or the internal label's
+    /// spelling; parameters are ignored.
+    pub fn is(&self, label: impl LabelName) -> bool {
+        self.name == label.spelling()
     }
 }
 
