@@ -17,6 +17,7 @@ use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
     definedness::ceil_term,
     definition::BackendDefinition,
+    fresh::fresh_name,
     implication::{
         ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus,
         check_disjunctive_implication_with_existentials,
@@ -37,6 +38,7 @@ use crate::{
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
+    term::names::FreshMarker,
     term::{Term, TermKind},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     unification::{UnificationResult, unify_term_pairs},
@@ -1136,14 +1138,12 @@ fn freshen_claim(
     let variables = variables_of_claim(claim);
     let mut renaming = Substitution::new();
     for variable in variables {
-        // Invariant: `fresh_counter` only grows, so at most |names| + 1 candidates are tried.
-        let name = loop {
-            let name = format!("{}!claim{}", variable.name, *fresh_counter);
-            *fresh_counter += 1;
-            if names.insert(name.as_str().into()) {
-                break name;
-            }
-        };
+        let name = fresh_name(
+            &variable.name,
+            FreshMarker::Claim,
+            fresh_counter,
+            &mut names,
+        );
         renaming.insert(variable.clone(), Term::variable(variable.with_name(name)));
     }
     let rename_pattern = |pattern: &Pattern| Pattern {

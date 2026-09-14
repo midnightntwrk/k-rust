@@ -8,6 +8,7 @@ use std::{collections::BTreeSet, error::Error, fmt};
 
 use crate::{
     definition::BackendDefinition,
+    fresh::fresh_name,
     ite::{IteSplit, split_ite_pair},
     matching::{
         FailReason, MatchMode, MatchResult, SortError, expand_closed_map_implication_remainders,
@@ -22,6 +23,7 @@ use crate::{
     smt::{Satisfiability, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::Variable,
+    term::names::FreshMarker,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -585,15 +587,8 @@ fn freshen_existentials(
     let mut substitution = Substitution::new();
     let mut fresh = BTreeSet::new();
     for (counter, original) in existentials.iter().enumerate() {
-        let mut suffix = counter;
-        // Invariant: `suffix` only grows, so at most |names| + 1 candidates are tried.
-        let name = loop {
-            let candidate = format!("{}!exists{suffix}", original.name);
-            if names.insert(candidate.as_str().into()) {
-                break candidate;
-            }
-            suffix += 1;
-        };
+        let mut suffix = counter as u64;
+        let name = fresh_name(&original.name, FreshMarker::Exists, &mut suffix, &mut names);
         let variable = original.with_name(name);
         substitution.insert(
             original.clone(),

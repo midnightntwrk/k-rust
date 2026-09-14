@@ -14,6 +14,7 @@ use k_rust_kore::names::BuiltinSort;
 use crate::{
     definedness::ceil_term,
     definition::BackendDefinition,
+    fresh::fresh_variable,
     ite::{IteSplit, SplitSide, split_ite_pair},
     matching::{
         CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing,
@@ -32,7 +33,7 @@ use crate::{
 
 use super::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, Pattern, Truth,
-    extend_unique, fresh_variable, pattern_variable_names, predicates_truth, substitute_predicates,
+    extend_unique, pattern_variable_names, predicates_truth, substitute_predicates,
 };
 
 pub(crate) struct RecoveredMatch {
@@ -1096,46 +1097,6 @@ fn bool_domain_value(term: &Term) -> Option<bool> {
         "false" => Some(false),
         _ => None,
     }
-
-    #[test]
-    fn final_leaves_with_distinct_console_states_do_not_merge() {
-        let definition = definition("");
-        let cursor_zero = ExecutionIoState::new(Vec::from(&b"input"[..]));
-        let mut cursor_evaluation = cursor_zero.begin_evaluation();
-        assert_eq!(cursor_evaluation.read(1), b"i");
-        let cursor_one = cursor_evaluation.commit();
-        let mut left_evaluation = ExecutionIoState::default().begin_evaluation();
-        left_evaluation.append("IO.write", 1, Vec::from(&b"left"[..]));
-        let left_io = left_evaluation.commit();
-        let mut right_evaluation = ExecutionIoState::default().begin_evaluation();
-        right_evaluation.append("IO.write", 1, Vec::from(&b"right"[..]));
-        let right_io = right_evaluation.commit();
-        let leaf = |io| ExecutionLeaf {
-            pattern: subject(&definition, "same"),
-            depth: 1,
-            trace: Vec::new(),
-            branch: Vec::new(),
-            observations: Vec::new(),
-            effects: Vec::new(),
-            io,
-            halt_reason: HaltReason::Stuck,
-        };
-
-        let cursor_leaves = merge_equal_final_leaves(vec![leaf(cursor_zero), leaf(cursor_one)]);
-        assert_eq!(cursor_leaves.len(), 2);
-
-        let transcript_leaves = merge_equal_final_leaves(vec![leaf(left_io), leaf(right_io)]);
-
-        assert_eq!(transcript_leaves.len(), 2);
-        assert_eq!(
-            transcript_leaves[0].io.transcript()[0].bytes.as_ref(),
-            b"left"
-        );
-        assert_eq!(
-            transcript_leaves[1].io.transcript()[0].bytes.as_ref(),
-            b"right"
-        );
-    }
 }
 
 /// Split symbolic `KEQUAL.ite` applications at the unification boundary.
@@ -1334,4 +1295,35 @@ pub(super) fn recover_overload_symbolic_match(
             configuration_value,
         )],
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_variables_are_not_functional_patterns() {
+        let sort = Sort::simple("SortS");
+        let element = Term::variable(Variable::new("X", sort.clone()));
+        let set = Term::variable(Variable::set("Y", sort.clone()));
+        let pair = |left: Term, right: Term| {
+            Term::application(
+                Arc::new(Symbol::constructor(
+                    "pair",
+                    vec![sort.clone(), sort.clone()],
+                    sort.clone(),
+                )),
+                Vec::new(),
+                vec![left, right],
+            )
+        };
+
+        assert!(is_functional_pattern(&element));
+        assert!(is_functional_pattern(&pair(
+            element.clone(),
+            element.clone()
+        )));
+        assert!(!is_functional_pattern(&set));
+        assert!(!is_functional_pattern(&pair(element, set)));
+    }
 }

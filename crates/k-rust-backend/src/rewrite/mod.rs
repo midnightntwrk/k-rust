@@ -42,14 +42,11 @@ use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
     matching::SortGraph,
-    rule::{Predicate, RewriteRule},
+    rule::Predicate,
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
     substitution::{Substitution, extract_substitution, substitute, substitution_binding},
-    term::{
-        Term, Variable,
-        names::{VariableProvenance, split_marker, with_fresh_counter},
-    },
+    term::{Term, Variable},
     timeout::StepTimeoutMode,
     transition::{
         ExecutionIoState, ObservationEvent, ObservationOptions, TransitionId,
@@ -687,114 +684,4 @@ fn rewrite_step_with_optional_execution(
             io,
         ),
     }
-}
-
-fn freshen_existentials(rule: &RewriteRule, pattern: &Pattern) -> Substitution {
-    let mut names_to_avoid = pattern_variable_names(pattern);
-    rule.existentials
-        .iter()
-        .cloned()
-        .map(|variable| {
-            let fresh = freshen_existential(&variable, &mut names_to_avoid);
-            (variable, fresh)
-        })
-        .collect()
-}
-
-/// Give an existential introduced by a rewrite the same externally meaningful name Booster does.
-///
-/// `Ex#` is provenance used only while a rule is internalized. At application time Booster strips
-/// that marker, keeps the original name when it is available, and increments a trailing decimal
-/// counter only while the name collides with a variable in the current pattern. In particular,
-/// names may be reused after an earlier variable disappears from the state.
-fn freshen_existential(
-    variable: &Variable,
-    names_to_avoid: &mut BTreeSet<crate::term::Name>,
-) -> Term {
-    // `rule.existentials` only carries `Ex#` names (`internalize_axiom`); the `Rule` arm mirrors
-    // Booster and `Eq#` is deliberately not accepted here.
-    let mut name = split_marker(
-        &variable.name,
-        &[VariableProvenance::Existential, VariableProvenance::Rule],
-    )
-    .1
-    .to_owned();
-    // Invariant: the trailing counter only grows, so at most |names_to_avoid| + 1 names are tried.
-    while !names_to_avoid.insert(name.as_str().into()) {
-        name = increment_name_counter(&name);
-    }
-    Term::variable(variable.with_name(name))
-}
-
-fn increment_name_counter(name: &str) -> String {
-    let digits = name.bytes().rev().take_while(u8::is_ascii_digit).count();
-    if digits == 0 {
-        return format!("{name}0");
-    }
-    let prefix = &name[..name.len() - digits];
-    let counter = &name[name.len() - digits..];
-    match counter
-        .parse::<u64>()
-        .ok()
-        .and_then(|value| value.checked_add(1))
-    {
-        Some(counter) => format!("{prefix}{counter}"),
-        None => format!("{name}0"),
-    }
-
-    #[test]
-    fn final_leaves_with_distinct_console_states_do_not_merge() {
-        let definition = definition("");
-        let cursor_zero = ExecutionIoState::new(Vec::from(&b"input"[..]));
-        let mut cursor_evaluation = cursor_zero.begin_evaluation();
-        assert_eq!(cursor_evaluation.read(1), b"i");
-        let cursor_one = cursor_evaluation.commit();
-        let mut left_evaluation = ExecutionIoState::default().begin_evaluation();
-        left_evaluation.append("IO.write", 1, Vec::from(&b"left"[..]));
-        let left_io = left_evaluation.commit();
-        let mut right_evaluation = ExecutionIoState::default().begin_evaluation();
-        right_evaluation.append("IO.write", 1, Vec::from(&b"right"[..]));
-        let right_io = right_evaluation.commit();
-        let leaf = |io| ExecutionLeaf {
-            pattern: subject(&definition, "same"),
-            depth: 1,
-            trace: Vec::new(),
-            branch: Vec::new(),
-            observations: Vec::new(),
-            effects: Vec::new(),
-            io,
-            halt_reason: HaltReason::Stuck,
-        };
-
-        let cursor_leaves = merge_equal_final_leaves(vec![leaf(cursor_zero), leaf(cursor_one)]);
-        assert_eq!(cursor_leaves.len(), 2);
-
-        let transcript_leaves = merge_equal_final_leaves(vec![leaf(left_io), leaf(right_io)]);
-
-        assert_eq!(transcript_leaves.len(), 2);
-        assert_eq!(
-            transcript_leaves[0].io.transcript()[0].bytes.as_ref(),
-            b"left"
-        );
-        assert_eq!(
-            transcript_leaves[1].io.transcript()[0].bytes.as_ref(),
-            b"right"
-        );
-    }
-}
-
-fn fresh_variable(
-    variable: &Variable,
-    names_to_avoid: &mut BTreeSet<crate::term::Name>,
-    fresh_counter: &mut u64,
-) -> Term {
-    // Invariant: `fresh_counter` only grows, so at most |names_to_avoid| + 1 names are tried.
-    let name = loop {
-        let name = with_fresh_counter(&variable.name, *fresh_counter);
-        *fresh_counter += 1;
-        if names_to_avoid.insert(name.as_str().into()) {
-            break name;
-        }
-    };
-    Term::variable(variable.with_name(name))
 }

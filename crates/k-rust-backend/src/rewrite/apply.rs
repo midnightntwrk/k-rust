@@ -15,6 +15,7 @@ use crate::{
     builtin::BuiltinEffect,
     definedness::ceil_term,
     definition::BackendDefinition,
+    fresh::freshen_existential,
     ite::SplitSide,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{Predicate, RewriteRule, RuleRhs},
@@ -32,7 +33,7 @@ use crate::{
 use super::{
     AppliedRule, GeneralUnificationRecovery, IndeterminateReason, Pattern, TrivialApplication,
     Truth, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
-    extend_unique, freshen_existentials, freshen_unbound_rule_variables, predicates_truth,
+    extend_unique, freshen_unbound_rule_variables, pattern_variable_names, predicates_truth,
     quantify_introduced_variables, recover_boolean_matches, recover_equality_matches,
     recover_function_equality_match, recover_functional_symbolic_match,
     recover_general_unification, recover_indeterminate_match, recover_ite_matches,
@@ -1157,36 +1158,24 @@ fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> Rul
     }
 }
 
+/// The rule's existentials renamed apart from every variable of `pattern`, each through
+/// `fresh::freshen_existential`.
+fn freshen_existentials(rule: &RewriteRule, pattern: &Pattern) -> Substitution {
+    let mut names_to_avoid = pattern_variable_names(pattern);
+    rule.existentials
+        .iter()
+        .cloned()
+        .map(|variable| {
+            let fresh = freshen_existential(&variable, &mut names_to_avoid);
+            (variable, fresh)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
-
-    #[test]
-    fn set_variables_are_not_functional_patterns() {
-        let sort = Sort::simple("SortS");
-        let element = Term::variable(Variable::new("X", sort.clone()));
-        let set = Term::variable(Variable::set("Y", sort.clone()));
-        let pair = |left: Term, right: Term| {
-            Term::application(
-                std::sync::Arc::new(Symbol::constructor(
-                    "pair",
-                    vec![sort.clone(), sort.clone()],
-                    sort.clone(),
-                )),
-                Vec::new(),
-                vec![left, right],
-            )
-        };
-
-        assert!(is_functional_pattern(&element));
-        assert!(is_functional_pattern(&pair(
-            element.clone(),
-            element.clone()
-        )));
-        assert!(!is_functional_pattern(&set));
-        assert!(!is_functional_pattern(&pair(element, set)));
-    }
 
     #[test]
     fn rule_diagnostics_omit_term_alias_binders() {
@@ -1211,45 +1200,5 @@ mod tests {
 
         assert_eq!(term_alias_variables(&lhs), BTreeSet::from([alias]));
         assert!(!term_alias_variables(&lhs).contains(&ordinary));
-    }
-
-    #[test]
-    fn final_leaves_with_distinct_console_states_do_not_merge() {
-        let definition = definition("");
-        let cursor_zero = ExecutionIoState::new(Vec::from(&b"input"[..]));
-        let mut cursor_evaluation = cursor_zero.begin_evaluation();
-        assert_eq!(cursor_evaluation.read(1), b"i");
-        let cursor_one = cursor_evaluation.commit();
-        let mut left_evaluation = ExecutionIoState::default().begin_evaluation();
-        left_evaluation.append("IO.write", 1, Vec::from(&b"left"[..]));
-        let left_io = left_evaluation.commit();
-        let mut right_evaluation = ExecutionIoState::default().begin_evaluation();
-        right_evaluation.append("IO.write", 1, Vec::from(&b"right"[..]));
-        let right_io = right_evaluation.commit();
-        let leaf = |io| ExecutionLeaf {
-            pattern: subject(&definition, "same"),
-            depth: 1,
-            trace: Vec::new(),
-            branch: Vec::new(),
-            observations: Vec::new(),
-            effects: Vec::new(),
-            io,
-            halt_reason: HaltReason::Stuck,
-        };
-
-        let cursor_leaves = merge_equal_final_leaves(vec![leaf(cursor_zero), leaf(cursor_one)]);
-        assert_eq!(cursor_leaves.len(), 2);
-
-        let transcript_leaves = merge_equal_final_leaves(vec![leaf(left_io), leaf(right_io)]);
-
-        assert_eq!(transcript_leaves.len(), 2);
-        assert_eq!(
-            transcript_leaves[0].io.transcript()[0].bytes.as_ref(),
-            b"left"
-        );
-        assert_eq!(
-            transcript_leaves[1].io.transcript()[0].bytes.as_ref(),
-            b"right"
-        );
     }
 }

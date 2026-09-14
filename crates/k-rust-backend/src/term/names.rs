@@ -57,9 +57,37 @@ pub fn split_marker<'a>(
         .unwrap_or((None, name))
 }
 
-/// `base` followed by `!` and the counter, `fresh_variable`'s spelling.
+/// The word between the `!` and the counter of a backend-minted fresh name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FreshMarker {
+    /// `{base}!{counter}`: variables the rewriter introduces (narrowed frames, unbound rule
+    /// variables, overload witnesses).
+    Rewrite,
+    /// `{base}!claim{counter}`: the variables of a claim applied as a circularity.
+    Claim,
+    /// `{base}!exists{counter}`: consequent existentials of an implication check.
+    Exists,
+}
+
+impl FreshMarker {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rewrite => "",
+            Self::Claim => "claim",
+            Self::Exists => "exists",
+        }
+    }
+}
+
+/// `base`, `!`, the marker, and the counter: the spelling of every fresh name `crate::fresh`
+/// mints.
+pub fn with_fresh_marker(base: &str, marker: FreshMarker, counter: u64) -> String {
+    format!("{base}!{}{counter}", marker.as_str())
+}
+
+/// `base` followed by `!` and the counter, `fresh::fresh_variable`'s spelling.
 pub fn with_fresh_counter(base: &str, counter: u64) -> String {
-    format!("{base}!{counter}")
+    with_fresh_marker(base, FreshMarker::Rewrite, counter)
 }
 
 /// The inverse of [`with_fresh_counter`] when the name ends in `!` followed by one or more
@@ -221,6 +249,15 @@ mod tests {
                 );
             }
         }
+        assert_eq!(
+            with_fresh_marker("VarX", FreshMarker::Claim, 3),
+            "VarX!claim3"
+        );
+        assert_eq!(
+            with_fresh_marker("VarX", FreshMarker::Exists, 0),
+            "VarX!exists0"
+        );
+        assert_eq!(split_fresh_counter("VarX!claim3"), ("VarX!claim3", ""));
         assert_eq!(split_fresh_counter("VarX"), ("VarX", ""));
         assert_eq!(split_fresh_counter("X!"), ("X!", ""));
         assert_eq!(split_fresh_counter("X!1a"), ("X!1a", ""));
