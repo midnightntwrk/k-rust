@@ -1,4 +1,11 @@
-//! Sort-aware one-way matching for rewrite rules and equations.
+//! Sort-aware one-way first-order matching by pair decomposition (a Martelli-Montanari work
+//! queue without unification: pattern variables bind, subject variables defer), O(p) pair pops
+//! per problem for p bounded by |pattern| plus one re-enqueue per deferred pair, each pop
+//! O(arity); `Counter::MatchingProblems`, `Counter::MatchingPairs` (row B2). AC(U) matching over
+//! maps and sets by backtracking assignment, O(n^k) assignments for k pattern elements against n
+//! subject elements, and A(U) matching over lists by frame splitting, O(n) frame positions;
+//! `Counter::MatchingCollectionProblems` (row B3). Subsort and overload membership queries over
+//! the closures `definition.rs` builds, O(log |S|) (row B4).
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -1042,6 +1049,9 @@ impl MapCollectionProblem<'_> {
         }
 
         let (key, value) = &self.entries[index];
+        // Backtracking assignment of pattern entry `index` to each unassigned subject entry; each
+        // level consumes one subject entry, so the depth is at most the number of pattern entries.
+        // Invariant: `solution` matches every assigned pair; `remaining` holds the unassigned ones.
         for subject_index in 0..remaining.len() {
             let (subject_key, subject_value) = &remaining[subject_index];
             let key_solutions = match solve_term_pair(
@@ -1415,6 +1425,9 @@ impl SetCollectionProblem<'_> {
         }
 
         let element = &self.elements[index];
+        // Backtracking assignment of pattern element `index` to each unassigned subject element;
+        // each level consumes one subject element, so the depth is at most the pattern size.
+        // Invariant: `solution` matches every assigned pair; `remaining` holds the unassigned ones.
         for subject_index in 0..remaining.len() {
             match solve_term_pair(
                 self.mode,
@@ -1835,6 +1848,9 @@ impl ClosedMapImplicationProblem<'_> {
             .iter()
             .map(|(index, _)| *index)
             .collect::<BTreeSet<_>>();
+        // Each level assigns subject entry `subject_index` to an unused pattern entry and recurses
+        // on the next subject entry, so the depth is bounded by the number of subject entries.
+        // Invariant: `selected` pairs each earlier subject entry with a distinct pattern entry.
         for (pattern_index, (pattern_key, pattern_value)) in self.pattern_entries.iter().enumerate()
         {
             if used.contains(&pattern_index) {
@@ -1897,6 +1913,10 @@ struct Matcher<'a> {
 
 impl Matcher<'_> {
     fn run(&mut self) -> Result<(), FailReason> {
+        // Map pairs wait until `queue` is empty so that map keys are bound before map problems are
+        // solved; a pop enqueues only proper subterms or re-enqueues a deferred pair at most once,
+        // so the loop terminates; `indeterminate` collects pairs neither solved nor refuted.
+        // Invariant: `substitution` matches every popped pair; queued pairs are still unchecked.
         while let Some((pattern, subject)) = self
             .queue
             .pop_front()

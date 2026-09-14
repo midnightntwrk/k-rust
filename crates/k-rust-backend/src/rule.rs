@@ -1,4 +1,7 @@
-//! Recognition of the axiom shapes emitted by the K frontend.
+//! Axiom-shape classification and the single-symbol rule index (`TermIndex`/`Theory`): rule
+//! selection by the top symbol of the subject is O(log k) map lookups for k index keys plus O(c)
+//! `Arc` clones for the c candidates returned; c per step is `Counter::RewriteRuleAttempts` /
+//! `Counter::RewriteSteps` (row B1), of which `Counter::RewriteMatchFailures` fail at match.
 
 use std::{
     collections::{BTreeMap, BTreeSet},

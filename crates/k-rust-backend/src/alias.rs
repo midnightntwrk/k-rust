@@ -1,4 +1,6 @@
-//! Validated expansion of KORE alias applications.
+//! Capture-avoiding alias unfolding with a cycle stack, O(|pattern| x expansion depth), at load
+//! time only; no counter; the only loops are the cycle-stack recursion and the fresh-name retry
+//! (row B18).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -202,6 +204,7 @@ fn expand_with(
                 .cloned()
                 .zip(arguments)
                 .collect::<BTreeMap<_, _>>();
+            // Invariant: `stack` lists the aliases under expansion; a repeat on it is a cycle.
             stack.push(symbol.name);
             let result = expand_with(&alias.right, aliases, &alias_sorts, &alias_terms, stack);
             stack.pop();
@@ -457,6 +460,7 @@ fn fresh_variable(
         names.insert(parameter.name.clone());
         collect_variable_names(replacement, &mut names);
     }
+    // Invariant: `index` only grows, so at most |names| + 1 candidates are tried.
     for index in 0usize.. {
         let name = format!("{}Alias{index}", variable.name);
         if names.insert(name.clone()) {

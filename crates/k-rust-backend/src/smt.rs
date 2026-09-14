@@ -1,4 +1,5 @@
-//! Portable SMT-LIB translation shared by native Z3 and solver-free builds.
+//! Portable SMT-LIB translation shared by native Z3 and solver-free builds: one pass per query
+//! script; a responsibility, not an algorithm; no counter of its own, no worklist.
 
 use std::{
     collections::{BTreeMap, BTreeSet},

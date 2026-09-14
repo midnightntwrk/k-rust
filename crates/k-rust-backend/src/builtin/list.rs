@@ -1,4 +1,5 @@
-//! Concrete `LIST` hooks implemented by Booster.
+//! Concrete `LIST` hooks implemented by Booster: per-call operations on the internal list
+//! representation; a responsibility, not an algorithm; no counter of its own, no worklist.
 
 use std::sync::Arc;
 

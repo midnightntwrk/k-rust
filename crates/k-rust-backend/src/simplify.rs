@@ -1,4 +1,10 @@
-//! Recursive equation simplification to a bounded fixed point.
+//! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
+//! builtin hooks, and evaluated-attribute memoisation (Booster ApplyEquations): cost O(rounds x
+//! |term| x candidates per node), rounds <= `max_iterations` per lineage;
+//! `Counter::SimplifyRounds`, `Counter::SimplifyEquationAttempts`,
+//! `Counter::SimplifyBuiltinEvaluations` (row B7).
+//! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index, O(1) membership per
+//! conjunct, budget-bounded re-entry through the ceil and predicate theories (row B8).
 
 use std::{
     cell::Cell,
@@ -591,6 +597,7 @@ fn simplify_predicates_with_budget(
         });
     }
     *remaining -= 1;
+    // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
     simplify_predicates_with_budget(
         definition,
         &simplified,
@@ -1106,6 +1113,7 @@ fn simplify_predicate_with_budget(
             });
         }
         *remaining -= 1;
+        // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
         return simplify_predicate_with_budget(
             definition,
             &simplified,
@@ -1137,6 +1145,7 @@ fn simplify_predicate_with_budget(
         });
     }
     *remaining -= 1;
+    // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
     simplify_predicate_with_budget(
         definition,
         &simplified,
@@ -1930,6 +1939,9 @@ fn simplify_with_budget(
     let mut effects = Vec::new();
     let mut exhausted = None;
     let mut undefined_term = None;
+    // Each round simplifies the children then the root; the loop exits on a fixed point, an
+    // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` never grows.
+    // Invariant: `term` equals the input modulo `applied_rules` under `constraints`.
     loop {
         measure::bump(Counter::SimplifyRounds);
         if cancellation_requested() {

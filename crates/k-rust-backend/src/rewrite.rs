@@ -1,4 +1,14 @@
-//! Priority-aware rewrite steps over internalized backend theories.
+//! Rewrite steps and execution over internalized theories: one-rule conditional rewriting
+//! (match, recovery ladder, condition simplification, definedness, SAT narrowing, requires,
+//! validity, applicability, RHS instantiation; Booster applyRule with a Kore-style unification
+//! fallback), one matching problem per attempt plus up to 3 SMT calls,
+//! `Counter::RewriteRuleAttempts`, `Counter::RewriteMatchFailures`,
+//! `Counter::RewriteIndeterminateRecoveries` (row B9); the priority-grouped step with remainder,
+//! O(c) attempts plus one SAT check per step (All) or per applied rule (Any),
+//! `Counter::RewriteRulesApplied` (row B10); depth-first exploration of the rewrite tree with
+//! got-stuck-over-depth-bound leaf selection, O(states) steps bounded by `max_depth` and
+//! `max_breadth`, `Counter::RewriteSteps` (row B11); predicate truth, alpha equivalence, and
+//! constructor-domain coverage, O(|predicates|), no counter (row B21).
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -594,6 +604,10 @@ fn execute_using(
             },
         );
     }
+    // `pending` is a stack: `enqueue_execution_states` pushes successors to the front, so a state's
+    // children are expanded before its siblings (depth-first). Each push either raises the depth,
+    // which `max_depth` bounds, or consumes a remainder, so the loop terminates.
+    // Invariant: `pending` holds unexpanded states of depth <= `max_depth`; `leaves` only grows.
     while let Some(mut state) = pending.pop_front() {
         measure::bump(Counter::RewriteSteps);
         let mut step_timer = timeout_controller.begin_step();
@@ -1292,6 +1306,9 @@ fn expand_stopped_branch_remainder(
     execution: (ExecutionMode, bool),
 ) -> Result<(), SimplificationError> {
     let (mode, assume_initial_defined) = execution;
+    // Each iteration applies one more rule to the remainder (a strictly smaller applicability
+    // space) or ends it as stuck, indeterminate, trivial, or vacuous.
+    // Invariant: `remainder` is the part of the parent pattern that `branches` does not yet cover.
     while let Some(current) = remainder.take() {
         match rewrite_step_with_mode(
             definition,
@@ -2687,6 +2704,11 @@ fn apply_rule(
     )
 }
 
+/// Invariant: every re-entry (the six recovery splits, the unification solutions, and the
+/// bindings extracted from conditions) carries the accumulated `inherited_conditions`, which
+/// only grow, and either an empty or strictly shorter `remainder` or a binding of a previously
+/// unbound `lhs` variable, so the recursion depth is at most |remainder| + 1 and the
+/// constructor-like re-entry cannot repeat.
 #[allow(clippy::too_many_arguments)]
 fn apply_rule_with_match(
     definition: &BackendDefinition,
@@ -3806,6 +3828,7 @@ fn search_symbolic_map_key_matches(
 
     let (pattern_key, pattern_value) = &pattern_entries[index];
     let pattern_key = substitute(pattern_key, &substitution);
+    // Invariant: each level drops one `remaining_subject` entry and extends the assignment.
     for subject_index in 0..remaining_subject.len() {
         let (subject_key, subject_value) = &remaining_subject[subject_index];
         if !matches!(subject_key.kind(), TermKind::Variable(_)) {
@@ -4637,6 +4660,7 @@ fn freshen_existential(
     )
     .1
     .to_owned();
+    // Invariant: the trailing counter only grows, so at most |names_to_avoid| + 1 names are tried.
     while !names_to_avoid.insert(name.as_str().into()) {
         name = increment_name_counter(&name);
     }
@@ -4665,6 +4689,7 @@ fn fresh_variable(
     names_to_avoid: &mut BTreeSet<crate::term::Name>,
     fresh_counter: &mut u64,
 ) -> Term {
+    // Invariant: `fresh_counter` only grows, so at most |names_to_avoid| + 1 names are tried.
     let name = loop {
         let name = with_fresh_counter(&variable.name, *fresh_counter);
         *fresh_counter += 1;
@@ -4798,6 +4823,7 @@ fn collect_constructor_exclusions(
     };
     let mut inner = inner.as_ref();
     let mut binders = BTreeSet::new();
+    // Invariant: `binders` holds every `Exists` above `inner`; on exit `inner` is not an `Exists`.
     while let Predicate::Exists(variable, body) = inner {
         binders.insert(variable.clone());
         inner = body;

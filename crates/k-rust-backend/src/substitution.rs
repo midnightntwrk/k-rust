@@ -1,4 +1,8 @@
-//! Saturating substitutions over immutable backend terms.
+//! Simultaneous substitution with attribute-guided skipping, O(t) per term with O(1) skip of
+//! variable-free subterms, and substitution extraction by Kosaraju SCC cycle breaking (petgraph,
+//! the least variable of each cycle kept as an equality), O(r x (V + E)) for r cycles broken,
+//! then saturation bounded by the binding count, O(s^2 x t); no counter of its own,
+//! `Counter::TermConstructed` indirectly (row B6).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -151,6 +155,7 @@ fn extract_substitution_with(
         })
         .collect::<BTreeMap<_, _>>();
 
+    // Invariant: every removed candidate lay on a cycle of its round's graph; exit when none is.
     loop {
         let variables = candidates.keys().cloned().collect::<Vec<_>>();
         let indexes = variables
@@ -197,6 +202,9 @@ fn extract_substitution_with(
         .iter()
         .map(|(variable, (_, value))| (variable.clone(), value.clone()))
         .collect::<Substitution>();
+    // The candidate graph is acyclic after the loop above, so saturation converges within
+    // `substitution.len()` rounds; the `break` fires as soon as a round changes nothing.
+    // Invariant: after round i, no value contains a bound variable at dependency distance <= i.
     for _ in 0..substitution.len() {
         let previous = substitution.clone();
         for (variable, value) in &previous {
@@ -256,6 +264,7 @@ fn restricted_binding(
 }
 
 fn peel_equal_injections(mut left: Term, mut right: Term) -> (Term, Term) {
+    // Invariant: on exit the two heads are not injections with equal source and target sorts.
     loop {
         let children = match (left.kind(), right.kind()) {
             (

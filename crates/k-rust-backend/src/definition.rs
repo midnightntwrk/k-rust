@@ -1,4 +1,8 @@
-//! Validation and internalization of textual KORE definitions.
+//! Validation and internalization of textual KORE definitions, O(|definition|), once per load:
+//! import DFS with a path stack for cycle detection, preorder axiom order (CQ-05a), axiom-shape
+//! classification, term internalization (row B17); subsort and overload transitive closures by
+//! naive iteration, rounds <= longest chain, each O(|S| x |closure|) (row B4). No counter; the
+//! `internalize` phase of `kprove --timings` measures it, `Counter::TermConstructed` indirectly.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -65,6 +69,7 @@ impl OverloadGraph {
         relations: impl IntoIterator<Item = (Name, Name)>,
     ) -> Result<Self, DefinitionError> {
         let mut pairs = relations.into_iter().collect::<BTreeSet<_>>();
+        // Invariant: `pairs` only grows, bounded by |S|^2; exit when a round adds no pair.
         loop {
             let inferred = pairs
                 .iter()
@@ -885,6 +890,8 @@ impl BackendDefinition {
 
     fn macro_or_alias_in_pattern(&self, pattern: &kore::Pattern) -> Option<String> {
         let mut pending = vec![pattern];
+        // Each pop pushes only proper subpatterns of the popped one, so the loop terminates.
+        // Invariant: `pending` holds exactly the subpatterns not yet inspected.
         while let Some(pattern) = pending.pop() {
             match pattern {
                 kore::Pattern::Application { symbol, arguments }
@@ -1035,6 +1042,7 @@ impl BackendDefinition {
                 let Some(mut result) = arguments.pop() else {
                     return Err(DefinitionError::ExpectedTerm("top"));
                 };
+                // Invariant: `result` is the conjunction of the arguments popped so far.
                 while let Some(left) = arguments.pop() {
                     result = Term::and(left, result);
                 }
@@ -1447,6 +1455,8 @@ fn visit_module<'a>(
         .copied()
         .ok_or_else(|| DefinitionError::NoSuchModule(name.to_owned()))?;
     visiting.push(name.to_owned());
+    // A module found in `visiting` closes an import cycle; `visited` skips finished modules.
+    // Invariant: `visiting` is the import path down to `name`; `visited` holds finished modules.
     for sentence in &module.sentences {
         if let kore::Sentence::Import { module, .. } = sentence {
             visit_module(module, modules, visiting, visited, ordered)?;
@@ -1469,6 +1479,7 @@ fn visit_modules_preorder<'a>(
         .copied()
         .ok_or_else(|| DefinitionError::NoSuchModule(name.to_owned()))?;
     ordered.push(module);
+    // Invariant: `ordered` lists each import path once, in declaration order (no dedup).
     for &index in &import_orders[name] {
         let kore::Sentence::Import { module: import, .. } = &module.sentences[index] else {
             unreachable!("cached import order contains only import sentences")
@@ -1787,6 +1798,7 @@ fn build_sort_graph(names: impl IntoIterator<Item = Name>, pairs: Vec<(Name, Nam
     for (sub, sup) in pairs {
         closure.entry(sup).or_default().insert(sub);
     }
+    // Invariant: `closure` only grows, bounded by |S|^2 pairs; exit when a round adds nothing.
     loop {
         let previous = closure.clone();
         for subsorts in closure.values_mut() {

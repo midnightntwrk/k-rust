@@ -1,4 +1,8 @@
-//! Breadth-first reachability proof execution.
+//! Reachability-logic proof search (Kore proveClaim; pyk APR): per explored state one
+//! simplification, one subsumption check (`Counter::ProofImplicationChecks`), circularity
+//! application at depth > 0, one rewrite step; breadth- or depth-first by option, no state
+//! deduplication; O(explored states) x (simplification + implication + |circularities| x
+//! claim application + one step), `Counter::ProofStatesExplored` (row B13).
 
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -196,6 +200,9 @@ pub fn prove_claim(
             }
         }};
     }
+    // Every queued state is a rewrite successor (depth + 1), a claim successor (depth + 1), or a
+    // remainder at its parent's depth; an implication remainder is never re-enqueued.
+    // Invariant: `pending` holds the unexpanded states; `leaves` only grows; pops are counted.
     while let Some(mut state) = match options.search_order {
         ProofSearchOrder::BreadthFirst => pending.pop_front(),
         ProofSearchOrder::DepthFirst => pending.pop_back(),
@@ -1129,6 +1136,7 @@ fn freshen_claim(
     let variables = variables_of_claim(claim);
     let mut renaming = Substitution::new();
     for variable in variables {
+        // Invariant: `fresh_counter` only grows, so at most |names| + 1 candidates are tried.
         let name = loop {
             let name = format!("{}!claim{}", variable.name, *fresh_counter);
             *fresh_counter += 1;

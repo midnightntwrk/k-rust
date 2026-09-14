@@ -1,4 +1,7 @@
-//! In-process evaluation of backend hooks implemented by Booster.
+//! In-process evaluation of backend hooks implemented by Booster: dispatch by `HookName` to the
+//! per-namespace modules, each hook a bounded computation on evaluated arguments; counted by the
+//! caller as `Counter::SimplifyBuiltinEvaluations`; a responsibility, not an algorithm; no
+//! worklist.
 
 use std::{fmt, sync::Arc};
 

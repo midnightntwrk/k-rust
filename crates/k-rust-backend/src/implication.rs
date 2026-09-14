@@ -1,4 +1,8 @@
-//! Subsumption checks between constrained backend patterns.
+//! Subsumption by Implies-mode matching, existential witness elimination, and SMT validity of
+//! the residual, iterated to a fixed point of the simplified antecedent (Kore checkImplication):
+//! O(rounds x (|consequents| x one matching problem + witness saturation + one SMT validity));
+//! one `Counter::SmtQueries` per residual, `Counter::ProofImplicationChecks` at the caller
+//! (row B14).
 
 use std::{collections::BTreeSet, error::Error, fmt};
 
@@ -240,6 +244,7 @@ pub fn check_disjunctive_implication_with_existentials(
     }
 
     let mut antecedent = antecedent.clone();
+    // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
     loop {
         let mut branches = Vec::new();
         let mut matched = false;
@@ -465,6 +470,7 @@ fn check_implication_with_existentials_and_options_and_policy(
         _ => None,
     };
     let mut antecedent = antecedent.clone();
+    // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
     loop {
         match match_terms_in_definition(
             MatchMode::Implies,
@@ -580,6 +586,7 @@ fn freshen_existentials(
     let mut fresh = BTreeSet::new();
     for (counter, original) in existentials.iter().enumerate() {
         let mut suffix = counter;
+        // Invariant: `suffix` only grows, so at most |names| + 1 candidates are tried.
         let name = loop {
             let candidate = format!("{}!exists{suffix}", original.name);
             if names.insert(candidate.as_str().into()) {
@@ -817,6 +824,8 @@ fn eliminate_existential_witnesses(
     }
 
     let mut remaining = existentials.clone();
+    // A round that finds no witness exits; one that finds some removes them from `remaining`.
+    // Invariant: `remaining` holds the existentials that have no witness yet.
     loop {
         let (found, rest) = extract_substitution_for(&branch, &remaining, &definition.sort_graph);
         if found.is_empty() {
