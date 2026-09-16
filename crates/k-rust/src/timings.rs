@@ -8,9 +8,8 @@
 //! Recording costs one [`Instant`] pair per phase, so every entry point records unconditionally
 //! and the host decides whether to keep the result.
 
-use std::time::Instant;
-
 use serde::Serialize;
+use web_time::Instant;
 
 /// One named phase and its wall-clock duration in seconds.
 #[derive(Clone, Debug, Serialize)]
