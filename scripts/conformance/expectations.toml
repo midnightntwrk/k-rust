@@ -1973,7 +1973,12 @@ accepted_stage = "none"
 baseline_verdict = "skipped-with-reason"
 baseline_stage = "none"
 exclusion = ""
-reason = "The io.imp, locals.imp and sum-io.imp programs need the IO.write, IO.read, IO.getc and IO.putc hooks, which have no evaluator in the port; krust krun halts with an unsupported-hook error on them. The other programs match."
+reason = "Compilation, the eight Bison parses, and the collatz, div, primes, spawn and sum executions match; div and spawn run under --search with $IO off and are compared modulo C7. The io.imp, locals.imp and sum-io.imp steps are excluded per step: their .out files are the console bytes the LLVM runtime writes through IO.write under --output none, and that hook has no evaluator in either pinned Kore engine."
+step_exclusions = [
+  { test = "tests/io.imp", out = "tests/io.imp.out", exclusion = "llvm-only", reason = "The stdoutWrite stream rule applies #write(1, S) under $IO on, then #getc(0) for read(); IO.write, IO.getc, IO.read and IO.putc have no evaluator in either pinned Kore engine, so krust reports an unsupported-hook error on constructor-like arguments as docs/compatibility.md#backend-scope requires, and the LLVM console output cannot define them (crates/k-rust/tests/fixtures/hook-capabilities.toml)." },
+  { test = "tests/locals.imp", out = "tests/locals.imp.out", exclusion = "llvm-only", reason = "The stdoutWrite stream rule applies #write(1, S) under $IO on; IO.write has no evaluator in either pinned Kore engine, so krust reports an unsupported-hook error on constructor-like arguments as docs/compatibility.md#backend-scope requires, and the LLVM console output cannot define it (crates/k-rust/tests/fixtures/hook-capabilities.toml)." },
+  { test = "tests/sum-io.imp", out = "tests/sum-io.imp.out", exclusion = "llvm-only", reason = "The stdoutWrite stream rule applies #write(1, S) under $IO on, then #getc(0) for read(); IO.write, IO.getc, IO.read and IO.putc have no evaluator in either pinned Kore engine, so krust reports an unsupported-hook error on constructor-like arguments as docs/compatibility.md#backend-scope requires, and the LLVM console output cannot define them (crates/k-rust/tests/fixtures/hook-capabilities.toml)." },
+]
 
 [[case]]
 name = "pl-tutorial/1_k/5_types/lesson_6"
