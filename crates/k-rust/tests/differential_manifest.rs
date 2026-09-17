@@ -696,8 +696,8 @@ fn every_conformance_normalisation_is_registered() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids,
-        (1..=7).map(|id| format!("C{id}")).collect::<BTreeSet<_>>(),
-        "the conformance register must contain C1 through C7"
+        (1..=8).map(|id| format!("C{id}")).collect::<BTreeSet<_>>(),
+        "the conformance register must contain C1 through C8"
     );
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for row in rows {
@@ -770,6 +770,45 @@ fn every_conformance_normalisation_is_registered() {
         assert!(
             c7["justification"].as_str().unwrap().contains(needle),
             "C7 must cite {needle}"
+        );
+    }
+    // C8 escalates a failed C7 text comparison to the structural comparator over both results
+    // simplified by the port: the reference is re-run with --output kore, both patterns go through
+    // `krust kore-simplify`, N4 applies and N15 does not, and the .out stays the oracle.
+    let c8 = rows
+        .iter()
+        .find(|row| row["id"].as_str() == Some("C8"))
+        .expect("C8 row");
+    assert_eq!(
+        c8["anchor_symbol"].as_str(),
+        Some("compare_simplified_kore")
+    );
+    for needle in [
+        "C7 text comparison",
+        "--output kore",
+        "`krust kore-simplify`",
+        "reference kompiled definition and main module",
+        "executed_kore_matches_the_reference_backend",
+        "without K_DIFFERENTIAL_DEFINITION",
+        "N4 renaming applies and N15 does not",
+        "distinct comparison label",
+        ".out stays the oracle",
+        "leaves the text mismatch in place",
+    ] {
+        assert!(
+            c8["rule"].as_str().unwrap().contains(needle),
+            "C8 must state {needle}"
+        );
+    }
+    for needle in [
+        "supplementary",
+        "N15",
+        "docs/compatibility.md#comparison-contract",
+        "docs/testing.md#comparator-evidence",
+    ] {
+        assert!(
+            c8["justification"].as_str().unwrap().contains(needle),
+            "C8 must cite {needle}"
         );
     }
 }

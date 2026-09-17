@@ -1264,6 +1264,278 @@ print(json.dumps({
     }
 }
 
+#[test]
+fn conformance_driver_compares_simplified_kore_when_the_execution_text_differs() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // Every process boundary is faked: the krust krun, the reference krun re-run, kprint, the two
+    // krust kore-simplify runs, the comparator test binary, and the oracle confirmation.
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+EXPECTED = "<k>\n  false ~> .K\n</k>\n#And\n  { true #Equals size ( ListItem ( ?X:Int ) ?L:List ) >=Int -1 }\n"
+KRUST_PRETTY = "<k>\n  false ~> .K\n</k>\n"
+REFERENCE_KORE = "\\and{S{}}(cfg{}(), \\equals{B{}, S{}}(true{}(), c{}()))"
+KRUST_KORE = "cfg{}()"
+PLAIN = "/kbin/krun 1.test --no-exc-wrap --definition ./test-kompiled | diff - 1.test.out"
+
+def driver(mode, recipe_text=PLAIN):
+    root = tempfile.mkdtemp()
+    case = run.Case("simplified-kore")
+    case.dir = root; case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "test-kompiled")
+    os.makedirs(case.ref_kompiled)
+    with open(os.path.join(case.ref_kompiled, "definition.kore"), "w") as f: f.write("[]\n")
+    case.def_file = "test.k"; case.main_module = "TEST"; case.syntax_module = "TEST"; case.pgm_sort = "KItem"
+    with open(os.path.join(root, "1.test.out"), "w") as f: f.write(EXPECTED)
+    calls = {"reference": [], "simplify": [], "comparator": [], "oracle": 0}
+    def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
+        tool = os.path.basename(cmd[0])
+        if tool == "krust" and cmd[1] == "krun":
+            return 0, KRUST_KORE, "", 0.1, False
+        if tool == "krun":
+            calls["reference"].append(cmd[1:])
+            if mode == "reference_fails": return 1, "", "kore-exec: boom", 0.1, False
+            return 0, REFERENCE_KORE, "", 0.1, False
+        if tool == "kprint":
+            source = open(cmd[2]).read()
+            if source == KRUST_KORE: return 0, EXPECTED if mode == "text_equal" else KRUST_PRETTY, "", 0.1, False
+            assert source == REFERENCE_KORE, source
+            return 0, KRUST_PRETTY if mode == "stale_out" else EXPECTED, "", 0.1, False
+        if tool == "krust" and cmd[1] == "kore-simplify":
+            calls["simplify"].append(cmd[2:])
+            if mode == "simplify_fails": return 1, "", "could not simplify KORE pattern: Smt(...)", 0.1, False
+            target = cmd[cmd.index("--output") + 1]
+            with open(target, "w") as f: f.write("simplified:" + open(cmd[cmd.index("--pattern") + 1]).read())
+            return 0, "", "", 0.1, False
+        raise AssertionError("unexpected command: " + " ".join(cmd))
+    def fake_test(name, env, cwd, timeout=120):
+        calls["comparator"].append({"name": name, "env": env,
+            "sides": [open(env["K_REFERENCE_EXECUTION"]).read(), open(env["K_RUST_EXECUTION"]).read()]})
+        if mode == "differ":
+            return 1, "", "thread 'x' panicked at a.rs:1:1:\nunpaired disjunct: cfg{}()\nnote: run with RUST_BACKTRACE=1", False
+        return 0, "ok", "", False
+    run.sh = fake_sh
+    run.run_test_binary_result = fake_test
+    run.confirm_oracle = lambda case, rec, step: calls.__setitem__("oracle", calls["oracle"] + 1)
+    step = run.do_krun(case, run.split_recipe(recipe_text))
+    return {"verdict": step["verdict"], "comparison": step.get("comparison"),
+            "simplified_kore_equal": step.get("simplified_kore_equal"), "divergence": step.get("divergence"),
+            "text_divergence": step.get("text_divergence"),
+            "simplified_kore_divergence": step.get("simplified_kore_divergence"),
+            "reference_kore_reproduces_out": step.get("reference_kore_reproduces_out"),
+            "reference_kore_rc": step.get("reference_kore_rc"), "calls": calls}
+
+print(json.dumps({
+    "equal": driver("equal"),
+    "output_flag": driver("equal", "/kbin/krun 1.test --output pretty --definition ./test-kompiled | diff - 1.test.out"),
+    "text_equal": driver("text_equal"),
+    "differ": driver("differ"),
+    "reference_fails": driver("reference_fails"),
+    "simplify_fails": driver("simplify_fails"),
+    "stale_out": driver("stale_out"),
+    "expansion": driver("equal", "/kbin/krun $PGM --definition ./test-kompiled | diff - 1.test.out"),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let probe = |name: &str| &probes[name];
+    let calls = |name: &str| &probes[name]["calls"];
+    // Equal after simplification: a match under the C8 label, never plain match text, with the
+    // text difference retained, both sides simplified against the reference definition and main
+    // module, and the comparator run without K_DIFFERENTIAL_DEFINITION.
+    for name in ["equal", "output_flag"] {
+        assert_eq!(probe(name)["verdict"], "match", "{name}: {probes}");
+        let comparison = probe(name)["comparison"].as_str().unwrap();
+        for needle in [
+            "text differs",
+            "C8",
+            "krust kore-simplify",
+            "--output kore",
+            "without K_DIFFERENTIAL_DEFINITION",
+        ] {
+            assert!(comparison.contains(needle), "{name}: {comparison}");
+        }
+        assert_eq!(
+            probe(name)["simplified_kore_equal"],
+            true,
+            "{name}: {probes}"
+        );
+        assert!(probe(name)["divergence"].is_null(), "{name}: {probes}");
+        assert!(
+            probe(name)["text_divergence"]
+                .as_str()
+                .unwrap()
+                .contains("size ( ListItem"),
+            "{name}: {probes}"
+        );
+        assert_eq!(
+            probe(name)["reference_kore_reproduces_out"],
+            true,
+            "{name}: {probes}"
+        );
+        assert_eq!(calls(name)["oracle"], 0, "{name}: {probes}");
+        let comparator = calls(name)["comparator"].as_array().unwrap();
+        assert_eq!(comparator.len(), 1, "{name}: {probes}");
+        assert_eq!(
+            comparator[0]["name"],
+            "executed_kore_matches_the_reference_backend"
+        );
+        assert!(
+            comparator[0]["env"]
+                .get("K_DIFFERENTIAL_DEFINITION")
+                .is_none(),
+            "{name}: {probes}"
+        );
+        assert_eq!(comparator[0]["env"]["K_DIFFERENTIAL_MODULE"], "TEST");
+        assert_eq!(
+            comparator[0]["sides"],
+            serde_json::json!([
+                "simplified:\\and{S{}}(cfg{}(), \\equals{B{}, S{}}(true{}(), c{}()))",
+                "simplified:cfg{}()"
+            ]),
+            "{name}: {probes}"
+        );
+        let simplify = calls(name)["simplify"].as_array().unwrap();
+        assert_eq!(simplify.len(), 2, "{name}: {probes}");
+        for arguments in simplify {
+            let arguments = arguments.as_array().unwrap();
+            assert!(
+                arguments[0]
+                    .as_str()
+                    .unwrap()
+                    .ends_with("test-kompiled/definition.kore"),
+                "{name}: {probes}"
+            );
+            assert_eq!(arguments[1], "--module");
+            assert_eq!(arguments[2], "TEST");
+        }
+    }
+    // The reference re-run replaces the recipe's output format by --output kore.
+    assert_eq!(
+        calls("equal")["reference"],
+        serde_json::json!([[
+            "1.test",
+            "--no-exc-wrap",
+            "--definition",
+            "./test-kompiled",
+            "--output",
+            "kore"
+        ]]),
+        "{probes}"
+    );
+    assert_eq!(
+        calls("output_flag")["reference"],
+        serde_json::json!([[
+            "1.test",
+            "--definition",
+            "./test-kompiled",
+            "--output",
+            "kore"
+        ]]),
+        "{probes}"
+    );
+    // Matching text never reaches C8.
+    assert_eq!(probe("text_equal")["verdict"], "match", "{probes}");
+    assert!(
+        probe("text_equal")["comparison"]
+            .as_str()
+            .unwrap()
+            .contains("modulo C7 existential renaming"),
+        "{probes}"
+    );
+    assert_eq!(
+        calls("text_equal")["reference"].as_array().unwrap().len(),
+        0
+    );
+    assert_eq!(calls("text_equal")["simplify"].as_array().unwrap().len(), 0);
+    // A failing or unavailable stage is a mismatch that keeps the C7 label and the text diff, says
+    // why C8 could not establish equality, and still confirms the oracle.
+    for (name, reason) in [
+        (
+            "differ",
+            "simplified KORE differ: unpaired disjunct: cfg{}()",
+        ),
+        (
+            "reference_fails",
+            "not compared: reference --output kore re-run exited 1",
+        ),
+        (
+            "simplify_fails",
+            "not compared: krust kore-simplify failed on the reference KORE: exit 1",
+        ),
+        ("stale_out", "does not reproduce the checked-in .out"),
+        ("expansion", "unsupported shell expansion or redirection"),
+    ] {
+        assert_eq!(probe(name)["verdict"], "mismatch", "{name}: {probes}");
+        let comparison = probe(name)["comparison"].as_str().unwrap();
+        assert!(
+            comparison.contains("modulo C7 existential renaming") && !comparison.contains("C8"),
+            "{name}: {comparison}"
+        );
+        assert!(
+            probe(name)["simplified_kore_equal"].is_null(),
+            "{name}: {probes}"
+        );
+        assert!(
+            probe(name)["divergence"]
+                .as_str()
+                .unwrap()
+                .contains("size ( ListItem"),
+            "{name}: {probes}"
+        );
+        assert!(
+            probe(name)["simplified_kore_divergence"]
+                .as_str()
+                .unwrap()
+                .contains(reason),
+            "{name}: {probes}"
+        );
+        assert_eq!(calls(name)["oracle"], 1, "{name}: {probes}");
+    }
+    assert_eq!(calls("differ")["comparator"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        calls("reference_fails")["simplify"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        calls("reference_fails")["comparator"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        calls("simplify_fails")["comparator"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        probe("stale_out")["reference_kore_reproduces_out"],
+        false,
+        "{probes}"
+    );
+    assert_eq!(calls("stale_out")["simplify"].as_array().unwrap().len(), 0);
+    assert_eq!(calls("expansion")["reference"].as_array().unwrap().len(), 0);
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),
