@@ -274,12 +274,13 @@ reason = "The accepted whole-case compile measurement matches. Earlier investiga
 
 [[case]]
 name = "concrete-function"
-accepted_verdict = "mismatch"
+accepted_verdict = "match"
 accepted_stage = "kprove"
+accepted_basis = "Pinned compilation verification/comparison, the 3.a krun text, and both kprove verdicts (a1-spec.k not-proven, a2-spec.k proven) match; the 1.a and 2.a krun texts differ (krust prints `#Ceil ( inc ( sym2 ( ?X ) ) ) #And <k> inc ( sym2 ( ?X ) ) ~> .K </k>` where the reference keeps `foo ( inc ( sym2 ( ?X ) ) )` unevaluated because the argument's definedness is open) and match under C8 (simplified_kore_equal): the reference --output kore result and the krust result are byte-identical after krust kore-simplify, which applies `foo(I) => I` under the ceil obligation and drops the obligation the constructor context entails; the reference re-run reproduces both .out files."
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
-exclusion = "presentation-only"
-reason = "The outputs are semantically equal but place the ceil obligation differently; the proof oracle is stale."
+exclusion = ""
+reason = "The accepted recipes match after comparing the 1.a and 2.a execution KORE modulo C8 simplification; see accepted_basis. The baseline recorded the presentation-only ceil placement mismatch."
 
 [[case]]
 name = "concrete-function-cache"
@@ -1799,12 +1800,13 @@ reason = ""
 
 [[case]]
 name = "no-junk-macro"
-accepted_verdict = "mismatch"
+accepted_verdict = "match"
 accepted_stage = "krun"
+accepted_basis = "Pinned compilation verification/comparison matches; the 1.test krun text differs (krust prints `<k> false ~> .K </k>` while the reference retains `#And { true #Equals size ( ListItem ( ?X:Int ) ?L:List ) >=Int -1 }`, a constraint the definition's smt-lemma `size(L) >=Int 0` makes valid) and matches under C8 (simplified_kore_equal): the reference --output kore result and the krust result are byte-identical after krust kore-simplify, which discharges the constraint through the solver; the reference re-run reproduces the .out."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "presentation-only"
-reason = "krust prints `<k> false </k>` while the reference retains `size(ListItem(?X) ?L) >=Int -1`. The requires clause follows from the definition's SMT lemma size(L) >=Int 0, so Rust discharges it as valid. Kore/Rewrite/RewriteStep.hs filterMultiOr prunes unsatisfiable conditions without discharging valid ones. The final configurations are semantically equal; docs/compatibility.md#comparison-contract permits this presentation-only exclusion."
+exclusion = ""
+reason = "The accepted krun recipe matches after comparing the execution KORE modulo C8 simplification; see accepted_basis. The baseline recorded a kompile error and the earlier acceptance a presentation-only mismatch on the retained constraint."
 [[case]]
 name = "no-pattern"
 accepted_verdict = "mismatch"
