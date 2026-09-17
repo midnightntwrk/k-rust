@@ -152,7 +152,7 @@ Both pairs are equal patterns; simplifying both with one simplifier makes them c
 A step that matches only this way records the C8 comparison label and the text difference, never plain match text; the checked-in `.out` stays the oracle, so the re-run's result must still print as the `.out`, and an unavailable or failing re-run, simplification, or comparison leaves the text mismatch in place.
 C8 is supplementary evidence in the sense of [testing.md](testing.md#comparator-evidence): it depends on the port's simplifier, like N15.
 
-A `presentation-only` conformance exclusion requires an explanation of why the represented patterns are equal; it applies where neither C8 nor N15 can compare them.
+A text difference that neither C8 nor N15 can compare stays a mismatch with a measured reason; no prose exclusion category exists for it.
 Normalization N15 may prove residual constraints equivalent by checking both implications, subject to the independence limitations in [testing.md](testing.md#comparator-evidence).
 Different text or a successful Rust implication check alone must not establish implication correctness.
 
