@@ -26,7 +26,9 @@ use crate::definition::{
     compute_disambiguation_subsorts, compute_overloads, compute_priorities, compute_subsorts,
     parse_regex, sentence_equivalent,
 };
-use crate::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
+use crate::kast::{
+    FrontendSort, InternalLabel, Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan,
+};
 use crate::names::BuiltinSort;
 use crate::provenance::SourceId;
 
@@ -1192,14 +1194,18 @@ impl Grammar {
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         let layout_declared = sentences.iter().any(|sentence| match sentence {
             Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
-                sort.name == "#Layout"
+                sort.is_frontend(FrontendSort::Layout)
             }
             _ => false,
         });
         let layout_sources = sentences
             .iter()
             .filter_map(|sentence| match sentence {
-                Sentence::Production { sort, items, .. } if sort.name == "#Layout" => Some(items),
+                Sentence::Production { sort, items, .. }
+                    if sort.is_frontend(FrontendSort::Layout) =>
+                {
+                    Some(items)
+                }
                 _ => None,
             })
             .map(|items| match items.as_slice() {
@@ -1274,7 +1280,7 @@ impl Grammar {
             else {
                 continue;
             };
-            if sort.name == "#Layout" {
+            if sort.is_frontend(FrontendSort::Layout) {
                 continue;
             }
             // RuleGrammarGenerator concretizes these before Earley parsing. The
@@ -2370,7 +2376,11 @@ pub(super) fn named_projection_productions<'a>(
             .collect::<Vec<_>>();
         if fields.is_empty()
             || fields.iter().any(|(_, name)| {
-                defined.contains(format!("project:{}:{name}", label.name).as_str())
+                defined.contains(
+                    Label::field_projection(&label.name, name.as_str())
+                        .name
+                        .as_str(),
+                )
             })
         {
             continue;
@@ -2380,7 +2390,7 @@ pub(super) fn named_projection_productions<'a>(
             generated_attributes.mark(AttributeKey::Function);
             generated_attributes.mark(AttributeKey::GeneratedRuleSyntax);
             generated.push(Sentence::Production {
-                label: Some(Label::new(format!("project:{}:{name}", label.name))),
+                label: Some(Label::field_projection(&label.name, name)),
                 parameters: Vec::new(),
                 sort: field_sort.clone(),
                 items: vec![
@@ -3025,7 +3035,7 @@ fn build_packed_term(
     provenance: ParseProvenance,
 ) -> Rc<PackedTerm> {
     if production.token {
-        if production.result.name == "#KVariable" {
+        if production.result.is_frontend(FrontendSort::KVariable) {
             return PackedTerm::leaf(
                 Term::Variable {
                     name: input[start..end].to_owned(),
@@ -3115,10 +3125,10 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
         .unwrap_or_else(|| Label::new("#anonymous"));
     // Scala's `TreeNodesToKORE` does not preserve the parser-only outer-cast label. It lowers
     // `{term}:>Sort` to the sort projection generated for the cast's result sort.
-    if label.name == "#OuterCast" {
-        label = Label::new(format!("project:{}", production.result));
+    if label.is(InternalLabel::OuterCast) {
+        label = Label::projection(&production.result);
     }
-    if label.name == "#KToken"
+    if label.is(InternalLabel::KToken)
         && let [value, sort] = children
         && let (Some(value), Some(sort)) = (kstring_token(value), kstring_token(sort))
         && let (Ok(value), Ok(sort)) = (
@@ -3129,14 +3139,14 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
     {
         return Term::Token { token: value, sort };
     }
-    match (label.name.as_str(), children) {
-        ("#EmptyK", []) => Term::Sequence(Vec::new()),
-        ("#KSequence", items) => Term::sequence(items.iter().cloned()),
-        ("#KRewrite", [left, right]) => Term::Rewrite {
+    match (InternalLabel::of(&label.name), children) {
+        (Some(InternalLabel::EmptyK), []) => Term::Sequence(Vec::new()),
+        (Some(InternalLabel::KSequence), items) => Term::sequence(items.iter().cloned()),
+        (Some(InternalLabel::KRewrite), [left, right]) => Term::Rewrite {
             left: Box::new(left.clone()),
             right: Box::new(right.clone()),
         },
-        ("#KAs", [pattern, alias]) => Term::As {
+        (Some(InternalLabel::KAs), [pattern, alias]) => Term::As {
             pattern: Box::new(pattern.clone()),
             alias: Box::new(alias.clone()),
         },
@@ -3149,7 +3159,7 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
 
 fn kstring_token(term: &Term) -> Option<&str> {
     match term.unannotated() {
-        Term::Token { token, sort } if sort.name == "KString" => Some(token),
+        Term::Token { token, sort } if sort.is_frontend(FrontendSort::KString) => Some(token),
         _ => None,
     }
 }

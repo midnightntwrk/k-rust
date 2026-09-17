@@ -6,7 +6,7 @@ use super::{ProductionItem, Sentence};
 use crate::definition::AttributeKey;
 use crate::definition::ProductionCatalog;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{Sort, Term};
+use crate::kast::{GeneratedLabel, Sort, Term};
 use crate::names::BuiltinSort;
 
 const CELL_BAG_MESSAGE: &str = "Cell bags are only supported on the Java backend. If you want this feature, comment on https://github.com/runtimeverification/k/issues/1419 . As a workaround, you can add the attribute type=\"Set\" and add a unique identifier to each element in the set.";
@@ -235,7 +235,10 @@ fn is_k_hole(term: &Term) -> bool {
     matches!(
         term.unannotated(),
         Term::Apply { label, arguments }
-            if label.name == "#SemanticCastToK"
+            if label.generated()
+                == Some(GeneratedLabel::SemanticCast {
+                    sort_text: BuiltinSort::K.k_name(),
+                })
                 && matches!(arguments.as_slice(), [argument]
                     if matches!(argument.unannotated(), Term::Variable { name, .. } if name == "HOLE"))
     )

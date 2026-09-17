@@ -1,6 +1,7 @@
 //! Canonical textual KAST printing.
 
 use super::ast::{Label, Sort, Term};
+use super::names::InternalLabel;
 use super::string;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -117,8 +118,8 @@ fn print_label(label: &Label, first_in_group: bool) -> String {
             (*first == b'#' || first.is_ascii_lowercase())
                 && rest.iter().all(u8::is_ascii_alphanumeric)
         })
-        && label.name != "#token"
-        && label.name != "#klabel";
+        && !label.is(InternalLabel::Token)
+        && !label.is(InternalLabel::KLabel);
     let mut output = if simple {
         label.name.clone()
     } else {

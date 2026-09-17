@@ -1,6 +1,6 @@
 //! Shared traversal rules for K's LHS/RHS-sensitive terms.
 
-use crate::kast::Term;
+use crate::kast::{InternalLabel, Term};
 
 #[derive(Clone, Copy)]
 pub(super) struct TermPosition {
@@ -44,7 +44,9 @@ pub(super) fn positioned_children(
         ],
         Term::As { pattern, alias } => vec![(pattern, position), (alias, position)],
         Term::Sequence(items) => items.iter().map(|item| (item, position)).collect(),
-        Term::Apply { label, arguments } if label.name == "#fun2" && arguments.len() >= 2 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Fun2) && arguments.len() >= 2 =>
+        {
             let mut children = vec![
                 (&arguments[0], TermPosition::BODY),
                 (&arguments[1], position),
@@ -53,7 +55,10 @@ pub(super) fn positioned_children(
             children
         }
         Term::Apply { label, arguments }
-            if matches!(label.name.as_str(), "#fun3" | "#let") && arguments.len() >= 3 =>
+            if [InternalLabel::Fun3, InternalLabel::Let]
+                .iter()
+                .any(|l| label.is(*l))
+                && arguments.len() >= 3 =>
         {
             let mut children = vec![
                 (&arguments[0], TermPosition::LHS),

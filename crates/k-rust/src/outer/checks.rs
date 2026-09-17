@@ -3,6 +3,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::definition::AttributeKey;
+use crate::kast::FrontendSort;
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Location,
@@ -14,7 +16,14 @@ use crate::{
 
 use super::{Attribute, Production, ProductionItem, SourceFile, Span, SyntaxBody};
 
-const BASE_SORTS: &[&str] = &["K", "KResult", "KItem", "KList", "Bag", "KLabel"];
+const BASE_SORTS: &[&str] = &[
+    BuiltinSort::K.k_name(),
+    FrontendSort::KResult.as_str(),
+    BuiltinSort::KItem.k_name(),
+    FrontendSort::KList.as_str(),
+    FrontendSort::Bag.as_str(),
+    FrontendSort::KLabel.as_str(),
+];
 const INVALID_GROUP_MESSAGE: &str = "group(_) attribute expects a comma separated list of groups, each of which consists of a lower case letter followed by any number of alphanumeric or '-' characters.";
 static GROUPS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(

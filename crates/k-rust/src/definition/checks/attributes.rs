@@ -13,6 +13,7 @@ use crate::definition::{
     match_rule_label, sentence_equivalent,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
+use crate::kast::{FrontendSort, InternalLabel};
 use crate::names::BuiltinSort;
 
 #[derive(Clone, Copy)]
@@ -295,10 +296,11 @@ fn check_hooked_sort_constructor(
         AttributeKey::Macro,
     ]) || macro_label;
     let k_exempt = sort.name == BuiltinSort::K.k_name()
-        && (label
-            .as_ref()
-            .is_some_and(|label| matches!(label.name.as_str(), "#EmptyK" | "#KSequence"))
-            || is_subsort);
+        && (label.as_ref().is_some_and(|label| {
+            [InternalLabel::EmptyK, InternalLabel::KSequence]
+                .iter()
+                .any(|internal| label.is(*internal))
+        }) || is_subsort);
     let cell_collection_exempt = sort_attributes.has(AttributeKey::CellCollection) && is_subsort;
     if !constructor_exempt && !k_exempt && !cell_collection_exempt {
         diagnostics.push(invalid_attribute(
@@ -399,7 +401,9 @@ fn check_format(
         && !matches!(
             production,
             Sentence::Production { sort, .. }
-                if matches!(sort.name.as_str(), "#Layout" | "#LineMarker")
+                if [FrontendSort::Layout, FrontendSort::LineMarker]
+                    .iter()
+                    .any(|frontend| sort.is_frontend(*frontend))
         )
     {
         for _ in items

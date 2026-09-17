@@ -110,6 +110,7 @@ fn lower_module(
             let FlatProductionItem::NonTerminal { sort, .. } = item else {
                 continue;
             };
+            // Cell sorts are recognised by the `…Cell`/`…CellFragment` naming convention of the outer lowering.
             if (sort.name.ends_with("Cell") || sort.name.ends_with("CellFragment"))
                 && !temporary_cell_sorts.contains(sort)
             {

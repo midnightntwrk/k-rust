@@ -3,6 +3,7 @@
 use std::fmt::{self, Display, Formatter};
 
 use super::ast::{Label, Sort, Term};
+use super::names::InternalLabel;
 use super::string;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -86,10 +87,10 @@ impl Parser<'_> {
         if self.consume(".K") || self.consume(".::K") {
             return Ok(Term::Sequence(Vec::new()));
         }
-        if self.consume("#token") {
+        if self.consume(InternalLabel::Token.as_str()) {
             return self.token();
         }
-        if self.consume("#klabel") {
+        if self.consume(InternalLabel::KLabel.as_str()) {
             self.expect("(")?;
             let label = self.label()?;
             self.expect(")")?;

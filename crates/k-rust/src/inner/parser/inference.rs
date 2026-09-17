@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::rc::Rc;
 
 use crate::definition::{PartialOrder, ProductionItem};
-use crate::kast::{Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
 
 use super::{
@@ -306,15 +306,15 @@ impl Grammar {
                 return None;
             };
             let production = &self.productions[*production];
-            if production.result.name == "#RuleContent" {
+            if production.result.is_frontend(FrontendSort::RuleContent) {
                 term = strip_brackets(self, children.first()?);
                 continue;
             }
-            if production.result.name == "#RuleBody"
+            if production.result.is_frontend(FrontendSort::RuleBody)
                 && production
                     .label
                     .as_ref()
-                    .is_some_and(|label| label.name == "#withConfig")
+                    .is_some_and(|label| label.is(InternalLabel::WithConfig))
             {
                 term = strip_brackets(self, children.first()?);
                 continue;
@@ -322,7 +322,7 @@ impl Grammar {
             return (production
                 .label
                 .as_ref()
-                .is_some_and(|label| label.name == "#KRewrite")
+                .is_some_and(|label| label.is(InternalLabel::KRewrite))
                 && children.len() == 2)
                 .then_some(term);
         }
@@ -349,7 +349,7 @@ impl Grammar {
                 let sort = variable_sorts.get(&id).ok_or_else(|| {
                     inference_error(format!("no inferred sort was produced for variable {name}"))
                 })?;
-                let label = format!("#SemanticCastTo{sort}");
+                let label = Label::semantic_cast(sort).name;
                 let production = self
                     .productions
                     .iter()
@@ -380,10 +380,9 @@ impl Grammar {
                 metadata,
             } => {
                 let descriptor = &self.productions[production];
-                let is_cast = descriptor
-                    .label
-                    .as_ref()
-                    .is_some_and(|label| label.name.starts_with("#SemanticCastTo"));
+                let is_cast = descriptor.label.as_ref().is_some_and(|label| {
+                    matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                });
                 let children = children
                     .into_iter()
                     .enumerate()
@@ -531,7 +530,7 @@ impl<'a> Solver<'a> {
                     && production
                         .label
                         .as_ref()
-                        .is_some_and(|label| label.name == "#KRewrite")
+                        .is_some_and(|label| label.is(InternalLabel::KRewrite))
                     && children.len() == 2)
                     .then(|| {
                         if matches!(
@@ -584,10 +583,12 @@ impl<'a> Solver<'a> {
                     self.constrain(actual.clone(), lhs_sort)?;
                 }
                 if production.label.as_ref().is_some_and(|label| {
-                    matches!(
-                        label.name.as_str(),
-                        "#SyntacticCast" | "#SyntacticCastBraced"
-                    )
+                    [
+                        InternalLabel::SyntacticCast,
+                        InternalLabel::SyntacticCastBraced,
+                    ]
+                    .iter()
+                    .any(|cast| label.is(*cast))
                 }) && let Some(child) = expected.first()
                 {
                     self.constrain(actual.clone(), child.clone())?;
@@ -721,7 +722,11 @@ impl<'a> Solver<'a> {
             self.order.maximal(bounds.iter())
         }
         .into_iter()
-        .filter(|sort| !self.order.less_than_eq(sort, &Sort::new("KBott")))
+        .filter(|sort| {
+            !self
+                .order
+                .less_than_eq(sort, &Sort::frontend(FrontendSort::KBott))
+        })
         .filter(|candidate| {
             lower
                 .iter()
@@ -821,7 +826,7 @@ fn is_real_ground_sort(sort: &Sort) -> bool {
         || !super::is_parser_sort(sort)
         || sort.name == BuiltinSort::K.k_name()
         || sort.name == BuiltinSort::KItem.k_name()
-        || sort.name == "KLabel"
+        || sort.is_frontend(FrontendSort::KLabel)
         || sort.name.parse::<u64>().is_ok()
 }
 

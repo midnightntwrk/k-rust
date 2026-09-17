@@ -14,13 +14,9 @@ use super::{
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::string::unquote;
-use crate::kast::{Label, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedCell, GeneratedLabel, InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
 use crate::provenance::{GeneratingPass, record_generated_origins};
-
-const CELL_NAME_SORT: &str = "#CellName";
-const GENERATED_TOP_CELL_NAME: &str = "generatedTop";
-const GENERATED_COUNTER_CELL_NAME: &str = "generatedCounter";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConfigurationError {
@@ -191,19 +187,19 @@ impl Generator<'_, '_> {
         ensures: Option<&Term>,
     ) -> Result<GeneratedNode, ConfigurationError> {
         match term.unannotated() {
-            Term::Apply { label, arguments } if label.name == "#configCell" => {
+            Term::Apply { label, arguments } if label.is(InternalLabel::ConfigCell) => {
                 self.generate_cell(arguments, ensures, self.allow_reserved_cell_names)
             }
-            Term::Apply { label, arguments } if label.name == "#externalCell" => {
+            Term::Apply { label, arguments } if label.is(InternalLabel::ExternalCell) => {
                 self.generate_external(arguments)
             }
-            Term::Apply { label, arguments } if label.name == "#cells" => {
+            Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {
                 if ensures.is_some() {
-                    let name = cell_name_token(GENERATED_TOP_CELL_NAME);
+                    let name = cell_name_token(GeneratedCell::Top.name());
                     return self.generate_cell(
                         &[
                             name.clone(),
-                            Term::apply("#cellPropertyListTerminator", vec![]),
+                            Term::apply(InternalLabel::CellPropertyListTerminator.as_str(), vec![]),
                             term.clone(),
                             name,
                         ],
@@ -224,7 +220,7 @@ impl Generator<'_, '_> {
                 }
                 Ok(GeneratedNode {
                     child_sorts,
-                    initializer: Term::apply("#cells", initializers),
+                    initializer: Term::apply(InternalLabel::Cells.as_str(), initializers),
                     leaf: false,
                     initializer_takes_map,
                 })
@@ -244,7 +240,8 @@ impl Generator<'_, '_> {
                 })
             }
             Term::Apply { label, arguments } => {
-                let sort = semantic_cast_sort(label)
+                let sort = label
+                    .semantic_cast_sort()
                     .or_else(|| {
                         self.catalog
                             .result_sort_for(&LabelHead::new(&label.name))
@@ -258,10 +255,11 @@ impl Generator<'_, '_> {
                         // its selected production's result sort. Its projection production is
                         // generated later, so there is no source-catalog entry (or stable
                         // numeric production ID) to consult during configuration expansion.
-                        label
-                            .name
-                            .strip_prefix("project:")
-                            .and_then(|sort| crate::kast::parser::parse_sort_text(sort).ok())
+                        match label.generated() {
+                            Some(GeneratedLabel::Projection { sort_text }) => Some(sort_text),
+                            _ => None,
+                        }
+                        .and_then(|sort| crate::kast::parser::parse_sort_text(sort).ok())
                     });
                 let Some(sort) = sort else {
                     return Err(self.error(format!(
@@ -362,7 +360,7 @@ impl Generator<'_, '_> {
             return Err(self.error(format!("cell <{start}> is closed by mismatched </{end}>")));
         }
         if !allow_reserved_name
-            && matches!(start, GENERATED_TOP_CELL_NAME | GENERATED_COUNTER_CELL_NAME)
+            && (start == GeneratedCell::Top.name() || start == GeneratedCell::Counter.name())
         {
             return Err(self.error(format!("Cell name <{start}> is reserved by K.")));
         }
@@ -796,7 +794,7 @@ impl Generator<'_, '_> {
                 left: Box::new(Term::apply(
                     "getExitCode",
                     vec![incomplete_cell_with_dots(
-                        "<generatedTop>",
+                        GeneratedCell::Top.label(),
                         incomplete_cell(label, exit.clone()),
                         true,
                         true,
@@ -868,12 +866,12 @@ impl Generator<'_, '_> {
 fn parse_property_list(term: &Term, output: &mut Attributes) -> Result<(), String> {
     match term.unannotated() {
         Term::Apply { label, arguments }
-            if label.name == "#cellPropertyListTerminator" && arguments.is_empty() =>
+            if label.is(InternalLabel::CellPropertyListTerminator) && arguments.is_empty() =>
         {
             Ok(())
         }
         Term::Apply { label, arguments }
-            if label.name == "#cellPropertyList" && arguments.len() == 2 =>
+            if label.is(InternalLabel::CellPropertyList) && arguments.len() == 2 =>
         {
             let (key, value) = parse_property(&arguments[0])?;
             output.insert(key, json!(value));
@@ -890,7 +888,7 @@ fn parse_property(term: &Term) -> Result<(String, String), String> {
     let [key, value] = arguments.as_slice() else {
         return Err("malformed cell property".into());
     };
-    if label.name != "#cellProperty" {
+    if !label.is(InternalLabel::CellProperty) {
         return Err("malformed cell property".into());
     }
     let key = expect_cell_name(key).ok_or("malformed cell property key")?;
@@ -900,7 +898,7 @@ fn parse_property(term: &Term) -> Result<(String, String), String> {
     let Term::Token { token, sort } = value.unannotated() else {
         return Err("malformed cell property value".into());
     };
-    if sort.name != "KString" {
+    if !sort.is_frontend(FrontendSort::KString) {
         return Err("malformed cell property value".into());
     }
     let value = unquote(token)?;
@@ -915,7 +913,7 @@ fn parse_property(term: &Term) -> Result<(String, String), String> {
 
 fn expect_cell_name(term: &Term) -> Option<&str> {
     match term.unannotated() {
-        Term::Token { token, sort } if sort.name == CELL_NAME_SORT => Some(token),
+        Term::Token { token, sort } if sort.is_frontend(FrontendSort::CellName) => Some(token),
         _ => None,
     }
 }
@@ -923,7 +921,7 @@ fn expect_cell_name(term: &Term) -> Option<&str> {
 fn flatten_cells<'a>(terms: &'a [Term], output: &mut Vec<&'a Term>) {
     for term in terms {
         match term.unannotated() {
-            Term::Apply { label, arguments } if label.name == "#cells" => {
+            Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {
                 flatten_cells(arguments, output);
             }
             _ => output.push(term),
@@ -941,7 +939,7 @@ fn contains_external_map_initializer(
         let Term::Apply { label, arguments } = term else {
             return;
         };
-        if label.name != "#externalCell" {
+        if !label.is(InternalLabel::ExternalCell) {
             return;
         }
         let Some(name) = arguments.first().and_then(expect_cell_name) else {
@@ -986,9 +984,9 @@ fn leaf_initializer(term: &Term) -> Term {
                     .filter(|sort| sort.name != BuiltinSort::K.k_name())
                     .cloned()
                     .unwrap_or_else(|| Sort::builtin(BuiltinSort::KItem));
-                Term::apply(
-                    format!("project:{project}"),
-                    vec![Term::apply(
+                Term::Apply {
+                    label: Label::projection(&project),
+                    arguments: vec![Term::apply(
                         "Map:lookup",
                         vec![
                             init_variable(),
@@ -998,10 +996,10 @@ fn leaf_initializer(term: &Term) -> Term {
                             },
                         ],
                     )],
-                )
+                }
             }
             Term::Apply { label, arguments } => {
-                let next_sort = semantic_cast_sort(label);
+                let next_sort = label.semantic_cast_sort();
                 Term::Apply {
                     label: label.clone(),
                     arguments: arguments
@@ -1040,21 +1038,13 @@ fn leaf_initializer(term: &Term) -> Term {
     transform(term, None)
 }
 
-fn semantic_cast_sort(label: &Label) -> Option<Sort> {
-    label
-        .name
-        .strip_prefix("#SemanticCastTo")
-        .filter(|name| !name.is_empty())
-        .map(Sort::new)
-}
-
 fn optional_initializer(label: &str, has_variables: bool, properties: &Attributes) -> Term {
     if has_variables {
         Term::apply(label, vec![init_variable()])
     } else if properties.has(AttributeKey::Initial) {
         Term::apply(label, vec![])
     } else {
-        Term::apply("#cells", vec![])
+        Term::apply(InternalLabel::Cells.as_str(), vec![])
     }
 }
 
@@ -1120,9 +1110,25 @@ fn incomplete_cell_with_dots(label: &str, child: Term, open_left: bool, open_rig
     Term::apply(
         label,
         vec![
-            Term::apply(if open_left { "#dots" } else { "#noDots" }, vec![]),
+            Term::apply(
+                if open_left {
+                    InternalLabel::Dots
+                } else {
+                    InternalLabel::NoDots
+                }
+                .as_str(),
+                vec![],
+            ),
             child,
-            Term::apply(if open_right { "#dots" } else { "#noDots" }, vec![]),
+            Term::apply(
+                if open_right {
+                    InternalLabel::Dots
+                } else {
+                    InternalLabel::NoDots
+                }
+                .as_str(),
+                vec![],
+            ),
         ],
     )
 }
@@ -1165,7 +1171,7 @@ pub fn cell_sort_name(cell_name: &str) -> String {
 fn cell_name_token(name: &str) -> Term {
     Term::Token {
         token: name.into(),
-        sort: Sort::new(CELL_NAME_SORT),
+        sort: Sort::frontend(FrontendSort::CellName),
     }
 }
 
@@ -1197,4 +1203,81 @@ fn sort_value(sort: &Sort) -> Value {
         "name": sort.name,
         "params": sort.parameters.iter().map(sort_value).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use indoc::indoc;
+
+    use super::*;
+    use crate::definition::ProductionItem;
+
+    fn parsed(source: &str) -> Definition {
+        let parsed = crate::outer::parse("configuration.k", source).unwrap();
+        let lowered = crate::outer::lower(&parsed, "MAIN").unwrap();
+        crate::inner::resolve_configuration_bubbles(&lowered).unwrap()
+    }
+
+    fn cell_content_sort(definition: &Definition, cell: &str) -> Sort {
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label),
+                    items,
+                    ..
+                } if label.name == cell => items.iter().find_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .expect("generated cell production")
+    }
+
+    /// Rebuilds `term` with every `#SemanticCastTo{from}` label replaced by a cast to `to`.
+    fn recast(term: &Term, from: &Sort, to: &Sort) -> Term {
+        match term.unannotated() {
+            Term::Apply { label, arguments } => Term::Apply {
+                label: if label.semantic_cast_sort().as_ref() == Some(from) {
+                    Label::semantic_cast(to)
+                } else {
+                    label.clone()
+                },
+                arguments: arguments
+                    .iter()
+                    .map(|argument| recast(argument, from, to))
+                    .collect(),
+            },
+            other => other.clone(),
+        }
+    }
+
+    #[test]
+    fn configuration_cast_to_a_parametric_sort_resolves_to_the_parametric_sort() {
+        // The configuration grammar offers casts to nullary sorts only, so the cast is
+        // retargeted after parsing: the reader, not the grammar, is under test.
+        let mut definition = parsed(indoc! {r#"
+            module MAIN
+              syntax Val
+              configuration <k> .K </k> <cell> $PGM:Val </cell>
+            endmodule
+        "#});
+        let parametric = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+        let module = definition
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "MAIN")
+            .unwrap();
+        for sentence in &mut module.local_sentences {
+            if let Sentence::Configuration { body, .. } = sentence {
+                *body = recast(body, &Sort::new("Val"), &parametric);
+            }
+        }
+        let expanded = expand_configurations(&definition).unwrap();
+        assert_eq!(cell_content_sort(&expanded, "<cell>"), parametric);
+    }
 }

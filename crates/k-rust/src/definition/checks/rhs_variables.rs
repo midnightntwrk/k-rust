@@ -6,7 +6,7 @@ use super::Sentence;
 use super::term_position::{TermPosition, positioned_children};
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{Label, Term};
+use crate::kast::{GeneratedLabel, InternalLabel, Term};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StructuralCheckBackend {
@@ -209,7 +209,9 @@ fn check_pattern_value(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if let Term::Apply { label, .. } = term.unannotated()
-        && matches!(label.name.as_str(), "#fun2" | "#fun3" | "#let")
+        && [InternalLabel::Fun2, InternalLabel::Fun3, InternalLabel::Let]
+            .iter()
+            .any(|internal| label.is(*internal))
         && position.lhs
     {
         diagnostics.push(Diagnostic::error(
@@ -248,7 +250,7 @@ fn gather_variables(
     }
 
     if let Term::Apply { label, arguments } = term.unannotated()
-        && is_semantic_cast(label)
+        && matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
         && let Some(argument) = arguments.first()
     {
         gather_variables(
@@ -264,7 +266,9 @@ fn gather_variables(
     }
 
     if let Term::Apply { label, arguments } = term.unannotated()
-        && matches!(label.name.as_str(), "#Exists" | "#Forall")
+        && [InternalLabel::Exists, InternalLabel::Forall]
+            .iter()
+            .any(|internal| label.is(*internal))
         && arguments.len() >= 2
     {
         gather_variables(
@@ -361,7 +365,11 @@ fn compute_unbound(
     }
 
     if let Term::Apply { label, arguments } = term.unannotated() {
-        if matches!(label.name.as_str(), "_:=K_" | "_:/=K_") && arguments.len() >= 2 {
+        if [InternalLabel::KEqualsK, InternalLabel::KNotEqualsK]
+            .iter()
+            .any(|internal| label.is(*internal))
+            && arguments.len() >= 2
+        {
             compute_unbound(&arguments[0], position, true, bound, unbound);
             compute_unbound(&arguments[1], position, in_k_lhs, bound, unbound);
             for argument in &arguments[2..] {
@@ -369,7 +377,7 @@ fn compute_unbound(
             }
             return;
         }
-        if is_semantic_cast(label)
+        if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
             && let Some(argument) = arguments.first()
         {
             compute_unbound(argument, position, in_k_lhs, bound, unbound);
@@ -380,13 +388,6 @@ fn compute_unbound(
     for (child, child_position) in positioned_children(term, position) {
         compute_unbound(child, child_position, in_k_lhs, bound, unbound);
     }
-}
-
-fn is_semantic_cast(label: &Label) -> bool {
-    label
-        .name
-        .strip_prefix("#SemanticCastTo")
-        .is_some_and(|name| !name.is_empty())
 }
 
 fn unbound_variable_names(sentence: &Sentence) -> BTreeSet<String> {

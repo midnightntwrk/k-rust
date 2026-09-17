@@ -24,7 +24,8 @@ use k_rust::{
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, definition_with_named_projections, parse_program_for_presentation},
     kast::{
-        Sort as KastSort, json as kast_json, parser::parse_sort, printer::Printer as KastPrinter,
+        Sort as KastSort, WellKnownModule, json as kast_json, parser::parse_sort,
+        printer::Printer as KastPrinter,
     },
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
@@ -1847,10 +1848,10 @@ fn parsed_definition_for_json(
     let mut seeds = BTreeSet::from([
         main.name.clone(),
         syntax_module.to_owned(),
-        "K-REFLECTION".into(),
-        "STDIN-STREAM".into(),
-        "STDOUT-STREAM".into(),
-        "MAP".into(),
+        WellKnownModule::KReflection.as_str().into(),
+        WellKnownModule::StdinStream.as_str().into(),
+        WellKnownModule::StdoutStream.as_str().into(),
+        WellKnownModule::Map.as_str().into(),
     ]);
     let source_modules = loaded
         .files

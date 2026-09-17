@@ -7,6 +7,7 @@ use super::{ProductionItem, Sentence};
 use crate::definition::AttributeKey;
 use crate::definition::{ModuleId, ResolvedDefinition};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
+use crate::kast::{Label, Sort, WellKnownModule};
 use crate::names::BuiltinSort;
 
 pub fn check_claims_in_definition(
@@ -107,7 +108,7 @@ pub fn check_is_sort_predicates(
                 .sort_catalog(*module)
                 .defined_heads()
                 .iter()
-                .map(|sort| format!("is{}", sort.as_str()))
+                .map(|sort| Label::sort_predicate(&Sort::new(sort.as_str())).name)
                 .collect::<Vec<_>>()
         })
         .collect::<BTreeSet<_>>();
@@ -140,8 +141,12 @@ pub fn check_is_sort_predicates(
 }
 
 /// Modules `DefinitionParsing.parseDefinitionAndResolveBubbles` always retains, bubbles or not.
-const FRONTEND_UTILITY_MODULES: [&str; 4] =
-    ["K-REFLECTION", "STDIN-STREAM", "STDOUT-STREAM", "MAP"];
+const FRONTEND_UTILITY_MODULES: [&str; 4] = [
+    WellKnownModule::KReflection.as_str(),
+    WellKnownModule::StdinStream.as_str(),
+    WellKnownModule::StdoutStream.as_str(),
+    WellKnownModule::Map.as_str(),
+];
 
 /// The module set of the parsed definition the reference checks: the import closures of the
 /// main module (and of the definition module in proof mode, as `ProofDefinitionBuilder.build`

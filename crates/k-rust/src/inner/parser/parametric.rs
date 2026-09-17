@@ -6,7 +6,7 @@ use crate::definition::regex::Regex as KRegex;
 use crate::definition::{
     AttributeKey, Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
 };
-use crate::kast::{Label, Sort};
+use crate::kast::{FrontendSort, Label, Sort};
 use crate::names::BuiltinSort;
 
 use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_production};
@@ -341,10 +341,18 @@ fn is_syntactic_subsort(label: &Option<Label>, items: &[ProductionItem]) -> bool
 }
 
 pub(crate) fn is_parser_sort(sort: &Sort) -> bool {
-    matches!(
-        sort.name.as_str(),
-        "KBott" | "K" | "KLabel" | "KList" | "KItem" | "KConfigVar" | "KString"
-    ) || sort.name.starts_with('#')
+    [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
+        .iter()
+        .any(|builtin| sort.name == builtin.k_name())
+        || [
+            FrontendSort::KBott,
+            FrontendSort::KLabel,
+            FrontendSort::KList,
+            FrontendSort::KString,
+        ]
+        .iter()
+        .any(|frontend| sort.name == frontend.as_str())
+        || sort.name.starts_with('#')
         || sort.name.parse::<u64>().is_ok()
 }
 

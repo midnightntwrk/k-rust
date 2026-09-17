@@ -9,7 +9,7 @@ use super::{
     AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
     cmp_packed_structurally, lower_term, packed_terms_in_structural_order,
 };
-use crate::kast::{Sort, Term, TermSpan, string};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term, TermSpan, string};
 
 use super::canonical_packed_error;
 
@@ -28,6 +28,37 @@ type PackedTransformResult = Result<Rc<PackedTerm>, ParseError>;
 type PackedTransformMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedTransformResult)>;
 type PackedPriorityChildMemo =
     HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
+
+/// The parent labels a nested `#KRewrite` may appear under.
+const SCOPE_REWRITE: [InternalLabel; 6] = [
+    InternalLabel::RuleRequires,
+    InternalLabel::RuleEnsures,
+    InternalLabel::RuleRequiresEnsures,
+    InternalLabel::KRewrite,
+    InternalLabel::WithConfig,
+    InternalLabel::KList,
+];
+
+/// The parent labels a nested `#KSequence` may appear under.
+const SCOPE_SEQUENCE: [InternalLabel; 6] = [
+    InternalLabel::RuleRequires,
+    InternalLabel::RuleEnsures,
+    InternalLabel::RuleRequiresEnsures,
+    InternalLabel::KRewrite,
+    InternalLabel::KSequence,
+    InternalLabel::KList,
+];
+
+/// The parent labels a nested `#let` may appear under.
+const SCOPE_LET: [InternalLabel; 7] = [
+    InternalLabel::RuleRequires,
+    InternalLabel::RuleEnsures,
+    InternalLabel::RuleRequiresEnsures,
+    InternalLabel::KRewrite,
+    InternalLabel::KSequence,
+    InternalLabel::Let,
+    InternalLabel::KList,
+];
 
 impl Grammar {
     /// Apply Java's pre-inference ambiguity factoring after record and application syntax has
@@ -277,7 +308,13 @@ impl Grammar {
             // ambiguity whose sibling has that operation at the root. Retain only those failures
             // until the packed root preference can select the sibling.
             Err(ParseError::Scope { child, .. })
-                if matches!(child.as_str(), "#KRewrite" | "#KSequence" | "#let") =>
+                if [
+                    InternalLabel::KRewrite,
+                    InternalLabel::KSequence,
+                    InternalLabel::Let,
+                ]
+                .iter()
+                .any(|label| child == label.as_str()) =>
             {
                 Ok(term)
             }
@@ -312,7 +349,13 @@ impl Grammar {
                 PackedNode::Term(_) => Ok(Rc::clone(&term)),
                 PackedNode::Ambiguity(original_alternatives) => {
                     let mut alternatives = original_alternatives.clone();
-                    for preferred in ["#KRewrite", "#KSequence", "#let"] {
+                    for preferred in [
+                        InternalLabel::KRewrite,
+                        InternalLabel::KSequence,
+                        InternalLabel::Let,
+                    ]
+                    .map(InternalLabel::as_str)
+                    {
                         let matching = alternatives
                             .iter()
                             .filter(|alternative| {
@@ -704,60 +747,38 @@ impl Grammar {
         else {
             return None;
         };
-        let allowed_parent = |exceptions: &[&str]| {
+        let allowed_parent = |exceptions: &[InternalLabel]| {
             // A bracket has a parse label for priority checks but no semantic klabel.
             // The reference restricts rewrite/sequence/let scope only under klabels.
             parent.syntactic_subsort
                 || parent.label.is_none()
-                || exceptions.contains(&parent_label.as_str())
+                || exceptions
+                    .iter()
+                    .any(|label| parent_label == label.as_str())
         };
-        if child_label == "#KRewrite"
-            && !allowed_parent(&[
-                "#ruleRequires",
-                "#ruleEnsures",
-                "#ruleRequiresEnsures",
-                "#KRewrite",
-                "#withConfig",
-                "#KList",
-            ])
-        {
+        if child_label == InternalLabel::KRewrite.as_str() && !allowed_parent(&SCOPE_REWRITE) {
             return Some(ParseError::Scope {
                 parent: parent_label.clone(),
                 child: child_label.clone(),
             });
         }
-        if child_label == "#KSequence"
-            && !allowed_parent(&[
-                "#ruleRequires",
-                "#ruleEnsures",
-                "#ruleRequiresEnsures",
-                "#KRewrite",
-                "#KSequence",
-                "#KList",
-            ])
-        {
+        if child_label == InternalLabel::KSequence.as_str() && !allowed_parent(&SCOPE_SEQUENCE) {
             return Some(ParseError::Scope {
                 parent: parent_label.clone(),
                 child: child_label.clone(),
             });
         }
-        if child_label == "#let"
-            && !allowed_parent(&[
-                "#ruleRequires",
-                "#ruleEnsures",
-                "#ruleRequiresEnsures",
-                "#KRewrite",
-                "#KSequence",
-                "#let",
-                "#KList",
-            ])
-        {
+        if child_label == InternalLabel::Let.as_str() && !allowed_parent(&SCOPE_LET) {
             return Some(ParseError::Scope {
                 parent: parent_label.clone(),
                 child: child_label.clone(),
             });
         }
-        if (parent_label == "#SyntacticCast" || parent_label.starts_with("#SemanticCastTo"))
+        if (parent_label == InternalLabel::SyntacticCast.as_str()
+            || matches!(
+                GeneratedLabel::of_name(parent_label),
+                Some(GeneratedLabel::SemanticCast { .. })
+            ))
             && matches!(child.items.last(), Some(Item::NonTerminal(_)))
         {
             return Some(ParseError::CastPriority {
@@ -918,10 +939,12 @@ impl Grammar {
             } => {
                 let descriptor = &self.productions[production];
                 let syntactic_cast = descriptor.label.as_ref().is_some_and(|label| {
-                    matches!(
-                        label.name.as_str(),
-                        "#SyntacticCast" | "#SyntacticCastBraced"
-                    )
+                    [
+                        InternalLabel::SyntacticCast,
+                        InternalLabel::SyntacticCastBraced,
+                    ]
+                    .iter()
+                    .any(|cast| label.is(*cast))
                 });
                 if (descriptor.bracket || syntactic_cast) && children.len() == 1 {
                     return self.remove_brackets_and_syntactic_casts(children.remove(0));
@@ -943,10 +966,12 @@ impl Grammar {
             } => {
                 let descriptor = &self.productions[production];
                 let syntactic_cast = descriptor.label.as_ref().is_some_and(|label| {
-                    matches!(
-                        label.name.as_str(),
-                        "#SyntacticCast" | "#SyntacticCastBraced"
-                    )
+                    [
+                        InternalLabel::SyntacticCast,
+                        InternalLabel::SyntacticCastBraced,
+                    ]
+                    .iter()
+                    .any(|cast| label.is(*cast))
                 });
                 if (descriptor.bracket || syntactic_cast) && children.len() == 1 {
                     return self.remove_brackets_and_syntactic_casts(children.remove(0));
@@ -1021,7 +1046,7 @@ impl Grammar {
                     if self.productions[*production]
                         .label
                         .as_ref()
-                        .is_some_and(|label| label.name == "#KApply")
+                        .is_some_and(|label| label.is(InternalLabel::KApply))
                     {
                         measure::bump(Counter::ParserPackedApplicationResolutions);
                     }
@@ -1033,7 +1058,7 @@ impl Grammar {
                         .label
                         .as_ref()
                         .map(|label| label.name.as_str())
-                        != Some("#KApply")
+                        != Some(InternalLabel::KApply.as_str())
                     {
                         Ok(PackedTerm::production(
                             *production,
@@ -1124,7 +1149,7 @@ impl Grammar {
                 .map(|label| label.name.as_str())
             {
                 Some("#EmptyKList") => vec![Vec::new()],
-                Some("#KList") if children.len() == 2 => {
+                Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
                     let left = self.flatten_packed_klist(&children[0])?;
                     let right = self.flatten_packed_klist(&children[1])?;
                     left.into_iter()
@@ -1181,7 +1206,7 @@ impl Grammar {
                     .label
                     .as_ref()
                     .map(|label| label.name.as_str())
-                    != Some("#KApply")
+                    != Some(InternalLabel::KApply.as_str())
                 {
                     return Ok(ParsedTerm::Production {
                         production,
@@ -1261,7 +1286,7 @@ impl Grammar {
                 .map(|label| label.name.as_str())
             {
                 Some("#EmptyKList") => vec![Vec::new()],
-                Some("#KList") if children.len() == 2 => {
+                Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
                     let left = self.flatten_klist(&children[0])?;
                     let right = self.flatten_klist(&children[1])?;
                     left.into_iter()
@@ -1805,7 +1830,11 @@ impl Grammar {
         else {
             return term;
         };
-        if self.productions[*production].result.name != "#RuleContent" || children.is_empty() {
+        if !self.productions[*production]
+            .result
+            .is_frontend(FrontendSort::RuleContent)
+            || children.is_empty()
+        {
             return term;
         }
         let bodies = self.expand_packed_rule_body_lhs(Rc::clone(&children[0]), expansion_memo);
@@ -1855,7 +1884,7 @@ impl Grammar {
                     .label
                     .as_ref()
                     .map(|label| label.name.as_str());
-                if label == Some("#withConfig") && !children.is_empty() {
+                if label == Some(InternalLabel::WithConfig.as_str()) && !children.is_empty() {
                     self.expand_packed_rule_body_lhs(Rc::clone(&children[0]), memo)
                         .into_iter()
                         .map(|child| {
@@ -1868,7 +1897,7 @@ impl Grammar {
                             )
                         })
                         .collect()
-                } else if label == Some("#KRewrite")
+                } else if label == Some(InternalLabel::KRewrite.as_str())
                     && children.len() == 2
                     && matches!(&children[0].node, PackedNode::Ambiguity(_))
                 {
@@ -2108,7 +2137,7 @@ fn packed_klabel_name(term: &PackedTerm) -> Option<String> {
     let Term::Token { token, sort } = term.unannotated() else {
         return None;
     };
-    if sort.name != "KLabel" {
+    if !sort.is_frontend(FrontendSort::KLabel) {
         return None;
     }
     if token.starts_with('`') {

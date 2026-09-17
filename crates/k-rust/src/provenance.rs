@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     definition::{AttributeKey, Definition, Sentence},
-    kast::{Term, TermMetadata, TermSpan},
+    kast::{InternalLabel, Term, TermMetadata, TermSpan},
 };
 
 pub const ORIGIN_ATTRIBUTE: &str = AttributeKey::Origin.as_str();
@@ -1076,7 +1076,10 @@ pub fn declared_origin_free(term: &Term) -> bool {
     match term.unannotated() {
         Term::Token { .. } => true,
         Term::Apply { label, arguments }
-            if arguments.is_empty() && matches!(label.name.as_str(), "#dots" | "#noDots") =>
+            if arguments.is_empty()
+                && [InternalLabel::Dots, InternalLabel::NoDots]
+                    .iter()
+                    .any(|internal| label.is(*internal)) =>
         {
             true
         }

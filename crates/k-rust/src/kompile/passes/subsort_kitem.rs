@@ -5,7 +5,7 @@ use std::fmt;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
-    kast::Sort,
+    kast::{FrontendSort, Sort},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -61,9 +61,17 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
 }
 
 fn is_parser_sort(sort: &Sort) -> bool {
-    matches!(
-        sort.name.as_str(),
-        "KBott" | "K" | "KLabel" | "KList" | "KItem" | "KConfigVar" | "KString"
-    ) || sort.name.starts_with('#')
+    [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
+        .iter()
+        .any(|builtin| sort.name == builtin.k_name())
+        || [
+            FrontendSort::KBott,
+            FrontendSort::KLabel,
+            FrontendSort::KList,
+            FrontendSort::KString,
+        ]
+        .iter()
+        .any(|frontend| sort.name == frontend.as_str())
+        || sort.name.starts_with('#')
         || sort.name.parse::<u64>().is_ok()
 }

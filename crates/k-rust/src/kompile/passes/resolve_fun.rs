@@ -7,7 +7,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term},
+    kast::{GeneratedLabel, InternalLabel, Label, Sort, Term},
     kompile::{SortInjectionError, SortInjector, fresh_names::FreshNames},
     provenance::{GeneratingPass, record_generated_origins},
 };
@@ -173,15 +173,15 @@ impl Resolver<'_, '_> {
         arguments: Vec<Term>,
         attributes: Attributes,
     ) -> Term {
-        let (body, argument) = match (source_label.name.as_str(), arguments.as_slice()) {
-            ("#fun3", [left, right, argument]) => (
+        let (body, argument) = match (InternalLabel::of(&source_label.name), arguments.as_slice()) {
+            (Some(InternalLabel::Fun3), [left, right, argument]) => (
                 Term::Rewrite {
                     left: Box::new(left.clone()),
                     right: Box::new(right.clone()),
                 },
                 argument.clone(),
             ),
-            ("#let", [left, argument, right]) => (
+            (Some(InternalLabel::Let), [left, argument, right]) => (
                 Term::Rewrite {
                     left: Box::new(left.clone()),
                     right: Box::new(right.clone()),
@@ -196,7 +196,10 @@ impl Resolver<'_, '_> {
                         "{} has invalid arity {}; expected {}",
                         source_label.name,
                         arguments.len(),
-                        if matches!(source_label.name.as_str(), "#fun3" | "#let") {
+                        if [InternalLabel::Fun3, InternalLabel::Let]
+                            .iter()
+                            .any(|internal| source_label.is(*internal))
+                        {
                             3
                         } else {
                             2
@@ -237,10 +240,14 @@ impl Resolver<'_, '_> {
             _ => Sort::builtin(BuiltinSort::K),
         };
         let closure = closure_variables(&body);
-        let predicate = matches!(source_label.name.as_str(), "_:=K_" | "_:/=K_");
+        let predicate = [InternalLabel::KEqualsK, InternalLabel::KNotEqualsK]
+            .iter()
+            .any(|internal| source_label.is(*internal));
 
-        let total =
-            matches!(source_label.name.as_str(), "#fun2" | "#fun3" | "#let") && variable_pattern;
+        let total = [InternalLabel::Fun2, InternalLabel::Fun3, InternalLabel::Let]
+            .iter()
+            .any(|internal| source_label.is(*internal))
+            && variable_pattern;
         let result_sort = if predicate {
             Sort::builtin(BuiltinSort::Bool)
         } else {
@@ -264,10 +271,10 @@ impl Resolver<'_, '_> {
                 LambdaResult::Constant(bool_token(true)),
             );
             self.rules.push(positive);
-            let owise_pattern = Term::apply(
-                format!("#SemanticCastTo{parameter_sort}"),
-                vec![Term::variable("#Owise")],
-            );
+            let owise_pattern = Term::Apply {
+                label: Label::semantic_cast(&parameter_sort),
+                arguments: vec![Term::variable("#Owise")],
+            };
             let mut owise = attributes.clone();
             owise.mark(AttributeKey::Owise);
             let negative = self.lambda_rule(
@@ -295,7 +302,7 @@ impl Resolver<'_, '_> {
             label: lambda,
             arguments: call_arguments,
         };
-        if source_label.name == "_:/=K_" {
+        if source_label.is(InternalLabel::KNotEqualsK) {
             Term::apply("notBool_", vec![call])
         } else {
             call
@@ -356,7 +363,7 @@ impl Resolver<'_, '_> {
             } else {
                 (attempt + 1).to_string()
             };
-            let name = format!("#lambda{hint1}_{hint2}_{suffix}");
+            let name = Label::lambda(hint1, hint2, &suffix).name;
             if self.labels.insert(name.clone()) {
                 return Label::new(name);
             }
@@ -374,10 +381,15 @@ fn special_application(term: &Term) -> Option<(Label, Vec<Term>)> {
     let Term::Apply { label, arguments } = term.unannotated() else {
         return None;
     };
-    matches!(
-        label.name.as_str(),
-        "#fun2" | "#fun3" | "#let" | "_:=K_" | "_:/=K_"
-    )
+    [
+        InternalLabel::Fun2,
+        InternalLabel::Fun3,
+        InternalLabel::Let,
+        InternalLabel::KEqualsK,
+        InternalLabel::KNotEqualsK,
+    ]
+    .iter()
+    .any(|internal| label.is(*internal))
     .then(|| (label.clone(), arguments.clone()))
 }
 
@@ -425,7 +437,8 @@ fn collect_lhs_variables(term: &Term, in_lhs: bool, bound: &mut BTreeSet<String>
         }
         Term::Variable { .. } => {}
         Term::Apply { label, arguments }
-            if label.name.starts_with("#SemanticCastTo") && arguments.len() == 1 =>
+            if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                && arguments.len() == 1 =>
         {
             collect_lhs_variables(&arguments[0], in_lhs, bound);
         }
@@ -433,17 +446,23 @@ fn collect_lhs_variables(term: &Term, in_lhs: bool, bound: &mut BTreeSet<String>
             collect_lhs_variables(left, true, bound);
             collect_lhs_variables(right, false, bound);
         }
-        Term::Apply { label, arguments } if label.name == "#fun3" && arguments.len() >= 3 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Fun3) && arguments.len() >= 3 =>
+        {
             collect_lhs_variables(&arguments[0], true, bound);
             collect_lhs_variables(&arguments[1], false, bound);
             collect_lhs_variables(&arguments[2], in_lhs, bound);
         }
-        Term::Apply { label, arguments } if label.name == "#let" && arguments.len() >= 3 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Let) && arguments.len() >= 3 =>
+        {
             collect_lhs_variables(&arguments[0], true, bound);
             collect_lhs_variables(&arguments[1], in_lhs, bound);
             collect_lhs_variables(&arguments[2], false, bound);
         }
-        Term::Apply { label, arguments } if label.name == "#fun2" && arguments.len() >= 2 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Fun2) && arguments.len() >= 2 =>
+        {
             collect_lhs_variables(&arguments[0], false, bound);
             collect_lhs_variables(&arguments[1], in_lhs, bound);
         }
@@ -526,31 +545,42 @@ fn collect_rhs_variables(
         }),
         Term::Variable { .. } => {}
         Term::Apply { label, arguments }
-            if label.name.starts_with("#SemanticCastTo") && arguments.len() == 1 =>
+            if let Some(GeneratedLabel::SemanticCast { sort_text }) = label.generated()
+                && arguments.len() == 1 =>
         {
-            let sort = Sort::new(label.name.trim_start_matches("#SemanticCastTo"));
+            // The cast's sort text is kept as a sort name, as before this vocabulary existed.
+            let sort = Sort::new(sort_text);
             collect_rhs_variables(&arguments[0], Some(&sort), position, visitor);
         }
         Term::Rewrite { left, right } => {
             collect_rhs_variables(left, context, position.left(), visitor);
             collect_rhs_variables(right, context, position.right(), visitor);
         }
-        Term::Apply { label, arguments } if label.name == "#fun3" && arguments.len() >= 3 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Fun3) && arguments.len() >= 3 =>
+        {
             collect_rhs_variables(&arguments[0], context, position.left(), visitor);
             collect_rhs_variables(&arguments[1], context, position.right(), visitor);
             collect_rhs_variables(&arguments[2], context, position, visitor);
         }
-        Term::Apply { label, arguments } if label.name == "#let" && arguments.len() >= 3 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Let) && arguments.len() >= 3 =>
+        {
             collect_rhs_variables(&arguments[0], context, position.left(), visitor);
             collect_rhs_variables(&arguments[1], context, position, visitor);
             collect_rhs_variables(&arguments[2], context, position.right(), visitor);
         }
-        Term::Apply { label, arguments } if label.name == "#fun2" && arguments.len() >= 2 => {
+        Term::Apply { label, arguments }
+            if label.is(InternalLabel::Fun2) && arguments.len() >= 2 =>
+        {
             collect_rhs_variables(&arguments[0], context, position.right(), visitor);
             collect_rhs_variables(&arguments[1], context, position, visitor);
         }
         Term::Apply { label, arguments }
-            if matches!(label.name.as_str(), "_:=K_" | "_:/=K_") && arguments.len() == 2 =>
+            if [InternalLabel::KEqualsK, InternalLabel::KNotEqualsK]
+                .iter()
+                .any(|internal| label.is(*internal))
+                && arguments.len() == 2 =>
         {
             collect_rhs_variables(&arguments[0], context, position.matching_pattern(), visitor);
             collect_rhs_variables(&arguments[1], context, position, visitor);
@@ -616,7 +646,8 @@ fn underlying_variable(term: &Term) -> Option<(String, Option<Sort>)> {
     match term.unannotated() {
         Term::Variable { name, sort } => Some((name.clone(), sort.clone())),
         Term::Apply { label, arguments }
-            if label.name.starts_with("#SemanticCastTo") && arguments.len() == 1 =>
+            if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                && arguments.len() == 1 =>
         {
             underlying_variable(&arguments[0])
         }

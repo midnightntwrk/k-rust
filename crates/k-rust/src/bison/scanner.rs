@@ -3,6 +3,7 @@ use std::fmt::Write;
 
 use crate::definition::AttributeKey;
 use crate::definition::{ProductionItem, Sentence, parse_regex};
+use crate::kast::FrontendSort;
 
 use super::{Error, quote_c_string};
 
@@ -62,7 +63,9 @@ impl Scanner {
                     attributes,
                     ..
                 } => {
-                    if sort.name == "#Layout" || sort.name == "#LineMarker" {
+                    if sort.is_frontend(FrontendSort::Layout)
+                        || sort.is_frontend(FrontendSort::LineMarker)
+                    {
                         let [ProductionItem::RegexTerminal { regex, .. }] = items.as_slice() else {
                             return Err(Error::render(format!(
                                 "productions of sort `{}` must contain exactly one regex terminal",
@@ -70,7 +73,7 @@ impl Scanner {
                             )));
                         };
                         let rendered = render_regex(regex)?;
-                        if sort.name == "#Layout" {
+                        if sort.is_frontend(FrontendSort::Layout) {
                             layout_declared = true;
                             layout.push(rendered);
                         } else {
@@ -108,7 +111,7 @@ impl Scanner {
                         }
                     }
                 }
-                Sentence::SyntaxSort { sort, .. } if sort.name == "#Layout" => {
+                Sentence::SyntaxSort { sort, .. } if sort.is_frontend(FrontendSort::Layout) => {
                     layout_declared = true;
                 }
                 _ => {}

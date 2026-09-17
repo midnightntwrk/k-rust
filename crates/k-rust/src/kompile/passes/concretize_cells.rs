@@ -13,7 +13,7 @@ use crate::{
         ProductionItem, ResolvedDefinition, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term},
+    kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term},
     kompile::fresh_names::{FreshNames, GeneratedVariableIdentity},
     provenance::{GeneratingPass, record_generated_origins},
 };
@@ -379,7 +379,7 @@ impl CellModel {
         // ResolveFreshConstants must synthesize that wrapper, not for this cell forest.
         let root = if let Some(root) = roots
             .iter()
-            .find(|sort| cells[*sort].label.name == "<generatedTop>")
+            .find(|sort| cells[*sort].label.name == GeneratedCell::Top.label())
         {
             root.clone()
         } else {
@@ -1222,7 +1222,11 @@ impl<'a> Concretizer<'a> {
                 if let [argument] = arguments.as_slice()
                     && let Term::Variable { name, .. } = argument.unannotated()
                     && let Some(info) = self.fragments.get(name)
-                    && (label.name == format!("is{}Fragment", info.parent) || label.name == "isBag")
+                    && (label.name
+                        == Label::sort_predicate(&Sort::new(format!("{}Fragment", info.parent)))
+                            .name
+                        || label.name
+                            == Label::sort_predicate(&Sort::frontend(FrontendSort::Bag)).name)
                 {
                     fragment_predicate(info, self.model)
                 } else if let Some(cell) = self.model.cell_for_label(&label)
@@ -1615,7 +1619,10 @@ fn fragment_predicate(info: &FragmentInfo, model: &CellModel) -> Term {
                 .iter()
                 .find(|child| &child.sort == sort)
                 .expect("fragment split sorts are parent children");
-            Term::apply(format!("is{}", child.value_sort), vec![term.clone()])
+            Term::Apply {
+                label: Label::sort_predicate(&child.value_sort),
+                arguments: vec![term.clone()],
+            }
         })
         .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
         .unwrap_or_else(|| Term::Token {
@@ -1630,23 +1637,7 @@ fn skip_root_wrapping(attributes: &Attributes) -> bool {
 }
 
 fn is_matching_logic_builtin(label: &str) -> bool {
-    matches!(
-        label,
-        "#Bottom"
-            | "#Top"
-            | "#Not"
-            | "#Or"
-            | "#And"
-            | "#Implies"
-            | "#Equals"
-            | "#Ceil"
-            | "#Floor"
-            | "#Exists"
-            | "#Forall"
-            | "#AG"
-            | "weakExistsFinally"
-            | "weakAlwaysFinally"
-    )
+    InternalLabel::of(label).is_some_and(|label| InternalLabel::MATCHING_LOGIC.contains(&label))
 }
 
 fn rewrite_side_variable(term: &Term, right: bool, child: &Child) -> Option<Term> {
@@ -1662,7 +1653,10 @@ fn is_empty_cell_bag(term: &Term) -> bool {
     matches!(
         term.unannotated(),
         Term::Apply { label, arguments }
-            if arguments.is_empty() && matches!(label.name.as_str(), "#cells" | ".Bag")
+            if arguments.is_empty()
+                && [InternalLabel::Cells, InternalLabel::DotBag]
+                    .iter()
+                    .any(|l| label.is(*l))
     )
 }
 
@@ -1705,10 +1699,14 @@ fn incomplete_parts(arguments: &[Term]) -> Result<(bool, &Term, bool), String> {
 
 fn dot_value(term: &Term) -> Result<bool, String> {
     match term.unannotated() {
-        Term::Apply { label, arguments } if arguments.is_empty() && label.name == "#dots" => {
+        Term::Apply { label, arguments }
+            if arguments.is_empty() && label.is(InternalLabel::Dots) =>
+        {
             Ok(true)
         }
-        Term::Apply { label, arguments } if arguments.is_empty() && label.name == "#noDots" => {
+        Term::Apply { label, arguments }
+            if arguments.is_empty() && label.is(InternalLabel::NoDots) =>
+        {
             Ok(false)
         }
         _ => Err("Expected #dots() or #noDots() in incomplete cell".into()),
@@ -1723,13 +1721,21 @@ fn incomplete_cell(label: &Label, open_left: bool, body: Term, open_right: bool)
 }
 
 fn dot(open: bool) -> Term {
-    Term::apply(if open { "#dots" } else { "#noDots" }, Vec::new())
+    Term::apply(
+        if open {
+            InternalLabel::Dots
+        } else {
+            InternalLabel::NoDots
+        }
+        .as_str(),
+        Vec::new(),
+    )
 }
 
 fn flatten_cells(term: &Term) -> Vec<&Term> {
     fn flatten<'a>(term: &'a Term, output: &mut Vec<&'a Term>) {
         match term.unannotated() {
-            Term::Apply { label, arguments } if label.name == "#cells" => {
+            Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {
                 for argument in arguments {
                     flatten(argument, output);
                 }
@@ -1746,7 +1752,7 @@ fn make_body(mut items: Vec<Term>) -> Term {
     if items.len() == 1 {
         items.pop().unwrap()
     } else {
-        Term::apply("#cells", items)
+        Term::apply(InternalLabel::Cells.as_str(), items)
     }
 }
 

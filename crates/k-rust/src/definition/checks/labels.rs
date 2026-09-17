@@ -10,36 +10,22 @@ use crate::definition::{
     compute_overloads, match_rule_label,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::Term;
-
-const FIXED_INTERNAL_LABELS: [&str; 13] = [
-    "#cells",
-    "#dots",
-    "#noDots",
-    "#Or",
-    "#fun2",
-    "#fun3",
-    "#let",
-    "#withConfig",
-    "#OuterCast",
-    "<generatedTop>",
-    "#SemanticCastToBag",
-    "_:=K_",
-    "_:/=K_",
-];
+use crate::kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term};
 
 pub(super) fn internal_labels(
     productions: &ProductionCatalog<'_>,
     sorts: &SortCatalog<'_>,
 ) -> BTreeSet<String> {
-    let mut labels: BTreeSet<String> = FIXED_INTERNAL_LABELS
-        .map(str::to_owned)
-        .into_iter()
+    let mut labels: BTreeSet<String> = InternalLabel::CHECKED_INTERNAL
+        .iter()
+        .map(|label| label.as_str().to_owned())
         .collect();
+    labels.insert(GeneratedCell::Top.label().to_owned());
+    labels.insert(Label::semantic_cast(&Sort::frontend(FrontendSort::Bag)).name);
     for sort in sorts.all_sorts() {
-        labels.insert(format!("#SemanticCastTo{sort}"));
-        labels.insert(format!("project:{sort}"));
-        labels.insert(format!("is{sort}"));
+        labels.insert(Label::semantic_cast(sort).name);
+        labels.insert(Label::projection(sort).name);
+        labels.insert(Label::sort_predicate(sort).name);
     }
     for id in productions.ids() {
         let Sentence::Production {
@@ -55,7 +41,7 @@ pub(super) fn internal_labels(
                 name: Some(name), ..
             } = item
             {
-                labels.insert(format!("project:{}:{name}", label.name));
+                labels.insert(Label::field_projection(&label.name, name).name);
             }
         }
     }
@@ -121,7 +107,7 @@ pub fn check_duplicate_klabels(definition: &ResolvedDefinition) -> Vec<Diagnosti
                 continue;
             };
             if let Some(previous) = previous.get(&label.name)
-                && label.name != "#EmptyK"
+                && !label.is(InternalLabel::EmptyK)
             {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::DuplicateKLabel,
@@ -211,7 +197,7 @@ pub fn check_unused_symbols(
             !used.contains(label)
                 && !attributes.has(AttributeKey::Maincell)
                 && !attributes.has(AttributeKey::Unused)
-                && label != "<generatedTop>"
+                && label != GeneratedCell::Top.label()
                 && !cell_collection_production(definition, *module, production)
                 && attributes.string(AttributeKey::Source).is_some_and(|source| {
                     !options

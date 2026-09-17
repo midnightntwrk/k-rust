@@ -11,14 +11,12 @@ use crate::{
         Attributes, Definition, FlatImport, ProductionItem, ResolvedDefinition, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term, parser::parse_sort},
+    kast::{FrontendSort, Label, Sort, Term, WellKnownModule, parser::parse_sort},
     provenance::{
         GeneratingPass, record_generated_origins, seed_generated_sentence_origin,
         sentence_origin_links,
     },
 };
-
-const BOOL_MODULE: &str = "BOOL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveStrictError {
@@ -56,7 +54,7 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
     })?;
     let main = resolved.main_module_id();
     let aliases = labeled_sentences(&resolved, main);
-    let bool_module = resolved.module_id(BOOL_MODULE);
+    let bool_module = resolved.module_id(WellKnownModule::Bool.as_str());
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
 
@@ -98,14 +96,15 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
                     module.imports.insert(
                         0,
                         FlatImport {
-                            name: BOOL_MODULE.into(),
+                            name: WellKnownModule::Bool.as_str().into(),
                             public: false,
                         },
                     );
                 } else {
                     diagnostics.push(error_at(
                         format!(
-                            "Strictness-generated contexts require the missing module {BOOL_MODULE}."
+                            "Strictness-generated contexts require the missing module {}.",
+                            WellKnownModule::Bool.as_str()
                         ),
                         &module.attributes,
                     ));
@@ -240,7 +239,7 @@ fn resolve_production(
         } else {
             java_split(&hybrid, ',')
                 .into_iter()
-                .map(|sort| format!("is{}", sort.trim()))
+                .map(|sort| Label::sort_predicate(&Sort::new(sort.trim())).name)
                 .collect()
         };
         for predicate in predicates {
@@ -315,7 +314,7 @@ fn generate_contexts(
             };
             let body = replace_here(alias.body.clone(), &replacement);
             let result_text = attribute_text(&alias.attributes, AttributeKey::Result)
-                .unwrap_or_else(|| "KResult".into());
+                .unwrap_or_else(|| FrontendSort::KResult.as_str().into());
             let result = parse_sort(&result_text).map_err(|error| {
                 vec![error_at(
                     format!("Invalid result sort {result_text:?} in context alias: {error}"),
@@ -326,11 +325,9 @@ fn generate_contexts(
                 .iter()
                 .chain(positions[..position_index].iter())
                 .copied();
-            let side_condition = reduce_and(prior_positions.map(|prior| {
-                Term::apply(
-                    format!("is{result}"),
-                    vec![Term::variable(format!("K{}", prior - 1))],
-                )
+            let side_condition = reduce_and(prior_positions.map(|prior| Term::Apply {
+                label: Label::sort_predicate(&result),
+                arguments: vec![Term::variable(format!("K{}", prior - 1))],
             }));
             let requires = if sequential {
                 side_condition.unwrap_or_else(|| bool_token(true))
@@ -489,7 +486,10 @@ fn replace_here(term: Term, replacement: &Term) -> Term {
 }
 
 fn semantic_cast(sort: &Sort, term: Term) -> Term {
-    Term::apply(format!("#SemanticCastTo{sort}"), vec![term])
+    Term::Apply {
+        label: Label::semantic_cast(sort),
+        arguments: vec![term],
+    }
 }
 
 fn reduce_and(terms: impl IntoIterator<Item = Term>) -> Option<Term> {

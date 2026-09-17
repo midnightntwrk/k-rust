@@ -6,7 +6,7 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, Sentence},
-    kast::{Sort, Term},
+    kast::{Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
@@ -66,7 +66,7 @@ fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence, add_predicate
             let Term::Apply { label, arguments } = term.unannotated() else {
                 return;
             };
-            let Some(sort) = semantic_cast_sort(&label.name) else {
+            let Some(sort) = label.semantic_cast_sort() else {
                 return;
             };
             let [argument] = arguments.as_slice() else {
@@ -100,12 +100,13 @@ fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence, add_predicate
             let Term::Apply { label, .. } = cast else {
                 unreachable!("only semantic-cast applications were collected")
             };
-            let sort = semantic_cast_sort(&label.name)
+            let sort = label
+                .semantic_cast_sort()
                 .expect("the cast set contains semantic-cast applications");
-            Term::apply(
-                format!("is{sort}"),
-                vec![transform(cast.clone(), &casts, &typed_variables)],
-            )
+            Term::Apply {
+                label: Label::sort_predicate(&sort),
+                arguments: vec![transform(cast.clone(), &casts, &typed_variables)],
+            }
         })
         .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
         .expect("at least one semantic cast was collected");
@@ -145,7 +146,9 @@ fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<Stri
         let Term::Apply { label, arguments } = term.into_unannotated() else {
             unreachable!("the cast set contains applications only")
         };
-        let sort = semantic_cast_sort(&label.name).expect("the cast set contains semantic casts");
+        let sort = label
+            .semantic_cast_sort()
+            .expect("the cast set contains semantic casts");
         let [argument] = arguments
             .try_into()
             .unwrap_or_else(|_| unreachable!("only unary semantic casts enter the cast set"));
@@ -205,11 +208,4 @@ fn attach_sort(term: Term, sort: Sort) -> Term {
             term.with_metadata(metadata)
         }
     }
-}
-
-fn semantic_cast_sort(label: &str) -> Option<Sort> {
-    label
-        .strip_prefix("#SemanticCastTo")
-        .filter(|name| !name.is_empty())
-        .and_then(|name| crate::kast::parser::parse_sort_text(name).ok())
 }
