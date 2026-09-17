@@ -1150,6 +1150,119 @@ print(json.dumps({
 }
 
 #[test]
+fn conformance_driver_gives_a_search_recipe_exactly_one_search_flag() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+captured = []
+def fake_run(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
+    args = run.krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
+    captured.append(args)
+    return args, 0, "\\top{SortGeneratedTopCell{}}()", "", 0.0, False
+run.run_krust_program = fake_run
+
+def probe(arguments, search_file):
+    root = tempfile.mkdtemp()
+    case = run.Case("search-flag")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "reference-kompiled")
+    case.def_file = "test.k"
+    case.main_module = "TEST"
+    case.syntax_module = "TEST-SYNTAX"
+    case.pgm_sort = "KItem"
+    before = len(captured)
+    recipe = run.split_recipe("/kbin/krun " + arguments)
+    step = run.do_krun(case, recipe, search_file=search_file)
+    return {
+        "args": captured[-1] if len(captured) != before else None,
+        "verdict": step["verdict"],
+        "stage": step.get("stage"),
+        "reason": step.get("reason"),
+    }
+
+print(json.dumps({
+    # KSEARCH is `krun --search-all` (k/k-distribution/include/kframework/ktest-common.mak:23),
+    # so a .search recipe already carries the mode the driver would otherwise supply.
+    "ksearch": probe("--search-all pgm.search", True),
+    "bare": probe("pgm.search", True),
+    "legacy": probe("--search pgm.search", True),
+    "one_step": probe("--search-one-step pgm.search", True),
+    "repeated": probe("--search-all --search-all pgm.search", True),
+    "conflicting": probe("--search-all --search-one-step pgm.search", True),
+    "unknown": probe("--not-a-krun-flag pgm.search", True),
+    "plain": probe("pgm", False),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let arguments = |name: &str| -> Vec<String> {
+        probes[name]["args"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{name} did not invoke krust: {probes}"))
+            .iter()
+            .map(|argument| argument.as_str().unwrap().to_string())
+            .collect()
+    };
+    let plain = arguments("plain");
+    assert!(
+        !plain.iter().any(|argument| argument.starts_with("--search")),
+        "a non-search recipe must not select a search mode: {plain:?}"
+    );
+    for (name, mode) in [
+        ("ksearch", "--search-all"),
+        ("bare", "--search-all"),
+        ("legacy", "--search-final"),
+        ("one_step", "--search-one-step"),
+        ("repeated", "--search-all"),
+    ] {
+        let args = arguments(name);
+        let selected: Vec<&String> = args
+            .iter()
+            .filter(|argument| argument.starts_with("--search"))
+            .collect();
+        assert_eq!(
+            selected,
+            [&mode.to_string()],
+            "{name}: a search step must carry exactly one search mode: {args:?}"
+        );
+        assert_eq!(
+            probes[name]["stage"].as_str(),
+            Some("search"),
+            "{name}: {probes}"
+        );
+    }
+    for invalid in ["conflicting", "unknown"] {
+        assert!(probes[invalid]["args"].is_null(), "{invalid}: {probes}");
+        assert_eq!(
+            probes[invalid]["verdict"].as_str(),
+            Some("krust-unsupported"),
+            "{invalid}: {probes}"
+        );
+    }
+    assert!(
+        probes["unknown"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("--not-a-krun-flag"),
+        "an unrecognized krun flag must stay unsupported rather than be dropped: {probes}"
+    );
+}
+#[test]
 fn conformance_driver_compares_execution_text_modulo_existential_renaming() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"

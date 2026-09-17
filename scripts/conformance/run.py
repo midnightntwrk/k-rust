@@ -1166,9 +1166,15 @@ def do_krun(case, rec, search_file=False):
         unsupported.append("repeated --pattern")
     if pattern_values and "--search-pattern" in opts:
         unsupported.append("--pattern conflicts with --search-pattern")
+    search_mode = None
     for f in flags:
-        if f in ("--search",): extra.append("--search-final")
-        elif f in ("--search-all", "--search-final", "--search-one-step", "--search-one-or-more-steps"): extra.append(f)
+        if f in ("--search", "--search-all", "--search-final", "--search-one-step", "--search-one-or-more-steps"):
+            # krust spells the bare --search default as --search-final. A mode repeated in one
+            # recipe is the reference's idempotent boolean flag and collapses; two different
+            # modes have no single krust equivalent.
+            mode = "--search-final" if f == "--search" else f
+            if search_mode is None: search_mode = mode; extra.append(mode)
+            elif search_mode != mode: unsupported.append(f"{search_mode} conflicts with {mode}")
         elif f in ("--no-exc-wrap", "--no-pattern", "--profile", "--debug", "--no-expand-macros"): pass
         elif f in ("--help", "--version", "--dry-run", "--proof-hint", "--term"): unsupported.append(f)
         else: unsupported.append(f)
@@ -1194,7 +1200,10 @@ def do_krun(case, rec, search_file=False):
             if equivalent: step["parser"] = equivalent
             else: unsupported.append(f"{k} {v}")
         else: unsupported.append(f"{k} {v}")
-    if search_file: extra.append("--search-all")
+    # A .search recipe runs KSEARCH, which is `krun --search-all`
+    # (k/k-distribution/include/kframework/ktest-common.mak:23), so the mode usually comes from
+    # the recipe itself; supply the default only when the recipe selected none.
+    if search_file and search_mode is None: search_mode = "--search-all"; extra.append(search_mode)
     if unsupported:
         step.update(verdict="krust-unsupported", reason="reference krun flags with no krust equivalent: " + " ".join(unsupported))
         return step_record(case, **step)
