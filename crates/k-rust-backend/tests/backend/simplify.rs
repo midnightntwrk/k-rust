@@ -1115,6 +1115,16 @@ fn equality_and_floor_use_a_constrained_rewrite_only_where_the_other_side_is_def
             Predicate::Equals(done.clone(), g_partial.clone())
         ])
     );
+    // A term-level `\and` has no definedness witness (`Y /\ Z` is empty unless `Y = Z`), so
+    // `\equals(f(t), Y /\ Z)` stays as it is too.
+    let against_conjunction = Predicate::Equals(
+        f_partial.clone(),
+        term(&definition, r"\and{SortS{}}(Y:SortS{}, Z:SortS{})"),
+    );
+    assert_eq!(
+        simplify_under(&against_conjunction, &[]),
+        against_conjunction
+    );
     // `\floor` never conjoins; a rewrite without constraints is still used.
     let floor = Predicate::Floor(f_partial.clone());
     assert_eq!(simplify_under(&floor, &[]), floor);

@@ -1460,13 +1460,41 @@ fn strict_variables(
 
 /// Whether `term` is provably defined under the path condition: every obligation `ceil_term`
 /// derives for it is `known`. `ceil_term` derives nothing for a term built from constructors,
-/// total symbols, domain values, and element variables.
+/// total symbols, domain values, and element variables. A term-level `\and` is the
+/// intersection of its operands and has no definedness witness of its own (`Y /\ Z` over two
+/// element variables is empty unless `Y = Z`), while `ceil_term` only collects its operands'
+/// obligations, so a term that contains one anywhere is never provably defined here.
 fn term_is_provably_defined(
     definition: &BackendDefinition,
     term: &Term,
     known: impl Fn(&Predicate) -> bool,
 ) -> bool {
-    ceil_term(definition, term).iter().all(known)
+    !contains_term_conjunction(term) && ceil_term(definition, term).iter().all(known)
+}
+
+/// Whether `term` contains a term-level `\and` anywhere.
+fn contains_term_conjunction(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::And(..) => true,
+        TermKind::Application { arguments, .. } => arguments.iter().any(contains_term_conjunction),
+        TermKind::Injection { term, .. } => contains_term_conjunction(term),
+        TermKind::Map { entries, rest, .. } => {
+            entries.iter().any(|(key, value)| {
+                contains_term_conjunction(key) || contains_term_conjunction(value)
+            }) || rest.as_ref().is_some_and(contains_term_conjunction)
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().any(contains_term_conjunction)
+                || rest.as_ref().is_some_and(|(middle, tails)| {
+                    contains_term_conjunction(middle) || tails.iter().any(contains_term_conjunction)
+                })
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(contains_term_conjunction)
+                || rest.as_ref().is_some_and(contains_term_conjunction)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
+    }
 }
 
 enum PredicateMatch {
@@ -3250,6 +3278,18 @@ mod tests {
             Predicate::Ceil(term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#)),
         ];
         assert_eq!(strict(&both_sides, &h_defined), only_x);
+        // A term-level `\and` has no definedness witness: `Y /\ Z` is empty unless `Y = Z`, so
+        // `\equals(f(X), Y /\ Z)` is not strict in `X` even though `ceil_term` derives nothing
+        // for the conjunction of two element variables.
+        let conjunction = term(&definition, r"\and{SortS{}}(Y:SortS{}, Z:SortS{})");
+        assert_eq!(
+            strict(&Predicate::Equals(f_x.clone(), conjunction.clone()), &[]),
+            none
+        );
+        assert_eq!(
+            strict(&Predicate::Equals(f_x.clone(), conjunction), &h_defined),
+            none
+        );
         // `\not(\equals(f(X), "c"))` is not: `\not(\bottom)` is `\top`.
         let negated = Predicate::Not(Box::new(Predicate::Equals(f_x.clone(), value.clone())));
         assert_eq!(strict(&negated, &[]), none);
