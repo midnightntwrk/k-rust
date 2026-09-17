@@ -220,6 +220,14 @@ id = "C6"
 rule = "Record dropped K flags and classify untranslatable flags as unsupported."
 justification = "The driver translates K recipes into the supported krust CLI contract; a missing equivalent remains unsupported. See docs/compatibility.md#cli-scope."
 
+[[conformance]]
+id = "C7"
+anchor = "scripts/conformance/run.py:rename_existentials"
+anchor_symbol = "rename_existentials"
+anchor_helpers = ["pattern_existentials", "execution_text_diff", "EXISTENTIAL_TOKEN"]
+rule = "Compare kprint execution text modulo a bijective, sort-preserving renaming of existential variables, the `?Name:Sort` tokens outside string literals, renamed by first occurrence per disjunct before the C1 sort. Every other variable, including the search pattern's, is compared literally, and a `?` variable named in the recipe's --pattern text is fixed too."
+justification = "`?` is K's marker for a rule existential and kprint prints that shape only for Var'Ques' names; the reference instantiates them through Kore's fresh counter and keeps an engine-chosen unification representative, which N4 already classes as engine-named. Renaming by first occurrence preserves sharing, so `?A -> ?A` and `?A -> ?B` stay distinct. See docs/compatibility.md#comparison-contract."
+
 [[normalisation]]
 id = "N21"
 gate = "execution, symbolic execution, and MIR execution"
