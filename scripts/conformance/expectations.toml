@@ -2131,13 +2131,13 @@ reason = ""
 
 [[case]]
 name = "quadratic-poly-unparsing"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "search"
+accepted_basis = "Complete compile and search comparison pass once the driver gives a .search recipe exactly one krun search mode (the ktest KSEARCH recipe already carries --search-all); the five-disjunct search result matches initial.nondet.search.out modulo C7 existential renaming."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Baseline observation: driver passes `--search-all` twice: search flag mapping"
-
+reason = ""
 [[case]]
 name = "rand"
 accepted_verdict = "krust-error"
