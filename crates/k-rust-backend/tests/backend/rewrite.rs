@@ -1553,6 +1553,171 @@ fn untranslatable_requires_is_an_smt_indeterminate_leaf() {
     ));
 }
 
+/// The rewriter's leaf for one solver verdict.
+enum VerdictLeaf {
+    /// The step rewrites and its successor carries exactly these constraints.
+    Finished(Vec<Predicate>),
+    /// The step is trivial on the pre-step pattern.
+    Trivial,
+    /// The step is an `IndeterminateReason::Smt` leaf naming this error.
+    Smt(SmtError),
+}
+
+/// Every verdict of a solver over one rewrite step on `subject`, as the rewriter's leaf.
+fn assert_solver_verdicts(
+    definition: &BackendDefinition,
+    subject: &Pattern,
+    verdicts: &[(Result<Validity, SmtError>, VerdictLeaf)],
+) {
+    for (validity, expected) in verdicts {
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: validity.clone(),
+        };
+        let mut fresh = 0;
+        let result = rewrite_step_with_solver(definition, subject, &mut fresh, &solver);
+        match expected {
+            VerdictLeaf::Finished(constraints) => {
+                let RewriteResult::Finished(applied) = result else {
+                    panic!("{validity:?} should rewrite, got {result:?}");
+                };
+                assert_eq!(&applied.pattern.constraints, constraints, "{validity:?}");
+            }
+            VerdictLeaf::Trivial => {
+                assert_eq!(
+                    result,
+                    RewriteResult::Trivial(subject.clone()),
+                    "{validity:?}"
+                );
+            }
+            VerdictLeaf::Smt(error) => {
+                assert!(
+                    matches!(
+                        &result,
+                        RewriteResult::Indeterminate {
+                            reason: IndeterminateReason::Smt { error: leaf, .. },
+                            ..
+                        } if leaf == error
+                    ),
+                    "{validity:?}: {result:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn rhs_definedness_obligation_verdicts_are_mapped_per_site() {
+    // The obligation `\ceil(partial(X))` of the rule's right-hand side is decided under the
+    // rule instance's knowledge: refuted, or inconsistent with that knowledge, means the
+    // instance is empty and the step is trivial on the pre-step pattern; every verdict the
+    // solver does not reach carries the obligation into the successor.
+    let definition = definition(
+        r#"
+            symbol partial{}(SortS{}) : SortS{} [function{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                wrap{}(partial{}(X:SortS{}))
+            ) [label{}("partialize")]
+            "#,
+    );
+    let subject = Pattern {
+        term: internal_term(&definition, r#"wrap{}(\dv{SortS{}}("start"))"#),
+        constraints: Vec::new(),
+    };
+    let obligation = Predicate::Ceil(internal_term(
+        &definition,
+        r#"partial{}(\dv{SortS{}}("start"))"#,
+    ));
+    let untranslatable = TranslationError::NonBooleanAnd(internal_term(
+        &definition,
+        r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
+    ));
+
+    assert_solver_verdicts(
+        &definition,
+        &subject,
+        &[
+            (Ok(Validity::Valid), VerdictLeaf::Finished(Vec::new())),
+            (Ok(Validity::Invalid), VerdictLeaf::Trivial),
+            (Ok(Validity::InconsistentGroundTruth), VerdictLeaf::Trivial),
+            (
+                Ok(Validity::Indeterminate),
+                VerdictLeaf::Finished(vec![obligation.clone()]),
+            ),
+            (
+                Ok(Validity::Unknown("timeout".into())),
+                VerdictLeaf::Finished(vec![obligation.clone()]),
+            ),
+            (
+                Err(SmtError::Translation(untranslatable)),
+                VerdictLeaf::Finished(vec![obligation.clone()]),
+            ),
+            (
+                Err(SmtError::Unavailable),
+                VerdictLeaf::Finished(vec![obligation]),
+            ),
+        ],
+    );
+}
+
+#[test]
+fn ensures_verdicts_are_mapped_per_site_in_the_rewriter() {
+    // An `ensures` is a conjunct of the successor by definition: valid, it is dropped;
+    // refuted or inconsistent with the rule instance's knowledge, the step is trivial on the
+    // pre-step pattern; an open implication or a missing solver carries it; a solver that
+    // was asked and did not answer, or could not pose the query, is an indeterminate leaf.
+    let definition = definition(
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \and{SortS{}}(
+                    \dv{SortS{}}("done"),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("expected"))
+                )
+            ) [label{}("ensured")]
+            "#,
+    );
+    let subject = Pattern {
+        term: internal_term(&definition, "wrap{}(Z:SortS{})"),
+        constraints: Vec::new(),
+    };
+    let ensures = Predicate::Equals(
+        internal_term(&definition, "Z:SortS{}"),
+        internal_term(&definition, r#"\dv{SortS{}}("expected")"#),
+    );
+    let untranslatable = TranslationError::NonBooleanAnd(internal_term(
+        &definition,
+        r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
+    ));
+
+    assert_solver_verdicts(
+        &definition,
+        &subject,
+        &[
+            (Ok(Validity::Valid), VerdictLeaf::Finished(Vec::new())),
+            (Ok(Validity::Invalid), VerdictLeaf::Trivial),
+            (Ok(Validity::InconsistentGroundTruth), VerdictLeaf::Trivial),
+            (
+                Ok(Validity::Indeterminate),
+                VerdictLeaf::Finished(vec![ensures.clone()]),
+            ),
+            (
+                Err(SmtError::Unavailable),
+                VerdictLeaf::Finished(vec![ensures]),
+            ),
+            (
+                Ok(Validity::Unknown("timeout".into())),
+                VerdictLeaf::Smt(SmtError::Unknown("timeout".into())),
+            ),
+            (
+                Err(SmtError::Translation(untranslatable.clone())),
+                VerdictLeaf::Smt(SmtError::Translation(untranslatable)),
+            ),
+        ],
+    );
+}
+
 #[test]
 fn false_requires_prune_a_rule_even_when_matching_is_indeterminate() {
     let definition = definition(
