@@ -152,8 +152,16 @@ cp "$FAKE_RESULTS" "$results"
             .env("CONFORMANCE_DRIVER_VERSION", "fixture-driver-v1")
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
             .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+            .env("CONFORMANCE_BACKLOG", "")
             .env("FAKE_ARGS", &self.args);
         command
+    }
+
+    fn audit_with_backlog(&self, backlog: &Path) -> Output {
+        self.wrapper()
+            .args(["--audit", "--backlog", backlog.to_str().unwrap()])
+            .output()
+            .unwrap()
     }
 
     fn seed(&self, results: &Path) -> Output {
@@ -1761,10 +1769,10 @@ fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() 
                 "excluded case {name} needs a reason"
             );
         }
-        if matches!(accepted, "mismatch" | "krust-error") {
+        if accepted != "match" {
             assert!(
                 !case["reason"].as_str().unwrap_or_default().is_empty(),
-                "accepted failure {name} needs a measured-behavior explanation"
+                "accepted non-match {name} needs an inline justification (with an exclusion) or a measured reason (pending work)"
             );
         }
     }
@@ -2272,4 +2280,105 @@ fn conformance_ratchet_preflight_failures_do_not_change_the_log() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(fs::read(&fixture.log).unwrap(), before);
+}
+
+#[test]
+fn conformance_audit_lists_pending_cases_without_an_open_backlog_ticket() {
+    let fixture = Fixture::new();
+    let baseline = fixture.results(
+        "baseline",
+        &[
+            ("a", "match", "krun"),
+            ("b", "mismatch", "search"),
+            ("c", "mismatch", "kompile"),
+            ("d", "krust-unsupported", "kast"),
+        ],
+    );
+    assert!(fixture.seed(&baseline).status.success());
+
+    // b is pending and owned; d is pending and unowned; c is excluded and needs no ticket;
+    // the ticket on a names a matching case and is reported as closable.
+    let backlog = fixture.root.join("backlog.toml");
+    fs::write(
+        &backlog,
+        r#"version = 1
+
+[[ticket]]
+id = "CB-01"
+title = "b needs the search step"
+state = "open"
+cases = ["b"]
+
+[[ticket]]
+id = "CB-02"
+title = "a landed"
+state = "open"
+cases = ["a"]
+
+[[ticket]]
+id = "CB-03"
+title = "d was closed without landing"
+state = "closed"
+cases = ["d"]
+"#,
+    )
+    .unwrap();
+    let output = fixture.audit_with_backlog(&backlog);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(3), "{stdout}");
+    assert!(
+        stdout.contains("### Conformance backlog audit (2 pending cases)"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("| b | 0 | mismatch | CB-01 |"), "{stdout}");
+    assert!(
+        stdout.contains("| d | 0 | krust-unsupported | (none) |"),
+        "{stdout}"
+    );
+    assert!(
+        !stdout.contains("| c |"),
+        "excluded cases are not pending: {stdout}"
+    );
+    assert!(
+        stdout.contains("pending without an open ticket: 1"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("open tickets whose cases all match: [\"CB-02\"]"),
+        "{stdout}"
+    );
+
+    fs::write(
+        &backlog,
+        r#"version = 1
+
+[[ticket]]
+id = "CB-01"
+title = "b and d need work"
+state = "open"
+cases = ["b", "d"]
+"#,
+    )
+    .unwrap();
+    let output = fixture.audit_with_backlog(&backlog);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    assert!(
+        stdout.contains("pending without an open ticket: 0"),
+        "{stdout}"
+    );
+
+    // Without a backlog the audit keeps its floor-only contract.
+    let output = fixture.audit();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("backlog audit"));
+
+    fs::write(&backlog, "version = 1\n\n[[ticket]]\nid = \"CB-09\"\ntitle = \"unknown\"\nstate = \"open\"\ncases = [\"zz\"]\n").unwrap();
+    let output = fixture.audit_with_backlog(&backlog);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("names an unknown case: zz"));
 }

@@ -129,6 +129,16 @@ An unknown or untranslatable flag must remain explicitly unsupported rather than
 The `declined-capability` category records steps requiring an interface with no Rust equivalent.
 Semantic input selection, warning handling, execution status, and configuration initialization remain testable contracts; this policy does not exclude them.
 
+## Driver scope
+
+The conformance driver translates each upstream `ktest` recipe into krust operations and compares their outcomes.
+A recipe that defines no translatable step supplies no oracle: a `ktest-kdep.mak` or sub-make-only Makefile, a Makefile whose `ktest.mak` include is disabled upstream, a recipe that discards the output it would compare, or an expected kompile failure that leaves no definition for a later step.
+The `undriven-recipe` category records such cases with the concrete recipe feature; the skip is not evidence of a Rust pass and must be reconsidered when the driver learns to translate the feature.
+
+Every case whose accepted verdict is not `match` carries exactly one of two dispositions.
+A non-empty `exclusion` names the category whose section here justifies leaving the difference, and the inline `reason` states the concrete feature or decision for that case; the justification is complete in this repository.
+An empty `exclusion` with a non-empty `reason` records a measured port or driver gap that is pending work; the work itself is tracked outside this repository, and [testing.md](testing.md#manual-conformance-acceptance) describes how a local backlog is audited against the measurements.
+
 ## Comparison contract
 
 [reference-normalisations.toml](../scripts/reference-normalisations.toml) is the authority for each permitted equivalence and exclusion.
