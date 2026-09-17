@@ -5810,3 +5810,288 @@ fn decomposes_false_map_membership_over_known_entries_and_a_remainder() {
         .count();
     assert_eq!(membership_conditions, 2);
 }
+
+/// `f(I) => I` over a partial `partial`, so a loop-head state carries the definedness of the
+/// operand `f` discarded from under the constructor-like `wrap`.
+fn leaf_normal_form_definition(rules: &str) -> BackendDefinition {
+    definition(&format!(
+        r#"
+            symbol partial{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+            symbol f{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+            axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortS{{}}, R}}(
+                f{{}}(I:SortS{{}}), \and{{SortS{{}}}}(I:SortS{{}}, \top{{SortS{{}}}}())
+            )) [label{{}}("identity"), simplification{{}}()]
+            {rules}
+            "#
+    ))
+}
+
+fn simplification_ids(leaf: &ExecutionLeaf) -> Vec<&str> {
+    leaf.trace
+        .iter()
+        .filter(|entry| entry.kind == TraceKind::Simplification)
+        .map(|entry| entry.unique_id.as_str())
+        .collect()
+}
+
+/// The leaf `C[t] /\ \ceil(t)` the loop head builds for `wrap(f(partial("v")))` is externalised
+/// as `C[t]`: `wrap` is a total context and application is strict, so the conjunct is entailed.
+/// The obligation of an operand that occurs only under a partial symbol is not entailed and
+/// stays. The same normal form holds whichever reason halts the state.
+fn assert_leaves_in_normal_form(
+    definition: &BackendDefinition,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    expected_halt: impl Fn(&HaltReason) -> bool,
+) {
+    let entailed = execute_with_solver(
+        definition,
+        Pattern {
+            term: internal_term(definition, r#"wrap{}(f{}(partial{}(\dv{SortS{}}("v"))))"#),
+            constraints: Vec::new(),
+        },
+        options.clone(),
+        solver,
+    );
+    let [leaf] = entailed.leaves.as_slice() else {
+        panic!("expected one leaf, found {:?}", entailed.leaves);
+    };
+    assert!(expected_halt(&leaf.halt_reason), "{:?}", leaf.halt_reason);
+    assert_eq!(
+        leaf.pattern.term,
+        internal_term(definition, r#"wrap{}(partial{}(\dv{SortS{}}("v")))"#)
+    );
+    assert_eq!(leaf.pattern.constraints, Vec::new(), "{leaf:#?}");
+    // The loop head applied the equation once; the externalisation applied nothing new.
+    assert_eq!(simplification_ids(leaf), ["identity"]);
+
+    let nested = execute_with_solver(
+        definition,
+        Pattern {
+            term: internal_term(
+                definition,
+                r#"wrap{}(f{}(partial{}(partial{}(\dv{SortS{}}("v")))))"#,
+            ),
+            constraints: Vec::new(),
+        },
+        options,
+        solver,
+    );
+    let [leaf] = nested.leaves.as_slice() else {
+        panic!("expected one leaf, found {:?}", nested.leaves);
+    };
+    assert!(expected_halt(&leaf.halt_reason), "{:?}", leaf.halt_reason);
+    assert_eq!(
+        leaf.pattern.term,
+        internal_term(
+            definition,
+            r#"wrap{}(partial{}(partial{}(\dv{SortS{}}("v"))))"#
+        )
+    );
+    assert_eq!(
+        leaf.pattern.constraints,
+        vec![Predicate::Ceil(internal_term(
+            definition,
+            r#"partial{}(\dv{SortS{}}("v"))"#
+        ))],
+        "{leaf:#?}"
+    );
+    assert_eq!(simplification_ids(leaf), ["identity"]);
+}
+
+#[test]
+fn a_stuck_leaf_is_externalised_in_the_simplifier_normal_form() {
+    let definition = leaf_normal_form_definition("");
+
+    assert_leaves_in_normal_form(
+        &definition,
+        ExecutionOptions::default(),
+        &NoSolver,
+        |halt_reason| matches!(halt_reason, HaltReason::Stuck),
+    );
+}
+
+#[test]
+fn a_depth_bounded_leaf_is_externalised_in_the_simplifier_normal_form() {
+    let definition = leaf_normal_form_definition("");
+
+    assert_leaves_in_normal_form(
+        &definition,
+        ExecutionOptions {
+            max_depth: 0,
+            ..ExecutionOptions::default()
+        },
+        &NoSolver,
+        |halt_reason| matches!(halt_reason, HaltReason::DepthBound),
+    );
+}
+
+#[test]
+fn an_indeterminate_leaf_is_externalised_in_the_simplifier_normal_form() {
+    // The requires `partial(..) = "zero"` is undecidable by equations and the solver answers
+    // Unknown, so the state halts as indeterminate; its pattern is still externalised in the
+    // normal form and the reason is kept.
+    let definition = leaf_normal_form_definition(
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("zero"))
+                ),
+                \dv{SortS{}}("conditional")
+            ) [label{}("conditional")]
+            "#,
+    );
+    let solver = FixedSolver {
+        satisfiability: Ok(Satisfiability::Unknown("fixed".into())),
+        validity: Ok(Validity::Indeterminate),
+    };
+
+    assert_leaves_in_normal_form(
+        &definition,
+        ExecutionOptions::default(),
+        &solver,
+        |halt_reason| matches!(halt_reason, HaltReason::Indeterminate(_)),
+    );
+}
+
+#[test]
+fn a_stuck_leaf_discharges_a_constraint_the_solver_proves_valid() {
+    // `partial("w") = "w"` is residual for the equation fixed point; a solver that proves it
+    // valid (as a lemma axiom would) makes it redundant in the conjunction, so the leaf drops it.
+    let definition = leaf_normal_form_definition("");
+    let residual = Predicate::Equals(
+        internal_term(&definition, r#"partial{}(\dv{SortS{}}("w"))"#),
+        internal_term(&definition, r#"\dv{SortS{}}("w")"#),
+    );
+    let initial = Pattern {
+        term: internal_term(&definition, r#"wrap{}(\dv{SortS{}}("v"))"#),
+        constraints: vec![residual.clone()],
+    };
+
+    let open = execute_with_solver(
+        &definition,
+        initial.clone(),
+        ExecutionOptions::default(),
+        &FixedSolver {
+            satisfiability: Ok(Satisfiability::Unknown("fixed".into())),
+            validity: Ok(Validity::Indeterminate),
+        },
+    );
+    let [leaf] = open.leaves.as_slice() else {
+        panic!("expected one leaf, found {:?}", open.leaves);
+    };
+    assert!(matches!(leaf.halt_reason, HaltReason::Stuck));
+    assert_eq!(leaf.pattern.constraints, vec![residual]);
+
+    let discharged = execute_with_solver(
+        &definition,
+        initial,
+        ExecutionOptions::default(),
+        &FixedSolver {
+            satisfiability: Ok(Satisfiability::Unknown("fixed".into())),
+            validity: Ok(Validity::Valid),
+        },
+    );
+    let [leaf] = discharged.leaves.as_slice() else {
+        panic!("expected one leaf, found {:?}", discharged.leaves);
+    };
+    assert!(matches!(leaf.halt_reason, HaltReason::Stuck));
+    assert_eq!(leaf.pattern.constraints, Vec::new(), "{leaf:#?}");
+}
+
+/// `top("initial") => pack(partial("v"))` twice, then `pack(X) => top("done")`: the operand
+/// `partial("v")` leaves the term at the second step, so its definedness obligation is no
+/// longer entailed by the term and every leaf keeps it.
+fn branch_then_discard_definition(second_rule: bool) -> BackendDefinition {
+    let second = if second_rule {
+        r#"
+            axiom{} \rewrites{SortC{}}(
+                \and{SortC{}}(top{}(\dv{SortS{}}("initial")), \top{SortC{}}()),
+                pack{}(partial{}(\dv{SortS{}}("v")))
+            ) [label{}("right")]
+            "#
+    } else {
+        ""
+    };
+    definition(&format!(
+        r#"
+            sort SortC{{}} []
+            symbol top{{}}(SortS{{}}) : SortC{{}} [constructor{{}}()]
+            symbol pack{{}}(SortS{{}}) : SortC{{}} [constructor{{}}()]
+            symbol partial{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+            axiom{{}} \rewrites{{SortC{{}}}}(
+                \and{{SortC{{}}}}(top{{}}(\dv{{SortS{{}}}}("initial")), \top{{SortC{{}}}}()),
+                pack{{}}(partial{{}}(\dv{{SortS{{}}}}("v")))
+            ) [label{{}}("left")]
+            {second}
+            axiom{{}} \rewrites{{SortC{{}}}}(
+                \and{{SortC{{}}}}(pack{{}}(X:SortS{{}}), \top{{SortC{{}}}}()),
+                top{{}}(\dv{{SortS{{}}}}("done"))
+            ) [label{{}}("unpack")]
+            "#
+    ))
+}
+
+#[test]
+fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
+    for second_rule in [false, true] {
+        let definition = branch_then_discard_definition(second_rule);
+        let initial = Pattern {
+            term: internal_term(&definition, r#"top{}(\dv{SortS{}}("initial"))"#),
+            constraints: Vec::new(),
+        };
+        let obligation = Predicate::Ceil(internal_term(
+            &definition,
+            r#"partial{}(\dv{SortS{}}("v"))"#,
+        ));
+
+        let explored = execute(&definition, initial.clone(), ExecutionOptions::default());
+        assert!(!explored.leaves.is_empty());
+        for leaf in &explored.leaves {
+            assert!(matches!(leaf.halt_reason, HaltReason::Stuck), "{leaf:#?}");
+            assert_eq!(
+                leaf.pattern.term,
+                internal_term(&definition, r#"top{}(\dv{SortS{}}("done"))"#)
+            );
+            assert_eq!(
+                leaf.pattern.constraints,
+                vec![obligation.clone()],
+                "{leaf:#?}"
+            );
+        }
+
+        if !second_rule {
+            continue;
+        }
+        // Stopped at the branch, each payload is `pack(partial("v"))`, whose constructor
+        // context entails the obligation: the payload carries no conjunct and loses nothing.
+        let stopped = execute(
+            &definition,
+            initial,
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                ..ExecutionOptions::default()
+            },
+        );
+        let [leaf] = stopped.leaves.as_slice() else {
+            panic!("expected one branch leaf, found {:?}", stopped.leaves);
+        };
+        let HaltReason::Branch {
+            branches,
+            remainder,
+        } = &leaf.halt_reason
+        else {
+            panic!("expected a branch leaf, found {:?}", leaf.halt_reason);
+        };
+        assert!(remainder.is_none());
+        assert_eq!(branches.len(), 2, "{branches:#?}");
+        for applied in branches {
+            assert_eq!(
+                applied.pattern.term,
+                internal_term(&definition, r#"pack{}(partial{}(\dv{SortS{}}("v")))"#)
+            );
+            assert_eq!(applied.pattern.constraints, Vec::new(), "{applied:#?}");
+        }
+    }
+}
