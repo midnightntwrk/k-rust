@@ -10,7 +10,8 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
-        TraceKind, Truth, predicates_truth, rewrite_step_with_options, substitute_predicates,
+        TraceKind, Truth, predicates_truth, rewrite_step_with_options, simplify_result_pattern,
+        substitute_predicates,
     },
     rule::Predicate,
     simplify::{
@@ -466,13 +467,21 @@ fn search_graph_using(
         let at_depth_bound = state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, state.depth)
             || (options.search_type == SearchType::Final && at_depth_bound);
-        if is_result
-            && push_unique(
-                &mut states,
-                materialize_search_state(state.clone(), observation_head, &observation_log),
-                options.max_results,
+        let result_bound_reached = is_result
+            && externalise_result(
+                definition,
+                state.clone(),
+                observation_head,
+                options.max_simplification_iterations,
+                solver,
+                &mut effects,
+                &mut observe,
+                &mut incomplete,
+                &mut observation_log,
+                observation,
             )
-        {
+            .is_some_and(|result| push_unique(&mut states, result, options.max_results));
+        if result_bound_reached {
             let truncated = !pending.is_empty()
                 || (options.search_type != SearchType::Final
                     && state_may_expand(definition, &state, options, &mut fresh_counter, solver));
@@ -502,14 +511,24 @@ fn search_graph_using(
         );
         match rewrite {
             RewriteResult::Stuck(pattern) => {
+                if options.search_type != SearchType::Final {
+                    continue;
+                }
                 state.pattern = pattern;
-                if options.search_type == SearchType::Final
-                    && push_unique(
-                        &mut states,
-                        materialize_search_state(state, observation_head, &observation_log),
-                        options.max_results,
-                    )
-                {
+                let result_bound_reached = externalise_result(
+                    definition,
+                    state,
+                    observation_head,
+                    options.max_simplification_iterations,
+                    solver,
+                    &mut effects,
+                    &mut observe,
+                    &mut incomplete,
+                    &mut observation_log,
+                    observation,
+                )
+                .is_some_and(|result| push_unique(&mut states, result, options.max_results));
+                if result_bound_reached {
                     if !pending.is_empty() {
                         incomplete.push(IncompleteSearch::ResultBound);
                     }
@@ -608,6 +627,58 @@ fn materialize_search_state(
 ) -> SearchState {
     (state.branch, state.observations) = observation_log.materialize(observation);
     state
+}
+
+/// Externalise a search result in the simplifier's normal form
+/// (`rewrite::simplify_leaf_pattern`), materializing its observations.
+///
+/// The work state that continues the search keeps its loop-head constraints as path knowledge;
+/// only the reported copy is simplified. `None` is a result whose constraints simplify to
+/// `\bottom`: an empty state is no result, as it is none at the loop head. A failed
+/// simplification reports the unsimplified state in `incomplete` instead of a result.
+#[allow(clippy::too_many_arguments)]
+fn externalise_result(
+    definition: &BackendDefinition,
+    mut state: SearchState,
+    mut observation: ObservationHead,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    effects: &mut Vec<BuiltinEffect>,
+    observe: &mut impl FnMut(&BuiltinEffect),
+    incomplete: &mut Vec<IncompleteSearch>,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> Option<SearchState> {
+    match simplify_result_pattern(
+        definition,
+        &state.pattern,
+        max_iterations,
+        solver,
+        state.depth,
+        &mut state.trace,
+        effects,
+        observe,
+        Some(&mut observation),
+        observation_log,
+        observation_options,
+    ) {
+        Ok(pattern) if predicates_truth(&pattern.constraints) == Truth::False => None,
+        Ok(pattern) => {
+            state.pattern = pattern;
+            Some(materialize_search_state(
+                state,
+                observation,
+                observation_log,
+            ))
+        }
+        Err(error) => {
+            incomplete.push(simplification_incomplete(
+                materialize_search_state(state, observation, observation_log),
+                error,
+            ));
+            None
+        }
+    }
 }
 
 fn next_search_work_state(
@@ -828,7 +899,17 @@ fn search_paths_using(
         let is_result = selects_reachable_state(options.search_type, path.state.depth)
             || (options.search_type == SearchType::Final && at_depth_bound);
         if is_result
-            && !retain_witness(&mut witnesses, &path, options.max_results, &observation_log)
+            && !retain_witness(
+                definition,
+                &mut witnesses,
+                &path,
+                options,
+                solver,
+                &mut effects,
+                &mut incomplete,
+                &mut observation_log,
+                observation,
+            )
         {
             incomplete.push(IncompleteSearch::ResultBound);
             break;
@@ -854,7 +935,17 @@ fn search_paths_using(
             RewriteResult::Stuck(pattern) => {
                 path.state.pattern = pattern;
                 if options.search_type == SearchType::Final
-                    && !retain_witness(&mut witnesses, &path, options.max_results, &observation_log)
+                    && !retain_witness(
+                        definition,
+                        &mut witnesses,
+                        &path,
+                        options,
+                        solver,
+                        &mut effects,
+                        &mut incomplete,
+                        &mut observation_log,
+                        observation,
+                    )
                 {
                     incomplete.push(IncompleteSearch::ResultBound);
                     break;
@@ -941,23 +1032,47 @@ impl PathSearchState {
 }
 
 /// Returns false only when this witness proves that the retained result bound truncates answers.
+///
+/// The witness is externalised in the simplifier's normal form (`externalise_result`); an
+/// empty witness is not retained and a failed simplification is reported as incomplete.
+#[allow(clippy::too_many_arguments)]
 fn retain_witness(
+    definition: &BackendDefinition,
     witnesses: &mut Vec<PathWitness>,
     path: &PathSearchState,
-    max_results: Option<usize>,
-    observation_log: &ObservationLog,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    effects: &mut Vec<BuiltinEffect>,
+    incomplete: &mut Vec<IncompleteSearch>,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
 ) -> bool {
-    if max_results.is_some_and(|limit| witnesses.len() >= limit) {
+    if options
+        .max_results
+        .is_some_and(|limit| witnesses.len() >= limit)
+    {
         return false;
     }
-    let (_, observations) = observation_log.materialize(path.observation);
-    witnesses.push(PathWitness {
-        id: path.id.clone(),
-        pattern: path.state.pattern.clone(),
-        depth: path.state.depth,
-        trace: path.state.trace.clone(),
-        observations,
-    });
+    if let Some(state) = externalise_result(
+        definition,
+        path.state.clone(),
+        path.observation,
+        options.max_simplification_iterations,
+        solver,
+        effects,
+        &mut |_| {},
+        incomplete,
+        observation_log,
+        observation_options,
+    ) {
+        witnesses.push(PathWitness {
+            id: path.id.clone(),
+            pattern: state.pattern,
+            depth: state.depth,
+            trace: state.trace,
+            observations: state.observations,
+        });
+    }
     true
 }
 
@@ -3273,5 +3388,68 @@ mod tests {
 
         assert_eq!(output, Substitution::from([(result_variable, value)]));
         assert!(constraints.is_empty());
+    }
+
+    /// `start() => wrap(f(partial("v")))` with `f(I) => I`: the loop head of the successor
+    /// applies the equation and carries `\ceil(partial("v"))`, which `wrap` (a total context)
+    /// entails. Every reported result is externalised in the simplifier's normal form, so
+    /// neither the state result nor the path witness carries the conjunct. The equation fires
+    /// inside the rewrite step's result simplification, and the externalisation applies
+    /// nothing, so the trace has no simplification entry.
+    fn discarded_operand_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module SEARCH
+                sort SortS{} [hasDomainValues{}()]
+                sort SortC{} []
+                symbol start{}() : SortC{} [constructor{}()]
+                symbol wrap{}(SortS{}) : SortC{} [constructor{}()]
+                symbol partial{}(SortS{}) : SortS{} [function{}()]
+                symbol f{}(SortS{}) : SortS{} [function{}(), total{}()]
+                axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                    f{}(I:SortS{}), \and{SortS{}}(I:SortS{}, \top{SortS{}}())
+                )) [label{}("identity"), simplification{}()]
+                axiom{} \rewrites{SortC{}}(
+                    \and{SortC{}}(start{}(), \top{SortC{}}()),
+                    wrap{}(f{}(partial{}(\dv{SortS{}}("v"))))
+                ) [label{}("step")]
+            endmodule []"#,
+        )
+        .expect("discarded-operand definition should parse");
+        BackendDefinition::internalize(&syntax, "SEARCH")
+            .expect("discarded-operand definition should internalize")
+    }
+
+    #[test]
+    fn final_results_are_externalised_in_the_simplifier_normal_form() {
+        let definition = discarded_operand_definition();
+        let options = SearchOptions {
+            search_type: SearchType::Final,
+            ..SearchOptions::default()
+        };
+        let expected = pattern(&definition, r#"wrap{}(partial{}(\dv{SortS{}}("v")))"#);
+        let simplification_ids = |trace: &[TraceEntry]| {
+            trace
+                .iter()
+                .filter(|entry| entry.kind == TraceKind::Simplification)
+                .map(|entry| entry.unique_id.clone())
+                .collect::<Vec<_>>()
+        };
+
+        let graph = search_graph(&definition, pattern(&definition, "start{}()"), options);
+        assert!(graph.incomplete.is_empty(), "{:?}", graph.incomplete);
+        let [state] = graph.states.as_slice() else {
+            panic!("expected one final state, found {:?}", graph.states);
+        };
+        assert_eq!(state.pattern, expected, "{state:#?}");
+        assert_eq!(simplification_ids(&state.trace), Vec::<String>::new());
+
+        let paths = search_paths(&definition, pattern(&definition, "start{}()"), options);
+        assert!(paths.incomplete.is_empty(), "{:?}", paths.incomplete);
+        let [witness] = paths.witnesses.as_slice() else {
+            panic!("expected one witness, found {:?}", paths.witnesses);
+        };
+        assert_eq!(witness.pattern, expected, "{witness:#?}");
+        assert_eq!(simplification_ids(&witness.trace), Vec::<String>::new());
     }
 }

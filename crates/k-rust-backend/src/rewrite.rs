@@ -24,14 +24,15 @@ use crate::{
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
         ConditionIndeterminacy, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, PatternSimplification,
-        RuleCondition, SimplificationError, SimplificationOptions, decide_condition,
+        RuleCondition, SimplificationError, SimplificationOptions,
+        binds_element_variable_to_set_pattern, decide_condition,
         simplify_pattern_details_with_solver, simplify_predicates_with_solver,
         simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution, substitute, substitution_binding},
     term::{
-        Sort, Symbol, SymbolType, Term, TermKind, Variable,
+        Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         names::{VariableProvenance, split_marker, with_fresh_counter},
     },
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
@@ -541,7 +542,19 @@ fn execute_using(
             }
         }
         if state.depth >= options.max_depth {
-            leaves.push(state.leaf(HaltReason::DepthBound, &observation_log));
+            let pattern = state.pattern.clone();
+            leaves.push(externalise_leaf(
+                definition,
+                state,
+                pattern,
+                HaltReason::DepthBound,
+                options.max_simplification_iterations,
+                solver,
+                &mut effects,
+                &mut observe,
+                &mut observation_log,
+                observation,
+            ));
             continue;
         }
         let rewritten = rewrite_step_with_mode(
@@ -555,28 +568,54 @@ fn execute_using(
         );
         finish_if_interrupted!();
         match rewritten {
-            RewriteResult::Stuck(pattern) => {
-                let (pattern, halt_reason) = deferred_initial_vacuity
-                    .map_or((pattern, HaltReason::Stuck), |pattern| {
-                        (pattern, HaltReason::Vacuous)
-                    });
-                leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log));
-            }
+            RewriteResult::Stuck(pattern) => match deferred_initial_vacuity {
+                Some(pattern) => leaves.push(state.leaf_with_pattern(
+                    pattern,
+                    HaltReason::Vacuous,
+                    &observation_log,
+                )),
+                None => leaves.push(externalise_leaf(
+                    definition,
+                    state,
+                    pattern,
+                    HaltReason::Stuck,
+                    options.max_simplification_iterations,
+                    solver,
+                    &mut effects,
+                    &mut observe,
+                    &mut observation_log,
+                    observation,
+                )),
+            },
             RewriteResult::Trivial(pattern) => {
                 leaves.push(state.leaf_with_pattern(pattern, HaltReason::Trivial, &observation_log))
             }
             RewriteResult::Vacuous(pattern) => {
                 leaves.push(state.leaf_with_pattern(pattern, HaltReason::Vacuous, &observation_log))
             }
-            RewriteResult::Indeterminate { pattern, reason } => {
-                let halt_reason = match reason {
-                    IndeterminateReason::Simplification { error, .. } => {
-                        HaltReason::Simplification(error)
-                    }
-                    reason => HaltReason::Indeterminate(reason),
-                };
-                leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log));
-            }
+            RewriteResult::Indeterminate { pattern, reason } => match reason {
+                // The simplifier already failed on this state; the leaf reports that failure
+                // and is not simplified again.
+                IndeterminateReason::Simplification { error, .. } => {
+                    leaves.push(state.leaf_with_pattern(
+                        pattern,
+                        HaltReason::Simplification(error),
+                        &observation_log,
+                    ));
+                }
+                reason => leaves.push(externalise_leaf(
+                    definition,
+                    state,
+                    pattern,
+                    HaltReason::Indeterminate(reason),
+                    options.max_simplification_iterations,
+                    solver,
+                    &mut effects,
+                    &mut observe,
+                    &mut observation_log,
+                    observation,
+                )),
+            },
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                 if let Some(rule) = selected_stop_rule(&applied, &options.cut_point_rules) {
@@ -1119,8 +1158,51 @@ fn record_effects(
     }
 }
 
+/// Simplify a pattern that leaves the rewriter, the search, or the prover into the one normal
+/// form of `simplify_pattern_details_with_solver`, recording the equations it applied as
+/// simplification trace entries at `depth`.
+///
+/// Every externalised pattern passes through this function, so a caller sees one normal form
+/// whichever path produced the pattern. The loop head merges the definedness obligations the
+/// term simplifier carries into the state's constraints and keeps them there: a state's
+/// constraints are also the path knowledge that discharges a later match obligation
+/// syntactically. Running the pattern-level passes here, on the way out only, is sound and
+/// loses nothing: `C[t] /\ \ceil(t) = C[t]` when `C` is a total context (application is
+/// strict), and a conjunct the other conjuncts and the definition's lemmas make valid is
+/// redundant in a conjunction. On a state the loop head has already simplified the result is
+/// the same pattern or a smaller constraint set, never a different term.
+pub(crate) fn simplify_leaf_pattern(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    depth: u64,
+    trace: &mut Vec<TraceEntry>,
+) -> Result<PatternSimplification, SimplificationError> {
+    let simplified = simplify_pattern_details_with_solver(
+        definition,
+        pattern,
+        SimplificationOptions::keep_partial(max_iterations),
+        solver,
+    )?;
+    trace.extend(
+        simplified
+            .applied_rules
+            .iter()
+            .cloned()
+            .map(|unique_id| TraceEntry {
+                depth,
+                kind: TraceKind::Simplification,
+                label: None,
+                unique_id,
+            }),
+    );
+    Ok(simplified)
+}
+
+/// `simplify_leaf_pattern` plus the observation and effect bookkeeping of an execution.
 #[allow(clippy::too_many_arguments)]
-fn simplify_result_pattern(
+pub(crate) fn simplify_result_pattern(
     definition: &BackendDefinition,
     pattern: &Pattern,
     max_iterations: usize,
@@ -1138,12 +1220,7 @@ fn simplify_result_pattern(
         pattern,
         applied_rules,
         effects: simplified_effects,
-    } = simplify_pattern_details_with_solver(
-        definition,
-        pattern,
-        SimplificationOptions::keep_partial(max_iterations),
-        solver,
-    )?;
+    } = simplify_leaf_pattern(definition, pattern, max_iterations, solver, depth, trace)?;
     if let Some(observation) = observation {
         *observation = observation_log.append_simplification(
             *observation,
@@ -1155,14 +1232,54 @@ fn simplify_result_pattern(
             observation_options,
         );
     }
-    trace.extend(applied_rules.into_iter().map(|unique_id| TraceEntry {
-        depth,
-        kind: TraceKind::Simplification,
-        label: None,
-        unique_id,
-    }));
     record_effects(effects, simplified_effects, observe);
     Ok(pattern)
+}
+
+/// Externalise a `Stuck`, `DepthBound`, or `Indeterminate` leaf in the simplifier's normal
+/// form (`simplify_leaf_pattern`).
+///
+/// A constraint set that simplifies to `\bottom` makes the leaf `Trivial`, as it does for a
+/// cut-point payload. When the simplification fails, an `Indeterminate` leaf keeps its pattern
+/// and its reason, which already names why the state could not progress; any other leaf
+/// reports the failure, as the cut-point and terminal payloads do.
+#[allow(clippy::too_many_arguments)]
+fn externalise_leaf(
+    definition: &BackendDefinition,
+    mut state: ExecutionState,
+    pattern: Pattern,
+    halt_reason: HaltReason,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    effects: &mut Vec<BuiltinEffect>,
+    observe: &mut impl FnMut(&BuiltinEffect),
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> ExecutionLeaf {
+    match simplify_result_pattern(
+        definition,
+        &pattern,
+        max_iterations,
+        solver,
+        state.depth,
+        &mut state.trace,
+        effects,
+        observe,
+        Some(&mut state.observation),
+        observation_log,
+        observation_options,
+    ) {
+        Ok(pattern) if predicates_truth(&pattern.constraints) == Truth::False => {
+            state.leaf_with_pattern(pattern, HaltReason::Trivial, observation_log)
+        }
+        Ok(pattern) => state.leaf_with_pattern(pattern, halt_reason, observation_log),
+        Err(_) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {
+            state.leaf_with_pattern(pattern, halt_reason, observation_log)
+        }
+        Err(error) => {
+            state.leaf_with_pattern(pattern, HaltReason::Simplification(error), observation_log)
+        }
+    }
 }
 
 fn next_state(
@@ -2166,7 +2283,9 @@ fn is_functional_pattern(term: &Term) -> bool {
             elements.iter().all(is_functional_pattern)
                 && rest.as_ref().is_none_or(is_functional_pattern)
         }
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
+        TermKind::DomainValue { .. } => true,
+        // An element variable denotes one element; a set variable denotes an arbitrary pattern.
+        TermKind::Variable(variable) => variable.kind == VariableKind::Element,
         TermKind::Injection { term, .. } => is_functional_pattern(term),
         TermKind::And(..) => false,
     }
@@ -2612,6 +2731,17 @@ fn apply_rule_with_match(
         }
         MatchResult::Success(substitution) => (substitution, Vec::new()),
     };
+    // A rule over an element variable `I` is an axiom for every element; instantiating it at a
+    // pattern that contains a set variable is justified only when the rule is linear in `I`
+    // (`simplify::binds_element_variable_to_set_pattern`). The attempt stays indeterminate so
+    // that no lower-priority rule fires in its place.
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return RuleAttempt::Indeterminate(IndeterminateReason::Match {
+            rule_id: rule.attributes.unique_id.clone(),
+            substitution,
+            remainder: Vec::new(),
+        });
+    }
     let configuration_bindings = substitution
         .iter()
         .filter(|(variable, _)| !rule.lhs.attributes().variables.contains(*variable))
@@ -2776,7 +2906,12 @@ fn apply_rule_with_match(
         match decide_condition(&unclear_requires, &match_knowledge, solver) {
             Ok(RuleCondition::Satisfied) => unclear_requires.clear(),
             Ok(RuleCondition::Refuted) => return RuleAttempt::NotApplicable,
-            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::ImplicationIndeterminate)) => {}
+            // `NonFunctionalBinding` is raised at a binding site, never by `decide_condition`;
+            // it is listed for exhaustiveness and would be carried like an open implication.
+            Ok(RuleCondition::Indeterminate(
+                ConditionIndeterminacy::ImplicationIndeterminate
+                | ConditionIndeterminacy::NonFunctionalBinding,
+            )) => {}
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::NoSolver)) => {
                 return RuleAttempt::Indeterminate(IndeterminateReason::Requires {
                     rule_id: rule.attributes.unique_id.clone(),
@@ -2793,6 +2928,12 @@ fn apply_rule_with_match(
                 return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
                     rule_id: rule.attributes.unique_id.clone(),
                     error: SmtError::Unknown(reason),
+                });
+            }
+            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::Untranslatable(error))) => {
+                return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    error: SmtError::Translation(error),
                 });
             }
             Err(error) => {
@@ -2892,6 +3033,75 @@ enum RhsAlternativeAttempt {
     Indeterminate(IndeterminateReason),
 }
 
+/// The step's verdict on the definedness obligations of a rule instance's right-hand side.
+enum ObligationVerdict {
+    /// The obligations hold under the rule instance's knowledge.
+    Discharged,
+    /// The rule instance is empty: the step is trivial on the pre-step pattern.
+    Trivial,
+    /// The obligations are open and become constraints of the successor.
+    Carried,
+}
+
+/// Map `decide_condition` on the RHS obligations to the step's verdict. The obligations are
+/// decided under the rule instance's knowledge (path condition, match conditions, unclear
+/// `requires`, and RHS constraints), so an inconsistent ground truth means the instance is
+/// empty, as a refutation does. Every other undecided verdict, a solver failure included,
+/// carries the obligations: `\ceil` of the successor is a conjunct of the successor by
+/// definition. No diagnostic is emitted, as none was before.
+fn rhs_obligation_verdict(condition: Result<RuleCondition, SmtError>) -> ObligationVerdict {
+    match condition {
+        Ok(RuleCondition::Satisfied) => ObligationVerdict::Discharged,
+        Ok(
+            RuleCondition::Refuted
+            | RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition),
+        ) => ObligationVerdict::Trivial,
+        Ok(RuleCondition::Indeterminate(_)) | Err(_) => ObligationVerdict::Carried,
+    }
+}
+
+/// The step's verdict on the `ensures` of a rule instance.
+enum EnsuresStepVerdict {
+    /// The `ensures` holds under the rule instance's knowledge and is dropped.
+    Cleared,
+    /// The rule instance is empty: the step is trivial on the pre-step pattern.
+    Trivial,
+    /// The `ensures` is open and stays a constraint of the successor.
+    Carried,
+    /// The solver was asked and did not answer, or could not pose the query: the step is an
+    /// `IndeterminateReason::Smt` leaf naming the error.
+    Indeterminate(SmtError),
+}
+
+/// Map `decide_condition` on the `ensures` to the step's verdict. As for the RHS obligations,
+/// an inconsistent ground truth under the rule instance's knowledge means the instance is
+/// empty. An open implication or a missing solver carries the `ensures`; a solver that did
+/// not answer, could not pose the query, or failed makes the step indeterminate. No
+/// diagnostic is emitted, as none was before.
+fn rhs_ensures_verdict(condition: Result<RuleCondition, SmtError>) -> EnsuresStepVerdict {
+    match condition {
+        Ok(RuleCondition::Satisfied) => EnsuresStepVerdict::Cleared,
+        Ok(
+            RuleCondition::Refuted
+            | RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition),
+        ) => EnsuresStepVerdict::Trivial,
+        // `NonFunctionalBinding` is raised at a binding site, never by `decide_condition`; it
+        // is listed for exhaustiveness and would be carried like an open implication.
+        Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::ImplicationIndeterminate
+            | ConditionIndeterminacy::NoSolver
+            | ConditionIndeterminacy::NonFunctionalBinding,
+        )) => EnsuresStepVerdict::Carried,
+        Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(reason))) => {
+            EnsuresStepVerdict::Indeterminate(SmtError::Unknown(reason))
+        }
+        Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::Untranslatable(error))) => {
+            EnsuresStepVerdict::Indeterminate(SmtError::Translation(error))
+        }
+        Err(error) => EnsuresStepVerdict::Indeterminate(error),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_rhs_alternative(
     definition: &BackendDefinition,
@@ -2950,22 +3160,10 @@ fn apply_rhs_alternative(
                 ));
             }
         };
-        match predicates_truth(&obligations) {
-            Truth::True => {}
-            Truth::False => return RhsAlternativeAttempt::Trivial,
-            Truth::Unknown => match solver.check_predicates(
-                &condition_knowledge,
-                &Substitution::new(),
-                &obligations,
-            ) {
-                Ok(Validity::Valid) => {}
-                Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                    return RhsAlternativeAttempt::Trivial;
-                }
-                Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => {
-                    extend_unique(&mut rhs_constraints, obligations);
-                }
-            },
+        match rhs_obligation_verdict(decide_condition(&obligations, &condition_knowledge, solver)) {
+            ObligationVerdict::Discharged => {}
+            ObligationVerdict::Trivial => return RhsAlternativeAttempt::Trivial,
+            ObligationVerdict::Carried => extend_unique(&mut rhs_constraints, obligations),
         }
     }
     let ensures = substitute_predicates(
@@ -2987,29 +3185,15 @@ fn apply_rhs_alternative(
             ));
         }
     };
-    match predicates_truth(&ensures) {
-        Truth::False => return RhsAlternativeAttempt::Trivial,
-        Truth::True => {}
-        Truth::Unknown => {
-            match solver.check_predicates(&condition_knowledge, &Substitution::new(), &ensures) {
-                Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                    return RhsAlternativeAttempt::Trivial;
-                }
-                Ok(Validity::Valid) => ensures.clear(),
-                Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {}
-                Ok(Validity::Unknown(reason)) => {
-                    return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
-                        rule_id: rule.attributes.unique_id.clone(),
-                        error: SmtError::Unknown(reason),
-                    });
-                }
-                Err(error) => {
-                    return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
-                        rule_id: rule.attributes.unique_id.clone(),
-                        error,
-                    });
-                }
-            }
+    match rhs_ensures_verdict(decide_condition(&ensures, &condition_knowledge, solver)) {
+        EnsuresStepVerdict::Cleared => ensures.clear(),
+        EnsuresStepVerdict::Trivial => return RhsAlternativeAttempt::Trivial,
+        EnsuresStepVerdict::Carried => {}
+        EnsuresStepVerdict::Indeterminate(error) => {
+            return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
+                rule_id: rule.attributes.unique_id.clone(),
+                error,
+            });
         }
     }
     let alias_variables = term_alias_variables(&rule.lhs);
@@ -4355,6 +4539,32 @@ mod tests {
 
         assert_eq!(&predicates[..20], original);
         assert_eq!(predicates[20], Predicate::True);
+    }
+
+    #[test]
+    fn set_variables_are_not_functional_patterns() {
+        let sort = Sort::simple("SortS");
+        let element = Term::variable(Variable::new("X", sort.clone()));
+        let set = Term::variable(Variable::set("Y", sort.clone()));
+        let pair = |left: Term, right: Term| {
+            Term::application(
+                std::sync::Arc::new(Symbol::constructor(
+                    "pair",
+                    vec![sort.clone(), sort.clone()],
+                    sort.clone(),
+                )),
+                Vec::new(),
+                vec![left, right],
+            )
+        };
+
+        assert!(is_functional_pattern(&element));
+        assert!(is_functional_pattern(&pair(
+            element.clone(),
+            element.clone()
+        )));
+        assert!(!is_functional_pattern(&set));
+        assert!(!is_functional_pattern(&pair(element, set)));
     }
 
     #[test]

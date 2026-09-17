@@ -43,11 +43,6 @@ decided_by = "docs/compatibility.md#reference-evidence"
 meaning = "Both toolchains reject the input; differing diagnostic presentation is not semantic."
 
 [[category]]
-id = "presentation-only"
-decided_by = "docs/compatibility.md#comparison-contract"
-meaning = "The compared text differs while the represented result is semantically equal."
-
-[[category]]
 id = "stale-oracle"
 decided_by = "docs/compatibility.md#reference-evidence"
 meaning = "The checked-in output was not reproduced by the pinned reference toolchain."
@@ -276,7 +271,7 @@ reason = "The accepted whole-case compile measurement matches. Earlier investiga
 name = "concrete-function"
 accepted_verdict = "match"
 accepted_stage = "kprove"
-accepted_basis = "Pinned compilation verification/comparison, the 3.a krun text, and both kprove verdicts (a1-spec.k not-proven, a2-spec.k proven) match; the 1.a and 2.a krun texts differ (krust prints `#Ceil ( inc ( sym2 ( ?X ) ) ) #And <k> inc ( sym2 ( ?X ) ) ~> .K </k>` where the reference keeps `foo ( inc ( sym2 ( ?X ) ) )` unevaluated because the argument's definedness is open) and match under C8 (simplified_kore_equal): the reference --output kore result and the krust result are byte-identical after krust kore-simplify, which applies `foo(I) => I` under the ceil obligation and drops the obligation the constructor context entails; the reference re-run reproduces both .out files."
+accepted_basis = "Pinned compilation verification/comparison, the 3.a krun text, and both kprove verdicts (a1-spec.k not-proven, a2-spec.k proven) match; the 1.a and 2.a krun texts differ (krust prints `<k> inc ( sym2 ( ?X ) ) ~> .K </k>` and `<k> sym2 ( 222 ) +Num 1 ~> .K </k>` where the reference keeps `foo ( ... )` unevaluated because the argument's definedness is open) and match under C8 (simplified_kore_equal): the reference --output kore result and the krust result are byte-identical after krust kore-simplify, which applies `foo(I) => I` under the ceil obligation and drops the obligation the constructor context entails; the krust krun result is already in that normal form (the rewriter externalises every leaf through the pattern simplifier); the reference re-run reproduces both .out files."
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 exclusion = ""

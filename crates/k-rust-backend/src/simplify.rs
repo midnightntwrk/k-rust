@@ -28,9 +28,9 @@ use crate::{
         retain_substitution_predicates, substitute_predicates, violates_finite_constructor_domain,
     },
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
-    smt::{NoSolver, SmtError, SmtSolver, Validity},
+    smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
-    term::{FunctionType, Sort, SymbolType, Term, TermKind, VariableKind},
+    term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -608,6 +608,13 @@ pub enum ConditionIndeterminacy {
     ImplicationIndeterminate,
     SmtUnknown(String),
     InconsistentPathCondition,
+    /// The SMT encoding could not pose the query. The limit belongs to the encoding, not to
+    /// the pattern: the predicates are still constraints, and the verdict is open.
+    Untranslatable(TranslationError),
+    /// The match binds an element variable to a pattern that contains a set variable, so the
+    /// binding is not known to be functional and the equation's instance is not justified;
+    /// see `binds_element_variable_to_set_pattern`.
+    NonFunctionalBinding,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -676,9 +683,11 @@ fn decide_rule_condition(
 ///
 /// Syntactic truth and membership in `known_predicates` are decided without the solver. The
 /// solver answers the rest within the timeout and retry bounds it was created with; the
-/// `Indeterminate` verdict names why it did not decide, and `Err` reports a query that could not
-/// be posed. The rewriter's `requires` check, standalone predicate simplification, and the
-/// residual-constraint discharge of pattern simplification all share this decision.
+/// `Indeterminate` verdict names why it did not decide, including a query the SMT encoding
+/// could not pose, which leaves the predicates as open constraints. `Err` reports a solver
+/// failure other than those. The rewriter's `requires` check, standalone predicate
+/// simplification, and the residual-constraint discharge of pattern simplification all share
+/// this decision.
 pub(crate) fn decide_condition(
     predicates: &[Predicate],
     known_predicates: &[Predicate],
@@ -710,16 +719,22 @@ pub(crate) fn decide_condition(
         Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
             ConditionIndeterminacy::NoSolver,
         )),
+        Err(SmtError::Translation(error)) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::Untranslatable(error),
+        )),
         Err(error) => Err(error),
     }
 }
 
-/// Whether an indeterminate verdict came from a solver that was asked and did not answer, as
-/// opposed to a missing solver or an implication that is genuinely open.
+/// Whether an indeterminate verdict came from a solver that was asked and did not answer,
+/// including a query its encoding could not pose, as opposed to a missing solver or an
+/// implication that is genuinely open.
 fn solver_could_not_answer(reason: &ConditionIndeterminacy) -> bool {
     matches!(
         reason,
-        ConditionIndeterminacy::InconsistentPathCondition | ConditionIndeterminacy::SmtUnknown(_)
+        ConditionIndeterminacy::InconsistentPathCondition
+            | ConditionIndeterminacy::SmtUnknown(_)
+            | ConditionIndeterminacy::Untranslatable(_)
     )
 }
 
@@ -833,14 +848,45 @@ fn simplify_predicate_with_budget(
             )
         }
         Predicate::Equals(left, right) => {
-            let left = simplify_term(left)?;
-            let right = simplify_term(right)?;
-            let mut constraints = left.constraints;
-            constraints.extend(right.constraints);
-            let equality = normalize_hooked_boolean_predicate(
-                definition,
-                Predicate::Equals(left.term, right.term),
-            );
+            let simplified_left = simplify_term(left)?;
+            let simplified_right = simplify_term(right)?;
+            // A side rewritten to `C /\ l'` is used, with `C` conjoined, only when the other
+            // side is provably defined: `\equals(C /\ l', r)` is `C /\ \equals(l', r)` when
+            // `r` is not empty and `\not \ceil(r)` when `C` fails and `r` is empty, since
+            // `\equals(\bottom, \bottom)` is `\top`. The other side is witnessed by its own
+            // rewritten term when that carried no constraint (the two are equal) and by its
+            // original term otherwise. A side that fails the check stays as it was.
+            let provably_defined = |term: &Term| {
+                term_is_provably_defined(definition, term, |obligation| {
+                    assumptions.contains(obligation)
+                })
+            };
+            let witness = |original: &'_ Term, simplified: &'_ Simplification| -> Term {
+                if simplified.constraints.is_empty() {
+                    simplified.term.clone()
+                } else {
+                    original.clone()
+                }
+            };
+            let use_left = simplified_left.constraints.is_empty()
+                || provably_defined(&witness(right, &simplified_right));
+            let use_right = simplified_right.constraints.is_empty()
+                || provably_defined(&witness(left, &simplified_left));
+            let mut constraints = Vec::new();
+            let left = if use_left {
+                constraints.extend(simplified_left.constraints);
+                simplified_left.term
+            } else {
+                left.clone()
+            };
+            let right = if use_right {
+                constraints.extend(simplified_right.constraints);
+                simplified_right.term
+            } else {
+                right.clone()
+            };
+            let equality =
+                normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right));
             let equality = normalize_injection_equality(definition, equality);
             with_simplification_constraints(constraints, equality)
         }
@@ -854,17 +900,40 @@ fn simplify_predicate_with_budget(
             if expanded.as_slice() == [unchanged.clone()] {
                 with_simplification_constraints(simplified.constraints, unchanged)
             } else {
+                // The expansion supplies the definedness of the subterms as sibling conjuncts,
+                // and a conditional ceil equation on the parent is decided under them only by
+                // a further pass over the conjunction. Take that pass here, so that an entry
+                // without a surrounding conjunction fixed point reaches the equation too.
                 let mut constraints = simplified.constraints;
                 constraints.extend(expanded);
-                Predicate::And(constraints)
+                let conjunction = Predicate::And(constraints);
+                if *remaining == 0 {
+                    return Err(SimplificationError::PredicateIterationLimit {
+                        limit,
+                        predicate: conjunction,
+                    });
+                }
+                *remaining -= 1;
+                return simplify_predicate_with_budget(
+                    definition,
+                    &conjunction,
+                    assumptions,
+                    limit,
+                    remaining,
+                    active_conditions,
+                    solver,
+                );
             }
         }
         Predicate::Floor(term) => {
             let simplified = simplify_term(term)?;
-            with_simplification_constraints(
-                simplified.constraints,
-                Predicate::Floor(simplified.term),
-            )
+            // `\floor(C /\ t')` is `\not C \/ \floor(t')`, not `C /\ \floor(t')`, because
+            // `\floor(\bottom)` is `\top`; a rewrite that carries constraints is not used.
+            if simplified.constraints.is_empty() {
+                Predicate::Floor(simplified.term)
+            } else {
+                Predicate::Floor(term.clone())
+            }
         }
         Predicate::In(left, right) => {
             let left = simplify_term(left)?;
@@ -1042,6 +1111,12 @@ fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predi
     }
 }
 
+/// Conjoin the constraints `C` a term simplification `t = C /\ t'` carried to the predicate
+/// `p[t']` built from its rewritten term. The result equals `p[t]` only when `p` is strict in
+/// that operand (`p[\bottom]` is `\bottom`), so that `p[C /\ t']` is `C /\ p[t']`: the `Term`,
+/// `\ceil`, and `\in` arms of `simplify_predicate_with_budget` are strict and call this
+/// unconditionally; the `\equals` arm calls it only for a side whose other side is provably
+/// defined (`term_is_provably_defined`), and the `\floor` arm never does.
 fn with_simplification_constraints(
     mut constraints: Vec<Predicate>,
     predicate: Predicate,
@@ -1126,14 +1201,18 @@ fn apply_ceil_equation(
     {
         return Ok(EquationAttempt::NotApplicable);
     }
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
+    }
 
-    let requires =
-        equation_match_conditions(definition, &rule.requires, &substitution).into_conjuncts();
+    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
         Some(term),
-        requires,
+        conditions.requires,
         known_predicates,
         options,
         active_conditions,
@@ -1149,8 +1228,27 @@ fn apply_ceil_equation(
     let RuleRhs::Predicates(rhs) = &rule.rhs else {
         return Ok(EquationAttempt::NotApplicable);
     };
+    // The subject `\ceil(f(t))` is strict in every term `t` bound to an element variable:
+    // `\ceil(\bottom)` is `\bottom`. So `\ceil(f(t)) = \ceil(t) /\ q[t]` under the equation
+    // `\ceil(f(X)) = q[X]`, an open obligation is conjoined to the result and a refuted one
+    // makes the subject `\bottom`.
+    let mut result = substitute_predicates(rhs, &substitution);
+    match decide_definedness(
+        definition,
+        &rule.attributes.unique_id,
+        Some(term),
+        conditions.definedness,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )? {
+        DefinednessVerdict::Discharged => {}
+        DefinednessVerdict::Open(obligations) => result.extend(obligations),
+        DefinednessVerdict::Refuted => return Ok(EquationAttempt::Applied(Predicate::False)),
+    }
     Ok(EquationAttempt::Applied(normalize_predicate(
-        Predicate::And(substitute_predicates(rhs, &substitution)),
+        Predicate::And(result),
     )))
 }
 
@@ -1200,13 +1298,17 @@ fn apply_predicate_equation(
         }
         PredicateMatch::Success(substitution) => substitution,
     };
-    let requires =
-        equation_match_conditions(definition, &rule.requires, &substitution).into_conjuncts();
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
+    }
+    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
         first_predicate_term(predicate),
-        requires,
+        conditions.requires,
         known_predicates,
         options,
         active_conditions,
@@ -1218,10 +1320,181 @@ fn apply_predicate_equation(
             return Ok(EquationAttempt::Indeterminate(reason));
         }
     }
-    let rhs = substitute_predicates(&rule.rhs, &substitution);
+    let mut result = substitute_predicates(&rule.rhs, &substitution);
+    // The equation `p[X] = q[X] requires R[X]` is an axiom over every element `X`, and the
+    // subject `p[t]` equals `\ceil(t) /\ q[t]` only when `p` is strict in `X`, that is
+    // `p[\bottom]` is `\bottom`: a functional `t` is either empty, where the strict `p[t]` and
+    // `\ceil(t)` are both `\bottom`, or one element, where the axiom applies. A predicate is
+    // not strict in general: `\equals(\bottom, \bottom)`, `\floor(\bottom)`, and
+    // `\not(\bottom)` are `\top`, so `{f(X) #Equals g(X)} = \top` on `{f(t) #Equals g(t)}`
+    // with `t` empty has the subject `\top` where the conjoined form would be `\bottom`. An
+    // open or refuted obligation is therefore used only when `p` is strict in every element
+    // variable whose binding raised it (`strict_variables`); otherwise the attempt stays
+    // indeterminate on an open obligation and does not apply on a refuted one.
+    let obligated = obligated_variables(definition, &substitution, &conditions.definedness);
+    match decide_definedness(
+        definition,
+        &rule.attributes.unique_id,
+        first_predicate_term(predicate),
+        conditions.definedness,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )? {
+        DefinednessVerdict::Discharged => {}
+        DefinednessVerdict::Open(obligations) => {
+            let strict = strict_variables(definition, &rule.lhs, &substitution, known_predicates);
+            if !obligated.is_subset(&strict) {
+                return Ok(EquationAttempt::Indeterminate(
+                    ConditionIndeterminacy::ImplicationIndeterminate,
+                ));
+            }
+            result.extend(obligations);
+        }
+        DefinednessVerdict::Refuted => {
+            let strict = strict_variables(definition, &rule.lhs, &substitution, known_predicates);
+            if !obligated.is_subset(&strict) {
+                return Ok(EquationAttempt::NotApplicable);
+            }
+            return Ok(EquationAttempt::Applied(Predicate::False));
+        }
+    }
     Ok(EquationAttempt::Applied(normalize_predicate(
-        Predicate::And(rhs),
+        Predicate::And(result),
     )))
+}
+
+/// The element variables of `substitution` whose binding raised one of the obligations in
+/// `definedness` (`EquationConditions::definedness`): those bound to a term that may be empty
+/// under the path condition.
+fn obligated_variables(
+    definition: &BackendDefinition,
+    substitution: &Substitution,
+    definedness: &[Predicate],
+) -> BTreeSet<Variable> {
+    substitution
+        .iter()
+        .filter(|(variable, value)| {
+            variable.kind == VariableKind::Element
+                && ceil_term(definition, value)
+                    .iter()
+                    .any(|obligation| definedness.contains(obligation))
+        })
+        .map(|(variable, _)| variable.clone())
+        .collect()
+}
+
+/// The variables of a predicate-equation left-hand side `lhs` in which `lhs` is strict under
+/// the match `substitution`: those `X` with `lhs[X := \bottom]` equal to `\bottom`.
+///
+/// The set is a conservative under-approximation. A term is strict in every variable it
+/// contains (applications, injections, collections, and `\and` are strict), so `\ceil` and
+/// `\in` are strict in the variables of their operands, and `\equals(l, r)` is strict in the
+/// variables of `l` when the instantiated `r` is provably defined, because
+/// `\equals(\bottom, r)` is `\bottom` exactly when `r` is not empty, and symmetrically. A
+/// conjunction is strict in the variables of any conjunct, a disjunction in the variables of
+/// every disjunct. Every other shape is taken as strict in nothing: `\not`, `\floor`, and the
+/// implications are not strict, and a term used as a predicate is left out for conservatism.
+fn strict_variables(
+    definition: &BackendDefinition,
+    lhs: &Predicate,
+    substitution: &Substitution,
+    known_predicates: &[Predicate],
+) -> BTreeSet<Variable> {
+    let provably_defined = |side: &Term| {
+        term_is_provably_defined(definition, &substitute(side, substitution), |obligation| {
+            known_predicates.contains(obligation)
+        })
+    };
+    match lhs {
+        Predicate::Ceil(term) => term.attributes().variables.clone(),
+        Predicate::In(left, right) => left
+            .attributes()
+            .variables
+            .union(&right.attributes().variables)
+            .cloned()
+            .collect(),
+        Predicate::Equals(left, right) => {
+            let mut strict = BTreeSet::new();
+            if provably_defined(right) {
+                strict.extend(left.attributes().variables.iter().cloned());
+            }
+            if provably_defined(left) {
+                strict.extend(right.attributes().variables.iter().cloned());
+            }
+            strict
+        }
+        Predicate::And(inner) => inner
+            .iter()
+            .flat_map(|predicate| {
+                strict_variables(definition, predicate, substitution, known_predicates)
+            })
+            .collect(),
+        Predicate::Or(inner) => {
+            let mut strict = inner
+                .iter()
+                .map(|predicate| {
+                    strict_variables(definition, predicate, substitution, known_predicates)
+                })
+                .collect::<Vec<_>>();
+            let Some(mut intersection) = strict.pop() else {
+                return BTreeSet::new();
+            };
+            for other in strict {
+                intersection = intersection.intersection(&other).cloned().collect();
+            }
+            intersection
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Floor(_)
+        | Predicate::Not(_)
+        | Predicate::Implies(..)
+        | Predicate::Iff(..)
+        | Predicate::Exists(..)
+        | Predicate::Forall(..) => BTreeSet::new(),
+    }
+}
+
+/// Whether `term` is provably defined under the path condition: every obligation `ceil_term`
+/// derives for it is `known`. `ceil_term` derives nothing for a term built from constructors,
+/// total symbols, domain values, and element variables. A term-level `\and` is the
+/// intersection of its operands and has no definedness witness of its own (`Y /\ Z` over two
+/// element variables is empty unless `Y = Z`), while `ceil_term` only collects its operands'
+/// obligations, so a term that contains one anywhere is never provably defined here.
+fn term_is_provably_defined(
+    definition: &BackendDefinition,
+    term: &Term,
+    known: impl Fn(&Predicate) -> bool,
+) -> bool {
+    !contains_term_conjunction(term) && ceil_term(definition, term).iter().all(known)
+}
+
+/// Whether `term` contains a term-level `\and` anywhere.
+fn contains_term_conjunction(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::And(..) => true,
+        TermKind::Application { arguments, .. } => arguments.iter().any(contains_term_conjunction),
+        TermKind::Injection { term, .. } => contains_term_conjunction(term),
+        TermKind::Map { entries, rest, .. } => {
+            entries.iter().any(|(key, value)| {
+                contains_term_conjunction(key) || contains_term_conjunction(value)
+            }) || rest.as_ref().is_some_and(contains_term_conjunction)
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().any(contains_term_conjunction)
+                || rest.as_ref().is_some_and(|(middle, tails)| {
+                    contains_term_conjunction(middle) || tails.iter().any(contains_term_conjunction)
+                })
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(contains_term_conjunction)
+                || rest.as_ref().is_some_and(contains_term_conjunction)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
+    }
 }
 
 enum PredicateMatch {
@@ -1828,7 +2101,7 @@ fn matches_top_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Option<String>, SimplificationError> {
+) -> Result<Option<(String, Vec<Predicate>)>, SimplificationError> {
     for rules in applicable_groups(&definition.simplification_theory, &term_index(term)).values() {
         for rule in rules {
             if !matches!(rule.rhs, RuleRhs::Top) {
@@ -1860,17 +2133,19 @@ fn matches_top_equation(
                 .keys()
                 .any(|variable| !rule.lhs.attributes().variables.contains(variable))
                 || check_concreteness(rule, &substitution).is_some()
+                // A non-functional binding leaves the equation undecided; this path has no
+                // indeterminate channel and passes over it as it does an undecided `requires`.
+                || binds_element_variable_to_set_pattern(&substitution)
             {
                 continue;
             }
-            let requires = equation_match_conditions(definition, &rule.requires, &substitution)
-                .into_conjuncts();
-            if matches!(
+            let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
+            if !matches!(
                 evaluate_rule_condition(
                     definition,
                     &rule.attributes.unique_id,
                     Some(term),
-                    requires,
+                    conditions.requires,
                     known_predicates,
                     options,
                     active_conditions,
@@ -1878,8 +2153,27 @@ fn matches_top_equation(
                 )?,
                 RuleCondition::Satisfied
             ) {
-                return Ok(Some(rule.attributes.unique_id.clone()));
+                continue;
             }
+            // The operand `f(t)` of a term-level `\and` is strict in every `t` bound to an
+            // element variable, so `u /\ f(t) = u /\ \ceil(t)` under `f(X) = \top`: an open
+            // obligation becomes a constraint of the conjunction and a refuted one makes it
+            // `\bottom`.
+            let constraints = match decide_definedness(
+                definition,
+                &rule.attributes.unique_id,
+                Some(term),
+                conditions.definedness,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )? {
+                DefinednessVerdict::Discharged => Vec::new(),
+                DefinednessVerdict::Open(obligations) => obligations,
+                DefinednessVerdict::Refuted => vec![Predicate::False],
+            };
+            return Ok(Some((rule.attributes.unique_id.clone(), constraints)));
         }
     }
     Ok(None)
@@ -1938,18 +2232,20 @@ fn simplify_children(
                 solver,
             )?;
             match (left_top, right_top) {
-                (Some(rule_id), None) => {
+                (Some((rule_id, obligations)), None) => {
                     let retained = child(right)?;
                     applied_rules.push(rule_id);
+                    constraints.extend(obligations);
                     retained
                 }
-                (None, Some(rule_id)) => {
+                (None, Some((rule_id, obligations))) => {
                     let retained = child(left)?;
                     applied_rules.push(rule_id);
+                    constraints.extend(obligations);
                     retained
                 }
                 (None, None) => Term::and(child(left)?, child(right)?),
-                (Some(rule_id), Some(_)) => {
+                (Some((rule_id, _)), Some(_)) => {
                     return Err(SimplificationError::TopEquationOutsideConjunction { rule_id });
                 }
             }
@@ -2279,18 +2575,77 @@ struct EquationConditions {
     definedness: Vec<Predicate>,
 }
 
-impl EquationConditions {
-    /// Both condition kinds as one conjunction, for equations that rewrite a predicate and
-    /// therefore have no separate constraint channel.
-    fn into_conjuncts(self) -> Vec<Predicate> {
-        let mut conditions = self.requires;
-        for predicate in self.definedness {
-            if !conditions.contains(&predicate) {
-                conditions.push(predicate);
-            }
-        }
-        conditions
+/// The verdict on `EquationConditions::definedness` under the path condition.
+enum DefinednessVerdict {
+    /// Every obligation holds: the bound terms are defined.
+    Discharged,
+    /// The residual obligations the path condition does not decide; the equation's caller
+    /// carries them, because they keep the `\ceil(t)` factor of the instance explicit.
+    Open(Vec<Predicate>),
+    /// An obligation is refuted: a bound term is empty under the path condition.
+    Refuted,
+}
+
+/// Decide the definedness obligations of an equation's element-variable bindings, after the
+/// equation's own `requires` has been decided separately. The obligations are simplified under
+/// the path condition first, keyed by `anchor` against re-entry as `evaluate_rule_condition`
+/// does, and a verdict the solver could not reach is reported as a diagnostic of `rule_id`.
+#[allow(clippy::too_many_arguments)]
+fn decide_definedness(
+    definition: &BackendDefinition,
+    rule_id: &str,
+    anchor: Option<&Term>,
+    definedness: Vec<Predicate>,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Result<DefinednessVerdict, SimplificationError> {
+    if definedness.is_empty() {
+        return Ok(DefinednessVerdict::Discharged);
     }
+    let definedness = if let Some(anchor) = anchor {
+        simplify_rule_predicates(
+            definition,
+            (rule_id, anchor),
+            &definedness,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )
+        .unwrap_or(definedness)
+    } else {
+        definedness
+    };
+    Ok(
+        match decide_rule_condition(rule_id, &definedness, known_predicates, solver)? {
+            RuleCondition::Satisfied => DefinednessVerdict::Discharged,
+            RuleCondition::Refuted => DefinednessVerdict::Refuted,
+            RuleCondition::Indeterminate(_) => DefinednessVerdict::Open(definedness),
+        },
+    )
+}
+
+/// Whether `substitution` binds an element variable to a pattern containing a set variable.
+///
+/// An element variable ranges over elements; a set variable over arbitrary patterns. An
+/// equation `f(I) = rhs[I] requires R[I]` over an element variable `I` is an axiom for every
+/// element `i`, and `f(t) = rhs[t]` for a term `t` follows only when `t` is functional: applied
+/// to `f(@Y)`, the equation gives the union over the elements `y` of `@Y` of `rhs[y]`, which is
+/// `rhs[@Y]` only when `rhs` and `R` are linear in `I`. The binding `I := t` with a set variable
+/// in `t` therefore does not justify the substitution and the attempt stays indeterminate: the
+/// subject is retained, and no other equation of the group fires in its place. The converse
+/// direction, a rule-side set variable bound to any subject pattern, is sound and unaffected.
+pub(crate) fn binds_element_variable_to_set_pattern(substitution: &Substitution) -> bool {
+    substitution.iter().any(|(variable, value)| {
+        variable.kind == VariableKind::Element
+            && value
+                .attributes()
+                .variables
+                .iter()
+                .any(|bound| bound.kind == VariableKind::Set)
+    })
 }
 
 fn equation_match_conditions(
@@ -2362,6 +2717,11 @@ fn apply_equation(
     if check_concreteness(rule, &substitution).is_some() {
         return Ok(EquationAttempt::NotApplicable);
     }
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
+    }
     let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
@@ -2386,27 +2746,26 @@ fn apply_equation(
     }
     // The definedness obligations are not a reason to refuse the equation: an obligation the
     // path condition does not decide is carried as a constraint of the result, where it keeps
-    // the `\ceil(t)` factor of the equality explicit. A refuted obligation means the subject is
-    // already empty; the equation is then not applicable and the subject is retained unchanged.
-    let definedness = simplify_rule_predicates(
+    // the `\ceil(t)` factor of the equality explicit. A refuted obligation means `t` is empty
+    // under the path condition, and the subject reaches `t` only through applications,
+    // injections, collections, and `\and`, all strict, so the subject is empty whichever
+    // equation is tried; the result reports it as `\bottom`. Only the equation's own `requires`,
+    // decided above, says nothing about the subject when refuted.
+    let definedness = match decide_definedness(
         definition,
-        (&rule.attributes.unique_id, term),
-        &conditions.definedness,
+        &rule.attributes.unique_id,
+        Some(term),
+        conditions.definedness,
         known_predicates,
         options,
         active_conditions,
         solver,
-    )
-    .unwrap_or(conditions.definedness);
-    let definedness = match decide_rule_condition(
-        &rule.attributes.unique_id,
-        &definedness,
-        known_predicates,
-        solver,
     )? {
-        RuleCondition::Satisfied => Vec::new(),
-        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
-        RuleCondition::Indeterminate(_) => definedness,
+        DefinednessVerdict::Discharged => Vec::new(),
+        DefinednessVerdict::Open(obligations) => obligations,
+        DefinednessVerdict::Refuted => {
+            return Ok(EquationAttempt::Applied(bottom_subject(rule, term)));
+        }
     };
     let (alternatives, is_disjunction) = match &rule.rhs {
         RuleRhs::Term(rhs) => (
@@ -2471,13 +2830,7 @@ fn apply_equation(
         }
     }
     match live.len() {
-        0 => Ok(EquationAttempt::Applied(Simplification {
-            term: term.clone(),
-            constraints: vec![Predicate::False],
-            applied_rules: vec![rule.attributes.unique_id.clone()],
-            effects: Vec::new(),
-            exhausted: None,
-        })),
+        0 => Ok(EquationAttempt::Applied(bottom_subject(rule, term))),
         1 => {
             let (term, mut constraints) = live.pop().expect("one live alternative");
             if !constraints.contains(&Predicate::False) {
@@ -2499,6 +2852,19 @@ fn apply_equation(
             rule_id: rule.attributes.unique_id.clone(),
             alternatives,
         }),
+    }
+}
+
+/// The result of `rule` on a subject `term` that is empty under the path condition: the subject
+/// is retained and `\bottom` is its only constraint, so the caller merges it as it merges any
+/// other constraint set and the pattern becomes `\bottom` as a whole.
+fn bottom_subject(rule: &RewriteRule, term: &Term) -> Simplification {
+    Simplification {
+        term: term.clone(),
+        constraints: vec![Predicate::False],
+        applied_rules: vec![rule.attributes.unique_id.clone()],
+        effects: Vec::new(),
+        exhausted: None,
     }
 }
 
@@ -2531,28 +2897,18 @@ fn evaluate_ensures(
         solver,
     )
     .unwrap_or(ensures);
-    match predicates_truth(&ensures) {
-        Truth::False => Ok(EnsuresVerdict::Refuted),
-        Truth::True => Ok(EnsuresVerdict::Holds),
-        Truth::Unknown => {
-            match solver.check_predicates(known_predicates, &Substitution::new(), &ensures) {
-                Ok(Validity::Invalid) => return Ok(EnsuresVerdict::Refuted),
-                Ok(Validity::Valid) => return Ok(EnsuresVerdict::Holds),
-                Ok(
-                    Validity::Indeterminate
-                    | Validity::InconsistentGroundTruth
-                    | Validity::Unknown(_),
-                )
-                | Err(SmtError::Unavailable) => {}
-                Err(error) => {
-                    return Err(SimplificationError::Smt {
-                        rule_id: rule.attributes.unique_id.clone(),
-                        error,
-                    });
-                }
-            }
-            Ok(EnsuresVerdict::Open(ensures))
-        }
+    // An `ensures` is a conjunct of the result by definition, so every verdict the solver does
+    // not reach carries it: an open implication, no solver, a query the encoding cannot pose,
+    // and an inconsistent path condition, which under the path condition alone says nothing
+    // about the equation. No diagnostic is emitted here, as none was before.
+    match decide_condition(&ensures, known_predicates, solver) {
+        Ok(RuleCondition::Satisfied) => Ok(EnsuresVerdict::Holds),
+        Ok(RuleCondition::Refuted) => Ok(EnsuresVerdict::Refuted),
+        Ok(RuleCondition::Indeterminate(_)) => Ok(EnsuresVerdict::Open(ensures)),
+        Err(error) => Err(SimplificationError::Smt {
+            rule_id: rule.attributes.unique_id.clone(),
+            error,
+        }),
     }
 }
 
@@ -2762,5 +3118,204 @@ mod tests {
             term(&definition, r#"wrap{}(\dv{SortS{}}("done"))"#)
         );
         assert_eq!(discarded.constraints, vec![obligation]);
+    }
+
+    /// A solver that refutes every query.
+    struct RefutingSolver;
+
+    impl SmtSolver for RefutingSolver {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &Substitution,
+        ) -> Result<crate::smt::Satisfiability, SmtError> {
+            unreachable!()
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &Substitution,
+            _checked: &[Predicate],
+        ) -> Result<Validity, SmtError> {
+            Ok(Validity::Invalid)
+        }
+    }
+
+    /// `f`, `h`, and `partial` are partial functions; `\ceil(f(X))` rewrites to `X = "ok"`
+    /// unconditionally and `\ceil(h(X))` to `\top` when `X = "expected"`.
+    fn conditional_ceil_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol f{}(SortS{}) : SortS{} [function{}()]
+                symbol h{}(SortS{}) : SortS{} [function{}()]
+                symbol partial{}(SortS{}) : SortS{} [function{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \ceil{SortS{}, Q}(f{}(X:SortS{})),
+                        \and{Q}(
+                            \equals{SortS{}, Q}(X:SortS{}, \dv{SortS{}}("ok")),
+                            \top{Q}()
+                        )
+                    )
+                ) [label{}("ceil-f"), simplification{}()]
+                axiom{R, Q} \implies{R}(
+                    \and{R}(
+                        \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("expected")),
+                        \top{R}()
+                    ),
+                    \equals{Q, R}(
+                        \ceil{SortS{}, Q}(h{}(X:SortS{})),
+                        \and{Q}(\top{Q}(), \top{Q}())
+                    )
+                ) [label{}("ceil-h"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("conditional ceil definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("conditional ceil definition should internalize")
+    }
+
+    #[test]
+    fn ceil_equations_carry_open_element_binding_definedness() {
+        let definition = conditional_ceil_definition();
+        let argument = term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#);
+        let obligation = Predicate::Ceil(argument.clone());
+        let subject = Predicate::Ceil(term(&definition, r#"f{}(partial{}(\dv{SortS{}}("v")))"#));
+        let rhs = Predicate::Equals(argument, term(&definition, r#"\dv{SortS{}}("ok")"#));
+        let apply = |known: &[Predicate], solver: &dyn SmtSolver| {
+            apply_ceil_theory(
+                &definition,
+                &subject,
+                known,
+                SimplificationOptions::default(),
+                &BTreeSet::new(),
+                solver,
+            )
+            .expect("the ceil equation should not fail")
+        };
+
+        // `\ceil(f(t)) = \ceil(t) /\ q[t]`: the open obligation is conjoined to the result.
+        assert_eq!(
+            apply(&[], &NoSolver),
+            Some(Predicate::And(vec![rhs.clone(), obligation.clone()]))
+        );
+        // A path condition that carries the obligation discharges it.
+        assert_eq!(
+            apply(std::slice::from_ref(&obligation), &NoSolver),
+            Some(rhs.clone())
+        );
+        // A refuted obligation means `t` is empty, and so is the subject `\ceil(f(t))`.
+        assert_eq!(apply(&[], &RefutingSolver), Some(Predicate::False));
+
+        // The standalone predicate entry reaches the equation in one call: the ceil arm's
+        // expansion supplies `\ceil(t)` as a sibling, and the conjunction is simplified again.
+        assert_eq!(
+            simplify_predicate_with_solver(
+                &definition,
+                &subject,
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .expect("the predicate should simplify"),
+            Predicate::And(vec![rhs, obligation])
+        );
+
+        // Negative control: an undecided `requires` still refuses, obligation or not.
+        let guarded = Predicate::Ceil(term(&definition, r#"h{}(partial{}(\dv{SortS{}}("v")))"#));
+        assert_eq!(
+            apply_ceil_theory(
+                &definition,
+                &guarded,
+                &[],
+                SimplificationOptions::default(),
+                &BTreeSet::new(),
+                &NoSolver,
+            )
+            .expect("an indeterminate ceil equation should not fail"),
+            None
+        );
+    }
+
+    #[test]
+    fn strict_variables_is_a_conservative_under_approximation() {
+        let definition = conditional_ceil_definition();
+        let x = Variable::new("X", Sort::simple("SortS"));
+        let f_x = term(&definition, "f{}(X:SortS{})");
+        let h_x = term(&definition, "h{}(X:SortS{})");
+        let value = term(&definition, r#"\dv{SortS{}}("c")"#);
+        let substitution = Substitution::from_iter([(
+            x.clone(),
+            term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#),
+        )]);
+        let strict = |lhs: &Predicate, known: &[Predicate]| {
+            strict_variables(&definition, lhs, &substitution, known)
+        };
+        let only_x = BTreeSet::from([x.clone()]);
+        let none = BTreeSet::new();
+
+        // `\ceil` and `\in` are strict in their operands.
+        assert_eq!(strict(&Predicate::Ceil(f_x.clone()), &[]), only_x);
+        assert_eq!(
+            strict(&Predicate::In(f_x.clone(), value.clone()), &[]),
+            only_x
+        );
+        // `\equals(f(X), "c")` is strict in `X`: the other side is a defined value.
+        assert_eq!(
+            strict(&Predicate::Equals(f_x.clone(), value.clone()), &[]),
+            only_x
+        );
+        // `\equals(f(X), h(X))` is not: with `X` empty both sides are, and the equality holds.
+        let both_sides = Predicate::Equals(f_x.clone(), h_x.clone());
+        assert_eq!(strict(&both_sides, &[]), none);
+        // It becomes strict once the path condition defines the other side.
+        let h_defined = [
+            Predicate::Ceil(term(&definition, r#"h{}(partial{}(\dv{SortS{}}("v")))"#)),
+            Predicate::Ceil(term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#)),
+        ];
+        assert_eq!(strict(&both_sides, &h_defined), only_x);
+        // A term-level `\and` has no definedness witness: `Y /\ Z` is empty unless `Y = Z`, so
+        // `\equals(f(X), Y /\ Z)` is not strict in `X` even though `ceil_term` derives nothing
+        // for the conjunction of two element variables.
+        let conjunction = term(&definition, r"\and{SortS{}}(Y:SortS{}, Z:SortS{})");
+        assert_eq!(
+            strict(&Predicate::Equals(f_x.clone(), conjunction.clone()), &[]),
+            none
+        );
+        assert_eq!(
+            strict(&Predicate::Equals(f_x.clone(), conjunction), &h_defined),
+            none
+        );
+        // `\not(\equals(f(X), "c"))` is not: `\not(\bottom)` is `\top`.
+        let negated = Predicate::Not(Box::new(Predicate::Equals(f_x.clone(), value.clone())));
+        assert_eq!(strict(&negated, &[]), none);
+        assert_eq!(strict(&Predicate::Floor(f_x.clone()), &[]), none);
+        // A conjunction is strict in the variables of any conjunct, a disjunction only in
+        // those of every disjunct.
+        assert_eq!(
+            strict(
+                &Predicate::And(vec![negated.clone(), Predicate::Ceil(f_x.clone())]),
+                &[]
+            ),
+            only_x
+        );
+        assert_eq!(
+            strict(
+                &Predicate::Or(vec![negated, Predicate::Ceil(f_x.clone())]),
+                &[]
+            ),
+            none
+        );
+        assert_eq!(
+            strict(
+                &Predicate::Or(vec![Predicate::Ceil(h_x), Predicate::Ceil(f_x)]),
+                &[]
+            ),
+            only_x
+        );
     }
 }

@@ -1270,7 +1270,7 @@ fn conformance_driver_compares_simplified_kore_when_the_execution_text_differs()
     // Every process boundary is faked: the krust krun, the reference krun re-run, kprint, the two
     // krust kore-simplify runs, the comparator test binary, and the oracle confirmation.
     let script = r#"
-import json, os, sys, tempfile
+import json, os, sys, tempfile, time
 sys.path.insert(0, sys.argv[1])
 import run
 
@@ -1289,6 +1289,9 @@ def driver(mode, recipe_text=PLAIN):
     with open(os.path.join(case.ref_kompiled, "definition.kore"), "w") as f: f.write("[]\n")
     case.def_file = "test.k"; case.main_module = "TEST"; case.syntax_module = "TEST"; case.pgm_sort = "KItem"
     with open(os.path.join(root, "1.test.out"), "w") as f: f.write(EXPECTED)
+    if mode == "no_definition": os.remove(os.path.join(case.ref_kompiled, "definition.kore"))
+    if mode == "no_module": case.main_module = None
+    if mode == "budget_before_rerun": case.deadline = time.monotonic()
     calls = {"reference": [], "simplify": [], "comparator": [], "oracle": 0}
     def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
         tool = os.path.basename(cmd[0])
@@ -1297,17 +1300,27 @@ def driver(mode, recipe_text=PLAIN):
         if tool == "krun":
             calls["reference"].append(cmd[1:])
             if mode == "reference_fails": return 1, "", "kore-exec: boom", 0.1, False
+            if mode == "reference_timeout": return -9, "", "", 0.1, True
+            if mode == "reference_empty": return 0, "", "", 0.1, False
             return 0, REFERENCE_KORE, "", 0.1, False
         if tool == "kprint":
             source = open(cmd[2]).read()
             if source == KRUST_KORE: return 0, EXPECTED if mode == "text_equal" else KRUST_PRETTY, "", 0.1, False
             assert source == REFERENCE_KORE, source
+            if mode == "kprint_fails": return 1, "", "kprint: unparsable pattern", 0.1, False
+            if mode == "budget_before_simplify_reference": case.deadline = time.monotonic()
             return 0, KRUST_PRETTY if mode == "stale_out" else EXPECTED, "", 0.1, False
         if tool == "krust" and cmd[1] == "kore-simplify":
             calls["simplify"].append(cmd[2:])
-            if mode == "simplify_fails": return 1, "", "could not simplify KORE pattern: Smt(...)", 0.1, False
+            source = cmd[cmd.index("--pattern") + 1]
             target = cmd[cmd.index("--output") + 1]
-            with open(target, "w") as f: f.write("simplified:" + open(cmd[cmd.index("--pattern") + 1]).read())
+            if mode == "simplify_fails": return 1, "", "could not simplify KORE pattern: Smt(...)", 0.1, False
+            if mode == "simplify_timeout": return -9, "", "", 0.1, True
+            if mode == "simplify_no_output": return 0, "", "", 0.1, False
+            if mode == "simplify_fails_krust" and source.endswith(".krust.kore"):
+                return 1, "", "could not simplify KORE pattern: parse error", 0.1, False
+            if mode == "budget_before_simplify_krust": case.deadline = time.monotonic()
+            with open(target, "w") as f: f.write("simplified:" + open(source).read())
             return 0, "", "", 0.1, False
         raise AssertionError("unexpected command: " + " ".join(cmd))
     def fake_test(name, env, cwd, timeout=120):
@@ -1315,6 +1328,7 @@ def driver(mode, recipe_text=PLAIN):
             "sides": [open(env["K_REFERENCE_EXECUTION"]).read(), open(env["K_RUST_EXECUTION"]).read()]})
         if mode == "differ":
             return 1, "", "thread 'x' panicked at a.rs:1:1:\nunpaired disjunct: cfg{}()\nnote: run with RUST_BACKTRACE=1", False
+        if mode == "comparator_timeout": return -9, "", "", True
         return 0, "ok", "", False
     run.sh = fake_sh
     run.run_test_binary_result = fake_test
@@ -1336,6 +1350,18 @@ print(json.dumps({
     "simplify_fails": driver("simplify_fails"),
     "stale_out": driver("stale_out"),
     "expansion": driver("equal", "/kbin/krun $PGM --definition ./test-kompiled | diff - 1.test.out"),
+    "no_definition": driver("no_definition"),
+    "no_module": driver("no_module"),
+    "budget_before_rerun": driver("budget_before_rerun"),
+    "reference_timeout": driver("reference_timeout"),
+    "reference_empty": driver("reference_empty"),
+    "kprint_fails": driver("kprint_fails"),
+    "budget_before_simplify_reference": driver("budget_before_simplify_reference"),
+    "budget_before_simplify_krust": driver("budget_before_simplify_krust"),
+    "simplify_timeout": driver("simplify_timeout"),
+    "simplify_no_output": driver("simplify_no_output"),
+    "simplify_fails_krust": driver("simplify_fails_krust"),
+    "comparator_timeout": driver("comparator_timeout"),
 }))
 "#;
     let output = Command::new("python3")
@@ -1462,7 +1488,9 @@ print(json.dumps({
     );
     assert_eq!(calls("text_equal")["simplify"].as_array().unwrap().len(), 0);
     // A failing or unavailable stage is a mismatch that keeps the C7 label and the text diff, says
-    // why C8 could not establish equality, and still confirms the oracle.
+    // why C8 could not establish equality, and still confirms the oracle. Every not_compared
+    // return of run.py compare_simplified_kore is probed so that none can fall through to the
+    // success branch without evidence.
     for (name, reason) in [
         (
             "differ",
@@ -1478,6 +1506,54 @@ print(json.dumps({
         ),
         ("stale_out", "does not reproduce the checked-in .out"),
         ("expansion", "unsupported shell expansion or redirection"),
+        (
+            "no_definition",
+            "not compared: no reference kompiled definition or main module",
+        ),
+        (
+            "no_module",
+            "not compared: no reference kompiled definition or main module",
+        ),
+        (
+            "budget_before_rerun",
+            "not compared: no remaining budget for the reference --output kore re-run",
+        ),
+        (
+            "reference_timeout",
+            "not compared: reference --output kore re-run timed out",
+        ),
+        (
+            "reference_empty",
+            "not compared: reference --output kore re-run exited 0",
+        ),
+        (
+            "kprint_fails",
+            "not compared: kprint failed on the reference --output kore result: kprint: unparsable pattern",
+        ),
+        (
+            "budget_before_simplify_reference",
+            "not compared: no remaining budget to simplify the reference KORE",
+        ),
+        (
+            "budget_before_simplify_krust",
+            "not compared: no remaining budget to simplify the krust KORE",
+        ),
+        (
+            "simplify_timeout",
+            "not compared: krust kore-simplify failed on the reference KORE: timed out",
+        ),
+        (
+            "simplify_no_output",
+            "not compared: krust kore-simplify failed on the reference KORE: exit 0",
+        ),
+        (
+            "simplify_fails_krust",
+            "not compared: krust kore-simplify failed on the krust KORE: exit 1",
+        ),
+        (
+            "comparator_timeout",
+            "simplified KORE not compared: the comparator timed out",
+        ),
     ] {
         assert_eq!(probe(name)["verdict"], "mismatch", "{name}: {probes}");
         let comparison = probe(name)["comparison"].as_str().unwrap();
@@ -1534,6 +1610,68 @@ print(json.dumps({
     );
     assert_eq!(calls("stale_out")["simplify"].as_array().unwrap().len(), 0);
     assert_eq!(calls("expansion")["reference"].as_array().unwrap().len(), 0);
+    // Per-mode call counts: how far C8 got before it gave up.
+    let count = |name: &str, stage: &str| calls(name)[stage].as_array().unwrap().len();
+    for name in ["no_definition", "no_module", "budget_before_rerun"] {
+        assert_eq!(count(name, "reference"), 0, "{name}: {probes}");
+        assert_eq!(count(name, "simplify"), 0, "{name}: {probes}");
+    }
+    for name in [
+        "reference_timeout",
+        "reference_empty",
+        "kprint_fails",
+        "budget_before_simplify_reference",
+    ] {
+        assert_eq!(count(name, "reference"), 1, "{name}: {probes}");
+        assert_eq!(count(name, "simplify"), 0, "{name}: {probes}");
+    }
+    assert_eq!(
+        probe("reference_timeout")["reference_kore_rc"],
+        -9,
+        "{probes}"
+    );
+    assert_eq!(probe("reference_empty")["reference_kore_rc"], 0, "{probes}");
+    assert!(
+        probe("kprint_fails")["reference_kore_reproduces_out"].is_null(),
+        "{probes}"
+    );
+    assert_eq!(
+        probe("budget_before_simplify_reference")["reference_kore_reproduces_out"],
+        true,
+        "{probes}"
+    );
+    for name in [
+        "budget_before_simplify_krust",
+        "simplify_timeout",
+        "simplify_no_output",
+    ] {
+        assert_eq!(count(name, "simplify"), 1, "{name}: {probes}");
+    }
+    assert_eq!(count("simplify_fails_krust", "simplify"), 2, "{probes}");
+    assert!(
+        calls("simplify_fails_krust")["simplify"][1][4]
+            .as_str()
+            .unwrap()
+            .ends_with("1.test.krust.kore"),
+        "{probes}"
+    );
+    assert_eq!(count("comparator_timeout", "simplify"), 2, "{probes}");
+    assert_eq!(count("comparator_timeout", "comparator"), 1, "{probes}");
+    for name in [
+        "no_definition",
+        "no_module",
+        "budget_before_rerun",
+        "reference_timeout",
+        "reference_empty",
+        "kprint_fails",
+        "budget_before_simplify_reference",
+        "budget_before_simplify_krust",
+        "simplify_timeout",
+        "simplify_no_output",
+        "simplify_fails_krust",
+    ] {
+        assert_eq!(count(name, "comparator"), 0, "{name}: {probes}");
+    }
 }
 
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
