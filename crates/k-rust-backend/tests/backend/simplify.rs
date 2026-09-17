@@ -4,6 +4,7 @@ use k_rust_backend::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
+    rewrite::Pattern,
     rule::Predicate,
     simplify::*,
     smt::{NoSolver, SmtError, SmtSolver, Validity},
@@ -2305,6 +2306,145 @@ fn standalone_predicate_simplification_uses_smt_for_the_residual() {
     .unwrap();
 
     assert_eq!(result, Predicate::True);
+}
+
+/// `holder` is a constructor over lists, `size` is the list size hook, `gte` and `lt` are the
+/// integer comparisons, and the definition carries the `smt-lemma` `size(L) >=Int 0`.
+#[cfg(feature = "z3")]
+fn list_size_lemma_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortList{} [hook{}("LIST.List")]
+                sort SortCell{} []
+                symbol holder{}(SortList{}) : SortCell{}
+                    [constructor{}(), functional{}(), injective{}()]
+                hooked-symbol size{}(SortList{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("LIST.size"), smtlib{}("smt_seq_len")]
+                hooked-symbol gte{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ge"), smt-hook{}(">=")]
+                hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortBool{}, R}(
+                        gte{}(size{}(L:SortList{}), \dv{SortInt{}}("0")),
+                        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+                    )
+                ) [label{}("size-non-negative"), simplification{}(), smt-lemma{}()]
+            endmodule []"#,
+    )
+    .unwrap();
+    BackendDefinition::internalize(&syntax, "MAIN").unwrap()
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn pattern_simplification_discharges_constraints_valid_under_smt_lemmas() {
+    use k_rust_backend::smt::Z3Solver;
+
+    let definition = list_size_lemma_definition();
+    let solver = Z3Solver::new(&definition).unwrap();
+    let holder = term(&definition, "holder{}(L:SortList{})");
+    let simplify_constraint = |source: &str| {
+        simplify_pattern_with_solver(
+            &definition,
+            &Pattern {
+                term: holder.clone(),
+                constraints: vec![Predicate::Term(term(&definition, source))],
+            },
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .expect("the pattern should simplify")
+    };
+
+    // `size(L) >=Int -1` is not an instance of the lemma equation, but the lemma axiom makes it
+    // valid, so the conjunct is `\top` and the pattern is the bare term.
+    let discharged = simplify_constraint(r#"gte{}(size{}(L:SortList{}), \dv{SortInt{}}("-1"))"#);
+    assert_eq!(discharged.term, holder);
+    assert!(discharged.constraints.is_empty());
+
+    // Negative control: the lemma says nothing about `size(L) >=Int 1`, which is open.
+    let open = r#"gte{}(size{}(L:SortList{}), \dv{SortInt{}}("1"))"#;
+    let kept = simplify_constraint(open);
+    assert_eq!(kept.term, holder);
+    assert_eq!(
+        kept.constraints,
+        vec![Predicate::Term(term(&definition, open))]
+    );
+
+    // A conjunct the lemma refutes makes the pattern empty.
+    let refuted = simplify_constraint(r#"lt{}(size{}(L:SortList{}), \dv{SortInt{}}("0"))"#);
+    assert_eq!(refuted.constraints, vec![Predicate::False]);
+}
+
+/// `holds` is a Boolean function without equations, so `holds(X)` is a residual constraint that
+/// only a solver can decide.
+fn residual_constraint_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortC{} []
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortC{} [constructor{}(), functional{}(), injective{}()]
+                symbol holds{}(SortS{}) : SortBool{} [function{}(), total{}()]
+            endmodule []"#,
+    )
+    .unwrap();
+    BackendDefinition::internalize(&syntax, "MAIN").unwrap()
+}
+
+#[test]
+fn pattern_simplification_drops_only_the_residual_constraints_the_solver_validates() {
+    let definition = residual_constraint_definition();
+    let pattern = Pattern {
+        term: term(&definition, "wrap{}(X:SortS{})"),
+        constraints: vec![Predicate::Term(term(&definition, "holds{}(X:SortS{})"))],
+    };
+    let simplify_with = |solver: &dyn SmtSolver| {
+        diagnostic::collect(|| {
+            simplify_pattern_with_solver(
+                &definition,
+                &pattern,
+                SimplificationOptions::default(),
+                solver,
+            )
+            .expect("the pattern should simplify")
+        })
+    };
+
+    let (valid, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Valid));
+    assert_eq!(valid.term, pattern.term);
+    assert!(valid.constraints.is_empty());
+    assert!(diagnostics.is_empty());
+
+    let (refuted, _) = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    assert_eq!(refuted.constraints, vec![Predicate::False]);
+
+    // Negative controls: an open implication, an unavailable solver, and a solver that gave up
+    // all keep the constraint; only the last one is reported.
+    let (open, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Indeterminate));
+    assert_eq!(open, pattern);
+    assert!(diagnostics.is_empty());
+
+    let (unavailable, diagnostics) = simplify_with(&NoSolver);
+    assert_eq!(unavailable, pattern);
+    assert!(diagnostics.is_empty());
+
+    let (unknown, diagnostics) =
+        simplify_with(&FixedValiditySolver(Validity::Unknown("timeout".into())));
+    assert_eq!(unknown, pattern);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedPredicate {
+            predicate: pattern.constraints[0].clone(),
+            reason: ConditionIndeterminacy::SmtUnknown("timeout".into()),
+        }]
+    );
 }
 
 #[test]

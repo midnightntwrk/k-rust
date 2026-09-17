@@ -29,7 +29,7 @@ use crate::{
     },
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
-    substitution::{Substitution, compose, substitute},
+    substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, Sort, SymbolType, Term, TermKind, VariableKind},
 };
 
@@ -241,6 +241,7 @@ pub(crate) fn simplify_pattern_details_with_solver(
         constraints = vec![Predicate::False];
     }
     constraints.retain(|constraint| !ceil_entailed_by_term(constraint, &simplified.term));
+    let mut constraints = discharge_valid_constraints(definition, constraints, solver)?;
     retain_substitution_predicates(
         &mut constraints,
         &retained_substitution,
@@ -303,6 +304,60 @@ fn occurs_under_total_context(term: &Term, subject: &Term) -> bool {
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
+}
+
+/// Drop every residual constraint that the other constraints and the definition's `smt-lemma`
+/// axioms make valid, and collapse the constraints to `\bottom` when the solver refutes one.
+///
+/// The equation fixed point has evaluated what hooks and equations decide; a residual conjunct
+/// `P` of `t /\ P /\ Q` is then a question for the theories of the hooked sorts and for the
+/// lemma axioms, which only the solver answers. When `Q => P` is valid, `t /\ P /\ Q = t /\ Q`.
+/// When `P /\ Q` is unsatisfiable the pattern is empty, and so it is when `Q` alone is. An
+/// `Unknown` verdict and an unavailable solver keep the conjunct.
+///
+/// Cost: one validity query per residual constraint, each bounded by the solver's timeout and
+/// retry options (`--smt-timeout`, `--smt-retry-limit`), once per pattern simplification after
+/// the equation fixed point. The pass is deliberately not part of the predicate fixed point or
+/// of rule-condition evaluation, which run once per equation attempt. Substitution bindings
+/// `V = t` are not candidates: after `normalize_pattern_substitution` the variable `V` occurs
+/// nowhere else, so `V = t` and its negation are both satisfiable under the other conjuncts and
+/// the query could decide nothing.
+fn discharge_valid_constraints(
+    definition: &BackendDefinition,
+    constraints: Vec<Predicate>,
+    solver: &dyn SmtSolver,
+) -> Result<Vec<Predicate>, SimplificationError> {
+    let mut pending = std::collections::VecDeque::from(constraints);
+    let mut retained = Vec::with_capacity(pending.len());
+    while let Some(constraint) = pending.pop_front() {
+        if substitution_binding(&constraint, &definition.sort_graph).is_some() {
+            retained.push(constraint);
+            continue;
+        }
+        let known = retained
+            .iter()
+            .chain(pending.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        match decide_condition(std::slice::from_ref(&constraint), &known, solver) {
+            Ok(RuleCondition::Satisfied) => {}
+            Ok(
+                RuleCondition::Refuted
+                | RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition),
+            ) => return Ok(vec![Predicate::False]),
+            Ok(RuleCondition::Indeterminate(reason)) => {
+                report_undecided_predicate(&constraint, reason);
+                retained.push(constraint);
+            }
+            Err(error) => {
+                return Err(SimplificationError::SmtPredicate {
+                    predicate: Box::new(constraint),
+                    error,
+                });
+            }
+        }
+    }
+    Ok(retained)
 }
 
 fn predicate_refutes_term(predicate: &Predicate, term: &Term) -> bool {
@@ -556,7 +611,7 @@ pub enum ConditionIndeterminacy {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum RuleCondition {
+pub(crate) enum RuleCondition {
     Satisfied,
     Refuted,
     Indeterminate(ConditionIndeterminacy),
@@ -590,13 +645,45 @@ fn evaluate_rule_condition(
     decide_rule_condition(rule_id, &predicates, known_predicates, solver)
 }
 
-/// Decide already simplified condition predicates under the path condition.
+/// Decide already simplified condition predicates under the path condition, reporting a
+/// verdict the solver could not reach as a diagnostic of `rule_id`.
 fn decide_rule_condition(
     rule_id: &str,
     predicates: &[Predicate],
     known_predicates: &[Predicate],
     solver: &dyn SmtSolver,
 ) -> Result<RuleCondition, SimplificationError> {
+    let condition = decide_condition(predicates, known_predicates, solver).map_err(|error| {
+        SimplificationError::Smt {
+            rule_id: rule_id.to_owned(),
+            error,
+        }
+    })?;
+    if let RuleCondition::Indeterminate(reason) = &condition
+        && solver_could_not_answer(reason)
+    {
+        diagnostic::emit(BackendDiagnostic::UndecidedCondition {
+            rule_id: rule_id.to_owned(),
+            reason: reason.clone(),
+            predicates: predicates.to_vec(),
+        });
+    }
+    Ok(condition)
+}
+
+/// Decide whether `predicates` hold under `known_predicates` and the definition's `smt-lemma`
+/// axioms.
+///
+/// Syntactic truth and membership in `known_predicates` are decided without the solver. The
+/// solver answers the rest within the timeout and retry bounds it was created with; the
+/// `Indeterminate` verdict names why it did not decide, and `Err` reports a query that could not
+/// be posed. The rewriter's `requires` check, standalone predicate simplification, and the
+/// residual-constraint discharge of pattern simplification all share this decision.
+pub(crate) fn decide_condition(
+    predicates: &[Predicate],
+    known_predicates: &[Predicate],
+    solver: &dyn SmtSolver,
+) -> Result<RuleCondition, SmtError> {
     match predicates_truth(predicates) {
         Truth::False => return Ok(RuleCondition::Refuted),
         Truth::True => return Ok(RuleCondition::Satisfied),
@@ -614,31 +701,34 @@ fn decide_rule_condition(
         Ok(Validity::Indeterminate) => Ok(RuleCondition::Indeterminate(
             ConditionIndeterminacy::ImplicationIndeterminate,
         )),
+        Ok(Validity::InconsistentGroundTruth) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::InconsistentPathCondition,
+        )),
+        Ok(Validity::Unknown(message)) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::SmtUnknown(message),
+        )),
         Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
             ConditionIndeterminacy::NoSolver,
         )),
-        Ok(Validity::InconsistentGroundTruth) => {
-            let reason = ConditionIndeterminacy::InconsistentPathCondition;
-            diagnostic::emit(BackendDiagnostic::UndecidedCondition {
-                rule_id: rule_id.to_owned(),
-                reason: reason.clone(),
-                predicates: predicates.to_vec(),
-            });
-            Ok(RuleCondition::Indeterminate(reason))
-        }
-        Ok(Validity::Unknown(message)) => {
-            let reason = ConditionIndeterminacy::SmtUnknown(message);
-            diagnostic::emit(BackendDiagnostic::UndecidedCondition {
-                rule_id: rule_id.to_owned(),
-                reason: reason.clone(),
-                predicates: predicates.to_vec(),
-            });
-            Ok(RuleCondition::Indeterminate(reason))
-        }
-        Err(error) => Err(SimplificationError::Smt {
-            rule_id: rule_id.to_owned(),
-            error,
-        }),
+        Err(error) => Err(error),
+    }
+}
+
+/// Whether an indeterminate verdict came from a solver that was asked and did not answer, as
+/// opposed to a missing solver or an implication that is genuinely open.
+fn solver_could_not_answer(reason: &ConditionIndeterminacy) -> bool {
+    matches!(
+        reason,
+        ConditionIndeterminacy::InconsistentPathCondition | ConditionIndeterminacy::SmtUnknown(_)
+    )
+}
+
+fn report_undecided_predicate(predicate: &Predicate, reason: ConditionIndeterminacy) {
+    if solver_could_not_answer(&reason) {
+        diagnostic::emit(BackendDiagnostic::UndecidedPredicate {
+            predicate: predicate.clone(),
+            reason,
+        });
     }
 }
 
@@ -685,26 +775,11 @@ pub fn simplify_and_decide_predicate_with_solver(
     if matches!(simplified, Predicate::True | Predicate::False) {
         return Ok(simplified);
     }
-    match solver.check_predicates(
-        known_predicates,
-        &Substitution::new(),
-        std::slice::from_ref(&simplified),
-    ) {
-        Ok(Validity::Valid) => Ok(Predicate::True),
-        Ok(Validity::Invalid) => Ok(Predicate::False),
-        Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => Ok(simplified),
-        Ok(Validity::InconsistentGroundTruth) => {
-            diagnostic::emit(BackendDiagnostic::UndecidedPredicate {
-                predicate: simplified.clone(),
-                reason: ConditionIndeterminacy::InconsistentPathCondition,
-            });
-            Ok(simplified)
-        }
-        Ok(Validity::Unknown(message)) => {
-            diagnostic::emit(BackendDiagnostic::UndecidedPredicate {
-                predicate: simplified.clone(),
-                reason: ConditionIndeterminacy::SmtUnknown(message),
-            });
+    match decide_condition(std::slice::from_ref(&simplified), known_predicates, solver) {
+        Ok(RuleCondition::Satisfied) => Ok(Predicate::True),
+        Ok(RuleCondition::Refuted) => Ok(Predicate::False),
+        Ok(RuleCondition::Indeterminate(reason)) => {
+            report_undecided_predicate(&simplified, reason);
             Ok(simplified)
         }
         Err(error) => Err(SimplificationError::SmtPredicate {

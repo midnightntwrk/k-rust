@@ -5550,6 +5550,57 @@ mod tests {
     }
 
     #[test]
+    fn kore_simplify_discharges_constraints_valid_under_smt_lemmas() {
+        let syntax = parse_kore_definition(
+            r#"[]
+            module MAIN
+              hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+              hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+              hooked-sort SortList{} [hook{}("LIST.List")]
+              sort SortCell{} []
+              symbol holder{}(SortList{}) : SortCell{}
+                [constructor{}(), functional{}(), injective{}()]
+              hooked-symbol size{}(SortList{}) : SortInt{}
+                [function{}(), total{}(), hook{}("LIST.size"), smtlib{}("smt_seq_len")]
+              hooked-symbol gte{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.ge"), smt-hook{}(">=")]
+              axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortBool{}, R}(
+                  gte{}(size{}(L:SortList{}), \dv{SortInt{}}("0")),
+                  \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+                )
+              ) [label{}("size-non-negative"), simplification{}(), smt-lemma{}()]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let constrained = |bound: &str| {
+            parse_kore_pattern(&format!(
+                r#"\and{{SortCell{{}}}}(
+                    holder{{}}(Var'Ques'L:SortList{{}}),
+                    \equals{{SortBool{{}}, SortCell{{}}}}(
+                        \dv{{SortBool{{}}}}("true"),
+                        gte{{}}(size{{}}(Var'Ques'L:SortList{{}}), \dv{{SortInt{{}}}}("{bound}"))
+                    )
+                )"#
+            ))
+            .unwrap()
+        };
+
+        // The lemma `size(L) >=Int 0` makes `size(?L) >=Int -1` valid: the constraint disappears.
+        assert_eq!(
+            simplify_kore_pattern(&definition, &constrained("-1")).unwrap(),
+            parse_kore_pattern("holder{}(Var'Ques'L:SortList{})").unwrap()
+        );
+        // Negative control: `size(?L) >=Int 1` is open and stays.
+        assert_eq!(
+            simplify_kore_pattern(&definition, &constrained("1")).unwrap(),
+            constrained("1")
+        );
+    }
+
+    #[test]
     fn parses_kore_get_model_options() {
         let cli = Cli::try_parse_from([
             "krust",
