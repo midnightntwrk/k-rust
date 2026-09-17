@@ -156,6 +156,15 @@ by the in-process Rust backend. Both modes write:
 - `syntaxDefinition.kore`
 - `macros.kore`
 
+Generate an executable parser or a shared library for the `$PGM` sort through the system Bison, Flex, and C compiler:
+
+```console
+krust kcompile definition.k --main-module MAIN --gen-bison-parser -o definition-kompiled
+krust kcompile definition.k --main-module MAIN --gen-glr-bison-parser --bison-parser-library -o definition-kompiled
+```
+
+The shared-library form installs `libparser_<Sort>_<Module>` with the platform extension and a relative `parser_PGM` link.
+
 Prepare semantics once, then prove new specifications against that parsed definition:
 
 ```console
@@ -193,6 +202,14 @@ Parse a concrete program as textual KAST or KAST JSON v4:
 krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
 krust kast definition.k --module MAIN --sort Exp program.exp --output json
 ```
+
+Write a standalone executable parser for an explicitly selected module and sort:
+
+```console
+krust kast definition.k --module MAIN --sort Exp --gen-parser parser_Exp_MAIN
+```
+
+`--gen-glr-parser` selects GLR generation and `--bison-stack-max-depth` sets the generated parser's stack bound.
 
 Execute a concrete program using the in-process Rust backend:
 
@@ -555,7 +572,7 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   host-clock-dependent step timeouts.
 - Coverage instrumentation and the optional unsafe-`anywhere` removal mode are not exposed by the
   CLI. They are identity stages unless explicitly requested in Java.
-- LSP, `kserver`, and Bison parser generation are outside the current CLI scope.
+- LSP and `kserver` are outside the current CLI scope; Bison and Flex remain external system tools whose executable and shared-library artifacts are supported through the CLI interoperability contract.
 - Like the reference backend, AC unification remains conservative when more than one unmatched
   opaque Set or Map chunk remains after common chunks are cancelled.
 - Step deadlines cooperatively interrupt native hooks. Long-running Rust loops check the deadline

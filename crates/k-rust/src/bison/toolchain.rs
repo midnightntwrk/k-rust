@@ -4,9 +4,14 @@ use std::process::Command;
 
 use crate::kast::Sort;
 
-use super::Error;
+use super::{Artifact, Error};
 
-pub(super) fn compile(directory: &Path, start_sort: &Sort, executable: &Path) -> Result<(), Error> {
+pub(super) fn compile(
+    directory: &Path,
+    start_sort: &Sort,
+    output: &Path,
+    artifact: Artifact,
+) -> Result<(), Error> {
     let scanner = directory.join("scanner.l");
     let scanner_header = directory.join("scanner.h");
     let scanner_c = directory.join("lex.yy.c");
@@ -42,22 +47,27 @@ pub(super) fn compile(directory: &Path, start_sort: &Sort, executable: &Path) ->
         ],
     )?;
 
-    run(
-        "C compiler",
-        tool("KRUST_CC", "cc"),
-        directory,
-        [
-            OsString::from(format!("-DK_BISON_PARSER_SORT={}", start_sort.name)),
-            OsString::from("-DK_BISON_PARSER_MAIN"),
-            directory.join("main.c").into_os_string(),
-            scanner_c.into_os_string(),
-            parser_c.into_os_string(),
-            OsString::from("-iquote"),
-            directory.as_os_str().to_owned(),
-            OsString::from("-o"),
-            executable.as_os_str().to_owned(),
-        ],
-    )
+    let mut arguments = vec![OsString::from(format!(
+        "-DK_BISON_PARSER_SORT={}",
+        start_sort.name
+    ))];
+    match artifact {
+        Artifact::Executable => arguments.push(OsString::from("-DK_BISON_PARSER_MAIN")),
+        Artifact::SharedLibrary => {
+            arguments.push(OsString::from("-fPIC"));
+            arguments.push(OsString::from("-shared"));
+        }
+    }
+    arguments.extend([
+        directory.join("main.c").into_os_string(),
+        scanner_c.into_os_string(),
+        parser_c.into_os_string(),
+        OsString::from("-iquote"),
+        directory.as_os_str().to_owned(),
+        OsString::from("-o"),
+        output.as_os_str().to_owned(),
+    ]);
+    run("C compiler", tool("KRUST_CC", "cc"), directory, arguments)
 }
 
 fn tool(variable: &str, default: &str) -> OsString {

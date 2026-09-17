@@ -546,7 +546,11 @@ fn bison_parser_manifest_covers_the_reviewed_positive_corpus() {
                 executable += 1;
                 executable_inputs += inputs.len();
             }
-            "shared-library" => libraries += 1,
+            "shared-library" => {
+                libraries += 1;
+                assert_eq!(row["consumer"].as_str(), Some("test.c"));
+                assert_eq!(row["library"].as_str(), Some("parser_KItem_TEST"));
+            }
             other => panic!("unknown artifact {other}"),
         }
         if comparison == "amb" {
@@ -581,6 +585,7 @@ print(json.dumps({
     "glr": translate("--gen-glr-bison-parser --bison-lists"),
     "both": translate("--gen-bison-parser --gen-glr-bison-parser"),
     "depth": translate("--gen-glr-bison-parser --bison-stack-max-depth 12000"),
+    "library": translate("--gen-glr-bison-parser --bison-parser-library"),
 }))
 "#;
     let output = Command::new("python3")
@@ -609,12 +614,13 @@ print(json.dumps({
     assert!(args("glr").contains(&"--bison-lists"));
     assert!(args("both").contains(&"--gen-bison-parser"));
     assert!(args("both").contains(&"--gen-glr-bison-parser"));
+    assert!(args("library").contains(&"--bison-parser-library"));
     assert!(
         args("depth")
             .windows(2)
             .any(|pair| pair == ["--bison-stack-max-depth", "12000"])
     );
-    for row in ["lr", "glr", "both", "depth"] {
+    for row in ["lr", "glr", "both", "depth", "library"] {
         assert_eq!(
             translated[row]["dropped"],
             serde_json::json!([]),
@@ -690,6 +696,221 @@ print(json.dumps({"calls": calls, "comparison": comparison, "steps": case.steps}
     );
     assert_eq!(observed["steps"][0]["verdict"], "match");
     assert_eq!(observed["steps"][0]["comparison_policy"], "exact");
+}
+
+#[test]
+fn conformance_driver_builds_the_shared_library_consumer_for_both_sides() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+def probe(mode):
+    root = tempfile.mkdtemp()
+    case = run.Case("bison-parser-library")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "reference-kompiled")
+    rust_kompiled = os.path.join(root, "krust-kompiled")
+    os.makedirs(case.ref_kompiled)
+    os.makedirs(rust_kompiled)
+    os.makedirs(case.log)
+    open(os.path.join(root, "test.c"), "wb").close()
+    open(os.path.join(root, "test.in"), "wb").close()
+    if mode != "missing-reference":
+        open(os.path.join(case.ref_kompiled, "libparser_KItem_TEST.so"), "wb").close()
+    if mode != "missing-krust":
+        open(os.path.join(rust_kompiled, "libparser_KItem_TEST.so"), "wb").close()
+    compile_calls = []
+    parser_calls = []
+    comparison = {}
+    def fake_sh(command, cwd, timeout, **kwargs):
+        compile_calls.append({"command": command, "cwd": cwd})
+        with open(command[command.index("-o") + 1], "wb") as output:
+            output.write(b"consumer")
+        return 0, "", "", 0.01, False
+    def fake_to_file(command, cwd, timeout, stdout_path, env=None):
+        parser_calls.append({"command": command, "cwd": cwd, "env": env, "stdout": stdout_path})
+        with open(stdout_path, "wb") as output:
+            output.write(b"a{}()\n")
+        return 0, "", 0.01, False
+    def fake_compare(name, env, cwd, timeout):
+        comparison.update(name=name, env=env, cwd=cwd)
+        return 0, "bison-parser-comparison = 'exact'\n", "", False
+    run.sh = fake_sh
+    run.sh_to_file = fake_to_file
+    run.run_test_binary_result = fake_compare
+    run.run_bison_parsers(case)
+    return {"compile": compile_calls, "parser": parser_calls,
+            "comparison": comparison, "steps": case.steps}
+
+print(json.dumps({mode: probe(mode) for mode in
+                  ["success", "missing-reference", "missing-krust"]}))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let observed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let success = &observed["success"];
+    let compile = success["compile"].as_array().unwrap();
+    assert_eq!(compile.len(), 2, "{success}");
+    assert!(
+        compile[0]["command"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|argument| argument.as_str().unwrap().contains("reference-kompiled"))
+    );
+    assert!(
+        compile[1]["command"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|argument| argument.as_str().unwrap().contains("krust-kompiled"))
+    );
+    let parser = success["parser"].as_array().unwrap();
+    assert_eq!(parser.len(), 2, "{success}");
+    assert_eq!(parser[0]["command"][1], "test.in");
+    assert_eq!(parser[1]["command"][1], "test.in");
+    assert!(
+        parser[0]["env"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|value| { value.as_str().unwrap().ends_with("reference-kompiled") })
+    );
+    assert!(
+        parser[1]["env"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|value| { value.as_str().unwrap().ends_with("krust-kompiled") })
+    );
+    assert_eq!(success["steps"][0]["verdict"], "match");
+    assert_eq!(
+        success["comparison"]["env"]["K_REFERENCE_BISON_PARSER_OUTPUT"],
+        parser[0]["stdout"]
+    );
+    assert_eq!(
+        observed["missing-reference"]["steps"][0]["verdict"],
+        "reference-error"
+    );
+    assert_eq!(
+        observed["missing-krust"]["steps"][0]["verdict"],
+        "krust-error"
+    );
+}
+
+#[test]
+fn conformance_driver_translates_kast_gen_parser_and_runs_the_generated_parsers() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+def probe(mode):
+    root = tempfile.mkdtemp()
+    case = run.Case("kast-bison")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "kast-in-kompiled")
+    case.def_file = "kast-in.k"
+    case.syntax_module = "KAST-IN-SYNTAX"
+    case.pgm_sort = "Pgm"
+    os.makedirs(case.ref_kompiled)
+    os.makedirs(case.log)
+    open(os.path.join(root, "kast-in.k"), "wb").close()
+    open(os.path.join(root, "1.kast-bison"), "wb").close()
+    calls = []
+    parser_calls = []
+    comparison = {}
+    def fake_sh(command, cwd, timeout, **kwargs):
+        calls.append(command)
+        if command[:2] == ["bash", "-c"]:
+            if mode != "missing-reference":
+                open(os.path.join(root, "bison_parser"), "wb").close()
+            return 0, "", "", 0.01, False
+        if mode == "krust-failure":
+            return 8, "", "generation failed", 0.01, False
+        open(command[-1], "wb").close()
+        return 0, "", "", 0.01, False
+    def fake_to_file(command, cwd, timeout, stdout_path, env=None):
+        parser_calls.append({"command": command, "stdout": stdout_path})
+        with open(stdout_path, "wb") as output:
+            output.write(b"a{}()\n")
+        return 0, "", 0.01, False
+    def fake_compare(name, env, cwd, timeout):
+        comparison.update(name=name, env=env)
+        return 0, "bison-parser-comparison = 'exact'\n", "", False
+    run.sh = fake_sh
+    run.sh_to_file = fake_to_file
+    run.run_test_binary_result = fake_compare
+    recipe = run.split_recipe(
+        "/kbin/kast --gen-parser --bison-stack-max-depth 12000 "
+        "--definition ./kast-in-kompiled --module KAST-IN-SYNTAX --sort Pgm bison_parser")
+    run.do_kast(case, recipe)
+    run.run_kast_bison_parsers(case, ["1.kast-bison"])
+    return {"calls": calls, "parser": parser_calls,
+            "comparison": comparison, "steps": case.steps}
+
+print(json.dumps({mode: probe(mode) for mode in
+                  ["success", "missing-reference", "krust-failure"]}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let observed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let success = &observed["success"];
+    assert_eq!(success["steps"][0]["verdict"], "match");
+    assert_eq!(success["steps"][0]["stage"], "bison-parser");
+    let krust = success["calls"][1].as_array().unwrap();
+    assert!(krust.iter().any(|value| value == "--gen-parser"));
+    assert!(
+        krust
+            .windows(2)
+            .any(|pair| pair == ["--bison-stack-max-depth", "12000"])
+    );
+    assert!(
+        krust
+            .last()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("/logs/kast-bison.krust-parser")
+    );
+    assert_eq!(success["parser"][0]["command"][1], "1.kast-bison");
+    assert_eq!(success["parser"][1]["command"][1], "1.kast-bison");
+    assert_eq!(success["steps"][1]["verdict"], "match");
+    assert_eq!(
+        success["comparison"]["env"]["K_RUST_BISON_PARSER_OUTPUT"],
+        success["parser"][1]["stdout"]
+    );
+    assert_eq!(
+        observed["missing-reference"]["steps"][0]["verdict"],
+        "reference-error"
+    );
+    assert_eq!(
+        observed["krust-failure"]["steps"][0]["verdict"],
+        "krust-error"
+    );
 }
 
 #[test]
@@ -1220,7 +1441,9 @@ print(json.dumps({
     };
     let plain = arguments("plain");
     assert!(
-        !plain.iter().any(|argument| argument.starts_with("--search")),
+        !plain
+            .iter()
+            .any(|argument| argument.starts_with("--search")),
         "a non-search recipe must not select a search mode: {plain:?}"
     );
     for (name, mode) in [

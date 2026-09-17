@@ -119,7 +119,8 @@ reason = "Baseline observation: emit KORE: `cannot use production #147 for equat
 [[case]]
 name = "bison-parser-library"
 accepted_verdict = "match"
-accepted_stage = "kompile"
+accepted_stage = "bison-parser"
+accepted_basis = "The GLR parser is installed as libparser_KItem_TEST.so; the manifest builds test.c against each reference and krust library, and test.in produces byte-identical parser stdout."
 baseline_verdict = "match"
 baseline_stage = "kompile"
 exclusion = ""
@@ -1326,21 +1327,23 @@ reason = "kast --input json --output pretty reads a JSON KAST and pretty-prints 
 
 [[case]]
 name = "kast-bison"
-accepted_verdict = "krust-unsupported"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "bison-parser"
+accepted_basis = "krust kast --gen-parser and the reference kast each generate a standalone Pgm parser; running both on 1.kast-bison produces byte-identical parser stdout."
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "kast --gen-parser generates a standalone Bison parser for a sort; krust does not generate parsers from kast. The kompile step matches. Pending work, not a declined capability: the Bison parser programme names this as its follow-up."
+reason = ""
 
 [[case]]
 name = "kast-bison-bytes"
-accepted_verdict = "krust-unsupported"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "bison-parser"
+accepted_basis = "krust kast --gen-parser and the reference kast each generate a standalone Pgm parser; running both on the byte-string token in 1.kast-bison produces byte-identical parser stdout."
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "kast --gen-parser generates a standalone Bison parser for a sort with byte-string tokens; krust does not generate parsers from kast. The kompile step matches. Pending work, not a declined capability: the Bison parser programme names this as its follow-up."
+reason = ""
 
 [[case]]
 name = "kast-default-output"

@@ -22,10 +22,18 @@ pub enum Mode {
     Glr,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Artifact {
+    #[default]
+    Executable,
+    SharedLibrary,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Options {
     pub mode: Mode,
     pub stack_max_depth: u64,
+    pub artifact: Artifact,
 }
 
 impl Default for Options {
@@ -33,6 +41,7 @@ impl Default for Options {
         Self {
             mode: Mode::Glr,
             stack_max_depth: 10_000,
+            artifact: Artifact::Executable,
         }
     }
 }
@@ -69,6 +78,28 @@ pub fn generate_program_parser(
     output_directory: &Path,
     options: Options,
 ) -> Result<PathBuf, Error> {
+    fs::create_dir_all(output_directory)
+        .map_err(|error| Error::io("could not create parser output directory", error))?;
+    let output_directory = fs::canonicalize(output_directory)
+        .map_err(|error| Error::io("could not resolve parser output directory", error))?;
+    let stem = format!("parser_{}_{}", start_sort.name, module);
+    let primary_name = match options.artifact {
+        Artifact::Executable => stem,
+        Artifact::SharedLibrary => format!("lib{stem}{}", std::env::consts::DLL_SUFFIX),
+    };
+    let primary = output_directory.join(&primary_name);
+    generate_parser(definition, module, start_sort, &primary, options)?;
+    install_relative_link(&output_directory, "parser_PGM", &primary_name)?;
+    Ok(primary)
+}
+
+pub fn generate_parser(
+    definition: &ResolvedDefinition,
+    module: &str,
+    start_sort: &Sort,
+    output: &Path,
+    options: Options,
+) -> Result<(), Error> {
     let module_id = definition
         .module_id(module)
         .ok_or_else(|| Error::render(format!("program syntax module {module:?} was not found")))?;
@@ -85,10 +116,18 @@ pub fn generate_program_parser(
         options.stack_max_depth,
     )?;
 
+    let output_directory = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(output_directory)
         .map_err(|error| Error::io("could not create parser output directory", error))?;
     let output_directory = fs::canonicalize(output_directory)
         .map_err(|error| Error::io("could not resolve parser output directory", error))?;
+    let output_name = output
+        .file_name()
+        .ok_or_else(|| Error::render("generated parser output must name a file"))?;
+    let output = output_directory.join(output_name);
     let stage = Stage::new(&output_directory)?;
     fs::write(stage.path.join("scanner.l"), scanner_source)
         .map_err(|error| Error::io("could not write scanner.l", error))?;
@@ -99,14 +138,9 @@ pub fn generate_program_parser(
     fs::write(stage.path.join("node.h"), NODE_H)
         .map_err(|error| Error::io("could not write parser ABI header", error))?;
 
-    let staged_executable = stage.path.join("parser");
-    toolchain::compile(&stage.path, start_sort, &staged_executable)?;
-
-    let primary_name = format!("parser_{}_{}", start_sort.name, module);
-    let primary = output_directory.join(&primary_name);
-    replace_file(&staged_executable, &primary)?;
-    install_relative_link(&output_directory, "parser_PGM", &primary_name)?;
-    Ok(primary)
+    let staged_artifact = stage.path.join("parser");
+    toolchain::compile(&stage.path, start_sort, &staged_artifact, options.artifact)?;
+    replace_file(&staged_artifact, &output)
 }
 
 fn concrete_program_sentences(sentences: Vec<Sentence>) -> Vec<Sentence> {

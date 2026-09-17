@@ -4597,6 +4597,289 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn kcompile_generates_a_glr_parser_shared_library() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module BISON
+  syntax Number ::= r"[A-Z]+" [token]
+  syntax Pgm ::= Number
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let library_directory = root.join("library-kompiled");
+    let executable_directory = root.join("executable-kompiled");
+    let run = |directory: &Path, extra: &[&str]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "BISON",
+            "--syntax-module",
+            "BISON",
+            "--output-directory",
+            directory.to_str().unwrap(),
+            "--gen-glr-bison-parser",
+        ]);
+        command.args(extra);
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run(&library_directory, &["--bison-parser-library"]);
+    run(&executable_directory, &[]);
+
+    let library_name = format!("libparser_Pgm_BISON{}", std::env::consts::DLL_SUFFIX);
+    let library = library_directory.join(&library_name);
+    assert!(library.is_file());
+    assert!(!library_directory.join("parser_Pgm_BISON").exists());
+    assert_eq!(
+        fs::read_link(library_directory.join("parser_PGM")).unwrap(),
+        Path::new(&library_name)
+    );
+
+    let consumer_source = root.join("consumer.c");
+    let consumer = root.join("consumer");
+    fs::write(
+        &consumer_source,
+        "#include <stdio.h>\nchar *parse_Pgm(char *, char *);\nint main(int argc, char **argv) { printf(\"%s\\n\", parse_Pgm(argv[1], NULL)); }\n",
+    )
+    .unwrap();
+    let compiled = Command::new("cc")
+        .arg(&consumer_source)
+        .arg(format!("-L{}", library_directory.display()))
+        .arg("-lparser_Pgm_BISON")
+        .args(["-o"])
+        .arg(&consumer)
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+
+    let input = root.join("input.pgm");
+    fs::write(&input, "ABC\n").unwrap();
+    let library_path_variable = if cfg!(target_os = "macos") {
+        "DYLD_LIBRARY_PATH"
+    } else {
+        "LD_LIBRARY_PATH"
+    };
+    let from_library = Command::new(&consumer)
+        .arg(&input)
+        .env(library_path_variable, &library_directory)
+        .output()
+        .unwrap();
+    assert!(
+        from_library.status.success(),
+        "{}",
+        String::from_utf8_lossy(&from_library.stderr)
+    );
+    let from_executable = Command::new(executable_directory.join("parser_PGM"))
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert!(from_executable.status.success());
+    assert_eq!(from_library.stdout, from_executable.stdout);
+
+    let rejected = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "BISON",
+            "--output-directory",
+            root.join("rejected").to_str().unwrap(),
+            "--bison-parser-library",
+        ])
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains(
+            "--bison-parser-library requires --gen-bison-parser or --gen-glr-bison-parser"
+        )
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_writes_a_standalone_lr_parser() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN-SYNTAX
+  syntax Int [hook(INT.Int)]
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Pgm ::= Int
+endmodule
+
+module MAIN
+  imports MAIN-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let parser = root.join("standalone-parser");
+    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN-SYNTAX",
+            "--sort",
+            "Pgm",
+            "--gen-parser",
+        ])
+        .arg(&parser)
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let input = root.join("input.pgm");
+    fs::write(&input, "1\n").unwrap();
+    let parsed = Command::new(&parser).arg(&input).output().unwrap();
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(parsed.stdout).unwrap(),
+        "inj{SortInt{}, SortPgm{}}(\\dv{SortInt{}}(\"1\"))\n"
+    );
+    let kompiled = root.join("main-kompiled");
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN-SYNTAX",
+            "--output-directory",
+            kompiled.to_str().unwrap(),
+            "--gen-bison-parser",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let compiled_parse = Command::new(kompiled.join("parser_PGM"))
+        .arg(&input)
+        .output()
+        .unwrap();
+    let standalone_parse = Command::new(&parser).arg(&input).output().unwrap();
+    assert_eq!(standalone_parse.stdout, compiled_parse.stdout);
+
+    for invalid in [
+        vec!["--gen-parser", "out", "--expression", "1"],
+        vec!["--gen-parser", "--gen-glr-parser", "out"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kast",
+                definition.to_str().unwrap(),
+                "--module",
+                "MAIN-SYNTAX",
+                "--sort",
+                "Pgm",
+            ])
+            .args(invalid)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_keeps_byte_string_tokens() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r##"
+module TOKENS
+  syntax Bytes [hook(BYTES.Bytes)]
+  syntax Bytes ::= r"b[\\\"](([ !#-\\[\\]-~])|([\\\\][tnfr\"\\\\])|([\\\\][x][0-9a-fA-F]{2}))*[\\\"]" [token]
+  syntax String [hook(STRING.String)]
+  syntax String ::= r"[\\\"](([^\\\"\\n\\r\\\\])|([\\\\][nrtf\\\"\\\\])|([\\\\][x][0-9a-fA-F]{2}))*[\\\"]" [token]
+  syntax Pgm ::= Bytes | String
+endmodule
+"##,
+    )
+    .unwrap();
+    let parser = root.join("tokens-parser");
+    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            "TOKENS",
+            "--sort",
+            "Pgm",
+            "--gen-parser",
+        ])
+        .arg(&parser)
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    for (name, source, expected) in [
+        (
+            "bytes.pgm",
+            "b\"\\x00\\x0f\"\n",
+            "inj{SortBytes{}, SortPgm{}}(\\dv{SortBytes{}}(\"\\x00\\x0f\"))\n",
+        ),
+        (
+            "string.pgm",
+            "\"text\"\n",
+            "inj{SortString{}, SortPgm{}}(\\dv{SortString{}}(\"text\"))\n",
+        ),
+    ] {
+        let input = root.join(name);
+        fs::write(&input, source).unwrap();
+        let parsed = Command::new(&parser).arg(&input).output().unwrap();
+        assert!(
+            parsed.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&parsed.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(parsed.stdout).unwrap(),
+            expected,
+            "{name}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kcompile_skips_bison_tools_when_the_configuration_has_no_pgm() {
     let (root, definition) = fixture();
