@@ -961,6 +961,73 @@ fn refuted_ensures_make_the_equation_result_bottom() {
 }
 
 #[test]
+fn ensures_verdicts_of_the_solver_are_mapped_per_site() {
+    // The `ensures` of an equation is a conjunct of its result by definition: a valid one is
+    // dropped, a refuted one makes the result `\bottom`, and every verdict the solver does not
+    // reach, an inconsistent path condition included, carries it without a diagnostic.
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(
+                        X:SortS{},
+                        \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{})
+                    )
+                )
+            ) [label{}("constrained"), simplification{}()]
+            "#,
+    );
+    let value = term(&definition, r#"\dv{SortS{}}("value")"#);
+    let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
+    let simplify_with = |solver: &dyn SmtSolver| {
+        diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                solver,
+            )
+            .expect("a decided ensures is never a simplification error")
+        })
+    };
+
+    let (valid, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Valid));
+    assert_eq!(valid.term, value);
+    assert!(valid.constraints.is_empty());
+    assert_eq!(valid.applied_rules, ["constrained"]);
+    assert!(diagnostics.is_empty());
+
+    let (invalid, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    assert_eq!(invalid.term, value);
+    assert_eq!(invalid.constraints, [Predicate::False]);
+    assert_eq!(invalid.applied_rules, ["constrained"]);
+    assert!(diagnostics.is_empty());
+
+    let carried: [&dyn SmtSolver; 5] = [
+        &FixedValiditySolver(Validity::Indeterminate),
+        &FixedValiditySolver(Validity::InconsistentGroundTruth),
+        &FixedValiditySolver(Validity::Unknown("timeout".into())),
+        &UntranslatableSolver::non_boolean_and(&definition),
+        &NoSolver,
+    ];
+    for solver in carried {
+        let (open, diagnostics) = simplify_with(solver);
+        assert_eq!(open.term, value);
+        assert_eq!(open.constraints.len(), 1, "{:?}", open.constraints);
+        assert!(
+            matches!(&open.constraints[0], Predicate::Equals(left, _) if *left == value),
+            "{:?}",
+            open.constraints
+        );
+        assert_eq!(open.applied_rules, ["constrained"]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+}
+
+#[test]
 fn predicate_term_simplification_preserves_result_constraints() {
     let definition = definition(
         r#"
