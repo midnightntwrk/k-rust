@@ -35,6 +35,8 @@ anchor_helpers = [
   "generated_stem",
   "rename_execution_variables",
   "execution_generated_name",
+  "existential_generated_name",
+  "counted_stem",
   "GeneratedNames",
   "normalize_execution_pattern_with",
   "normalize_execution_pattern_fixing",
@@ -44,8 +46,8 @@ anchor_helpers = [
   "alpha_normalize_bound_variables",
   "is_canonical_free_name",
 ]
-rule = "Alpha-normalize bound variables independently in each scope. Rename remaining generated variables by the first-occurrence index of each original name, preserving each variable's sort and distinct-name multiplicity. Definitions rename the frontend's Var'Unds'<stem>N names and keep the stem. Execution results rename, in a canonical traversal (term first, conjuncts in name-erased order, quantifier chains by renamed binder), the Var'Unds'<stem>N names, the NewUnifier's VarAC<n>'Unds'<counter> remainder, the port's externalized Ex/Eq/Rule marker names and, when K_DIFFERENTIAL_INITIAL_PATTERN names the initial pattern, every variable that is not free in it (rule variables Kore leaves free in a result)."
-justification = "Alpha-renaming is irrelevant, but collapsing two names into one changes the pattern; the reference and the port choose different names for the same rule and remainder variables (VarAC1'Unds'1 versus ExFrame0, VarI versus ExVarI0), and only the initial pattern's variables are names both engines share."
+rule = "Alpha-normalize bound variables independently in each scope. Rename remaining generated variables by the first-occurrence index of each original name, preserving each variable's sort and distinct-name multiplicity. Definitions rename the frontend's Var'Unds'<stem>N names and keep the stem. Execution results rename, in a canonical traversal (term first, conjuncts in name-erased order, quantifier chains by renamed binder), the Var'Unds'<stem>N names, the Var'Ques'<stem>N instances of rule existentials, the NewUnifier's VarAC<n>'Unds'<counter> remainder, the port's externalized Ex/Eq/Rule marker names and, when K_DIFFERENTIAL_INITIAL_PATTERN names the initial pattern, every variable that is not free in it (rule variables Kore leaves free in a result)."
+justification = "Alpha-renaming is irrelevant, but collapsing two names into one changes the pattern; the reference and the port choose different names for the same rule and remainder variables (VarAC1'Unds'1 versus ExFrame0, VarI versus ExVarI0); K's ? existentials are refreshed with a fresh counter by both engines and the surviving unification representative is engine-chosen (Var'Ques'Tx1 versus Var'Ques'T3 in the LAMBDA type inferencer), and only the initial pattern's variables are names both engines share."
 
 [[normalisation]]
 id = "N5"

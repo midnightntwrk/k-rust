@@ -1664,6 +1664,75 @@ fn execution_normalizer_preserves_sorts_and_distinctness_of_generated_variables(
 }
 
 #[test]
+fn execution_normalizer_renames_instantiated_rule_existentials_in_shapes_mode() {
+    // LAMBDA type inferencer (pl-tutorial/1_k/5_types/lesson_6), composition.lambda, searched
+    // with the free VarT:SortType{}: the engines keep different fresh counters and unification
+    // representatives for the rules' `?T` existentials but the same sharing structure.
+    let reference = parse_pattern(concat!(
+        r"\equals{SortType{}, SortGeneratedTopCell{}}(VarT:SortType{}, ",
+        r"arrow{}(arrow{}(Var'Ques'T3:SortType{}, Var'Ques'Te1:SortType{}), ",
+        r"arrow{}(arrow{}(Var'Ques'Tx1:SortType{}, Var'Ques'T3:SortType{}), ",
+        r"arrow{}(Var'Ques'Tx1:SortType{}, Var'Ques'Te1:SortType{}))))",
+    ))
+    .unwrap();
+    let actual = parse_pattern(concat!(
+        r"\equals{SortType{}, SortGeneratedTopCell{}}(VarT:SortType{}, ",
+        r"arrow{}(arrow{}(Var'Ques'T2:SortType{}, Var'Ques'Te1:SortType{}), ",
+        r"arrow{}(arrow{}(Var'Ques'T3:SortType{}, Var'Ques'T2:SortType{}), ",
+        r"arrow{}(Var'Ques'T3:SortType{}, Var'Ques'Te1:SortType{}))))",
+    ))
+    .unwrap();
+    let normalized = normalize_execution_pattern(reference);
+    assert_eq!(normalized, normalize_execution_pattern(actual));
+    // The search pattern's own variable keeps its name; every `?` instance is renamed.
+    let rendered = normalized.to_string();
+    assert!(rendered.contains("VarT:SortType{}"), "{rendered}");
+    assert!(!rendered.contains("Var'Ques'"), "{rendered}");
+    assert!(rendered.contains("Var'Hash'KDiff2:SortType{}"), "{rendered}");
+}
+
+#[test]
+fn execution_normalizer_keeps_lost_sharing_between_rule_existentials() {
+    let shared = parse_pattern(r"arrow{}(Var'Ques'A1:S{}, Var'Ques'A1:S{})").unwrap();
+    let distinct = parse_pattern(r"arrow{}(Var'Ques'A1:S{}, Var'Ques'B1:S{})").unwrap();
+    assert_ne!(
+        normalize_execution_pattern(shared),
+        normalize_execution_pattern(distinct)
+    );
+}
+
+#[test]
+fn execution_normalizer_keeps_uncounted_existentials_and_pattern_variables_fixed() {
+    assert!(existential_generated_name("Var'Ques'X0"));
+    assert!(existential_generated_name("Var'Ques'Tx1"));
+    assert!(!existential_generated_name("Var'Ques'X"));
+    assert!(!existential_generated_name("Var'Ques'1"));
+    assert!(!existential_generated_name("Var'Ques'X'Hash'KDiff0"));
+    assert!(!execution_generated_name("Var'Ques'X"));
+    assert!(!execution_generated_name("VarT"));
+    assert!(!execution_generated_name("VarT1"));
+    // Definitions keep their Var'Unds' stem semantics: a `?` variable has no stem there.
+    assert_eq!(generated_stem("Var'Unds'X1"), Some("X"));
+    assert_eq!(generated_stem("Var'Ques'X1"), None);
+
+    let bare = parse_pattern(r"arrow{}(Var'Ques'X:S{}, VarT:S{})").unwrap();
+    let normalized = normalize_execution_pattern(bare.clone());
+    assert_eq!(normalized, bare);
+    let counted = parse_pattern(r"arrow{}(Var'Ques'X1:S{}, VarT:S{})").unwrap();
+    assert_ne!(normalize_execution_pattern(counted), normalized);
+}
+
+#[test]
+fn execution_normalizer_preserves_sorts_of_rule_existentials() {
+    let reference = parse_pattern(r"arrow{}(Var'Ques'A1:S{}, Var'Ques'B1:T{})").unwrap();
+    let actual = parse_pattern(r"arrow{}(Var'Ques'A7:S{}, Var'Ques'B7:S{})").unwrap();
+    assert_ne!(
+        normalize_execution_pattern(reference),
+        normalize_execution_pattern(actual)
+    );
+}
+
+#[test]
 fn execution_predicate_recognizer_matches_the_kore_predicate_constructors() {
     // haskell-backend Kore/Internal/Predicate.hs PredicateF: And, Bottom, Ceil, Equals, Exists,
     // Floor, Forall, Iff, Implies, In, Not, Or, Top.
@@ -1893,8 +1962,10 @@ type KoreVariable = k_rust::kore::ast::Variable;
 /// Kore prints a rule variable that survives into a result under its rule name (`VarI`,
 /// `Var'Unds'K`), the NewUnifier's AC remainder as `VarAC<n>'Unds'<counter>`
 /// (NewUnifier.hs:1302, externalizeFreshVariableName) and the port prints the same variables
-/// as `Ex`/`Eq`/`Rule` marker names with the fresh counter appended (externalize.rs). Only the
-/// free variables of the initial pattern are fixed names shared by both engines.
+/// as `Ex`/`Eq`/`Rule` marker names with the fresh counter appended (externalize.rs). Both print
+/// an instantiated rule existential as `Var'Ques'<stem><counter>` with their own counters
+/// (`existential_generated_name`). Only the free variables of the initial pattern are fixed names
+/// shared by both engines.
 struct GeneratedNames {
     fixed: Option<BTreeSet<String>>,
 }
@@ -1934,7 +2005,7 @@ fn is_canonical_free_name(name: &str) -> bool {
 }
 
 fn execution_generated_name(name: &str) -> bool {
-    if generated_stem(name).is_some() {
+    if generated_stem(name).is_some() || existential_generated_name(name) {
         return true;
     }
     // Kore/Unification/NewUnifier.hs:1302: generatedId "VarAC<n>'Unds'" plus the fresh counter.
@@ -1954,6 +2025,22 @@ fn execution_generated_name(name: &str) -> bool {
         name.strip_prefix(marker)
             .is_some_and(|rest| rest.starts_with(|character: char| character.is_ascii_uppercase()))
     })
+}
+
+/// N4: an instantiated rule existential, `Var'Ques'<stem><digits>`.
+///
+/// K compiles a rule's `?X` to the KORE variable `Var'Ques'X`. When the rule applies, Kore
+/// refreshes it with a fresh counter and prints the instance by appending the counter's digits to
+/// the base (`Kore.Syntax.Variable.externalizeFreshVariableName`); the port does the same through
+/// `rewrite::fresh_variable` (`term::names::with_fresh_counter`, `Var'Ques'X!3`) and
+/// `externalize::external_variable_name`, which drops the `!`. Both engines therefore print
+/// `Var'Ques'X<counter>`, but the counters and the unification representative each keeps are
+/// engine-chosen: the LAMBDA type inferencer's `composition.lambda` result names its three type
+/// variables `Var'Ques'Tx1`, `Var'Ques'T3`, `Var'Ques'Te1` in the reference and `Var'Ques'T3`,
+/// `Var'Ques'T2`, `Var'Ques'Te1` in the port. A bare `Var'Ques'X` (no counter) is a rule or
+/// search-pattern variable printed under its own name and stays fixed in shapes mode.
+fn existential_generated_name(name: &str) -> bool {
+    counted_stem("Var'Ques'", name).is_some()
 }
 
 /// N21: flatten nested same-sort conjunctions and drop duplicated conjuncts.
@@ -4389,17 +4476,20 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
     *pattern = current;
 }
 
+/// N4: the frontend's `Var'Unds'<stem>N` names, whose stem definitions keep when renaming.
 fn generated_stem(name: &str) -> Option<&str> {
-    if let Some(suffix) = name.strip_prefix("Var'Unds'") {
-        if suffix.contains("'Hash'KDiff") {
-            return None;
-        }
-        let stem = suffix.trim_end_matches(|character: char| character.is_ascii_digit());
-        if !stem.is_empty() && stem.len() != suffix.len() {
-            return Some(stem);
-        }
+    counted_stem("Var'Unds'", name)
+}
+
+/// N4: the stem of a `<prefix><stem><digits>` name (stem non-empty, at least one trailing
+/// digit), `None` for any name that already carries the canonical `'Hash'KDiff` marker.
+fn counted_stem<'name>(prefix: &str, name: &'name str) -> Option<&'name str> {
+    let suffix = name.strip_prefix(prefix)?;
+    if suffix.contains("'Hash'KDiff") {
+        return None;
     }
-    None
+    let stem = suffix.trim_end_matches(|character: char| character.is_ascii_digit());
+    (!stem.is_empty() && stem.len() != suffix.len()).then_some(stem)
 }
 
 fn rename_generated_variables(pattern: &mut Pattern) {
