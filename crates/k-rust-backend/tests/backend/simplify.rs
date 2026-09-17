@@ -256,6 +256,80 @@ fn top_equation_outside_a_conjunction_is_an_explicit_error() {
     ));
 }
 
+#[test]
+fn top_equations_carry_the_definedness_of_the_erased_operand() {
+    // `u /\ f(t) = u /\ \ceil(t)` under `f(X) = \top`: the operand is strict in `t`, so an
+    // open obligation becomes a constraint of the conjunction and a refuted one makes it
+    // `\bottom`.
+    let definition = definition(&format!(
+        "symbol partial{{}}(SortS{{}}) : SortS{{}} [function{{}}()] {TOP_RHS_EQUATION}"
+    ));
+    let retained = term(&definition, r#"\dv{SortS{}}("retained")"#);
+    let argument = term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#);
+    let input = Term::and(
+        retained.clone(),
+        term(&definition, r#"f{}(partial{}(\dv{SortS{}}("v")))"#),
+    );
+    let simplify_with = |solver: &dyn SmtSolver| {
+        simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            solver,
+        )
+        .expect("the top equation should apply")
+    };
+
+    let open = simplify_with(&NoSolver);
+    assert_eq!(open.term, retained);
+    assert_eq!(open.constraints, vec![Predicate::Ceil(argument.clone())]);
+    assert_eq!(open.applied_rules, ["erase-f"]);
+
+    let refuted = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    assert_eq!(refuted.term, retained);
+    assert_eq!(refuted.constraints, vec![Predicate::False]);
+    assert_eq!(refuted.applied_rules, ["erase-f"]);
+
+    // A path condition that carries the obligation discharges it.
+    let discharged = simplify_with_solver(
+        &definition,
+        &input,
+        &[Predicate::Ceil(argument)],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the top equation should apply");
+    assert_eq!(discharged.term, retained);
+    assert!(discharged.constraints.is_empty());
+
+    // Negative control: an undecided `requires` still refuses, obligation or not.
+    let guarded = self::definition(
+        r#"
+            symbol partial{}(SortS{}) : SortS{} [function{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("expected")),
+                    \top{R}()
+                ),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\top{SortS{}}(), \top{SortS{}}())
+                )
+            ) [label{}("erase-guarded"), simplification{}()]
+            "#,
+    );
+    let input = Term::and(
+        term(&guarded, r#"\dv{SortS{}}("retained")"#),
+        term(&guarded, r#"f{}(partial{}(\dv{SortS{}}("v")))"#),
+    );
+    let result = simplify(&guarded, &input, SimplificationOptions::default())
+        .expect("an undecided top equation retains the conjunction");
+    assert_eq!(result.term, input);
+    assert!(result.constraints.is_empty());
+    assert!(result.applied_rules.is_empty());
+}
+
 const IDENTITY: &str = r#"
         axiom{R} \implies{R}(
             \top{R}(),
@@ -1305,6 +1379,109 @@ fn applies_the_canonically_first_same_priority_predicate_equation() {
     .expect("the first applicable predicate equation should win");
 
     assert_eq!(result, Predicate::True);
+}
+
+/// `f`, `g`, and `partial` are partial functions. `\equals(f(X), "c")` rewrites to `\top`
+/// (strict in `X`), `\equals(f(X), g(X))` and `\not(\equals(g(X), "c"))` rewrite to `\top`
+/// (not strict), and `\equals(f(X), "d")` rewrites to `\top` when `X = "expected"`.
+fn predicate_strictness_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol g{}(SortS{}) : SortS{} [function{}()]
+            symbol partial{}(SortS{}) : SortS{} [function{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \equals{SortS{}, Q}(f{}(X:SortS{}), \dv{SortS{}}("c")),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("strict-equals"), simplification{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \equals{SortS{}, Q}(f{}(X:SortS{}), g{}(X:SortS{})),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("both-sides"), simplification{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\equals{SortS{}, Q}(g{}(X:SortS{}), \dv{SortS{}}("c"))),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("negated"), simplification{}()]
+            axiom{R, Q} \implies{R}(
+                \and{R}(
+                    \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("expected")),
+                    \top{R}()
+                ),
+                \equals{Q, R}(
+                    \equals{SortS{}, Q}(f{}(X:SortS{}), \dv{SortS{}}("d")),
+                    \and{Q}(\top{Q}(), \top{Q}())
+                )
+            ) [label{}("guarded-equals"), simplification{}()]
+            "#,
+    )
+}
+
+#[test]
+fn predicate_equations_use_an_open_obligation_only_where_the_subject_is_strict() {
+    let definition = predicate_strictness_definition();
+    let argument = term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#);
+    let obligation = Predicate::Ceil(argument.clone());
+    let f_partial = term(&definition, r#"f{}(partial{}(\dv{SortS{}}("v")))"#);
+    let g_partial = term(&definition, r#"g{}(partial{}(\dv{SortS{}}("v")))"#);
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let strict = Predicate::Equals(f_partial.clone(), c.clone());
+    let both_sides = Predicate::Equals(f_partial.clone(), g_partial.clone());
+    let negated = Predicate::Not(Box::new(Predicate::Equals(g_partial, c)));
+    let simplify_with = |predicate: &Predicate, solver: &dyn SmtSolver| {
+        diagnostic::collect(|| {
+            simplify_predicate_with_solver(
+                &definition,
+                predicate,
+                &[],
+                SimplificationOptions::default(),
+                solver,
+            )
+            .expect("the predicate should simplify")
+        })
+    };
+
+    // `\equals(f(t), "c")` is strict in `t`: `\equals(\bottom, "c")` is `\bottom`, so the
+    // equation applies and the open obligation is conjoined.
+    let (result, diagnostics) = simplify_with(&strict, &NoSolver);
+    assert_eq!(result, obligation);
+    assert!(diagnostics.is_empty());
+    // With `t` empty, `\equals(f(t), g(t))` and `\not(\equals(g(t), "c"))` are `\top`, where
+    // the conjoined form would be `\bottom`: the attempts stay indeterminate.
+    assert_eq!(simplify_with(&both_sides, &NoSolver).0, both_sides);
+    assert_eq!(simplify_with(&negated, &NoSolver).0, negated);
+
+    // A refuted obligation makes the strict subject `\bottom` and leaves the others alone.
+    assert_eq!(
+        simplify_with(&strict, &FixedValiditySolver(Validity::Invalid)).0,
+        Predicate::False
+    );
+    assert_eq!(
+        simplify_with(&both_sides, &FixedValiditySolver(Validity::Invalid)).0,
+        both_sides
+    );
+    assert_eq!(
+        simplify_with(&negated, &FixedValiditySolver(Validity::Invalid)).0,
+        negated
+    );
+
+    // A path condition that carries the obligation discharges it on every shape.
+    let known = [obligation];
+    let discharged = |predicate: &Predicate| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            &known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the predicate should simplify")
+    };
+    assert_eq!(discharged(&strict), Predicate::True);
+    assert_eq!(discharged(&both_sides), Predicate::True);
+    assert_eq!(discharged(&negated), Predicate::True);
+
+    // Negative control: an undecided `requires` still refuses on the strict shape.
+    let guarded = Predicate::Equals(f_partial, term(&definition, r#"\dv{SortS{}}("d")"#));
+    assert_eq!(simplify_with(&guarded, &NoSolver).0, guarded);
 }
 
 #[test]
