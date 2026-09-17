@@ -1419,7 +1419,7 @@ def driver(mode, recipe_text=PLAIN):
         if tool == "krust" and cmd[1] == "krun":
             return 0, KRUST_KORE, "", 0.1, False
         if tool == "krun":
-            calls["reference"].append(cmd[1:])
+            calls["reference"].append({"args": cmd[1:], "env": env})
             if mode == "reference_fails": return 1, "", "kore-exec: boom", 0.1, False
             if mode == "reference_timeout": return -9, "", "", 0.1, True
             if mode == "reference_empty": return 0, "", "", 0.1, False
@@ -1456,9 +1456,11 @@ def driver(mode, recipe_text=PLAIN):
     run.confirm_oracle = lambda case, rec, step: calls.__setitem__("oracle", calls["oracle"] + 1)
     step = run.do_krun(case, run.split_recipe(recipe_text))
     return {"verdict": step["verdict"], "comparison": step.get("comparison"),
+            "reason": step.get("reason"),
             "simplified_kore_equal": step.get("simplified_kore_equal"), "divergence": step.get("divergence"),
             "text_divergence": step.get("text_divergence"),
             "simplified_kore_divergence": step.get("simplified_kore_divergence"),
+            "reference_kore_error": step.get("reference_kore_error"),
             "reference_kore_reproduces_out": step.get("reference_kore_reproduces_out"),
             "reference_kore_rc": step.get("reference_kore_rc"), "calls": calls}
 
@@ -1572,28 +1574,29 @@ print(json.dumps({
     }
     // The reference re-run replaces the recipe's output format by --output kore.
     assert_eq!(
-        calls("equal")["reference"],
-        serde_json::json!([[
+        calls("equal")["reference"][0]["args"],
+        serde_json::json!([
             "1.test",
             "--no-exc-wrap",
             "--definition",
             "./test-kompiled",
             "--output",
             "kore"
-        ]]),
+        ]),
         "{probes}"
     );
     assert_eq!(
-        calls("output_flag")["reference"],
-        serde_json::json!([[
+        calls("output_flag")["reference"][0]["args"],
+        serde_json::json!([
             "1.test",
             "--definition",
             "./test-kompiled",
             "--output",
             "kore"
-        ]]),
+        ]),
         "{probes}"
     );
+    assert_eq!(calls("equal")["reference"][0]["env"]["GHCRTS"], "-N1");
     // Matching text never reaches C8.
     assert_eq!(probe("text_equal")["verdict"], "match", "{probes}");
     assert!(
@@ -1608,18 +1611,12 @@ print(json.dumps({
         0
     );
     assert_eq!(calls("text_equal")["simplify"].as_array().unwrap().len(), 0);
-    // A failing or unavailable stage is a mismatch that keeps the C7 label and the text diff, says
-    // why C8 could not establish equality, and still confirms the oracle. Every not_compared
-    // return of run.py compare_simplified_kore is probed so that none can fall through to the
-    // success branch without evidence.
+    // An unavailable simplification or comparison remains a mismatch that keeps the C7 label and
+    // text diff. These are negative controls for the distinct reference-process failure below.
     for (name, reason) in [
         (
             "differ",
             "simplified KORE differ: unpaired disjunct: cfg{}()",
-        ),
-        (
-            "reference_fails",
-            "not compared: reference --output kore re-run exited 1",
         ),
         (
             "simplify_fails",
@@ -1638,14 +1635,6 @@ print(json.dumps({
         (
             "budget_before_rerun",
             "not compared: no remaining budget for the reference --output kore re-run",
-        ),
-        (
-            "reference_timeout",
-            "not compared: reference --output kore re-run timed out",
-        ),
-        (
-            "reference_empty",
-            "not compared: reference --output kore re-run exited 0",
         ),
         (
             "kprint_fails",
@@ -1701,6 +1690,45 @@ print(json.dumps({
             "{name}: {probes}"
         );
         assert_eq!(calls(name)["oracle"], 1, "{name}: {probes}");
+    }
+    for (name, outcome, error) in [
+        ("reference_fails", "exit 1", "kore-exec: boom"),
+        ("reference_timeout", "timed out", ""),
+        ("reference_empty", "exit 0, empty stdout", ""),
+    ] {
+        assert_eq!(
+            probe(name)["verdict"],
+            "reference-error",
+            "{name}: {probes}"
+        );
+        assert!(
+            probe(name)["reason"].as_str().unwrap().contains(outcome),
+            "{name}: {probes}"
+        );
+        assert!(
+            probe(name)["reference_kore_error"]
+                .as_str()
+                .unwrap()
+                .contains(error),
+            "{name}: {probes}"
+        );
+        assert!(
+            probe(name)["divergence"]
+                .as_str()
+                .unwrap()
+                .contains("size ( ListItem"),
+            "{name}: {probes}"
+        );
+        assert!(
+            probe(name)["simplified_kore_divergence"]
+                .as_str()
+                .unwrap()
+                .contains("reference --output kore re-run"),
+            "{name}: {probes}"
+        );
+        assert_eq!(calls(name)["oracle"], 1, "{name}: {probes}");
+        assert_eq!(calls(name)["simplify"].as_array().unwrap().len(), 0);
+        assert_eq!(calls(name)["comparator"].as_array().unwrap().len(), 0);
     }
     assert_eq!(calls("differ")["comparator"].as_array().unwrap().len(), 1);
     assert_eq!(
@@ -1793,6 +1821,259 @@ print(json.dumps({
     ] {
         assert_eq!(count(name, "comparator"), 0, "{name}: {probes}");
     }
+}
+
+#[test]
+fn conformance_driver_refreshes_invalid_work_trees_and_cleans_nested_outputs() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, pathlib, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+root = pathlib.Path(tempfile.mkdtemp())
+source = root / "source" / "k-distribution"
+(source / "include/kframework").mkdir(parents=True)
+(source / "include/kframework/ktest.mak").write_text("fixture\n")
+(source / "tests/regression-new/example").mkdir(parents=True)
+(source / "tests/regression-new/example/Makefile").write_text("include ktest.mak\n")
+work = root / "work" / "k-distribution"
+cases = [("example", "ktest")]
+
+first = run.ensure_work_tree(work, source, cases)
+sentinel = work / "valid-tree-is-reused"
+sentinel.write_text("keep")
+second = run.ensure_work_tree(work, source, cases)
+valid_reused = sentinel.exists()
+
+(work / "tests/regression-new/example/Makefile").unlink()
+third = run.ensure_work_tree(work, source, cases)
+missing_restored = (work / "tests/regression-new/example/Makefile").is_file()
+invalid_replaced = not sentinel.exists()
+stale_sentinel = work / "stale-tree-is-replaced"
+stale_sentinel.write_text("remove")
+marker = work / run.WORK_TREE_MARKER
+marker_value = json.loads(marker.read_text())
+marker_value["revision"] = "stale-revision"
+marker.write_text(json.dumps(marker_value))
+fourth = run.ensure_work_tree(work, source, cases)
+stale_replaced = not stale_sentinel.exists()
+
+case_dir = work / "tests/regression-new/example"
+(case_dir / "top-kompiled").mkdir()
+(case_dir / "concrete/imp-kompiled").mkdir(parents=True)
+(case_dir / "concrete/keep").mkdir()
+run.WORK_TREE = str(work)
+run.LOGS = str(root / "logs")
+observed = {}
+def fake_vars(case):
+    observed["nested_present_at_make"] = (case_dir / "concrete/imp-kompiled").exists()
+    observed["control_present_at_make"] = (case_dir / "concrete/keep").exists()
+    return {}
+run.make_vars = fake_vars
+run.make_recipes = lambda case: (2, [], "fixture make failure")
+measured = run.run_case("example", "ktest")
+
+print(json.dumps({
+    "first": first,
+    "second": second,
+    "valid_reused": valid_reused,
+    "third": third,
+    "missing_restored": missing_restored,
+    "invalid_replaced": invalid_replaced,
+    "fourth": fourth,
+    "stale_replaced": stale_replaced,
+    "nested_present_at_make": observed["nested_present_at_make"],
+    "control_present_at_make": observed["control_present_at_make"],
+    "top_removed": not (case_dir / "top-kompiled").exists(),
+    "verdict": measured.verdict,
+    "reason": measured.reason,
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probe: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        probe["first"].as_str().unwrap().contains("missing"),
+        "{probe}"
+    );
+    assert!(probe["second"].is_null(), "{probe}");
+    assert_eq!(probe["valid_reused"], true, "{probe}");
+    assert!(
+        probe["third"]
+            .as_str()
+            .unwrap()
+            .contains("required files are missing"),
+        "{probe}"
+    );
+    assert_eq!(probe["missing_restored"], true, "{probe}");
+    assert_eq!(probe["invalid_replaced"], true, "{probe}");
+    assert!(
+        probe["fourth"].as_str().unwrap().contains("stale"),
+        "{probe}"
+    );
+    assert_eq!(probe["stale_replaced"], true, "{probe}");
+    assert_eq!(probe["nested_present_at_make"], false, "{probe}");
+    assert_eq!(probe["top_removed"], true, "{probe}");
+    assert_eq!(probe["control_present_at_make"], true, "{probe}");
+    assert_eq!(probe["verdict"], "reference-error", "{probe}");
+    assert!(
+        probe["reason"]
+            .as_str()
+            .unwrap()
+            .contains("could not enumerate")
+    );
+}
+
+#[test]
+fn conformance_driver_distinguishes_reference_crashes_from_stale_oracles() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+def probe(mode, incoming="mismatch"):
+    root = tempfile.mkdtemp()
+    case = run.Case("oracle")
+    case.dir = root
+    with open(os.path.join(root, "program.out"), "w") as output:
+        output.write("expected\n")
+    recipe = run.split_recipe("/kbin/krun program --definition ./test-kompiled | diff - program.out")
+    calls = []
+    def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
+        calls.append({"cmd": cmd, "env": env})
+        if mode == "crash":
+            return 134, "", "mmap(): Cannot allocate memory\nBackend crashed during rewriting with exit code 134", 0.1, False
+        if mode == "stale":
+            return 0, "different\n", "", 0.1, False
+        return 0, "expected\n", "", 0.1, False
+    run.sh = fake_sh
+    step = {"verdict": incoming, "reason": "C8 reference re-run failed" if incoming == "reference-error" else "text mismatch"}
+    run.confirm_oracle(case, recipe, step)
+    step["call"] = calls[0]
+    return step
+
+def reference_environments():
+    root = tempfile.mkdtemp()
+    case = run.Case("environments")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    with open(os.path.join(root, "test.k"), "w") as source:
+        source.write("module TEST endmodule\n")
+    captured = {"kompile": None, "kore_parser": []}
+    def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
+        if cmd[:2] == ["bash", "-c"]:
+            captured["kompile"] = env
+            definition = os.path.join(root, "test-kompiled")
+            os.makedirs(definition)
+            for name, text in [
+                ("mainModule.txt", "TEST\n"),
+                ("mainSyntaxModule.txt", "TEST\n"),
+                ("configVars.sh", ""),
+                ("definition.kore", "[]\n"),
+            ]:
+                with open(os.path.join(definition, name), "w") as output:
+                    output.write(text)
+            return 0, "", "", 0.1, False
+        if cmd[0] == "/krust":
+            definition = os.path.join(root, "krust-kompiled")
+            os.makedirs(definition)
+            with open(os.path.join(definition, "definition.kore"), "w") as output:
+                output.write("[]\n")
+            return 0, "", "", 0.1, False
+        if cmd[0] == run.KORE_PARSER:
+            captured["kore_parser"].append(env)
+            return 0, "", "", 0.1, False
+        raise AssertionError(cmd)
+    run.sh = fake_sh
+    run.run_test_binary = lambda name, env, cwd: (0, "", "")
+    run.KRUST = "/krust"
+    run.KORE_PARSER = "/kbin/kore-parser"
+    recipe = run.split_recipe(
+        "/kbin/kompile --backend haskell test.k --output-definition ./test-kompiled"
+    )
+    run.do_kompile(case, recipe, False)
+    return captured
+
+print(json.dumps({
+    "crash": probe("crash"),
+    "stale": probe("stale"),
+    "live_mismatch": probe("live"),
+    "live_reference_error": probe("live", "reference-error"),
+    "environments": reference_environments(),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env_remove("GHCRTS")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let crash = &probes["crash"];
+    assert_eq!(crash["verdict"], "reference-error", "{probes}");
+    let crash_reason = crash["reason"].as_str().unwrap();
+    for part in [
+        "reference recipe failed to run",
+        "exit 134",
+        "reference crash",
+        "mmap(): Cannot allocate memory",
+        "under the rlimit-as memory guard",
+    ] {
+        assert!(crash_reason.contains(part), "{crash_reason}");
+    }
+    assert!(!crash_reason.contains("stale"), "{crash_reason}");
+    assert!(
+        crash["oracle_output"]
+            .as_str()
+            .unwrap()
+            .contains("Backend crashed"),
+        "{probes}"
+    );
+    assert_eq!(crash["call"]["env"]["GHCRTS"], "-N1", "{probes}");
+    assert_eq!(probes["environments"]["kompile"]["GHCRTS"], "-N1");
+    assert_eq!(
+        probes["environments"]["kore_parser"],
+        serde_json::json!([{ "GHCRTS": "" }, { "GHCRTS": "" }]),
+        "{probes}"
+    );
+
+    let stale = &probes["stale"];
+    assert_eq!(stale["verdict"], "reference-error", "{probes}");
+    assert!(stale["reason"].as_str().unwrap().contains("stale oracle"));
+    assert_eq!(stale["oracle_stale"], true, "{probes}");
+    assert!(
+        stale["oracle_output"]
+            .as_str()
+            .unwrap()
+            .contains("different")
+    );
+
+    assert_eq!(probes["live_mismatch"]["oracle_confirmed"], true);
+    assert_eq!(probes["live_mismatch"]["verdict"], "mismatch");
+    assert_eq!(probes["live_reference_error"]["oracle_confirmed"], true);
+    assert_eq!(probes["live_reference_error"]["verdict"], "reference-error");
+    assert_eq!(
+        probes["live_reference_error"]["reason"],
+        "C8 reference re-run failed"
+    );
 }
 
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
