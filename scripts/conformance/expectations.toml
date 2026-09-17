@@ -1503,7 +1503,7 @@ accepted_basis = "Complete pinned two-stage compilation and proof comparison pas
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Baseline observation: rule at set-balance.md:577 (`REASON in reasons(AL)`) fails to parse; spec `imports VERIFICATION` not found (Markdown selector / requires resolution)"
+reason = ""
 
 [[case]]
 name = "kprove-smt-lemma/haskell"

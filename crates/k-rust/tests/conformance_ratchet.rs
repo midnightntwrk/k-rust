@@ -386,6 +386,114 @@ print(json.dumps({
 }
 
 #[test]
+fn conformance_driver_prepares_kprove_definitions_without_rewriting_specs() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import run
+
+markdown = run.Case("kprove-markdown")
+kompile = run.split_recipe(
+    "/kbin/kompile --backend haskell --main-module VERIFICATION"
+    " --syntax-module SET-BALANCE verification.k --output-definition ./verification-kompiled"
+)
+proof_compile, compile_why, _ = run.krust_proof_kompile_args(markdown, kompile)
+kprove = run.split_recipe(
+    "/kbin/kprove set-balance-spec.md --md-selector 'keep&!(discard|k)'"
+    " --definition ./verification-kompiled"
+)
+proof, proof_why, _ = run.krust_kprove_args(markdown, kprove)
+
+plain = run.Case("plain-proof")
+plain_compile = run.split_recipe(
+    "/kbin/kompile --backend haskell plain.k --output-definition ./plain-kompiled"
+)
+run.krust_kompile_args(plain, plain_compile)
+plain_proof, plain_why, _ = run.krust_kprove_args(
+    plain,
+    run.split_recipe("/kbin/kprove plain-spec.k --definition ./plain-kompiled"),
+)
+
+print(json.dumps({
+    "proof_compile": proof_compile,
+    "compile_why": compile_why,
+    "proof": proof,
+    "proof_why": proof_why,
+    "plain_proof": plain_proof,
+    "plain_why": plain_why,
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let translated: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let words = |key: &str| -> Vec<String> {
+        translated[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("{key} is not translated: {translated}"))
+            .iter()
+            .map(|word| word.as_str().unwrap().to_owned())
+            .collect()
+    };
+
+    assert!(translated["compile_why"].is_null(), "{translated}");
+    assert!(translated["proof_why"].is_null(), "{translated}");
+    assert!(translated["plain_why"].is_null(), "{translated}");
+    let proof_compile = words("proof_compile");
+    assert!(proof_compile.iter().any(|arg| arg == "--for-proving"));
+    assert!(
+        proof_compile
+            .windows(2)
+            .any(|pair| pair == ["--backend", "rust"])
+    );
+    assert!(
+        proof_compile
+            .windows(2)
+            .any(|pair| pair == ["--output-directory", "krust-kompiled-proof"])
+    );
+    assert!(
+        !proof_compile.iter().any(|arg| arg == "--md-selector"),
+        "the definition compile retains the kompile recipe's default `k` selector: {proof_compile:?}"
+    );
+
+    let proof = words("proof");
+    assert_eq!(proof[2], "set-balance-spec.md", "{proof:?}");
+    assert!(
+        proof
+            .windows(2)
+            .any(|pair| pair == ["--compiled-definition", "krust-kompiled-proof"])
+    );
+    assert_eq!(
+        proof
+            .windows(2)
+            .filter(|pair| pair[0] == "--md-selector")
+            .map(|pair| pair[1].as_str())
+            .collect::<Vec<_>>(),
+        ["keep&!(discard|k)"]
+    );
+    assert!(!proof.iter().any(|arg| arg.contains(".krust-wrapped.")));
+
+    let plain_proof = words("plain_proof");
+    assert_eq!(plain_proof[2], "plain-spec.k");
+    assert!(!plain_proof.iter().any(|arg| arg == "--md-selector"));
+    assert!(
+        !plain_proof
+            .iter()
+            .any(|arg| arg.contains(".krust-wrapped."))
+    );
+}
+
+#[test]
 fn conformance_driver_forwards_w2e_only_where_the_reference_rejects_on_it() {
     // Dropping `-Wno` while forwarding `-w2e` promotes warnings the reference disabled
     // (werrorCategory); krust's UnadmittedHookNamespace extension warning can also turn
@@ -1220,7 +1328,9 @@ print(json.dumps({
     };
     let plain = arguments("plain");
     assert!(
-        !plain.iter().any(|argument| argument.starts_with("--search")),
+        !plain
+            .iter()
+            .any(|argument| argument.starts_with("--search")),
         "a non-search recipe must not select a search mode: {plain:?}"
     );
     for (name, mode) in [

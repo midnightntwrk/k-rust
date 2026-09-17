@@ -74,7 +74,10 @@ impl FileResolver {
         self
     }
 
-    /// Satisfy these canonical source identities without reopening their source text.
+    /// Recognize these canonical source identities as members of a prepared definition.
+    /// Existing files are still read so the loader can validate declarations under its current
+    /// Markdown selector; a missing prepared source is represented by empty text and remains
+    /// satisfiable from the prepared definition.
     pub fn with_prepared_sources(mut self, sources: impl IntoIterator<Item = String>) -> Self {
         self.prepared_sources = sources.into_iter().collect();
         self
@@ -151,7 +154,15 @@ impl SourceResolver for FileResolver {
                                 normalize_virtual_path(&self.working_directory.join(path))
                             });
                         if self.prepared_sources.contains(&identity) {
-                            return Ok(ResolvedSource::new(identity, ""));
+                            return match self.read(path) {
+                                Ok(source) => Ok(source),
+                                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                                    Ok(ResolvedSource::new(identity, ""))
+                                }
+                                Err(error) => {
+                                    Err(format!("could not read {}: {error}", path.display()))
+                                }
+                            };
                         }
                     }
                     match self.read(path) {
@@ -164,9 +175,6 @@ impl SourceResolver for FileResolver {
                 }
                 Candidate::Embedded => {
                     if let Some(source) = embedded(required) {
-                        if self.prepared_sources.contains(&source.source) {
-                            return Ok(ResolvedSource::new(source.source, ""));
-                        }
                         return Ok(source);
                     }
                 }

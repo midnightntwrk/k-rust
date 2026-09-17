@@ -6,7 +6,10 @@ use k_rust::diagnostic::{
     DiagnosticCode, DiagnosticPolicy, Severity, WarningCategory, WarningLevel,
 };
 use k_rust::kast::TermSpan;
-use k_rust::outer::{LoadError, LoadOptions, ResolvedSource, load, load_with_options};
+use k_rust::outer::{
+    LoadError, LoadOptions, ResolvedSource, load, load_with_options, load_with_prepared_base,
+    prepared_module_declarations,
+};
 use k_rust::provenance::SourceId;
 use proptest::prelude::*;
 
@@ -491,6 +494,91 @@ fn duplicate_modules_reject_a_changed_third_declaration() {
             first_source: "left/shared.k".into(),
             second_source: "right/shared.k".into(),
         }
+    );
+}
+
+#[test]
+fn prepared_markdown_sources_are_reread_and_compared_under_the_current_selector() {
+    let definition = indoc! {r#"
+        ```k
+        module TEST
+          syntax Value ::= "k" [symbol(kValue)]
+        ```
+        ```keep
+          syntax Value ::= "keep" [symbol(keepValue)]
+        ```
+        ```k
+        endmodule
+        ```
+    "#};
+    let specification = indoc! {r#"
+        ```k
+        requires "test.md"
+        module SPEC imports TEST endmodule
+        ```
+    "#};
+    let combined = LoadOptions {
+        markdown_selector: "k|keep".into(),
+        ..LoadOptions::default()
+    };
+    let mut no_requires = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let base = load_with_options(
+        ResolvedSource::new("test.md", definition),
+        "TEST",
+        &mut no_requires,
+        &combined,
+    )
+    .unwrap();
+    let declarations = prepared_module_declarations(&base.files, &base.definition);
+    let provided = vec!["test.md".to_owned()];
+
+    let load_spec = |selector: &str| {
+        let mut resolver = |_: &str, required: &str| match required {
+            "test.md" => Ok(ResolvedSource::new("test.md", definition)),
+            _ => Err(format!("unexpected {required}")),
+        };
+        load_with_prepared_base(
+            ResolvedSource::new("spec.md", specification),
+            "SPEC",
+            &mut resolver,
+            &LoadOptions {
+                markdown_selector: selector.into(),
+                ..LoadOptions::default()
+            },
+            &base.definition,
+            &provided,
+            &declarations,
+        )
+    };
+
+    let same = load_spec("k|keep").unwrap();
+    assert!(
+        same.definition
+            .modules
+            .iter()
+            .any(|module| module.name == "TEST")
+    );
+    assert!(
+        same.definition
+            .modules
+            .iter()
+            .any(|module| module.name == "SPEC")
+    );
+
+    let error = load_spec("k").unwrap_err();
+    assert!(matches!(
+        error,
+        LoadError::PreparedModuleMismatch {
+            ref name,
+            ref first_source,
+            ref second_source,
+            ..
+        } if name == "TEST" && first_source == "test.md" && second_source == "test.md"
+    ));
+    assert!(
+        error
+            .to_string()
+            .contains("This can happen if --md-selector differs for kompile and kprove")
     );
 }
 

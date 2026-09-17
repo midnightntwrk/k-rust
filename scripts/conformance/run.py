@@ -310,6 +310,10 @@ class Case:
         self.config_sorts = {}
         self.def_file = None
         self.md_selectors = []
+        self.kompile_recipe = None
+        self.proof_definition_ready = False
+        self.proof_compile_attempted = False
+        self.proof_compile_failure = None
         self.custom_targets = []
         self.bison_parser = BISON_PARSERS.get(rel)
         self.makefile = self.bison_parser.get("makefile", "Makefile") if self.bison_parser else "Makefile"
@@ -450,7 +454,7 @@ def guess_modules(case, src, main):
 def classify_error(err):
     e = err.lower()
     if re.search(r"could not parse (program|input|rule|claim|context|configuration|sentence|term)|has \d+ parses|ambigu|could not infer|inference|sort inference", e): return "inner-parse"
-    if re.search(r"outer|unexpected (token|character|end)|unterminated|imports missing|missing module|unknown module|duplicate module|could not (read|load|find) (file|module)|failed to extract k code|no such file|requires", e): return "outer-parse"
+    if re.search(r"outer|unexpected (token|character|end)|unterminated|imports missing|missing module|unknown module|duplicate module|differs from previous declaration|could not (read|load|find) (file|module)|failed to extract k code|no such file|requires", e): return "outer-parse"
     return "kompile"
 
 
@@ -620,6 +624,20 @@ def krust_kompile_args(case, rec, expect_fail=False):
     if src.endswith(".json"): return None, "--outer-parsed-json input has no krust equivalent", None
     info = dict(src=src, backend=backend, main=main, syn=syn or gs, dropped=dropped,
                 inference_mode=inference_mode)
+    return args, None, info
+
+
+def krust_proof_kompile_args(case, rec):
+    """Translate the definition recipe into the proof-ready compilation used by kprove."""
+    args, why, info = krust_kompile_args(case, rec)
+    if args is None:
+        return None, why, info
+    for option, value in (("--backend", "rust"), ("--output-directory", "krust-kompiled-proof")):
+        index = args.index(option)
+        args[index + 1] = value
+    if "--syntax-module" not in args:
+        args += ["--syntax-module", info["syn"]]
+    args.append("--for-proving")
     return args, None, info
 
 
@@ -1374,19 +1392,19 @@ def kprove_verdicts(expected, out, err, rc):
     return exp, got, v, note, claims
 
 
-def do_kprove(case, rec):
+def krust_kprove_args(case, rec):
+    """Translate a kprove recipe against the separately prepared definition."""
     pos, opts, flags = parse_opts(rec["args"], KPROVE_VALUE_OPTS)
     spec = pos[0] if pos else None
-    tag = os.path.basename(spec) if spec else "kprove"
-    step = dict(step="kprove", test=spec, ref_cmd=rec["raw"], out=rec["out"])
-    if not case.ref_kompiled or not spec:
-        step.update(verdict="skipped-with-reason", reason="no reference kompiled definition"); return step_record(case, **step)
+    if not spec:
+        return None, "no specification source in kprove recipe", None
     unsupported = [f for f in flags if f not in ("--no-exc-wrap", "--debug")]
     extra = []
     for k, vs in opts.items():
         v = vs[-1]
         if k in ("--definition", "-d", "--smt", "--smt-prelude", "--warnings", "-w", "--type-inference-mode", "--profile-rule-parsing", "--log-level"): continue
-        if k == "--md-selector": extra += ["--md-selector", v]
+        if k == "--md-selector":
+            for value in vs: extra += ["--md-selector", value]
         elif k == "--depth": extra += ["--depth", v]
         elif k in ("--claim", "--claims"):
             for value in vs:
@@ -1394,28 +1412,68 @@ def do_kprove(case, rec):
         elif k in ("--exclude", "--trusted"):
             for value in vs:
                 for claim in value.split(","): extra += [k, claim]
+        elif k == "-I":
+            for value in vs: extra += ["-I", value]
         elif k in ("--spec-module", "--def-module"): continue
         else: unsupported.append(f"{k} {v}")
     spec_module = (opts.get("--spec-module") or [os.path.basename(spec).rsplit(".", 1)[0].upper()])[-1]
     def_module = (opts.get("--def-module") or [case.main_module])[-1]
-    wrapped = spec.rsplit(".", 1)[0] + ".krust-wrapped." + spec.rsplit(".", 1)[1]
-    rel_def = os.path.relpath(f"{case.dir}/{case.def_file}", os.path.dirname(f"{case.dir}/{spec}"))
-    with open(f"{case.dir}/{wrapped}", "w") as f:
-        f.write(f'requires "{rel_def}"\n' + open(f"{case.dir}/{spec}", errors="replace").read())
-    args = [KRUST, "kprove", wrapped, "--main-module", spec_module, "--definition-module", def_module, "-I", ".",
-            "--builtin-directory", BUILTIN] + md_selector_args(case, opts) + extra
+    args = [KRUST, "kprove", spec, "--compiled-definition", "krust-kompiled-proof",
+            "--main-module", spec_module, "--definition-module", def_module, "-I", ".",
+            "--builtin-directory", BUILTIN] + extra
     inference_mode = (opts.get("--type-inference-mode") or [None])[-1]
+    info = dict(spec=spec, spec_module=spec_module, def_module=def_module,
+                inference_mode=inference_mode, unsupported=unsupported)
+    return args, None, info
+
+
+def do_kprove(case, rec):
+    args, why, info = krust_kprove_args(case, rec)
+    spec = info["spec"] if info else None
+    tag = os.path.basename(spec) if spec else "kprove"
+    step = dict(step="kprove", test=spec, ref_cmd=rec["raw"], out=rec["out"])
+    if not case.ref_kompiled or not spec:
+        step.update(verdict="skipped-with-reason", reason=why or "no reference kompiled definition"); return step_record(case, **step)
+    compile_args, compile_why, compile_info = krust_proof_kompile_args(case, case.kompile_recipe) if case.kompile_recipe else (None, "no kompile recipe", None)
+    unsupported = info["unsupported"]
     krust_env = ({"KRUST_TYPE_INFERENCE_MODE": "checked"}
-                 if inference_mode == "checked" else None)
+                 if info["inference_mode"] == "checked" else None)
     env_prefix = "KRUST_TYPE_INFERENCE_MODE=checked " if krust_env else ""
-    step["krust_cmd"] = env_prefix + " ".join(shlex.quote(a) for a in args) + f"   # {wrapped} = spec with `requires \"{rel_def}\"` prepended"
     if unsupported:
         step.update(verdict="krust-unsupported", reason="reference kprove flags with no krust equivalent: " + " ".join(unsupported))
+        return step_record(case, **step)
+    if compile_args is None:
+        step.update(verdict="krust-unsupported", reason=f"proof-ready definition cannot be compiled: {compile_why}")
         return step_record(case, **step)
     outp = f"{case.dir}/{rec['out']}" if rec["out"] else None
     expected = open(outp, errors="replace").read() if outp and os.path.exists(outp) else None
     if expected is None:
         step.update(verdict="skipped-with-reason", reason="no checked-in .out"); return step_record(case, **step)
+    commands = []
+    if not case.proof_compile_attempted:
+        compile_env = ({"KRUST_TYPE_INFERENCE_MODE": "checked"}
+                       if compile_info["inference_mode"] == "checked" else None)
+        compile_prefix = "KRUST_TYPE_INFERENCE_MODE=checked " if compile_env else ""
+        commands.append(compile_prefix + " ".join(shlex.quote(a) for a in compile_args))
+        case.proof_compile_attempted = True
+        proof_directory = f"{case.dir}/krust-kompiled-proof"
+        if os.path.exists(proof_directory): shutil.rmtree(proof_directory)
+        crc, cout, cerr, csecs, cto = sh(compile_args, case.dir, case.remaining(), env=compile_env)
+        case.logfile("proof-kompile.krust.log", cout + "\n--- stderr ---\n" + cerr)
+        step["proof_kompile_rc"] = crc
+        step["proof_kompile_seconds"] = round(csecs, 1)
+        if cto:
+            case.proof_compile_failure = "krust proof-ready kcompile timed out (case budget)"
+        elif crc != 0:
+            case.proof_compile_failure = (cerr or cout)[-1200:]
+        else:
+            case.proof_definition_ready = True
+    commands.append(env_prefix + " ".join(shlex.quote(a) for a in args))
+    step["krust_cmd"] = " && ".join(commands)
+    if not case.proof_definition_ready:
+        failure = case.proof_compile_failure or "proof-ready definition compilation failed"
+        step.update(verdict="krust-error", stage=classify_error(failure), reason="krust proof-ready kcompile failed", divergence=failure)
+        return step_record(case, **step)
     rc, out, err, secs, to = sh(args, case.dir, case.remaining(), env=krust_env)
     case.logfile(f"{tag}.krust.log", out + "\n--- stderr ---\n" + err)
     step["krust_rc"] = rc; step["krust_seconds"] = round(secs, 1)
@@ -1471,6 +1529,7 @@ def run_case(rel, kind):
         else:
             if len(kompiles) > 1: case.note(f"{len(kompiles)} kompile recipes; only the first is driven for krust")
             k = kompiles[0]
+            case.kompile_recipe = k
             pos, opts, flags = parse_opts(k["args"], KOMPILE_VALUE_OPTS)
             case.def_file = next((p for p in pos if re.search(r"\.(k|md|json)$", p)), None)
             do_kompile(case, k, expect_fail=False)

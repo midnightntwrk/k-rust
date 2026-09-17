@@ -8,6 +8,9 @@ use std::{
     path::Path,
 };
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
 use crate::definition::AttributeKey;
 use crate::{
     builtin,
@@ -134,6 +137,13 @@ pub enum LoadError {
         first_source: String,
         second_source: String,
     },
+    PreparedModuleMismatch {
+        name: String,
+        first_source: String,
+        first_location: [u32; 4],
+        second_source: String,
+        second_location: [u32; 4],
+    },
     ExcludedMainModule {
         module: String,
         attribute: String,
@@ -180,6 +190,25 @@ impl fmt::Display for LoadError {
                 formatter,
                 "module {name:?} is declared by both {first_source:?} and {second_source:?}"
             ),
+            Self::PreparedModuleMismatch {
+                name,
+                first_source,
+                first_location,
+                second_source,
+                second_location,
+            } => {
+                write!(
+                    formatter,
+                    "module {name:?} differs from previous declaration at {first_source:?} and {first_location:?}; redeclared at {second_source:?} and {second_location:?}"
+                )?;
+                if second_source.ends_with(".md") {
+                    write!(
+                        formatter,
+                        ". This can happen if --md-selector differs for kompile and kprove"
+                    )?;
+                }
+                Ok(())
+            }
             Self::ExcludedMainModule { module, attribute } => {
                 write!(
                     formatter,
@@ -229,6 +258,38 @@ pub struct LoadedDefinition {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Identity of one authored module retained in a prepared definition.
+///
+/// The source basename and outer location preserve K's declaration identity, while the digest is
+/// computed from the normalized parsed module rather than raw source formatting.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct PreparedModuleDeclaration {
+    pub name: String,
+    pub source: String,
+    pub location: [u32; 4],
+    pub digest: String,
+}
+
+/// Record the authored declarations that survived source-graph selection into `definition`.
+pub fn prepared_module_declarations(
+    files: &[SourceFile],
+    definition: &Definition,
+) -> Vec<PreparedModuleDeclaration> {
+    definition
+        .modules
+        .iter()
+        .filter_map(|selected| {
+            let source = selected.attributes.source()?;
+            let file = files.iter().find(|file| file.source == source)?;
+            let module = file
+                .modules
+                .iter()
+                .find(|module| module.name == selected.name)?;
+            Some(prepared_module_declaration(file, module))
+        })
+        .collect()
+}
+
 /// Load one entry source, recursively resolve `requires`, lower all files with
 /// one global tag index, and resolve the resulting module-import graph.
 ///
@@ -258,7 +319,7 @@ pub fn load_with_options_timed(
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
 ) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
-    load_impl(entry, main_module, resolver, options, None, &[], None)
+    load_impl(entry, main_module, resolver, options, None, &[], &[], None)
         .map(|(loaded, _, timings)| (loaded, timings))
 }
 
@@ -296,6 +357,7 @@ pub fn load_for_compilation_timed(
         options,
         None,
         &[],
+        &[],
         Some(selection::CompilationSelection { syntax_module }),
     )?;
     Ok((
@@ -307,9 +369,9 @@ pub fn load_for_compilation_timed(
 
 /// Load a new source graph against an already parsed definition.
 ///
-/// Requirements whose paths identify `provided_sources` are satisfied by `base` instead of being
-/// read again. This is the frontend boundary used to compile a proof specification against a
-/// prepared semantics definition.
+/// Requirements whose paths identify `provided_sources` are satisfied by `base`. The legacy API
+/// does not carry declaration identities, so callers that need selector-sensitive validation use
+/// [`load_with_prepared_base`].
 pub fn load_with_base(
     entry: ResolvedSource,
     main_module: impl Into<String>,
@@ -318,13 +380,14 @@ pub fn load_with_base(
     base: &Definition,
     provided_sources: &[String],
 ) -> Result<LoadedDefinition, LoadError> {
-    load_with_base_timed(
+    load_with_prepared_base_timed(
         entry,
         main_module,
         resolver,
         options,
         base,
         provided_sources,
+        &[],
     )
     .map(|(loaded, _)| loaded)
 }
@@ -339,6 +402,49 @@ pub fn load_with_base_timed(
     base: &Definition,
     provided_sources: &[String],
 ) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
+    load_with_prepared_base_timed(
+        entry,
+        main_module,
+        resolver,
+        options,
+        base,
+        provided_sources,
+        &[],
+    )
+}
+
+/// Load a new source graph against a prepared definition and validate any re-read declarations.
+pub fn load_with_prepared_base(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+    base: &Definition,
+    provided_sources: &[String],
+    prepared_modules: &[PreparedModuleDeclaration],
+) -> Result<LoadedDefinition, LoadError> {
+    load_with_prepared_base_timed(
+        entry,
+        main_module,
+        resolver,
+        options,
+        base,
+        provided_sources,
+        prepared_modules,
+    )
+    .map(|(loaded, _)| loaded)
+}
+
+/// [`load_with_prepared_base`] with wall-clock timings for each load phase.
+pub fn load_with_prepared_base_timed(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+    base: &Definition,
+    provided_sources: &[String],
+    prepared_modules: &[PreparedModuleDeclaration],
+) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
     load_impl(
         entry,
         main_module,
@@ -346,6 +452,7 @@ pub fn load_with_base_timed(
         options,
         Some(base),
         provided_sources,
+        prepared_modules,
         None,
     )
     .map(|(loaded, _, timings)| (loaded, timings))
@@ -358,6 +465,7 @@ fn load_impl(
     options: &LoadOptions,
     base: Option<&Definition>,
     provided_sources: &[String],
+    prepared_modules: &[PreparedModuleDeclaration],
     compilation: Option<selection::CompilationSelection<'_>>,
 ) -> Result<(LoadedDefinition, Option<String>, PhaseTimings), LoadError> {
     let main_module = main_module.into();
@@ -366,6 +474,7 @@ fn load_impl(
         resolver,
         options,
         provided_sources,
+        required_prepared_sources: BTreeSet::new(),
         states: BTreeMap::new(),
         files: Vec::new(),
         source_table: SourceTable::default(),
@@ -378,9 +487,27 @@ fn load_impl(
         loader.visit(entry)
     })?;
     let selected_files = timings.time("select source files", || {
+        validate_prepared_modules(&loader.files, prepared_modules)?;
         validate_and_select_modules(&loader.files)
     })?;
     let files_to_lower = selected_files.as_deref().unwrap_or(&loader.files);
+    // Prepared sources are parsed again solely to validate their declarations under the current
+    // selector. Their modules already exist in `base`; lowering any other module from the same
+    // source would also reintroduce frontend utility modules that compilation deliberately left
+    // outside the prepared semantic closure.
+    let unprepared_files = (!loader.required_prepared_sources.is_empty()).then(|| {
+        files_to_lower
+            .iter()
+            .cloned()
+            .map(|mut file| {
+                if loader.required_prepared_sources.contains(&file.source) {
+                    file.modules.clear();
+                }
+                file
+            })
+            .collect::<Vec<_>>()
+    });
+    let files_to_lower = unprepared_files.as_deref().unwrap_or(files_to_lower);
 
     let mut definition = timings.time("lower files", || {
         lower_files(
@@ -440,6 +567,7 @@ pub fn load_structured(
         resolver: &mut resolver,
         options,
         provided_sources: &[],
+        required_prepared_sources: BTreeSet::new(),
         states: BTreeMap::new(),
         files: Vec::new(),
         source_table: SourceTable::default(),
@@ -765,6 +893,7 @@ struct Loader<'a, R> {
     resolver: &'a mut R,
     options: &'a LoadOptions,
     provided_sources: &'a [String],
+    required_prepared_sources: BTreeSet<String>,
     states: BTreeMap<String, VisitState>,
     files: Vec<SourceFile>,
     source_table: SourceTable,
@@ -843,7 +972,11 @@ impl<R: SourceResolver> Loader<'_, R> {
                     message,
                 })?;
             if self.provided_sources.contains(&required.source) {
-                continue;
+                if required.text.is_empty() {
+                    continue;
+                }
+                self.required_prepared_sources
+                    .insert(required.source.clone());
             }
             self.visit(required)?;
         }
@@ -891,6 +1024,67 @@ struct FirstModule<'a> {
     location: Location,
     module: &'a super::Module,
     normalized: Option<super::Module>,
+}
+
+fn prepared_module_declaration(
+    file: &SourceFile,
+    module: &super::Module,
+) -> PreparedModuleDeclaration {
+    let span = module.span;
+    let normalized = normalize_module(module);
+    let digest = Sha256::digest(format!("{normalized:?}").as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    PreparedModuleDeclaration {
+        name: module.name.clone(),
+        source: file.source.clone(),
+        location: [
+            span.start.line,
+            span.start.column,
+            span.end.line,
+            span.end.column,
+        ],
+        digest,
+    }
+}
+
+fn validate_prepared_modules(
+    files: &[SourceFile],
+    prepared: &[PreparedModuleDeclaration],
+) -> Result<(), LoadError> {
+    let mut by_name = BTreeMap::<&str, Vec<&PreparedModuleDeclaration>>::new();
+    for declaration in prepared {
+        by_name
+            .entry(declaration.name.as_str())
+            .or_default()
+            .push(declaration);
+    }
+    for file in files {
+        for module in &file.modules {
+            let Some(previous) = by_name.get(module.name.as_str()) else {
+                continue;
+            };
+            let current = prepared_module_declaration(file, module);
+            let current_basename = Path::new(&current.source).file_name();
+            let equivalent = previous.iter().any(|candidate| {
+                Path::new(&candidate.source).file_name() == current_basename
+                    && candidate.location == current.location
+                    && candidate.digest == current.digest
+            });
+            if !equivalent {
+                let first = previous[0];
+                return Err(LoadError::PreparedModuleMismatch {
+                    name: module.name.clone(),
+                    first_source: first.source.clone(),
+                    first_location: first.location,
+                    second_source: current.source,
+                    second_location: current.location,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Validate same-named declarations and build a lowering view only when equivalent copies exist.
