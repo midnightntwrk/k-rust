@@ -2178,7 +2178,7 @@ fn freshen_unbound_rule_variables(
     // Kore's checkSubstitutionCoverage permits narrowing only when the whole initial term is
     // not constructor-like. Keep concrete rule variables available for requires to bind, then
     // check coverage before constructing the successor in apply_rule_with_match.
-    if pattern.term.attributes().constructor_like {
+    if pattern.term.constructor_like_for_rewrite_instantiation() {
         return (substitution, BTreeSet::new());
     }
     let mut names_to_avoid = pattern_variable_names(pattern)
@@ -2864,7 +2864,7 @@ fn apply_rule_with_match(
     if predicates_truth(&requires) == Truth::False {
         return RuleAttempt::NotApplicable;
     }
-    if pattern.term.attributes().constructor_like {
+    if pattern.term.constructor_like_for_rewrite_instantiation() {
         // Conditions can finish an otherwise incomplete match (for example, requires E = value).
         // Re-enter application with those bindings so the remaining functional equalities and
         // requires are simplified under the covering substitution before coverage is checked.
@@ -2957,7 +2957,7 @@ fn apply_rule_with_match(
         return RuleAttempt::NotApplicable;
     }
 
-    if pattern.term.attributes().constructor_like {
+    if pattern.term.constructor_like_for_rewrite_instantiation() {
         let missing_variables = rule
             .lhs
             .attributes()

@@ -1996,7 +1996,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "The definition compiles and its KORE matches the reference; krust krun exceeds the 300 s case budget on the first program, so the remaining programs are not measured. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "The definition compiles and its KORE matches the reference. The CB-08 groundness tranche removes the prior krust timeout/OOM: all 32 driven steps complete in 126.1 s. The case remains open because 20 executions stop at unsupported IO.write, nine threaded/search executions stop on indeterminate typed instantiation, and the pinned reference does not reproduce two checked-in search outputs (including an OOM while confirming div-nondet.simple). The other five CB-08 language cases remain unmeasured. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
@@ -2023,7 +2023,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "The definition compiles and its KORE matches the reference; krust krun exceeds the 300 s case budget on the first program, so the remaining programs are not measured. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "The definition compiles and its KORE matches the reference. The CB-08 groundness tranche removes the prior krust timeout/OOM: all 29 driven steps complete in 248.6 s, and all 28 program executions reach unsupported IO.write; factorial.kool is the slowest at 108.0 s and depth 5754. The case therefore remains open, and the other five CB-08 language cases remain unmeasured. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"

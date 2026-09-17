@@ -878,6 +878,8 @@ mod tests {
             result_sort: result,
             attributes: SymbolAttributes {
                 symbol_type: SymbolType::Function(FunctionType::Total),
+                anywhere: false,
+                declared_function: true,
                 binder: false,
                 injective: false,
                 associative: false,

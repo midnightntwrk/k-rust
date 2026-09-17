@@ -1566,6 +1566,8 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
     };
     Ok(SymbolAttributes {
         symbol_type,
+        anywhere: attributes.has(KoreAttribute::Anywhere),
+        declared_function: function,
         binder: attributes.has(KoreAttribute::Binder),
         injective: attributes.has(KoreAttribute::Injective),
         associative: attributes.has(KoreAttribute::Assoc),

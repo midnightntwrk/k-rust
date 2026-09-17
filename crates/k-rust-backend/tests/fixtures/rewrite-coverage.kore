@@ -7,6 +7,8 @@ module REWRITE-COVERAGE
   symbol heated{}(SortS{}) : SortS{} [constructor{}(), total{}()]
   symbol done{}() : SortS{} [constructor{}(), total{}()]
   symbol box{}(SortS{}) : SortS{} [anywhere{}(), total{}(), injective{}()]
+  symbol overloadedList{}(SortS{}) : SortS{} [anywhere{}(), total{}(), injective{}()]
+  symbol ordinaryFunction{}(SortS{}) : SortS{} [function{}(), total{}(), injective{}()]
   axiom{R} \implies{R}(
     \and{R}(\top{R}(), \and{R}(\in{SortS{},R}(X:SortS{}, value{}()), \top{R}())),
     \equals{SortS{},R}(box{}(X:SortS{}), \and{SortS{}}(value{}(), \top{SortS{}}()))

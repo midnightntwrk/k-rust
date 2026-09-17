@@ -137,35 +137,35 @@ fn rewrite_coverage_definition() -> BackendDefinition {
         .expect("coverage fixture should internalize")
 }
 
+fn ground_anywhere_defense_definition() -> BackendDefinition {
+    let source = include_str!("../fixtures/rewrite-coverage.kore").replace(
+        "endmodule []",
+        r#"axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(state{}(ordinaryFunction{}(E:SortS{})), \top{SortS{}}()),
+    heated{}(E:SortS{})
+  ) [label{}("ground-defense"), priority{}("41")]
+endmodule []"#,
+    );
+    let syntax = parse_definition(&source).expect("ground defense definition should parse");
+    BackendDefinition::internalize(&syntax, "REWRITE-COVERAGE")
+        .expect("ground defense definition should internalize")
+}
+
 #[test]
-fn concrete_anywhere_match_requires_lhs_substitution_coverage() {
+fn concrete_anywhere_head_rejects_a_different_rigid_head() {
     let definition = rewrite_coverage_definition();
     let subject = Pattern {
         term: internal_term(&definition, "state{}(id{}())"),
         constraints: Vec::new(),
     };
     assert!(subject.term.attributes().constructor_like);
-    let solver = FixedSolver {
-        satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
-    };
     let mut fresh = 0;
-    let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
-    let RewriteResult::Indeterminate {
-        reason: IndeterminateReason::Instantiation {
-            missing_variables, ..
-        },
-        ..
-    } = result
-    else {
-        panic!("a concrete subject must not acquire existential rule arguments: {result:?}");
+    let result = rewrite_step(&definition, &subject, &mut fresh);
+    let RewriteResult::Finished(applied) = result else {
+        panic!("a different anywhere head must not block the applicable lookup: {result:?}");
     };
-    assert_eq!(missing_variables.len(), 1);
-    assert!(missing_variables.iter().next().unwrap().name.ends_with("E"));
-    assert_eq!(
-        fresh, 0,
-        "a failed concrete instantiation must not freshen LHS variables"
-    );
+    assert_eq!(applied.unique_id, "lookup");
+    assert_eq!(fresh, 0);
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn concrete_instantiation_coverage_is_checked_after_requires() {
     ] {
         let source = include_str!("../fixtures/rewrite-coverage.kore").replace(
             r"state{}(box{}(E:SortS{})), \top{SortS{}}()",
-            &format!("state{{}}(box{{}}(E:SortS{{}})), {requires}"),
+            &format!("state{{}}(ordinaryFunction{{}}(E:SortS{{}})), {requires}"),
         );
         let definition =
             BackendDefinition::internalize(&parse_definition(&source).unwrap(), "REWRITE-COVERAGE")
@@ -203,7 +203,7 @@ fn concrete_instantiation_coverage_is_checked_after_requires() {
             assert_eq!(
                 branches[0].pattern.constraints,
                 vec![Predicate::Equals(
-                    internal_term(&definition, "box{}(id{}())"),
+                    internal_term(&definition, "ordinaryFunction{}(id{}())"),
                     internal_term(&definition, "id{}()"),
                 )],
                 "binding E must preserve the unresolved function equality",
@@ -244,6 +244,60 @@ fn anywhere_normalization_and_covered_matching_remain_available() {
         internal_term(&definition, "heated{}(id{}())")
     );
     assert_eq!(fresh, 0);
+}
+
+#[test]
+fn ground_anywhere_fragments_do_not_enable_narrowing() {
+    let definition = ground_anywhere_defense_definition();
+    let subject = Pattern {
+        term: internal_term(&definition, "state{}(overloadedList{}(id{}()))"),
+        constraints: Vec::new(),
+    };
+    assert!(!subject.term.attributes().constructor_like);
+    assert!(subject.term.constructor_like_for_rewrite_instantiation());
+    let solver = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Indeterminate),
+    };
+    let mut fresh = 0;
+    let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
+    assert!(matches!(
+        result,
+        RewriteResult::Indeterminate {
+            reason: IndeterminateReason::Instantiation {
+                ref rule_id,
+                ref missing_variables,
+            },
+            ..
+        } if rule_id == "ground-defense" && missing_variables.len() == 1
+    ));
+    assert_eq!(fresh, 0, "a ground configuration must not be narrowed");
+}
+
+#[test]
+fn symbolic_anywhere_fragments_still_enable_narrowing() {
+    let definition = ground_anywhere_defense_definition();
+    let subject = Pattern {
+        term: internal_term(&definition, "state{}(overloadedList{}(SUBJECT:SortS{}))"),
+        constraints: Vec::new(),
+    };
+    assert!(!subject.term.constructor_like_for_rewrite_instantiation());
+    let solver = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Indeterminate),
+    };
+    let mut fresh = 0;
+    let RewriteResult::Branch { branches, .. } =
+        rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+    else {
+        panic!("a symbolic configuration must retain narrowing")
+    };
+    assert!(
+        branches
+            .iter()
+            .any(|branch| branch.unique_id == "ground-defense")
+    );
+    assert!(fresh > 0);
 }
 
 #[test]

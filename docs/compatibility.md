@@ -52,6 +52,10 @@ It does not exempt their execution from verification or equation tests.
 The differential manifest includes anywhere inference fixtures; compiling the reference with its `kore` frontend policy allows the emitted equations to be evaluated with `kore-exec`.
 An LLVM execution result may still differ because LLVM matches a normalized anywhere symbol syntactically while Kore can match it through a simplified function equality; the corresponding conformance case records that separate limitation.
 
+After equation normalization reaches a fixed point, rewrite matching treats an anywhere-attributed head without the `function` attribute as rigid.
+It decomposes equal heads and rejects a different rigid head, while matches against variables and ordinary function heads remain symbolic.
+This ground-program rule follows LLVM's executable semantics: K's Haskell frontend rejects these definitions, so Kore supplies no execution oracle for them.
+
 ## Concrete rewrite instantiation
 
 When the entire initial term is constructor-like, applying a rewrite rule requires a substitution covering every free variable on its left-hand side.
@@ -60,7 +64,8 @@ An impossible match or false `requires` remains non-applicable.
 The reference is `kore/src/Kore/Log/ErrorRewritesInstantiation.hs::checkSubstitutionCoverage`, called after initial-condition filtering in `kore/src/Kore/Rewrite/RewriteStep.hs::finalizeRule`.
 Rust reports this unsupported instantiation as typed indeterminacy, so execution and search retain an incomplete outcome instead of inventing existential successors or treating the rule as non-applicable.
 
-The boundary is constructor-likeness of the whole term, as defined by `kore/src/Kore/Attribute/Pattern/ConstructorLike.hs`, rather than absence of variables or constructor-likeness of one mismatched fragment.
+The boundary is constructor-likeness of the whole term, as defined by `kore/src/Kore/Attribute/Pattern/ConstructorLike.hs`, extended for the supported anywhere superset so a variable-free, normalized anywhere application does not make a ground configuration symbolic.
+A variable below such an application keeps the configuration symbolic.
 A ground function-headed term can still narrow, and symbolic configurations retain fresh rule arguments and their existentially quantified complementary conditions.
 Anywhere equation evaluation and covered function-equality matching remain supported.
 The [rewrite coverage fixture](../crates/k-rust-backend/tests/fixtures/rewrite-coverage.kore) and [rewrite tests](../crates/k-rust-backend/src/rewrite.rs) exercise this boundary, false and binding requirements, equation normalization, and symbolic complements.
