@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::names::KoreAttribute;
 
 use crate::{
     definition::{BackendDefinition, DefinitionError, PendingAxiom, SubsortValidation},
@@ -94,7 +95,7 @@ pub(crate) fn internalize_reachability_claim(
     let attributes = ClaimAttributes {
         label: parsed_attributes.label,
         unique_id: parsed_attributes.unique_id,
-        trusted: has_attribute(&claim.attributes, "trusted"),
+        trusted: claim.attributes.has(KoreAttribute::Trusted),
         source: parsed_attributes.source,
         location: parsed_attributes.location,
     };
@@ -125,12 +126,6 @@ fn extract_existentials(mut pattern: &kore::Pattern) -> (&kore::Pattern, Vec<&ko
         pattern = body;
     }
     (pattern, variables)
-}
-
-fn has_attribute(attributes: &kore::Attributes, name: &str) -> bool {
-    attributes.0.iter().any(|attribute| {
-        matches!(attribute, kore::Pattern::Application { symbol, .. } if symbol.name == name)
-    })
 }
 
 #[cfg(test)]

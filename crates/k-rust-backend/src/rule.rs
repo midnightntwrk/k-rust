@@ -6,7 +6,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast as kore;
-use k_rust_kore::names::WellKnownSymbol;
+use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
@@ -225,6 +225,13 @@ pub enum AxiomError {
     MalformedAttribute(String),
 }
 
+impl From<MalformedAttribute> for AxiomError {
+    /// The payload is the attribute's KORE name, as the backend has always reported it.
+    fn from(malformed: MalformedAttribute) -> Self {
+        Self::MalformedAttribute(malformed.attribute.as_str().into())
+    }
+}
+
 pub fn classify_axiom(
     module: Name,
     sort_parameters: Vec<Name>,
@@ -309,25 +316,25 @@ pub fn classify_axiom(
         kore::Pattern::Exists { variable, body, .. }
             if matches!(body.as_ref(), kore::Pattern::Equals { left, .. }
                 if matches!(left.as_ref(), kore::Pattern::Variable(found) if found == variable))
-                && (has_attribute(syntax_attributes, "functional")
-                    || has_attribute(syntax_attributes, "total")) =>
+                && (syntax_attributes.has(KoreAttribute::Functional)
+                    || syntax_attributes.has(KoreAttribute::Total)) =>
         {
             Ok(None)
         }
-        kore::Pattern::Exists { .. } if has_attribute(syntax_attributes, "subsort") => Ok(None),
+        kore::Pattern::Exists { .. } if syntax_attributes.has(KoreAttribute::Subsort) => Ok(None),
         kore::Pattern::Or { .. } | kore::Pattern::Bottom { .. }
-            if has_attribute(syntax_attributes, "constructor") =>
+            if syntax_attributes.has(KoreAttribute::Constructor) =>
         {
             Ok(None)
         }
-        kore::Pattern::Not { .. } if has_attribute(syntax_attributes, "constructor") => Ok(None),
+        kore::Pattern::Not { .. } if syntax_attributes.has(KoreAttribute::Constructor) => Ok(None),
         kore::Pattern::Equals {
             result_sort,
             left,
             right,
             ..
-        } if has_attribute(syntax_attributes, "symbol-overload")
-            || has_attribute(syntax_attributes, "overload") =>
+        } if syntax_attributes.has(KoreAttribute::SymbolOverload)
+            || syntax_attributes.has(KoreAttribute::Overload) =>
         {
             if !matches!(left.as_ref(), kore::Pattern::Application { .. }) {
                 return Err(AxiomError::MalformedEquation);
@@ -345,10 +352,15 @@ pub fn classify_axiom(
             }))
         }
         kore::Pattern::Equals { left, right, .. }
-            if ["assoc", "comm", "idem", "unit"]
-                .iter()
-                .any(|name| has_attribute(syntax_attributes, name))
-                || (has_attribute(syntax_attributes, "simplification")
+            if [
+                KoreAttribute::Assoc,
+                KoreAttribute::Comm,
+                KoreAttribute::Idem,
+                KoreAttribute::Unit,
+            ]
+            .into_iter()
+            .any(|attribute| syntax_attributes.has(attribute))
+                || (syntax_attributes.has(KoreAttribute::Simplification)
                     && is_injection(left)
                     && is_injection(right)) =>
         {
@@ -1290,13 +1302,19 @@ fn rename_predicate(
 
 impl RuleAttributes {
     pub fn parse(attributes: &kore::Attributes) -> Result<Self, AxiomError> {
-        let priority = attribute_string(attributes, "priority")?;
-        let simplification_priority = attribute_string_or_empty(attributes, "simplification")?;
-        let owise = has_attribute(attributes, "owise");
+        let priority = attributes
+            .string(KoreAttribute::Priority)?
+            .map(str::to_owned);
+        let simplification_priority = attributes
+            .string_or_empty(KoreAttribute::Simplification)?
+            .map(str::to_owned);
+        let owise = attributes.has(KoreAttribute::Owise);
         let present = [
-            priority.as_ref().map(|_| "priority"),
-            simplification_priority.as_ref().map(|_| "simplification"),
-            owise.then_some("owise"),
+            priority.as_ref().map(|_| KoreAttribute::Priority.as_str()),
+            simplification_priority
+                .as_ref()
+                .map(|_| KoreAttribute::Simplification.as_str()),
+            owise.then_some(KoreAttribute::Owise.as_str()),
         ]
         .into_iter()
         .flatten()
@@ -1321,27 +1339,25 @@ impl RuleAttributes {
                 .transpose()?
                 .unwrap_or(50)
         };
-        let label = attribute_string(attributes, "label")?;
-        let unique_id = attribute_string(attributes, "UNIQUE'Unds'ID")?
+        let label = attributes.string(KoreAttribute::Label)?.map(str::to_owned);
+        let unique_id = attributes
+            .string(KoreAttribute::UniqueId)?
+            .map(str::to_owned)
             .or_else(|| label.clone())
             .unwrap_or_else(|| "UNKNOWN".into());
         Ok(Self {
             priority,
             label,
             unique_id,
-            simplification: has_attribute(attributes, "simplification"),
-            preserves_definedness: has_attribute(attributes, "preserves-definedness"),
+            simplification: attributes.has(KoreAttribute::Simplification),
+            preserves_definedness: attributes.has(KoreAttribute::PreservesDefinedness),
             concreteness: parse_concreteness(attributes)?,
-            smt_lemma: has_attribute(attributes, "smt-lemma"),
-            executable: !has_attribute(attributes, "non-executable"),
-            source: attribute_string(
-                attributes,
-                "org'Stop'kframework'Stop'attributes'Stop'Source",
-            )?,
-            location: attribute_string(
-                attributes,
-                "org'Stop'kframework'Stop'attributes'Stop'Location",
-            )?,
+            smt_lemma: attributes.has(KoreAttribute::SmtLemma),
+            executable: !attributes.has(KoreAttribute::NonExecutable),
+            source: attributes.string(KoreAttribute::Source)?.map(str::to_owned),
+            location: attributes
+                .string(KoreAttribute::Location)?
+                .map(str::to_owned),
         })
     }
 }
@@ -1430,8 +1446,8 @@ fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore:
 }
 
 fn parse_concreteness(attributes: &kore::Attributes) -> Result<Concreteness, AxiomError> {
-    let concrete = attribute_constrained_variables(attributes, "concrete")?;
-    let symbolic = attribute_constrained_variables(attributes, "symbolic")?;
+    let concrete = attribute_constrained_variables(attributes, KoreAttribute::Concrete)?;
+    let symbolic = attribute_constrained_variables(attributes, KoreAttribute::Symbolic)?;
     match (concrete, symbolic) {
         (None, None) => Ok(Concreteness::Unconstrained),
         (Some(concrete), Some(_)) if concrete.is_empty() => {
@@ -1469,9 +1485,9 @@ fn parse_concreteness(attributes: &kore::Attributes) -> Result<Concreteness, Axi
 
 fn attribute_constrained_variables(
     attributes: &kore::Attributes,
-    name: &str,
+    attribute: KoreAttribute,
 ) -> Result<Option<Vec<String>>, AxiomError> {
-    let Some(arguments) = attribute_application(attributes, name) else {
+    let Some(arguments) = attributes.arguments(attribute) else {
         return Ok(None);
     };
     arguments
@@ -1483,16 +1499,16 @@ fn attribute_constrained_variables(
                     arguments,
                 } = &variable.sort
                 else {
-                    return Err(AxiomError::MalformedAttribute(name.into()));
+                    return Err(AxiomError::MalformedAttribute(attribute.as_str().into()));
                 };
                 if !arguments.is_empty() {
-                    return Err(AxiomError::MalformedAttribute(name.into()));
+                    return Err(AxiomError::MalformedAttribute(attribute.as_str().into()));
                 }
                 Ok(format!("{}:{sort}", variable.name))
             }
             // Older generated definitions encoded the same pair as a string.
             kore::Pattern::String(value) => Ok(value.clone()),
-            _ => Err(AxiomError::MalformedAttribute(name.into())),
+            _ => Err(AxiomError::MalformedAttribute(attribute.as_str().into())),
         })
         .collect::<Result<Vec<_>, _>>()
         .map(Some)
@@ -1514,52 +1530,11 @@ fn parse_constrained_variables(
 }
 
 fn is_ignored_constructor_axiom(pattern: &kore::Pattern, attributes: &kore::Attributes) -> bool {
-    has_attribute(attributes, "constructor") && matches!(pattern, kore::Pattern::Implies { .. })
+    attributes.has(KoreAttribute::Constructor) && matches!(pattern, kore::Pattern::Implies { .. })
 }
 
 fn is_injection(pattern: &kore::Pattern) -> bool {
     matches!(pattern, kore::Pattern::Application { symbol, .. } if symbol.is(WellKnownSymbol::Inj))
-}
-
-fn has_attribute(attributes: &kore::Attributes, name: &str) -> bool {
-    attribute_application(attributes, name).is_some()
-}
-
-fn attribute_application<'a>(
-    attributes: &'a kore::Attributes,
-    name: &str,
-) -> Option<&'a Vec<kore::Pattern>> {
-    attributes.0.iter().find_map(|attribute| match attribute {
-        kore::Pattern::Application { symbol, arguments } if symbol.name == name => Some(arguments),
-        _ => None,
-    })
-}
-
-fn attribute_string(
-    attributes: &kore::Attributes,
-    name: &str,
-) -> Result<Option<String>, AxiomError> {
-    let Some(arguments) = attribute_application(attributes, name) else {
-        return Ok(None);
-    };
-    match arguments.as_slice() {
-        [kore::Pattern::String(value)] => Ok(Some(value.clone())),
-        _ => Err(AxiomError::MalformedAttribute(name.into())),
-    }
-}
-
-fn attribute_string_or_empty(
-    attributes: &kore::Attributes,
-    name: &str,
-) -> Result<Option<String>, AxiomError> {
-    let Some(arguments) = attribute_application(attributes, name) else {
-        return Ok(None);
-    };
-    match arguments.as_slice() {
-        [] => Ok(Some(String::new())),
-        [kore::Pattern::String(value)] => Ok(Some(value.clone())),
-        _ => Err(AxiomError::MalformedAttribute(name.into())),
-    }
 }
 
 #[cfg(test)]

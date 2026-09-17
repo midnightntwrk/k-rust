@@ -8,7 +8,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast as kore;
-use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
+use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
     alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
@@ -388,6 +388,18 @@ fn display_sort(sort: &Sort) -> String {
 
 impl Error for DefinitionError {}
 
+impl From<MalformedAttribute> for DefinitionError {
+    /// `"{name} must contain one string"` and `"{name} must contain one nullary symbol"`, the
+    /// two texts this crate has always rendered.
+    fn from(malformed: MalformedAttribute) -> Self {
+        Self::MalformedAttribute(format!(
+            "{} must contain {}",
+            malformed.attribute.as_str(),
+            malformed.expected
+        ))
+    }
+}
+
 impl BackendDefinition {
     pub fn internalize(
         definition: &kore::Definition,
@@ -483,8 +495,8 @@ impl BackendDefinition {
                 let collection = collection_sort(attributes)?;
                 let info = SortInfo {
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
-                    hook: attribute_string(attributes, "hook")?.map(Into::into),
-                    has_domain_values: has_attribute(attributes, "hasDomainValues"),
+                    hook: attributes.string(KoreAttribute::Hook)?.map(Into::into),
+                    has_domain_values: attributes.has(KoreAttribute::HasDomainValues),
                     collection,
                 };
                 if sorts.insert(Name::from(name.as_str()), info).is_some() {
@@ -1246,7 +1258,7 @@ fn collect_finite_sort_constructors(
 ) -> BTreeMap<Sort, BTreeSet<ConstructorHead>> {
     let mut domains = BTreeMap::new();
     for axiom in &definition.axioms {
-        if !has_attribute(&axiom.attributes, "constructor") {
+        if !axiom.attributes.has(KoreAttribute::Constructor) {
             continue;
         }
         let mut alternatives = Vec::new();
@@ -1520,9 +1532,9 @@ pub(crate) fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) 
 
 fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, DefinitionError> {
     let constructor =
-        has_attribute(attributes, "constructor") || has_attribute(attributes, "sortInjection");
-    let total = has_attribute(attributes, "total") || has_attribute(attributes, "functional");
-    let function = has_attribute(attributes, "function");
+        attributes.has(KoreAttribute::Constructor) || attributes.has(KoreAttribute::SortInjection);
+    let total = attributes.has(KoreAttribute::Total) || attributes.has(KoreAttribute::Functional);
+    let function = attributes.has(KoreAttribute::Function);
     let symbol_type = if constructor {
         SymbolType::Constructor
     } else if total {
@@ -1534,15 +1546,17 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
             "attributes {attributes:?}"
         )));
     };
-    if has_attribute(attributes, "sortInjection")
-        && (has_attribute(attributes, "assoc") || has_attribute(attributes, "idem"))
+    if attributes.has(KoreAttribute::SortInjection)
+        && (attributes.has(KoreAttribute::Assoc) || attributes.has(KoreAttribute::Idem))
     {
         return Err(DefinitionError::MalformedAttribute(
             "sort injections cannot be associative or idempotent".into(),
         ));
     }
-    let smt_hook = attribute_string(attributes, "smt-hook")?;
-    let smtlib = attribute_string(attributes, "smtlib")?;
+    let smt_hook = attributes
+        .string(KoreAttribute::SmtHook)?
+        .map(str::to_owned);
+    let smtlib = attributes.string(KoreAttribute::Smtlib)?.map(str::to_owned);
     let smt = if let Some(hook) = smt_hook {
         Some(SmtType::Hook(SExpr::parse(&hook).map_err(|error| {
             DefinitionError::MalformedAttribute(format!("invalid smt-hook {hook:?}: {error}"))
@@ -1552,15 +1566,15 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
     };
     Ok(SymbolAttributes {
         symbol_type,
-        binder: has_attribute(attributes, "binder"),
-        injective: has_attribute(attributes, "injective"),
-        associative: has_attribute(attributes, "assoc"),
-        idempotent: has_attribute(attributes, "idem"),
-        macro_or_alias: has_attribute(attributes, "macro")
-            || has_attribute(attributes, "alias'Kywd'"),
-        has_evaluators: !has_attribute(attributes, "no-evaluators"),
+        binder: attributes.has(KoreAttribute::Binder),
+        injective: attributes.has(KoreAttribute::Injective),
+        associative: attributes.has(KoreAttribute::Assoc),
+        idempotent: attributes.has(KoreAttribute::Idem),
+        macro_or_alias: attributes.has(KoreAttribute::Macro)
+            || attributes.has(KoreAttribute::Alias),
+        has_evaluators: !attributes.has(KoreAttribute::NoEvaluators),
         smt,
-        hook: attribute_string(attributes, "hook")?.map(Into::into),
+        hook: attributes.string(KoreAttribute::Hook)?.map(Into::into),
         collection: None,
     })
 }
@@ -1602,10 +1616,16 @@ fn validate_binder_attribute(
 fn collection_sort(
     attributes: &kore::Attributes,
 ) -> Result<Option<CollectionSort>, DefinitionError> {
-    let element = attribute_symbol(attributes, "element")?;
-    let concat = attribute_symbol(attributes, "concat")?;
-    let unit = attribute_symbol(attributes, "unit")?;
-    let hook = attribute_string(attributes, "hook")?;
+    let element = attributes
+        .nullary_symbol(KoreAttribute::Element)?
+        .map(str::to_owned);
+    let concat = attributes
+        .nullary_symbol(KoreAttribute::Concat)?
+        .map(str::to_owned);
+    let unit = attributes
+        .nullary_symbol(KoreAttribute::Unit)?
+        .map(str::to_owned);
+    let hook = attributes.string(KoreAttribute::Hook)?.map(str::to_owned);
     match (element, concat, unit, hook.as_deref()) {
         (None, None, None, _) => Ok(None),
         (Some(element), Some(concat), Some(unit), Some(hook)) => {
@@ -1766,11 +1786,8 @@ fn subsort_attribute(
     attributes: &kore::Attributes,
     sorts: &BTreeMap<Name, SortInfo>,
 ) -> Result<Option<(Name, Name)>, DefinitionError> {
-    let Some(attribute_pattern) = attribute(attributes, "subsort") else {
+    let Some((symbol, arguments)) = attributes.application(KoreAttribute::Subsort) else {
         return Ok(None);
-    };
-    let kore::Pattern::Application { symbol, arguments } = attribute_pattern else {
-        unreachable!()
     };
     if !arguments.is_empty() || symbol.sort_parameters.len() != 2 {
         return Err(DefinitionError::MalformedAttribute(
@@ -1835,64 +1852,14 @@ fn subsort_attribute(
     }
 }
 
-fn attribute<'a>(attributes: &'a kore::Attributes, name: &str) -> Option<&'a kore::Pattern> {
-    attributes.0.iter().find(|pattern| {
-        matches!(pattern, kore::Pattern::Application { symbol, .. } if symbol.name == name)
-    })
-}
-
-fn has_attribute(attributes: &kore::Attributes, name: &str) -> bool {
-    attribute(attributes, name).is_some()
-}
-
-fn attribute_string(
-    attributes: &kore::Attributes,
-    name: &str,
-) -> Result<Option<String>, DefinitionError> {
-    let Some(pattern) = attribute(attributes, name) else {
-        return Ok(None);
-    };
-    let kore::Pattern::Application { arguments, .. } = pattern else {
-        unreachable!()
-    };
-    match arguments.as_slice() {
-        [kore::Pattern::String(value)] => Ok(Some(value.clone())),
-        _ => Err(DefinitionError::MalformedAttribute(format!(
-            "{name} must contain one string"
-        ))),
-    }
-}
-
-fn attribute_symbol(
-    attributes: &kore::Attributes,
-    name: &str,
-) -> Result<Option<String>, DefinitionError> {
-    let Some(pattern) = attribute(attributes, name) else {
-        return Ok(None);
-    };
-    let kore::Pattern::Application { arguments, .. } = pattern else {
-        unreachable!()
-    };
-    match arguments.as_slice() {
-        [kore::Pattern::Application { symbol, arguments }] if arguments.is_empty() => {
-            Ok(Some(symbol.name.clone()))
-        }
-        _ => Err(DefinitionError::MalformedAttribute(format!(
-            "{name} must contain one nullary symbol"
-        ))),
-    }
-}
-
 fn overload_attribute(
     attributes: &kore::Attributes,
 ) -> Result<Option<(Name, Name)>, DefinitionError> {
-    let Some(pattern) =
-        attribute(attributes, "symbol-overload").or_else(|| attribute(attributes, "overload"))
+    let Some(arguments) = attributes
+        .arguments(KoreAttribute::SymbolOverload)
+        .or_else(|| attributes.arguments(KoreAttribute::Overload))
     else {
         return Ok(None);
-    };
-    let kore::Pattern::Application { arguments, .. } = pattern else {
-        unreachable!()
     };
     let [
         kore::Pattern::Application {
@@ -1903,7 +1870,7 @@ fn overload_attribute(
             symbol: lesser,
             arguments: lesser_arguments,
         },
-    ] = arguments.as_slice()
+    ] = arguments
     else {
         return Err(DefinitionError::MalformedAttribute(
             "symbol-overload must contain two nullary symbols".into(),

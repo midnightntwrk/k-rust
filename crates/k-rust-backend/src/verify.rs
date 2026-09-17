@@ -7,7 +7,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast as kore;
-use k_rust_kore::names::BuiltinSort;
+use k_rust_kore::names::{BuiltinSort, KoreAttribute};
 
 use crate::{
     alias::AliasDefinition,
@@ -549,7 +549,7 @@ fn verify_declaration(
                 }),
             );
             verify_hook_attribute(*hooked, attributes, &ctx)?;
-            if has_attribute(attributes, "constructor") {
+            if attributes.has(KoreAttribute::Constructor) {
                 let result = ctx
                     .sort(result_sort)
                     .map_err(DefinitionError::Verification)?;
@@ -581,7 +581,7 @@ fn verify_hook_attribute(
     attributes: &kore::Attributes,
     ctx: &VerifyContext<'_>,
 ) -> Result<(), DefinitionError> {
-    match (hooked, has_attribute(attributes, "hook")) {
+    match (hooked, attributes.has(KoreAttribute::Hook)) {
         (true, false) => Err(DefinitionError::Verification(
             ctx.error("Missing hook attribute."),
         )),
@@ -681,7 +681,7 @@ fn verify_subsort_super(
     sorts: &BTreeMap<Name, SortInfo>,
     ctx: &VerifyContext<'_>,
 ) -> Result<(), DefinitionError> {
-    let Some(kore::Pattern::Application { symbol, .. }) = attribute(attributes, "subsort") else {
+    let Some((symbol, _)) = attributes.application(KoreAttribute::Subsort) else {
         return Ok(());
     };
     let Some(kore::Sort::Application { name, .. }) = symbol.sort_parameters.get(1) else {
@@ -706,16 +706,16 @@ fn verify_function_head(
     ctx: &VerifyContext<'_>,
 ) -> Result<(), DefinitionError> {
     if [
-        "simplification",
-        "assoc",
-        "comm",
-        "unit",
-        "idem",
-        "symbol-overload",
-        "overload",
+        KoreAttribute::Simplification,
+        KoreAttribute::Assoc,
+        KoreAttribute::Comm,
+        KoreAttribute::Unit,
+        KoreAttribute::Idem,
+        KoreAttribute::SymbolOverload,
+        KoreAttribute::Overload,
     ]
-    .iter()
-    .any(|name| has_attribute(attributes, name))
+    .into_iter()
+    .any(|attribute| attributes.has(attribute))
     {
         return Ok(());
     }
@@ -822,16 +822,6 @@ fn free_variables(
         | Pattern::Bottom { .. }
         | Pattern::DomainValue { .. } => BTreeSet::new(),
     }
-}
-
-fn attribute<'a>(attributes: &'a kore::Attributes, name: &str) -> Option<&'a kore::Pattern> {
-    attributes.0.iter().find(|pattern| {
-        matches!(pattern, kore::Pattern::Application { symbol, .. } if symbol.name == name)
-    })
-}
-
-fn has_attribute(attributes: &kore::Attributes, name: &str) -> bool {
-    attribute(attributes, name).is_some()
 }
 
 fn render_sort(sort: &Sort) -> String {
