@@ -240,7 +240,8 @@ impl Generator<'_, '_> {
                 })
             }
             Term::Apply { label, arguments } => {
-                let sort = semantic_cast_sort(label)
+                let sort = label
+                    .semantic_cast_sort()
                     .or_else(|| {
                         self.catalog
                             .result_sort_for(&LabelHead::new(&label.name))
@@ -998,7 +999,7 @@ fn leaf_initializer(term: &Term) -> Term {
                 }
             }
             Term::Apply { label, arguments } => {
-                let next_sort = semantic_cast_sort(label);
+                let next_sort = label.semantic_cast_sort();
                 Term::Apply {
                     label: label.clone(),
                     arguments: arguments
@@ -1035,14 +1036,6 @@ fn leaf_initializer(term: &Term) -> Term {
         }
     }
     transform(term, None)
-}
-
-fn semantic_cast_sort(label: &Label) -> Option<Sort> {
-    label
-        .name
-        .strip_prefix("#SemanticCastTo")
-        .filter(|name| !name.is_empty())
-        .map(Sort::new)
 }
 
 fn optional_initializer(label: &str, has_variables: bool, properties: &Attributes) -> Term {
@@ -1210,4 +1203,81 @@ fn sort_value(sort: &Sort) -> Value {
         "name": sort.name,
         "params": sort.parameters.iter().map(sort_value).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use indoc::indoc;
+
+    use super::*;
+    use crate::definition::ProductionItem;
+
+    fn parsed(source: &str) -> Definition {
+        let parsed = crate::outer::parse("configuration.k", source).unwrap();
+        let lowered = crate::outer::lower(&parsed, "MAIN").unwrap();
+        crate::inner::resolve_configuration_bubbles(&lowered).unwrap()
+    }
+
+    fn cell_content_sort(definition: &Definition, cell: &str) -> Sort {
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label),
+                    items,
+                    ..
+                } if label.name == cell => items.iter().find_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .expect("generated cell production")
+    }
+
+    /// Rebuilds `term` with every `#SemanticCastTo{from}` label replaced by a cast to `to`.
+    fn recast(term: &Term, from: &Sort, to: &Sort) -> Term {
+        match term.unannotated() {
+            Term::Apply { label, arguments } => Term::Apply {
+                label: if label.semantic_cast_sort().as_ref() == Some(from) {
+                    Label::semantic_cast(to)
+                } else {
+                    label.clone()
+                },
+                arguments: arguments
+                    .iter()
+                    .map(|argument| recast(argument, from, to))
+                    .collect(),
+            },
+            other => other.clone(),
+        }
+    }
+
+    #[test]
+    fn configuration_cast_to_a_parametric_sort_resolves_to_the_parametric_sort() {
+        // The configuration grammar offers casts to nullary sorts only, so the cast is
+        // retargeted after parsing: the reader, not the grammar, is under test.
+        let mut definition = parsed(indoc! {r#"
+            module MAIN
+              syntax Val
+              configuration <k> .K </k> <cell> $PGM:Val </cell>
+            endmodule
+        "#});
+        let parametric = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+        let module = definition
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "MAIN")
+            .unwrap();
+        for sentence in &mut module.local_sentences {
+            if let Sentence::Configuration { body, .. } = sentence {
+                *body = recast(body, &Sort::new("Val"), &parametric);
+            }
+        }
+        let expanded = expand_configurations(&definition).unwrap();
+        assert_eq!(cell_content_sort(&expanded, "<cell>"), parametric);
+    }
 }
