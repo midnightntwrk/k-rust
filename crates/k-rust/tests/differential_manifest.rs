@@ -683,6 +683,98 @@ fn every_gate_normalisation_is_registered() {
 }
 
 #[test]
+fn every_conformance_normalisation_is_registered() {
+    let register = NORMALISATIONS
+        .parse::<Value>()
+        .expect("valid normalisation register TOML");
+    let rows = register["conformance"]
+        .as_array()
+        .expect("conformance rows");
+    let ids = rows
+        .iter()
+        .map(|row| row["id"].as_str().expect("conformance id").to_owned())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        ids,
+        (1..=7).map(|id| format!("C{id}")).collect::<BTreeSet<_>>(),
+        "the conformance register must contain C1 through C7"
+    );
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for row in rows {
+        let id = row["id"].as_str().unwrap();
+        for field in ["rule", "justification"] {
+            assert!(
+                row[field]
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                "{id} must provide a non-empty {field}"
+            );
+        }
+        // A conformance row anchored in the driver names a symbol that exists there, exactly
+        // like the gate rows; unanchored rows describe driver policy rather than one function.
+        let (anchor, anchor_symbol) = match (row.get("anchor"), row.get("anchor_symbol")) {
+            (None, None) => {
+                assert!(
+                    row.get("anchor_helpers").is_none(),
+                    "{id} lists anchor_helpers without an anchor"
+                );
+                continue;
+            }
+            (Some(anchor), Some(symbol)) => (
+                anchor.as_str().expect("anchor string"),
+                symbol.as_str().expect("anchor symbol string"),
+            ),
+            _ => panic!("{id} must provide anchor and anchor_symbol together"),
+        };
+        let anchor_path = anchor.split_once(':').map_or(anchor, |(path, _)| path);
+        let source = fs::read_to_string(workspace.join(anchor_path)).unwrap_or_else(|error| {
+            panic!("{id} anchor file {anchor_path} is unavailable: {error}")
+        });
+        assert!(
+            source.contains(anchor_symbol),
+            "{id} anchor symbol {anchor_symbol:?} is absent from {anchor_path}"
+        );
+        for helper in row
+            .get("anchor_helpers")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let helper = helper.as_str().expect("anchor helper string");
+            assert!(
+                source.contains(helper),
+                "{id} anchor helper {helper:?} is absent from {anchor_path}"
+            );
+        }
+    }
+    // C7 is the driver's text-level reading of N4: `?Name:Sort` tokens are engine-named, the
+    // pattern's own variables are not, and the renaming happens before the C1 sort.
+    let c7 = rows
+        .iter()
+        .find(|row| row["id"].as_str() == Some("C7"))
+        .expect("C7 row");
+    assert_eq!(c7["anchor_symbol"].as_str(), Some("rename_existentials"));
+    for needle in [
+        "sort-preserving",
+        "`?Name:Sort`",
+        "first occurrence",
+        "before the C1 sort",
+        "--pattern",
+    ] {
+        assert!(
+            c7["rule"].as_str().unwrap().contains(needle),
+            "C7 must state {needle}"
+        );
+    }
+    for needle in ["N4", "docs/compatibility.md#comparison-contract"] {
+        assert!(
+            c7["justification"].as_str().unwrap().contains(needle),
+            "C7 must cite {needle}"
+        );
+    }
+}
+
+#[test]
 fn differential_manifest_is_complete_and_unambiguous() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
     assert_eq!(manifest["version"].as_integer(), Some(1));

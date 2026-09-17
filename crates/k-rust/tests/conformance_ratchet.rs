@@ -1141,6 +1141,129 @@ print(json.dumps({
     }
 }
 
+#[test]
+fn conformance_driver_compares_execution_text_modulo_existential_renaming() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+PATTERN = "<tasks> <task> <k> T:Type </k> ...</task> </tasks>"
+def eq(body): return "{\n  T:Type\n#Equals\n  " + body + "\n}\n"
+
+def diff(expected, actual, pattern=PATTERN):
+    d, compared_as_set, renamed = run.execution_text_diff(expected, actual, pattern)
+    return {"match": d is None, "compared_as_set": compared_as_set, "renamed_existentials": renamed, "divergence": d}
+
+# The pattern reaches compare_execution from do_krun; kprint is faked to return `actual` verbatim.
+pretty = {}
+run.kprint = lambda case, kore_path: (0, pretty["text"], "")
+run.run_krust_program = lambda case, kind, prog, stdin_path, extra, sort, syntax_module, step: (
+    ["krust"], 0, "\\top{SortGeneratedTopCell{}}()", "", 0.0, False)
+run.confirm_oracle = lambda case, rec, step: None
+def driver(expected, actual, pattern):
+    root = tempfile.mkdtemp()
+    case = run.Case("existential-renaming")
+    case.dir = root; case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "reference-kompiled")
+    case.def_file = "test.k"; case.main_module = "TEST"; case.syntax_module = "TEST-SYNTAX"; case.pgm_sort = "KItem"
+    with open(os.path.join(root, "program.out"), "w") as f: f.write(expected)
+    pretty["text"] = actual
+    recipe = run.split_recipe("/kbin/krun program --search-final --pattern " + repr(pattern) + " | diff - program.out")
+    assert recipe["out"] == "program.out", recipe
+    step = run.do_krun(case, recipe)
+    return {"verdict": step["verdict"], "comparison": step.get("comparison"),
+            "renamed_existentials": step.get("renamed_existentials"), "divergence": step.get("divergence")}
+
+xy_expected, xy_actual = "{ ?X:Int #Equals ?Y:Int }\n", "{ ?Y:Int #Equals ?X:Int }\n"
+print(json.dumps({
+    "composition": diff(
+        eq("( ?Tx1:Type -> ?T3:Type ) -> ( ( ?T3:Type -> ?Te1:Type ) -> ( ?Tx1:Type -> ?Te1:Type ) )"),
+        eq("( ?T3:Type -> ?T2:Type ) -> ( ( ?T2:Type -> ?Te1:Type ) -> ( ?T3:Type -> ?Te1:Type ) )")),
+    "literal": diff(eq("int -> ?Tx1:Type"), eq("int -> ?Tx1:Type")),
+    "disjunction": diff("  ?A:Type -> int\n#Or\n  ?B:Type -> bool\n", "  ?B:Type -> int\n#Or\n  ?A:Type -> bool\n"),
+    "sharing": diff(eq("?A:Type -> ?A:Type"), eq("?A:Type -> ?B:Type")),
+    "sort": diff(eq("?A:Type"), eq("?A:Int")),
+    "pattern_variable": diff(eq("int"), eq("int").replace("T:Type", "U:Type")),
+    "string_literal": diff(eq('"?A:Type"'), eq('"?B:Type"')),
+    "pattern_existentials": diff(xy_expected, xy_actual, "<k> ?X:Int ?Y:Int </k>"),
+    "free_existentials": diff(xy_expected, xy_actual, "<k> T:Int </k>"),
+    "driver_fixed": driver(xy_expected, xy_actual, "<k> ?X:Int ?Y:Int </k>"),
+    "driver_free": driver(xy_expected, xy_actual, "<k> T:Int </k>"),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let probe = |name: &str| &probes[name];
+    // Engine-chosen existential names match modulo renaming and are reported as renamed.
+    for name in ["composition", "disjunction", "free_existentials"] {
+        assert_eq!(probe(name)["match"], true, "{name}: {probes}");
+        assert_eq!(
+            probe(name)["renamed_existentials"],
+            true,
+            "{name}: {probes}"
+        );
+    }
+    assert_eq!(probe("disjunction")["compared_as_set"], true, "{probes}");
+    // Identical texts match without renaming.
+    assert_eq!(probe("literal")["match"], true, "{probes}");
+    assert_eq!(probe("literal")["renamed_existentials"], false, "{probes}");
+    // Sharing loss, a sort change, a renamed non-existential pattern variable, a `?` inside a
+    // string literal, and swapped pattern-declared `?` variables all stay mismatches.
+    for name in [
+        "sharing",
+        "sort",
+        "pattern_variable",
+        "string_literal",
+        "pattern_existentials",
+    ] {
+        assert_eq!(probe(name)["match"], false, "{name}: {probes}");
+        assert_eq!(
+            probe(name)["renamed_existentials"],
+            false,
+            "{name}: {probes}"
+        );
+    }
+    // The mismatch diff is of the renamed texts: the true difference, not the spelling.
+    let sharing = probe("sharing")["divergence"].as_str().unwrap();
+    assert!(
+        sharing.contains("?'KDiff0:Type -> ?'KDiff0:Type")
+            && sharing.contains("?'KDiff0:Type -> ?'KDiff1:Type"),
+        "{sharing}"
+    );
+    // do_krun threads the recipe's --pattern text into the comparison and labels it C7.
+    assert_eq!(probe("driver_fixed")["verdict"], "mismatch", "{probes}");
+    assert!(
+        probe("driver_fixed")["renamed_existentials"].is_null(),
+        "{probes}"
+    );
+    assert_eq!(probe("driver_free")["verdict"], "match", "{probes}");
+    assert_eq!(
+        probe("driver_free")["renamed_existentials"],
+        true,
+        "{probes}"
+    );
+    for name in ["driver_fixed", "driver_free"] {
+        let comparison = probe(name)["comparison"].as_str().unwrap();
+        assert!(
+            comparison.contains("modulo C7 existential renaming"),
+            "{name}: {comparison}"
+        );
+    }
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),

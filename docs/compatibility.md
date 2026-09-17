@@ -144,6 +144,8 @@ The pinned `issue-1528`, `let-test` and `record-llvm` cases exhibit different su
 The comparator collapses multi-suffix names consistently in declarations and uses, ignores only the affected UNIQUE_ID attributes, compares the remaining sentence multiset, and prints the collapsed axiom count.
 The tradeoff is explicit: a suffix-to-body association is outside this comparison, while signatures and rule bodies remain checked.
 Variable numbering inside a generated owise competitor disjunction is the port's own; N4 renames it on both sides.
+The conformance driver's surface-text comparison (`scripts/conformance/run.py` `execution_text_diff`) applies the same N4 reading to kprint's `?Name:Sort` tokens as C7: the rule existentials both engines instantiate through a fresh counter are compared modulo a bijective, sort-preserving renaming by first occurrence per disjunct, applied before the C1 sort.
+Every other variable, including the search pattern's own variables and any `?` variable the recipe's `--pattern` text names, and every string literal are compared literally, so lost sharing, a changed sort, or a renamed pattern variable remains a mismatch.
 
 A `presentation-only` conformance exclusion requires an explanation of why the represented patterns are equal.
 For example, `no-junk-macro` retains a valid constraint in Kore while Rust discharges it using the definition's own SMT lemma.

@@ -1975,12 +1975,13 @@ reason = ""
 
 [[case]]
 name = "pl-tutorial/1_k/5_types/lesson_6"
-accepted_verdict = "krust-unsupported"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "search"
+accepted_basis = "Pinned compilation verification/comparison and all fifteen --search --pattern recipes pass; the composition, if, and tricky-5 outputs match only modulo C7 existential renaming (renamed_existentials), and the remaining twelve match literally."
 baseline_verdict = "krust-unsupported"
 baseline_stage = "kompile"
 exclusion = ""
-reason = ""
+reason = "The accepted search recipes match after forwarding --pattern and comparing kprint text modulo C7 existential renaming; see accepted_basis. The baseline recorded the kompile step as unsupported."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/1_untyped"

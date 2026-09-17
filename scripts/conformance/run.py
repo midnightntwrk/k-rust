@@ -236,16 +236,44 @@ def split_surface_disjunction(text):
     return sorted(branches)
 
 
-def execution_text_diff(expected, actual):
-    expected_disjuncts = split_surface_disjunction(expected)
-    actual_disjuncts = split_surface_disjunction(actual)
-    if expected_disjuncts is None and actual_disjuncts is None:
-        return first_diff(expected, actual), False
-    expected_disjuncts = expected_disjuncts or [expected.rstrip()]
-    actual_disjuncts = actual_disjuncts or [actual.rstrip()]
-    expected_sorted = "\n#Or\n".join(sorted(expected_disjuncts))
-    actual_sorted = "\n#Or\n".join(sorted(actual_disjuncts))
-    return first_diff(expected_sorted, actual_sorted), True
+# C7 (scripts/reference-normalisations.toml): kprint prints a rule existential (a Var'Ques' name) as
+# `?Name:Sort`; both engines instantiate it through a fresh counter and keep an engine-chosen unification
+# representative, so the names are compared modulo a bijective, sort-preserving renaming. A double-quoted
+# string literal is matched first and left untouched. The canonical `?'KDiff<n>` names start with a
+# quote, which the name class excludes, so they can never collide with a name either engine prints.
+EXISTENTIAL_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\?([A-Za-z_][A-Za-z0-9_\']*)(:[A-Za-z][A-Za-z0-9]*)')
+PATTERN_EXISTENTIAL = re.compile(r'"(?:[^"\\]|\\.)*"|\?([A-Za-z_][A-Za-z0-9_\']*)')
+
+
+def pattern_existentials(pattern):
+    """The `?` variable names a krun --pattern text declares (with or without a sort); C7 keeps them literal."""
+    return frozenset(m.group(1) for m in PATTERN_EXISTENTIAL.finditer(pattern or "") if m.group(1))
+
+
+def rename_existentials(text, fixed=frozenset()):
+    """C7: rename every `?Name:Sort` outside string literals to `?'KDiff<n>:Sort` by first occurrence of Name."""
+    indices = {}
+    def sub(m):
+        name = m.group(1)
+        if name is None or name in fixed: return m.group(0)
+        return f"?'KDiff{indices.setdefault(name, len(indices))}{m.group(2)}"
+    return EXISTENTIAL_TOKEN.sub(sub, text)
+
+
+def execution_text_diff(expected, actual, pattern=""):
+    """Diff kprint text modulo C7 (existential renaming per disjunct) and C1 (sorted #Or branches).
+    Returns (diff of the renamed texts or None, compared_as_set, renamed_existentials); the last is true
+    only when the literal texts differ and the renamed texts match."""
+    fixed = pattern_existentials(pattern)
+    def normalize(text, rename):
+        disjuncts = split_surface_disjunction(text)
+        parts = [text] if disjuncts is None else disjuncts
+        if rename: parts = [rename_existentials(part, fixed) for part in parts]
+        return "\n#Or\n".join(sorted(parts)), disjuncts is not None
+    (expected_text, expected_set), (actual_text, actual_set) = normalize(expected, True), normalize(actual, True)
+    d = first_diff(expected_text, actual_text)
+    renamed = d is None and first_diff(normalize(expected, False)[0], normalize(actual, False)[0]) is not None
+    return d, expected_set or actual_set, renamed
 
 
 def toml_str(s):
@@ -858,8 +886,9 @@ def run_krust_program(case, kind, prog, stdin_path, extra, sort, syntax_module, 
     return args, rc, out, err, secs, to
 
 
-def compare_execution(case, rec, step, kout, kore_output, tag):
-    """Compare krust KORE output with the checked-in .out (pretty via kprint, or structurally for --output kore)."""
+def compare_execution(case, rec, step, kout, kore_output, tag, pattern=""):
+    """Compare krust KORE output with the checked-in .out (pretty via kprint modulo C7 with the recipe's
+    --pattern text fixing its own `?` variables, or structurally for --output kore)."""
     outp = f"{case.dir}/{rec['out']}" if rec["out"] else None
     kore_path = f"{case.log}/{tag}.krust.kore"
     case.logfile(f"{tag}.krust.kore", kout)
@@ -891,9 +920,11 @@ def compare_execution(case, rec, step, kout, kore_output, tag):
         step["divergence"] = "kprint failed on krust output: " + (perr or pout)[:800]
         return False
     case.logfile(f"{tag}.krust.pretty", pout)
-    d, compared_as_set = execution_text_diff(expected, pout)
+    d, compared_as_set, renamed = execution_text_diff(expected, pout, pattern)
+    step["comparison"] = "kprint(reference kompiled, krust KORE) text vs .out modulo C7 existential renaming"
     if compared_as_set:
-        step["comparison"] = "kprint #Or disjunct multiset vs .out (docs/compatibility.md#search-results)"
+        step["comparison"] = "kprint #Or disjunct multiset vs .out modulo C7 existential renaming (docs/compatibility.md#search-results)"
+    if renamed: step["renamed_existentials"] = True
     if d is None: return True
     step["divergence"] = d
     return False
@@ -1024,6 +1055,7 @@ def do_krun(case, rec, search_file=False):
     completion_only = False
     pattern_values = opts.get("--pattern", [])
     pattern_is_valid = len(pattern_values) == 1 and "--search-pattern" not in opts
+    pattern = pattern_values[-1] if pattern_is_valid else ""
     if len(pattern_values) > 1:
         unsupported.append("repeated --pattern")
     if pattern_values and "--search-pattern" in opts:
@@ -1086,10 +1118,11 @@ def do_krun(case, rec, search_file=False):
                     step["fallback_divergence"] = (err2 or out2)[-800:]
                 else:
                     sub = {k: v for k, v in step.items() if k != "divergence"}
-                    ok = compare_execution(case, rec, sub, out2, kore_output, tag + ".fallback")
+                    ok = compare_execution(case, rec, sub, out2, kore_output, tag + ".fallback", pattern)
                     step["fallback_stage"] = "search" if "--search" in " ".join(extra) else "krun"
                     step["fallback_verdict"] = "match" if ok else ("mismatch" if ok is False else "skipped-with-reason")
                     if ok is False and sub.get("divergence"): step["fallback_divergence"] = sub["divergence"]
+                    if sub.get("renamed_existentials"): step["fallback_renamed_existentials"] = True
                     if sub.get("comparison"): step["comparison"] = sub["comparison"]
         return step_record(case, **step)
     step["stage"] = "search" if any(x.startswith("--search") for x in extra) else "krun"
@@ -1102,7 +1135,7 @@ def do_krun(case, rec, search_file=False):
         return step_record(case, **step)
     if not compare_program_status(case, rec, step, rc, tag):
         return step_record(case, **step)
-    ok = compare_execution(case, rec, step, out, kore_output, tag)
+    ok = compare_execution(case, rec, step, out, kore_output, tag, pattern)
     if ok is None:
         step.update(verdict="skipped-with-reason", reason="no checked-in .out for this test")
     elif ok:
