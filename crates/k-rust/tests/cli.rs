@@ -4240,8 +4240,13 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `run(I) => stuck(I)` rewrites although `stuck(1)` cannot be evaluated: the rewrite carries
+/// `\ceil(stuck(1))` as an obligation instead of blocking. The leaf is printed in the
+/// simplifier's normal form, where that conjunct is entailed by the term (`stuck(1)` sits under
+/// total symbols only, and application is strict), so the output shows the unevaluated
+/// application and no `\ceil` conjunct.
 #[test]
-fn krun_retains_unresolved_definedness_as_a_constraint() {
+fn krun_rewrites_to_an_unevaluated_partial_application_in_normal_form() {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -4279,11 +4284,9 @@ endmodule
         String::from_utf8_lossy(&output.stderr)
     );
     let output = String::from_utf8(output.stdout).unwrap();
-    assert!(
-        output.contains(r#"\ceil{SortNum{}, SortGeneratedTopCell{}}"#),
-        "{output}"
-    );
     assert!(output.contains("Lblstuck"), "{output}");
+    assert!(!output.contains("Lblrun"), "{output}");
+    assert!(!output.contains(r"\ceil"), "{output}");
 
     fs::remove_dir_all(root).unwrap();
 }
