@@ -1688,7 +1688,10 @@ fn execution_normalizer_renames_instantiated_rule_existentials_in_shapes_mode() 
     let rendered = normalized.to_string();
     assert!(rendered.contains("VarT:SortType{}"), "{rendered}");
     assert!(!rendered.contains("Var'Ques'"), "{rendered}");
-    assert!(rendered.contains("Var'Hash'KDiff2:SortType{}"), "{rendered}");
+    assert!(
+        rendered.contains("Var'Hash'KDiff2:SortType{}"),
+        "{rendered}"
+    );
 }
 
 #[test]
