@@ -11,7 +11,7 @@ use std::{
 };
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
-use k_rust::names::{BuiltinSort, WellKnownSymbol};
+use k_rust::names::{BuiltinSort, KoreAttribute, WellKnownSymbol};
 use k_rust::{
     backend::{
         collect_free_kore_variables, implication_sort_variables, special_implication_result,
@@ -3973,7 +3973,12 @@ fn claim_unique_id(sentence: &KoreSentence) -> Option<String> {
     let KoreSentence::Claim { attributes, .. } = sentence else {
         return None;
     };
-    attribute_string(attributes, "UNIQUE'Unds'ID").or_else(|| attribute_string(attributes, "label"))
+    attributes
+        .string(KoreAttribute::UniqueId)
+        .ok()
+        .flatten()
+        .or_else(|| attributes.string(KoreAttribute::Label).ok().flatten())
+        .map(str::to_owned)
 }
 
 fn same_claim(left: &KoreSentence, right: &KoreSentence) -> bool {
@@ -3996,18 +4001,6 @@ fn same_claim(left: &KoreSentence, right: &KoreSentence) -> bool {
     left_parameters == right_parameters && left_pattern == right_pattern
 }
 
-fn kore_attributes_have_marker(attributes: &KoreAttributes, name: &str) -> bool {
-    attributes.0.iter().any(|attribute| {
-        matches!(
-            attribute,
-            KorePattern::Application { symbol, arguments }
-                if symbol.name == name
-                    && symbol.sort_parameters.is_empty()
-                    && arguments.is_empty()
-        )
-    })
-}
-
 fn kore_module_function_symbols(module: &KoreModule) -> BTreeSet<String> {
     module
         .sentences
@@ -4019,7 +4012,9 @@ fn kore_module_function_symbols(module: &KoreModule) -> BTreeSet<String> {
             else {
                 return None;
             };
-            kore_attributes_have_marker(attributes, "function").then(|| symbol.name.clone())
+            attributes
+                .has(KoreAttribute::Function)
+                .then(|| symbol.name.clone())
         })
         .collect()
 }
@@ -4030,18 +4025,6 @@ fn kore_function_symbols(definition: &KoreDefinition) -> BTreeSet<String> {
         .iter()
         .flat_map(kore_module_function_symbols)
         .collect()
-}
-
-fn attribute_string(attributes: &KoreAttributes, name: &str) -> Option<String> {
-    attributes.0.iter().find_map(|attribute| {
-        let KorePattern::Application { symbol, arguments } = attribute else {
-            return None;
-        };
-        let [KorePattern::String(value)] = arguments.as_slice() else {
-            return None;
-        };
-        (symbol.name == name).then(|| value.clone())
-    })
 }
 
 fn proof_status(status: ProofStatus) -> &'static str {
