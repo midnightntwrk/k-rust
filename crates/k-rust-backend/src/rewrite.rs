@@ -2917,6 +2917,75 @@ enum RhsAlternativeAttempt {
     Indeterminate(IndeterminateReason),
 }
 
+/// The step's verdict on the definedness obligations of a rule instance's right-hand side.
+enum ObligationVerdict {
+    /// The obligations hold under the rule instance's knowledge.
+    Discharged,
+    /// The rule instance is empty: the step is trivial on the pre-step pattern.
+    Trivial,
+    /// The obligations are open and become constraints of the successor.
+    Carried,
+}
+
+/// Map `decide_condition` on the RHS obligations to the step's verdict. The obligations are
+/// decided under the rule instance's knowledge (path condition, match conditions, unclear
+/// `requires`, and RHS constraints), so an inconsistent ground truth means the instance is
+/// empty, as a refutation does. Every other undecided verdict, a solver failure included,
+/// carries the obligations: `\ceil` of the successor is a conjunct of the successor by
+/// definition. No diagnostic is emitted, as none was before.
+fn rhs_obligation_verdict(condition: Result<RuleCondition, SmtError>) -> ObligationVerdict {
+    match condition {
+        Ok(RuleCondition::Satisfied) => ObligationVerdict::Discharged,
+        Ok(
+            RuleCondition::Refuted
+            | RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition),
+        ) => ObligationVerdict::Trivial,
+        Ok(RuleCondition::Indeterminate(_)) | Err(_) => ObligationVerdict::Carried,
+    }
+}
+
+/// The step's verdict on the `ensures` of a rule instance.
+enum EnsuresStepVerdict {
+    /// The `ensures` holds under the rule instance's knowledge and is dropped.
+    Cleared,
+    /// The rule instance is empty: the step is trivial on the pre-step pattern.
+    Trivial,
+    /// The `ensures` is open and stays a constraint of the successor.
+    Carried,
+    /// The solver was asked and did not answer, or could not pose the query: the step is an
+    /// `IndeterminateReason::Smt` leaf naming the error.
+    Indeterminate(SmtError),
+}
+
+/// Map `decide_condition` on the `ensures` to the step's verdict. As for the RHS obligations,
+/// an inconsistent ground truth under the rule instance's knowledge means the instance is
+/// empty. An open implication or a missing solver carries the `ensures`; a solver that did
+/// not answer, could not pose the query, or failed makes the step indeterminate. No
+/// diagnostic is emitted, as none was before.
+fn rhs_ensures_verdict(condition: Result<RuleCondition, SmtError>) -> EnsuresStepVerdict {
+    match condition {
+        Ok(RuleCondition::Satisfied) => EnsuresStepVerdict::Cleared,
+        Ok(
+            RuleCondition::Refuted
+            | RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition),
+        ) => EnsuresStepVerdict::Trivial,
+        // `NonFunctionalBinding` is raised at a binding site, never by `decide_condition`; it
+        // is listed for exhaustiveness and would be carried like an open implication.
+        Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::ImplicationIndeterminate
+            | ConditionIndeterminacy::NoSolver
+            | ConditionIndeterminacy::NonFunctionalBinding,
+        )) => EnsuresStepVerdict::Carried,
+        Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(reason))) => {
+            EnsuresStepVerdict::Indeterminate(SmtError::Unknown(reason))
+        }
+        Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::Untranslatable(error))) => {
+            EnsuresStepVerdict::Indeterminate(SmtError::Translation(error))
+        }
+        Err(error) => EnsuresStepVerdict::Indeterminate(error),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_rhs_alternative(
     definition: &BackendDefinition,
@@ -2975,22 +3044,10 @@ fn apply_rhs_alternative(
                 ));
             }
         };
-        match predicates_truth(&obligations) {
-            Truth::True => {}
-            Truth::False => return RhsAlternativeAttempt::Trivial,
-            Truth::Unknown => match solver.check_predicates(
-                &condition_knowledge,
-                &Substitution::new(),
-                &obligations,
-            ) {
-                Ok(Validity::Valid) => {}
-                Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                    return RhsAlternativeAttempt::Trivial;
-                }
-                Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => {
-                    extend_unique(&mut rhs_constraints, obligations);
-                }
-            },
+        match rhs_obligation_verdict(decide_condition(&obligations, &condition_knowledge, solver)) {
+            ObligationVerdict::Discharged => {}
+            ObligationVerdict::Trivial => return RhsAlternativeAttempt::Trivial,
+            ObligationVerdict::Carried => extend_unique(&mut rhs_constraints, obligations),
         }
     }
     let ensures = substitute_predicates(
@@ -3012,29 +3069,15 @@ fn apply_rhs_alternative(
             ));
         }
     };
-    match predicates_truth(&ensures) {
-        Truth::False => return RhsAlternativeAttempt::Trivial,
-        Truth::True => {}
-        Truth::Unknown => {
-            match solver.check_predicates(&condition_knowledge, &Substitution::new(), &ensures) {
-                Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                    return RhsAlternativeAttempt::Trivial;
-                }
-                Ok(Validity::Valid) => ensures.clear(),
-                Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {}
-                Ok(Validity::Unknown(reason)) => {
-                    return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
-                        rule_id: rule.attributes.unique_id.clone(),
-                        error: SmtError::Unknown(reason),
-                    });
-                }
-                Err(error) => {
-                    return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
-                        rule_id: rule.attributes.unique_id.clone(),
-                        error,
-                    });
-                }
-            }
+    match rhs_ensures_verdict(decide_condition(&ensures, &condition_knowledge, solver)) {
+        EnsuresStepVerdict::Cleared => ensures.clear(),
+        EnsuresStepVerdict::Trivial => return RhsAlternativeAttempt::Trivial,
+        EnsuresStepVerdict::Carried => {}
+        EnsuresStepVerdict::Indeterminate(error) => {
+            return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
+                rule_id: rule.attributes.unique_id.clone(),
+                error,
+            });
         }
     }
     let alias_variables = term_alias_variables(&rule.lhs);

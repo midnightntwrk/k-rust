@@ -2869,30 +2869,18 @@ fn evaluate_ensures(
         solver,
     )
     .unwrap_or(ensures);
-    match predicates_truth(&ensures) {
-        Truth::False => Ok(EnsuresVerdict::Refuted),
-        Truth::True => Ok(EnsuresVerdict::Holds),
-        Truth::Unknown => {
-            match solver.check_predicates(known_predicates, &Substitution::new(), &ensures) {
-                Ok(Validity::Invalid) => return Ok(EnsuresVerdict::Refuted),
-                Ok(Validity::Valid) => return Ok(EnsuresVerdict::Holds),
-                // An `ensures` the encoding cannot pose is still a conjunct of the result; the
-                // verdict is open and the predicate is carried, as for an unavailable solver.
-                Ok(
-                    Validity::Indeterminate
-                    | Validity::InconsistentGroundTruth
-                    | Validity::Unknown(_),
-                )
-                | Err(SmtError::Unavailable | SmtError::Translation(_)) => {}
-                Err(error) => {
-                    return Err(SimplificationError::Smt {
-                        rule_id: rule.attributes.unique_id.clone(),
-                        error,
-                    });
-                }
-            }
-            Ok(EnsuresVerdict::Open(ensures))
-        }
+    // An `ensures` is a conjunct of the result by definition, so every verdict the solver does
+    // not reach carries it: an open implication, no solver, a query the encoding cannot pose,
+    // and an inconsistent path condition, which under the path condition alone says nothing
+    // about the equation. No diagnostic is emitted here, as none was before.
+    match decide_condition(&ensures, known_predicates, solver) {
+        Ok(RuleCondition::Satisfied) => Ok(EnsuresVerdict::Holds),
+        Ok(RuleCondition::Refuted) => Ok(EnsuresVerdict::Refuted),
+        Ok(RuleCondition::Indeterminate(_)) => Ok(EnsuresVerdict::Open(ensures)),
+        Err(error) => Err(SimplificationError::Smt {
+            rule_id: rule.attributes.unique_id.clone(),
+            error,
+        }),
     }
 }
 
