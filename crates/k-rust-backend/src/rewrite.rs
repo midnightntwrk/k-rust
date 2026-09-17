@@ -542,7 +542,19 @@ fn execute_using(
             }
         }
         if state.depth >= options.max_depth {
-            leaves.push(state.leaf(HaltReason::DepthBound, &observation_log));
+            let pattern = state.pattern.clone();
+            leaves.push(externalise_leaf(
+                definition,
+                state,
+                pattern,
+                HaltReason::DepthBound,
+                options.max_simplification_iterations,
+                solver,
+                &mut effects,
+                &mut observe,
+                &mut observation_log,
+                observation,
+            ));
             continue;
         }
         let rewritten = rewrite_step_with_mode(
@@ -556,28 +568,54 @@ fn execute_using(
         );
         finish_if_interrupted!();
         match rewritten {
-            RewriteResult::Stuck(pattern) => {
-                let (pattern, halt_reason) = deferred_initial_vacuity
-                    .map_or((pattern, HaltReason::Stuck), |pattern| {
-                        (pattern, HaltReason::Vacuous)
-                    });
-                leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log));
-            }
+            RewriteResult::Stuck(pattern) => match deferred_initial_vacuity {
+                Some(pattern) => leaves.push(state.leaf_with_pattern(
+                    pattern,
+                    HaltReason::Vacuous,
+                    &observation_log,
+                )),
+                None => leaves.push(externalise_leaf(
+                    definition,
+                    state,
+                    pattern,
+                    HaltReason::Stuck,
+                    options.max_simplification_iterations,
+                    solver,
+                    &mut effects,
+                    &mut observe,
+                    &mut observation_log,
+                    observation,
+                )),
+            },
             RewriteResult::Trivial(pattern) => {
                 leaves.push(state.leaf_with_pattern(pattern, HaltReason::Trivial, &observation_log))
             }
             RewriteResult::Vacuous(pattern) => {
                 leaves.push(state.leaf_with_pattern(pattern, HaltReason::Vacuous, &observation_log))
             }
-            RewriteResult::Indeterminate { pattern, reason } => {
-                let halt_reason = match reason {
-                    IndeterminateReason::Simplification { error, .. } => {
-                        HaltReason::Simplification(error)
-                    }
-                    reason => HaltReason::Indeterminate(reason),
-                };
-                leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log));
-            }
+            RewriteResult::Indeterminate { pattern, reason } => match reason {
+                // The simplifier already failed on this state; the leaf reports that failure
+                // and is not simplified again.
+                IndeterminateReason::Simplification { error, .. } => {
+                    leaves.push(state.leaf_with_pattern(
+                        pattern,
+                        HaltReason::Simplification(error),
+                        &observation_log,
+                    ));
+                }
+                reason => leaves.push(externalise_leaf(
+                    definition,
+                    state,
+                    pattern,
+                    HaltReason::Indeterminate(reason),
+                    options.max_simplification_iterations,
+                    solver,
+                    &mut effects,
+                    &mut observe,
+                    &mut observation_log,
+                    observation,
+                )),
+            },
             RewriteResult::Finished(applied) => {
                 record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                 if let Some(rule) = selected_stop_rule(&applied, &options.cut_point_rules) {
@@ -1120,8 +1158,51 @@ fn record_effects(
     }
 }
 
+/// Simplify a pattern that leaves the rewriter, the search, or the prover into the one normal
+/// form of `simplify_pattern_details_with_solver`, recording the equations it applied as
+/// simplification trace entries at `depth`.
+///
+/// Every externalised pattern passes through this function, so a caller sees one normal form
+/// whichever path produced the pattern. The loop head merges the definedness obligations the
+/// term simplifier carries into the state's constraints and keeps them there: a state's
+/// constraints are also the path knowledge that discharges a later match obligation
+/// syntactically. Running the pattern-level passes here, on the way out only, is sound and
+/// loses nothing: `C[t] /\ \ceil(t) = C[t]` when `C` is a total context (application is
+/// strict), and a conjunct the other conjuncts and the definition's lemmas make valid is
+/// redundant in a conjunction. On a state the loop head has already simplified the result is
+/// the same pattern or a smaller constraint set, never a different term.
+pub(crate) fn simplify_leaf_pattern(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    depth: u64,
+    trace: &mut Vec<TraceEntry>,
+) -> Result<PatternSimplification, SimplificationError> {
+    let simplified = simplify_pattern_details_with_solver(
+        definition,
+        pattern,
+        SimplificationOptions::keep_partial(max_iterations),
+        solver,
+    )?;
+    trace.extend(
+        simplified
+            .applied_rules
+            .iter()
+            .cloned()
+            .map(|unique_id| TraceEntry {
+                depth,
+                kind: TraceKind::Simplification,
+                label: None,
+                unique_id,
+            }),
+    );
+    Ok(simplified)
+}
+
+/// `simplify_leaf_pattern` plus the observation and effect bookkeeping of an execution.
 #[allow(clippy::too_many_arguments)]
-fn simplify_result_pattern(
+pub(crate) fn simplify_result_pattern(
     definition: &BackendDefinition,
     pattern: &Pattern,
     max_iterations: usize,
@@ -1139,12 +1220,7 @@ fn simplify_result_pattern(
         pattern,
         applied_rules,
         effects: simplified_effects,
-    } = simplify_pattern_details_with_solver(
-        definition,
-        pattern,
-        SimplificationOptions::keep_partial(max_iterations),
-        solver,
-    )?;
+    } = simplify_leaf_pattern(definition, pattern, max_iterations, solver, depth, trace)?;
     if let Some(observation) = observation {
         *observation = observation_log.append_simplification(
             *observation,
@@ -1156,14 +1232,54 @@ fn simplify_result_pattern(
             observation_options,
         );
     }
-    trace.extend(applied_rules.into_iter().map(|unique_id| TraceEntry {
-        depth,
-        kind: TraceKind::Simplification,
-        label: None,
-        unique_id,
-    }));
     record_effects(effects, simplified_effects, observe);
     Ok(pattern)
+}
+
+/// Externalise a `Stuck`, `DepthBound`, or `Indeterminate` leaf in the simplifier's normal
+/// form (`simplify_leaf_pattern`).
+///
+/// A constraint set that simplifies to `\bottom` makes the leaf `Trivial`, as it does for a
+/// cut-point payload. When the simplification fails, an `Indeterminate` leaf keeps its pattern
+/// and its reason, which already names why the state could not progress; any other leaf
+/// reports the failure, as the cut-point and terminal payloads do.
+#[allow(clippy::too_many_arguments)]
+fn externalise_leaf(
+    definition: &BackendDefinition,
+    mut state: ExecutionState,
+    pattern: Pattern,
+    halt_reason: HaltReason,
+    max_iterations: usize,
+    solver: &dyn SmtSolver,
+    effects: &mut Vec<BuiltinEffect>,
+    observe: &mut impl FnMut(&BuiltinEffect),
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> ExecutionLeaf {
+    match simplify_result_pattern(
+        definition,
+        &pattern,
+        max_iterations,
+        solver,
+        state.depth,
+        &mut state.trace,
+        effects,
+        observe,
+        Some(&mut state.observation),
+        observation_log,
+        observation_options,
+    ) {
+        Ok(pattern) if predicates_truth(&pattern.constraints) == Truth::False => {
+            state.leaf_with_pattern(pattern, HaltReason::Trivial, observation_log)
+        }
+        Ok(pattern) => state.leaf_with_pattern(pattern, halt_reason, observation_log),
+        Err(_) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {
+            state.leaf_with_pattern(pattern, halt_reason, observation_log)
+        }
+        Err(error) => {
+            state.leaf_with_pattern(pattern, HaltReason::Simplification(error), observation_log)
+        }
+    }
 }
 
 fn next_state(

@@ -24,7 +24,8 @@ use crate::{
         IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind, Truth,
         collection_unification_definedness, conjunctively_contains_alpha_equivalent,
         predicates_truth, quantify_introduced_variables, recover_indeterminate_match,
-        rewrite_step_sequential_with_options, rewrite_step_with_options, substitute_predicates,
+        rewrite_step_sequential_with_options, rewrite_step_with_options, simplify_leaf_pattern,
+        substitute_predicates,
     },
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
@@ -317,7 +318,13 @@ pub fn prove_claim(
                         rule_ids: vec![format!("destination:{}", claim.attributes.unique_id)],
                     };
                     if options.stuck_check {
-                        record_leaf!(state.remaining(remainder).leaf(ProofLeafOutcome::Stuck));
+                        record_leaf!(externalise_leaf(
+                            definition,
+                            state.remaining(remainder),
+                            ProofLeafOutcome::Stuck,
+                            options,
+                            solver,
+                        ));
                         continue;
                     }
                     implication_remainder = Some(remainder);
@@ -326,7 +333,13 @@ pub fn prove_claim(
                     if options.stuck_check
                         && implication.failure == Some(ImplicationFailure::ConsequentCondition) =>
                 {
-                    record_leaf!(state.leaf(ProofLeafOutcome::Stuck));
+                    record_leaf!(externalise_leaf(
+                        definition,
+                        state,
+                        ProofLeafOutcome::Stuck,
+                        options,
+                        solver,
+                    ));
                     continue;
                 }
                 ImplicationStatus::Invalid => {}
@@ -343,7 +356,13 @@ pub fn prove_claim(
         }
 
         if state.depth >= options.max_depth {
-            record_leaf!(state.leaf(ProofLeafOutcome::DepthBound));
+            record_leaf!(externalise_leaf(
+                definition,
+                state,
+                ProofLeafOutcome::DepthBound,
+                options,
+                solver,
+            ));
             continue;
         }
 
@@ -396,7 +415,14 @@ pub fn prove_claim(
                             }),
                             options.breadth_limit,
                         ) {
-                            return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
+                            return Ok(finish_at_breadth_limit(
+                                definition,
+                                leaves,
+                                pending,
+                                explored_states,
+                                options,
+                                solver,
+                            ));
                         }
                         // The sub-case the claim did not cover stays at the same depth and
                         // continues through the other claims and the semantics, exactly like
@@ -408,7 +434,14 @@ pub fn prove_claim(
                                 options.breadth_limit,
                             )
                         {
-                            return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
+                            return Ok(finish_at_breadth_limit(
+                                definition,
+                                leaves,
+                                pending,
+                                explored_states,
+                                options,
+                                solver,
+                            ));
                         }
                     }
                     ClaimApplication::Indeterminate(_) | ClaimApplication::NotApplicable => {
@@ -443,7 +476,14 @@ pub fn prove_claim(
                     std::iter::once(state.rewritten(applied)),
                     options.breadth_limit,
                 ) {
-                    return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
+                    return Ok(finish_at_breadth_limit(
+                        definition,
+                        leaves,
+                        pending,
+                        explored_states,
+                        options,
+                        solver,
+                    ));
                 }
             }
             RewriteResult::Branch {
@@ -459,7 +499,14 @@ pub fn prove_claim(
                         .map(|applied| state.clone().rewritten(applied)),
                     options.breadth_limit,
                 ) {
-                    return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
+                    return Ok(finish_at_breadth_limit(
+                        definition,
+                        leaves,
+                        pending,
+                        explored_states,
+                        options,
+                        solver,
+                    ));
                 }
                 if let Some(remainder) = remainder
                     && extend_frontier(
@@ -468,7 +515,14 @@ pub fn prove_claim(
                         options.breadth_limit,
                     )
                 {
-                    return Ok(finish_at_breadth_limit(leaves, pending, explored_states));
+                    return Ok(finish_at_breadth_limit(
+                        definition,
+                        leaves,
+                        pending,
+                        explored_states,
+                        options,
+                        solver,
+                    ));
                 }
                 for trivial in trivial {
                     let mut trivial_state = state.clone();
@@ -496,7 +550,9 @@ pub fn prove_claim(
                 } else {
                     ProofLeafOutcome::Stuck
                 };
-                record_leaf!(state.leaf(outcome));
+                record_leaf!(externalise_leaf(
+                    definition, state, outcome, options, solver
+                ));
             }
             RewriteResult::Trivial(_) => {
                 state.depth += 1;
@@ -520,7 +576,13 @@ pub fn prove_claim(
                     }
                     reason => ProofIndeterminateReason::Rewrite(reason),
                 };
-                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(reason,)));
+                record_leaf!(externalise_leaf(
+                    definition,
+                    state,
+                    ProofLeafOutcome::Indeterminate(reason),
+                    options,
+                    solver,
+                ));
             }
         }
     }
@@ -538,17 +600,79 @@ fn extend_frontier(
 }
 
 fn finish_at_breadth_limit(
+    definition: &BackendDefinition,
     mut leaves: Vec<ProofLeaf>,
     pending: VecDeque<ProofState>,
     explored_states: u64,
+    options: ProofOptions,
+    solver: &dyn SmtSolver,
 ) -> ProofResult {
     let unexplored_states = pending.len() as u64;
-    leaves.extend(
-        pending
-            .into_iter()
-            .map(|state| state.leaf(ProofLeafOutcome::BreadthBound)),
-    );
+    leaves.extend(pending.into_iter().map(|state| {
+        externalise_leaf(
+            definition,
+            state,
+            ProofLeafOutcome::BreadthBound,
+            options,
+            solver,
+        )
+    }));
     finish(leaves, explored_states, unexplored_states)
+}
+
+/// Externalise a proof leaf in the simplifier's normal form (`rewrite::simplify_leaf_pattern`).
+///
+/// The leaves simplified are the states the proof could not close: `Stuck`, `DepthBound`,
+/// `BreadthBound`, and `Indeterminate` for a reason other than a simplification failure. A
+/// proven, trusted, trivial, vacuous, or timed-out leaf is reported as it stands. A constraint
+/// set that simplifies to `\bottom` is an empty state and takes the outcome the loop head gives
+/// one. When the simplification fails, an `Indeterminate` leaf keeps its pattern and reason;
+/// any other leaf reports the failure, as a failed loop-head simplification does.
+fn externalise_leaf(
+    definition: &BackendDefinition,
+    mut state: ProofState,
+    outcome: ProofLeafOutcome,
+    options: ProofOptions,
+    solver: &dyn SmtSolver,
+) -> ProofLeaf {
+    let externalised = match &outcome {
+        ProofLeafOutcome::Stuck | ProofLeafOutcome::DepthBound | ProofLeafOutcome::BreadthBound => {
+            true
+        }
+        ProofLeafOutcome::Indeterminate(reason) => {
+            !matches!(reason, ProofIndeterminateReason::Simplification(_))
+        }
+        ProofLeafOutcome::Proven(_)
+        | ProofLeafOutcome::Trusted
+        | ProofLeafOutcome::Trivial
+        | ProofLeafOutcome::Vacuous
+        | ProofLeafOutcome::TimedOut(_) => false,
+    };
+    if !externalised {
+        return state.leaf(outcome);
+    }
+    match simplify_leaf_pattern(
+        definition,
+        &state.pattern,
+        options.max_simplification_iterations,
+        solver,
+        state.depth,
+        &mut state.trace,
+    ) {
+        Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
+            state.pattern = simplified.pattern;
+            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
+            state.leaf(outcome)
+        }
+        Ok(simplified) => {
+            state.pattern = simplified.pattern;
+            state.leaf(outcome)
+        }
+        Err(_) if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => state.leaf(outcome),
+        Err(error) => state.leaf(ProofLeafOutcome::Indeterminate(
+            ProofIndeterminateReason::Simplification(error),
+        )),
+    }
 }
 
 fn counterexample_limit_reached(leaves: &[ProofLeaf], options: ProofOptions) -> bool {
@@ -3581,5 +3705,52 @@ mod tests {
                     )
                 })
         }));
+    }
+
+    /// `a() => wrap(f(partial(b())))` with `f(I) => I` and the claim `a() => c()`: the
+    /// successor's loop head applies the equation and carries `\ceil(partial(b()))`, which the
+    /// constructor `wrap` entails. The stuck leaf is externalised in the simplifier's normal
+    /// form without the conjunct. The equation fires inside the rewrite step's result
+    /// simplification, and the externalisation applies nothing, so the trace has no
+    /// simplification entry.
+    #[test]
+    fn a_stuck_leaf_is_externalised_in_the_simplifier_normal_form() {
+        let definition = definition(
+            r#"
+            symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+            symbol partial{}(SortS{}) : SortS{} [function{}()]
+            symbol f{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                f{}(I:SortS{}), \and{SortS{}}(I:SortS{}, \top{SortS{}}())
+            )) [label{}("identity"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                wrap{}(f{}(partial{}(b{}())))
+            ) [label{}("step")]
+            "#,
+            &modal_claim(ReachabilityMode::AllPath, "a", "c", false),
+        );
+        let claim = &definition.reachability_claims[0];
+
+        let result = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver)
+            .expect("the claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one leaf, found {:?}", result.leaves);
+        };
+        assert_eq!(leaf.outcome, ProofLeafOutcome::Stuck);
+        assert_eq!(
+            leaf.pattern.term,
+            term(&definition, "wrap{}(partial{}(b{}()))")
+        );
+        assert_eq!(leaf.pattern.constraints, Vec::new(), "{leaf:#?}");
+        let simplification_ids = leaf
+            .trace
+            .iter()
+            .filter(|entry| entry.kind == TraceKind::Simplification)
+            .map(|entry| entry.unique_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(simplification_ids, Vec::<&str>::new());
     }
 }
