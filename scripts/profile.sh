@@ -54,7 +54,7 @@ and peak RSS, timings.json, and counters.json are still recorded.
 
 kevm-compile is a host-UID workload: it needs gigabytes of memory and a
 memory scope (scripts/reference-memory-guard.sh or systemd-run --user
---scope -p MemoryMax=8G). As an agent-N user the script prints the
+--scope -p MemoryMax=16G). As an agent-N user the script prints the
 command and exits 3 unless --allow-sandbox-kevm is given.
 EOF
 }

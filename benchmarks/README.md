@@ -131,7 +131,7 @@ The profiled run's numbers are also recorded but include samply's own work, so q
 The script fails when the profile holds zero samples; the first run on a new host is the check that `perf_event` delivers software-clock samples there.
 Where `perf_event_open` is refused outright (the agent sandbox on this machine filters the syscall with seccomp, so `samply record` fails with `Operation not permitted`), `--skip-profile` records everything except the profile.
 
-`kevm-compile` needs gigabytes of memory and a memory scope such as `scripts/reference-memory-guard.sh` or `systemd-run --user --scope -p MemoryMax=8G`.
+`kevm-compile` needs gigabytes of memory and a memory scope such as `scripts/reference-memory-guard.sh` or `systemd-run --user --scope -p MemoryMax=16G`.
 As an `agent-N` user the script prints the resolved command and exits 3 unless `--allow-sandbox-kevm` is given, so an agent does not start it by accident.
 
 Profiles are machine-local artifacts like benchmark results: they live under the ignored `target/` tree, `cargo clean` removes them, and a profile worth keeping is copied elsewhere together with its `metadata.json`.

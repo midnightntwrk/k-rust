@@ -5,9 +5,9 @@ version = 1
 # The scripts must use the clean manifest-pinned checkouts and matching K release enforced by reference-pins.sh.
 # Record each named case's pass/fail result, wall time, and peak RSS in the change description.
 # Each Java-backed script re-executes its complete process tree in one user systemd scope before doing work.
-# REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB and REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB tune the equal 8 GiB aggregate thresholds.
+# REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB and REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB tune the equal 16 GiB aggregate thresholds.
 # Swap is disabled, and Rust frontends execute directly inside the aggregate scope instead of escaping into sibling scopes.
-# REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB defaults to a whole-job 12 GiB RLIMIT_AS ceiling and applies only when user scopes are unavailable.
+# REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB defaults to a whole-job 24 GiB RLIMIT_AS ceiling and applies only when user scopes are unavailable.
 # REFERENCE_DIFFERENTIAL_MEMORY_KIB independently controls the reference JVM's virtual memory and is unset by default.
 # Raise any hard ceiling only after measuring current machine headroom.
 #

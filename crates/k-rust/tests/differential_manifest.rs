@@ -1150,9 +1150,9 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
     let guard_path = workspace.join("scripts/reference-memory-guard.sh");
     let guard = fs::read_to_string(&guard_path).expect("shared whole-job memory guard");
     for contract in [
-        "REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB:-8388608",
-        "REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB:-8388608",
-        "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB:-12582912",
+        "REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB:-16777216",
+        "REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB:-16777216",
+        "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB:-25165824",
         "MemoryHigh=${reference_job_memory_high_kib}K",
         "MemoryMax=${reference_job_memory_max_kib}K",
         "MemorySwapMax=0",
@@ -1266,8 +1266,8 @@ reference_run_rust_frontend bash -c '
     assert_eq!(scoped.stdout, b"systemd-scope\n", "preserve scoped stdout",);
     assert_eq!(scoped.stderr, b"payload-err", "preserve scoped stderr");
     let scoped_calls = fs::read_to_string(&calls).expect("scoped call log");
-    assert!(scoped_calls.contains("MemoryHigh=8388608K"));
-    assert!(scoped_calls.contains("MemoryMax=8388608K"));
+    assert!(scoped_calls.contains("MemoryHigh=16777216K"));
+    assert!(scoped_calls.contains("MemoryMax=16777216K"));
     assert!(scoped_calls.contains("MemorySwapMax=0"));
     assert_eq!(
         scoped_calls.lines().count(),
