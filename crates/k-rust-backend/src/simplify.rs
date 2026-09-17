@@ -848,14 +848,45 @@ fn simplify_predicate_with_budget(
             )
         }
         Predicate::Equals(left, right) => {
-            let left = simplify_term(left)?;
-            let right = simplify_term(right)?;
-            let mut constraints = left.constraints;
-            constraints.extend(right.constraints);
-            let equality = normalize_hooked_boolean_predicate(
-                definition,
-                Predicate::Equals(left.term, right.term),
-            );
+            let simplified_left = simplify_term(left)?;
+            let simplified_right = simplify_term(right)?;
+            // A side rewritten to `C /\ l'` is used, with `C` conjoined, only when the other
+            // side is provably defined: `\equals(C /\ l', r)` is `C /\ \equals(l', r)` when
+            // `r` is not empty and `\not \ceil(r)` when `C` fails and `r` is empty, since
+            // `\equals(\bottom, \bottom)` is `\top`. The other side is witnessed by its own
+            // rewritten term when that carried no constraint (the two are equal) and by its
+            // original term otherwise. A side that fails the check stays as it was.
+            let provably_defined = |term: &Term| {
+                term_is_provably_defined(definition, term, |obligation| {
+                    assumptions.contains(obligation)
+                })
+            };
+            let witness = |original: &'_ Term, simplified: &'_ Simplification| -> Term {
+                if simplified.constraints.is_empty() {
+                    simplified.term.clone()
+                } else {
+                    original.clone()
+                }
+            };
+            let use_left = simplified_left.constraints.is_empty()
+                || provably_defined(&witness(right, &simplified_right));
+            let use_right = simplified_right.constraints.is_empty()
+                || provably_defined(&witness(left, &simplified_left));
+            let mut constraints = Vec::new();
+            let left = if use_left {
+                constraints.extend(simplified_left.constraints);
+                simplified_left.term
+            } else {
+                left.clone()
+            };
+            let right = if use_right {
+                constraints.extend(simplified_right.constraints);
+                simplified_right.term
+            } else {
+                right.clone()
+            };
+            let equality =
+                normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right));
             let equality = normalize_injection_equality(definition, equality);
             with_simplification_constraints(constraints, equality)
         }
@@ -896,10 +927,13 @@ fn simplify_predicate_with_budget(
         }
         Predicate::Floor(term) => {
             let simplified = simplify_term(term)?;
-            with_simplification_constraints(
-                simplified.constraints,
-                Predicate::Floor(simplified.term),
-            )
+            // `\floor(C /\ t')` is `\not C \/ \floor(t')`, not `C /\ \floor(t')`, because
+            // `\floor(\bottom)` is `\top`; a rewrite that carries constraints is not used.
+            if simplified.constraints.is_empty() {
+                Predicate::Floor(simplified.term)
+            } else {
+                Predicate::Floor(term.clone())
+            }
         }
         Predicate::In(left, right) => {
             let left = simplify_term(left)?;
@@ -1077,6 +1111,12 @@ fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predi
     }
 }
 
+/// Conjoin the constraints `C` a term simplification `t = C /\ t'` carried to the predicate
+/// `p[t']` built from its rewritten term. The result equals `p[t]` only when `p` is strict in
+/// that operand (`p[\bottom]` is `\bottom`), so that `p[C /\ t']` is `C /\ p[t']`: the `Term`,
+/// `\ceil`, and `\in` arms of `simplify_predicate_with_budget` are strict and call this
+/// unconditionally; the `\equals` arm calls it only for a side whose other side is provably
+/// defined (`term_is_provably_defined`), and the `\floor` arm never does.
 fn with_simplification_constraints(
     mut constraints: Vec<Predicate>,
     predicate: Predicate,

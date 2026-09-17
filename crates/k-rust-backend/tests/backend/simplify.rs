@@ -994,6 +994,128 @@ fn predicate_term_simplification_preserves_result_constraints() {
 }
 
 #[test]
+fn equality_and_floor_use_a_constrained_rewrite_only_where_the_other_side_is_defined() {
+    // `f(X) = "done"` carries `\ceil(t)` when `X` is bound to a partial application `t`, so
+    // `f(t) = \ceil(t) /\ "done"`. `\equals(\ceil(t) /\ "done", r)` is `\ceil(t) /\
+    // \equals("done", r)` only when `r` is not empty: `\equals(\bottom, \bottom)` is `\top`.
+    // `\floor(\ceil(t) /\ "done")` is `\not \ceil(t) \/ \floor("done")`, never a conjunction.
+    let definition = definition(
+        r#"
+            symbol g{}(SortS{}) : SortS{} [function{}()]
+            symbol partial{}(SortS{}) : SortS{} [function{}()]
+            axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                f{}(X:SortS{}), \and{SortS{}}(\dv{SortS{}}("done"), \top{SortS{}}())
+            )) [label{}("discard-f"), simplification{}()]
+            "#,
+    );
+    let f_partial = term(&definition, r#"f{}(partial{}(\dv{SortS{}}("v")))"#);
+    let g_partial = term(&definition, r#"g{}(partial{}(\dv{SortS{}}("w")))"#);
+    let obligation = Predicate::Ceil(term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#));
+    let done = term(&definition, r#"\dv{SortS{}}("done")"#);
+    let z = term(&definition, "Z:SortS{}");
+    let simplify_under = |predicate: &Predicate, known: &[Predicate]| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            known,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the predicate should simplify")
+    };
+
+    // The element variable `Z` is defined, so the left side is rewritten and its obligation
+    // conjoined.
+    assert_eq!(
+        simplify_under(&Predicate::Equals(f_partial.clone(), z.clone()), &[]),
+        Predicate::And(vec![
+            obligation.clone(),
+            Predicate::Equals(done.clone(), z.clone())
+        ])
+    );
+    // `g(partial("w"))` may be empty, so `\equals(f(t), g(partial("w")))` stays as it is.
+    let both_partial = Predicate::Equals(f_partial.clone(), g_partial.clone());
+    assert_eq!(simplify_under(&both_partial, &[]), both_partial);
+    // A path condition that defines the right side enables the rewrite of the left.
+    let g_defined = [
+        Predicate::Ceil(g_partial.clone()),
+        Predicate::Ceil(term(&definition, r#"partial{}(\dv{SortS{}}("w"))"#)),
+    ];
+    assert_eq!(
+        simplify_under(&both_partial, &g_defined),
+        Predicate::And(vec![
+            obligation.clone(),
+            Predicate::Equals(done.clone(), g_partial.clone())
+        ])
+    );
+    // `\floor` never conjoins; a rewrite without constraints is still used.
+    let floor = Predicate::Floor(f_partial.clone());
+    assert_eq!(simplify_under(&floor, &[]), floor);
+    assert_eq!(
+        simplify_under(
+            &Predicate::Floor(term(&definition, r#"f{}(\dv{SortS{}}("x"))"#)),
+            &[]
+        ),
+        Predicate::Floor(done.clone())
+    );
+    // The path condition that carries the obligation makes the rewrite unconditional.
+    assert_eq!(
+        simplify_under(&both_partial, std::slice::from_ref(&obligation)),
+        Predicate::Equals(done.clone(), g_partial.clone())
+    );
+    assert_eq!(
+        simplify_under(&floor, std::slice::from_ref(&obligation)),
+        Predicate::Floor(done)
+    );
+
+    // The same holds for a constraint that is an open `ensures` rather than an obligation.
+    let ensures = self::definition(
+        r#"
+            symbol g{}(SortS{}) : SortS{} [function{}()]
+            symbol partial{}(SortS{}) : SortS{} [function{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(
+                        X:SortS{},
+                        \equals{SortS{}, SortS{}}(X:SortS{}, Y:SortS{})
+                    )
+                )
+            ) [label{}("constrained"), simplification{}()]
+            "#,
+    );
+    let f_value = term(&ensures, r#"f{}(\dv{SortS{}}("value"))"#);
+    let value = term(&ensures, r#"\dv{SortS{}}("value")"#);
+    let g_partial = term(&ensures, r#"g{}(partial{}(\dv{SortS{}}("w")))"#);
+    let against_partial = Predicate::Equals(f_value.clone(), g_partial);
+    assert_eq!(
+        simplify_predicate_with_solver(
+            &ensures,
+            &against_partial,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the predicate should simplify"),
+        against_partial
+    );
+    let against_value = simplify_predicate_with_solver(
+        &ensures,
+        &Predicate::Equals(f_value, value.clone()),
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+    assert!(
+        matches!(&against_value, Predicate::Equals(left, right)
+            if *left == value && matches!(right.kind(), TermKind::Variable(_))),
+        "{against_value:?}"
+    );
+}
+
+#[test]
 fn evaluates_hooked_functions_bottom_up() {
     let syntax = parse_definition(
         r#"[]
