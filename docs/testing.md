@@ -74,6 +74,11 @@ Existing exclusions still apply; reference errors remain explicitly reported ora
 The rank is a coarse outcome ordering, not proof that every recipe or pipeline stage is covered.
 Review per-step results when accepting a change.
 
+Every accepted non-`match` verdict is either justified by an exclusion category with an inline reason or is pending work with an empty exclusion and a measured reason ([compatibility.md](compatibility.md#driver-scope)).
+Pending work is tracked in a local backlog outside the repository: a TOML file of `[[ticket]]` rows, each with `id`, `title`, `state` (`open` or `closed`), and `cases`, the expectation case names it covers.
+`scripts/conformance-ratchet.sh --audit --backlog PATH` lists every non-excluded case whose latest measurement is not `match` and that no open ticket names, exits 3 when one exists, and lists tickets whose cases all match so that they can be closed; the wrapper passes `draft/conformance-backlog/tickets.toml` by default when that file exists.
+Ticket identifiers never appear in the expectations file.
+
 Update accepted verdicts only after inspecting the measured result and its reference evidence.
 A lower floor requires a documented contract or scope change; a failing run is not sufficient reason to lower it.
 Do not commit full measurement histories or temporary run output.

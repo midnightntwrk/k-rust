@@ -450,6 +450,72 @@ def command_select(args: argparse.Namespace) -> int:
     return 0
 
 
+def load_backlog(path: Path) -> list[dict]:
+    """Read a local backlog: [[ticket]] rows with id, title, state (open or closed) and cases."""
+    document = load_toml(path, "backlog")
+    tickets = document.get("ticket")
+    if not isinstance(tickets, list):
+        raise RatchetError(f"backlog contains no [[ticket]] rows: {path}")
+    seen = set()
+    for ticket in tickets:
+        identifier = ticket.get("id")
+        if not isinstance(identifier, str) or not identifier:
+            raise RatchetError(f"backlog ticket has no id: {path}")
+        if identifier in seen:
+            raise RatchetError(f"duplicate backlog ticket: {identifier}")
+        seen.add(identifier)
+        if ticket.get("state") not in ("open", "closed"):
+            raise RatchetError(f"backlog ticket {identifier} has no open or closed state")
+        cases = ticket.get("cases")
+        if not isinstance(cases, list) or not cases or not all(isinstance(case, str) for case in cases):
+            raise RatchetError(f"backlog ticket {identifier} names no cases")
+    return tickets
+
+
+def audit_backlog(latest: dict[str, tuple[dict, dict]], expectations: dict[str, dict], tickets: list[dict]) -> int:
+    """List pending cases (latest verdict not match, no exclusion) that no open ticket names, and open
+    tickets whose named cases all match. Returns the number of unowned pending cases."""
+    owners: dict[str, list[str]] = {}
+    for ticket in tickets:
+        if ticket["state"] != "open":
+            continue
+        for case in ticket["cases"]:
+            owners.setdefault(case, []).append(ticket["id"])
+    for ticket in tickets:
+        for case in ticket["cases"]:
+            if case not in expectations:
+                raise RatchetError(f"backlog ticket {ticket['id']} names an unknown case: {case}")
+    pending = []
+    for name in sorted(latest):
+        run, case = latest[name]
+        if case["verdict"] == "match":
+            continue
+        exclusion = case.get("exclusion") or expectations.get(name, {}).get("exclusion", "")
+        if exclusion:
+            continue
+        pending.append((name, run, case, owners.get(name, [])))
+    print()
+    print(f"### Conformance backlog audit ({len(pending)} pending cases)")
+    print()
+    print("| case | run | verdict | tickets |")
+    print("|---|---:|---|---|")
+    unowned = 0
+    for name, run, case, ticket_ids in pending:
+        if not ticket_ids:
+            unowned += 1
+        print(f"| {name} | {run.get('sequence')} | {case['verdict']} | {', '.join(ticket_ids) or '(none)'} |")
+    closable = [
+        ticket["id"]
+        for ticket in tickets
+        if ticket["state"] == "open"
+        and all(name in latest and latest[name][1]["verdict"] == "match" for name in ticket["cases"])
+    ]
+    print()
+    print(f"pending without an open ticket: {unowned}")
+    print(f"open tickets whose cases all match: {string_array(closable)}")
+    return unowned
+
+
 def command_audit(args: argparse.Namespace) -> int:
     """List cases below the greater of their first rank and versioned acceptance rank."""
     document = load_toml(args.log, "ratchet log")
@@ -491,7 +557,8 @@ def command_audit(args: argparse.Namespace) -> int:
         )
     print()
     print(f"below floor: {len(rows)} ({failing} non-excluded)")
-    return 3 if failing else 0
+    unowned = audit_backlog(latest, expectations, load_backlog(args.backlog)) if args.backlog else 0
+    return 3 if failing or unowned else 0
 
 
 def command_next_sequence(args: argparse.Namespace) -> int:
@@ -541,6 +608,7 @@ def parser() -> argparse.ArgumentParser:
     audit.add_argument("--log", type=Path, required=True)
     audit.add_argument("--sequence", type=int)
     audit.add_argument("--expectations", type=Path, default=Path(__file__).with_name("expectations.toml"))
+    audit.add_argument("--backlog", type=Path, help="local [[ticket]] backlog to audit pending cases against")
     audit.set_defaults(run=command_audit)
 
     sequence = subparsers.add_parser("next-sequence")
