@@ -485,9 +485,8 @@ accepted_verdict = "mismatch"
 accepted_stage = "krun"
 baseline_verdict = "mismatch"
 baseline_stage = "krun"
-exclusion = ""
-reason = "krust prints NaNp24x8 where the reference prints NaNf; the recorded difference is Float literal spelling."
-
+exclusion = "llvm-only"
+reason = "5.test: the program token NaNp24x8 is printed NaNf by the LLVM runtime's Float printer (float_to_string re-spells a binary32 value with the f suffix, llvm-backend runtime/strings/numeric.cpp); the pinned Haskell engine and krust both keep the token as written (kast --output kore and kore-exec print NaNp24x8), and the frontend's own printer would spell it NaNp24x8 (FloatBuiltin.value). The value and format are identical (domains.md: p24x8 is binary32); the difference is LLVM-specific printing under docs/compatibility.md#backend-scope. 1.test to 4.test match. In a sandbox the LLVM interpreter cannot start under the RLIMIT_AS fallback, so the case reports reference-error there; on the host it is this mismatch."
 [[case]]
 name = "fresh1"
 accepted_verdict = "match"
