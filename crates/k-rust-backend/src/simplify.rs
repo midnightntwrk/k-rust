@@ -2386,8 +2386,11 @@ fn apply_equation(
     }
     // The definedness obligations are not a reason to refuse the equation: an obligation the
     // path condition does not decide is carried as a constraint of the result, where it keeps
-    // the `\ceil(t)` factor of the equality explicit. A refuted obligation means the subject is
-    // already empty; the equation is then not applicable and the subject is retained unchanged.
+    // the `\ceil(t)` factor of the equality explicit. A refuted obligation means `t` is empty
+    // under the path condition, and the subject reaches `t` only through applications,
+    // injections, collections, and `\and`, all strict, so the subject is empty whichever
+    // equation is tried; the result reports it as `\bottom`. Only the equation's own `requires`,
+    // decided above, says nothing about the subject when refuted.
     let definedness = simplify_rule_predicates(
         definition,
         (&rule.attributes.unique_id, term),
@@ -2405,7 +2408,7 @@ fn apply_equation(
         solver,
     )? {
         RuleCondition::Satisfied => Vec::new(),
-        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        RuleCondition::Refuted => return Ok(EquationAttempt::Applied(bottom_subject(rule, term))),
         RuleCondition::Indeterminate(_) => definedness,
     };
     let (alternatives, is_disjunction) = match &rule.rhs {
@@ -2471,13 +2474,7 @@ fn apply_equation(
         }
     }
     match live.len() {
-        0 => Ok(EquationAttempt::Applied(Simplification {
-            term: term.clone(),
-            constraints: vec![Predicate::False],
-            applied_rules: vec![rule.attributes.unique_id.clone()],
-            effects: Vec::new(),
-            exhausted: None,
-        })),
+        0 => Ok(EquationAttempt::Applied(bottom_subject(rule, term))),
         1 => {
             let (term, mut constraints) = live.pop().expect("one live alternative");
             if !constraints.contains(&Predicate::False) {
@@ -2499,6 +2496,19 @@ fn apply_equation(
             rule_id: rule.attributes.unique_id.clone(),
             alternatives,
         }),
+    }
+}
+
+/// The result of `rule` on a subject `term` that is empty under the path condition: the subject
+/// is retained and `\bottom` is its only constraint, so the caller merges it as it merges any
+/// other constraint set and the pattern becomes `\bottom` as a whole.
+fn bottom_subject(rule: &RewriteRule, term: &Term) -> Simplification {
+    Simplification {
+        term: term.clone(),
+        constraints: vec![Predicate::False],
+        applied_rules: vec![rule.attributes.unique_id.clone()],
+        effects: Vec::new(),
+        exhausted: None,
     }
 }
 

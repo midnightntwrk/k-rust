@@ -235,9 +235,10 @@ const IDENTITY: &str = r#"
         ) [label{}("identity"), simplification{}()]
     "#;
 
-#[test]
-fn equations_carry_open_element_binding_definedness_as_constraints() {
-    let definition = definition(
+/// `discard` is a total function whose equation discards its argument; the ceil theory decides
+/// `\ceil(f("undefined"))` as `\bottom` and `\ceil(f("defined"))` as `\top`.
+fn discard_definition() -> BackendDefinition {
+    definition(
         r#"
             symbol discard{}(SortS{}) : SortS{} [function{}(), total{}()]
             axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
@@ -250,33 +251,38 @@ fn equations_carry_open_element_binding_definedness_as_constraints() {
                 \ceil{SortS{}, R}(f{}(\dv{SortS{}}("defined"))), \and{R}(\top{R}(), \top{R}())
             )) [simplification{}()]
             "#,
-    );
+    )
+}
+
+#[test]
+fn equations_carry_open_element_binding_definedness_as_constraints() {
+    let definition = discard_definition();
     let done = term(&definition, r#"\dv{SortS{}}("done")"#);
-    // A binding whose definedness is decided applies or refuses the equation outright; a
-    // refuted obligation retains the subject, which is already empty. An open obligation
-    // applies the equation and carries `\ceil` of the discarded operand as a constraint.
+    // A binding whose definedness is decided applies the equation outright. A refuted
+    // obligation means the operand is empty, so the subject is empty too: the subject is
+    // retained and `\bottom` is the only constraint. An open obligation applies the equation
+    // and carries `\ceil` of the discarded operand as a constraint.
     let open = term(&definition, "f{}(X:SortS{})");
-    for (operand, expected) in [
-        (r#"\dv{SortS{}}("value")"#, Some(Vec::new())),
-        (r#"f{}(\dv{SortS{}}("defined"))"#, Some(Vec::new())),
-        (r#"f{}(\dv{SortS{}}("undefined"))"#, None),
+    for (operand, expected_term_is_done, constraints) in [
+        (r#"\dv{SortS{}}("value")"#, true, Vec::new()),
+        (r#"f{}(\dv{SortS{}}("defined"))"#, true, Vec::new()),
+        (
+            r#"f{}(\dv{SortS{}}("undefined"))"#,
+            false,
+            vec![Predicate::False],
+        ),
         (
             r#"f{}(X:SortS{})"#,
-            Some(vec![Predicate::Ceil(open.clone())]),
+            true,
+            vec![Predicate::Ceil(open.clone())],
         ),
     ] {
         let input = term(&definition, &format!("discard{{}}({operand})"));
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
-        match expected {
-            Some(constraints) => {
-                assert_eq!(result.term, done, "{operand}");
-                assert_eq!(result.constraints, constraints, "{operand}");
-            }
-            None => {
-                assert_eq!(result.term, input, "{operand}");
-                assert!(result.constraints.is_empty(), "{operand}");
-            }
-        }
+        let expected_term = if expected_term_is_done { &done } else { &input };
+        assert_eq!(&result.term, expected_term, "{operand}");
+        assert_eq!(result.constraints, constraints, "{operand}");
+        assert_eq!(result.applied_rules, ["discard"], "{operand}");
     }
 
     let operand = term(&definition, "f{}(X:SortS{})");
@@ -291,6 +297,73 @@ fn equations_carry_open_element_binding_definedness_as_constraints() {
     .unwrap();
     assert_eq!(result.term, done);
     assert!(result.constraints.is_empty());
+}
+
+#[test]
+fn a_refuted_element_binding_definedness_makes_the_subject_bottom() {
+    let definition = discard_definition();
+    let done = term(&definition, r#"\dv{SortS{}}("done")"#);
+    let operand = term(&definition, "f{}(X:SortS{})");
+    let input = term(&definition, "discard{}(f{}(X:SortS{}))");
+    let obligation = Predicate::Ceil(operand);
+    let simplify_with = |solver: &dyn SmtSolver| {
+        diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                solver,
+            )
+            .expect("a decided obligation is never a simplification error")
+        })
+    };
+
+    // The solver refutes `\ceil(f(X))`: `f(X)` is empty, so `discard(f(X))` is empty by
+    // strictness, whichever equation is tried; the subject is retained under `\bottom`.
+    let (refuted, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    assert_eq!(refuted.term, input);
+    assert_eq!(refuted.constraints, vec![Predicate::False]);
+    assert_eq!(refuted.applied_rules, ["discard"]);
+    assert!(diagnostics.is_empty());
+
+    // Negative controls: an open implication carries the obligation silently; an inconsistent
+    // path condition carries it too and is reported, because the solver did not answer.
+    let (open, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Indeterminate));
+    assert_eq!(open.term, done);
+    assert_eq!(open.constraints, vec![obligation.clone()]);
+    assert!(diagnostics.is_empty());
+
+    let (inconsistent, diagnostics) =
+        simplify_with(&FixedValiditySolver(Validity::InconsistentGroundTruth));
+    assert_eq!(inconsistent.term, done);
+    assert_eq!(inconsistent.constraints, vec![obligation.clone()]);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedCondition {
+            rule_id: "discard".into(),
+            reason: ConditionIndeterminacy::InconsistentPathCondition,
+            predicates: vec![obligation],
+        }]
+    );
+
+    // Pattern path: the syntactically refuted obligation of the inner `discard` makes the whole
+    // pattern `\bottom`, the total context `wrap` notwithstanding.
+    let pattern = Pattern {
+        term: term(
+            &definition,
+            r#"wrap{}(discard{}(f{}(\dv{SortS{}}("undefined"))))"#,
+        ),
+        constraints: Vec::new(),
+    };
+    let result = simplify_pattern_with_solver(
+        &definition,
+        &pattern,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the pattern should simplify");
+    assert_eq!(result.constraints, vec![Predicate::False]);
 }
 
 #[test]
