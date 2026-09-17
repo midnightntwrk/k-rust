@@ -146,9 +146,13 @@ The tradeoff is explicit: a suffix-to-body association is outside this compariso
 Variable numbering inside a generated owise competitor disjunction is the port's own; N4 renames it on both sides.
 The conformance driver's surface-text comparison (`scripts/conformance/run.py` `execution_text_diff`) applies the same N4 reading to kprint's `?Name:Sort` tokens as C7: the rule existentials both engines instantiate through a fresh counter are compared modulo a bijective, sort-preserving renaming by first occurrence per disjunct, applied before the C1 sort.
 Every other variable, including the search pattern's own variables and any `?` variable the recipe's `--pattern` text names, and every string literal are compared literally, so lost sharing, a changed sort, or a renamed pattern variable remains a mismatch.
+When that text comparison fails, C8 (`compare_simplified_kore`) re-runs the reference recipe with `--output kore`, simplifies that result and the krust result with `krust kore-simplify` against the reference kompiled definition and main module, and compares the two simplified patterns with the structural execution comparator without `K_DIFFERENTIAL_DEFINITION`, so N4 renaming applies and N15 does not.
+The pinned reference prints a rewrite result before its own simplification is complete: `no-junk-macro` retains a constraint that the definition's own `smt-lemma` makes valid, and `concrete-function` leaves `foo(inc(sym2(?X)))` unevaluated because the argument's definedness is open, while the port discharges the constraint and applies the equation under a `\ceil` obligation that the surrounding constructor context already entails.
+Both pairs are equal patterns; simplifying both with one simplifier makes them comparable.
+A step that matches only this way records the C8 comparison label and the text difference, never plain match text; the checked-in `.out` stays the oracle, so the re-run's result must still print as the `.out`, and an unavailable or failing re-run, simplification, or comparison leaves the text mismatch in place.
+C8 is supplementary evidence in the sense of [testing.md](testing.md#comparator-evidence): it depends on the port's simplifier, like N15.
 
-A `presentation-only` conformance exclusion requires an explanation of why the represented patterns are equal.
-For example, `no-junk-macro` retains a valid constraint in Kore while Rust discharges it using the definition's own SMT lemma.
+A `presentation-only` conformance exclusion requires an explanation of why the represented patterns are equal; it applies where neither C8 nor N15 can compare them.
 Normalization N15 may prove residual constraints equivalent by checking both implications, subject to the independence limitations in [testing.md](testing.md#comparator-evidence).
 Different text or a successful Rust implication check alone must not establish implication correctness.
 

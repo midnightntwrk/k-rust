@@ -228,6 +228,18 @@ anchor_helpers = ["pattern_existentials", "execution_text_diff", "EXISTENTIAL_TO
 rule = "Compare kprint execution text modulo a bijective, sort-preserving renaming of existential variables, the `?Name:Sort` tokens outside string literals, renamed by first occurrence per disjunct before the C1 sort. Every other variable, including the search pattern's, is compared literally, and a `?` variable named in the recipe's --pattern text is fixed too."
 justification = "`?` is K's marker for a rule existential and kprint prints that shape only for Var'Ques' names; the reference instantiates them through Kore's fresh counter and keeps an engine-chosen unification representative, which N4 already classes as engine-named. Renaming by first occurrence preserves sharing, so `?A -> ?A` and `?A -> ?B` stay distinct. See docs/compatibility.md#comparison-contract."
 
+[[conformance]]
+id = "C8"
+anchor = "scripts/conformance/run.py:compare_simplified_kore"
+anchor_symbol = "compare_simplified_kore"
+anchor_helpers = [
+  "reference_kore_args",
+  "simplify_kore",
+  "SIMPLIFIED_KORE_COMPARISON",
+]
+rule = "When the C7 text comparison of a krun or search step fails, re-run the reference recipe with --output kore, simplify that result and the krust result with `krust kore-simplify` against the reference kompiled definition and main module, and compare the two simplified patterns with reference_differential::executed_kore_matches_the_reference_backend without K_DIFFERENTIAL_DEFINITION, so N4 renaming applies and N15 does not. A step that matches only this way records a distinct comparison label and keeps the text difference; the checked-in .out stays the oracle, so the re-run's result must still print as the .out. An unavailable or failing reference re-run, simplification, or comparison leaves the text mismatch in place."
+justification = "The pinned reference prints a rewrite result before its own simplification is complete: no-junk-macro retains a residual constraint the definition's smt-lemma axioms make valid and concrete-function leaves a function application over a term whose definedness is open unevaluated, while the port's rewriter discharges and applies them; both are equal patterns (docs/compatibility.md#comparison-contract). Simplifying both results with one simplifier makes the represented patterns comparable. The evidence is supplementary because it depends on the port's simplifier, like N15 (docs/testing.md#comparator-evidence)."
+
 [[normalisation]]
 id = "N21"
 gate = "execution, symbolic execution, and MIR execution"

@@ -23,9 +23,10 @@ use crate::{
     },
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
-        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, PatternSimplification, SimplificationError,
-        SimplificationOptions, simplify_pattern_details_with_solver,
-        simplify_predicates_with_solver, simplify_with_solver,
+        ConditionIndeterminacy, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, PatternSimplification,
+        RuleCondition, SimplificationError, SimplificationOptions, decide_condition,
+        simplify_pattern_details_with_solver, simplify_predicates_with_solver,
+        simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution, substitute, substitution_binding},
@@ -2772,23 +2773,23 @@ fn apply_rule_with_match(
         })
         .collect::<Vec<_>>();
     if !unclear_requires.is_empty() {
-        match solver.check_predicates(&match_knowledge, &Substitution::new(), &unclear_requires) {
-            Ok(Validity::Valid) => unclear_requires.clear(),
-            Ok(Validity::Invalid) => return RuleAttempt::NotApplicable,
-            Ok(Validity::Indeterminate) => {}
-            Err(SmtError::Unavailable) => {
+        match decide_condition(&unclear_requires, &match_knowledge, solver) {
+            Ok(RuleCondition::Satisfied) => unclear_requires.clear(),
+            Ok(RuleCondition::Refuted) => return RuleAttempt::NotApplicable,
+            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::ImplicationIndeterminate)) => {}
+            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::NoSolver)) => {
                 return RuleAttempt::Indeterminate(IndeterminateReason::Requires {
                     rule_id: rule.attributes.unique_id.clone(),
                     predicates: unclear_requires,
                 });
             }
-            Ok(Validity::InconsistentGroundTruth) => {
+            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition)) => {
                 return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
                     rule_id: rule.attributes.unique_id.clone(),
                     error: SmtError::InconsistentGroundTruth,
                 });
             }
-            Ok(Validity::Unknown(reason)) => {
+            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(reason))) => {
                 return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
                     rule_id: rule.attributes.unique_id.clone(),
                     error: SmtError::Unknown(reason),

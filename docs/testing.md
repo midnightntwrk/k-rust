@@ -88,6 +88,8 @@ Changes to CI coverage, frequency, or resource budgets require a separate cost d
 The execution comparator first compares normalized structures and may use k-rust implication in both directions to establish equivalence of remaining constraints.
 That fallback is supplementary evidence: it depends on the same Rust implication implementation being tested elsewhere and cannot independently validate it.
 Implication correctness must therefore have direct Rust contract tests, including variable-renaming invariance and negative controls.
+The conformance driver's C8 comparison (`scripts/conformance/run.py` `compare_simplified_kore`) is supplementary evidence in the same sense: it simplifies the reference's `--output kore` result and the krust result with `krust kore-simplify` before the structural comparison, so it depends on the port's simplifier, which must have its own contract tests, and it cannot independently validate that simplifier.
+A step that matches only under C8 keeps its text difference and records the C8 comparison label, and a reference re-run, simplification, or comparison that fails or is unavailable leaves the text mismatch in place.
 An unavailable or inconclusive equivalence check must not be counted as a successful comparison.
 
 ## Harness recipes
@@ -119,6 +121,7 @@ and must run under the same memory guard as the gates.
 
 The symbolic and MIR execution gates pass the initial pattern to the comparator through `K_DIFFERENTIAL_INITIAL_PATTERN`; every result variable that is not free in it is treated as engine-named and renamed (N4).
 The conformance driver applies the same reading to kprint text: every `?Name:Sort` token is renamed by first occurrence per disjunct (C7) except the `?` variables the recipe's `--pattern` text names, and a step whose texts match only after that renaming records `renamed_existentials = true`.
+A step whose texts differ but whose reference and krust KORE are equal after `krust kore-simplify` (C8) records `simplified_kore_equal = true`, the C8 comparison label, and the text difference as `text_divergence`; a step where C8 could not establish equality records why in `simplified_kore_divergence`.
 `kore-exec --depth N` lists the leaves stuck within `N` steps and drops the leaves that merely reached the limit whenever a stuck leaf exists (`Kore/Exec/GraphTraversal.hs` `checkLeftUnproven`), so one-step symbolic fixtures in `scripts/reference-differential.toml` pin `depth = 2`.
 
 A `driver-delta` label in a ratchet report marks a rank decrease that stays at or above the floor while the driver version changed (`scripts/conformance/ratchet.py`); it is not a pass, and the decrease must be diagnosed like a regression.

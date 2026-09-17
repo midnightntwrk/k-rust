@@ -9,7 +9,10 @@ ktest-group.mak SUBDIRS recursively) the driver:
      self-checking against their .out), skipping reference test runs whose checked-in .out exists,
   4. runs the krust equivalent of each recipe, converts krust's KORE output to K surface syntax with
      the reference `kprint` against the reference-kompiled definition, and diffs against the .out,
-  5. on a mismatch re-runs the reference recipe verbatim to confirm the .out is still the oracle.
+  5. when the texts differ, re-runs the reference recipe with --output kore, simplifies that result
+     and krust's with `krust kore-simplify` against the reference-kompiled definition, and compares
+     the two simplified patterns structurally (C8); a step that matches only this way says so,
+  6. on a remaining mismatch re-runs the reference recipe verbatim to confirm the .out is still the oracle.
 Results go to the requested results.toml (rewritten after every case) and per-case logs directory.
 """
 import argparse, json, math, os, re, shlex, shutil, subprocess, sys, threading, time
@@ -927,7 +930,110 @@ def compare_execution(case, rec, step, kout, kore_output, tag, pattern=""):
     if renamed: step["renamed_existentials"] = True
     if d is None: return True
     step["divergence"] = d
-    return False
+    return compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern)
+
+
+# C8 (scripts/reference-normalisations.toml): the pinned reference prints a rewrite result that its own
+# simplifier has not finished (a residual constraint its smt-lemma axioms make valid, a function
+# application over a term whose definedness is open), and krust prints the same pattern simplified.
+# Simplifying both results with krust's simplifier makes the represented patterns comparable; the
+# evidence is supplementary because it depends on that simplifier, like N15.
+SIMPLIFIED_KORE_COMPARISON = (
+    "text differs; KORE equal after krust kore-simplify of the reference --output kore result and the krust "
+    "result against the reference definition (C8; reference_differential::executed_kore_matches_the_reference_backend "
+    "without K_DIFFERENTIAL_DEFINITION)")
+
+
+def reference_kore_args(rec):
+    """The recipe's tool argv with its output format replaced by --output kore, or None when the recipe
+    needs a shell expansion or redirection the driver does not replay (as confirmed_reference_outcome)."""
+    if any(re.search(r'\$|`|[<>]', arg) for arg in rec["args"]):
+        return None
+    args = []
+    skip = False
+    for arg in rec["args"]:
+        if skip: skip = False; continue
+        if arg in ("--output", "-o"): skip = True; continue
+        if arg.startswith("--output="): continue
+        args.append(arg)
+    return [f"{KBIN}/{rec['tool']}", *args, "--output", "kore"]
+
+
+def simplify_kore(case, source, target):
+    """Run krust kore-simplify on `source` against the reference kompiled definition and main module."""
+    args = [KRUST, "kore-simplify", f"{case.ref_kompiled}/definition.kore", "--module", case.main_module,
+            "--pattern", source, "--output", target]
+    rc, out, err, secs, to = sh(args, case.dir, case.remaining())
+    if to: return False, "timed out", secs
+    if rc != 0 or not os.path.exists(target):
+        return False, f"exit {rc}: " + " ".join((err or out).strip().splitlines()[:3])[:600], secs
+    return True, "", secs
+
+
+def compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern=""):
+    """C8: after the C7 text comparison failed, re-run the reference recipe with --output kore, simplify both
+    that result and krust's with `krust kore-simplify` (reference kompiled definition, main module), and compare
+    the simplified patterns with reference_differential::executed_kore_matches_the_reference_backend without
+    K_DIFFERENTIAL_DEFINITION (N4 renaming applies, N15 does not). Returns True only when every stage succeeded
+    and the comparator accepted the pair; the step then carries SIMPLIFIED_KORE_COMPARISON and keeps the text
+    difference as text_divergence. Every other outcome keeps the text mismatch and records why in
+    simplified_kore_divergence."""
+    def not_compared(reason):
+        step["simplified_kore_divergence"] = reason
+        return False
+    definition = f"{case.ref_kompiled}/definition.kore" if case.ref_kompiled else None
+    if not definition or not os.path.exists(definition) or not case.main_module:
+        return not_compared("not compared: no reference kompiled definition or main module")
+    if case.out_of_budget():
+        return not_compared("not compared: no remaining budget for the reference --output kore re-run")
+    args = reference_kore_args(rec)
+    if args is None:
+        return not_compared("not compared: reference recipe needs an unsupported shell expansion or redirection")
+    stdin_path = f"{case.dir}/{rec['stdin']}" if rec.get("stdin") else None
+    rc, out, err, secs, to = sh(args, case.dir, case.remaining(), stdin_path=stdin_path)
+    step["reference_kore_cmd"] = " ".join(shlex.quote(a) for a in args)
+    step["reference_kore_rc"] = rc
+    step["reference_kore_seconds"] = round(secs, 1)
+    case.logfile(f"{tag}.reference-kore.log", out + "\n--- stderr ---\n" + err)
+    if to or rc != 0 or not out.strip():
+        return not_compared("not compared: reference --output kore re-run " + ("timed out" if to else f"exited {rc}"))
+    reference_kore = f"{case.log}/{tag}.reference.kore"
+    case.logfile(f"{tag}.reference.kore", out)
+    # The checked-in .out stays the oracle: the re-run's result must still print as the .out, otherwise the
+    # oracle is stale and confirm_oracle reports it; port agreement with a stale oracle's live output is not a pass.
+    prc, pout, perr = kprint(case, reference_kore)
+    if prc != 0:
+        return not_compared("not compared: kprint failed on the reference --output kore result: " + (perr or pout)[:800])
+    reproduces, _, _ = execution_text_diff(expected, pout, pattern)
+    step["reference_kore_reproduces_out"] = reproduces is None
+    if reproduces is not None:
+        return not_compared("not compared: kprint of the reference --output kore result does not reproduce the checked-in .out")
+    simplified = {}
+    for side, source in (("reference", reference_kore), ("krust", kore_path)):
+        if case.out_of_budget():
+            return not_compared(f"not compared: no remaining budget to simplify the {side} KORE")
+        simplified[side] = f"{case.log}/{tag}.{side}.simplified.kore"
+        ok, message, secs = simplify_kore(case, source, simplified[side])
+        step[f"{side}_simplify_seconds"] = round(secs, 1)
+        if not ok:
+            return not_compared(f"not compared: krust kore-simplify failed on the {side} KORE: {message}")
+    comparison_environment = {
+        "K_REFERENCE_EXECUTION": simplified["reference"],
+        "K_RUST_EXECUTION": simplified["krust"],
+        "K_DIFFERENTIAL_MODULE": case.main_module,
+    }
+    trc, tout, terr, timed_out = run_test_binary_result(
+        "executed_kore_matches_the_reference_backend", comparison_environment, case.dir)
+    if trc == 0 and not timed_out:
+        step["comparison"] = SIMPLIFIED_KORE_COMPARISON
+        step["simplified_kore_equal"] = True
+        step["text_divergence"] = step.pop("divergence")
+        return True
+    if timed_out:
+        return not_compared("simplified KORE not compared: the comparator timed out")
+    msg = re.search(r"panicked at[^\n]*\n(.*)", tout + terr, re.S)
+    return not_compared("simplified KORE differ: " + "\n".join(
+        ((msg.group(1) if msg else tout + terr).strip()).splitlines()[:DIFF_LINES]))
 
 
 def confirm_oracle(case, rec, step):
