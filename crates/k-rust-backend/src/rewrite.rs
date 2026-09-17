@@ -24,14 +24,15 @@ use crate::{
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
     simplify::{
         ConditionIndeterminacy, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, PatternSimplification,
-        RuleCondition, SimplificationError, SimplificationOptions, decide_condition,
+        RuleCondition, SimplificationError, SimplificationOptions,
+        binds_element_variable_to_set_pattern, decide_condition,
         simplify_pattern_details_with_solver, simplify_predicates_with_solver,
         simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution, substitute, substitution_binding},
     term::{
-        Sort, Symbol, SymbolType, Term, TermKind, Variable,
+        Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         names::{VariableProvenance, split_marker, with_fresh_counter},
     },
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
@@ -2166,7 +2167,9 @@ fn is_functional_pattern(term: &Term) -> bool {
             elements.iter().all(is_functional_pattern)
                 && rest.as_ref().is_none_or(is_functional_pattern)
         }
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
+        TermKind::DomainValue { .. } => true,
+        // An element variable denotes one element; a set variable denotes an arbitrary pattern.
+        TermKind::Variable(variable) => variable.kind == VariableKind::Element,
         TermKind::Injection { term, .. } => is_functional_pattern(term),
         TermKind::And(..) => false,
     }
@@ -2612,6 +2615,17 @@ fn apply_rule_with_match(
         }
         MatchResult::Success(substitution) => (substitution, Vec::new()),
     };
+    // A rule over an element variable `I` is an axiom for every element; instantiating it at a
+    // pattern that contains a set variable is justified only when the rule is linear in `I`
+    // (`simplify::binds_element_variable_to_set_pattern`). The attempt stays indeterminate so
+    // that no lower-priority rule fires in its place.
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return RuleAttempt::Indeterminate(IndeterminateReason::Match {
+            rule_id: rule.attributes.unique_id.clone(),
+            substitution,
+            remainder: Vec::new(),
+        });
+    }
     let configuration_bindings = substitution
         .iter()
         .filter(|(variable, _)| !rule.lhs.attributes().variables.contains(*variable))
@@ -2776,7 +2790,12 @@ fn apply_rule_with_match(
         match decide_condition(&unclear_requires, &match_knowledge, solver) {
             Ok(RuleCondition::Satisfied) => unclear_requires.clear(),
             Ok(RuleCondition::Refuted) => return RuleAttempt::NotApplicable,
-            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::ImplicationIndeterminate)) => {}
+            // `NonFunctionalBinding` is raised at a binding site, never by `decide_condition`;
+            // it is listed for exhaustiveness and would be carried like an open implication.
+            Ok(RuleCondition::Indeterminate(
+                ConditionIndeterminacy::ImplicationIndeterminate
+                | ConditionIndeterminacy::NonFunctionalBinding,
+            )) => {}
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::NoSolver)) => {
                 return RuleAttempt::Indeterminate(IndeterminateReason::Requires {
                     rule_id: rule.attributes.unique_id.clone(),
@@ -2793,6 +2812,12 @@ fn apply_rule_with_match(
                 return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
                     rule_id: rule.attributes.unique_id.clone(),
                     error: SmtError::Unknown(reason),
+                });
+            }
+            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::Untranslatable(error))) => {
+                return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    error: SmtError::Translation(error),
                 });
             }
             Err(error) => {
@@ -4355,6 +4380,32 @@ mod tests {
 
         assert_eq!(&predicates[..20], original);
         assert_eq!(predicates[20], Predicate::True);
+    }
+
+    #[test]
+    fn set_variables_are_not_functional_patterns() {
+        let sort = Sort::simple("SortS");
+        let element = Term::variable(Variable::new("X", sort.clone()));
+        let set = Term::variable(Variable::set("Y", sort.clone()));
+        let pair = |left: Term, right: Term| {
+            Term::application(
+                std::sync::Arc::new(Symbol::constructor(
+                    "pair",
+                    vec![sort.clone(), sort.clone()],
+                    sort.clone(),
+                )),
+                Vec::new(),
+                vec![left, right],
+            )
+        };
+
+        assert!(is_functional_pattern(&element));
+        assert!(is_functional_pattern(&pair(
+            element.clone(),
+            element.clone()
+        )));
+        assert!(!is_functional_pattern(&set));
+        assert!(!is_functional_pattern(&pair(element, set)));
     }
 
     #[test]

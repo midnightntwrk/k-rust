@@ -7,7 +7,7 @@ use k_rust_backend::{
     rewrite::Pattern,
     rule::Predicate,
     simplify::*,
-    smt::{NoSolver, SmtError, SmtSolver, Validity},
+    smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::Substitution,
     term::{Sort, Term, TermKind, Variable},
 };
@@ -58,6 +58,37 @@ impl SmtSolver for FixedValiditySolver {
         _checked: &[Predicate],
     ) -> Result<Validity, SmtError> {
         Ok(self.0.clone())
+    }
+}
+
+/// A solver whose encoding cannot pose any query.
+struct UntranslatableSolver(TranslationError);
+
+impl UntranslatableSolver {
+    fn non_boolean_and(definition: &BackendDefinition) -> Self {
+        Self(TranslationError::NonBooleanAnd(term(
+            definition,
+            r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
+        )))
+    }
+}
+
+impl SmtSolver for UntranslatableSolver {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Result<k_rust_backend::smt::Satisfiability, SmtError> {
+        unreachable!()
+    }
+
+    fn check_predicates(
+        &self,
+        _known: &[Predicate],
+        _substitution: &Substitution,
+        _checked: &[Predicate],
+    ) -> Result<Validity, SmtError> {
+        Err(SmtError::Translation(self.0.clone()))
     }
 }
 
@@ -235,9 +266,10 @@ const IDENTITY: &str = r#"
         ) [label{}("identity"), simplification{}()]
     "#;
 
-#[test]
-fn equations_carry_open_element_binding_definedness_as_constraints() {
-    let definition = definition(
+/// `discard` is a total function whose equation discards its argument; the ceil theory decides
+/// `\ceil(f("undefined"))` as `\bottom` and `\ceil(f("defined"))` as `\top`.
+fn discard_definition() -> BackendDefinition {
+    definition(
         r#"
             symbol discard{}(SortS{}) : SortS{} [function{}(), total{}()]
             axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
@@ -250,33 +282,38 @@ fn equations_carry_open_element_binding_definedness_as_constraints() {
                 \ceil{SortS{}, R}(f{}(\dv{SortS{}}("defined"))), \and{R}(\top{R}(), \top{R}())
             )) [simplification{}()]
             "#,
-    );
+    )
+}
+
+#[test]
+fn equations_carry_open_element_binding_definedness_as_constraints() {
+    let definition = discard_definition();
     let done = term(&definition, r#"\dv{SortS{}}("done")"#);
-    // A binding whose definedness is decided applies or refuses the equation outright; a
-    // refuted obligation retains the subject, which is already empty. An open obligation
-    // applies the equation and carries `\ceil` of the discarded operand as a constraint.
+    // A binding whose definedness is decided applies the equation outright. A refuted
+    // obligation means the operand is empty, so the subject is empty too: the subject is
+    // retained and `\bottom` is the only constraint. An open obligation applies the equation
+    // and carries `\ceil` of the discarded operand as a constraint.
     let open = term(&definition, "f{}(X:SortS{})");
-    for (operand, expected) in [
-        (r#"\dv{SortS{}}("value")"#, Some(Vec::new())),
-        (r#"f{}(\dv{SortS{}}("defined"))"#, Some(Vec::new())),
-        (r#"f{}(\dv{SortS{}}("undefined"))"#, None),
+    for (operand, expected_term_is_done, constraints) in [
+        (r#"\dv{SortS{}}("value")"#, true, Vec::new()),
+        (r#"f{}(\dv{SortS{}}("defined"))"#, true, Vec::new()),
+        (
+            r#"f{}(\dv{SortS{}}("undefined"))"#,
+            false,
+            vec![Predicate::False],
+        ),
         (
             r#"f{}(X:SortS{})"#,
-            Some(vec![Predicate::Ceil(open.clone())]),
+            true,
+            vec![Predicate::Ceil(open.clone())],
         ),
     ] {
         let input = term(&definition, &format!("discard{{}}({operand})"));
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
-        match expected {
-            Some(constraints) => {
-                assert_eq!(result.term, done, "{operand}");
-                assert_eq!(result.constraints, constraints, "{operand}");
-            }
-            None => {
-                assert_eq!(result.term, input, "{operand}");
-                assert!(result.constraints.is_empty(), "{operand}");
-            }
-        }
+        let expected_term = if expected_term_is_done { &done } else { &input };
+        assert_eq!(&result.term, expected_term, "{operand}");
+        assert_eq!(result.constraints, constraints, "{operand}");
+        assert_eq!(result.applied_rules, ["discard"], "{operand}");
     }
 
     let operand = term(&definition, "f{}(X:SortS{})");
@@ -294,6 +331,73 @@ fn equations_carry_open_element_binding_definedness_as_constraints() {
 }
 
 #[test]
+fn a_refuted_element_binding_definedness_makes_the_subject_bottom() {
+    let definition = discard_definition();
+    let done = term(&definition, r#"\dv{SortS{}}("done")"#);
+    let operand = term(&definition, "f{}(X:SortS{})");
+    let input = term(&definition, "discard{}(f{}(X:SortS{}))");
+    let obligation = Predicate::Ceil(operand);
+    let simplify_with = |solver: &dyn SmtSolver| {
+        diagnostic::collect(|| {
+            simplify_with_solver(
+                &definition,
+                &input,
+                &[],
+                SimplificationOptions::default(),
+                solver,
+            )
+            .expect("a decided obligation is never a simplification error")
+        })
+    };
+
+    // The solver refutes `\ceil(f(X))`: `f(X)` is empty, so `discard(f(X))` is empty by
+    // strictness, whichever equation is tried; the subject is retained under `\bottom`.
+    let (refuted, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    assert_eq!(refuted.term, input);
+    assert_eq!(refuted.constraints, vec![Predicate::False]);
+    assert_eq!(refuted.applied_rules, ["discard"]);
+    assert!(diagnostics.is_empty());
+
+    // Negative controls: an open implication carries the obligation silently; an inconsistent
+    // path condition carries it too and is reported, because the solver did not answer.
+    let (open, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Indeterminate));
+    assert_eq!(open.term, done);
+    assert_eq!(open.constraints, vec![obligation.clone()]);
+    assert!(diagnostics.is_empty());
+
+    let (inconsistent, diagnostics) =
+        simplify_with(&FixedValiditySolver(Validity::InconsistentGroundTruth));
+    assert_eq!(inconsistent.term, done);
+    assert_eq!(inconsistent.constraints, vec![obligation.clone()]);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedCondition {
+            rule_id: "discard".into(),
+            reason: ConditionIndeterminacy::InconsistentPathCondition,
+            predicates: vec![obligation],
+        }]
+    );
+
+    // Pattern path: the syntactically refuted obligation of the inner `discard` makes the whole
+    // pattern `\bottom`, the total context `wrap` notwithstanding.
+    let pattern = Pattern {
+        term: term(
+            &definition,
+            r#"wrap{}(discard{}(f{}(\dv{SortS{}}("undefined"))))"#,
+        ),
+        constraints: Vec::new(),
+    };
+    let result = simplify_pattern_with_solver(
+        &definition,
+        &pattern,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the pattern should simplify");
+    assert_eq!(result.constraints, vec![Predicate::False]);
+}
+
+#[test]
 fn equation_set_variable_bindings_do_not_require_definedness() {
     let definition = definition(
         r#"
@@ -307,6 +411,51 @@ fn equation_set_variable_bindings_do_not_require_definedness() {
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
     assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
     assert!(result.constraints.is_empty());
+}
+
+#[test]
+fn element_variable_bindings_to_set_patterns_are_indeterminate() {
+    // `f(I) = pair(I, I)` is an axiom for every element `I`; on `f(@Y)` it would give the union
+    // over the elements `y` of `@Y` of `pair(y, y)`, not `pair(@Y, @Y)`. The attempt is
+    // indeterminate and the function stays unevaluated: the subject is retained without an
+    // error, and the owise equation, which binds its argument to an element variable as every
+    // function equation does, does not fire in its place.
+    let definition = definition(
+        r#"
+            symbol pair{}(SortS{}, SortS{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, I:SortS{}), \top{R}())),
+                \equals{SortS{}, R}(
+                    f{}(X0:SortS{}),
+                    \and{SortS{}}(pair{}(I:SortS{}, I:SortS{}), \top{SortS{}}())
+                )
+            ) [label{}("duplicate")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, J:SortS{}), \top{R}())),
+                \equals{SortS{}, R}(
+                    f{}(X0:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("owise"), \top{SortS{}}())
+                )
+            ) [label{}("owise"), priority{}("200")]
+            "#,
+    );
+
+    let input = term(&definition, "f{}(@Y:SortS{})");
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("a non-functional binding is not an error");
+    assert_eq!(result.term, input);
+    assert!(result.constraints.is_empty());
+    assert!(result.applied_rules.is_empty());
+
+    // Positive control: an element variable is one element, so the equation applies.
+    let input = term(&definition, "f{}(X:SortS{})");
+    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+    assert_eq!(
+        result.term,
+        term(&definition, "pair{}(X:SortS{}, X:SortS{})")
+    );
+    assert_eq!(result.applied_rules, ["duplicate"]);
 }
 
 #[test]
@@ -2473,6 +2622,105 @@ fn standalone_predicate_simplification_keeps_the_residual_on_smt_unknown() {
 }
 
 #[test]
+fn standalone_predicate_simplification_keeps_the_residual_when_untranslatable() {
+    let definition = definition("");
+    let predicate = Predicate::Term(term(&definition, "X:SortS{}"));
+    let solver = UntranslatableSolver::non_boolean_and(&definition);
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+    });
+    let result = result.expect("an untranslatable residual predicate is kept, not an error");
+
+    assert_eq!(result, predicate);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedPredicate {
+            predicate,
+            reason: ConditionIndeterminacy::Untranslatable(solver.0.clone()),
+        }]
+    );
+}
+
+#[test]
+fn pattern_simplification_keeps_an_untranslatable_constraint() {
+    let definition = residual_constraint_definition();
+    let pattern = Pattern {
+        term: term(&definition, "wrap{}(X:SortS{})"),
+        constraints: vec![Predicate::Term(term(&definition, "holds{}(X:SortS{})"))],
+    };
+    let solver = UntranslatableSolver::non_boolean_and(&definition);
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_pattern_with_solver(
+            &definition,
+            &pattern,
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .expect("an untranslatable residual constraint is kept, not an error")
+    });
+
+    assert_eq!(result, pattern);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedPredicate {
+            predicate: pattern.constraints[0].clone(),
+            reason: ConditionIndeterminacy::Untranslatable(solver.0.clone()),
+        }]
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn z3_keeps_a_predicate_its_encoding_cannot_pose() {
+    use k_rust_backend::smt::Z3Solver;
+
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            endmodule []"#,
+    )
+    .unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+    // A term-level `\and` of two integers has no SMT encoding; the predicate is still a
+    // constraint and comes back unchanged.
+    let predicate = Predicate::Equals(
+        term(&definition, "X:SortInt{}"),
+        Term::and(
+            term(&definition, "Y:SortInt{}"),
+            term(&definition, "Z:SortInt{}"),
+        ),
+    );
+
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &Z3Solver::new(&definition).unwrap(),
+        )
+    });
+    let result = result.expect("an untranslatable predicate is kept, not an error");
+
+    assert_eq!(result, predicate);
+    assert!(matches!(
+        diagnostics.as_slice(),
+        [BackendDiagnostic::UndecidedPredicate {
+            reason: ConditionIndeterminacy::Untranslatable(TranslationError::NonBooleanAnd(_)),
+            ..
+        }]
+    ));
+}
+
+#[test]
 fn unknown_function_condition_leaves_the_application_unevaluated() {
     let definition = conditional_nullary_function();
     let input = term(&definition, "f{}()");
@@ -2498,6 +2746,69 @@ fn unknown_function_condition_leaves_the_application_unevaluated() {
             predicates,
         }] if rule_id == "conditional" && reason == "timeout" && predicates.len() == 1
     ));
+}
+
+#[test]
+fn untranslatable_condition_is_indeterminate_not_an_error() {
+    // A `requires` the SMT encoding cannot pose is still a constraint of the equation; the
+    // verdict is open, the application is retained, and the limit is reported.
+    let definition = conditional_nullary_function();
+    let input = term(&definition, "f{}()");
+    let solver = UntranslatableSolver::non_boolean_and(&definition);
+
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+    });
+    let result = result.expect("an untranslatable condition should not be an error");
+
+    assert_eq!(result.term, input);
+    assert!(result.applied_rules.is_empty());
+    assert!(matches!(
+        diagnostics.as_slice(),
+        [BackendDiagnostic::UndecidedCondition {
+            rule_id,
+            reason: ConditionIndeterminacy::Untranslatable(error),
+            predicates,
+        }] if rule_id == "conditional" && error == &solver.0 && predicates.len() == 1
+    ));
+}
+
+#[test]
+fn untranslatable_definedness_obligation_is_carried() {
+    // The obligation `\ceil(f(X))` of the element binding stays open when the encoding cannot
+    // pose it: the equation applies and the obligation is a constraint of the result.
+    let definition = discard_definition();
+    let input = term(&definition, "discard{}(f{}(X:SortS{}))");
+    let obligation = Predicate::Ceil(term(&definition, "f{}(X:SortS{})"));
+    let solver = UntranslatableSolver::non_boolean_and(&definition);
+
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+    });
+    let result = result.expect("an untranslatable obligation should not be an error");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
+    assert_eq!(result.constraints, vec![obligation.clone()]);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedCondition {
+            rule_id: "discard".into(),
+            reason: ConditionIndeterminacy::Untranslatable(solver.0.clone()),
+            predicates: vec![obligation],
+        }]
+    );
 }
 
 #[test]

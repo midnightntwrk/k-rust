@@ -28,7 +28,7 @@ use crate::{
         retain_substitution_predicates, substitute_predicates, violates_finite_constructor_domain,
     },
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
-    smt::{NoSolver, SmtError, SmtSolver, Validity},
+    smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, Sort, SymbolType, Term, TermKind, VariableKind},
 };
@@ -608,6 +608,13 @@ pub enum ConditionIndeterminacy {
     ImplicationIndeterminate,
     SmtUnknown(String),
     InconsistentPathCondition,
+    /// The SMT encoding could not pose the query. The limit belongs to the encoding, not to
+    /// the pattern: the predicates are still constraints, and the verdict is open.
+    Untranslatable(TranslationError),
+    /// The match binds an element variable to a pattern that contains a set variable, so the
+    /// binding is not known to be functional and the equation's instance is not justified;
+    /// see `binds_element_variable_to_set_pattern`.
+    NonFunctionalBinding,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -676,9 +683,11 @@ fn decide_rule_condition(
 ///
 /// Syntactic truth and membership in `known_predicates` are decided without the solver. The
 /// solver answers the rest within the timeout and retry bounds it was created with; the
-/// `Indeterminate` verdict names why it did not decide, and `Err` reports a query that could not
-/// be posed. The rewriter's `requires` check, standalone predicate simplification, and the
-/// residual-constraint discharge of pattern simplification all share this decision.
+/// `Indeterminate` verdict names why it did not decide, including a query the SMT encoding
+/// could not pose, which leaves the predicates as open constraints. `Err` reports a solver
+/// failure other than those. The rewriter's `requires` check, standalone predicate
+/// simplification, and the residual-constraint discharge of pattern simplification all share
+/// this decision.
 pub(crate) fn decide_condition(
     predicates: &[Predicate],
     known_predicates: &[Predicate],
@@ -710,16 +719,22 @@ pub(crate) fn decide_condition(
         Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
             ConditionIndeterminacy::NoSolver,
         )),
+        Err(SmtError::Translation(error)) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::Untranslatable(error),
+        )),
         Err(error) => Err(error),
     }
 }
 
-/// Whether an indeterminate verdict came from a solver that was asked and did not answer, as
-/// opposed to a missing solver or an implication that is genuinely open.
+/// Whether an indeterminate verdict came from a solver that was asked and did not answer,
+/// including a query its encoding could not pose, as opposed to a missing solver or an
+/// implication that is genuinely open.
 fn solver_could_not_answer(reason: &ConditionIndeterminacy) -> bool {
     matches!(
         reason,
-        ConditionIndeterminacy::InconsistentPathCondition | ConditionIndeterminacy::SmtUnknown(_)
+        ConditionIndeterminacy::InconsistentPathCondition
+            | ConditionIndeterminacy::SmtUnknown(_)
+            | ConditionIndeterminacy::Untranslatable(_)
     )
 }
 
@@ -1126,6 +1141,11 @@ fn apply_ceil_equation(
     {
         return Ok(EquationAttempt::NotApplicable);
     }
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
+    }
 
     let requires =
         equation_match_conditions(definition, &rule.requires, &substitution).into_conjuncts();
@@ -1200,6 +1220,11 @@ fn apply_predicate_equation(
         }
         PredicateMatch::Success(substitution) => substitution,
     };
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
+    }
     let requires =
         equation_match_conditions(definition, &rule.requires, &substitution).into_conjuncts();
     match evaluate_rule_condition(
@@ -1860,6 +1885,9 @@ fn matches_top_equation(
                 .keys()
                 .any(|variable| !rule.lhs.attributes().variables.contains(variable))
                 || check_concreteness(rule, &substitution).is_some()
+                // A non-functional binding leaves the equation undecided; this path has no
+                // indeterminate channel and passes over it as it does an undecided `requires`.
+                || binds_element_variable_to_set_pattern(&substitution)
             {
                 continue;
             }
@@ -2293,6 +2321,27 @@ impl EquationConditions {
     }
 }
 
+/// Whether `substitution` binds an element variable to a pattern containing a set variable.
+///
+/// An element variable ranges over elements; a set variable over arbitrary patterns. An
+/// equation `f(I) = rhs[I] requires R[I]` over an element variable `I` is an axiom for every
+/// element `i`, and `f(t) = rhs[t]` for a term `t` follows only when `t` is functional: applied
+/// to `f(@Y)`, the equation gives the union over the elements `y` of `@Y` of `rhs[y]`, which is
+/// `rhs[@Y]` only when `rhs` and `R` are linear in `I`. The binding `I := t` with a set variable
+/// in `t` therefore does not justify the substitution and the attempt stays indeterminate: the
+/// subject is retained, and no other equation of the group fires in its place. The converse
+/// direction, a rule-side set variable bound to any subject pattern, is sound and unaffected.
+pub(crate) fn binds_element_variable_to_set_pattern(substitution: &Substitution) -> bool {
+    substitution.iter().any(|(variable, value)| {
+        variable.kind == VariableKind::Element
+            && value
+                .attributes()
+                .variables
+                .iter()
+                .any(|bound| bound.kind == VariableKind::Set)
+    })
+}
+
 fn equation_match_conditions(
     definition: &BackendDefinition,
     requires: &[Predicate],
@@ -2362,6 +2411,11 @@ fn apply_equation(
     if check_concreteness(rule, &substitution).is_some() {
         return Ok(EquationAttempt::NotApplicable);
     }
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
+    }
     let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
@@ -2386,8 +2440,11 @@ fn apply_equation(
     }
     // The definedness obligations are not a reason to refuse the equation: an obligation the
     // path condition does not decide is carried as a constraint of the result, where it keeps
-    // the `\ceil(t)` factor of the equality explicit. A refuted obligation means the subject is
-    // already empty; the equation is then not applicable and the subject is retained unchanged.
+    // the `\ceil(t)` factor of the equality explicit. A refuted obligation means `t` is empty
+    // under the path condition, and the subject reaches `t` only through applications,
+    // injections, collections, and `\and`, all strict, so the subject is empty whichever
+    // equation is tried; the result reports it as `\bottom`. Only the equation's own `requires`,
+    // decided above, says nothing about the subject when refuted.
     let definedness = simplify_rule_predicates(
         definition,
         (&rule.attributes.unique_id, term),
@@ -2405,7 +2462,7 @@ fn apply_equation(
         solver,
     )? {
         RuleCondition::Satisfied => Vec::new(),
-        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        RuleCondition::Refuted => return Ok(EquationAttempt::Applied(bottom_subject(rule, term))),
         RuleCondition::Indeterminate(_) => definedness,
     };
     let (alternatives, is_disjunction) = match &rule.rhs {
@@ -2471,13 +2528,7 @@ fn apply_equation(
         }
     }
     match live.len() {
-        0 => Ok(EquationAttempt::Applied(Simplification {
-            term: term.clone(),
-            constraints: vec![Predicate::False],
-            applied_rules: vec![rule.attributes.unique_id.clone()],
-            effects: Vec::new(),
-            exhausted: None,
-        })),
+        0 => Ok(EquationAttempt::Applied(bottom_subject(rule, term))),
         1 => {
             let (term, mut constraints) = live.pop().expect("one live alternative");
             if !constraints.contains(&Predicate::False) {
@@ -2499,6 +2550,19 @@ fn apply_equation(
             rule_id: rule.attributes.unique_id.clone(),
             alternatives,
         }),
+    }
+}
+
+/// The result of `rule` on a subject `term` that is empty under the path condition: the subject
+/// is retained and `\bottom` is its only constraint, so the caller merges it as it merges any
+/// other constraint set and the pattern becomes `\bottom` as a whole.
+fn bottom_subject(rule: &RewriteRule, term: &Term) -> Simplification {
+    Simplification {
+        term: term.clone(),
+        constraints: vec![Predicate::False],
+        applied_rules: vec![rule.attributes.unique_id.clone()],
+        effects: Vec::new(),
+        exhausted: None,
     }
 }
 
@@ -2538,12 +2602,14 @@ fn evaluate_ensures(
             match solver.check_predicates(known_predicates, &Substitution::new(), &ensures) {
                 Ok(Validity::Invalid) => return Ok(EnsuresVerdict::Refuted),
                 Ok(Validity::Valid) => return Ok(EnsuresVerdict::Holds),
+                // An `ensures` the encoding cannot pose is still a conjunct of the result; the
+                // verdict is open and the predicate is carried, as for an unavailable solver.
                 Ok(
                     Validity::Indeterminate
                     | Validity::InconsistentGroundTruth
                     | Validity::Unknown(_),
                 )
-                | Err(SmtError::Unavailable) => {}
+                | Err(SmtError::Unavailable | SmtError::Translation(_)) => {}
                 Err(error) => {
                     return Err(SimplificationError::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
