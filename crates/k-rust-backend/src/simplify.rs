@@ -30,7 +30,7 @@ use crate::{
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, substitute},
-    term::{Sort, Term, TermKind, VariableKind},
+    term::{FunctionType, Sort, SymbolType, Term, TermKind, VariableKind},
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -240,6 +240,7 @@ pub(crate) fn simplify_pattern_details_with_solver(
     {
         constraints = vec![Predicate::False];
     }
+    constraints.retain(|constraint| !ceil_entailed_by_term(constraint, &simplified.term));
     retain_substitution_predicates(
         &mut constraints,
         &retained_substitution,
@@ -255,6 +256,53 @@ pub(crate) fn simplify_pattern_details_with_solver(
         applied_rules: simplified.applied_rules,
         effects: simplified.effects,
     })
+}
+
+/// Whether `predicate` is `\ceil(t)` for a `t` whose definedness `term` already entails.
+///
+/// Symbol application is strict, so the pattern `C[t] /\ P` has an element only where `t` has
+/// one, and `\ceil(t) /\ C[t] /\ P = C[t] /\ P`. The port drops the conjunct only when the
+/// context `C` consists of total symbols (constructors, cells, injections, `kseq`, `dotk`, and
+/// collections), whose own definedness is not an open obligation. Under a partial application
+/// the conjunct stays explicit, as the obligation `ceil_term` reports for that application.
+fn ceil_entailed_by_term(predicate: &Predicate, term: &Term) -> bool {
+    let Predicate::Ceil(subject) = predicate else {
+        return false;
+    };
+    occurs_under_total_context(term, subject)
+}
+
+fn occurs_under_total_context(term: &Term, subject: &Term) -> bool {
+    if term == subject {
+        return true;
+    }
+    let occurs = |term: &Term| occurs_under_total_context(term, subject);
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial)
+                && arguments.iter().any(occurs)
+        }
+        TermKind::Injection { term, .. } => occurs(term),
+        TermKind::And(left, right) => occurs(left) || occurs(right),
+        TermKind::Map { entries, rest, .. } => {
+            entries
+                .iter()
+                .any(|(key, value)| occurs(key) || occurs(value))
+                || rest.as_ref().is_some_and(occurs)
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().any(occurs)
+                || rest
+                    .as_ref()
+                    .is_some_and(|(middle, tails)| occurs(middle) || tails.iter().any(occurs))
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(occurs) || rest.as_ref().is_some_and(occurs)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
+    }
 }
 
 fn predicate_refutes_term(predicate: &Predicate, term: &Term) -> bool {
@@ -539,7 +587,17 @@ fn evaluate_rule_condition(
     } else {
         predicates
     };
-    match predicates_truth(&predicates) {
+    decide_rule_condition(rule_id, &predicates, known_predicates, solver)
+}
+
+/// Decide already simplified condition predicates under the path condition.
+fn decide_rule_condition(
+    rule_id: &str,
+    predicates: &[Predicate],
+    known_predicates: &[Predicate],
+    solver: &dyn SmtSolver,
+) -> Result<RuleCondition, SimplificationError> {
+    match predicates_truth(predicates) {
         Truth::False => return Ok(RuleCondition::Refuted),
         Truth::True => return Ok(RuleCondition::Satisfied),
         Truth::Unknown => {}
@@ -550,7 +608,7 @@ fn evaluate_rule_condition(
     {
         return Ok(RuleCondition::Satisfied);
     }
-    match solver.check_predicates(known_predicates, &Substitution::new(), &predicates) {
+    match solver.check_predicates(known_predicates, &Substitution::new(), predicates) {
         Ok(Validity::Valid) => Ok(RuleCondition::Satisfied),
         Ok(Validity::Invalid) => Ok(RuleCondition::Refuted),
         Ok(Validity::Indeterminate) => Ok(RuleCondition::Indeterminate(
@@ -564,7 +622,7 @@ fn evaluate_rule_condition(
             diagnostic::emit(BackendDiagnostic::UndecidedCondition {
                 rule_id: rule_id.to_owned(),
                 reason: reason.clone(),
-                predicates,
+                predicates: predicates.to_vec(),
             });
             Ok(RuleCondition::Indeterminate(reason))
         }
@@ -573,7 +631,7 @@ fn evaluate_rule_condition(
             diagnostic::emit(BackendDiagnostic::UndecidedCondition {
                 rule_id: rule_id.to_owned(),
                 reason: reason.clone(),
-                predicates,
+                predicates: predicates.to_vec(),
             });
             Ok(RuleCondition::Indeterminate(reason))
         }
@@ -994,7 +1052,8 @@ fn apply_ceil_equation(
         return Ok(EquationAttempt::NotApplicable);
     }
 
-    let requires = equation_match_conditions(definition, &rule.requires, &substitution);
+    let requires =
+        equation_match_conditions(definition, &rule.requires, &substitution).into_conjuncts();
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
@@ -1066,7 +1125,8 @@ fn apply_predicate_equation(
         }
         PredicateMatch::Success(substitution) => substitution,
     };
-    let requires = equation_match_conditions(definition, &rule.requires, &substitution);
+    let requires =
+        equation_match_conditions(definition, &rule.requires, &substitution).into_conjuncts();
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
@@ -1728,7 +1788,8 @@ fn matches_top_equation(
             {
                 continue;
             }
-            let requires = equation_match_conditions(definition, &rule.requires, &substitution);
+            let requires = equation_match_conditions(definition, &rule.requires, &substitution)
+                .into_conjuncts();
             if matches!(
                 evaluate_rule_condition(
                     definition,
@@ -2130,25 +2191,53 @@ fn scan_group<R, T>(
     })
 }
 
-/// Matching an element variable requires a defined value, even when an equation discards it.
-/// This is the predicate returned by Kore.Rewrite.Axiom.Matcher.isTermDefined; set variables
-/// may bind arbitrary patterns and do not impose this obligation.
+/// The conditions an equation must discharge once its left-hand side has matched.
+struct EquationConditions {
+    /// The equation's own `requires`, instantiated by the match.
+    requires: Vec<Predicate>,
+    /// Definedness of every term bound to an element variable.
+    ///
+    /// An element variable ranges over elements, so binding it to a term `t` asserts `\ceil(t)`;
+    /// a set variable binds an arbitrary pattern and imposes no obligation. `ceil_term` already
+    /// discharges constructors, total symbols, and element variables, so this list names only
+    /// partial applications, set variables, and collection distinctness.
+    definedness: Vec<Predicate>,
+}
+
+impl EquationConditions {
+    /// Both condition kinds as one conjunction, for equations that rewrite a predicate and
+    /// therefore have no separate constraint channel.
+    fn into_conjuncts(self) -> Vec<Predicate> {
+        let mut conditions = self.requires;
+        for predicate in self.definedness {
+            if !conditions.contains(&predicate) {
+                conditions.push(predicate);
+            }
+        }
+        conditions
+    }
+}
+
 fn equation_match_conditions(
     definition: &BackendDefinition,
     requires: &[Predicate],
     substitution: &Substitution,
-) -> Vec<Predicate> {
-    let mut conditions = substitute_predicates(requires, substitution);
+) -> EquationConditions {
+    let requires = substitute_predicates(requires, substitution);
+    let mut definedness = Vec::new();
     for (variable, value) in substitution {
         if variable.kind == VariableKind::Element {
             for predicate in ceil_term(definition, value) {
-                if !conditions.contains(&predicate) {
-                    conditions.push(predicate);
+                if !requires.contains(&predicate) && !definedness.contains(&predicate) {
+                    definedness.push(predicate);
                 }
             }
         }
     }
-    conditions
+    EquationConditions {
+        requires,
+        definedness,
+    }
 }
 
 fn apply_equation(
@@ -2198,12 +2287,17 @@ fn apply_equation(
     if check_concreteness(rule, &substitution).is_some() {
         return Ok(EquationAttempt::NotApplicable);
     }
-    let requires = equation_match_conditions(definition, &rule.requires, &substitution);
+    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
+    // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
+    // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
+    // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`
+    // otherwise. An unknown `R[t]` must stay indeterminate, because applying the equation would
+    // narrow the subject to the part where `R` holds.
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
         Some(term),
-        requires,
+        conditions.requires,
         known_predicates,
         options,
         active_conditions,
@@ -2215,6 +2309,30 @@ fn apply_equation(
             return Ok(EquationAttempt::Indeterminate(reason));
         }
     }
+    // The definedness obligations are not a reason to refuse the equation: an obligation the
+    // path condition does not decide is carried as a constraint of the result, where it keeps
+    // the `\ceil(t)` factor of the equality explicit. A refuted obligation means the subject is
+    // already empty; the equation is then not applicable and the subject is retained unchanged.
+    let definedness = simplify_rule_predicates(
+        definition,
+        (&rule.attributes.unique_id, term),
+        &conditions.definedness,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+    .unwrap_or(conditions.definedness);
+    let definedness = match decide_rule_condition(
+        &rule.attributes.unique_id,
+        &definedness,
+        known_predicates,
+        solver,
+    )? {
+        RuleCondition::Satisfied => Vec::new(),
+        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        RuleCondition::Indeterminate(_) => definedness,
+    };
     let (alternatives, is_disjunction) = match &rule.rhs {
         RuleRhs::Term(rhs) => (
             vec![(substitute(rhs, &substitution), rule.ensures.clone(), false)],
@@ -2286,7 +2404,14 @@ fn apply_equation(
             exhausted: None,
         })),
         1 => {
-            let (term, constraints) = live.pop().expect("one live alternative");
+            let (term, mut constraints) = live.pop().expect("one live alternative");
+            if !constraints.contains(&Predicate::False) {
+                for predicate in definedness {
+                    if !constraints.contains(&predicate) {
+                        constraints.push(predicate);
+                    }
+                }
+            }
             Ok(EquationAttempt::Applied(Simplification {
                 term,
                 constraints,
@@ -2418,5 +2543,149 @@ mod tests {
         .expect("the first ceil equation should apply");
 
         assert_eq!(result, Predicate::True);
+    }
+
+    /// `wrap` is a constructor, `partial` and `opaque` are partial functions without equations,
+    /// `discard` and `guarded` are total functions whose equations discard their argument;
+    /// `guarded` additionally requires its argument to be the value `expected`.
+    fn definedness_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortC{} []
+                symbol wrap{}(SortS{}) : SortC{} [constructor{}(), functional{}(), injective{}()]
+                symbol partial{}(SortS{}) : SortS{} [function{}()]
+                symbol opaque{}(SortS{}) : SortS{} [function{}()]
+                symbol discard{}(SortS{}) : SortS{} [function{}(), total{}()]
+                symbol guarded{}(SortS{}) : SortS{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        discard{}(X:SortS{}),
+                        \and{SortS{}}(\dv{SortS{}}("done"), \top{SortS{}}())
+                    )
+                ) [label{}("discard"), simplification{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("expected")),
+                        \top{R}()
+                    ),
+                    \equals{SortS{}, R}(
+                        guarded{}(X:SortS{}),
+                        \and{SortS{}}(\dv{SortS{}}("done"), \top{SortS{}}())
+                    )
+                ) [label{}("guarded"), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("definedness definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("definedness definition should internalize")
+    }
+
+    #[test]
+    fn applies_an_equation_under_an_open_definedness_obligation() {
+        let definition = definedness_definition();
+        let argument = term(&definition, "partial{}(Y:SortS{})");
+        let input = term(&definition, "discard{}(partial{}(Y:SortS{}))");
+        let done = term(&definition, r#"\dv{SortS{}}("done")"#);
+
+        // `discard(t) = \ceil(t) /\ "done"`: nothing decides `\ceil(partial(Y))`, so the
+        // equation applies and the obligation becomes a constraint of the result.
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("the equation should apply");
+        assert_eq!(result.term, done);
+        assert_eq!(result.constraints, vec![Predicate::Ceil(argument.clone())]);
+        assert_eq!(result.applied_rules, vec!["discard".to_owned()]);
+
+        // A path condition that already carries the obligation discharges it.
+        let result = simplify_with_solver(
+            &definition,
+            &input,
+            &[Predicate::Ceil(argument)],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the equation should apply");
+        assert_eq!(result.term, done);
+        assert!(result.constraints.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_requires_keeps_the_equation_indeterminate() {
+        let definition = definedness_definition();
+        let done = term(&definition, r#"\dv{SortS{}}("done")"#);
+
+        // Negative control: the same open definedness obligation, but the equation's own
+        // `requires` is undecided, so applying it would narrow the subject.
+        let input = term(&definition, "guarded{}(partial{}(Y:SortS{}))");
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("an indeterminate equation retains the subject");
+        assert_eq!(result.term, input);
+        assert!(result.constraints.is_empty());
+        assert!(result.applied_rules.is_empty());
+
+        // Positive control: the equation itself applies once `requires` is decided.
+        let input = term(&definition, r#"guarded{}(\dv{SortS{}}("expected"))"#);
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("the guarded equation should apply");
+        assert_eq!(result.term, done);
+        assert!(result.constraints.is_empty());
+    }
+
+    #[test]
+    fn drops_a_ceil_conjunct_entailed_by_the_pattern_term() {
+        let definition = definedness_definition();
+        let argument = term(&definition, "partial{}(Y:SortS{})");
+        let obligation = Predicate::Ceil(argument.clone());
+        let simplify_pattern = |source: &str| {
+            simplify_pattern_with_solver(
+                &definition,
+                &Pattern {
+                    term: term(&definition, source),
+                    constraints: vec![obligation.clone()],
+                },
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .expect("the pattern should simplify")
+        };
+
+        // `wrap` is a constructor: `\ceil(t) /\ wrap(t) = wrap(t)`.
+        let entailed = simplify_pattern("wrap{}(partial{}(Y:SortS{}))");
+        assert_eq!(
+            entailed.term,
+            term(&definition, "wrap{}(partial{}(Y:SortS{}))")
+        );
+        assert!(entailed.constraints.is_empty());
+
+        // Negative control: under a partial function symbol the conjunct is kept.
+        let under_function = simplify_pattern("opaque{}(partial{}(Y:SortS{}))");
+        assert_eq!(
+            under_function.term,
+            term(&definition, "opaque{}(partial{}(Y:SortS{}))")
+        );
+        assert_eq!(under_function.constraints, vec![obligation.clone()]);
+
+        // Negative control: a term that does not contain `t` entails nothing about it.
+        let unrelated = simplify_pattern("wrap{}(Y:SortS{})");
+        assert_eq!(unrelated.constraints, vec![obligation.clone()]);
+
+        // An equation that discards `t` leaves the carried obligation as the only witness.
+        let discarded = simplify_pattern_with_solver(
+            &definition,
+            &Pattern {
+                term: term(&definition, "wrap{}(discard{}(partial{}(Y:SortS{})))"),
+                constraints: Vec::new(),
+            },
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the pattern should simplify");
+        assert_eq!(
+            discarded.term,
+            term(&definition, r#"wrap{}(\dv{SortS{}}("done"))"#)
+        );
+        assert_eq!(discarded.constraints, vec![obligation]);
     }
 }

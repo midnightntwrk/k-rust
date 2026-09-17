@@ -235,7 +235,7 @@ const IDENTITY: &str = r#"
     "#;
 
 #[test]
-fn equations_require_defined_element_bindings_before_discarding_operands() {
+fn equations_carry_open_element_binding_definedness_as_constraints() {
     let definition = definition(
         r#"
             symbol discard{}(SortS{}) : SortS{} [function{}(), total{}()]
@@ -251,20 +251,31 @@ fn equations_require_defined_element_bindings_before_discarding_operands() {
             "#,
     );
     let done = term(&definition, r#"\dv{SortS{}}("done")"#);
-    for (operand, defined) in [
-        (r#"\dv{SortS{}}("value")"#, true),
-        (r#"f{}(\dv{SortS{}}("defined"))"#, true),
-        (r#"f{}(\dv{SortS{}}("undefined"))"#, false),
-        (r#"f{}(X:SortS{})"#, false),
+    // A binding whose definedness is decided applies or refuses the equation outright; a
+    // refuted obligation retains the subject, which is already empty. An open obligation
+    // applies the equation and carries `\ceil` of the discarded operand as a constraint.
+    let open = term(&definition, "f{}(X:SortS{})");
+    for (operand, expected) in [
+        (r#"\dv{SortS{}}("value")"#, Some(Vec::new())),
+        (r#"f{}(\dv{SortS{}}("defined"))"#, Some(Vec::new())),
+        (r#"f{}(\dv{SortS{}}("undefined"))"#, None),
+        (
+            r#"f{}(X:SortS{})"#,
+            Some(vec![Predicate::Ceil(open.clone())]),
+        ),
     ] {
         let input = term(&definition, &format!("discard{{}}({operand})"));
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
-        assert_eq!(
-            result.term,
-            if defined { done.clone() } else { input },
-            "{operand}"
-        );
-        assert!(result.constraints.is_empty());
+        match expected {
+            Some(constraints) => {
+                assert_eq!(result.term, done, "{operand}");
+                assert_eq!(result.constraints, constraints, "{operand}");
+            }
+            None => {
+                assert_eq!(result.term, input, "{operand}");
+                assert!(result.constraints.is_empty(), "{operand}");
+            }
+        }
     }
 
     let operand = term(&definition, "f{}(X:SortS{})");
