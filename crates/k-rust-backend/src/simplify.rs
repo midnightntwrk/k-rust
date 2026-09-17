@@ -28,7 +28,7 @@ use crate::{
         retain_substitution_predicates, substitute_predicates, violates_finite_constructor_domain,
     },
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
-    smt::{NoSolver, SmtError, SmtSolver, Validity},
+    smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, Sort, SymbolType, Term, TermKind, VariableKind},
 };
@@ -608,6 +608,9 @@ pub enum ConditionIndeterminacy {
     ImplicationIndeterminate,
     SmtUnknown(String),
     InconsistentPathCondition,
+    /// The SMT encoding could not pose the query. The limit belongs to the encoding, not to
+    /// the pattern: the predicates are still constraints, and the verdict is open.
+    Untranslatable(TranslationError),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -676,9 +679,11 @@ fn decide_rule_condition(
 ///
 /// Syntactic truth and membership in `known_predicates` are decided without the solver. The
 /// solver answers the rest within the timeout and retry bounds it was created with; the
-/// `Indeterminate` verdict names why it did not decide, and `Err` reports a query that could not
-/// be posed. The rewriter's `requires` check, standalone predicate simplification, and the
-/// residual-constraint discharge of pattern simplification all share this decision.
+/// `Indeterminate` verdict names why it did not decide, including a query the SMT encoding
+/// could not pose, which leaves the predicates as open constraints. `Err` reports a solver
+/// failure other than those. The rewriter's `requires` check, standalone predicate
+/// simplification, and the residual-constraint discharge of pattern simplification all share
+/// this decision.
 pub(crate) fn decide_condition(
     predicates: &[Predicate],
     known_predicates: &[Predicate],
@@ -710,16 +715,22 @@ pub(crate) fn decide_condition(
         Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
             ConditionIndeterminacy::NoSolver,
         )),
+        Err(SmtError::Translation(error)) => Ok(RuleCondition::Indeterminate(
+            ConditionIndeterminacy::Untranslatable(error),
+        )),
         Err(error) => Err(error),
     }
 }
 
-/// Whether an indeterminate verdict came from a solver that was asked and did not answer, as
-/// opposed to a missing solver or an implication that is genuinely open.
+/// Whether an indeterminate verdict came from a solver that was asked and did not answer,
+/// including a query its encoding could not pose, as opposed to a missing solver or an
+/// implication that is genuinely open.
 fn solver_could_not_answer(reason: &ConditionIndeterminacy) -> bool {
     matches!(
         reason,
-        ConditionIndeterminacy::InconsistentPathCondition | ConditionIndeterminacy::SmtUnknown(_)
+        ConditionIndeterminacy::InconsistentPathCondition
+            | ConditionIndeterminacy::SmtUnknown(_)
+            | ConditionIndeterminacy::Untranslatable(_)
     )
 }
 
@@ -2548,12 +2559,14 @@ fn evaluate_ensures(
             match solver.check_predicates(known_predicates, &Substitution::new(), &ensures) {
                 Ok(Validity::Invalid) => return Ok(EnsuresVerdict::Refuted),
                 Ok(Validity::Valid) => return Ok(EnsuresVerdict::Holds),
+                // An `ensures` the encoding cannot pose is still a conjunct of the result; the
+                // verdict is open and the predicate is carried, as for an unavailable solver.
                 Ok(
                     Validity::Indeterminate
                     | Validity::InconsistentGroundTruth
                     | Validity::Unknown(_),
                 )
-                | Err(SmtError::Unavailable) => {}
+                | Err(SmtError::Unavailable | SmtError::Translation(_)) => {}
                 Err(error) => {
                     return Err(SimplificationError::Smt {
                         rule_id: rule.attributes.unique_id.clone(),

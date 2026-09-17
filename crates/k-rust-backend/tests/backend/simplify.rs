@@ -7,7 +7,7 @@ use k_rust_backend::{
     rewrite::Pattern,
     rule::Predicate,
     simplify::*,
-    smt::{NoSolver, SmtError, SmtSolver, Validity},
+    smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::Substitution,
     term::{Sort, Term, TermKind, Variable},
 };
@@ -58,6 +58,37 @@ impl SmtSolver for FixedValiditySolver {
         _checked: &[Predicate],
     ) -> Result<Validity, SmtError> {
         Ok(self.0.clone())
+    }
+}
+
+/// A solver whose encoding cannot pose any query.
+struct UntranslatableSolver(TranslationError);
+
+impl UntranslatableSolver {
+    fn non_boolean_and(definition: &BackendDefinition) -> Self {
+        Self(TranslationError::NonBooleanAnd(term(
+            definition,
+            r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
+        )))
+    }
+}
+
+impl SmtSolver for UntranslatableSolver {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Result<k_rust_backend::smt::Satisfiability, SmtError> {
+        unreachable!()
+    }
+
+    fn check_predicates(
+        &self,
+        _known: &[Predicate],
+        _substitution: &Substitution,
+        _checked: &[Predicate],
+    ) -> Result<Validity, SmtError> {
+        Err(SmtError::Translation(self.0.clone()))
     }
 }
 
@@ -2546,6 +2577,105 @@ fn standalone_predicate_simplification_keeps_the_residual_on_smt_unknown() {
 }
 
 #[test]
+fn standalone_predicate_simplification_keeps_the_residual_when_untranslatable() {
+    let definition = definition("");
+    let predicate = Predicate::Term(term(&definition, "X:SortS{}"));
+    let solver = UntranslatableSolver::non_boolean_and(&definition);
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+    });
+    let result = result.expect("an untranslatable residual predicate is kept, not an error");
+
+    assert_eq!(result, predicate);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedPredicate {
+            predicate,
+            reason: ConditionIndeterminacy::Untranslatable(solver.0.clone()),
+        }]
+    );
+}
+
+#[test]
+fn pattern_simplification_keeps_an_untranslatable_constraint() {
+    let definition = residual_constraint_definition();
+    let pattern = Pattern {
+        term: term(&definition, "wrap{}(X:SortS{})"),
+        constraints: vec![Predicate::Term(term(&definition, "holds{}(X:SortS{})"))],
+    };
+    let solver = UntranslatableSolver::non_boolean_and(&definition);
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_pattern_with_solver(
+            &definition,
+            &pattern,
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .expect("an untranslatable residual constraint is kept, not an error")
+    });
+
+    assert_eq!(result, pattern);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedPredicate {
+            predicate: pattern.constraints[0].clone(),
+            reason: ConditionIndeterminacy::Untranslatable(solver.0.clone()),
+        }]
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn z3_keeps_a_predicate_its_encoding_cannot_pose() {
+    use k_rust_backend::smt::Z3Solver;
+
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            endmodule []"#,
+    )
+    .unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+    // A term-level `\and` of two integers has no SMT encoding; the predicate is still a
+    // constraint and comes back unchanged.
+    let predicate = Predicate::Equals(
+        term(&definition, "X:SortInt{}"),
+        Term::and(
+            term(&definition, "Y:SortInt{}"),
+            term(&definition, "Z:SortInt{}"),
+        ),
+    );
+
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &Z3Solver::new(&definition).unwrap(),
+        )
+    });
+    let result = result.expect("an untranslatable predicate is kept, not an error");
+
+    assert_eq!(result, predicate);
+    assert!(matches!(
+        diagnostics.as_slice(),
+        [BackendDiagnostic::UndecidedPredicate {
+            reason: ConditionIndeterminacy::Untranslatable(TranslationError::NonBooleanAnd(_)),
+            ..
+        }]
+    ));
+}
+
+#[test]
 fn unknown_function_condition_leaves_the_application_unevaluated() {
     let definition = conditional_nullary_function();
     let input = term(&definition, "f{}()");
@@ -2571,6 +2701,69 @@ fn unknown_function_condition_leaves_the_application_unevaluated() {
             predicates,
         }] if rule_id == "conditional" && reason == "timeout" && predicates.len() == 1
     ));
+}
+
+#[test]
+fn untranslatable_condition_is_indeterminate_not_an_error() {
+    // A `requires` the SMT encoding cannot pose is still a constraint of the equation; the
+    // verdict is open, the application is retained, and the limit is reported.
+    let definition = conditional_nullary_function();
+    let input = term(&definition, "f{}()");
+    let solver = UntranslatableSolver::non_boolean_and(&definition);
+
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+    });
+    let result = result.expect("an untranslatable condition should not be an error");
+
+    assert_eq!(result.term, input);
+    assert!(result.applied_rules.is_empty());
+    assert!(matches!(
+        diagnostics.as_slice(),
+        [BackendDiagnostic::UndecidedCondition {
+            rule_id,
+            reason: ConditionIndeterminacy::Untranslatable(error),
+            predicates,
+        }] if rule_id == "conditional" && error == &solver.0 && predicates.len() == 1
+    ));
+}
+
+#[test]
+fn untranslatable_definedness_obligation_is_carried() {
+    // The obligation `\ceil(f(X))` of the element binding stays open when the encoding cannot
+    // pose it: the equation applies and the obligation is a constraint of the result.
+    let definition = discard_definition();
+    let input = term(&definition, "discard{}(f{}(X:SortS{}))");
+    let obligation = Predicate::Ceil(term(&definition, "f{}(X:SortS{})"));
+    let solver = UntranslatableSolver::non_boolean_and(&definition);
+
+    let (result, diagnostics) = diagnostic::collect(|| {
+        simplify_with_solver(
+            &definition,
+            &input,
+            &[],
+            SimplificationOptions::default(),
+            &solver,
+        )
+    });
+    let result = result.expect("an untranslatable obligation should not be an error");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
+    assert_eq!(result.constraints, vec![obligation.clone()]);
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UndecidedCondition {
+            rule_id: "discard".into(),
+            reason: ConditionIndeterminacy::Untranslatable(solver.0.clone()),
+            predicates: vec![obligation],
+        }]
+    );
 }
 
 #[test]

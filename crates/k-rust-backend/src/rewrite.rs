@@ -2795,6 +2795,12 @@ fn apply_rule_with_match(
                     error: SmtError::Unknown(reason),
                 });
             }
+            Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::Untranslatable(error))) => {
+                return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    error: SmtError::Translation(error),
+                });
+            }
             Err(error) => {
                 return RuleAttempt::Indeterminate(IndeterminateReason::Smt {
                     rule_id: rule.attributes.unique_id.clone(),

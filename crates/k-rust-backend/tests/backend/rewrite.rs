@@ -13,7 +13,7 @@ use k_rust_backend::{
         BudgetSubject, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
         SimplificationOptions,
     },
-    smt::{NoSolver, Satisfiability, SmtError, SmtSolver, Validity},
+    smt::{NoSolver, Satisfiability, SmtError, SmtSolver, TranslationError, Validity},
     substitution::Substitution,
     term::{Sort, Term, TermKind},
     timeout::StepTimeoutMode,
@@ -1463,6 +1463,51 @@ fn aborts_before_lower_priorities_when_requires_are_unknown() {
             reason: IndeterminateReason::Requires { rule_id, .. },
             ..
         } if rule_id == "conditional"
+    ));
+}
+
+#[test]
+fn untranslatable_requires_is_an_smt_indeterminate_leaf() {
+    // A `requires` the SMT encoding cannot pose is still a constraint of the rule instance,
+    // so the attempt is indeterminate and the leaf names the encoding limit, not a failure.
+    let definition = definition(
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("zero"))
+                ),
+                \dv{SortS{}}("conditional")
+            ) [label{}("conditional"), priority{}("10")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("fallback")
+            ) [label{}("fallback"), priority{}("50")]
+            "#,
+    );
+    let pattern = Pattern {
+        term: internal_term(&definition, "wrap{}(Y:SortS{})"),
+        constraints: Vec::new(),
+    };
+    let untranslatable = TranslationError::NonBooleanAnd(internal_term(
+        &definition,
+        r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
+    ));
+    let solver = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Err(SmtError::Translation(untranslatable.clone())),
+    };
+    let mut fresh = 0;
+
+    assert!(matches!(
+        rewrite_step_with_solver(&definition, &pattern, &mut fresh, &solver),
+        RewriteResult::Indeterminate {
+            reason: IndeterminateReason::Smt {
+                rule_id,
+                error: SmtError::Translation(error),
+            },
+            ..
+        } if rule_id == "conditional" && error == untranslatable
     ));
 }
 
