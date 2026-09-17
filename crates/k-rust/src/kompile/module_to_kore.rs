@@ -21,7 +21,7 @@ use crate::kore::ast::{
     Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
     Sort as KoreSort, Symbol, Variable, VariableKind,
 };
-use crate::names::{BuiltinSort, WellKnownSymbol};
+use crate::names::{BuiltinSort, KoreAttribute, WellKnownSymbol};
 use crate::provenance::{
     GeneratingPass, ProvenanceLink, seed_generated_sentence_origin, sentence_origin_links,
 };
@@ -611,7 +611,7 @@ fn definition_attributes(
     {
         attributes.push(Pattern::Application {
             symbol: Symbol {
-                name: "topCellInitializer".into(),
+                name: KoreAttribute::TopCellInitializer.as_str().into(),
                 sort_parameters: Vec::new(),
             },
             arguments: vec![Pattern::Application {
@@ -623,7 +623,7 @@ fn definition_attributes(
     if let Some(source) = definition.module(module_id).attributes.source() {
         attributes.push(Pattern::Application {
             symbol: Symbol {
-                name: identifier::encode(AttributeKey::Source.as_str()),
+                name: KoreAttribute::from(AttributeKey::Source).as_str().into(),
                 sort_parameters: Vec::new(),
             },
             arguments: vec![Pattern::String(format!("Source({source})"))],
@@ -1297,7 +1297,7 @@ fn no_confusion_axioms(
                 }),
                 right: Box::new(merged),
             }),
-            attributes: marker_attribute("constructor"),
+            attributes: marker_attribute(KoreAttribute::Constructor),
         });
     }
 
@@ -1338,7 +1338,7 @@ fn no_confusion_axioms(
                     ],
                 }),
             }),
-            attributes: marker_attribute("constructor"),
+            attributes: marker_attribute(KoreAttribute::Constructor),
         });
     }
     axioms
@@ -1514,7 +1514,7 @@ fn no_junk_axioms(
         axioms.push(KoreSentence::Axiom {
             parameters: Vec::new(),
             pattern: Box::new(pattern),
-            attributes: marker_attribute("constructor"),
+            attributes: marker_attribute(KoreAttribute::Constructor),
         });
     }
     axioms
@@ -1680,7 +1680,7 @@ fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
                 }),
             }),
         }),
-        attributes: marker_attribute("functional"),
+        attributes: marker_attribute(KoreAttribute::Functional),
     })
 }
 
@@ -1786,7 +1786,7 @@ fn algebraic_axioms(
                     ]),
                 ])),
             }),
-            attributes: marker_attribute("assoc"),
+            attributes: marker_attribute(KoreAttribute::Assoc),
         });
     }
 
@@ -1824,7 +1824,7 @@ fn algebraic_axioms(
                 }),
                 right: Box::new(Pattern::Variable(variable)),
             }),
-            attributes: marker_attribute("idem"),
+            attributes: marker_attribute(KoreAttribute::Idem),
         });
     }
 
@@ -1867,7 +1867,7 @@ fn algebraic_axioms(
                     }),
                     right: Box::new(Pattern::Variable(variable.clone())),
                 }),
-                attributes: marker_attribute("unit"),
+                attributes: marker_attribute(KoreAttribute::Unit),
             });
         }
     }
@@ -1906,10 +1906,10 @@ fn generated_sort_parameters(parameters: &[Sort]) -> Vec<String> {
         .collect()
 }
 
-fn marker_attribute(name: &str) -> Attributes {
+fn marker_attribute(attribute: KoreAttribute) -> Attributes {
     Attributes(vec![Pattern::Application {
         symbol: Symbol {
-            name: name.into(),
+            name: attribute.as_str().into(),
             sort_parameters: Vec::new(),
         },
         arguments: Vec::new(),
@@ -1967,7 +1967,7 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
         }),
         attributes: Attributes(vec![Pattern::Application {
             symbol: Symbol {
-                name: "subsort".into(),
+                name: KoreAttribute::Subsort.as_str().into(),
                 sort_parameters: vec![subsort, sort],
             },
             arguments: Vec::new(),
@@ -2034,7 +2034,7 @@ fn overload_axiom(
         }),
         attributes: Attributes(vec![Pattern::Application {
             symbol: Symbol {
-                name: "symbol-overload".into(),
+                name: KoreAttribute::SymbolOverload.as_str().into(),
                 sort_parameters: Vec::new(),
             },
             arguments: vec![
@@ -3685,7 +3685,7 @@ fn emit_attributes(
             });
             Pattern::Application {
                 symbol: Symbol {
-                    name: identifier::encode(&key),
+                    name: kore_attribute_name(&key),
                     sort_parameters: Vec::new(),
                 },
                 arguments,
@@ -3693,6 +3693,82 @@ fn emit_attributes(
         })
         .collect();
     Attributes(patterns)
+}
+
+/// The KORE symbol of an emitted attribute: the vocabulary's spelling for a well-known key
+/// that reaches `definition.kore`, the encoder for an override-only key (`left`, `right`).
+fn kore_attribute_name(key: &str) -> String {
+    match AttributeKey::from_name(key) {
+        Some(key) if key.emits() => KoreAttribute::from(key).as_str().to_owned(),
+        _ => identifier::encode(key),
+    }
+}
+
+/// The KORE attribute symbol of every key with `emits()`; the kore crate does not learn K keys,
+/// so the link lives with the emitter. `every_emitted_key_names_the_kore_attribute_the_backend_reads`
+/// pins each spelling against `identifier::encode` and reaches every non-marker variant.
+impl From<AttributeKey> for KoreAttribute {
+    fn from(key: AttributeKey) -> Self {
+        match key {
+            AttributeKey::Label => Self::Label,
+            AttributeKey::Concrete => Self::Concrete,
+            AttributeKey::Symbolic => Self::Symbolic,
+            AttributeKey::Token => Self::Token,
+            AttributeKey::Hook => Self::Hook,
+            AttributeKey::Comm => Self::Comm,
+            AttributeKey::Priority => Self::Priority,
+            AttributeKey::Circularity => Self::Circularity,
+            AttributeKey::Trusted => Self::Trusted,
+            AttributeKey::Depends => Self::Depends,
+            AttributeKey::Cool => Self::Cool,
+            AttributeKey::NonExecutable => Self::NonExecutable,
+            AttributeKey::Owise => Self::Owise,
+            AttributeKey::PreservesDefinedness => Self::PreservesDefinedness,
+            AttributeKey::SmtLemma => Self::SmtLemma,
+            AttributeKey::Anywhere => Self::Anywhere,
+            AttributeKey::Simplification => Self::Simplification,
+            AttributeKey::Syntactic => Self::Syntactic,
+            AttributeKey::Colors => Self::Colors,
+            AttributeKey::Element => Self::Element,
+            AttributeKey::Format => Self::Format,
+            AttributeKey::Klabel => Self::Klabel,
+            AttributeKey::Smtlib => Self::Smtlib,
+            AttributeKey::SmtHook => Self::SmtHook,
+            AttributeKey::Unit => Self::Unit,
+            AttributeKey::Update => Self::Update,
+            AttributeKey::Symbol => Self::Symbol,
+            AttributeKey::Alias => Self::Alias,
+            AttributeKey::AliasRec => Self::AliasRec,
+            AttributeKey::Assoc => Self::Assoc,
+            AttributeKey::Binder => Self::Binder,
+            AttributeKey::Bracket => Self::Bracket,
+            AttributeKey::Cell => Self::Cell,
+            AttributeKey::Constructor => Self::Constructor,
+            AttributeKey::Deprecated => Self::Deprecated,
+            AttributeKey::FreshGenerator => Self::FreshGenerator,
+            AttributeKey::Function => Self::Function,
+            AttributeKey::Functional => Self::Functional,
+            AttributeKey::Idem => Self::Idem,
+            AttributeKey::Impure => Self::Impure,
+            AttributeKey::Injective => Self::Injective,
+            AttributeKey::Macro => Self::Macro,
+            AttributeKey::MacroRec => Self::MacroRec,
+            AttributeKey::Memo => Self::Memo,
+            AttributeKey::NoEvaluators => Self::NoEvaluators,
+            AttributeKey::Total => Self::Total,
+            AttributeKey::Concat => Self::Concat,
+            AttributeKey::CoolLike => Self::CoolLike,
+            AttributeKey::HasDomainValues => Self::HasDomainValues,
+            AttributeKey::Nat => Self::Nat,
+            AttributeKey::Priorities => Self::Priorities,
+            AttributeKey::Source => Self::Source,
+            AttributeKey::Location => Self::Location,
+            AttributeKey::SymbolOverload => Self::SymbolOverload,
+            AttributeKey::Terminals => Self::Terminals,
+            AttributeKey::UniqueId => Self::UniqueId,
+            _ => unreachable!("{key:?} does not reach definition.kore"),
+        }
+    }
 }
 
 fn attribute_value_string(key: &str, value: &Value) -> String {
@@ -4116,5 +4192,28 @@ mod tests {
                 .collect::<Vec<_>>(),
             [Sort::new("A"), Sort::new("B")]
         );
+    }
+
+    /// The emitter and the backend agree on every attribute spelling: each emitted key's
+    /// encoded name is its `KoreAttribute`, and every variant a key can produce is produced.
+    #[test]
+    fn every_emitted_key_names_the_kore_attribute_the_backend_reads() {
+        let mut reached = BTreeSet::new();
+        for key in AttributeKey::ALL.into_iter().filter(|key| key.emits()) {
+            let attribute = KoreAttribute::from(key);
+            assert_eq!(
+                identifier::encode(key.as_str()),
+                attribute.as_str(),
+                "{key:?}"
+            );
+            reached.insert(attribute.as_str());
+        }
+        for attribute in KoreAttribute::ALL {
+            assert_eq!(
+                reached.contains(attribute.as_str()),
+                !KoreAttribute::WITHOUT_KEY.contains(&attribute),
+                "{attribute:?}"
+            );
+        }
     }
 }
