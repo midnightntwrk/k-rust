@@ -414,6 +414,51 @@ fn equation_set_variable_bindings_do_not_require_definedness() {
 }
 
 #[test]
+fn element_variable_bindings_to_set_patterns_are_indeterminate() {
+    // `f(I) = pair(I, I)` is an axiom for every element `I`; on `f(@Y)` it would give the union
+    // over the elements `y` of `@Y` of `pair(y, y)`, not `pair(@Y, @Y)`. The attempt is
+    // indeterminate and the function stays unevaluated: the subject is retained without an
+    // error, and the owise equation, which binds its argument to an element variable as every
+    // function equation does, does not fire in its place.
+    let definition = definition(
+        r#"
+            symbol pair{}(SortS{}, SortS{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, I:SortS{}), \top{R}())),
+                \equals{SortS{}, R}(
+                    f{}(X0:SortS{}),
+                    \and{SortS{}}(pair{}(I:SortS{}, I:SortS{}), \top{SortS{}}())
+                )
+            ) [label{}("duplicate")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, J:SortS{}), \top{R}())),
+                \equals{SortS{}, R}(
+                    f{}(X0:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("owise"), \top{SortS{}}())
+                )
+            ) [label{}("owise"), priority{}("200")]
+            "#,
+    );
+
+    let input = term(&definition, "f{}(@Y:SortS{})");
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("a non-functional binding is not an error");
+    assert_eq!(result.term, input);
+    assert!(result.constraints.is_empty());
+    assert!(result.applied_rules.is_empty());
+
+    // Positive control: an element variable is one element, so the equation applies.
+    let input = term(&definition, "f{}(X:SortS{})");
+    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+    assert_eq!(
+        result.term,
+        term(&definition, "pair{}(X:SortS{}, X:SortS{})")
+    );
+    assert_eq!(result.applied_rules, ["duplicate"]);
+}
+
+#[test]
 fn evaluates_overload_axioms_before_the_overloaded_function() {
     let syntax = parse_definition(
         r#"[]

@@ -611,6 +611,10 @@ pub enum ConditionIndeterminacy {
     /// The SMT encoding could not pose the query. The limit belongs to the encoding, not to
     /// the pattern: the predicates are still constraints, and the verdict is open.
     Untranslatable(TranslationError),
+    /// The match binds an element variable to a pattern that contains a set variable, so the
+    /// binding is not known to be functional and the equation's instance is not justified;
+    /// see `binds_element_variable_to_set_pattern`.
+    NonFunctionalBinding,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1137,6 +1141,11 @@ fn apply_ceil_equation(
     {
         return Ok(EquationAttempt::NotApplicable);
     }
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
+    }
 
     let requires =
         equation_match_conditions(definition, &rule.requires, &substitution).into_conjuncts();
@@ -1211,6 +1220,11 @@ fn apply_predicate_equation(
         }
         PredicateMatch::Success(substitution) => substitution,
     };
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
+    }
     let requires =
         equation_match_conditions(definition, &rule.requires, &substitution).into_conjuncts();
     match evaluate_rule_condition(
@@ -1871,6 +1885,9 @@ fn matches_top_equation(
                 .keys()
                 .any(|variable| !rule.lhs.attributes().variables.contains(variable))
                 || check_concreteness(rule, &substitution).is_some()
+                // A non-functional binding leaves the equation undecided; this path has no
+                // indeterminate channel and passes over it as it does an undecided `requires`.
+                || binds_element_variable_to_set_pattern(&substitution)
             {
                 continue;
             }
@@ -2304,6 +2321,27 @@ impl EquationConditions {
     }
 }
 
+/// Whether `substitution` binds an element variable to a pattern containing a set variable.
+///
+/// An element variable ranges over elements; a set variable over arbitrary patterns. An
+/// equation `f(I) = rhs[I] requires R[I]` over an element variable `I` is an axiom for every
+/// element `i`, and `f(t) = rhs[t]` for a term `t` follows only when `t` is functional: applied
+/// to `f(@Y)`, the equation gives the union over the elements `y` of `@Y` of `rhs[y]`, which is
+/// `rhs[@Y]` only when `rhs` and `R` are linear in `I`. The binding `I := t` with a set variable
+/// in `t` therefore does not justify the substitution and the attempt stays indeterminate: the
+/// subject is retained, and no other equation of the group fires in its place. The converse
+/// direction, a rule-side set variable bound to any subject pattern, is sound and unaffected.
+pub(crate) fn binds_element_variable_to_set_pattern(substitution: &Substitution) -> bool {
+    substitution.iter().any(|(variable, value)| {
+        variable.kind == VariableKind::Element
+            && value
+                .attributes()
+                .variables
+                .iter()
+                .any(|bound| bound.kind == VariableKind::Set)
+    })
+}
+
 fn equation_match_conditions(
     definition: &BackendDefinition,
     requires: &[Predicate],
@@ -2372,6 +2410,11 @@ fn apply_equation(
     }
     if check_concreteness(rule, &substitution).is_some() {
         return Ok(EquationAttempt::NotApplicable);
+    }
+    if binds_element_variable_to_set_pattern(&substitution) {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ));
     }
     let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound

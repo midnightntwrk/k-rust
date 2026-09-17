@@ -1467,6 +1467,48 @@ fn aborts_before_lower_priorities_when_requires_are_unknown() {
 }
 
 #[test]
+fn element_variable_bindings_to_set_patterns_do_not_rewrite() {
+    // `wrap(I) => pair(I, I)` is an axiom for every element `I`; instantiating it at the set
+    // variable `@Y` is not justified, so the step is indeterminate rather than a rewrite.
+    let definition = definition(
+        r#"
+            symbol pair{}(SortS{}, SortS{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(I:SortS{}), \top{SortS{}}()),
+                pair{}(I:SortS{}, I:SortS{})
+            ) [label{}("duplicate")]
+            "#,
+    );
+    let mut fresh = 0;
+
+    let set_subject = Pattern {
+        term: internal_term(&definition, "wrap{}(@Y:SortS{})"),
+        constraints: Vec::new(),
+    };
+    assert!(matches!(
+        rewrite_step(&definition, &set_subject, &mut fresh),
+        RewriteResult::Indeterminate {
+            reason: IndeterminateReason::Match { rule_id, remainder, .. },
+            ..
+        } if rule_id == "duplicate" && remainder.is_empty()
+    ));
+
+    let element_subject = Pattern {
+        term: internal_term(&definition, "wrap{}(X:SortS{})"),
+        constraints: Vec::new(),
+    };
+    let RewriteResult::Finished(applied) = rewrite_step(&definition, &element_subject, &mut fresh)
+    else {
+        panic!("an element variable subject should rewrite");
+    };
+    assert_eq!(
+        applied.pattern.term,
+        internal_term(&definition, "pair{}(X:SortS{}, X:SortS{})")
+    );
+}
+
+#[test]
 fn untranslatable_requires_is_an_smt_indeterminate_leaf() {
     // A `requires` the SMT encoding cannot pose is still a constraint of the rule instance,
     // so the attempt is indeterminate and the leaf names the encoding limit, not a failure.
