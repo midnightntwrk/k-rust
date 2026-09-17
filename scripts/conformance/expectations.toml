@@ -43,11 +43,6 @@ decided_by = "docs/compatibility.md#reference-evidence"
 meaning = "Both toolchains reject the input; differing diagnostic presentation is not semantic."
 
 [[category]]
-id = "presentation-only"
-decided_by = "docs/compatibility.md#comparison-contract"
-meaning = "The compared text differs while the represented result is semantically equal."
-
-[[category]]
 id = "stale-oracle"
 decided_by = "docs/compatibility.md#reference-evidence"
 meaning = "The checked-in output was not reproduced by the pinned reference toolchain."

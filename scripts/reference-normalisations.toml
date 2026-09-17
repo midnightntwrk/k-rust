@@ -224,7 +224,11 @@ justification = "The driver translates K recipes into the supported krust CLI co
 id = "C7"
 anchor = "scripts/conformance/run.py:rename_existentials"
 anchor_symbol = "rename_existentials"
-anchor_helpers = ["pattern_existentials", "execution_text_diff", "EXISTENTIAL_TOKEN"]
+anchor_helpers = [
+  "pattern_existentials",
+  "execution_text_diff",
+  "EXISTENTIAL_TOKEN",
+]
 rule = "Compare kprint execution text modulo a bijective, sort-preserving renaming of existential variables, the `?Name:Sort` tokens outside string literals, renamed by first occurrence per disjunct before the C1 sort. Every other variable, including the search pattern's, is compared literally, and a `?` variable named in the recipe's --pattern text is fixed too."
 justification = "`?` is K's marker for a rule existential and kprint prints that shape only for Var'Ques' names; the reference instantiates them through Kore's fresh counter and keeps an engine-chosen unification representative, which N4 already classes as engine-named. Renaming by first occurrence preserves sharing, so `?A -> ?A` and `?A -> ?B` stay distinct. See docs/compatibility.md#comparison-contract."
 
@@ -299,7 +303,10 @@ id = "N26"
 gate = "execution"
 anchor = "crates/k-rust/tests/reference_differential.rs:compare_execution_any_membership"
 anchor_symbol = "compare_execution_any_membership"
-anchor_helpers = ["pair_disjuncts", "executed_kore_matches_the_reference_backend"]
+anchor_helpers = [
+  "pair_disjuncts",
+  "executed_kore_matches_the_reference_backend",
+]
 rule = "For an any-strategy run, require the port result to be a non-empty sub-multiset of the reference all-strategy result: every port disjunct pairs with a distinct reference disjunct by equal term and N4/N15-equal constraints; unpaired reference disjuncts are allowed and counted."
 justification = "A single-successor execution is one member of the successor set; which member an engine follows among equal-priority rules is engine-internal, exactly as docs/compatibility.md#search-results already states for --bound N. The port's --strategy all runs stay under the exact multiset comparison (N7)."
 env = "K_DIFFERENTIAL_STRATEGY=any"
