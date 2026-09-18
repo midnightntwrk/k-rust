@@ -2061,17 +2061,17 @@ reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the defini
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
-# Temporary discovery setting: every macro-using program is killed (CB-14-1) while the five macro-free
-# ones match in about 2.5 s, so a 20 s step budget measures all 51 programs inside 1200 s. Remove both
-# once CB-14-1 lands and the case is re-measured.
-budget = 1200
-step_budget = 20
+# Temporary, from measurement: the 15 programs that match take at most 3.2 s, and the other 35 do not
+# terminate in 1800 s each (sequence 25 sweep-1800; ackermann.fun not in 3600 s, sequence 23), so a
+# 60 s step budget kills nothing that would finish. Remove both once CB-14-1 lands and re-measure.
+budget = 2700
+step_budget = 60
 accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 25 (label fun-step-budget-20, branch chore/simple-budget-ceilings, budget 1200 s, step_budget 20 s): the whole corpus is measured for the first time, 51 steps in 751.5 s. The definition compiles and its KORE matches the reference; 15 programs match through the C9 stdout comparison in 2.4 to 3.2 s (callcc-1 to -5, factorial, list-4, list-nth, polymorphism-1 to -4 and -6, references-5, stuck-letrec), and the other 35 are each killed at the 20 s step budget with no mismatch. Every killed program uses a construct FUN desugars (datatype, ref, try, head/tail/null?, or a multi-clause or list-pattern function) and every matching one is single-clause and macro-free, which is CB-14-1: krun expands program macros in the syntax module's scope, so FUN-UNTYPED-MACROS macros survive into execution. Sequences 21, 23 and 24 had lost the corpus to ackermann.fun (killed at 289.6 s, 3587.7 s and 60 s) before the step budget existed (DF-06). Remove the budget and step budget once CB-14-1 lands and the case is re-measured. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
+reason = "Shared sequence 25 (label fun-step-budget-20, branch chore/simple-budget-ceilings, budget 1200 s, step_budget 20 s, 751.5 s) measured all 51 steps: the definition compiles and its KORE matches the reference; 15 programs match through the C9 stdout comparison in 2.4 to 3.2 s (callcc-1 to -5, factorial, list-4, list-nth, polymorphism-1 to -4 and -6, references-5, stuck-letrec) and 35 are killed, with no mismatch. The 35 kills are not a budget artifact: re-run from the same work tree with the recorded commands and a 1800 s kill each (target/conformance/runs/25-fun-step-budget-20/sweep-1800/), all 35 run the full 1800 s with empty output, most at 1.2 to 2.3 GiB and list-max at 21 GiB, and ackermann.fun was killed at 3587.7 s in sequence 23. Every killed program uses a construct FUN desugars (datatype, ref, try, head/tail/null?, or a multi-clause or list-pattern function) and every matching one is single-clause and macro-free: CB-14-1, krun expanding program macros in the syntax module's scope so FUN-UNTYPED-MACROS macros survive into execution. The 60 s step budget is from those measurements and kills nothing that would finish; remove it and the case budget once CB-14-1 lands and re-measure. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
 
 [[case]]
 name = "poly-kitem"
