@@ -3574,6 +3574,182 @@ endmodule
 }
 
 #[test]
+fn kprove_keeps_definition_and_spec_markdown_selectors_distinct() {
+    let (root, _) = fixture();
+    let semantics = root.join("semantics.md");
+    let specification = root.join("spec.md");
+    let reread_specification = root.join("reread-spec.md");
+    let compiled = root.join("compiled");
+    let definition_selector = "(k|keep) & !discard";
+    fs::write(
+        &semantics,
+        r#"
+```k
+requires "domains.md"
+module SEMANTICS
+  imports INT
+  syntax State ::= "a" [symbol(a)] | "b" [symbol(b)]
+  configuration <k> $PGM:State </k>
+```
+```keep
+  rule <k> a => b </k>
+```
+```discard
+  rule <k> b => a </k>
+```
+```k
+endmodule
+```
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &specification,
+        r#"
+```keep
+module SPEC
+  imports SEMANTICS
+  claim <k> a => b </k> [label(reaches-b)]
+  claim <k> b => b </k> [label(stays-b)]
+endmodule
+```
+```discard
+module DISCARDED imports MISSING-DISCARDED endmodule
+```
+```k
+module WRONG-SELECTOR imports MISSING-K endmodule
+```
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &reread_specification,
+        r#"
+```k
+requires "semantics.md"
+module REREAD-SPEC
+  imports SEMANTICS
+  claim <k> b => b </k> [label(reloads-identical-semantics)]
+endmodule
+```
+"#,
+    )
+    .unwrap();
+
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            semantics.to_str().unwrap(),
+            "--main-module",
+            "SEMANTICS",
+            "--md-selector",
+            definition_selector,
+            "--for-proving",
+            "--output-directory",
+            compiled.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let proof = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--md-selector",
+            "keep&!(discard|k)",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        proof.status.success(),
+        "{}",
+        String::from_utf8_lossy(&proof.stderr)
+    );
+    let stdout = String::from_utf8(proof.stdout).unwrap();
+    assert!(stdout.contains("claim reaches-b: proven"), "{stdout}");
+    assert!(stdout.contains("claim stays-b: proven"), "{stdout}");
+
+    let without_prepared = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--md-selector",
+            "keep&!(discard|k)",
+        ])
+        .output()
+        .unwrap();
+    assert!(!without_prepared.status.success());
+    assert!(
+        String::from_utf8_lossy(&without_prepared.stderr)
+            .contains("imports missing module \"SEMANTICS\"")
+    );
+
+    let same_selector = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            reread_specification.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "--main-module",
+            "REREAD-SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--md-selector",
+            definition_selector,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        same_selector.status.success(),
+        "{}",
+        String::from_utf8_lossy(&same_selector.stderr)
+    );
+
+    let changed_selector = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            reread_specification.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "--main-module",
+            "REREAD-SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--md-selector",
+            "k",
+        ])
+        .output()
+        .unwrap();
+    assert!(!changed_selector.status.success());
+    let stderr = String::from_utf8_lossy(&changed_selector.stderr);
+    assert!(
+        stderr.contains("differs from previous declaration"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("This can happen if --md-selector differs for kompile and kprove"),
+        "{stderr}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kprove_rejects_unsupported_prepared_manifest_versions() {
     let (root, definition) = fixture();
     let compiled = root.join("compiled");

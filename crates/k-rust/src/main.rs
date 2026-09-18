@@ -48,8 +48,9 @@ use k_rust::{
     },
     native::FileResolver,
     outer::{
-        LoadOptions, SourceResolver, SyntaxModule, load_for_compilation_timed,
-        load_with_base_timed, load_with_options_timed, resolve_syntax_module,
+        LoadOptions, PreparedModuleDeclaration, SourceResolver, SyntaxModule,
+        load_for_compilation_timed, load_with_options_timed, load_with_prepared_base_timed,
+        prepared_module_declarations, resolve_syntax_module,
     },
     timings::{PhaseTiming, PhaseTimings},
 };
@@ -1180,6 +1181,8 @@ struct PreparedDefinitionManifest {
     format: String,
     version: u32,
     sources: Vec<String>,
+    #[serde(default)]
+    modules: Vec<PreparedModuleDeclaration>,
 }
 
 #[derive(Debug, Default)]
@@ -1799,18 +1802,26 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             )?;
         }
         if options.for_proving {
-            let mut sources = if let Some(prepared) = &options.compiled_definition {
-                load_prepared_manifest(prepared)?.sources
+            let (mut sources, mut modules) = if let Some(prepared) = &options.compiled_definition {
+                let manifest = load_prepared_manifest(prepared)?;
+                (manifest.sources, manifest.modules)
             } else {
-                Vec::new()
+                (Vec::new(), Vec::new())
             };
             sources.extend(loaded.files.iter().map(|file| file.source.clone()));
             sources.sort();
             sources.dedup();
+            modules.extend(prepared_module_declarations(
+                &loaded.files,
+                &loaded.definition,
+            ));
+            modules.sort();
+            modules.dedup();
             let manifest = PreparedDefinitionManifest {
                 format: PREPARED_FORMAT.into(),
                 version: 1,
                 sources,
+                modules,
             };
             fs::write(
                 options.output_directory.join(PREPARED_MANIFEST),
@@ -3580,7 +3591,7 @@ fn load_definition_against_prepared(
         let entry = resolver.load_entry(&options.definition)?;
         Ok::<_, Box<dyn Error>>((resolver, entry, manifest, base))
     })?;
-    let (loaded, loader_timings) = load_with_base_timed(
+    let (loaded, loader_timings) = load_with_prepared_base_timed(
         entry,
         &options.module,
         &mut resolver,
@@ -3597,6 +3608,7 @@ fn load_definition_against_prepared(
         },
         &base,
         &manifest.sources,
+        &manifest.modules,
     )?;
     timings.extend(loader_timings);
     Ok((loaded, timings))
