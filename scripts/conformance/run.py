@@ -15,7 +15,7 @@ ktest-group.mak SUBDIRS recursively) the driver:
   6. on a remaining mismatch re-runs the reference recipe verbatim to confirm the .out is still the oracle.
 Results go to the requested results.toml (rewritten after every case) and per-case logs directory.
 """
-import argparse, json, math, os, re, shlex, shutil, subprocess, sys, threading, time
+import argparse, json, math, os, re, shlex, shutil, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tomllib
@@ -41,6 +41,8 @@ IGNORE_UNIQUE_ID = False
 CASE_BUDGET = 300.0
 CASE_BUDGETS = {}
 DIFF_LINES = 20
+WORK_TREE_MARKER = ".krust-conformance-source.json"
+REFERENCE_ERROR = object()
 
 TOOLS = {"kompile", "krun", "kast", "kprove", "kparse", "kdep", "kore-print", "k-rule-find", "llvm-krun", "kprint", "kserver"}
 KOMPILE_VALUE_OPTS = {"--backend", "--main-module", "--syntax-module", "--output-definition", "--md-selector", "-I",
@@ -211,6 +213,42 @@ def sh_to_file(cmd, cwd, timeout, stdout_path, env=None):
     except FileNotFoundError as error:
         rc, stderr, timed_out = 127, str(error).encode(), False
     return rc, stderr.decode("utf-8", "replace"), time.monotonic() - t0, timed_out
+
+
+def reference_process_env():
+    """Bound Haskell RTS parallelism for reference processes, as the differential gates do."""
+    return {"GHCRTS": os.environ.get("GHCRTS") or "-N1"}
+
+
+def output_excerpt(text):
+    return "\n".join(text.splitlines()[:DIFF_LINES])
+
+
+def is_reference_crash(text):
+    return re.search(
+        r"panicked|outofmemory|out of memory|segmentation fault|stack overflow|"
+        r"failed to create.*thread|cannot allocate memory|backend crashed",
+        text,
+        re.I,
+    ) is not None
+
+
+def memory_guard_suffix():
+    guard = os.environ.get("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "").strip()
+    return f" under the {guard} memory guard" if guard else ""
+
+
+def reference_failure_reason(prefix, rc, timed_out, stderr, empty_output=False):
+    if timed_out:
+        outcome = "timed out"
+    elif empty_output:
+        outcome = f"exit {rc}, empty stdout"
+    else:
+        outcome = f"exit {rc}"
+    excerpt = output_excerpt(stderr).strip()
+    crash = " (reference crash)" if is_reference_crash(stderr) else ""
+    detail = f": {excerpt}" if excerpt else ""
+    return f"{prefix} ({outcome}){crash}{detail}{memory_guard_suffix()}"
 
 
 def first_diff(expected, actual, n=DIFF_LINES):
@@ -552,7 +590,12 @@ def run_test_binary(name, env, cwd, timeout=120):
 
 
 def kprint(case, kore_path):
-    rc, out, err, _, _ = sh([f"{KBIN}/kprint", case.ref_kompiled, kore_path, "false"], case.dir, 60)
+    rc, out, err, _, _ = sh(
+        [f"{KBIN}/kprint", case.ref_kompiled, kore_path, "false"],
+        case.dir,
+        60,
+        env=reference_process_env(),
+    )
     return rc, out, err
 
 
@@ -626,7 +669,12 @@ def krust_kompile_args(case, rec, expect_fail=False):
 def do_kompile(case, rec, expect_fail):
     """Reference kompile (verbatim recipe) + krust kcompile + KORE comparison."""
     step = dict(step="kompile", ref_cmd=rec["raw"], out=rec["out"])
-    rc, out, err, secs, to = sh(["bash", "-c", rec["raw"]], case.dir, case.remaining())
+    rc, out, err, secs, to = sh(
+        ["bash", "-c", rec["raw"]],
+        case.dir,
+        case.remaining(),
+        env=reference_process_env(),
+    )
     case.logfile("kompile.ref.log", out + "\n--- stderr ---\n" + err)
     step["ref_rc"] = rc; step["ref_seconds"] = round(secs, 1)
     if to:
@@ -773,7 +821,8 @@ def run_bison_parsers(case):
         rust_stderr = os.path.join(case.log, f"bison__{key}.krust.stderr")
 
         rc, err, seconds, timed_out = sh_to_file(
-            [reference_parser, input_path], case.dir, case.remaining(), reference_output)
+            [reference_parser, input_path], case.dir, case.remaining(), reference_output,
+            env=reference_process_env())
         case.logfile(os.path.basename(reference_stderr), err)
         step["ref_rc"] = rc; step["ref_seconds"] = round(seconds, 1)
         if timed_out:
@@ -837,7 +886,13 @@ def program_sort_fallback(case, prog_path, stdin_path):
     if not case.ref_kompiled: return None
     args = [f"{KBIN}/kast", "--definition", case.ref_kompiled, "--output", "kore"]
     args += [prog_path] if prog_path else ["-"]
-    rc, out, err, _, _ = sh(args, case.dir, min(120, case.remaining()), stdin_path=stdin_path)
+    rc, out, err, _, _ = sh(
+        args,
+        case.dir,
+        min(120, case.remaining()),
+        stdin_path=stdin_path,
+        env=reference_process_env(),
+    )
     m = re.match(r"\s*inj\{Sort(\w+)\{\}, ?Sort(\w+)\{\}\}", out)
     if m: return m.group(1)
     m = re.match(r"\s*\\dv\{Sort(\w+)\{\}\}", out)
@@ -976,7 +1031,8 @@ def compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern="
     the simplified patterns with reference_differential::executed_kore_matches_the_reference_backend without
     K_DIFFERENTIAL_DEFINITION (N4 renaming applies, N15 does not). Returns True only when every stage succeeded
     and the comparator accepted the pair; the step then carries SIMPLIFIED_KORE_COMPARISON and keeps the text
-    difference as text_divergence. Every other outcome keeps the text mismatch and records why in
+    difference as text_divergence. A reference re-run that produces no result returns REFERENCE_ERROR. Every
+    other unsuccessful comparison keeps the text mismatch. All unsuccessful outcomes record why in
     simplified_kore_divergence."""
     def not_compared(reason):
         step["simplified_kore_divergence"] = reason
@@ -990,13 +1046,31 @@ def compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern="
     if args is None:
         return not_compared("not compared: reference recipe needs an unsupported shell expansion or redirection")
     stdin_path = f"{case.dir}/{rec['stdin']}" if rec.get("stdin") else None
-    rc, out, err, secs, to = sh(args, case.dir, case.remaining(), stdin_path=stdin_path)
+    rc, out, err, secs, to = sh(
+        args,
+        case.dir,
+        case.remaining(),
+        stdin_path=stdin_path,
+        env=reference_process_env(),
+    )
     step["reference_kore_cmd"] = " ".join(shlex.quote(a) for a in args)
     step["reference_kore_rc"] = rc
     step["reference_kore_seconds"] = round(secs, 1)
     case.logfile(f"{tag}.reference-kore.log", out + "\n--- stderr ---\n" + err)
     if to or rc != 0 or not out.strip():
-        return not_compared("not compared: reference --output kore re-run " + ("timed out" if to else f"exited {rc}"))
+        divergence = "not compared: reference --output kore re-run " + (
+            "timed out" if to else f"exited {rc}" + (" with empty stdout" if not out.strip() else "")
+        )
+        step["simplified_kore_divergence"] = divergence
+        step["reference_kore_error"] = output_excerpt(err)
+        step["reference_error_reason"] = reference_failure_reason(
+            "reference --output kore re-run failed",
+            rc,
+            to,
+            err,
+            empty_output=(not to and rc == 0 and not out.strip()),
+        )
+        return REFERENCE_ERROR
     reference_kore = f"{case.log}/{tag}.reference.kore"
     case.logfile(f"{tag}.reference.kore", out)
     # The checked-in .out stays the oracle: the re-run's result must still print as the .out, otherwise the
@@ -1039,14 +1113,53 @@ def compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern="
 def confirm_oracle(case, rec, step):
     if case.out_of_budget():
         step["oracle_confirmed"] = "not-run (budget)"; return
-    rc, out, err, secs, to = sh(["bash", "-c", rec["raw"]], case.dir, case.remaining())
-    step["oracle_confirmed"] = (rc == 0 and not to)
+    direct = not rec.get("filters") and not rec.get("actual_file") and not any(
+        re.search(r'\$|`|[<>]', arg) for arg in rec["args"]
+    )
+    args = [f"{KBIN}/{rec['tool']}", *rec["args"]] if direct else ["bash", "-c", rec["raw"]]
+    stdin_path = f"{case.dir}/{rec['stdin']}" if direct and rec.get("stdin") else None
+    rc, out, err, secs, to = sh(
+        args,
+        case.dir,
+        case.remaining(),
+        stdin_path=stdin_path,
+        env=reference_process_env(),
+    )
+    step["oracle_cmd"] = " ".join(shlex.quote(a) for a in args)
+    if direct:
+        step["oracle_tool_rc"] = rc
     step["oracle_seconds"] = round(secs, 1)
-    if rc != 0 or to:
-        step["oracle_output"] = "\n".join((out + err).splitlines()[:DIFF_LINES])
-        if step.get("verdict") == "mismatch":
+    expected = expected_output(case, rec)
+    tool_failed = to or (direct and rc != 0) or (
+        not direct and rc != 0 and is_reference_crash(err)
+    )
+    if tool_failed:
+        step["oracle_confirmed"] = False
+        step["oracle_output"] = output_excerpt(err or out)
+        if step.get("verdict") != "reference-error":
             step["verdict"] = "reference-error"
-            step["reason"] = "checked-in .out is not reproduced by the pinned reference toolchain; krust mismatch recorded against a stale oracle"
+            step["reason"] = reference_failure_reason(
+                "reference recipe failed to run", rc, to, err or out
+            )
+        return
+    if not direct:
+        step["oracle_confirmed"] = (rc == 0 and not to)
+        if rc == 0:
+            return
+        difference = output_excerpt(out + err)
+    elif expected is None:
+        step["oracle_confirmed"] = False
+        difference = "checked-in output is unavailable"
+    else:
+        difference = first_diff(expected, out)
+        step["oracle_confirmed"] = difference is None
+        if difference is None:
+            return
+    step["oracle_output"] = difference
+    step["oracle_stale"] = True
+    if step.get("verdict") != "reference-error":
+        step["verdict"] = "reference-error"
+        step["reason"] = "checked-in .out is not reproduced by the pinned reference toolchain; krust mismatch recorded against a stale oracle"
 
 
 def expected_output(case, rec):
@@ -1057,7 +1170,7 @@ def expected_output(case, rec):
 def rejection_family(text, tool):
     # Only known tool failures establish a family. Generic compiler/error headings
     # and crashes must never be mistaken for an intended parser/config rejection.
-    if re.search(r'panicked|outofmemory|out of memory|segmentation fault|stack overflow|failed to create.*thread', text, re.I):
+    if is_reference_crash(text):
         return None
     if tool == 'krun' and re.search(
         r'Configuration variable missing:|missing required configuration variables? |definition has no configuration variable ', text):
@@ -1074,7 +1187,9 @@ def confirmed_reference_outcome(case, rec, step, tag):
         return None
     # The recipe verifies the checked-in expected output, including its filters;
     # its final status is not necessarily the status of the K tool in a pipeline.
-    rc, out, err, secs, timed_out = sh(['bash', '-c', rec['raw']], case.dir, case.remaining())
+    rc, out, err, secs, timed_out = sh(
+        ['bash', '-c', rec['raw']], case.dir, case.remaining(), env=reference_process_env()
+    )
     step.update(reference_recipe_rc=rc, reference_recipe_seconds=round(secs, 1))
     case.logfile(f'{tag}.reference-recipe.log', out + '\n--- stderr ---\n' + err)
     if timed_out or rc != 0:
@@ -1090,7 +1205,13 @@ def confirmed_reference_outcome(case, rec, step, tag):
         return None
     args = [f"{KBIN}/{rec['tool']}", *rec['args']]
     stdin_path = str(Path(case.dir) / rec['stdin']) if rec.get('stdin') else None
-    rc, out, err, secs, timed_out = sh(args, case.dir, case.remaining(), stdin_path=stdin_path)
+    rc, out, err, secs, timed_out = sh(
+        args,
+        case.dir,
+        case.remaining(),
+        stdin_path=stdin_path,
+        env=reference_process_env(),
+    )
     step.update(reference_tool_cmd=' '.join(shlex.quote(a) for a in args),
                 reference_tool_rc=rc, reference_tool_seconds=round(secs, 1))
     case.logfile(f'{tag}.reference-tool.log', out + '\n--- stderr ---\n' + err)
@@ -1235,7 +1356,10 @@ def do_krun(case, rec, search_file=False):
                     sub = {k: v for k, v in step.items() if k != "divergence"}
                     ok = compare_execution(case, rec, sub, out2, kore_output, tag + ".fallback", pattern)
                     step["fallback_stage"] = "search" if "--search" in " ".join(extra) else "krun"
-                    step["fallback_verdict"] = "match" if ok else ("mismatch" if ok is False else "skipped-with-reason")
+                    step["fallback_verdict"] = (
+                        "reference-error" if ok is REFERENCE_ERROR else
+                        "match" if ok else ("mismatch" if ok is False else "skipped-with-reason")
+                    )
                     if ok is False and sub.get("divergence"): step["fallback_divergence"] = sub["divergence"]
                     if sub.get("renamed_existentials"): step["fallback_renamed_existentials"] = True
                     if sub.get("comparison"): step["comparison"] = sub["comparison"]
@@ -1253,6 +1377,10 @@ def do_krun(case, rec, search_file=False):
     ok = compare_execution(case, rec, step, out, kore_output, tag, pattern)
     if ok is None:
         step.update(verdict="skipped-with-reason", reason="no checked-in .out for this test")
+    elif ok is REFERENCE_ERROR:
+        step["verdict"] = "reference-error"
+        step["reason"] = step["reference_error_reason"]
+        confirm_oracle(case, rec, step)
     elif ok:
         step["verdict"] = "match"
     else:
@@ -1331,7 +1459,12 @@ def do_kast(case, rec):
         step["verdict"] = "krust-unsupported"; step["reason"] = "--expand-macros has no krust kast equivalent; text differs"
         # secondary parse-only comparison against reference kast --output json without macro expansion
         rargs = [f"{KBIN}/kast", "--definition", case.ref_kompiled, "--sort", sort, "--module", module, "--output", "json", prog]
-        rrc, rout, rerr, _, _ = sh(rargs, case.dir, min(120, case.remaining()))
+        rrc, rout, rerr, _, _ = sh(
+            rargs,
+            case.dir,
+            min(120, case.remaining()),
+            env=reference_process_env(),
+        )
         case.logfile(f"{tag}.reference-json.log", rout + "\n--- stderr ---\n" + rerr)
         if rrc != 0: step["secondary_parse_only_json"] = "reference kast --output json failed: " + rerr.strip()[:200]
         if rrc == 0:
@@ -1434,20 +1567,40 @@ def do_kprove(case, rec):
     return step_record(case, **step)
 
 
+def clean_case_artifacts(case):
+    """Remove generated definitions anywhere below one scratch case before make expansion."""
+    case_root = Path(case.dir).resolve()
+    for current, directories, _ in os.walk(case.dir, topdown=True):
+        for name in list(directories):
+            if not name.endswith("-kompiled"):
+                continue
+            candidate = Path(current) / name
+            directories.remove(name)
+            if candidate.is_symlink():
+                raise RuntimeError(f"refusing symlinked kompiled artifact: {candidate}")
+            resolved = candidate.resolve()
+            if not resolved.is_relative_to(case_root):
+                raise RuntimeError(f"refusing kompiled artifact outside the case: {candidate}")
+            shutil.rmtree(candidate)
+    for name in (".depend", ".depend-tmp"):
+        dependency = Path(case.dir) / name
+        if dependency.exists():
+            dependency.unlink()
+
+
 def run_case(rel, kind):
     case = Case(rel); case.kind = kind
     if os.path.exists(case.log): shutil.rmtree(case.log)
     os.makedirs(case.log, exist_ok=True)
     if kind in ("no-makefile", "kdep") or (kind == "custom" and case.bison_parser is None):
         case.note(f"case kind {kind}: not driven"); return finish(case, "skipped-with-reason", f"case kind {kind}")
-    for entry in os.listdir(case.dir):
-        if entry.endswith("-kompiled") and os.path.isdir(f"{case.dir}/{entry}"): shutil.rmtree(f"{case.dir}/{entry}")
-        if entry in (".depend", ".depend-tmp"): os.remove(f"{case.dir}/{entry}")
+    clean_case_artifacts(case)
     case.vars = make_vars(case)
     case.backend = case.vars.get("KOMPILE_BACKEND", "llvm").strip() or "llvm"
     rc, lines, err = make_recipes(case)
     if rc != 0 and not lines:
-        case.note("make -n all failed: " + err.strip()[:300]); return finish(case, "skipped-with-reason", "make -n all failed")
+        case.note("make -n all failed: " + err.strip()[:300])
+        return finish(case, "reference-error", "driver could not enumerate recipes: make -n all failed")
     recs = []
     custom = []
     for l in lines:
@@ -1475,7 +1628,12 @@ def run_case(rel, kind):
             case.def_file = next((p for p in pos if re.search(r"\.(k|md|json)$", p)), None)
             do_kompile(case, k, expect_fail=False)
             for extra_k in kompiles[1:]:
-                sh(["bash", "-c", extra_k["raw"]], case.dir, case.remaining())
+                sh(
+                    ["bash", "-c", extra_k["raw"]],
+                    case.dir,
+                    case.remaining(),
+                    env=reference_process_env(),
+                )
             if not case.main_module and case.def_file:
                 case.main_module, case.syntax_module, case.pgm_sort = guess_modules(case, case.def_file, (opts.get("--main-module") or [None])[-1])
                 if (opts.get("--syntax-module") or [None])[-1]: case.syntax_module = opts["--syntax-module"][-1]
@@ -1592,6 +1750,9 @@ def case_budget_override(value):
 
 def validate_work_tree_target(path, workspace, source_tree):
     """Reject broad or source-tree scratch targets before any recursive removal."""
+    lexical_target = Path(path).absolute()
+    if lexical_target.is_symlink():
+        raise ValueError(f"refusing symlinked conformance work tree: {lexical_target}")
     target = Path(path).resolve()
     workspace = Path(workspace).resolve()
     source_tree = Path(source_tree).resolve()
@@ -1610,6 +1771,81 @@ def validate_work_tree_target(path, workspace, source_tree):
     if target.is_relative_to(source_tree):
         raise ValueError(f"work tree must not be inside the pinned K source tree: {target}")
     return str(target)
+
+
+def source_tree_marker(source_tree):
+    """Identify the immutable K source copied into the persistent driver work tree."""
+    source_tree = Path(source_tree).resolve()
+    completed = subprocess.run(
+        ["git", "-C", str(source_tree.parent), "rev-parse", "HEAD"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    revision = completed.stdout.strip() if completed.returncode == 0 else ""
+    return {"source_tree": str(source_tree), "revision": revision}
+
+
+def selected_work_tree_files(cases):
+    files = [Path("include/kframework/ktest.mak")]
+    for rel, kind in cases:
+        if kind == "no-makefile":
+            continue
+        makefile = BISON_PARSERS.get(rel, {}).get("makefile", "Makefile")
+        files.append(Path(REG) / rel / makefile)
+    return files
+
+
+def work_tree_refresh_reason(work_tree, source_tree, cases):
+    target = Path(work_tree)
+    if not target.is_dir():
+        return "work tree is missing"
+    marker_path = target / WORK_TREE_MARKER
+    try:
+        marker = json.loads(marker_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return "source marker is missing or invalid"
+    if marker != source_tree_marker(source_tree):
+        return "source marker is stale"
+    missing = [str(path) for path in selected_work_tree_files(cases) if not (target / path).is_file()]
+    if missing:
+        return "required files are missing: " + ", ".join(missing[:5])
+    return None
+
+
+def refresh_work_tree(work_tree, source_tree):
+    """Stage a complete copy, then replace the persistent scratch tree."""
+    target = Path(work_tree)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.refresh-", dir=target.parent))
+    try:
+        shutil.copytree(Path(source_tree) / "include", staging / "include", symlinks=True)
+        (staging / Path(REG).parent).mkdir(parents=True, exist_ok=True)
+        shutil.copytree(Path(source_tree) / REG, staging / REG, symlinks=True)
+        (staging / WORK_TREE_MARKER).write_text(
+            json.dumps(source_tree_marker(source_tree), sort_keys=True) + "\n"
+        )
+        if os.path.lexists(target):
+            if target.is_symlink() or not target.is_dir():
+                raise ValueError(f"work tree exists but is not a directory: {target}")
+            shutil.rmtree(target)
+        os.replace(staging, target)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+
+
+def ensure_work_tree(work_tree, source_tree, cases, force=False):
+    reason = "--fresh-copy requested" if force else work_tree_refresh_reason(
+        work_tree, source_tree, cases
+    )
+    if reason is not None:
+        refresh_work_tree(work_tree, source_tree)
+    remaining = work_tree_refresh_reason(work_tree, source_tree, cases)
+    if remaining is not None:
+        raise OSError(f"work tree validation failed after refresh: {remaining}")
+    return reason
 
 
 def main():
@@ -1782,17 +2018,14 @@ def main():
         ap.error(str(error))
     IGNORE_UNIQUE_ID = bool(normalisations.get("ignore_unique_id"))
 
-    if a.fresh_copy or not os.path.isdir(WORK_TREE):
-        if os.path.lexists(WORK_TREE):
-            if os.path.islink(WORK_TREE) or not os.path.isdir(WORK_TREE):
-                ap.error(f"work tree exists but is not a directory: {WORK_TREE}")
-            shutil.rmtree(WORK_TREE)
-        os.makedirs(os.path.dirname(WORK_TREE), exist_ok=True)
-        try:
-            shutil.copytree(f"{SRC_TREE}/include", f"{WORK_TREE}/include", symlinks=True)
-            shutil.copytree(f"{SRC_TREE}/{REG}", f"{WORK_TREE}/{REG}", symlinks=True)
-        except OSError as error:
-            ap.error(f"cannot populate work tree {WORK_TREE}: {error}")
+    try:
+        refresh_reason = ensure_work_tree(
+            WORK_TREE, SRC_TREE, cases, force=a.fresh_copy
+        )
+    except (OSError, ValueError) as error:
+        ap.error(f"cannot populate work tree {WORK_TREE}: {error}")
+    if refresh_reason is not None:
+        print(f"refreshed conformance work tree: {refresh_reason}", file=sys.stderr)
     os.makedirs(LOGS, exist_ok=True)
 
     done = []
@@ -1803,7 +2036,7 @@ def main():
             c = run_case(rel, kind)
         except Exception as ex:
             import traceback
-            c = Case(rel); c.kind = kind; c.note("driver exception: " + traceback.format_exc()[-800:]); finish(c, "skipped-with-reason", f"driver exception: {ex}")
+            c = Case(rel); c.kind = kind; c.note("driver exception: " + traceback.format_exc()[-800:]); finish(c, "reference-error", f"driver exception: {ex}")
         with lock:
             done.append(c); write_results(done, a.results)
             print(f"[{len(done)}/{len(cases)}] {c.verdict:22s} {c.stage:12s} {c.seconds:6.1f}s  {rel}", flush=True)

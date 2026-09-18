@@ -73,6 +73,7 @@ A fresh log or a different driver version must not lower the versioned floor.
 Existing exclusions still apply; reference errors remain explicitly reported oracle changes rather than evidence of a Rust pass.
 The rank is a coarse outcome ordering, not proof that every recipe or pipeline stage is covered.
 Review per-step results when accepting a change.
+Under the `RLIMIT_AS` fallback of `scripts/reference-memory-guard.sh`, the pinned LLVM interpreter cannot start because it reserves 2 TiB of address space; LLVM-recipe steps whose text differs therefore report `reference-error` in a sandbox and require a host-UID run under a user systemd scope for a verdict.
 
 Every accepted non-`match` verdict is either justified by an exclusion category with an inline reason or is pending work with an empty exclusion and a measured reason ([compatibility.md](compatibility.md#driver-scope)).
 Pending work is tracked in a local backlog outside the repository: a TOML file of `[[ticket]]` rows, each with `id`, `title`, `state` (`open` or `closed`), and `cases`, the expectation case names it covers.
@@ -94,7 +95,8 @@ The execution comparator first compares normalized structures and may use k-rust
 That fallback is supplementary evidence: it depends on the same Rust implication implementation being tested elsewhere and cannot independently validate it.
 Implication correctness must therefore have direct Rust contract tests, including variable-renaming invariance and negative controls.
 The conformance driver's C8 comparison (`scripts/conformance/run.py` `compare_simplified_kore`) is supplementary evidence in the same sense: it simplifies the reference's `--output kore` result and the krust result with `krust kore-simplify` before the structural comparison, so it depends on the port's simplifier, which must have its own contract tests, and it cannot independently validate that simplifier.
-A step that matches only under C8 keeps its text difference and records the C8 comparison label, and a reference re-run, simplification, or comparison that fails or is unavailable leaves the text mismatch in place.
+A step that matches only under C8 keeps its text difference and records the C8 comparison label.
+A simplification or comparison that fails or is unavailable leaves the text mismatch in place; a reference re-run that produces no result records `reference-error` with the reference's stderr, which is an oracle change and not evidence for either side.
 An unavailable or inconclusive equivalence check must not be counted as a successful comparison.
 
 ## Harness recipes
