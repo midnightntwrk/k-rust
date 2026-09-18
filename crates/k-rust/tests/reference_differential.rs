@@ -19,6 +19,7 @@ use k_rust::{
     },
     kast::json as kast_json,
 };
+use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct AmbiguityStats {
@@ -1159,6 +1160,218 @@ fn executed_kore_matches_the_reference_backend() {
         (Ok(strategy), _) => Err(format!("unknown differential strategy: {strategy}")),
     };
     result.unwrap_or_else(|error| panic!("{error}"));
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+struct StdoutLeaf {
+    constraints: Vec<String>,
+    buffers: Vec<String>,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+struct StdoutBufferReport {
+    leaves: Vec<StdoutLeaf>,
+}
+
+/// C9 reports stdout buffers and residual constraints from a krust execution result.
+///
+/// The conformance driver owns the comparison with the checked-in `.out`; this helper owns only
+/// structural KORE parsing.  Keeping that boundary here prevents the driver from recognizing a
+/// pretty-printed substring as a configuration cell.
+#[test]
+#[ignore = "requires K_RUST_EXECUTION"]
+fn conformance_stdout_stream_buffers() {
+    let path = env::var("K_RUST_EXECUTION").expect("K_RUST_EXECUTION is required");
+    let source = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", Path::new(&path).display()));
+    let pattern = parse_pattern(&source).unwrap_or_else(|error| {
+        panic!("krust execution is not one complete KORE pattern: {error}")
+    });
+    println!(
+        "c9-stdout-report = {}",
+        serde_json::to_string(&stdout_buffer_report(&pattern)).unwrap()
+    );
+}
+
+fn stdout_buffer_report(pattern: &Pattern) -> StdoutBufferReport {
+    let leaves = execution_disjuncts_recursive(pattern)
+        .into_iter()
+        .map(|leaf| {
+            let leaf = unwrap_exists(leaf);
+            let (term, constraints) = split_constrained(leaf);
+            StdoutLeaf {
+                constraints: constraints
+                    .iter()
+                    .map(|constraint| bounded_text(&Printer::compact().print_pattern(constraint)))
+                    .collect(),
+                buffers: stdout_buffers(term),
+            }
+        })
+        .collect();
+    StdoutBufferReport { leaves }
+}
+
+fn execution_disjuncts_recursive(pattern: &Pattern) -> Vec<&Pattern> {
+    let mut work = vec![pattern];
+    let mut leaves = Vec::new();
+    while let Some(pattern) = work.pop() {
+        if let Pattern::Or { arguments, .. } = pattern {
+            work.extend(arguments.iter().rev());
+        } else {
+            leaves.push(pattern);
+        }
+    }
+    leaves
+}
+
+fn unwrap_exists(mut pattern: &Pattern) -> &Pattern {
+    while let Pattern::Exists { body, .. } = pattern {
+        pattern = body;
+    }
+    pattern
+}
+
+fn stdout_buffers(term: &Pattern) -> Vec<String> {
+    let mut work = vec![term];
+    let mut buffers = Vec::new();
+    while let Some(pattern) = work.pop() {
+        if let Pattern::Application { symbol, arguments } = pattern
+            && symbol.name.starts_with("Lbl'-LT-'output'-GT-'")
+            && arguments.len() == 1
+            && let Some(items) = stream_list_items(&arguments[0])
+            && let [descriptor, mode, buffer] = items.as_slice()
+            && is_stream_descriptor(descriptor, "Lbl'Hash'ostream", "SortInt", "1")
+            && domain_value(unwrap_injections(mode), "SortString") == Some("off")
+            && let Some(value) = stream_buffer(buffer)
+        {
+            buffers.push(value.to_owned());
+        }
+        work.extend(pattern_children(pattern).into_iter().rev());
+    }
+    buffers
+}
+
+fn stream_list_items(pattern: &Pattern) -> Option<Vec<&Pattern>> {
+    fn append<'a>(pattern: &'a Pattern, items: &mut Vec<&'a Pattern>) -> bool {
+        let pattern = unwrap_injections(pattern);
+        let Pattern::Application { symbol, arguments } = pattern else {
+            return false;
+        };
+        if symbol.name == "Lbl'Unds'List'Unds'" && arguments.len() == 2 {
+            append(&arguments[0], items) && append(&arguments[1], items)
+        } else if symbol.name == "LblListItem" && arguments.len() == 1 {
+            items.push(&arguments[0]);
+            true
+        } else {
+            false
+        }
+    }
+
+    let mut items = Vec::new();
+    append(pattern, &mut items).then_some(items)
+}
+
+fn unwrap_injections(mut pattern: &Pattern) -> &Pattern {
+    while let Pattern::Application { symbol, arguments } = pattern
+        && symbol.name == "inj"
+        && arguments.len() == 1
+    {
+        pattern = &arguments[0];
+    }
+    pattern
+}
+
+fn domain_value<'a>(pattern: &'a Pattern, sort_name: &str) -> Option<&'a str> {
+    let Pattern::DomainValue { sort, value } = pattern else {
+        return None;
+    };
+    matches!(sort, k_rust::kore::ast::Sort::Application { name, arguments }
+        if name == sort_name && arguments.is_empty())
+    .then_some(value)
+    .map(String::as_str)
+}
+
+fn is_stream_descriptor(
+    pattern: &Pattern,
+    symbol_prefix: &str,
+    sort_name: &str,
+    value: &str,
+) -> bool {
+    let Pattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
+        return false;
+    };
+    symbol.name.starts_with(symbol_prefix)
+        && arguments.len() == 1
+        && domain_value(unwrap_injections(&arguments[0]), sort_name) == Some(value)
+}
+
+fn stream_buffer(pattern: &Pattern) -> Option<&str> {
+    let Pattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
+        return None;
+    };
+    if !symbol.name.starts_with("Lbl'Hash'buffer") || arguments.len() != 1 {
+        return None;
+    }
+    let Pattern::Application {
+        symbol: sequence,
+        arguments: sequence_arguments,
+    } = unwrap_injections(&arguments[0])
+    else {
+        return None;
+    };
+    if sequence.name != "kseq" || sequence_arguments.len() != 2 {
+        return None;
+    }
+    let Pattern::Application {
+        symbol: terminator,
+        arguments: terminator_arguments,
+    } = &sequence_arguments[1]
+    else {
+        return None;
+    };
+    if terminator.name != "dotk" || !terminator_arguments.is_empty() {
+        return None;
+    }
+    domain_value(unwrap_injections(&sequence_arguments[0]), "SortString")
+}
+
+#[test]
+fn stdout_stream_buffer_report_requires_a_structural_stdout_cell() {
+    let stdout = r#"Lbl'Unds'List'Unds'{}(
+        LblListItem{}(inj{SortStream{}, SortKItem{}}(
+            Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int{}(\dv{SortInt{}}("1")))),
+        Lbl'Unds'List'Unds'{}(
+            LblListItem{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("off"))),
+            LblListItem{}(inj{SortStream{}, SortKItem{}}(
+                Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K{}(
+                    kseq{}(inj{SortString{}, SortKItem{}}(\dv{SortString{}}("hello\n")), dotk{}()))))))"#;
+    let terminal = parse_pattern(&format!("cfg{{}}(Lbl'-LT-'output'-GT-'{{}}({stdout}))")).unwrap();
+    assert_eq!(
+        stdout_buffer_report(&terminal),
+        StdoutBufferReport {
+            leaves: vec![StdoutLeaf {
+                constraints: vec![],
+                buffers: vec!["hello\n".into()],
+            }],
+        }
+    );
+
+    let residual = parse_pattern(&format!(
+        r#"\or{{S{{}}}}(cfg{{}}(Lbl'-LT-'output'-GT-'{{}}({stdout})), \and{{S{{}}}}(cfg{{}}(Lbl'-LT-'output'-GT-'{{}}({stdout})), \not{{B{{}}}}(\top{{B{{}}}}())))"#
+    ))
+    .unwrap();
+    let report = stdout_buffer_report(&residual);
+    assert_eq!(report.leaves.len(), 2);
+    assert_eq!(report.leaves[0].buffers, ["hello\n"]);
+    assert!(report.leaves[0].constraints.is_empty());
+    assert_eq!(report.leaves[1].buffers, ["hello\n"]);
+    assert_eq!(report.leaves[1].constraints.len(), 1);
+
+    let impostor = parse_pattern(
+        r#"cfg{}(LblListItem{}(\dv{SortString{}}("Lbl#ostream(1) off #buffer(hello)")))"#,
+    )
+    .unwrap();
+    assert!(stdout_buffer_report(&impostor).leaves[0].buffers.is_empty());
 }
 
 #[test]

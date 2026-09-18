@@ -2044,7 +2044,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "The definition compiles and its KORE matches the reference; krust krun exceeds the 300 s case budget on cast-1.kool, so the remaining programs are not measured. Earlier baseline observation: `no well-sorted parse` for the configuration (not reproduced at current head)."
+reason = "Private sequence 1 (df-04-bottom, 2026-09-18) measures the completion-only soundness fix: compilation matches, all 29 plain --output none programs now report krust-error at krun because their result is \\bottom instead of falsely matching by successful process completion, and cycle.kool remains a search mismatch; the case completes in 128.8 s. The accepted kompile floor is unchanged while the pending simplifier defect is fixed. Earlier baseline observation: `no well-sorted parse` for the configuration (not reproduced at current head)."
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"

@@ -516,6 +516,7 @@ def guess_modules(case, src, main):
 
 def classify_error(err):
     e = err.lower()
+    if "in-process backend halted at depth" in e: return "krun"
     if re.search(r"could not parse (program|input|rule|claim|context|configuration|sentence|term)|has \d+ parses|ambigu|could not infer|inference|sort inference", e): return "inner-parse"
     if re.search(r"outer|unexpected (token|character|end)|unterminated|imports missing|missing module|unknown module|duplicate module|differs from previous declaration|could not (read|load|find) (file|module)|failed to extract k code|no such file|requires", e): return "outer-parse"
     return "kompile"
@@ -1084,6 +1085,97 @@ SIMPLIFIED_KORE_COMPARISON = (
     "without K_DIFFERENTIAL_DEFINITION)")
 
 
+C9_STDOUT_COMPARISON = "C9: stdout stream buffer under --io off vs .out"
+
+
+def is_bottom_result(source):
+    """Recognize the complete bottom pattern printed by krust, not an occurrence inside a result."""
+    return re.fullmatch(
+        r"\s*\\bottom\{(?:[^{}]|\{[^{}]*\})*\}\(\)\s*",
+        source,
+    ) is not None
+
+
+def stdout_bytes_divergence(expected, actual):
+    limit = min(len(expected), len(actual))
+    offset = next((index for index in range(limit) if expected[index] != actual[index]), limit)
+    return (
+        f"stdout bytes differ at offset {offset}: "
+        f"expected {expected[max(0, offset - 24):offset + 80]!r}; "
+        f"krust buffer {actual[max(0, offset - 24):offset + 80]!r}"
+    )
+
+
+def compare_stdout_buffer(case, step, kore_path, expected_path):
+    """C9: structurally extract one unconstrained stdout buffer and compare its UTF-8 bytes."""
+    rc, out, err, timed_out = run_test_binary_result(
+        "conformance_stdout_stream_buffers",
+        {"K_RUST_EXECUTION": kore_path},
+        case.dir,
+        case.remaining(),
+    )
+    step["comparison"] = C9_STDOUT_COMPARISON
+    if timed_out:
+        step.update(verdict="krust-error", reason="C9 KORE extraction timed out")
+        return
+    if rc != 0:
+        message = re.search(r"panicked at[^\n]*\n(.*)", out + err, re.S)
+        detail = (message.group(1) if message else out + err).strip()
+        step.update(
+            verdict="krust-error",
+            reason="C9 could not structurally inspect the krust KORE result",
+            divergence="\n".join(detail.splitlines()[:DIFF_LINES]),
+        )
+        return
+    # libtest prefixes output written while a test is running with `test NAME ... `.
+    match = re.search(r"c9-stdout-report = (.+)$", out, re.M)
+    if not match:
+        step.update(
+            verdict="krust-error",
+            reason="C9 structural comparator returned no stdout report",
+            divergence=output_excerpt(out + err),
+        )
+        return
+    try:
+        report = json.loads(match.group(1))
+        leaves = report["leaves"]
+        terminal = [leaf for leaf in leaves if not leaf["constraints"]]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        step.update(
+            verdict="krust-error",
+            reason=f"C9 structural comparator returned an invalid stdout report: {error}",
+            divergence=output_excerpt(match.group(1)),
+        )
+        return
+    step["stdout_leaf_count"] = len(leaves)
+    step["stdout_terminal_leaf_count"] = len(terminal)
+    if len(leaves) != 1 or len(terminal) != 1 or len(terminal[0].get("buffers", [])) != 1:
+        summary = [
+            {
+                "buffers": leaf.get("buffers", []),
+                "constraints": leaf.get("constraints", []),
+            }
+            for leaf in leaves
+        ]
+        step.update(
+            verdict="mismatch",
+            reason="C9 requires exactly one execution leaf, unconstrained and with exactly one stdout stream buffer",
+            divergence=output_excerpt(json.dumps(summary, ensure_ascii=False, indent=2)),
+        )
+        return
+    expected = Path(expected_path).read_bytes()
+    actual = terminal[0]["buffers"][0].encode("utf-8")
+    step["stdout_buffer_bytes"] = len(actual)
+    if expected == actual:
+        step["verdict"] = "match"
+    else:
+        step.update(
+            verdict="mismatch",
+            reason="stdout stream buffer differs from the checked-in console output",
+            divergence=stdout_bytes_divergence(expected, actual),
+        )
+
+
 def reference_kore_args(rec):
     """The recipe's tool argv with its output format replaced by --output kore, or None when the recipe
     needs a shell expansion or redirection the driver does not replay (as confirmed_reference_outcome)."""
@@ -1414,6 +1506,14 @@ def do_krun(case, rec, search_file=False):
     if unsupported:
         step.update(verdict="krust-unsupported", reason="reference krun flags with no krust equivalent: " + " ".join(unsupported))
         return step_record(case, **step)
+    expected_path = f"{case.dir}/{rec['out']}" if rec.get("out") else None
+    nonempty_expected_output = bool(
+        expected_path and os.path.isfile(expected_path) and os.path.getsize(expected_path) > 0
+    )
+    explicit_io = (opts.get("--io") or [None])[-1]
+    c9_stdout = completion_only and nonempty_expected_output and explicit_io != "on"
+    if c9_stdout and explicit_io is None:
+        extra += ["--io", "off"]
     stdin_path = f"{case.dir}/{rec['stdin']}" if rec["stdin"] and os.path.exists(f"{case.dir}/{rec['stdin']}") else None
     if stdin_path: step["stdin"] = rec["stdin"]
     sort = case.pgm_sort or "KItem"
@@ -1456,6 +1556,23 @@ def do_krun(case, rec, search_file=False):
             step.update(verdict="krust-error", stage="krun", reason=f"krust krun exited {rc} where the reference recipe requires successful completion")
             return step_record(case, **step)
         case.logfile(f"{tag}.krust.kore", out)
+        if is_bottom_result(out):
+            step.update(
+                verdict="krust-error",
+                stage="krun",
+                reason="krust execution produced bottom where the reference recipe requires successful completion",
+                divergence=out,
+            )
+            return step_record(case, **step)
+        if c9_stdout:
+            compare_stdout_buffer(case, step, f"{case.log}/{tag}.krust.kore", expected_path)
+            return step_record(case, **step)
+        if nonempty_expected_output:
+            step.update(
+                verdict="krust-unsupported",
+                reason="a non-empty .out cannot be accepted by completion only and explicit --io on is outside C9",
+            )
+            return step_record(case, **step)
         step.update(verdict="match", comparison="completion only: the reference recipe runs with --output none, so only successful termination is compared")
         return step_record(case, **step)
     if not compare_program_status(case, rec, step, rc, tag):

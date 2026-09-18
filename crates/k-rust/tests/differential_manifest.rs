@@ -696,8 +696,8 @@ fn every_conformance_normalisation_is_registered() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         ids,
-        (1..=8).map(|id| format!("C{id}")).collect::<BTreeSet<_>>(),
-        "the conformance register must contain C1 through C8"
+        (1..=9).map(|id| format!("C{id}")).collect::<BTreeSet<_>>(),
+        "the conformance register must contain C1 through C9"
     );
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for row in rows {
@@ -809,6 +809,36 @@ fn every_conformance_normalisation_is_registered() {
         assert!(
             c8["justification"].as_str().unwrap().contains(needle),
             "C8 must cite {needle}"
+        );
+    }
+    let c9 = rows
+        .iter()
+        .find(|row| row["id"].as_str() == Some("C9"))
+        .expect("C9 row");
+    assert_eq!(c9["anchor_symbol"].as_str(), Some("compare_stdout_buffer"));
+    for needle in [
+        "--output none",
+        "--io off",
+        "exactly one execution leaf in total",
+        "Any constrained residual leaf",
+        "#ostream(1)",
+        "#buffer(S)",
+        "UTF-8 bytes",
+        "explicit --io on",
+    ] {
+        assert!(
+            c9["rule"].as_str().unwrap().contains(needle),
+            "C9 must state {needle}"
+        );
+    }
+    for needle in [
+        "domains.md:2805-2846",
+        "krun:442-448",
+        "docs/compatibility.md#comparison-contract",
+    ] {
+        assert!(
+            c9["justification"].as_str().unwrap().contains(needle),
+            "C9 must cite {needle}"
         );
     }
 }
