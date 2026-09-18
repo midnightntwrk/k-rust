@@ -229,9 +229,20 @@ def sh_to_file(cmd, cwd, timeout, stdout_path, env=None):
     return rc, stderr.decode("utf-8", "replace"), time.monotonic() - t0, timed_out
 
 
-def reference_process_env():
-    """Bound Haskell RTS parallelism for reference processes, as the differential gates do."""
-    return {"GHCRTS": os.environ.get("GHCRTS") or "-N1"}
+def reference_process_env(tool=None, args=()):
+    """Bound threaded Haskell tools without passing -N1 to non-threaded helpers."""
+    configured = os.environ.get("GHCRTS")
+    if configured is not None:
+        return {"GHCRTS": configured}
+    # The pinned kore-match-disjunction is not threaded. Reference krun delegates
+    # --pattern matching to it, so the default threaded-runtime bound must not
+    # leak through the wrapper to that child process.
+    uses_match_disjunction = tool == "krun" and any(
+        arg == "--pattern" or arg.startswith("--pattern=") for arg in args
+    )
+    if tool in ("kore-match-disjunction", "kore-parser") or uses_match_disjunction:
+        return {"GHCRTS": ""}
+    return {"GHCRTS": "-N1"}
 
 
 def output_excerpt(text):
@@ -612,7 +623,7 @@ def kprint(case, kore_path):
         [f"{KBIN}/kprint", case.ref_kompiled, kore_path, "false"],
         case.dir,
         60,
-        env=reference_process_env(),
+        env=reference_process_env("kprint"),
     )
     return rc, out, err
 
@@ -705,7 +716,7 @@ def do_kompile(case, rec, expect_fail):
         ["bash", "-c", rec["raw"]],
         case.dir,
         case.remaining(),
-        env=reference_process_env(),
+        env=reference_process_env(rec["tool"], rec["args"]),
     )
     case.logfile("kompile.ref.log", out + "\n--- stderr ---\n" + err)
     step["ref_rc"] = rc; step["ref_seconds"] = round(secs, 1)
@@ -965,7 +976,7 @@ def program_sort_fallback(case, prog_path, stdin_path):
         case.dir,
         min(120, case.remaining()),
         stdin_path=stdin_path,
-        env=reference_process_env(),
+        env=reference_process_env("kast", args),
     )
     m = re.match(r"\s*inj\{Sort(\w+)\{\}, ?Sort(\w+)\{\}\}", out)
     if m: return m.group(1)
@@ -1125,7 +1136,7 @@ def compare_simplified_kore(case, rec, step, kore_path, tag, expected, pattern="
         case.dir,
         case.remaining(),
         stdin_path=stdin_path,
-        env=reference_process_env(),
+        env=reference_process_env(rec["tool"], rec["args"]),
     )
     step["reference_kore_cmd"] = " ".join(shlex.quote(a) for a in args)
     step["reference_kore_rc"] = rc
@@ -1197,7 +1208,7 @@ def confirm_oracle(case, rec, step):
         case.dir,
         case.remaining(),
         stdin_path=stdin_path,
-        env=reference_process_env(),
+        env=reference_process_env(rec["tool"], rec["args"]),
     )
     step["oracle_cmd"] = " ".join(shlex.quote(a) for a in args)
     if direct:
@@ -1262,7 +1273,8 @@ def confirmed_reference_outcome(case, rec, step, tag):
     # The recipe verifies the checked-in expected output, including its filters;
     # its final status is not necessarily the status of the K tool in a pipeline.
     rc, out, err, secs, timed_out = sh(
-        ['bash', '-c', rec['raw']], case.dir, case.remaining(), env=reference_process_env()
+        ['bash', '-c', rec['raw']], case.dir, case.remaining(),
+        env=reference_process_env(rec['tool'], rec['args'])
     )
     step.update(reference_recipe_rc=rc, reference_recipe_seconds=round(secs, 1))
     case.logfile(f'{tag}.reference-recipe.log', out + '\n--- stderr ---\n' + err)
@@ -1284,7 +1296,7 @@ def confirmed_reference_outcome(case, rec, step, tag):
         case.dir,
         case.remaining(),
         stdin_path=stdin_path,
-        env=reference_process_env(),
+        env=reference_process_env(rec['tool'], rec['args']),
     )
     step.update(reference_tool_cmd=' '.join(shlex.quote(a) for a in args),
                 reference_tool_rc=rc, reference_tool_seconds=round(secs, 1))
@@ -1584,7 +1596,7 @@ def do_kast(case, rec):
             rargs,
             case.dir,
             min(120, case.remaining()),
-            env=reference_process_env(),
+            env=reference_process_env("kast", rargs),
         )
         case.logfile(f"{tag}.reference-json.log", rout + "\n--- stderr ---\n" + rerr)
         if rrc != 0: step["secondary_parse_only_json"] = "reference kast --output json failed: " + rerr.strip()[:200]
@@ -1830,7 +1842,7 @@ def run_case(rel, kind):
                     ["bash", "-c", extra_k["raw"]],
                     case.dir,
                     case.remaining(),
-                    env=reference_process_env(),
+                    env=reference_process_env(extra_k["tool"], extra_k["args"]),
                 )
             if not case.main_module and case.def_file:
                 case.main_module, case.syntax_module, case.pgm_sort = guess_modules(case, case.def_file, (opts.get("--main-module") or [None])[-1])

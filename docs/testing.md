@@ -74,6 +74,8 @@ Existing exclusions still apply; reference errors remain explicitly reported ora
 The rank is a coarse outcome ordering, not proof that every recipe or pipeline stage is covered.
 Review per-step results when accepting a change.
 Under the `RLIMIT_AS` fallback of `scripts/reference-memory-guard.sh`, the pinned LLVM interpreter cannot start because it reserves 2 TiB of address space; LLVM-recipe steps whose text differs therefore report `reference-error` in a sandbox and require a host-UID run under a user systemd scope for a verdict.
+The pinned `kore-exec` and `kore-rpc` executables accept the threaded-runtime `GHCRTS=-N1` bound, while `kore-parser` and `kore-match-disjunction` are non-threaded and reject it.
+The conformance driver therefore clears its default `GHCRTS` for parser calls and for `krun --pattern`, which delegates to `kore-match-disjunction`; an explicitly configured `GHCRTS` remains the operator's choice.
 
 Every accepted non-`match` verdict is either justified by an exclusion category with an inline reason or is pending work with an empty exclusion and a measured reason ([compatibility.md](compatibility.md#driver-scope)).
 Pending work is tracked in a local backlog outside the repository: a TOML file of `[[ticket]]` rows, each with `id`, `title`, `state` (`open` or `closed`), and `cases`, the expectation case names it covers.

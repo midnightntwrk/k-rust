@@ -2273,13 +2273,14 @@ import json, os, sys, tempfile
 sys.path.insert(0, sys.argv[1])
 import run
 
-def probe(mode, incoming="mismatch"):
+def probe(mode, incoming="mismatch", pattern=False):
     root = tempfile.mkdtemp()
     case = run.Case("oracle")
     case.dir = root
     with open(os.path.join(root, "program.out"), "w") as output:
         output.write("expected\n")
-    recipe = run.split_recipe("/kbin/krun program --definition ./test-kompiled | diff - program.out")
+    pattern_arg = " --pattern '<k> V:K </k>'" if pattern else ""
+    recipe = run.split_recipe("/kbin/krun program --definition ./test-kompiled" + pattern_arg + " | diff - program.out")
     calls = []
     def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
         calls.append({"cmd": cmd, "env": env})
@@ -2341,6 +2342,7 @@ print(json.dumps({
     "stale": probe("stale"),
     "live_mismatch": probe("live"),
     "live_reference_error": probe("live", "reference-error"),
+    "pattern": probe("live", pattern=True),
     "environments": reference_environments(),
 }))
 "#;
@@ -2379,6 +2381,7 @@ print(json.dumps({
         "{probes}"
     );
     assert_eq!(crash["call"]["env"]["GHCRTS"], "-N1", "{probes}");
+    assert_eq!(probes["pattern"]["call"]["env"]["GHCRTS"], "", "{probes}");
     assert_eq!(probes["environments"]["kompile"]["GHCRTS"], "-N1");
     assert_eq!(
         probes["environments"]["kore_parser"],
