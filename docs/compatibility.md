@@ -135,6 +135,10 @@ Normalization N17 limits the corresponding differential exception to marked dept
 ## CLI scope
 
 `krust` retains its source-plus-flags interface.
+For source-driven `krun`, the syntax module supplies the program's production catalog and the selected main module supplies the visible macro sentences.
+Macro expansion uses the frontend's KAST-domain expander before conversion to executable KORE; `kast` retains its separate unparsing-module scope.
+A macro- or alias-headed term that survives expansion is invalid executable input and must be rejected before the first rewrite step rather than narrowed as an ordinary function application.
+The backend also rejects such a head defensively when a direct caller bypasses the CLI validation.
 The project does not implement K's compiled-directory runtime contract, K-derived module defaults, every K flag alias, or K's pretty-output and proof-verdict framing solely for tool interchangeability.
 K tools and pyk serve as differential oracles; the conformance driver translates recipes into supported Rust operations.
 An unknown or untranslatable flag must remain explicitly unsupported rather than being silently ignored.
