@@ -1994,12 +1994,14 @@ reason = "The accepted search recipes match after forwarding --pattern and compa
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/1_untyped"
+# Temporary correctness ceiling. Remove after CB-16 compiled-definition reuse is measured.
+budget = 600
 accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference, and 21 of 32 steps now match — 18 through the C9 stdout-buffer comparison and 2 through the search disjunct multiset (div-nondet.simple and exceptions_07.simple, whose residual isKResult constraints the normalized-ground tranche removed). The 11 remaining steps are nine thread programs halting on instantiation of the anywhere-headed heating rule c892af32 (CB-10), threads_12 killed, and matrix.simple returning \\bottom in 3.2 s on a ground program (CB-19). No step halts at IO.write any more. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference, and 21 of 32 steps now match — 18 through the C9 stdout-buffer comparison and 2 through the search disjunct multiset (div-nondet.simple and exceptions_07.simple, whose residual isKResult constraints the normalized-ground tranche removed). The 11 remaining steps are nine thread programs halting on instantiation of the anywhere-headed heating rule c892af32 (CB-10), threads_12 killed, and matrix.simple returning \\bottom in 3.2 s on a ground program (CB-19). No step halts at IO.write any more. The case consumed its whole 300 s budget (279.9 s of krust time over 32 steps) and threads_12 was the step killed by budget exhaustion after 3.0 s, so its halt is unmeasured; the temporary 600 s correctness ceiling, the same one the two KOOL cases carry, permits complete semantic measurement while CB-16 compiled-definition reuse and CB-12 simplifier throughput land; remove it after the reuse measurement, while retaining elapsed-time reporting. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
@@ -2012,12 +2014,14 @@ reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the defini
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic"
+# Temporary correctness ceiling. Remove after CB-16 compiled-definition reuse is measured.
+budget = 600
 accepted_verdict = "krust-error"
 accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; 5 steps match (3 C9 stdout comparisons, one search disjunct multiset, the compile) and no step halts at IO.write. matrix.simple is killed after 233.6 s (CB-19) and exhausts the 300 s case budget, leaving 21 steps unmeasured; the thread programs that halt on rule c892af32 (CB-10) are among them. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; 5 steps match (3 C9 stdout comparisons, one search disjunct multiset, the compile) and no step halts at IO.write. matrix.simple is killed after 233.6 s (CB-19) and exhausts the 300 s case budget, leaving 21 steps unmeasured; the thread programs that halt on rule c892af32 (CB-10) are among them. The temporary 600 s correctness ceiling, the same one the two KOOL cases carry, permits complete semantic measurement while CB-16 compiled-definition reuse and CB-12 simplifier throughput land; remove it after the reuse measurement, while retaining elapsed-time reporting. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/1_untyped"
