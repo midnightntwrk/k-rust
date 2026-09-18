@@ -1996,14 +1996,14 @@ reason = "The accepted search recipes match after forwarding --pattern and compa
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/1_untyped"
-# Temporary correctness ceiling. Remove after CB-16 compiled-definition reuse is measured.
+# Temporary correctness ceiling. Remove after compiled-definition reuse and simplifier throughput are measured.
 budget = 600
 accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 22 (label simple-ceiling-600, branch 0bcb7b3, first run under the temporary 600 s ceiling): the definition compiles and its KORE matches the reference, and all 32 steps are now measured in 304.4 s (sequence 21 had exhausted 300 s and killed threads_12 after 3.0 s). 21 steps match: the compile, 18 through the C9 stdout-buffer comparison and 2 through the search disjunct multiset (div-nondet.simple and exceptions_07.simple). The 11 remaining steps are ten thread programs (threads_01/02/04/05/06/07/09/10/11/12) halting after about 3.3 s on instantiation of the anywhere-headed heating rule c892af32 (CB-10) and matrix.simple returning \\bottom in 3.2 s on a ground program (CB-19). sortings.simple matches but costs 155.8 s, half the case; the ceiling, the same one the two KOOL cases carry, stays until CB-16 compiled-definition reuse and CB-12 simplifier throughput are measured, while retaining elapsed-time reporting. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Shared sequence 22 (label simple-ceiling-600, branch 0bcb7b3, first run under the temporary 600 s ceiling): the definition compiles and its KORE matches the reference, and all 32 steps are now measured in 304.4 s (sequence 21 had exhausted 300 s and killed threads_12 after 3.0 s). 21 steps match: the compile, 18 through the C9 stdout-buffer comparison and 2 through the search disjunct multiset (div-nondet.simple and exceptions_07.simple). The 11 remaining steps are ten thread programs (threads_01/02/04/05/06/07/09/10/11/12) halting after about 3.3 s on instantiation of the anywhere-headed heating rule c892af32, plus matrix.simple returning \\bottom in 3.2 s on a ground program. sortings.simple matches but costs 155.8 s, half the case; the ceiling stays until compiled-definition reuse and simplifier throughput are measured, while retaining elapsed-time reporting. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
@@ -2012,43 +2012,43 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; the case now runs its whole corpus in 90.4 s instead of exhausting the budget on the first program. The prior \\bottom collapse is gone (CB-13), and all 35 program steps now halt on one rule, cf6aaec3 (the variable declaration `T:Type X:Id;`), with Rule#VarX:Id and Rule#VarT:Type uncovered, at depths 2 to 114 (CB-17). Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; the case now runs its whole corpus in 90.4 s instead of exhausting the budget on the first program. The prior \\bottom collapse is gone, and all 35 program steps now halt on one rule, cf6aaec3 (the variable declaration `T:Type X:Id;`), with Rule#VarX:Id and Rule#VarT:Type uncovered, at depths 2 to 114. Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic"
-# Temporary budget from the measured cost (sequence 23: 815 s at --jobs 4). Remove after CB-16
-# compiled-definition reuse and CB-12 simplifier throughput are measured.
+# Temporary budget from the measured cost (sequence 23: 815 s at --jobs 4). Remove after
+# compiled-definition reuse and simplifier throughput are measured.
 budget = 1200
 accepted_verdict = "krust-error"
 accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, 3600 s discovery budget, --jobs 4): the whole corpus is measured for the first time, 27 steps in 815.1 s. 22 steps match, including the two former budget victims: matrix.simple completes in 470.5 s and sortings.simple in 200.0 s (both C9 stdout comparisons), so neither is a CB-19 divergence; they are CB-12 throughput. The only failures are the five thread programs threads_05/07/10/11/12, each halting after about 3.7 s on instantiation of the anywhere-headed heating rule c892af32 (CB-10). The budget is now 1200 s, the measured cost with headroom; remove it after the CB-16 reuse measurement, while retaining elapsed-time reporting. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, 3600 s discovery budget, --jobs 4): the whole corpus is measured for the first time, 27 steps in 815.1 s. 22 steps match, including the two former budget victims: matrix.simple completes in 470.5 s and sortings.simple in 200.0 s (both C9 stdout comparisons), so both are throughput costs rather than semantic divergences. The only failures are the five thread programs threads_05/07/10/11/12, each halting after about 3.7 s on instantiation of the anywhere-headed heating rule c892af32. The budget is now 1200 s, the measured cost with headroom; remove it after compiled-definition reuse is measured, while retaining elapsed-time reporting. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/1_untyped"
-# Temporary budget from the measured cost (sequence 23: 1245 s at --jobs 4). Remove after CB-16
-# compiled-definition reuse and CB-12 simplifier throughput are measured.
+# Temporary budget from the measured cost (sequence 23: 1245 s at --jobs 4). Remove after
+# compiled-definition reuse and simplifier throughput are measured.
 budget = 1800
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, 3600 s discovery budget, --jobs 4): all 29 steps match, the compile and 28 program executions through the C9 stdout-buffer comparison, in 1244.9 s. matrix.kool, killed at 424.9 s under the 600 s ceiling and filed as non-terminating in CB-19, completes and matches in 721.9 s; sorting.kool takes 280.1 s and factorial.kool 94.3 s. The floor is raised to match at krun. The remaining cost is CB-12 throughput and CB-16 per-program recompilation; the budget is 1800 s, the measured cost with headroom, to be removed after the reuse measurement while retaining elapsed-time reporting. The CB-18 --pattern hang is not exercised by this case's driven recipes. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, 3600 s discovery budget, --jobs 4): all 29 steps match, the compile and 28 program executions through the C9 stdout-buffer comparison, in 1244.9 s. matrix.kool, killed at 424.9 s under the 600 s ceiling and initially classified as non-terminating, completes and matches in 721.9 s; sorting.kool takes 280.1 s and factorial.kool 94.3 s. The floor is raised to match at krun. The remaining costs are simplifier throughput and per-program recompilation; the budget is 1800 s, the measured cost with headroom, to be removed after the reuse measurement while retaining elapsed-time reporting. The separate --pattern hang is not exercised by this case's driven recipes. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"
-# Temporary budget from the measured cost (sequence 23: 1361 s at --jobs 4). Remove after CB-16
-# compiled-definition reuse and CB-12 simplifier throughput are measured.
+# Temporary budget from the measured cost (sequence 23: 1361 s at --jobs 4). Remove after
+# compiled-definition reuse and simplifier throughput are measured.
 budget = 1800
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, 3600 s discovery budget, --jobs 4): all 30 steps match, the compile and 29 program executions through the C9 stdout-buffer comparison, in 1361.2 s. matrix.kool, killed at 378.7 s under the 600 s ceiling and filed as non-terminating in CB-19, completes and matches in 764.0 s; sorting.kool takes 299.6 s, factorial.kool 108.1 s and collatz.kool 28.4 s. The floor is raised to match at krun. The remaining cost is CB-12 throughput and CB-16 per-program recompilation; the budget is 1800 s, the measured cost with headroom, to be removed after the reuse measurement while retaining elapsed-time reporting. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, 3600 s discovery budget, --jobs 4): all 30 steps match, the compile and 29 program executions through the C9 stdout-buffer comparison, in 1361.2 s. matrix.kool, killed at 378.7 s under the 600 s ceiling and initially classified as non-terminating, completes and matches in 764.0 s; sorting.kool takes 299.6 s, factorial.kool 108.1 s and collatz.kool 28.4 s. The floor is raised to match at krun. The remaining costs are simplifier throughput and per-program recompilation; the budget is 1800 s, the measured cost with headroom, to be removed after the reuse measurement while retaining elapsed-time reporting. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"
@@ -2057,13 +2057,14 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference, and the case completes in 131.1 s. The prior 34-byte \\bottom results are gone (CB-13) and are no longer accepted as completion-only matches (DF-04); all 30 program steps now halt on one rule, d056a9d1, with Rule#VarE, Rule#VarT and Rule#VarTs uncovered, at depth 3 or 4 (CB-17). The accepted kompile floor is unchanged."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference, and the case completes in 131.1 s. The prior 34-byte \\bottom results are gone and completion-only comparison no longer accepts such a result as a match; all 30 program steps now halt on one rule, d056a9d1, with Rule#VarE, Rule#VarT and Rule#VarTs uncovered, at depth 3 or 4. The accepted kompile floor is unchanged."
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
 # Temporary, from measurement: the 15 programs that match take at most 3.2 s, and the other 35 do not
 # terminate in 1800 s each (sequence 25 sweep-1800; ackermann.fun not in 3600 s, sequence 23), so a
-# 60 s step budget kills nothing that would finish. Remove both once CB-14-1 lands and re-measure.
+# 60 s step budget kills nothing that would finish. Re-measure after main-module macro expansion;
+# remove or reduce the budgets only after the macro-free divergence and fixed costs are also addressed.
 budget = 2700
 step_budget = 60
 accepted_verdict = "krust-error"
@@ -2071,7 +2072,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 25 (label fun-step-budget-20, branch chore/simple-budget-ceilings, budget 1200 s, step_budget 20 s, 751.5 s) measured all 51 steps: the definition compiles and its KORE matches the reference; 15 programs match through the C9 stdout comparison in 2.4 to 3.2 s (callcc-1 to -5, factorial, list-4, list-nth, polymorphism-1 to -4 and -6, references-5, stuck-letrec) and 35 are killed, with no mismatch. The 35 kills are not a budget artifact: re-run from the same work tree with the recorded commands and a 1800 s kill each (target/conformance/runs/25-fun-step-budget-20/sweep-1800/), all 35 run the full 1800 s with empty output, most at 1.2 to 2.3 GiB and list-max at 21 GiB, and ackermann.fun was killed at 3587.7 s in sequence 23. Every killed program uses a construct FUN desugars (datatype, ref, try, head/tail/null?, or a multi-clause or list-pattern function) and every matching one is single-clause and macro-free: CB-14-1, krun expanding program macros in the syntax module's scope so FUN-UNTYPED-MACROS macros survive into execution. The 60 s step budget is from those measurements and kills nothing that would finish; remove it and the case budget once CB-14-1 lands and re-measure. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
+reason = "Shared sequence 25 (label fun-step-budget-20, branch chore/simple-budget-ceilings, budget 1200 s, step_budget 20 s, 751.5 s) measured all 51 steps: the definition compiles and its KORE matches the reference; 15 programs match through the C9 stdout comparison in 2.4 to 3.2 s (callcc-1 to -5, factorial, list-4, list-nth, polymorphism-1 to -4 and -6, references-5, stuck-letrec) and 35 are killed, with no mismatch. The 35 kills are not a budget artifact: re-run from the same work tree with the recorded commands and a 1800 s kill each (target/conformance/runs/25-fun-step-budget-20/sweep-1800/), all 35 run the full 1800 s with empty output, most at 1.2 to 2.3 GiB and list-max at 21 GiB, and ackermann.fun was killed at 3587.7 s in sequence 23. Of the 35 killed programs, 31 use at least one FUN-UNTYPED-MACROS construct (datatype, ref, try, head, tail, or null?) and are exposed to krun expanding programs with the syntax module's macro scope instead of the main module's. Four killed programs are macro-free—list-length, list-max, nth, and factorial-and-list-max—and remain a separate unbounded-growth investigation; multi-clause functions and list patterns are core syntax, not macros. The 60 s step budget is from those measurements and kills nothing that would finish. Re-measure after the macro-scope fix, then remove or reduce the budgets only after the macro-free cohort and the fixed compile/throughput costs are addressed. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
 
 [[case]]
 name = "poly-kitem"

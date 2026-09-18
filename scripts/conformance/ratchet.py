@@ -451,7 +451,7 @@ def command_select(args: argparse.Namespace) -> int:
 
 
 def load_backlog(path: Path) -> list[dict]:
-    """Read a local backlog: [[ticket]] rows with id, title, state (open or closed) and cases."""
+    """Read a local backlog of case-owning or evidence-only [[ticket]] rows."""
     document = load_toml(path, "backlog")
     tickets = document.get("ticket")
     if not isinstance(tickets, list):
@@ -466,6 +466,8 @@ def load_backlog(path: Path) -> list[dict]:
         seen.add(identifier)
         if ticket.get("state") not in ("open", "closed"):
             raise RatchetError(f"backlog ticket {identifier} has no open or closed state")
+        if ticket.get("case_role", "owner") not in ("owner", "evidence"):
+            raise RatchetError(f"backlog ticket {identifier} has an invalid case_role")
         cases = ticket.get("cases")
         if not isinstance(cases, list) or not cases or not all(isinstance(case, str) for case in cases):
             raise RatchetError(f"backlog ticket {identifier} names no cases")
@@ -477,7 +479,7 @@ def audit_backlog(latest: dict[str, tuple[dict, dict]], expectations: dict[str, 
     tickets whose named cases all match. Returns the number of unowned pending cases."""
     owners: dict[str, list[str]] = {}
     for ticket in tickets:
-        if ticket["state"] != "open":
+        if ticket["state"] != "open" or ticket.get("case_role", "owner") != "owner":
             continue
         for case in ticket["cases"]:
             owners.setdefault(case, []).append(ticket["id"])
@@ -508,11 +510,18 @@ def audit_backlog(latest: dict[str, tuple[dict, dict]], expectations: dict[str, 
         ticket["id"]
         for ticket in tickets
         if ticket["state"] == "open"
+        and ticket.get("case_role", "owner") == "owner"
         and all(name in latest and latest[name][1]["verdict"] == "match" for name in ticket["cases"])
+    ]
+    evidence_only = [
+        ticket["id"]
+        for ticket in tickets
+        if ticket["state"] == "open" and ticket.get("case_role", "owner") == "evidence"
     ]
     print()
     print(f"pending without an open ticket: {unowned}")
     print(f"open tickets whose cases all match: {string_array(closable)}")
+    print(f"open evidence-only tickets: {string_array(evidence_only)}")
     return unowned
 
 

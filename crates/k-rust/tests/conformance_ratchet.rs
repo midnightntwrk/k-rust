@@ -1782,7 +1782,7 @@ print(json.dumps({
 
 #[test]
 fn conformance_driver_caps_each_program_by_the_step_budget_inside_the_case_budget() {
-    // DF-06: without a per-program ceiling, one divergent program consumes the whole case
+    // Without a per-program ceiling, one divergent program consumes the whole case
     // budget and every program behind it is skipped. `step_budget` caps one execution; the
     // kill is reported as that program's cost, and the next program still runs.
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -3321,21 +3321,28 @@ fn conformance_audit_lists_pending_cases_without_an_open_backlog_ticket() {
         r#"version = 1
 
 [[ticket]]
-id = "CB-01"
+id = "T-01"
 title = "b needs the search step"
 state = "open"
 cases = ["b"]
 
 [[ticket]]
-id = "CB-02"
+id = "T-02"
 title = "a landed"
 state = "open"
 cases = ["a"]
 
 [[ticket]]
-id = "CB-03"
+id = "T-03"
 title = "d was closed without landing"
 state = "closed"
+cases = ["d"]
+
+[[ticket]]
+id = "T-04"
+title = "d is historical evidence, not owned"
+state = "open"
+case_role = "evidence"
 cases = ["d"]
 "#,
     )
@@ -3347,7 +3354,7 @@ cases = ["d"]
         stdout.contains("### Conformance backlog audit (2 pending cases)"),
         "{stdout}"
     );
-    assert!(stdout.contains("| b | 0 | mismatch | CB-01 |"), "{stdout}");
+    assert!(stdout.contains("| b | 0 | mismatch | T-01 |"), "{stdout}");
     assert!(
         stdout.contains("| d | 0 | krust-unsupported | (none) |"),
         "{stdout}"
@@ -3361,7 +3368,11 @@ cases = ["d"]
         "{stdout}"
     );
     assert!(
-        stdout.contains("open tickets whose cases all match: [\"CB-02\"]"),
+        stdout.contains("open tickets whose cases all match: [\"T-02\"]"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("open evidence-only tickets: [\"T-04\"]"),
         "{stdout}"
     );
 
@@ -3370,7 +3381,7 @@ cases = ["d"]
         r#"version = 1
 
 [[ticket]]
-id = "CB-01"
+id = "T-01"
 title = "b and d need work"
 state = "open"
 cases = ["b", "d"]
@@ -3394,7 +3405,7 @@ cases = ["b", "d"]
     );
     assert!(!String::from_utf8_lossy(&output.stdout).contains("backlog audit"));
 
-    fs::write(&backlog, "version = 1\n\n[[ticket]]\nid = \"CB-09\"\ntitle = \"unknown\"\nstate = \"open\"\ncases = [\"zz\"]\n").unwrap();
+    fs::write(&backlog, "version = 1\n\n[[ticket]]\nid = \"T-09\"\ntitle = \"unknown\"\nstate = \"open\"\ncases = [\"zz\"]\n").unwrap();
     let output = fixture.audit_with_backlog(&backlog);
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("names an unknown case: zz"));
