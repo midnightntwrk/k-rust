@@ -15,7 +15,8 @@ name = "bison-parser-library"
 artifact = "shared-library"
 comparison = "exact"
 inputs = ["test.in"]
-reason = "No parser_PGM exists by design; test.c consumes libparser_KItem_TEST."
+consumer = "test.c"
+library = "parser_KItem_TEST"
 
 [[case]]
 name = "glr"

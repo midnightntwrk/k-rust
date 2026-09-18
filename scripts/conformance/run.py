@@ -4,7 +4,8 @@
 For every leaf case (a directory whose Makefile includes ktest.mak or ktest-fail.mak, expanding
 ktest-group.mak SUBDIRS recursively) the driver:
   1. copies the case tree to a scratch directory (never writes into k/),
-  2. asks GNU make for the exact reference recipes (`make -n all` with K_BIN pointed at k/result/bin),
+  2. asks GNU make for the exact reference recipes (`make -n all` with K_BIN pointed at k/result/bin;
+     reviewed manifest rows supply consumer chains hidden behind fixture-specific default goals),
   3. runs the reference kompile recipe(s) verbatim (and every recipe of a ktest-fail case, which are
      self-checking against their .out), skipping reference test runs whose checked-in .out exists,
   4. runs the krust equivalent of each recipe, converts krust's KORE output to K surface syntax with
@@ -52,7 +53,7 @@ KOMPILE_VALUE_OPTS = {"--backend", "--main-module", "--syntax-module", "--output
 KRUN_VALUE_OPTS = {"--definition", "-d", "--depth", "--bound", "--pattern", "--parser", "--output", "-o", "--output-file",
     "-c", "-p", "--io", "--smt", "--smt-prelude", "--smt-timeout", "--term", "--search-pattern", "--md-selector", "-I", "--warnings", "-w"}
 KAST_VALUE_OPTS = {"--definition", "-d", "--sort", "-s", "--module", "-m", "--input", "-i", "--output", "-o", "--output-file",
-    "--expression", "-e", "--md-selector", "-I", "--warnings", "-w", "--gen-parser-only"}
+    "--expression", "-e", "--md-selector", "-I", "--warnings", "-w", "--gen-parser-only", "--bison-stack-max-depth"}
 KPROVE_VALUE_OPTS = {"--definition", "-d", "--spec-module", "--def-module", "--md-selector", "--smt", "--smt-prelude",
     "--smt-timeout", "--branching-allowing", "--branching-allowed", "--depth", "--claim", "--claims", "--exclude",
     "--trusted", "--debug-script", "--profile-rule-parsing", "--warnings", "-w", "--type-inference-mode", "-I",
@@ -102,7 +103,7 @@ def load_bison_parsers(path):
         document = tomllib.load(source)
     if document.get("schema") != 1:
         raise ValueError("bison parser manifest schema must be 1")
-    allowed = {"name", "artifact", "inputs", "makefile", "comparison", "reason"}
+    allowed = {"name", "artifact", "inputs", "makefile", "comparison", "reason", "consumer", "library"}
     rows = {}
     for index, row in enumerate(document.get("case", [])):
         unknown = set(row) - allowed
@@ -129,13 +130,26 @@ def load_bison_parsers(path):
         if any(Path(item).is_absolute() or any(part in (".", "..") for part in Path(item).parts)
                for item in inputs):
             raise ValueError(f"unsafe bison parser input path for {name}")
-        for optional in ("makefile", "reason"):
+        for optional in ("makefile", "reason", "consumer", "library"):
             if optional in row and not isinstance(row[optional], str):
                 raise ValueError(f"bison parser {optional} for {name} must be a string")
         if "makefile" in row:
             makefile = Path(row["makefile"])
             if makefile.is_absolute() or len(makefile.parts) != 1 or makefile.parts[0] in (".", ".."):
                 raise ValueError(f"unsafe bison parser makefile for {name}")
+        if row["artifact"] == "shared-library":
+            missing_library_fields = {"consumer", "library"} - set(row)
+            if missing_library_fields:
+                raise ValueError(
+                    f"shared-library bison parser row {name} is missing: "
+                    f"{sorted(missing_library_fields)}"
+                )
+            consumer = Path(row["consumer"])
+            if (not row["consumer"] or consumer.is_absolute() or
+                    any(part in (".", "..") for part in consumer.parts)):
+                raise ValueError(f"unsafe bison parser consumer for {name}")
+            if not re.fullmatch(r"[A-Za-z0-9_.+-]+", row["library"]):
+                raise ValueError(f"unsafe bison parser library for {name}")
         rows[name] = dict(row, comparison=row.get("comparison", "exact"))
     return rows
 
@@ -635,7 +649,7 @@ def krust_kompile_args(case, rec, expect_fail=False):
     if "--no-prelude" in flags: args.append("--no-prelude")
     if "--emit-json" in flags: args.append("--emit-json")
     for flag in flags:
-        if flag in ("--gen-bison-parser", "--gen-glr-bison-parser", "--bison-lists"):
+        if flag in ("--gen-bison-parser", "--gen-glr-bison-parser", "--bison-lists", "--bison-parser-library"):
             args.append(flag)
     if opts.get("--bison-stack-max-depth"):
         args += ["--bison-stack-max-depth", opts["--bison-stack-max-depth"][-1]]
@@ -650,7 +664,7 @@ def krust_kompile_args(case, rec, expect_fail=False):
     if warning_level in ("all", "normal", "none"): args += ["--warnings", warning_level]
     per_category = [f"{k} {v}" for k in ("-W", "-Wno") for v in opts.get(k, [])]
     w2e = [f for f in flags if f in ("-w2e", "--warnings-to-errors")]
-    dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap", "-w2e", "--warnings-to-errors", "--gen-bison-parser", "--gen-glr-bison-parser", "--bison-lists")]
+    dropped = [f for f in flags if f not in ("--no-prelude", "--emit-json", "--no-exc-wrap", "-w2e", "--warnings-to-errors", "--gen-bison-parser", "--gen-glr-bison-parser", "--bison-lists", "--bison-parser-library")]
     if w2e and per_category:
         dropped.append(f"{w2e[-1]} (not forwarded next to {' '.join(per_category)}: krust has no per-category warning control, and a partial contract would promote warnings the reference disabled)")
     elif w2e and not expect_fail:
@@ -799,104 +813,146 @@ def bison_log_key(input_path):
     return re.sub(r"[^A-Za-z0-9_.-]+", "__", input_path).strip("_") or "input"
 
 
+def compare_bison_parser_commands(case, row, input_path, reference_command, rust_command,
+                                  reference_environment=None, rust_environment=None, **fields):
+    """Run two generated-parser consumers and compare their stdout bytes."""
+    reference_environment = {
+        **reference_process_env(),
+        **(reference_environment or {}),
+    }
+    step = dict(step="bison-parser", stage="bison-parser", test=input_path,
+                comparison_policy=row["comparison"], **fields)
+    if case.out_of_budget():
+        step.update(verdict="reference-error", reason="case budget exhausted before reference parser")
+        return step_record(case, **step)
+    key = bison_log_key(input_path)
+    reference_output = os.path.join(case.log, f"bison__{key}.reference.kore")
+    rust_output = os.path.join(case.log, f"bison__{key}.krust.kore")
+    reference_stderr = os.path.join(case.log, f"bison__{key}.reference.stderr")
+    rust_stderr = os.path.join(case.log, f"bison__{key}.krust.stderr")
+
+    rc, err, seconds, timed_out = sh_to_file(
+        reference_command, case.dir, case.remaining(), reference_output,
+        env=reference_environment)
+    case.logfile(os.path.basename(reference_stderr), err)
+    step["ref_rc"] = rc; step["ref_seconds"] = round(seconds, 1)
+    if timed_out:
+        step.update(verdict="reference-error", reason="reference parser timed out (case budget)")
+        return step_record(case, **step)
+    if rc != 0:
+        step.update(verdict="reference-error", reason=f"reference parser exit {rc}", divergence=err[-1500:])
+        return step_record(case, **step)
+
+    if case.out_of_budget():
+        step.update(verdict="krust-error", reason="case budget exhausted before krust parser")
+        return step_record(case, **step)
+    rc, err, seconds, timed_out = sh_to_file(
+        rust_command, case.dir, case.remaining(), rust_output, env=rust_environment)
+    case.logfile(os.path.basename(rust_stderr), err)
+    step["krust_rc"] = rc; step["krust_seconds"] = round(seconds, 1)
+    if timed_out:
+        step.update(verdict="krust-error", reason="krust parser timed out (case budget)")
+        return step_record(case, **step)
+    if rc != 0:
+        step.update(verdict="krust-error", reason=f"krust parser exit {rc}", divergence=err[-1500:])
+        return step_record(case, **step)
+
+    environment = {
+        "K_REFERENCE_BISON_PARSER_OUTPUT": reference_output,
+        "K_RUST_BISON_PARSER_OUTPUT": rust_output,
+        "K_BISON_PARSER_INPUT": f"{case.name}/{input_path}",
+        "K_BISON_PARSER_ALLOW_AMBIGUITY": "1" if row["comparison"] == "amb" else "0",
+    }
+    if case.out_of_budget():
+        step.update(verdict="krust-error", reason="case budget exhausted before parser-output comparison")
+        return step_record(case, **step)
+    trc, tout, terr, comparator_timed_out = run_test_binary_result(
+        "generated_bison_parser_outputs_match", environment, case.dir, case.remaining())
+    case.logfile(f"bison__{key}.compare.log", tout + "\n--- stderr ---\n" + terr)
+    # The comparison test emits simple machine-readable assignments; parse them separately
+    # to keep diagnostics robust when libtest adds unrelated output.
+    for name, quoted, number in re.findall(r"(bison-parser-[a-z-]+) = (?:'([^']*)'|([0-9]+))$", tout, re.M):
+        step[name.replace("-", "_")] = quoted if quoted else int(number)
+    if comparator_timed_out:
+        step.update(verdict="krust-error", reason="parser-output comparator timed out (case budget)")
+    elif trc == 0:
+        step.update(verdict="match", comparison="parser stdout bytes" if row["comparison"] == "exact" else "parser KORE modulo same-sort Lblamb flattening and sorting")
+    elif trc == 101:
+        message = re.search(r"panicked at[^\n]*\n(.*)", tout + terr, re.S)
+        text = (message.group(1) if message else (tout + terr)).strip()
+        step.update(verdict="mismatch", comparison="generated parser stdout", divergence="\n".join(text.splitlines()[:DIFF_LINES]))
+    else:
+        step.update(verdict="krust-error", reason=f"parser-output comparator exit {trc}", divergence="\n".join((tout + terr).strip().splitlines()[:DIFF_LINES]))
+    return step_record(case, **step)
+
+
 def run_bison_parsers(case):
     """Execute and semantically compare the generated parser artifacts named by the manifest."""
     row = case.bison_parser
     if row is None:
         return
     if row["artifact"] == "shared-library":
-        step_record(
-            case,
-            step="bison-parser",
-            stage="bison-parser",
-            verdict="krust-unsupported",
-            reason="shared-library parser generation is not implemented; this fixture exposes libparser_KItem_TEST to test.c and has no parser_PGM",
-            inputs=row["inputs"],
-        )
+        extension = ".dylib" if sys.platform == "darwin" else ".so"
+        consumer = os.path.join(case.dir, row["consumer"])
+        reference_directory = case.ref_kompiled or ""
+        rust_directory = os.path.join(case.dir, "krust-kompiled")
+        reference_library = os.path.join(reference_directory, f"lib{row['library']}{extension}")
+        rust_library = os.path.join(rust_directory, f"lib{row['library']}{extension}")
+        missing = None
+        if not case.ref_kompiled or not os.path.exists(reference_library):
+            missing = ("reference-error", "reference generator did not install the parser shared library")
+        elif not os.path.exists(rust_library):
+            missing = ("krust-error", "krust generator did not install the parser shared library")
+        if missing:
+            for input_path in row["inputs"]:
+                step_record(case, step="bison-parser", stage="bison-parser", test=input_path,
+                            comparison_policy=row["comparison"], verdict=missing[0], reason=missing[1])
+            return
+        consumers = {}
+        for side, directory in (("reference", reference_directory), ("krust", rust_directory)):
+            output = os.path.join(case.log, f"bison__consumer.{side}")
+            command = [os.environ.get("CC", "cc"), consumer, f"-L{directory}",
+                       f"-l{row['library']}", "-o", output]
+            rc, out, err, seconds, timed_out = sh(command, case.dir, case.remaining())
+            case.logfile(f"bison__consumer.{side}.log", out + "\n--- stderr ---\n" + err)
+            if timed_out or rc != 0:
+                verdict = "reference-error" if side == "reference" else "krust-error"
+                reason = f"{side} parser consumer {'timed out' if timed_out else f'exit {rc}'}"
+                for input_path in row["inputs"]:
+                    step_record(case, step="bison-parser", stage="bison-parser", test=input_path,
+                                comparison_policy=row["comparison"], verdict=verdict, reason=reason,
+                                divergence=(err or out)[-1500:])
+                return
+            consumers[side] = (output, directory, command, seconds)
+        loader_variable = "DYLD_LIBRARY_PATH" if sys.platform == "darwin" else "LD_LIBRARY_PATH"
+        for input_path in row["inputs"]:
+            compare_bison_parser_commands(
+                case, row, input_path,
+                [consumers["reference"][0], input_path],
+                [consumers["krust"][0], input_path],
+                reference_environment={loader_variable: reference_directory},
+                rust_environment={loader_variable: rust_directory},
+                ref_compile_cmd=" ".join(shlex.quote(word) for word in consumers["reference"][2]),
+                krust_compile_cmd=" ".join(shlex.quote(word) for word in consumers["krust"][2]),
+            )
         return
 
     reference_parser = os.path.join(case.ref_kompiled or "", "parser_PGM")
     rust_parser = os.path.join(case.dir, "krust-kompiled", "parser_PGM")
     for input_path in row["inputs"]:
-        step = dict(step="bison-parser", stage="bison-parser", test=input_path,
-                    comparison_policy=row["comparison"])
         if not case.ref_kompiled or not os.path.exists(reference_parser):
-            step.update(verdict="reference-error", reason="reference generator did not install a resolvable parser_PGM")
-            step_record(case, **step)
+            step_record(case, step="bison-parser", stage="bison-parser", test=input_path,
+                        comparison_policy=row["comparison"], verdict="reference-error",
+                        reason="reference generator did not install a resolvable parser_PGM")
             continue
         if not os.path.exists(rust_parser):
-            step.update(verdict="krust-error", reason="krust generator did not install a resolvable parser_PGM")
-            step_record(case, **step)
+            step_record(case, step="bison-parser", stage="bison-parser", test=input_path,
+                        comparison_policy=row["comparison"], verdict="krust-error",
+                        reason="krust generator did not install a resolvable parser_PGM")
             continue
-        if case.out_of_budget():
-            step.update(verdict="reference-error", reason="case budget exhausted before reference parser")
-            step_record(case, **step)
-            continue
-        key = bison_log_key(input_path)
-        reference_output = os.path.join(case.log, f"bison__{key}.reference.kore")
-        rust_output = os.path.join(case.log, f"bison__{key}.krust.kore")
-        reference_stderr = os.path.join(case.log, f"bison__{key}.reference.stderr")
-        rust_stderr = os.path.join(case.log, f"bison__{key}.krust.stderr")
-
-        rc, err, seconds, timed_out = sh_to_file(
-            [reference_parser, input_path], case.dir, case.remaining(), reference_output,
-            env=reference_process_env())
-        case.logfile(os.path.basename(reference_stderr), err)
-        step["ref_rc"] = rc; step["ref_seconds"] = round(seconds, 1)
-        if timed_out:
-            step.update(verdict="reference-error", reason="reference parser timed out (case budget)")
-            step_record(case, **step)
-            continue
-        if rc != 0:
-            step.update(verdict="reference-error", reason=f"reference parser exit {rc}", divergence=err[-1500:])
-            step_record(case, **step)
-            continue
-
-        if case.out_of_budget():
-            step.update(verdict="krust-error", reason="case budget exhausted before krust parser")
-            step_record(case, **step)
-            continue
-        rc, err, seconds, timed_out = sh_to_file(
-            [rust_parser, input_path], case.dir, case.remaining(), rust_output)
-        case.logfile(os.path.basename(rust_stderr), err)
-        step["krust_rc"] = rc; step["krust_seconds"] = round(seconds, 1)
-        if timed_out:
-            step.update(verdict="krust-error", reason="krust parser timed out (case budget)")
-            step_record(case, **step)
-            continue
-        if rc != 0:
-            step.update(verdict="krust-error", reason=f"krust parser exit {rc}", divergence=err[-1500:])
-            step_record(case, **step)
-            continue
-
-        environment = {
-            "K_REFERENCE_BISON_PARSER_OUTPUT": reference_output,
-            "K_RUST_BISON_PARSER_OUTPUT": rust_output,
-            "K_BISON_PARSER_INPUT": f"{case.name}/{input_path}",
-            "K_BISON_PARSER_ALLOW_AMBIGUITY": "1" if row["comparison"] == "amb" else "0",
-        }
-        if case.out_of_budget():
-            step.update(verdict="krust-error", reason="case budget exhausted before parser-output comparison")
-            step_record(case, **step)
-            continue
-        trc, tout, terr, comparator_timed_out = run_test_binary_result(
-            "generated_bison_parser_outputs_match", environment, case.dir, case.remaining())
-        case.logfile(f"bison__{key}.compare.log", tout + "\n--- stderr ---\n" + terr)
-        # The comparison test emits simple machine-readable assignments; parse them separately
-        # to keep diagnostics robust when libtest adds unrelated output.
-        for name, quoted, number in re.findall(r"(bison-parser-[a-z-]+) = (?:'([^']*)'|([0-9]+))$", tout, re.M):
-            step[name.replace("-", "_")] = quoted if quoted else int(number)
-        if comparator_timed_out:
-            step.update(verdict="krust-error", reason="parser-output comparator timed out (case budget)")
-        elif trc == 0:
-            step.update(verdict="match", comparison="parser stdout bytes" if row["comparison"] == "exact" else "parser KORE modulo same-sort Lblamb flattening and sorting")
-        elif trc == 101:
-            message = re.search(r"panicked at[^\n]*\n(.*)", tout + terr, re.S)
-            text = (message.group(1) if message else (tout + terr)).strip()
-            step.update(verdict="mismatch", comparison="generated parser stdout", divergence="\n".join(text.splitlines()[:DIFF_LINES]))
-        else:
-            step.update(verdict="krust-error", reason=f"parser-output comparator exit {trc}", divergence="\n".join((tout + terr).strip().splitlines()[:DIFF_LINES]))
-        step_record(case, **step)
+        compare_bison_parser_commands(
+            case, row, input_path,
+            [reference_parser, input_path], [rust_parser, input_path])
 
 
 def program_sort_fallback(case, prog_path, stdin_path):
@@ -1422,19 +1478,66 @@ def do_kast(case, rec):
     step = dict(step="kast", test=prog, ref_cmd=rec["raw"], out=rec["out"])
     if not case.ref_kompiled:
         step.update(verdict="skipped-with-reason", reason="no reference kompiled definition"); return step_record(case, **step)
-    unsupported = [f for f in flags if f not in ("--no-exc-wrap", "--debug")]
+    generator_flags = [flag for flag in ("--gen-parser", "--gen-glr-parser") if flag in flags]
+    unsupported = [f for f in flags if f not in ("--no-exc-wrap", "--debug", "--gen-parser", "--gen-glr-parser")]
     inp = (opts.get("--input") or opts.get("-i") or ["program"])[-1]
     outfmt = (opts.get("--output") or opts.get("-o") or ["kast"])[-1]
     if inp != "program": unsupported.append(f"--input {inp}")
     if outfmt not in ("kast", "json"): unsupported.append(f"--output {outfmt}")
     for k in opts:
-        if k not in ("--definition", "-d", "--sort", "-s", "--module", "-m", "--input", "-i", "--output", "-o", "--expression", "-e", "--warnings", "-w"):
+        if k not in ("--definition", "-d", "--sort", "-s", "--module", "-m", "--input", "-i", "--output", "-o", "--expression", "-e", "--warnings", "-w", "--bison-stack-max-depth"):
             unsupported.append(f"{k} {' '.join(opts[k])}")
     expand = "--expand-macros" in flags
     unsupported = [u for u in unsupported if u not in ("--expand-macros", "--no-substitution-filtering")]
     sort = (opts.get("--sort") or opts.get("-s") or [case.pgm_sort or "KItem"])[-1]
     module = (opts.get("--module") or opts.get("-m") or [case.syntax_module])[-1]
     expr = (opts.get("--expression") or opts.get("-e") or [None])[-1]
+    if generator_flags:
+        if len(generator_flags) != 1:
+            unsupported.append(" ".join(generator_flags))
+        if not prog:
+            unsupported.append("generated parser output path")
+        rust_parser = os.path.join(case.log, "kast-bison.krust-parser")
+        args = [KRUST, "kast", case.def_file, "--module", module, "--sort", sort,
+                "-I", ".", "--builtin-directory", BUILTIN] + md_selector_args(case)
+        args.append(generator_flags[0])
+        if opts.get("--bison-stack-max-depth"):
+            args += ["--bison-stack-max-depth", opts["--bison-stack-max-depth"][-1]]
+        args.append(rust_parser)
+        step["krust_cmd"] = " ".join(shlex.quote(a) for a in args)
+        step["stage"] = "bison-parser"
+        if unsupported:
+            step.update(verdict="krust-unsupported", reason="reference kast flags with no krust equivalent: " + " ".join(unsupported))
+            return step_record(case, **step)
+        rc, out, err, secs, to = sh(["bash", "-c", rec["raw"]], case.dir, case.remaining())
+        case.logfile("kast-bison.reference-generation.log", out + "\n--- stderr ---\n" + err)
+        step["ref_rc"] = rc; step["ref_seconds"] = round(secs, 1)
+        reference_parser = os.path.join(case.dir, prog)
+        if to:
+            step.update(verdict="reference-error", reason="reference parser generation timed out")
+            return step_record(case, **step)
+        if rc != 0:
+            step.update(verdict="reference-error", reason=f"reference parser generation exit {rc}", divergence=(err or out)[-1500:])
+            return step_record(case, **step)
+        if not os.path.exists(reference_parser):
+            step.update(verdict="reference-error", reason="reference kast did not write the generated parser")
+            return step_record(case, **step)
+        rc, out, err, secs, to = sh(args, case.dir, case.remaining())
+        case.logfile("kast-bison.krust-generation.log", out + "\n--- stderr ---\n" + err)
+        step["krust_rc"] = rc; step["krust_seconds"] = round(secs, 1)
+        if to:
+            step.update(verdict="krust-error", reason="krust parser generation timed out")
+            return step_record(case, **step)
+        if rc != 0:
+            step.update(verdict="krust-error", reason=f"krust parser generation exit {rc}", divergence=(err or out)[-1500:])
+            return step_record(case, **step)
+        if not os.path.exists(rust_parser):
+            step.update(verdict="krust-error", reason="krust kast did not write the generated parser")
+            return step_record(case, **step)
+        case.kast_reference_parser = reference_parser
+        case.kast_rust_parser = rust_parser
+        step.update(verdict="match", comparison="both kast commands generated a parser executable")
+        return step_record(case, **step)
     args = krust_kast_args(case, module, sort, outfmt, expr, prog)
     step["krust_cmd"] = " ".join(shlex.quote(a) for a in args)
     if unsupported:
@@ -1646,6 +1749,36 @@ def clean_case_artifacts(case):
             dependency.unlink()
 
 
+def kast_bison_recipe_input(recipe):
+    """Recognise the checked %.kast-bison parser invocation after its kast generation recipe."""
+    match = re.search(
+        r"(?:^|;\s*)\./bison_parser\s+([^\s|]+)\s*\|\s*diff\s+-\s+[^\s;]+\s*$",
+        recipe,
+    )
+    return match.group(1) if match else None
+
+
+def run_kast_bison_parsers(case, inputs):
+    """Run the reference and krust parsers produced by a kast --gen-parser recipe."""
+    row = {"comparison": "exact"}
+    reference_parser = getattr(case, "kast_reference_parser", os.path.join(case.dir, "bison_parser"))
+    rust_parser = getattr(case, "kast_rust_parser", os.path.join(case.log, "kast-bison.krust-parser"))
+    for input_path in inputs:
+        if not os.path.exists(reference_parser):
+            step_record(case, step="bison-parser", stage="bison-parser", test=input_path,
+                        comparison_policy="exact", verdict="reference-error",
+                        reason="reference kast did not install the generated parser")
+            continue
+        if not os.path.exists(rust_parser):
+            step_record(case, step="bison-parser", stage="bison-parser", test=input_path,
+                        comparison_policy="exact", verdict="krust-error",
+                        reason="krust kast did not install the generated parser")
+            continue
+        compare_bison_parser_commands(
+            case, row, input_path,
+            [reference_parser, input_path], [rust_parser, input_path])
+
+
 def run_case(rel, kind):
     case = Case(rel); case.kind = kind
     if os.path.exists(case.log): shutil.rmtree(case.log)
@@ -1661,9 +1794,15 @@ def run_case(rel, kind):
         return finish(case, "reference-error", "driver could not enumerate recipes: make -n all failed")
     recs = []
     custom = []
+    kast_bison_inputs = []
     for l in lines:
         r = split_recipe(l)
-        if r is None: custom.append(l)
+        if r is None:
+            kast_bison_input = kast_bison_recipe_input(l)
+            if kast_bison_input:
+                kast_bison_inputs.append(kast_bison_input)
+            else:
+                custom.append(l)
         else: recs.append(r)
     if custom:
         case.custom_targets = custom[:8]
@@ -1709,6 +1848,7 @@ def run_case(rel, kind):
         elif r["tool"] == "kprove": do_kprove(case, r)
         elif r["tool"] == "kparse": step_record(case, step="kparse", test=" ".join(r["args"][:1]), ref_cmd=r["raw"], verdict="krust-unsupported", reason="kparse (program -> KORE) has no krust equivalent; krust kast emits KAST text/JSON only")
         else: step_record(case, step=r["tool"], ref_cmd=r["raw"], verdict="krust-unsupported", reason=f"{r['tool']} has no krust equivalent")
+    run_kast_bison_parsers(case, kast_bison_inputs)
     return finish(case)
 
 

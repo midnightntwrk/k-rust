@@ -255,6 +255,10 @@ struct KcompileArgs {
     #[arg(long)]
     bison_lists: bool,
 
+    /// Generate the requested Bison parser as a shared library instead of an executable.
+    #[arg(long)]
+    bison_parser_library: bool,
+
     /// Plugin hook namespaces (for example `KRYPTO`) emitted as hooked symbols. K's form is one
     /// whitespace-separated list; commas and repeated flags are accepted too. Defaults to the
     /// namespaces the Rust backend implements, or to none for other backends.
@@ -352,6 +356,24 @@ struct KastArgs {
         value_name = "PROGRAM"
     )]
     expression: Option<String>,
+
+    /// Generate a standalone deterministic Bison parser at PROGRAM_FILE.
+    #[arg(
+        long,
+        conflicts_with_all = ["gen_glr_parser", "expression", "batch_case", "batch_reject_case", "output"]
+    )]
+    gen_parser: bool,
+
+    /// Generate a standalone GLR Bison parser at PROGRAM_FILE.
+    #[arg(
+        long,
+        conflicts_with_all = ["gen_parser", "expression", "batch_case", "batch_reject_case", "output"]
+    )]
+    gen_glr_parser: bool,
+
+    /// Maximum size of the generated Bison parser stack.
+    #[arg(long, default_value_t = 10_000, value_name = "SIZE")]
+    bison_stack_max_depth: u64,
 
     /// Program file to parse, or `-` for standard input.
     #[arg(
@@ -874,6 +896,7 @@ struct KcompileOptions {
     gen_glr_bison_parser: bool,
     bison_stack_max_depth: u64,
     bison_lists: bool,
+    bison_parser_library: bool,
     output_directory: PathBuf,
     emit_json: bool,
     for_proving: bool,
@@ -956,6 +979,9 @@ struct KastOptions {
     expression: Option<String>,
     program_file: Option<PathBuf>,
     output: OutputFormat,
+    gen_parser: bool,
+    gen_glr_parser: bool,
+    bison_stack_max_depth: u64,
 }
 
 #[derive(Debug)]
@@ -1274,6 +1300,7 @@ impl From<KcompileArgs> for KcompileOptions {
             gen_glr_bison_parser: arguments.gen_glr_bison_parser,
             bison_stack_max_depth: arguments.bison_stack_max_depth,
             bison_lists: arguments.bison_lists,
+            bison_parser_library: arguments.bison_parser_library,
             output_directory: arguments.output_directory,
             emit_json: arguments.emit_json,
             for_proving: arguments.for_proving,
@@ -1339,6 +1366,9 @@ impl From<KastArgs> for KastOptions {
             expression: arguments.expression,
             program_file: arguments.program_file,
             output: arguments.output,
+            gen_parser: arguments.gen_parser,
+            gen_glr_parser: arguments.gen_glr_parser,
+            bison_stack_max_depth: arguments.bison_stack_max_depth,
         }
     }
 }
@@ -1695,6 +1725,11 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     if options.for_proving && options.backend != CompilationBackend::Rust {
         return Err("--for-proving requires --backend rust".into());
     }
+    if options.bison_parser_library && !options.gen_bison_parser && !options.gen_glr_bison_parser {
+        return Err(
+            "--bison-parser-library requires --gen-bison-parser or --gen-glr-bison-parser".into(),
+        );
+    }
     let configuration_module = options.for_proving.then(|| {
         options
             .definition_module
@@ -1778,6 +1813,11 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                 k_rust::bison::Options {
                     mode,
                     stack_max_depth: options.bison_stack_max_depth,
+                    artifact: if options.bison_parser_library {
+                        k_rust::bison::Artifact::SharedLibrary
+                    } else {
+                        k_rust::bison::Artifact::Executable
+                    },
                 },
             )
         })?;
@@ -1941,6 +1981,32 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
         return Err("definition checks failed".into());
+    }
+    let bison_mode = if options.gen_glr_parser {
+        Some(k_rust::bison::Mode::Glr)
+    } else if options.gen_parser {
+        Some(k_rust::bison::Mode::Lr)
+    } else {
+        None
+    };
+    if let Some(mode) = bison_mode {
+        let output = options
+            .program_file
+            .as_deref()
+            .ok_or("--gen-parser and --gen-glr-parser require an output path")?;
+        let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
+        return k_rust::bison::generate_parser(
+            &loaded.resolved,
+            &options.common.module,
+            &sort,
+            output,
+            k_rust::bison::Options {
+                mode,
+                stack_max_depth: options.bison_stack_max_depth,
+                artifact: k_rust::bison::Artifact::Executable,
+            },
+        )
+        .map_err(Into::into);
     }
     let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
     if !options.batch_cases.is_empty() || !options.batch_reject_cases.is_empty() {

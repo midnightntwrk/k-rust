@@ -11,7 +11,8 @@ Fixture provenance records the commands and pins used for committed outputs; a s
 
 ## Backend scope
 
-LLVM-specific runtime behavior, Bison parser generation, LLVM decision-tree warnings and LLVM coverage instrumentation are outside the Haskell-backend compatibility contract.
+LLVM-specific runtime behavior, the behavior of the external Bison/Flex parser generator, LLVM decision-tree warnings and LLVM coverage instrumentation are outside the Haskell-backend compatibility contract.
+The CLI interoperability contract includes rendering parser sources, invoking the system Bison/Flex/C toolchain, installing executable or shared-library parser artifacts, and preserving their parser-output bytes; the Bison implementation itself remains external to Rust.
 The conformance expectations retain each affected case or step with its concrete `llvm-only` reason.
 An LLVM expected output cannot define the behavior of a hook that neither pinned Kore engine evaluates, or of a definition that `kore-parser --verify` rejects.
 The [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records implemented and unsupported operations.
@@ -128,6 +129,7 @@ K tools and pyk serve as differential oracles; the conformance driver translates
 An unknown or untranslatable flag must remain explicitly unsupported rather than being silently ignored.
 The `declined-capability` category records steps requiring an interface with no Rust equivalent.
 Semantic input selection, warning handling, execution status, and configuration initialization remain testable contracts; this policy does not exclude them.
+The source-plus-flags interface includes standalone Bison parser generation and executable or shared-library parser artifacts, while relying on the system Bison, Flex, and C compiler rather than implementing those tools in Rust.
 
 ## Driver scope
 
