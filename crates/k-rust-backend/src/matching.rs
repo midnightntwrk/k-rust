@@ -1807,6 +1807,9 @@ impl Matcher<'_> {
                     arguments: subject_arguments,
                 },
             ) if (is_constructor(&pattern) && is_constructor(&subject))
+                || (self.mode == MatchMode::Rewrite
+                    && is_rewrite_rigid(pattern.kind())
+                    && is_rewrite_rigid(subject.kind()))
                 || (pattern_symbol.attributes.injective
                     && pattern_symbol.name == subject_symbol.name)
                 || (self.mode == MatchMode::Evaluate
@@ -1923,7 +1926,12 @@ impl Matcher<'_> {
             {
                 Err(FailReason::DifferentSymbols(pattern, subject))
             }
-            (left, right) if is_rigid(left) && is_rigid(right) => {
+            (left, right)
+                if (self.mode == MatchMode::Rewrite
+                    && is_rewrite_rigid(left)
+                    && is_rewrite_rigid(right))
+                    || (is_rigid(left) && is_rigid(right)) =>
+            {
                 Err(FailReason::DifferentSymbols(pattern, subject))
             }
             _ if list_update_cannot_match(&pattern, &subject) => {
@@ -2756,6 +2764,15 @@ fn is_rigid(kind: &TermKind) -> bool {
         TermKind::Application { symbol, .. }
             if symbol.attributes.symbol_type == SymbolType::Constructor
     )
+}
+
+fn is_rewrite_rigid(kind: &TermKind) -> bool {
+    is_rigid(kind)
+        || matches!(
+            kind,
+            TermKind::Application { symbol, .. }
+                if symbol.attributes.anywhere && !symbol.attributes.declared_function
+        )
 }
 
 fn is_overload_head(definition: Option<&BackendDefinition>, kind: &TermKind) -> bool {

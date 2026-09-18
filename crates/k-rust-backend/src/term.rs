@@ -124,6 +124,11 @@ pub enum SymbolType {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SymbolAttributes {
     pub symbol_type: SymbolType,
+    /// The source symbol carries the KORE `anywhere` attribute.
+    pub anywhere: bool,
+    /// The source symbol carries the KORE `function` attribute, as distinct from a symbol that is
+    /// total only because it is `functional`.
+    pub declared_function: bool,
     pub binder: bool,
     pub injective: bool,
     pub associative: bool,
@@ -139,6 +144,8 @@ impl SymbolAttributes {
     pub fn constructor() -> Self {
         Self {
             symbol_type: SymbolType::Constructor,
+            anywhere: false,
+            declared_function: false,
             binder: false,
             injective: false,
             associative: false,
@@ -253,6 +260,7 @@ pub struct TermAttributes {
     pub variables: BTreeSet<Variable>,
     pub evaluated: bool,
     pub constructor_like: bool,
+    pub constructor_like_for_rewrite_instantiation: bool,
     pub can_be_evaluated: bool,
     hash: u64,
 }
@@ -263,6 +271,7 @@ impl Default for TermAttributes {
             variables: BTreeSet::new(),
             evaluated: true,
             constructor_like: false,
+            constructor_like_for_rewrite_instantiation: false,
             can_be_evaluated: true,
             hash: 0,
         }
@@ -282,6 +291,7 @@ impl Term {
     pub fn and(left: Self, right: Self) -> Self {
         let mut attributes = combine_attributes([&left, &right]);
         attributes.constructor_like = false;
+        attributes.constructor_like_for_rewrite_instantiation = false;
         Self::new(TermKind::And(left, right), attributes)
     }
 
@@ -318,6 +328,9 @@ impl Term {
         let constructor = symbol.attributes.symbol_type == SymbolType::Constructor;
         attributes.evaluated = constructor && attributes.evaluated;
         attributes.constructor_like = constructor && attributes.constructor_like;
+        attributes.constructor_like_for_rewrite_instantiation = (constructor
+            || (symbol.attributes.anywhere && !symbol.attributes.declared_function))
+            && attributes.constructor_like_for_rewrite_instantiation;
         attributes.can_be_evaluated =
             symbol.attributes.has_evaluators && attributes.can_be_evaluated;
         Self::new(
@@ -418,6 +431,7 @@ impl Term {
         };
         let attributes = TermAttributes {
             constructor_like: true,
+            constructor_like_for_rewrite_instantiation: true,
             ..TermAttributes::default()
         };
         Self::new(TermKind::DomainValue { sort, value }, attributes)
@@ -583,6 +597,17 @@ impl Term {
 
     pub fn attributes(&self) -> &TermAttributes {
         &self.0.attributes
+    }
+
+    /// Whether this term is concrete at the rewrite-instantiation boundary.
+    ///
+    /// K emits overloaded productions and productions with anywhere equations without the
+    /// `constructor` attribute.  Once equation normalization has reached a fixed point, a
+    /// variable-free application of one of those symbols is nevertheless a concrete program
+    /// fragment: it must not make an otherwise ground configuration eligible for narrowing.
+    /// Ordinary function applications remain symbolic even when they are ground.
+    pub fn constructor_like_for_rewrite_instantiation(&self) -> bool {
+        self.attributes().constructor_like_for_rewrite_instantiation
     }
 
     pub fn sort(&self) -> Sort {
@@ -776,6 +801,7 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
         // concrete constructor-like values.
         return TermAttributes {
             constructor_like: true,
+            constructor_like_for_rewrite_instantiation: true,
             ..TermAttributes::default()
         };
     };
@@ -787,6 +813,8 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
             .extend(attributes.variables.iter().cloned());
         combined.evaluated &= attributes.evaluated;
         combined.constructor_like &= attributes.constructor_like;
+        combined.constructor_like_for_rewrite_instantiation &=
+            attributes.constructor_like_for_rewrite_instantiation;
         combined.can_be_evaluated &= attributes.can_be_evaluated;
     }
     combined.hash = 0;

@@ -72,6 +72,29 @@ module MAIN
     ) [label{}("right")]
 endmodule []"#;
 
+/// A SIMPLE-shaped heating rule whose normalized anywhere head cannot match the rigid program
+/// head.  The lower-priority program rule must run without symbolic recovery or SMT work.
+const GROUND_ANYWHERE_HEATING: &str = r#"[]
+module MAIN
+    sort SortS{} []
+    symbol state{}(SortS{}) : SortS{} [constructor{}(), total{}()]
+    symbol anywhereHead{}(SortS{}, SortS{}) : SortS{} [anywhere{}(), total{}()]
+    symbol programHead{}(SortS{}) : SortS{} [constructor{}(), total{}()]
+    symbol value{}() : SortS{} [constructor{}(), total{}()]
+    symbol done{}() : SortS{} [constructor{}(), total{}()]
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(
+            state{}(anywhereHead{}(HOLE:SortS{}, REST:SortS{})),
+            \top{SortS{}}()
+        ),
+        state{}(HOLE:SortS{})
+    ) [label{}("heat"), priority{}("40")]
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(state{}(programHead{}(X:SortS{})), \top{SortS{}}()),
+        done{}()
+    ) [label{}("program"), priority{}("50")]
+endmodule []"#;
+
 fn definition(source: &str) -> BackendDefinition {
     let syntax = parse_definition(source).expect("definition should parse");
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
@@ -168,6 +191,31 @@ fn counting_execution_work_grows_linearly_with_depth() {
             at_100.get(counter)
         );
     }
+}
+
+#[test]
+fn ground_anywhere_heating_does_not_enter_symbolic_recovery() {
+    let definition = definition(GROUND_ANYWHERE_HEATING);
+    let initial = pattern(&definition, "state{}(programHead{}(value{}()))");
+    let (result, delta) = measured(|| {
+        execute(
+            &definition,
+            initial,
+            ExecutionOptions {
+                max_depth: 1,
+                ..ExecutionOptions::default()
+            },
+        )
+    });
+    eprintln!("ground anywhere heating: {:?}", nonzero(&delta));
+    assert_eq!(result.leaves.len(), 1, "{result:#?}");
+    assert_eq!(
+        result.leaves[0].pattern.term,
+        pattern(&definition, "done{}()").term
+    );
+    assert_eq!(delta.get(Counter::RewriteRulesApplied), 1);
+    assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);
+    assert_eq!(delta.get(Counter::SmtQueries), 0);
 }
 
 // ---------- search ----------

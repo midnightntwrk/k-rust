@@ -60,6 +60,8 @@ fn function() -> Arc<Symbol> {
         result_sort: sort(),
         attributes: SymbolAttributes {
             symbol_type: SymbolType::Function(FunctionType::Total),
+            anywhere: false,
+            declared_function: true,
             binder: false,
             injective: false,
             associative: false,
@@ -565,6 +567,92 @@ fn decomposes_matching_injective_functions_during_rewriting() {
         match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
         MatchResult::Success(Substitution::from([(variable, value)]))
     );
+}
+
+#[test]
+fn anywhere_heads_are_rigid_only_for_rewrite_matching() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol value{}() : SortS{} [constructor{}(), total{}()]
+                symbol anywhereHead{}(SortS{}) : SortS{}
+                    [anywhere{}(), total{}()]
+                symbol constructorHead{}(SortS{}) : SortS{}
+                    [constructor{}(), total{}()]
+                symbol functionHead{}(SortS{}) : SortS{}
+                    [function{}(), total{}()]
+                symbol anywhereFunction{}(SortS{}) : SortS{}
+                    [anywhere{}(), function{}(), total{}()]
+            endmodule []"#,
+    )
+    .expect("anywhere definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("anywhere definition should internalize");
+    let value = Term::application(definition.symbols["value"].clone(), Vec::new(), Vec::new());
+    let variable = Variable::new("X", Sort::simple("SortS"));
+    let application = |name: &str, argument: Term| {
+        Term::application(definition.symbols[name].clone(), Vec::new(), vec![argument])
+    };
+    let pattern = application("anywhereHead", Term::variable(variable.clone()));
+
+    assert!(definition.symbols["anywhereHead"].attributes.anywhere);
+    assert!(
+        !definition.symbols["anywhereHead"]
+            .attributes
+            .declared_function
+    );
+    assert_eq!(
+        match_terms_in_definition(
+            MatchMode::Rewrite,
+            &definition,
+            &pattern,
+            &application("anywhereHead", value.clone()),
+        ),
+        MatchResult::Success(Substitution::from([(variable, value.clone())]))
+    );
+    assert!(matches!(
+        match_terms_in_definition(
+            MatchMode::Rewrite,
+            &definition,
+            &pattern,
+            &application("constructorHead", value.clone()),
+        ),
+        MatchResult::Failed(FailReason::DifferentSymbols(..))
+    ));
+
+    for subject in [
+        application("functionHead", value.clone()),
+        Term::variable(Variable::new("SUBJECT", Sort::simple("SortS"))),
+    ] {
+        assert!(matches!(
+            match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject,),
+            MatchResult::Indeterminate { .. }
+        ));
+    }
+    for mode in [MatchMode::Evaluate, MatchMode::Implies] {
+        assert!(matches!(
+            match_terms_in_definition(
+                mode,
+                &definition,
+                &pattern,
+                &application("constructorHead", value.clone()),
+            ),
+            MatchResult::Indeterminate { .. }
+        ));
+    }
+    assert!(matches!(
+        match_terms_in_definition(
+            MatchMode::Rewrite,
+            &definition,
+            &application(
+                "anywhereFunction",
+                Term::variable(Variable::new("Y", Sort::simple("SortS"))),
+            ),
+            &application("constructorHead", value),
+        ),
+        MatchResult::Indeterminate { .. }
+    ));
 }
 
 #[test]
