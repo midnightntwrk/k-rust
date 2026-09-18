@@ -888,6 +888,14 @@ fn simplify_predicate_with_budget(
             let equality =
                 normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right));
             let equality = normalize_injection_equality(definition, equality);
+            let equality = match equality {
+                Predicate::Equals(left, right)
+                    if left.structurally_distinct_after_normalization(&right) =>
+                {
+                    Predicate::False
+                }
+                equality => equality,
+            };
             with_simplification_constraints(constraints, equality)
         }
         Predicate::Ceil(term) => {

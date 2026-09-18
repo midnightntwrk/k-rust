@@ -26,7 +26,7 @@ use k_rust_backend::{
 use k_rust_backend::{substitution::substitute, term::Variable};
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use crate::support::{ground_cell_set_definition, internal_term};
+use crate::support::{ground_cell_set_definition, ground_overload_definition, internal_term};
 
 #[derive(Clone, Debug)]
 struct FixedSolver {
@@ -70,7 +70,7 @@ fn definition(axioms: &str) -> BackendDefinition {
 }
 
 #[test]
-fn spawning_a_distinct_ground_cell_in_a_set_retains_the_unresolved_inequality() {
+fn spawning_a_distinct_normalized_ground_cell_has_no_residual_inequality() {
     let definition = ground_cell_set_definition();
     let value = r#"\dv{SortValue{}}("a")"#;
     let subject = Pattern {
@@ -99,13 +99,7 @@ fn spawning_a_distinct_ground_cell_in_a_set_retains_the_unresolved_inequality() 
             ),
         ),
     );
-    assert_eq!(
-        applied.pattern.constraints,
-        [Predicate::Not(Box::new(Predicate::Equals(
-            internal_term(&definition, &format!("cell{{}}(f{{}}({value}))")),
-            internal_term(&definition, &format!("cell{{}}(g{{}}({value}))")),
-        )))],
-    );
+    assert!(applied.pattern.constraints.is_empty());
 }
 
 #[test]
@@ -130,6 +124,29 @@ fn spawning_a_duplicate_ground_cell_uses_set_idempotence_without_a_constraint() 
     };
     assert_eq!(applied.unique_id, "spawn-duplicate");
     assert_eq!(applied.pattern.term, subject.term);
+    assert!(applied.pattern.constraints.is_empty());
+}
+
+#[test]
+fn ground_non_result_overload_heats_without_a_remainder_branch() {
+    let definition = ground_overload_definition();
+    let subject = Pattern {
+        term: internal_term(
+            &definition,
+            "state{}(exps{}(fun{}(), inj{SortVals{}, SortExps{}}(dotVals{}())))",
+        ),
+        constraints: Vec::new(),
+    };
+
+    let result = rewrite_step(&definition, &subject, &mut 0);
+    let RewriteResult::Finished(applied) = result else {
+        panic!("the ground heating condition must be decided: {result:?}");
+    };
+    assert_eq!(applied.unique_id, "heat-non-result");
+    assert_eq!(
+        applied.pattern.term,
+        internal_term(&definition, "heated{}()")
+    );
     assert!(applied.pattern.constraints.is_empty());
 }
 
@@ -318,7 +335,7 @@ fn ground_anywhere_fragments_do_not_enable_narrowing() {
         constraints: Vec::new(),
     };
     assert!(!subject.term.attributes().constructor_like);
-    assert!(subject.term.constructor_like_for_rewrite_instantiation());
+    assert!(subject.term.concrete_after_normalization());
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Ok(Validity::Indeterminate),
@@ -345,7 +362,7 @@ fn symbolic_anywhere_fragments_still_enable_narrowing() {
         term: internal_term(&definition, "state{}(overloadedList{}(SUBJECT:SortS{}))"),
         constraints: Vec::new(),
     };
-    assert!(!subject.term.constructor_like_for_rewrite_instantiation());
+    assert!(!subject.term.concrete_after_normalization());
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
         validity: Ok(Validity::Indeterminate),

@@ -13,6 +13,8 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::parse_definition;
 
+use crate::support::{ground_overload_definition, internal_term};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Outcome {
     Success,
@@ -702,6 +704,69 @@ fn rejects_a_rigid_domain_value_outside_an_overload_family() {
         match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &subject),
         MatchResult::Failed(FailReason::DifferentSymbols(..))
     ));
+}
+
+#[test]
+fn lowers_a_normalized_ground_overload_for_sort_membership() {
+    let definition = ground_overload_definition();
+    let variable = Variable::new("X", Sort::simple("SortKResult"));
+    let pattern = Term::injection(
+        Sort::simple("SortKResult"),
+        Sort::simple("SortKItem"),
+        Term::variable(variable.clone()),
+    );
+    let subject = internal_term(
+        &definition,
+        "inj{SortExps{}, SortKItem{}}(exps{}(inj{SortVal{}, SortExp{}}(val{}()), inj{SortVals{}, SortExps{}}(dotVals{}())))",
+    );
+
+    assert_eq!(
+        match_terms_in_definition(MatchMode::Evaluate, &definition, &pattern, &subject),
+        MatchResult::Success(Substitution::from([(
+            variable,
+            internal_term(
+                &definition,
+                "inj{SortVals{}, SortKResult{}}(vals{}(val{}(), dotVals{}()))",
+            ),
+        )]))
+    );
+}
+
+#[test]
+fn refutes_sort_membership_when_a_ground_overload_cannot_lower() {
+    let definition = ground_overload_definition();
+    let pattern = internal_term(
+        &definition,
+        "inj{SortKResult{}, SortKItem{}}(X:SortKResult{})",
+    );
+    let subject = internal_term(
+        &definition,
+        "inj{SortExps{}, SortKItem{}}(exps{}(fun{}(), inj{SortVals{}, SortExps{}}(dotVals{}())))",
+    );
+
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Evaluate, &definition, &pattern, &subject),
+        MatchResult::Failed(FailReason::DifferentSorts(..))
+    ));
+}
+
+#[test]
+fn keeps_symbolic_and_ordinary_function_overload_membership_indeterminate() {
+    let definition = ground_overload_definition();
+    let pattern = internal_term(
+        &definition,
+        "inj{SortKResult{}, SortKItem{}}(X:SortKResult{})",
+    );
+    for subject in [
+        "inj{SortExps{}, SortKItem{}}(exps{}(E:SortExp{}, inj{SortVals{}, SortExps{}}(dotVals{}())))",
+        "inj{SortExps{}, SortKItem{}}(exps{}(ordinary{}(fun{}()), inj{SortVals{}, SortExps{}}(dotVals{}())))",
+    ] {
+        let subject = internal_term(&definition, subject);
+        assert!(matches!(
+            match_terms_in_definition(MatchMode::Evaluate, &definition, &pattern, &subject),
+            MatchResult::Indeterminate { .. }
+        ));
+    }
 }
 
 #[test]

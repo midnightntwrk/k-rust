@@ -13,7 +13,7 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use crate::support::ground_cell_set_definition;
+use crate::support::{ground_cell_set_definition, ground_overload_definition};
 
 fn definition(axioms: &str) -> BackendDefinition {
     let source = format!(
@@ -43,7 +43,7 @@ fn term(definition: &BackendDefinition, source: &str) -> Term {
 }
 
 #[test]
-fn ceil_of_distinct_ground_cells_in_a_set_retains_the_inequality() {
+fn ceil_of_distinct_normalized_ground_cells_in_a_set_is_true() {
     let definition = ground_cell_set_definition();
     let set = term(
         &definition,
@@ -62,13 +62,128 @@ fn ceil_of_distinct_ground_cells_in_a_set_retains_the_inequality() {
     )
     .expect("the set definedness predicate should simplify");
 
-    assert_eq!(
-        simplified,
-        Predicate::Not(Box::new(Predicate::Equals(
-            term(&definition, r#"cell{}(f{}(\dv{SortValue{}}("a")))"#,),
-            term(&definition, r#"cell{}(g{}(\dv{SortValue{}}("a")))"#,),
-        ))),
+    assert_eq!(simplified, Predicate::True);
+}
+
+#[test]
+fn structural_equality_keeps_ordinary_ground_functions_symbolic() {
+    let definition = ground_cell_set_definition();
+    let equality = Predicate::Equals(
+        term(&definition, r#"f{}(h{}(\dv{SortValue{}}("a")))"#),
+        term(&definition, r#"g{}(h{}(\dv{SortValue{}}("a")))"#),
     );
+
+    let simplified = simplify_predicate_with_solver(
+        &definition,
+        &equality,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the symbolic equality should simplify without being decided");
+
+    assert_eq!(simplified, equality);
+}
+
+#[test]
+fn structural_equality_keeps_variable_bearing_anywhere_terms_symbolic() {
+    let definition = ground_cell_set_definition();
+    let equality = Predicate::Equals(
+        term(&definition, "f{}(X:SortValue{})"),
+        term(&definition, r#"g{}(\dv{SortValue{}}("a"))"#),
+    );
+
+    let simplified = simplify_predicate_with_solver(
+        &definition,
+        &equality,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the symbolic equality should simplify without being decided");
+
+    assert_eq!(simplified, equality);
+}
+
+#[test]
+fn structural_equality_runs_after_anywhere_normalization() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol value{}() : SortS{} [constructor{}()]
+                symbol box{}(SortS{}) : SortS{}
+                    [anywhere{}(), functional{}(), injective{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortS{}, R}(X:SortS{}, value{}()),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortS{}, R}(
+                        box{}(X:SortS{}),
+                        \and{SortS{}}(value{}(), \top{SortS{}}())
+                    )
+                ) [anywhere{}()]
+            endmodule []"#,
+    )
+    .expect("anywhere definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("anywhere definition should internalize");
+    let equality = Predicate::Equals(
+        term(&definition, "box{}(value{}())"),
+        term(&definition, "value{}()"),
+    );
+
+    let simplified = simplify_predicate_with_solver(
+        &definition,
+        &equality,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the anywhere equality should simplify");
+
+    assert_eq!(simplified, Predicate::True);
+}
+
+#[test]
+fn is_k_result_decides_ground_overloads_and_preserves_symbolic_cases() {
+    let definition = ground_overload_definition();
+    let true_term = term(&definition, r#"\dv{SortBool{}}("true")"#);
+    let false_term = term(&definition, r#"\dv{SortBool{}}("false")"#);
+    let cases = [
+        (
+            "exps{}(inj{SortVal{}, SortExp{}}(val{}()), inj{SortVals{}, SortExps{}}(dotVals{}()))",
+            Some(&true_term),
+        ),
+        (
+            "exps{}(fun{}(), inj{SortVals{}, SortExps{}}(dotVals{}()))",
+            Some(&false_term),
+        ),
+        (
+            "exps{}(E:SortExp{}, inj{SortVals{}, SortExps{}}(dotVals{}()))",
+            None,
+        ),
+        (
+            "exps{}(ordinary{}(fun{}()), inj{SortVals{}, SortExps{}}(dotVals{}()))",
+            None,
+        ),
+    ];
+
+    for (list, expected) in cases {
+        let input = term(
+            &definition,
+            &format!(
+                "isKResult{{}}(kseq{{}}(inj{{SortExps{{}}, SortKItem{{}}}}({list}), dotk{{}}()))"
+            ),
+        );
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("isKResult should simplify");
+        assert_eq!(result.term, expected.unwrap_or(&input).clone(), "{list}");
+    }
 }
 
 struct FixedValiditySolver(Validity);

@@ -10,6 +10,8 @@ module GROUND-CELL-SET
         [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
     symbol g{}(SortValue{}) : SortValue{}
         [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+    symbol h{}(SortValue{}) : SortValue{}
+        [function{}(), functional{}(), injective{}(), no-evaluators{}()]
     symbol cell{}(SortValue{}) : SortCell{}
         [constructor{}(), functional{}(), injective{}()]
     hooked-symbol setUnit{}() : SortCellSet{}
