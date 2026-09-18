@@ -14,6 +14,9 @@ ktest-group.mak SUBDIRS recursively) the driver:
      and krust's with `krust kore-simplify` against the reference-kompiled definition, and compares
      the two simplified patterns structurally (C8); a step that matches only this way says so,
   6. on a remaining mismatch re-runs the reference recipe verbatim to confirm the .out is still the oracle.
+Every case runs under a budget (--budget, or `budget` in expectations.toml); a program execution may
+additionally be capped by the case's `step_budget`, so one divergent program is reported as its own
+krust-error instead of consuming the budget of every program behind it.
 Results go to the requested results.toml (rewritten after every case) and per-case logs directory.
 """
 import argparse, json, math, os, re, shlex, shutil, subprocess, sys, tempfile, threading, time
@@ -41,6 +44,9 @@ BISON_PARSER_ONLY = False
 IGNORE_UNIQUE_ID = False
 CASE_BUDGET = 300.0
 CASE_BUDGETS = {}
+# Per-program ceiling inside the case budget (expectations `step_budget`); absent means the case
+# budget alone bounds a program, so one divergent program hides every program behind it.
+STEP_BUDGETS = {}
 DIFF_LINES = 20
 WORK_TREE_MARKER = ".krust-conformance-source.json"
 REFERENCE_ERROR = object()
@@ -95,7 +101,12 @@ def load_expectations(path):
         for row in rows
         if "budget" in row
     }
-    return document, budgets
+    step_budgets = {
+        row["name"]: float(row["step_budget"])
+        for row in rows
+        if "step_budget" in row
+    }
+    return document, budgets, step_budgets
 
 
 def load_bison_parsers(path):
@@ -365,6 +376,7 @@ class Case:
         self.vars = {}
         self.t0 = time.monotonic()
         self.budget = CASE_BUDGETS.get(rel, CASE_BUDGET)
+        self.step_budget = STEP_BUDGETS.get(rel)
         self.deadline = self.t0 + self.budget
         self.ref_kompiled = None
         self.main_module = None
@@ -386,6 +398,17 @@ class Case:
 
     def out_of_budget(self):
         return self.remaining() <= 1
+
+    def step_timeout(self):
+        """Timeout for one program execution: the remaining case budget, capped by the step budget.
+
+        Returns (seconds, capped); `capped` says the step budget, not the case budget, is the bound,
+        so a kill can be reported as the program's own cost rather than as budget exhaustion.
+        """
+        remaining = self.remaining()
+        if self.step_budget is not None and self.step_budget < remaining:
+            return self.step_budget, True
+        return remaining, False
 
     def note(self, s):
         self.notes.append(s)
@@ -1026,8 +1049,17 @@ def krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module):
 
 def run_krust_program(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
     args = krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
-    rc, out, err, secs, to = sh(args, case.dir, case.remaining(), stdin_path=stdin_path)
+    timeout, capped = case.step_timeout()
+    if capped: step["step_budget"] = case.step_budget
+    rc, out, err, secs, to = sh(args, case.dir, timeout, stdin_path=stdin_path)
     return args, rc, out, err, secs, to
+
+
+def krust_timeout_reason(step, tool):
+    """The kill reason of a krust program run: its own step budget, or the case budget."""
+    if step.get("step_budget"):
+        return f"krust {tool} exceeded the step budget ({step['step_budget']:g} s)"
+    return f"krust {tool} timed out"
 
 
 def compare_execution(case, rec, step, kout, kore_output, tag, pattern=""):
@@ -1521,7 +1553,7 @@ def do_krun(case, rec, search_file=False):
     step["krust_cmd"] = " ".join(shlex.quote(a) for a in args); step["krust_rc"] = rc; step["krust_seconds"] = round(secs, 1)
     case.logfile(f"{tag}.krust.log", out + "\n--- stderr ---\n" + err)
     if to:
-        step.update(verdict="krust-error", stage="krun", reason="krust krun timed out"); return step_record(case, **step)
+        step.update(verdict="krust-error", stage="krun", reason=krust_timeout_reason(step, "krun")); return step_record(case, **step)
     if compare_expected_rejection(case, rec, step, rc, out, err, tag):
         return step_record(case, **step)
     if not out.strip():
@@ -2245,6 +2277,7 @@ def main():
         ap.error(str(error))
     CASE_BUDGET = a.budget
     CASE_BUDGETS = {}
+    STEP_BUDGETS.clear()
     a.results = RESULTS
 
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
@@ -2292,7 +2325,7 @@ def main():
         return 0
 
     try:
-        expectations_document, expectation_budgets = load_expectations(EXPECTATIONS)
+        expectations_document, expectation_budgets, expectation_step_budgets = load_expectations(EXPECTATIONS)
     except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, ValueError) as error:
         ap.error(f"cannot load expectations {EXPECTATIONS}: {error}")
     expectations = {}
@@ -2307,6 +2340,12 @@ def main():
     CASE_BUDGETS.update(expectation_budgets)
     for name, budget in a.case_budget:
         CASE_BUDGETS[name] = budget
+    for name, step_budget in expectation_step_budgets.items():
+        if not math.isfinite(step_budget) or step_budget <= 0:
+            ap.error(f"expectation step_budget for {name} must be positive and finite")
+        if step_budget > CASE_BUDGETS.get(name, CASE_BUDGET):
+            ap.error(f"expectation step_budget for {name} exceeds its case budget")
+    STEP_BUDGETS.update(expectation_step_budgets)
 
     available = {name for name, _ in cases}
     unknown_overrides = sorted(CASE_BUDGETS.keys() - available)
