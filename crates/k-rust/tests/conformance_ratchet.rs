@@ -1593,6 +1593,193 @@ print(json.dumps({
         "an unrecognized krun flag must stay unsupported rather than be dropped: {probes}"
     );
 }
+
+#[test]
+fn conformance_driver_compares_completion_only_stdout_without_hiding_bottom_or_residuals() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+captures = []
+mode = None
+
+def fake_run(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
+    captures.append({"extra": extra, "stdin": stdin_path})
+    if mode == "bottom":
+        return ["krust"], 0, "\\bottom{SortGeneratedTopCell{}}()", "", 0.1, False
+    if mode == "explicit_on_halt":
+        return ["krust"], 1, "", "in-process backend halted at depth 3: unsupported hook 'IO.write'", 0.1, False
+    return ["krust"], 0, "cfg{}()", "", 0.1, False
+
+def fake_comparator(name, environment, cwd, timeout=120):
+    assert name == "conformance_stdout_stream_buffers", name
+    reports = {
+        "match": {"leaves": [
+            {"constraints": [], "buffers": ["hello\n"]},
+        ]},
+        "residual": {"leaves": [
+            {"constraints": [], "buffers": ["hello\n"]},
+            {"constraints": ["\\not{B{}}(p{}())"], "buffers": ["partial"]},
+        ]},
+        "bytes_differ": {"leaves": [{"constraints": [], "buffers": ["goodbye\n"]}]},
+        "two_terminal": {"leaves": [
+            {"constraints": [], "buffers": ["hello\n"]},
+            {"constraints": [], "buffers": ["hello\n"]},
+        ]},
+        "no_buffer": {"leaves": [{"constraints": [], "buffers": []}]},
+    }
+    return 0, "c9-stdout-report = " + json.dumps(reports[mode]), "", False
+
+run.run_krust_program = fake_run
+run.run_test_binary_result = fake_comparator
+
+def probe(selected, expected, explicit_io=False, stdin=False):
+    global mode
+    mode = selected
+    root = tempfile.mkdtemp()
+    case = run.Case("completion-stdout")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "reference-kompiled")
+    case.def_file = "test.k"
+    case.main_module = "TEST"
+    case.syntax_module = "TEST"
+    case.pgm_sort = "KItem"
+    with open(os.path.join(root, "program.out"), "w") as output:
+        output.write(expected)
+    if stdin:
+        with open(os.path.join(root, "program.in"), "w") as input_file:
+            input_file.write("input\n")
+    command = "/kbin/krun program --output none"
+    if explicit_io:
+        command += " --io on"
+    command += " | diff - program.out"
+    recipe = run.split_recipe(command)
+    if stdin:
+        recipe["stdin"] = "program.in"
+    before = len(captures)
+    step = run.do_krun(case, recipe)
+    return {
+        "step": step,
+        "capture": captures[-1] if len(captures) != before else None,
+    }
+
+print(json.dumps({
+    "match": probe("match", "hello\n", stdin=True),
+    "residual": probe("residual", "hello\n"),
+    "bytes_differ": probe("bytes_differ", "hello\n"),
+    "two_terminal": probe("two_terminal", "hello\n"),
+    "no_buffer": probe("no_buffer", "hello\n"),
+    "bottom_nonempty": probe("bottom", "hello\n"),
+    "bottom_empty": probe("bottom", ""),
+    "empty_completion": probe("empty_completion", ""),
+    "explicit_on_halt": probe("explicit_on_halt", "hello\n", explicit_io=True),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let step = |name: &str| &probes[name]["step"];
+    assert_eq!(step("match")["verdict"], "match", "{probes}");
+    assert!(
+        step("match")["comparison"]
+            .as_str()
+            .unwrap()
+            .starts_with("C9:"),
+        "{probes}"
+    );
+    assert_eq!(step("match")["stdout_leaf_count"], 1, "{probes}");
+    assert_eq!(step("match")["stdout_terminal_leaf_count"], 1, "{probes}");
+    assert_eq!(step("match")["stdout_buffer_bytes"], 6, "{probes}");
+    assert!(
+        probes["match"]["capture"]["extra"]
+            .as_array()
+            .unwrap()
+            .windows(2)
+            .any(|pair| pair == ["--io", "off"]),
+        "C9 must select the definition's buffered IO mode: {probes}"
+    );
+    assert!(
+        probes["match"]["capture"]["stdin"]
+            .as_str()
+            .unwrap()
+            .ends_with("program.in"),
+        "C9 must retain recipe stdin: {probes}"
+    );
+
+    for name in ["residual", "bytes_differ", "two_terminal", "no_buffer"] {
+        assert_eq!(step(name)["verdict"], "mismatch", "{name}: {probes}");
+        assert!(
+            step(name)["comparison"]
+                .as_str()
+                .unwrap()
+                .starts_with("C9:"),
+            "{name}: {probes}"
+        );
+    }
+    assert!(
+        step("residual")["divergence"]
+            .as_str()
+            .unwrap()
+            .contains("constraints"),
+        "{probes}"
+    );
+    assert!(
+        step("bytes_differ")["divergence"]
+            .as_str()
+            .unwrap()
+            .contains("offset"),
+        "{probes}"
+    );
+    assert!(
+        step("two_terminal")["divergence"]
+            .as_str()
+            .unwrap()
+            .contains("buffers"),
+        "{probes}"
+    );
+
+    for name in ["bottom_nonempty", "bottom_empty"] {
+        assert_eq!(step(name)["verdict"], "krust-error", "{name}: {probes}");
+        assert_eq!(step(name)["stage"], "krun", "{name}: {probes}");
+        assert!(
+            step(name)["reason"].as_str().unwrap().contains("bottom"),
+            "{name}: {probes}"
+        );
+    }
+    assert_eq!(step("empty_completion")["verdict"], "match", "{probes}");
+    assert!(
+        step("empty_completion")["comparison"]
+            .as_str()
+            .unwrap()
+            .starts_with("completion only"),
+        "{probes}"
+    );
+    assert_eq!(
+        step("explicit_on_halt")["verdict"],
+        "krust-error",
+        "{probes}"
+    );
+    assert_eq!(step("explicit_on_halt")["stage"], "krun", "{probes}");
+    assert_eq!(
+        probes["explicit_on_halt"]["capture"]["extra"],
+        serde_json::json!(["--io", "on"]),
+        "an explicit IO mode must not be normalized: {probes}"
+    );
+}
+
 #[test]
 fn conformance_driver_compares_execution_text_modulo_existential_renaming() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

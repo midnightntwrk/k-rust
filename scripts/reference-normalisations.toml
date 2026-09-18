@@ -244,6 +244,17 @@ anchor_helpers = [
 rule = "When the C7 text comparison of a krun or search step fails, re-run the reference recipe with --output kore, simplify that result and the krust result with `krust kore-simplify` against the reference kompiled definition and main module, and compare the two simplified patterns with reference_differential::executed_kore_matches_the_reference_backend without K_DIFFERENTIAL_DEFINITION, so N4 renaming applies and N15 does not. A step that matches only this way records a distinct comparison label and keeps the text difference; the checked-in .out stays the oracle, so the re-run's result must still print as the .out. An unavailable or failing reference re-run, simplification, or comparison leaves the text mismatch in place."
 justification = "The pinned reference prints a rewrite result before its own simplification is complete: no-junk-macro retains a residual constraint the definition's smt-lemma axioms make valid and concrete-function leaves a function application over a term whose definedness is open unevaluated, while the port's rewriter discharges and applies them; both are equal patterns (docs/compatibility.md#comparison-contract). Simplifying both results with one simplifier makes the represented patterns comparable. The evidence is supplementary because it depends on the port's simplifier, like N15 (docs/testing.md#comparator-evidence)."
 
+[[conformance]]
+id = "C9"
+anchor = "scripts/conformance/run.py:compare_stdout_buffer"
+anchor_symbol = "compare_stdout_buffer"
+anchor_helpers = [
+  "C9_STDOUT_COMPARISON",
+  "conformance_stdout_stream_buffers",
+]
+rule = "For a plain krun --output none recipe with a non-empty checked-in output, execute krust under --io off, parse its KORE result structurally, require exactly one execution leaf in total, require that leaf to be unconstrained and to contain exactly one stdout stream of the form ListItem(#ostream(1)) ListItem(\"off\") ListItem(#buffer(S)), and compare the UTF-8 bytes of S with the checked-in output. Any constrained residual leaf is a reported mismatch rather than an ignored alternative. An explicit --io on recipe is not transformed."
+justification = "The language tutorials' stream rules (domains.md:2805-2846) append the same strings to #buffer in both IO modes; the on mode flushes that buffer through IO.write while the off mode retains it. K itself selects off for search and debug (krun:442-448). For this corpus the buffered stdin equals the piped .in bytes because each input has exactly one trailing newline, matching krust's trailing-newline normalization. C9 therefore compares definition-computed console bytes without treating the LLVM IO hook as backend semantics; see docs/compatibility.md#comparison-contract."
+
 [[normalisation]]
 id = "N21"
 gate = "execution, symbolic execution, and MIR execution"

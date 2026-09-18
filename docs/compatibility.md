@@ -139,6 +139,7 @@ The source-plus-flags interface includes standalone Bison parser generation and 
 ## Driver scope
 
 The conformance driver translates each upstream `ktest` recipe into krust operations and compares their outcomes.
+A plain `krun --output none` recipe with a non-empty expected console output runs under `--io off` and compares the stdout stream buffer of its single unconstrained execution leaf with that output under C9; it does not require host console effects from the backend.
 A recipe that defines no translatable step supplies no oracle: a `ktest-kdep.mak` or sub-make-only Makefile, a Makefile whose `ktest.mak` include is disabled upstream, a recipe that discards the output it would compare, or an expected kompile failure that leaves no definition for a later step.
 The `undriven-recipe` category records such cases with the concrete recipe feature; the skip is not evidence of a Rust pass and must be reconsidered when the driver learns to translate the feature.
 
@@ -169,6 +170,13 @@ Both pairs are equal patterns; simplifying both with one simplifier makes them c
 A step that matches only this way records the C8 comparison label and the text difference, never plain match text; the checked-in `.out` stays the oracle, so the re-run's result must still print as the `.out`.
 A simplification or comparison that fails or is unavailable leaves the text mismatch in place; a reference re-run that produces no result records `reference-error` with the reference's stderr, which is an oracle change and not evidence for either side.
 C8 is supplementary evidence in the sense of [testing.md](testing.md#comparator-evidence): it depends on the port's simplifier, like N15.
+
+C9 compares the bytes a tutorial definition accumulates in its stdout stream buffer under `--io off` with the checked-in output of the corresponding `--output none` recipe.
+The comparison requires exactly one execution leaf in total, that leaf to be unconstrained, and exactly one structurally identified `#ostream(1)`, `"off"`, `#buffer(S)` stream.
+Any residual leaf, multiple terminal leaves, and malformed stream configurations are mismatches and remain reported.
+The tutorial stream rules append the same strings in both IO modes and make the `on` mode's `IO.write` hook only a transport for those bytes; K itself selects `off` for search and debug executions.
+For input programs, C9 applies only where krust's buffered stdin is the piped input (the corpus inputs end in one newline, so its trailing-newline normalization preserves their bytes).
+This is a comparison transformation, not a backend IO evaluator: explicit `--io on` still reports the unsupported hook, and [Backend scope](#backend-scope) remains unchanged.
 
 A text difference that neither C8 nor N15 can compare stays a mismatch with a measured reason; no prose exclusion category exists for it.
 Normalization N15 may prove residual constraints equivalent by checking both implications, subject to the independence limitations in [testing.md](testing.md#comparator-evidence).
