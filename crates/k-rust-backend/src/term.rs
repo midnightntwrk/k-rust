@@ -260,7 +260,7 @@ pub struct TermAttributes {
     pub variables: BTreeSet<Variable>,
     pub evaluated: bool,
     pub constructor_like: bool,
-    pub constructor_like_for_rewrite_instantiation: bool,
+    pub concrete_after_normalization: bool,
     pub can_be_evaluated: bool,
     hash: u64,
 }
@@ -271,7 +271,7 @@ impl Default for TermAttributes {
             variables: BTreeSet::new(),
             evaluated: true,
             constructor_like: false,
-            constructor_like_for_rewrite_instantiation: false,
+            concrete_after_normalization: false,
             can_be_evaluated: true,
             hash: 0,
         }
@@ -291,7 +291,7 @@ impl Term {
     pub fn and(left: Self, right: Self) -> Self {
         let mut attributes = combine_attributes([&left, &right]);
         attributes.constructor_like = false;
-        attributes.constructor_like_for_rewrite_instantiation = false;
+        attributes.concrete_after_normalization = false;
         Self::new(TermKind::And(left, right), attributes)
     }
 
@@ -328,9 +328,9 @@ impl Term {
         let constructor = symbol.attributes.symbol_type == SymbolType::Constructor;
         attributes.evaluated = constructor && attributes.evaluated;
         attributes.constructor_like = constructor && attributes.constructor_like;
-        attributes.constructor_like_for_rewrite_instantiation = (constructor
+        attributes.concrete_after_normalization = (constructor
             || (symbol.attributes.anywhere && !symbol.attributes.declared_function))
-            && attributes.constructor_like_for_rewrite_instantiation;
+            && attributes.concrete_after_normalization;
         attributes.can_be_evaluated =
             symbol.attributes.has_evaluators && attributes.can_be_evaluated;
         Self::new(
@@ -431,7 +431,7 @@ impl Term {
         };
         let attributes = TermAttributes {
             constructor_like: true,
-            constructor_like_for_rewrite_instantiation: true,
+            concrete_after_normalization: true,
             ..TermAttributes::default()
         };
         Self::new(TermKind::DomainValue { sort, value }, attributes)
@@ -599,15 +599,78 @@ impl Term {
         &self.0.attributes
     }
 
-    /// Whether this term is concrete at the rewrite-instantiation boundary.
+    /// Whether this term is concrete once equation normalization has reached a fixed point.
     ///
     /// K emits overloaded productions and productions with anywhere equations without the
     /// `constructor` attribute.  Once equation normalization has reached a fixed point, a
     /// variable-free application of one of those symbols is nevertheless a concrete program
     /// fragment: it must not make an otherwise ground configuration eligible for narrowing.
     /// Ordinary function applications remain symbolic even when they are ground.
-    pub fn constructor_like_for_rewrite_instantiation(&self) -> bool {
-        self.attributes().constructor_like_for_rewrite_instantiation
+    pub fn concrete_after_normalization(&self) -> bool {
+        self.attributes().concrete_after_normalization
+    }
+
+    /// Whether two normalized concrete terms are structurally distinct.
+    ///
+    /// Distinct rigid heads cannot denote the same normalized program value. Equal heads expose
+    /// their arguments only when the symbol is a constructor or is declared injective. This keeps
+    /// ordinary functions and non-injective symbolic applications out of structural decisions.
+    pub fn structurally_distinct_after_normalization(&self, other: &Self) -> bool {
+        if self == other
+            || !self.concrete_after_normalization()
+            || !other.concrete_after_normalization()
+        {
+            return false;
+        }
+        match (self.kind(), other.kind()) {
+            (
+                TermKind::DomainValue {
+                    sort: left_sort,
+                    value: left_value,
+                },
+                TermKind::DomainValue {
+                    sort: right_sort,
+                    value: right_value,
+                },
+            ) => left_sort != right_sort || left_value != right_value,
+            (
+                TermKind::Application {
+                    symbol: left_symbol,
+                    sort_arguments: left_sorts,
+                    arguments: left_arguments,
+                },
+                TermKind::Application {
+                    symbol: right_symbol,
+                    sort_arguments: right_sorts,
+                    arguments: right_arguments,
+                },
+            ) => {
+                if left_symbol.name != right_symbol.name || left_sorts != right_sorts {
+                    return true;
+                }
+                (left_symbol.attributes.symbol_type == SymbolType::Constructor
+                    || left_symbol.attributes.injective)
+                    && left_arguments
+                        .iter()
+                        .zip(right_arguments)
+                        .any(|(left, right)| left.structurally_distinct_after_normalization(right))
+            }
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right,
+                },
+            ) if left_source == right_source && left_target == right_target => {
+                left.structurally_distinct_after_normalization(right)
+            }
+            _ => false,
+        }
     }
 
     pub fn sort(&self) -> Sort {
@@ -801,7 +864,7 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
         // concrete constructor-like values.
         return TermAttributes {
             constructor_like: true,
-            constructor_like_for_rewrite_instantiation: true,
+            concrete_after_normalization: true,
             ..TermAttributes::default()
         };
     };
@@ -813,8 +876,7 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
             .extend(attributes.variables.iter().cloned());
         combined.evaluated &= attributes.evaluated;
         combined.constructor_like &= attributes.constructor_like;
-        combined.constructor_like_for_rewrite_instantiation &=
-            attributes.constructor_like_for_rewrite_instantiation;
+        combined.concrete_after_normalization &= attributes.concrete_after_normalization;
         combined.can_be_evaluated &= attributes.can_be_evaluated;
     }
     combined.hash = 0;

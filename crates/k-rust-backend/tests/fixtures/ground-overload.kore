@@ -1,0 +1,157 @@
+[]
+module GROUND-OVERLOAD
+    sort SortBottom{} []
+    sort SortVal{} []
+    sort SortExp{} []
+    sort SortVals{} []
+    sort SortBottoms{} []
+    sort SortExps{} []
+    sort SortKResult{} []
+    sort SortKItem{} []
+    sort SortK{} []
+    sort SortState{} []
+    hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+
+    symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+    symbol bottom{}() : SortBottom{} [constructor{}()]
+    symbol val{}() : SortVal{} [constructor{}()]
+    symbol fun{}() : SortExp{} [constructor{}()]
+    symbol dotVals{}() : SortVals{} [constructor{}()]
+    symbol dotBottoms{}() : SortBottoms{} [constructor{}()]
+    symbol vals{}(SortVal{}, SortVals{}) : SortVals{} [constructor{}(), injective{}()]
+    symbol bottoms{}(SortBottom{}, SortBottoms{}) : SortBottoms{}
+        [constructor{}(), injective{}()]
+    symbol exps{}(SortExp{}, SortExps{}) : SortExps{}
+        [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+    symbol ordinary{}(SortExp{}) : SortExp{}
+        [function{}(), functional{}(), injective{}(), no-evaluators{}()]
+    symbol dotk{}() : SortK{} [constructor{}()]
+    symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), injective{}()]
+    symbol isKResult{}(SortK{}) : SortBool{} [function{}(), total{}()]
+    symbol state{}(SortExps{}) : SortState{} [constructor{}()]
+    symbol heated{}() : SortState{} [constructor{}()]
+
+    axiom{R} \exists{R}(
+        Value:SortVal{},
+        \equals{SortVal{}, R}(
+            Value:SortVal{},
+            inj{SortBottom{}, SortVal{}}(From:SortBottom{})
+        )
+    ) [subsort{SortBottom{}, SortVal{}}()]
+    axiom{R} \exists{R}(
+        Value:SortExp{},
+        \equals{SortExp{}, R}(
+            Value:SortExp{},
+            inj{SortVal{}, SortExp{}}(From:SortVal{})
+        )
+    ) [subsort{SortVal{}, SortExp{}}()]
+    axiom{R} \exists{R}(
+        Value:SortVals{},
+        \equals{SortVals{}, R}(
+            Value:SortVals{},
+            inj{SortBottoms{}, SortVals{}}(From:SortBottoms{})
+        )
+    ) [subsort{SortBottoms{}, SortVals{}}()]
+    axiom{R} \exists{R}(
+        Value:SortExps{},
+        \equals{SortExps{}, R}(
+            Value:SortExps{},
+            inj{SortVals{}, SortExps{}}(From:SortVals{})
+        )
+    ) [subsort{SortVals{}, SortExps{}}()]
+    axiom{R} \exists{R}(
+        Value:SortKResult{},
+        \equals{SortKResult{}, R}(
+            Value:SortKResult{},
+            inj{SortVal{}, SortKResult{}}(From:SortVal{})
+        )
+    ) [subsort{SortVal{}, SortKResult{}}()]
+    axiom{R} \exists{R}(
+        Value:SortKResult{},
+        \equals{SortKResult{}, R}(
+            Value:SortKResult{},
+            inj{SortVals{}, SortKResult{}}(From:SortVals{})
+        )
+    ) [subsort{SortVals{}, SortKResult{}}()]
+    axiom{R} \exists{R}(
+        Value:SortKItem{},
+        \equals{SortKItem{}, R}(
+            Value:SortKItem{},
+            inj{SortExps{}, SortKItem{}}(From:SortExps{})
+        )
+    ) [subsort{SortExps{}, SortKItem{}}()]
+    axiom{R} \exists{R}(
+        Value:SortKItem{},
+        \equals{SortKItem{}, R}(
+            Value:SortKItem{},
+            inj{SortKResult{}, SortKItem{}}(From:SortKResult{})
+        )
+    ) [subsort{SortKResult{}, SortKItem{}}()]
+
+    axiom{}
+        \equals{SortExps{}, SortExps{}}(
+            exps{}(
+                inj{SortVal{}, SortExp{}}(V:SortVal{}),
+                inj{SortVals{}, SortExps{}}(VS:SortVals{})
+            ),
+            inj{SortVals{}, SortExps{}}(vals{}(V:SortVal{}, VS:SortVals{}))
+        )
+        [symbol-overload{}(exps{}(), vals{}())]
+    axiom{}
+        \equals{SortVals{}, SortVals{}}(
+            vals{}(
+                inj{SortBottom{}, SortVal{}}(B:SortBottom{}),
+                inj{SortBottoms{}, SortVals{}}(BS:SortBottoms{})
+            ),
+            inj{SortBottoms{}, SortVals{}}(bottoms{}(B:SortBottom{}, BS:SortBottoms{}))
+        )
+        [symbol-overload{}(vals{}(), bottoms{}())]
+
+    axiom{R} \implies{R}(
+        \and{R}(
+            \top{R}(),
+            \and{R}(
+                \in{SortK{}, R}(
+                    X:SortK{},
+                    kseq{}(
+                        inj{SortKResult{}, SortKItem{}}(RESULT:SortKResult{}),
+                        dotk{}()
+                    )
+                ),
+                \top{R}()
+            )
+        ),
+        \equals{SortBool{}, R}(
+            isKResult{}(X:SortK{}),
+            \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+        )
+    ) [label{}("is-k-result")]
+    axiom{R} \implies{R}(
+        \and{R}(
+            \top{R}(),
+            \and{R}(\in{SortK{}, R}(X:SortK{}, ANY:SortK{}), \top{R}())
+        ),
+        \equals{SortBool{}, R}(
+            isKResult{}(X:SortK{}),
+            \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+        )
+    ) [label{}("owise"), priority{}("200")]
+
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            state{}(HOLE:SortExps{}),
+            \not{SortState{}}(
+                \equals{SortBool{}, SortState{}}(
+                    isKResult{}(
+                        kseq{}(
+                            inj{SortExps{}, SortKItem{}}(HOLE:SortExps{}),
+                            dotk{}()
+                        )
+                    ),
+                    \dv{SortBool{}}("true")
+                )
+            )
+        ),
+        heated{}()
+    ) [label{}("heat-non-result")]
+endmodule []

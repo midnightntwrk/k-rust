@@ -95,9 +95,16 @@ module MAIN
     ) [label{}("program"), priority{}("50")]
 endmodule []"#;
 
+const GROUND_OVERLOAD: &str = include_str!("fixtures/ground-overload.kore");
+
 fn definition(source: &str) -> BackendDefinition {
     let syntax = parse_definition(source).expect("definition should parse");
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+fn definition_in(source: &str, module: &str) -> BackendDefinition {
+    let syntax = parse_definition(source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, module).expect("definition should internalize")
 }
 
 fn pattern(definition: &BackendDefinition, source: &str) -> Pattern {
@@ -212,6 +219,34 @@ fn ground_anywhere_heating_does_not_enter_symbolic_recovery() {
     assert_eq!(
         result.leaves[0].pattern.term,
         pattern(&definition, "done{}()").term
+    );
+    assert_eq!(delta.get(Counter::RewriteRulesApplied), 1);
+    assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);
+    assert_eq!(delta.get(Counter::SmtQueries), 0);
+}
+
+#[test]
+fn ground_overload_heating_does_not_branch_or_query_smt() {
+    let definition = definition_in(GROUND_OVERLOAD, "GROUND-OVERLOAD");
+    let initial = pattern(
+        &definition,
+        "state{}(exps{}(fun{}(), inj{SortVals{}, SortExps{}}(dotVals{}())))",
+    );
+    let (result, delta) = measured(|| {
+        execute(
+            &definition,
+            initial,
+            ExecutionOptions {
+                max_depth: 1,
+                ..ExecutionOptions::default()
+            },
+        )
+    });
+    eprintln!("ground overload heating: {:?}", nonzero(&delta));
+    assert_eq!(result.leaves.len(), 1, "{result:#?}");
+    assert_eq!(
+        result.leaves[0].pattern.term,
+        pattern(&definition, "heated{}()").term
     );
     assert_eq!(delta.get(Counter::RewriteRulesApplied), 1);
     assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);

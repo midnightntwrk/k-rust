@@ -1970,6 +1970,23 @@ impl Matcher<'_> {
             .check_subsort(subject_source, pattern_source)
             .map_err(FailReason::Subsorting)?;
         if !pattern_is_subsort && !subject_is_subsort {
+            if self.mode == MatchMode::Evaluate
+                && self.sorts.known_overlap(pattern_source, subject_source) == Some(true)
+            {
+                match self.lower_normalized_overload_to_sort(subject_term, pattern_source) {
+                    OverloadLowering::Lowered(lowered) => {
+                        self.enqueue(pattern_term.clone(), lowered);
+                        return Ok(());
+                    }
+                    OverloadLowering::Impossible => {
+                        return Err(FailReason::DifferentSorts(
+                            pattern_term.clone(),
+                            subject_term.clone(),
+                        ));
+                    }
+                    OverloadLowering::Indeterminate => {}
+                }
+            }
             if self.sorts.known_overlap(pattern_source, subject_source) == Some(true)
                 && !has_constructor_like_top(pattern_term)
                 && !has_constructor_like_top(subject_term)
@@ -2014,6 +2031,145 @@ impl Matcher<'_> {
             }
         }
         Err(FailReason::DifferentSorts(pattern, subject))
+    }
+
+    /// Lower a normalized overloaded application to a requested overlapping sort.
+    ///
+    /// This is the inverse of [`OverloadView::lift`]. It is deliberately restricted to terms
+    /// which are concrete after normalization: variables and ordinary functions keep the result
+    /// indeterminate instead of being guessed into a lesser overload.
+    fn lower_normalized_overload_to_sort(&self, term: &Term, target: &Sort) -> OverloadLowering {
+        let source = term.sort();
+        if &source == target {
+            return OverloadLowering::Lowered(term.clone());
+        }
+        match self.sorts.check_subsort(&source, target) {
+            Ok(true) => {
+                return OverloadLowering::Lowered(Term::injection(
+                    source,
+                    target.clone(),
+                    term.clone(),
+                ));
+            }
+            Err(_) => return OverloadLowering::Indeterminate,
+            Ok(false) => {}
+        }
+        if let TermKind::Injection {
+            source: inner_source,
+            term: inner,
+            ..
+        } = term.kind()
+        {
+            if inner_source == target {
+                return OverloadLowering::Lowered(inner.clone());
+            }
+            return self.lower_normalized_overload_to_sort(inner, target);
+        }
+
+        let Some(definition) = self.definition else {
+            return OverloadLowering::Indeterminate;
+        };
+        let TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } = term.kind()
+        else {
+            return if term.concrete_after_normalization() {
+                OverloadLowering::Impossible
+            } else {
+                OverloadLowering::Indeterminate
+            };
+        };
+
+        let candidates = definition.overloads.overloaded_by(&symbol.name);
+        let mut lowered = Vec::new();
+        let mut indeterminate = Vec::new();
+        for candidate_name in candidates {
+            let Some(candidate) = definition.symbols.get(&candidate_name) else {
+                indeterminate.push(candidate_name);
+                continue;
+            };
+            let Some(result_sort) = instantiated_symbol_sort(candidate, sort_arguments) else {
+                indeterminate.push(candidate.name.clone());
+                continue;
+            };
+            match self.sorts.check_subsort(&result_sort, target) {
+                Ok(false) if &result_sort != target => continue,
+                Err(_) => {
+                    indeterminate.push(candidate.name.clone());
+                    continue;
+                }
+                Ok(_) => {}
+            }
+            if candidate.argument_sorts.len() != arguments.len() {
+                indeterminate.push(candidate.name.clone());
+                continue;
+            }
+            let Some(parameters) = symbol_parameters(candidate, sort_arguments) else {
+                indeterminate.push(candidate.name.clone());
+                continue;
+            };
+            let mut candidate_arguments = Vec::with_capacity(arguments.len());
+            let mut candidate_impossible = false;
+            let mut candidate_indeterminate = false;
+            for (argument, expected) in arguments.iter().zip(&candidate.argument_sorts) {
+                let expected = substitute_sort_parameters(expected, &parameters);
+                match self.lower_normalized_overload_to_sort(argument, &expected) {
+                    OverloadLowering::Lowered(argument) => candidate_arguments.push(argument),
+                    OverloadLowering::Impossible => {
+                        candidate_impossible = true;
+                        break;
+                    }
+                    OverloadLowering::Indeterminate => {
+                        candidate_indeterminate = true;
+                        candidate_impossible = true;
+                        break;
+                    }
+                }
+            }
+            if candidate_indeterminate {
+                indeterminate.push(candidate.name.clone());
+            }
+            if candidate_impossible {
+                continue;
+            }
+            let application = Term::application(
+                candidate.clone(),
+                sort_arguments.clone(),
+                candidate_arguments,
+            );
+            let candidate_sort = application.sort();
+            let application = if &candidate_sort == target {
+                application
+            } else {
+                Term::injection(candidate_sort, target.clone(), application)
+            };
+            lowered.push((candidate.name.clone(), application));
+        }
+        let minimal = lowered
+            .iter()
+            .filter(|(candidate, _)| {
+                !lowered.iter().any(|(lesser, _)| {
+                    candidate != lesser && definition.overloads.is_overloading(candidate, lesser)
+                })
+            })
+            .collect::<Vec<_>>();
+        if let Some((_, first)) = minimal.first()
+            && minimal.iter().all(|(_, term)| term == first)
+            && indeterminate.iter().all(|candidate| {
+                minimal
+                    .iter()
+                    .any(|(name, _)| definition.overloads.is_overloading(candidate, name))
+            })
+        {
+            return OverloadLowering::Lowered(first.clone());
+        }
+        if minimal.is_empty() && indeterminate.is_empty() && term.concrete_after_normalization() {
+            OverloadLowering::Impossible
+        } else {
+            OverloadLowering::Indeterminate
+        }
     }
 
     fn resolve_overloads(&self, pattern: &Term, subject: &Term) -> Option<(Term, Term)> {
@@ -2549,6 +2705,31 @@ struct OverloadView {
     symbol: Arc<crate::term::Symbol>,
     sort_arguments: Vec<Sort>,
     arguments: Vec<Term>,
+}
+
+enum OverloadLowering {
+    Lowered(Term),
+    Impossible,
+    Indeterminate,
+}
+
+fn symbol_parameters(
+    symbol: &crate::term::Symbol,
+    sort_arguments: &[Sort],
+) -> Option<BTreeMap<Name, Sort>> {
+    (symbol.sort_variables.len() == sort_arguments.len()).then(|| {
+        symbol
+            .sort_variables
+            .iter()
+            .cloned()
+            .zip(sort_arguments.iter().cloned())
+            .collect()
+    })
+}
+
+fn instantiated_symbol_sort(symbol: &crate::term::Symbol, sort_arguments: &[Sort]) -> Option<Sort> {
+    let parameters = symbol_parameters(symbol, sort_arguments)?;
+    Some(substitute_sort_parameters(&symbol.result_sort, &parameters))
 }
 
 impl OverloadView {
