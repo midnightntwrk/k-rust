@@ -1781,6 +1781,108 @@ print(json.dumps({
 }
 
 #[test]
+fn conformance_driver_caps_each_program_by_the_step_budget_inside_the_case_budget() {
+    // DF-06: without a per-program ceiling, one divergent program consumes the whole case
+    // budget and every program behind it is skipped. `step_budget` caps one execution; the
+    // kill is reported as that program's cost, and the next program still runs.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+timeouts = []
+
+def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
+    timeouts.append(round(timeout, 1))
+    # The fake program diverges: it only ever ends by being killed.
+    return -9, "", "", timeout, True
+
+run.sh = fake_sh
+
+def probe(step_budget, remaining=None):
+    root = tempfile.mkdtemp()
+    case = run.Case("step-budget")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    case.ref_kompiled = os.path.join(root, "reference-kompiled")
+    case.def_file = "test.k"
+    case.main_module = "TEST"
+    case.syntax_module = "TEST"
+    case.pgm_sort = "KItem"
+    case.budget = 100.0
+    case.deadline = case.t0 + case.budget
+    case.step_budget = step_budget
+    if remaining is not None:
+        case.deadline = run.time.monotonic() + remaining
+    with open(os.path.join(root, "program.out"), "w") as output:
+        output.write("hello\n")
+    recipe = run.split_recipe("/kbin/krun program --output none | diff - program.out")
+    first = run.do_krun(case, recipe)
+    second = run.do_krun(case, recipe)
+    return {"first": first, "second": second, "out_of_budget": case.out_of_budget()}
+
+print(json.dumps({
+    "capped": probe(5.0),
+    "uncapped": probe(None),
+    "case_budget_smaller": probe(50.0, remaining=20.0),
+    "timeouts": timeouts,
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let capped = &probes["capped"];
+    assert_eq!(capped["first"]["verdict"], "krust-error", "{probes}");
+    assert_eq!(
+        capped["first"]["reason"], "krust krun exceeded the step budget (5 s)",
+        "{probes}"
+    );
+    assert_eq!(capped["first"]["step_budget"], 5.0, "{probes}");
+    assert_eq!(
+        capped["second"]["reason"], "krust krun exceeded the step budget (5 s)",
+        "the program after a killed one must still be measured: {probes}"
+    );
+    assert_eq!(
+        capped["out_of_budget"], false,
+        "two capped kills must not exhaust a 100 s case budget: {probes}"
+    );
+    let uncapped = &probes["uncapped"];
+    assert_eq!(
+        uncapped["first"]["reason"], "krust krun timed out",
+        "without a step budget the kill is the case budget's: {probes}"
+    );
+    assert!(uncapped["first"].get("step_budget").is_none(), "{probes}");
+    let smaller = &probes["case_budget_smaller"];
+    assert_eq!(
+        smaller["first"]["reason"], "krust krun timed out",
+        "a step budget above the remaining case budget must not be reported: {probes}"
+    );
+    assert!(smaller["first"].get("step_budget").is_none(), "{probes}");
+    let timeouts = probes["timeouts"].as_array().unwrap();
+    assert_eq!(timeouts[0], 5.0, "{probes}");
+    assert_eq!(timeouts[1], 5.0, "{probes}");
+    assert!(
+        timeouts[2].as_f64().unwrap() > 90.0,
+        "the uncapped run gets the remaining case budget: {probes}"
+    );
+    assert!(
+        timeouts[4].as_f64().unwrap() <= 20.0,
+        "the capped run never exceeds the remaining case budget: {probes}"
+    );
+}
+
+#[test]
 fn conformance_driver_compares_execution_text_modulo_existential_renaming() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"
