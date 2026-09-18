@@ -1,0 +1,54 @@
+[]
+module GROUND-CELL-SET
+    sort SortValue{} [hasDomainValues{}()]
+    sort SortCell{} []
+    hooked-sort SortCellSet{}
+        [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+    sort SortState{} []
+
+    symbol f{}(SortValue{}) : SortValue{}
+        [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+    symbol g{}(SortValue{}) : SortValue{}
+        [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+    symbol cell{}(SortValue{}) : SortCell{}
+        [constructor{}(), functional{}(), injective{}()]
+    hooked-symbol setUnit{}() : SortCellSet{}
+        [function{}(), total{}(), hook{}("SET.unit")]
+    hooked-symbol setItem{}(SortCell{}) : SortCellSet{}
+        [function{}(), total{}(), hook{}("SET.element")]
+    hooked-symbol setConcat{}(SortCellSet{}, SortCellSet{}) : SortCellSet{}
+        [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+    symbol spawnDistinct{}(SortCellSet{}) : SortState{} [constructor{}()]
+    symbol spawnDuplicate{}(SortCellSet{}) : SortState{} [constructor{}()]
+
+    axiom{} \or{SortCell{}}(
+        \exists{SortCell{}}(X:SortValue{}, cell{}(X:SortValue{})),
+        \bottom{SortCell{}}()
+    ) [constructor{}()]
+
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            spawnDistinct{}(setItem{}(cell{}(f{}(X:SortValue{})))),
+            \top{SortState{}}()
+        ),
+        spawnDistinct{}(
+            setConcat{}(
+                setItem{}(cell{}(f{}(X:SortValue{}))),
+                setItem{}(cell{}(g{}(X:SortValue{})))
+            )
+        )
+    ) [label{}("spawn-distinct")]
+
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(
+            spawnDuplicate{}(setItem{}(cell{}(f{}(X:SortValue{})))),
+            \top{SortState{}}()
+        ),
+        spawnDuplicate{}(
+            setConcat{}(
+                setItem{}(cell{}(f{}(X:SortValue{}))),
+                setItem{}(cell{}(f{}(X:SortValue{})))
+            )
+        )
+    ) [label{}("spawn-duplicate")]
+endmodule []

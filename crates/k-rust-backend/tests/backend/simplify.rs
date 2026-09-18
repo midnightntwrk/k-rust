@@ -13,6 +13,8 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
+use crate::support::ground_cell_set_definition;
+
 fn definition(axioms: &str) -> BackendDefinition {
     let source = format!(
         r#"[]
@@ -38,6 +40,35 @@ fn term(definition: &BackendDefinition, source: &str) -> Term {
     definition
         .internalize_term(&syntax, &[])
         .expect("term should internalize")
+}
+
+#[test]
+fn ceil_of_distinct_ground_cells_in_a_set_retains_the_inequality() {
+    let definition = ground_cell_set_definition();
+    let set = term(
+        &definition,
+        r#"setConcat{}(
+            setItem{}(cell{}(f{}(\dv{SortValue{}}("a")))),
+            setItem{}(cell{}(g{}(\dv{SortValue{}}("a"))))
+        )"#,
+    );
+
+    let simplified = simplify_predicate_with_solver(
+        &definition,
+        &Predicate::Ceil(set),
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the set definedness predicate should simplify");
+
+    assert_eq!(
+        simplified,
+        Predicate::Not(Box::new(Predicate::Equals(
+            term(&definition, r#"cell{}(f{}(\dv{SortValue{}}("a")))"#,),
+            term(&definition, r#"cell{}(g{}(\dv{SortValue{}}("a")))"#,),
+        ))),
+    );
 }
 
 struct FixedValiditySolver(Validity);
