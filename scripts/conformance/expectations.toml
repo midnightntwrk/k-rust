@@ -1999,7 +1999,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "The definition compiles and its KORE matches the reference. The CB-08 groundness tranche removes the prior krust timeout/OOM: all 32 driven steps complete in 126.1 s. The case remains open because 20 executions stop at unsupported IO.write, nine threaded/search executions stop on indeterminate typed instantiation, and the pinned reference does not reproduce two checked-in search outputs (including an OOM while confirming div-nondet.simple). The other five CB-08 language cases remain unmeasured. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference, and 21 of 32 steps now match — 18 through the C9 stdout-buffer comparison and 2 through the search disjunct multiset (div-nondet.simple and exceptions_07.simple, whose residual isKResult constraints the normalized-ground tranche removed). The 11 remaining steps are nine thread programs halting on instantiation of the anywhere-headed heating rule c892af32 (CB-10), threads_12 killed, and matrix.simple returning \\bottom in 3.2 s on a ground program (CB-19). No step halts at IO.write any more. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
@@ -2008,7 +2008,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "The definition compiles and its KORE matches the reference; krust krun exceeds the 300 s case budget on the first program, so the remaining programs are not measured. Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; the case now runs its whole corpus in 90.4 s instead of exhausting the budget on the first program. The prior \\bottom collapse is gone (CB-13), and all 35 program steps now halt on one rule, cf6aaec3 (the variable declaration `T:Type X:Id;`), with Rule#VarX:Id and Rule#VarT:Type uncovered, at depths 2 to 114 (CB-17). Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic"
@@ -2017,7 +2017,7 @@ accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "The definition compiles and its KORE matches the reference; krust krun exceeds the 300 s case budget on the first program, so the remaining programs are not measured. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; 5 steps match (3 C9 stdout comparisons, one search disjunct multiset, the compile) and no step halts at IO.write. matrix.simple is killed after 233.6 s (CB-19) and exhausts the 300 s case budget, leaving 21 steps unmeasured; the thread programs that halt on rule c892af32 (CB-10) are among them. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/1_untyped"
@@ -2028,7 +2028,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "The definition compiles and its KORE matches the reference. The CB-08 groundness tranche removes the prior krust timeout/OOM: all 29 driven steps complete in 248.6 s, and all 28 program executions reach unsupported IO.write; factorial.kool is the slowest at 108.0 s and depth 5754. The temporary 600 s correctness ceiling permits complete semantic measurement while CB-16 compiled-definition reuse and CB-12 simplifier throughput land; remove it after the reuse measurement, while retaining elapsed-time reporting. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; 15 steps match, 14 of them through the C9 stdout-buffer comparison, and no step halts at IO.write. matrix.kool is killed after 424.9 s (CB-19) and exhausts the temporary 600 s correctness ceiling, leaving 13 steps unmeasured. The ceiling permits complete semantic measurement while CB-16 compiled-definition reuse and CB-12 simplifier throughput land; remove it after the reuse measurement, while retaining elapsed-time reporting."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"
@@ -2039,7 +2039,7 @@ accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 18 completed all 30 driven steps in 286.6 s, leaving 4.9 s of the former 300 s case budget; all 29 program executions reached unsupported IO.write. The temporary 600 s correctness ceiling permits complete semantic measurement while CB-16 compiled-definition reuse and CB-12 simplifier throughput land; remove it after the reuse measurement, while retaining elapsed-time reporting. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; 17 steps match, 16 of them through the C9 stdout-buffer comparison, and no step halts at IO.write. matrix.kool is killed after 378.7 s (CB-19) and exhausts the temporary 600 s correctness ceiling, leaving 12 steps unmeasured. The ceiling permits complete semantic measurement while CB-16 compiled-definition reuse and CB-12 simplifier throughput land; remove it after the reuse measurement, while retaining elapsed-time reporting."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"
@@ -2048,7 +2048,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private sequence 1 (df-04-bottom, 2026-09-18) measures the completion-only soundness fix: compilation matches, all 29 plain --output none programs now report krust-error at krun because their result is \\bottom instead of falsely matching by successful process completion, and cycle.kool remains a search mismatch; the case completes in 128.8 s. The accepted kompile floor is unchanged while the pending simplifier defect is fixed. Earlier baseline observation: `no well-sorted parse` for the configuration (not reproduced at current head)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference, and the case completes in 131.1 s. The prior 34-byte \\bottom results are gone (CB-13) and are no longer accepted as completion-only matches (DF-04); all 30 program steps now halt on one rule, d056a9d1, with Rule#VarE, Rule#VarT and Rule#VarTs uncovered, at depth 3 or 4 (CB-17). The accepted kompile floor is unchanged."
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
@@ -2057,7 +2057,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "The definition compiles and its KORE matches the reference; krust krun exceeds the 300 s case budget on the first program, so the remaining programs are not measured. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
+reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference in 2.1 s; ackermann.fun is killed after 289.6 s and exhausts the 300 s case budget, leaving the other 49 programs unmeasured. The shared normalized-ground tranche fixed the isKResult branching of CB-14-3 but krun still expands program macros in the syntax module's scope, so FUN-UNTYPED-MACROS macros survive into execution (CB-14-1). Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
 
 [[case]]
 name = "poly-kitem"
