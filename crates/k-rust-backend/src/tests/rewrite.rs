@@ -99,6 +99,7 @@ fn rejects_exclusions_covering_parameterized_constructor_families() {
             module MAIN
                 sort SortElement{} []
                 sort SortList{} []
+                symbol a{}() : SortElement{} [constructor{}()]
                 symbol nil{}() : SortList{} [constructor{}()]
                 symbol cons{}(SortElement{}, SortList{}) : SortList{} [constructor{}()]
                 symbol unknown{}() : SortList{} [function{}(), total{}()]
@@ -142,6 +143,24 @@ fn rejects_exclusions_covering_parameterized_constructor_families() {
         &[excludes_nil, excludes_every_cons],
     ));
 
+    let list = Term::variable(Variable::new("L2", Sort::simple("SortList")));
+    let nil = internal_term(&definition, "nil{}()");
+    for one_cons in [
+        "cons{}(a{}(), nil{}())",
+        "cons{}(E1:SortElement{}, nil{}())",
+    ] {
+        assert!(!violates_finite_constructor_domain(
+            &definition,
+            &[
+                Predicate::Not(Box::new(Predicate::Equals(list.clone(), nil.clone()))),
+                Predicate::Not(Box::new(Predicate::Equals(
+                    list.clone(),
+                    internal_term(&definition, one_cons),
+                ))),
+            ],
+        ));
+    }
+
     let unknown = internal_term(&definition, "unknown{}()");
     let nil = internal_term(&definition, "nil{}()");
     let element = Variable::new("E2", Sort::simple("SortElement"));
@@ -159,6 +178,34 @@ fn rejects_exclusions_covering_parameterized_constructor_families() {
                 )),
             ))),
         ],
+    ));
+}
+
+#[test]
+fn a_ground_constructor_value_does_not_exclude_its_constructor_head() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortCell{} []
+                symbol f{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), no-evaluators{}()]
+                symbol cell{}(SortS{}) : SortCell{} [constructor{}()]
+                axiom{} \or{SortCell{}}(
+                    \exists{SortCell{}}(X:SortS{}, cell{}(X:SortS{})),
+                    \bottom{SortCell{}}()
+                ) [constructor{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let left = internal_term(&definition, r#"cell{}(f{}(\dv{SortS{}}("a")))"#);
+    let right = internal_term(&definition, r#"cell{}(f{}(\dv{SortS{}}("b")))"#);
+
+    assert!(!violates_finite_constructor_domain(
+        &definition,
+        &[Predicate::Not(Box::new(Predicate::Equals(left, right)))],
     ));
 }
 

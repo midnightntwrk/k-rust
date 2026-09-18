@@ -26,7 +26,7 @@ use k_rust_backend::{
 use k_rust_backend::{substitution::substitute, term::Variable};
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use crate::support::internal_term;
+use crate::support::{ground_cell_set_definition, internal_term};
 
 #[derive(Clone, Debug)]
 struct FixedSolver {
@@ -67,6 +67,70 @@ fn definition(axioms: &str) -> BackendDefinition {
     );
     let syntax = parse_definition(&source).expect("definition should parse");
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+#[test]
+fn spawning_a_distinct_ground_cell_in_a_set_retains_the_unresolved_inequality() {
+    let definition = ground_cell_set_definition();
+    let value = r#"\dv{SortValue{}}("a")"#;
+    let subject = Pattern {
+        term: internal_term(
+            &definition,
+            &format!("spawnDistinct{{}}(setItem{{}}(cell{{}}(f{{}}({value}))))"),
+        ),
+        constraints: Vec::new(),
+    };
+
+    let solver = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Indeterminate),
+    };
+    let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
+    let RewriteResult::Finished(applied) = result else {
+        panic!("the rule must produce a successor rather than a trivial result: {result:?}");
+    };
+    assert_eq!(applied.unique_id, "spawn-distinct");
+    assert_eq!(
+        applied.pattern.term,
+        internal_term(
+            &definition,
+            &format!(
+                "spawnDistinct{{}}(setConcat{{}}(setItem{{}}(cell{{}}(f{{}}({value}))), setItem{{}}(cell{{}}(g{{}}({value})))))"
+            ),
+        ),
+    );
+    assert_eq!(
+        applied.pattern.constraints,
+        [Predicate::Not(Box::new(Predicate::Equals(
+            internal_term(&definition, &format!("cell{{}}(f{{}}({value}))")),
+            internal_term(&definition, &format!("cell{{}}(g{{}}({value}))")),
+        )))],
+    );
+}
+
+#[test]
+fn spawning_a_duplicate_ground_cell_uses_set_idempotence_without_a_constraint() {
+    let definition = ground_cell_set_definition();
+    let value = r#"\dv{SortValue{}}("a")"#;
+    let subject = Pattern {
+        term: internal_term(
+            &definition,
+            &format!("spawnDuplicate{{}}(setItem{{}}(cell{{}}(f{{}}({value}))))"),
+        ),
+        constraints: Vec::new(),
+    };
+
+    let solver = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Indeterminate),
+    };
+    let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
+    let RewriteResult::Finished(applied) = result else {
+        panic!("the idempotent set rule must produce a successor: {result:?}");
+    };
+    assert_eq!(applied.unique_id, "spawn-duplicate");
+    assert_eq!(applied.pattern.term, subject.term);
+    assert!(applied.pattern.constraints.is_empty());
 }
 
 #[test]

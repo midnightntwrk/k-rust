@@ -4431,11 +4431,33 @@ fn collect_constructor_exclusions(
     };
     if !is_functional_pattern(subject)
         || !subject.attributes().variables.is_disjoint(&binders)
-        || !constructor.attributes().variables.is_subset(&binders)
+        || !constructor_pattern_covers_head(constructor, &binders)
     {
         return;
     }
     exclusions.entry(subject.clone()).or_default().insert(head);
+}
+
+/// Whether the pattern denotes every value with its constructor head, rather than one
+/// instantiated constructor value.
+fn constructor_pattern_covers_head(constructor: &Term, binders: &BTreeSet<Variable>) -> bool {
+    let arguments = match constructor.kind() {
+        TermKind::Application { arguments, .. } => arguments.as_slice(),
+        TermKind::Injection { term, .. } => std::slice::from_ref(term),
+        _ => return false,
+    };
+    if arguments.len() != binders.len() {
+        return false;
+    }
+    let argument_variables = arguments
+        .iter()
+        .map(|argument| match argument.kind() {
+            TermKind::Variable(variable) => Some(variable.clone()),
+            _ => None,
+        })
+        .collect::<Option<BTreeSet<_>>>();
+    argument_variables
+        .is_some_and(|variables| variables.len() == arguments.len() && variables == *binders)
 }
 
 fn predicate_truth(predicate: &Predicate) -> Truth {
