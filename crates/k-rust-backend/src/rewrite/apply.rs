@@ -123,6 +123,7 @@ pub(super) struct MapNotInKeysSplit {
     pub(super) map: Term,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply_rule(
     definition: &BackendDefinition,
     rule: &RewriteRule,
