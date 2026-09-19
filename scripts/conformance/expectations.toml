@@ -111,12 +111,13 @@ reason = ""
 
 [[case]]
 name = "bison-glr-bug"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "bison-parser"
+accepted_basis = "Sequence 32 on 3ce69c2 recompiles the definition and drives the GLR Bison parser fixture; definition.kore and the parser stdout bytes match the pinned reference."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Baseline observation: emit KORE: `cannot use production #147 for equation emission: its label does not match ...`; same class as kprove-macro-exp, lesson_8, simple typed static"
+reason = "Sequence 32 (stale-floor-current-head, 3ce69c2): the definition.kore comparison and GLR Bison parser stdout comparison both match in 8.9 s. Earlier baseline observation: equation emission rejected a production whose label did not match (fixed)."
 
 [[case]]
 name = "bison-parser-library"
@@ -1159,12 +1160,13 @@ reason = "A ktest-fail kast test without a kompiled definition: the expected kom
 
 [[case]]
 name = "issue-3450-kprove-fresh"
-accepted_verdict = "krust-error"
+accepted_verdict = "match"
 accepted_stage = "kprove"
+accepted_basis = "Sequence 32 on 3ce69c2 verifies definition.kore and proves both the explicit-counter and implicit-counter specifications with verdicts matching the pinned reference."
 baseline_verdict = "krust-error"
 baseline_stage = "kprove"
 exclusion = ""
-reason = "Baseline observation: claim with `?C` in two cells and an explicit `<generatedCounter>` cell fails to parse (`cannot use #KRewrite as the immediate left child of #KRewrite`); claim grammar"
+reason = "Sequence 32 (stale-floor-current-head, 3ce69c2): compilation and both proof steps match in 6.2 s. Earlier baseline observation: the explicit generated-counter claim failed to parse because a rewrite appeared below another rewrite (fixed)."
 
 [[case]]
 name = "issue-3520-freshConfig"
@@ -1946,12 +1948,13 @@ reason = ""
 
 [[case]]
 name = "pl-tutorial/1_k/1_lambda/lesson_8"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "match"
+accepted_stage = "krun"
+accepted_basis = "Sequence 32 on 3ce69c2 verifies definition.kore, reproduces all ten Bison parser outputs, and matches all ten execution outputs modulo the registered C7 existential renaming."
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Baseline observation: emit KORE label mismatch for `let_=_in_` (same class as bison-glr-bug)"
+reason = "Sequence 32 (stale-floor-current-head, 3ce69c2): compilation, all ten Bison parses, and all ten executions match in 7.9 s. Earlier baseline observation: KORE emission rejected the `let_=_in_` label (fixed)."
 
 [[case]]
 name = "pl-tutorial/1_k/2_imp/lesson_4"
