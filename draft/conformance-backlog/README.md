@@ -287,3 +287,14 @@ Twelve programs reach the unchanged 60-second step budget, with no mismatch or n
 Eight formerly macro-using programs still diverge after their macro heads are erased, alongside the four existing macro-free witnesses.
 That twelve-program post-expansion cohort transfers to CB-20.
 The FUN case remains `krust-error` under CB-20, CB-12, and CB-16; its accepted floor, 2700-second case budget, and 60-second step budget do not change.
+
+## 2026-09-19: CB-11 end-to-end search regression implemented and ticket closed (`77f4f02`)
+
+CB-11-2 at `77f4f02` promotes the remaining contract into a source-level CLI regression under `crates/k-rust/tests/fixtures/reference/search/simple-print/`.
+The reduced SIMPLE-shaped definition retains the strict overloaded `Exps`/`Vals` list, a `print` statement whose first argument is the non-value expression `choose`, two nondeterministic `choose` rewrites, and the stdout stream buffer.
+The test invokes `krust krun --search-final --pattern '<output> ListItem(#ostream(1)) ListItem("off") ListItem(#buffer(S:String)) </output>'` without an explicit `--io` flag, so it also pins search's `--io off` default and surface-pattern disjunct printing.
+
+The parsed result has exactly two disjuncts whose user binding multiset is `S = "1\n"` and `S = "2\n"`.
+The structural assertion rejects a residual `isKResult` or `\not` constraint, an extra user binding, a duplicate `S` binding, and the former empty-output remainder branch.
+The focused CLI test and formatting check pass; no expectation, floor, budget, exclusion, or conformance case ownership changes.
+CB-11 is closed; DF-08 continues to own the independent crashed-oracle annotation.
