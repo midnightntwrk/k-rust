@@ -308,3 +308,17 @@ Completed refutations record `false`, including a non-crashing filtered recipe w
 `conformance_driver_distinguishes_reference_crashes_from_stale_oracles` covers the three states, direct and pipeline failure semantics, environmental unavailability, timeout, and diagnostic preservation.
 The focused test passed under `with-z3-static-4.16.0`; formatting, Python compilation, and whitespace checks pass.
 DF-08 is closed with D-06 implemented and documented in `docs/testing.md`.
+
+## 2026-09-19: DF-07 typed-dynamic recipe enumeration closed
+
+A fresh conformance driver work tree from pinned K revision `4a46d1231473b599c699160132fd6e76a5c46406` confirms that SIMPLE typed-dynamic's `krun` target lists every program, but `make -n all` emits none of the search-pattern recipes for `exceptions_07.simple` and `threads_01/02/04/06/09.simple`.
+The same fresh tree emits the intended `--search --pattern` recipe when each of those six paths is requested as the exact make goal.
+
+The Makefile declares those paths and `div-nondet.simple` as the seven targets of one pattern rule.
+GNU Make 4.4.1 selects the seven-target pattern rule as one multi-target implicit-rule application: `div-nondet.simple` occurs first in the wildcard-sorted `TESTS` prerequisites, selects the rule, and causes the six peers to be marked `considered already`.
+The recipe uses `$@` and updates only that selected target, so the omission is an upstream Makefile mistake rather than an intentional disable.
+
+The conformance driver correctly translates the effective upstream `all` goal and must not invent extra exact-target executions.
+The typed-dynamic expectation reason records the six targets as `undriven-recipe` evidence, and `workers/DF-07-recipe-enumeration.toml` preserves the fresh-copy marker plus every exact invocation.
+No `step_exclusions` rows were added because the driver has no result steps to select; adding exclusions would mask a mismatch if a later upstream Makefile starts driving these targets.
+DF-07 closes without a driver change, floor change, budget change, or remeasurement.

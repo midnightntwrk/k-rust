@@ -489,11 +489,12 @@ elsewhere = [
 [[driver_followup]]
 id = "DF-07"
 title = "Confirm whether upstream-disabled typed-dynamic search recipes need undriven-recipe records"
-state = "open"
+state = "closed"
 found = "CB-10 worker question 5 records that upstream make -n did not expand the typed-dynamic --search --pattern recipes for threads_01/02/04/06/09 and exceptions_07. Sequence 23 measured other typed-dynamic thread recipes, so that run neither proves nor refutes the older recipe-enumeration observation."
-work = "Re-run recipe enumeration for those exact targets from a fresh driver work tree. If upstream's effective Makefile deliberately disables them, record undriven-recipe with that concrete reason. If the driver omitted a recipe that upstream executes, file and fix the translation defect with a focused conformance-driver regression. This is evidence gathering, not an owner policy decision, and does not block CB-10's driven Map-cell fix."
+work = "Done on 2026-09-19. A fresh driver work tree from pinned K revision 4a46d1231473b599c699160132fd6e76a5c46406 confirms that `make -n all` constructs all programs as `krun` prerequisites but emits only the `div-nondet.simple` member of the seven-target search-pattern rule. GNU Make 4.4.1 selects the seven-target pattern rule as one multi-target implicit-rule application for the lexically earlier `div-nondet.simple` target, and the other six peer targets are then `considered already`. Invoking each peer as the exact make goal emits its intended `--search --pattern` recipe, proving that the Makefile does not intentionally disable it. The driver faithfully translates the upstream `all` goal and must not synthesize extra exact-target invocations. The six absent steps are recorded as `undriven-recipe` evidence in the typed-dynamic expectation reason and workers/DF-07-recipe-enumeration.toml; no `step_exclusions` rows are added because no result step exists to select, and such rows would hide a future driven mismatch after an upstream fix. No driver code or regression changed."
 elsewhere = [
   "draft/conformance-backlog/workers/CB-10.md (historical open question 5)",
+  "draft/conformance-backlog/workers/DF-07-recipe-enumeration.toml",
 ]
 
 [[driver_followup]]
