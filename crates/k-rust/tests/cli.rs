@@ -281,6 +281,48 @@ fn captured_output_command(compiled: &Path, expression: &str) -> Command {
     command
 }
 
+fn compiled_live_io_fixture() -> (PathBuf, PathBuf) {
+    let fixture_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live-io/test.k");
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            fixture_path.to_str().unwrap(),
+            "--main-module",
+            "LIVE-IO",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    (root, compiled)
+}
+
+fn live_io_command(compiled: &Path, expression: &str) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "krun",
+        "--definition",
+        compiled.to_str().unwrap(),
+        "--sort",
+        "Pgm",
+        "--expression",
+        expression,
+        "--io",
+        "on",
+        "--output",
+        "none",
+    ]);
+    command
+}
+
 fn pattern_binding<'a>(pattern: &'a Pattern, variable_name: &str) -> Option<&'a Pattern> {
     match pattern {
         Pattern::Equals { left, right, .. } => match (left.as_ref(), right.as_ref()) {
@@ -1542,6 +1584,175 @@ fn krun_captured_output_emits_one_complete_stdout_buffer_without_kore_framing() 
 }
 
 #[test]
+fn krun_io_on_delivers_committed_transitions_once_without_kore_framing() {
+    let (root, compiled) = compiled_live_io_fixture();
+
+    let output = output_with_stdin(&mut live_io_command(&compiled, "multi"), b"");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"first second");
+    assert!(output.stderr.is_empty());
+
+    let mut mixed = Command::new(env!("CARGO_BIN_EXE_krust"));
+    mixed.args([
+        "krun",
+        "--definition",
+        compiled.to_str().unwrap(),
+        "--sort",
+        "Pgm",
+        "--expression",
+        "multi",
+        "--io",
+        "on",
+    ]);
+    let mixed = output_with_stdin(&mut mixed, b"");
+    assert!(!mixed.status.success());
+    assert!(mixed.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&mixed.stderr).contains(
+            "use --output none so program output remains separate from KORE result rendering"
+        ),
+        "{}",
+        String::from_utf8_lossy(&mixed.stderr)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_io_on_keeps_stderr_and_empty_stdout_writes_separate_from_kore_stdout() {
+    let (root, compiled) = compiled_live_io_fixture();
+
+    for (expression, expected_stderr) in [
+        ("stderr-only", b"stderr only".as_slice()),
+        ("empty-stdout", b"after empty stdout".as_slice()),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "--sort",
+            "Pgm",
+            "--expression",
+            expression,
+            "--io",
+            "on",
+        ]);
+        let output = output_with_stdin(&mut command, b"");
+
+        assert!(
+            output.status.success(),
+            "{expression}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stderr, expected_stderr, "{expression}");
+        let result = String::from_utf8(output.stdout).unwrap();
+        assert!(parse_pattern(&result).is_ok(), "{expression}: {result}");
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_io_on_preserves_descriptor_order_and_arbitrary_bytes() {
+    let (root, compiled) = compiled_live_io_fixture();
+
+    let ordered = output_with_stdin(&mut live_io_command(&compiled, "ordered"), b"");
+    assert!(
+        ordered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ordered.stderr)
+    );
+    assert_eq!(ordered.stdout, b"out-1out-2");
+    assert_eq!(ordered.stderr, b"err-1!");
+
+    let combined_path = root.join("combined-output");
+    let combined = fs::File::create(&combined_path).unwrap();
+    let mut combined_command = live_io_command(&compiled, "ordered");
+    let mut child = combined_command
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(combined.try_clone().unwrap()))
+        .stderr(Stdio::from(combined))
+        .spawn()
+        .unwrap();
+    assert!(child.wait().unwrap().success());
+    assert_eq!(fs::read(&combined_path).unwrap(), b"out-1err-1out-2!");
+
+    let bytes = [0xff, 0x80, 0x00, b'A'];
+    let arbitrary = output_with_stdin(&mut live_io_command(&compiled, "bytes"), &bytes);
+    assert!(
+        arbitrary.status.success(),
+        "{}",
+        String::from_utf8_lossy(&arbitrary.stderr)
+    );
+    assert_eq!(arbitrary.stdout, bytes);
+    assert!(arbitrary.stderr.is_empty());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_io_on_prebuffers_input_and_withholds_rejected_candidate_output() {
+    let (root, compiled) = compiled_live_io_fixture();
+
+    let input = output_with_stdin(&mut live_io_command(&compiled, "input"), b"A");
+    assert!(
+        input.status.success(),
+        "{}",
+        String::from_utf8_lossy(&input.stderr)
+    );
+    assert_eq!(input.stdout, b"accepted");
+    assert!(input.stderr.is_empty());
+
+    let rollback = output_with_stdin(&mut live_io_command(&compiled, "rollback"), b"");
+    assert!(rollback.status.success());
+    assert!(rollback.stdout.is_empty());
+    assert!(
+        !rollback
+            .stderr
+            .windows(b"leaked".len())
+            .any(|part| part == b"leaked")
+    );
+    assert!(
+        String::from_utf8_lossy(&rollback.stderr).contains("execution ended with no successor")
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_io_on_rejects_search_and_alternative_execution() {
+    let (root, compiled) = compiled_live_io_fixture();
+
+    let mut search = live_io_command(&compiled, "branch");
+    search.arg("--search-final");
+    let search = output_with_stdin(&mut search, b"");
+    assert!(!search.status.success());
+    assert!(search.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&search.stderr)
+            .contains("--io on is supported only for ordinary execution, not search")
+    );
+
+    // Both alternatives have empty transcripts. The mode is rejected before execution rather
+    // than relying on transcript selection to notice a conflict.
+    let mut alternatives = live_io_command(&compiled, "branch-empty");
+    alternatives.args(["--strategy", "all"]);
+    let alternatives = output_with_stdin(&mut alternatives, b"");
+    assert!(!alternatives.status.success());
+    assert!(alternatives.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&alternatives.stderr).contains("--io on requires --strategy any")
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn reference_krun_io_off_feeds_standard_input_into_stdin() {
     // reference: printf 'ab\n' | k/result/bin/krun program.pgm --definition ref --io off
     let fixtures =
@@ -2158,7 +2369,7 @@ fn divergent_exit_krun(definition: &Path, extra: &[&str]) -> Output {
 #[test]
 fn krun_exits_111_on_divergent_exit_values_when_exploring_all_rules() {
     let (root, definition) = divergent_exit_fixture();
-    let output = divergent_exit_krun(&definition, &["--strategy", "all"]);
+    let output = divergent_exit_krun(&definition, &["--strategy", "all", "--io", "off"]);
 
     assert_eq!(output.status.code(), Some(111));
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -2352,12 +2563,12 @@ fn krun_follows_the_first_rule_by_default_and_explores_with_strategy_all() {
     assert!(!output.contains("\\or{"), "{output}");
 
     // `--strategy all` explores both rules and prints both final configurations.
-    let output = krun(&["--strategy", "all"]);
+    let output = krun(&["--strategy", "all", "--io", "off"]);
     assert!(output.contains("Lbld'Unds'MAIN'Unds'State{}()"), "{output}");
     assert!(output.contains("Lble'Unds'MAIN'Unds'State{}()"), "{output}");
 
     // `--execute-to-branch` stops at the branch point that `--strategy all` exposes.
-    let output = krun(&["--strategy", "all", "--execute-to-branch"]);
+    let output = krun(&["--strategy", "all", "--execute-to-branch", "--io", "off"]);
     assert!(output.contains("Lblc'Unds'MAIN'Unds'State{}()"), "{output}");
     assert!(
         !output.contains("Lbld'Unds'MAIN'Unds'State{}()"),
@@ -2582,8 +2793,11 @@ fn krun_surface_pattern_projects_ordinary_final_states() {
 fn krun_surface_pattern_projects_every_strategy_all_final_state() {
     let (root, definition) = branching_search_fixture();
 
-    let output =
-        run_branching_surface_pattern(&definition, "<k> S:State </k>", &["--strategy", "all"]);
+    let output = run_branching_surface_pattern(
+        &definition,
+        "<k> S:State </k>",
+        &["--strategy", "all", "--io", "off"],
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -3357,6 +3571,8 @@ fn krun_owise_decides_distinct_ground_overloaded_list_shapes() {
                 "20",
                 "--strategy",
                 "all",
+                "--io",
+                "off",
                 "--pattern",
                 "<k> V:Int </k>",
             ])

@@ -68,6 +68,7 @@ use k_rust_backend::{
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
+        execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status,
         execute_disjunction_with_solver_and_observer_with_initial_status,
     },
     rule::{Predicate, RulePatternError},
@@ -87,6 +88,7 @@ use k_rust_backend::{
         Name as BackendName, Sort as BackendSort, Term, TermKind, Variable,
         VariableKind as BackendVariableKind,
     },
+    transition::{DescriptorTranscriptEntry, ExecutionIoState},
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -521,8 +523,9 @@ struct KrunArgs {
     #[arg(long, value_enum, value_name = "on|off")]
     io: Option<IoArg>,
 
-    /// Select KORE result rendering (`kore`, the default) or emit the one terminal buffered
-    /// stdout stream (`captured`). Captured output uses `--io off` semantics and suppresses KORE.
+    /// Select KORE result rendering (`kore`, the default), emit the one terminal buffered stdout
+    /// stream (`captured`), or suppress result rendering (`none`). Captured output uses `--io off`
+    /// semantics. Live `--io on` console output requires `none` when it writes stdout.
     #[arg(long, value_enum, default_value_t = KrunOutputArg::Kore)]
     output: KrunOutputArg,
 
@@ -968,6 +971,7 @@ enum KrunOutputArg {
     #[default]
     Kore,
     Captured,
+    None,
 }
 
 impl From<ExecutionStrategyArg> for ExecutionMode {
@@ -1064,6 +1068,7 @@ struct BackendRunOptions {
     moving_average_timeout: bool,
     smt: Z3Options,
     capture_stdout: bool,
+    execution_input: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -2136,6 +2141,13 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     if options.expression.is_some() && options.program_file.is_some() {
         return Err("--expression cannot be used with a program file".into());
     }
+    let io = match options.output {
+        KrunOutputArg::Captured => false,
+        KrunOutputArg::Kore | KrunOutputArg::None => options.io.unwrap_or(options.search.is_none()),
+    };
+    if options.search.is_some() && options.io == Some(true) {
+        return Err("--io on is supported only for ordinary execution, not search".into());
+    }
     if options.output == KrunOutputArg::Captured {
         if options.io == Some(true) {
             return Err(
@@ -2161,6 +2173,12 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                     .into(),
             );
         }
+    }
+    if io && options.strategy != ExecutionMode::Any {
+        return Err(
+            "--io on requires --strategy any; console output from alternatives is not combined"
+                .into(),
+        );
     }
     let compiled = if let Some(directory) = &options.compiled_definition {
         let started = Instant::now();
@@ -2409,10 +2427,6 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         )?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
-    let io = match options.output {
-        KrunOutputArg::Captured => false,
-        KrunOutputArg::Kore => options.io.unwrap_or(options.search.is_none()),
-    };
     let string_sort = KastSort::builtin(BuiltinSort::String);
     if available_config_vars.get("IO") == Some(&string_sort) && !seen_config_vars.contains("IO") {
         config_vars.push((
@@ -2443,6 +2457,17 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         ));
         seen_config_vars.insert("STDIN".into());
     }
+    let execution_input = if io {
+        if std::io::stdin().is_terminal() {
+            eprintln!(
+                "note: pre-buffering standard input until end of file (--io on batch mode); \
+                 end the input with Ctrl-D"
+            );
+        }
+        Some(read_stdin_for_stream()?)
+    } else {
+        None
+    };
     let missing_config_vars = available_config_vars
         .keys()
         .filter(|name| name.as_str() != "PGM" && !seen_config_vars.contains(*name))
@@ -2519,10 +2544,26 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             moving_average_timeout: options.moving_average_timeout,
             smt: options.smt,
             capture_stdout: options.output == KrunOutputArg::Captured,
+            execution_input,
         },
     )?;
     let execute_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
+    if options.output == KrunOutputArg::Kore
+        && output.live_transcript.as_ref().is_some_and(|transcript| {
+            transcript
+                .iter()
+                .any(|entry| entry.descriptor == 1 && !entry.bytes.is_empty())
+        })
+    {
+        return Err(
+            "--io on produced console stdout; use --output none so program output remains separate from KORE result rendering"
+                .into(),
+        );
+    }
+    if let Some(transcript) = &output.live_transcript {
+        deliver_console_transcript(transcript)?;
+    }
     match options.output {
         KrunOutputArg::Kore => println!(
             "{}",
@@ -2537,6 +2578,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                     .as_bytes(),
             )?;
         }
+        KrunOutputArg::None => {}
     }
     let output_seconds = started.elapsed().as_secs_f64();
     KrunTimings {
@@ -2601,6 +2643,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             moving_average_timeout: options.timeout.moving_average,
             smt: options.smt.options(),
             capture_stdout: false,
+            execution_input: None,
         },
     )?;
     let pattern = KorePrinter::pretty(100).print_pattern(&output.pattern);
@@ -3148,6 +3191,32 @@ struct BackendRunOutput {
     pattern: KorePattern,
     exit_code: u8,
     captured_stdout: Option<String>,
+    live_transcript: Option<Vec<DescriptorTranscriptEntry>>,
+}
+
+fn deliver_console_transcript(transcript: &[DescriptorTranscriptEntry]) -> io::Result<()> {
+    let stdout = io::stdout();
+    let stderr = io::stderr();
+    let mut stdout = stdout.lock();
+    let mut stderr = stderr.lock();
+    for entry in transcript {
+        match entry.descriptor {
+            1 => {
+                stdout.write_all(&entry.bytes)?;
+                stdout.flush()?;
+            }
+            2 => {
+                stderr.write_all(&entry.bytes)?;
+                stderr.flush()?;
+            }
+            descriptor => {
+                return Err(io::Error::other(format!(
+                    "execution produced output for unsupported console descriptor {descriptor}"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<String, io::Error> {
@@ -3370,33 +3439,48 @@ fn run_backend(
             ),
             exit_code: 0,
             captured_stdout: None,
+            live_transcript: None,
         });
     }
-    let (execution, initial_simplification) =
+    let execution_options = ExecutionOptions {
+        max_depth: options.depth,
+        max_breadth: options.breadth_limit,
+        max_simplification_iterations: options.max_simplification_iterations,
+        mode: options.strategy,
+        branch_mode: if options.execute_to_branch {
+            ExecutionBranchMode::StopAtBranch
+        } else {
+            ExecutionBranchMode::ExploreAll
+        },
+        cut_point_rules: options.cut_point_rules,
+        terminal_rules: options.terminal_rules,
+        step_timeout: options.step_timeout,
+        moving_average_timeout: options.moving_average_timeout,
+        ..ExecutionOptions::default()
+    };
+    let live_io = options.execution_input.is_some();
+    let (execution, initial_simplification) = if let Some(input) = options.execution_input {
+        execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status(
+            backend,
+            initial,
+            execution_options,
+            &solver,
+            ExecutionIoState::new(input),
+            |effect| match effect {
+                BuiltinEffect::UserLog(message) => eprintln!("{message}"),
+            },
+        )
+    } else {
         execute_disjunction_with_solver_and_observer_with_initial_status(
             backend,
             initial,
-            ExecutionOptions {
-                max_depth: options.depth,
-                max_breadth: options.breadth_limit,
-                max_simplification_iterations: options.max_simplification_iterations,
-                mode: options.strategy,
-                branch_mode: if options.execute_to_branch {
-                    ExecutionBranchMode::StopAtBranch
-                } else {
-                    ExecutionBranchMode::ExploreAll
-                },
-                cut_point_rules: options.cut_point_rules,
-                terminal_rules: options.terminal_rules,
-                step_timeout: options.step_timeout,
-                moving_average_timeout: options.moving_average_timeout,
-                ..ExecutionOptions::default()
-            },
+            execution_options,
             &solver,
             |effect| match effect {
                 BuiltinEffect::UserLog(message) => eprintln!("{message}"),
             },
-        );
+        )
+    };
     if let Some(leaf) = execution.leaves.iter().find(|leaf| {
         matches!(
             leaf.halt_reason,
@@ -3457,6 +3541,21 @@ fn run_backend(
         .capture_stdout
         .then(|| captured_stdout_buffer(&finals))
         .transpose()?;
+    let live_transcript = if live_io {
+        match execution.leaves.as_slice() {
+            [leaf] => Some(leaf.io.transcript().to_vec()),
+            leaves if leaves.iter().all(|leaf| leaf.io.transcript().is_empty()) => Some(Vec::new()),
+            leaves => {
+                return Err(io::Error::other(format!(
+                    "--io on cannot select console output from {} retained execution traces",
+                    leaves.len()
+                ))
+                .into());
+            }
+        }
+    } else {
+        None
+    };
     let exit_code = exit_code_of(
         backend,
         &solver,
@@ -3544,6 +3643,7 @@ fn run_backend(
             ),
             exit_code,
             captured_stdout,
+            live_transcript,
         });
     }
     let states = finals
@@ -3563,6 +3663,7 @@ fn run_backend(
         pattern,
         exit_code,
         captured_stdout,
+        live_transcript,
     })
 }
 

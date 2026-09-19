@@ -502,6 +502,30 @@ pub fn execute_disjunction_with_solver_and_observer_with_initial_status(
     execute_using(definition, initial, options, solver, None, None, observe)
 }
 
+/// Execute an ordinary disjunction with pre-buffered console input and report initial
+/// simplification status.
+///
+/// The caller remains responsible for selecting one retained transcript and delivering it to
+/// host descriptors. Search and protocol callers use the context-free entry points above.
+pub fn execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    options: ExecutionOptions,
+    solver: &dyn SmtSolver,
+    io: ExecutionIoState,
+    observe: impl FnMut(&BuiltinEffect),
+) -> (ExecutionResult, InitialSimplificationStatus) {
+    execute_using(
+        definition,
+        initial,
+        options,
+        solver,
+        Some(io),
+        None,
+        observe,
+    )
+}
+
 fn execute_using(
     definition: &BackendDefinition,
     initial: Vec<Pattern>,

@@ -504,6 +504,8 @@ impl RpcService {
             .map_err(|error| pattern_fault(error, &syntax))?;
         let configuration_variables = pattern_variables(&initial);
         let solver = solver(&definition, self.smt_options)?;
+        // RPC deliberately has no execution IO state. Console hooks stay unsupported until a
+        // protocol owns branch-local input and structured transcripts.
         let result = execute_with_solver(
             &definition,
             initial,
@@ -2274,6 +2276,24 @@ mod tests {
                   sort SortState{} [hasDomainValues{}()]
                   hooked-symbol missing{}(SortState{}) : SortState{}
                     [function{}(), hook{}("TEST.missing")]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
+    fn console_hook_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                  hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+                  sort SortK{} []
+                  symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+                  hooked-symbol write{}(SortInt{}, SortString{}) : SortK{}
+                    [function{}(), total{}(), hook{}("IO.write")]
                 endmodule []"#,
             )
             .unwrap(),
@@ -4578,6 +4598,30 @@ mod tests {
                 "{response:#}"
             );
         }
+    }
+
+    #[test]
+    fn rpc_execute_keeps_console_io_unsupported() {
+        let state = encode_kore(
+            &parse_pattern(r#"write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("not delivered"))"#)
+                .unwrap(),
+        )
+        .unwrap();
+        let mut service = console_hook_service();
+
+        let response = request(&mut service, 1, "execute", json!({ "state": state }));
+
+        assert_eq!(response["error"]["code"], -32002, "{response:#}");
+        assert_eq!(
+            response["error"]["message"], "Runtime error",
+            "{response:#}"
+        );
+        assert!(
+            response["error"]["data"]["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("unsupported hook 'IO.write'")),
+            "{response:#}"
+        );
     }
 
     #[test]
