@@ -20,6 +20,31 @@ Inside a worker file every `[[work_item]]` carries `state` (`open`, `partial`, `
 `[[driver_followup]]` rows (`id`, `title`, `state`, `found`, `work`, `elsewhere`) record conformance-driver defects that are not tied to a pending case; the audit ignores them.
 Seeded 2026-09-18 from ratchet sequence 4 (`target/conformance/ratchet.toml`, label `int`, HEAD `9c1a64d`) and four read-only searches of `draft/` recorded in `/tmp/nonmatch/coverage.md`.
 
+## Current queue (2026-09-19, `main` at `4229d5f`)
+
+The ledger has three open tickets, but only two own pending conformance verdicts.
+The latest shared-log audit reports three pending cases, zero pending cases without an open owner, no open ticket whose cases all match, and three below-floor cases that are all covered by existing exclusions.
+All eleven `[[decision]]` rows are decided; no owner policy choice blocks the queue.
+
+| ticket | role | current state | next gate |
+|---|---|---|---|
+| CB-20 | owner of FUN untyped | investigated 2026-09-20 (`workers/CB-20.md`): eleven programs branch without bound on one blocked `owise` of `getMatchingAux` (cohort A, a correctness defect), and `tail-recursion` costs a quadratic number of constructed terms over a growing `<k>` (cohort B) | Implement CB-20-A (equation matching decides overloaded nil-versus-cons pairs) and CB-20-B (per-step term construction bounded by the changed spine) from the reduced fixtures under `workers/CB-20-fixture/`, then CB-20-D re-measures the case. |
+| CB-12 | owner of tutorial throughput | partly complete; compiled-definition reuse is closed through CB-16, while SIMPLE thread search and whole-configuration simplification remain | Run CB-12-3 instrumentation and classify the thread, factorial, matrix, and sorting cohorts before applying CB-12-4. Split any mechanism that is not the measured unchanged-frame simplifier cost. |
+| CB-15 | evidence-only product work | fleshed out; no pending verdict depends on it because C9 already compares the definition-computed bytes | Implement after the case-owning queue unless product priority overrides conformance closure. Start with captured batch output, then establish effect ownership before live hooks. |
+
+The sequential order is:
+
+1. CB-20 is investigated (2026-09-20). Implement CB-20-A first (it also fixes wrong values on ground programs) and CB-20-B in parallel; CB-20-B is also the larger part of CB-12's measured `factorial.kool` cost.
+2. Run CB-12-3 after CB-20-B lands and classify the cost that remains; CB-12-4 stays limited to the simplifier-rounds mechanism that survives that measurement.
+3. Implement the resulting CB-20 work and the mechanisms verified for CB-12 in causal dependency order. CB-12-4 may address only the unchanged-frame simplifier mechanism established by CB-12-3; every distinct thread or FUN mechanism gets its own work item or ticket.
+4. Verify that the two SIMPLE cases complete their driven corpora without case-budget or step-budget skips and that all twelve FUN witnesses have measured dispositions.
+5. Re-measure all seven tutorial cases once CB-12 and CB-20 are implementation-complete, rewrite the expectation reasons from that run, raise any newly matching floors, and close the two owner tickets from the audit evidence.
+6. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
+
+CB-16 and CB-21 are closed.
+Every executed tutorial program now uses one validated runnable artifact per case, so repeated source compilation is no longer part of CB-12 or CB-20.
+CB-15 must retain C9 as an independent oracle and must not turn search or RPC into implicit live-IO modes.
+
 ## 2026-09-18: first pass over CB-01 to CB-08 (main af9481c)
 
 Every ticket was reproduced with the driver on its own cases into the shared log (`target/conformance/ratchet.toml` sequences 5 to 12, labels `cb-07`, `cb-06`, `cb-05`, `cb-03`, `cb-02`, `cb-01`, `cb-04`, `cb-08`), then investigated by one sub-agent per ticket or pair (`workers/CB-0N.md`).
@@ -362,3 +387,15 @@ The long programs in the table are semantic execution or search costs and remain
 CB-16 closes with all seven work items complete and no accepted floor change.
 
 Gates: `taplo lint` passes for the expectations and ticket ledgers, `git diff --check` passes, and the conformance audit reports three pending cases, all owned by CB-12 or CB-20, with no open ticket whose cases all match and no non-excluded case below its accepted floor.
+
+## 2026-09-20: CB-20 investigated (no implementation)
+
+`workers/CB-20.md` on `main` at `4229d5f`, human UID, measure build `/tmp/cb-20-target/release/krust` (same commit, `--features cli,measure`), every probe run with the artifact-driven command recorded by the private CB-16 final run from its work tree (`/tmp/k-rust-cb16-final/...`), evidence under `workers/CB-20-evidence/` (`runs/ledger.tsv` indexes every run with its counters; outputs over 1 MB were not kept), code attributions and reduced fixtures under `workers/CB-20-fixture/` (two Fable sub-agents, one per cohort).
+No tracked file changed except this README and `tickets.toml`; no floor, budget, or expectation changed.
+
+- Cohort A (eleven of the twelve): every first-branch state (`--execute-to-branch`) has `getMatchingAux(inj{Bottoms,Exps}(.Bottoms), _,_Vals(v, …))` at the head of `<k>`, the empty pattern list of a `[]`, `[h]`, or `null?` clause against a non-empty value list. The `owise` `matchFailure` never fires because the nil/nil equation's pair `.Vals` against the bare cons application `_,_Vals(…)` is deferred by `match_one`'s function-against-function arm (`matching.rs:1993-2012`; both `overload(exps)` heads load as total functions and the rigid arms at `:2109-2115` need an injection or constructor on one side), which `scan_group` reports as `Blocked` (the other direction blocks on two `getMatching` equations against the anywhere head `[_|_]`; `workers/CB-20-fixture/attribution.md`, reduced fixture with 9 of 13 tests failing on main), and the rewriter then narrows the ground total-function application against `matchResult(M:Map)` with an existential map: branches grow 1, 5, 81 by driver depth 80 on `callcc-return-2` (206 MB), `list-length` reaches 16 GiB at depth 80, `list-max` halts with a typed `Indeterminate` on an existential env key, and `(fun [] -> 1 | [h|t] -> 2) [1,2]` projects the wrong value 1 at depth 30. Six matching controls with the same constructs (`list-nth`, `list-1`, `constructor-list-length`, `callcc-return-1`, `factorial`, `ackermann`) stay on one branch with zero SMT queries. Same class as CB-14 a2 on a pair CB-14-3 does not cover; the contract already requires the refutation.
+- Cohort B (`tail-recursion`): terminates correctly in 123.7 s over 33,048 steps on one branch. `term.constructed` per step grows with `<k>` (one `setEnv` per iteration because the definition's tail-recursion `anywhere` rule is commented out) while rule attempts, matching pairs and `simplify.rounds` stay flat per step; wall time is quadratic in the iteration count (2.0, 5.9, 20.1, 80.4 s for 100, 200, 400, 800 iterations) against a linear constant-state control (`callcc-looping`, 69 s for 6400 iterations). Attributed by backtrace to the unconditional whole-configuration rebuild in `PathConditionReplacements::apply` / `replace_terms_bottom_up` (`simplify.rs:2030`, `:2058`) at every simplifier round (99.4 percent of late-step constructions); the same sites dominate KOOL `factorial.kool`, and a probe short-circuit gives 2.3 s instead of 19.6 s (`tail-recursion` N=400) and 2.35 s instead of 11.3 s (`factorial.kool` depth 3000) with identical output. Not CB-12's simplifier-rounds mechanism, but the larger part of CB-12's measured cost; CB-20-B owns it and CB-12 cites it (`workers/CB-20-fixture/k-growth/attribution.md`).
+- Four work items: CB-20-A (backend equation matching decides overloaded nil-versus-cons pairs on concrete subjects at the D-03 boundary, both directions, all sort levels), CB-20-B (a rewrite step constructs terms proportional to the changed spine; measure-ratchet fixture with a growing `<k>`), CB-20-C (optional diagnostics under D-10: a stderr note when a variable-free configuration first narrows through an unevaluated function application), CB-20-D (re-measure, classify residue, rewrite the expectation reason and budgets). No `[[decision]]` row; ground function-headed narrowing stays permitted by `docs/compatibility.md` "Concrete rewrite instantiation".
+- Left in place for the implementer: `~/worktrees/cb-20-probe` (branch `probe/cb-20-blocked-pair`, cohort A probe prints and fixture copies, target `/tmp/cb-20-probe-target`) and `~/worktrees/cb-20-probe-k` (branch `probe/cb-20-k-construction`, construction backtrace probe and the `KRUST_PROBE_SKIP_EMPTY_APPLY` characterisation short-circuit, target `/tmp/cb-20-probe-k-target`), both uncommitted; delete them when CB-20-A and CB-20-B land. `/tmp/cb-20-target` (the measure build) can be deleted at any time; `/tmp/k-rust-cb16-final` holds the runnable artifacts the recorded commands run from and should stay until CB-20-D.
+
+Gates: `taplo lint draft/conformance-backlog/tickets.toml` and on the worker's work-item block pass; the audit is unchanged (3 pending cases all owned, 0 pending without an open ticket, no open ticket whose cases all match, 3 below-floor cases all excluded).
