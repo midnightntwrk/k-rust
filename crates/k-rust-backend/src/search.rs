@@ -2542,6 +2542,61 @@ mod tests {
     }
 
     #[test]
+    fn pattern_bound_stops_effects_and_the_effect_observer() {
+        let definition = interleaving_definition();
+        let initial = pattern(&definition, "state{}(a0{}(), b0{}(), c0{}())");
+        let options = SearchOptions {
+            search_type: SearchType::Star,
+            ..SearchOptions::default()
+        };
+        let target = Pattern {
+            term: Term::variable(result_variable()),
+            constraints: Vec::new(),
+        };
+        let pattern_result = search_pattern(
+            &definition,
+            initial.clone(),
+            &target,
+            SearchOptions {
+                max_results: Some(2),
+                ..options
+            },
+        );
+
+        let mut retained = 0;
+        let mut observed = Vec::new();
+        let graph_result = search_graph_collecting(
+            &definition,
+            vec![initial],
+            options,
+            &NoSolver,
+            None,
+            |effect| observed.push(effect.clone()),
+            |_| {
+                retained += 1;
+                retained == 2
+            },
+        );
+
+        assert_eq!(pattern_result.matches.len(), 2);
+        // Expanding the initial state commits all three sibling effects. Reaching the bound on
+        // the first depth-one result prevents every deeper effect.
+        assert_eq!(
+            pattern_result.effects,
+            [
+                BuiltinEffect::UserLog("a0".into()),
+                BuiltinEffect::UserLog("b0".into()),
+                BuiltinEffect::UserLog("c0".into()),
+            ]
+        );
+        assert_eq!(pattern_result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(graph_result.states.len(), 2);
+        assert_eq!(observed, graph_result.effects);
+        assert_eq!(graph_result.effects, pattern_result.effects);
+        assert_eq!(graph_result.incomplete, [IncompleteSearch::ResultBound]);
+    }
+
+    #[test]
     fn observed_search_retains_branch_local_transition_streams() {
         let definition = definition();
         let result = search_graph_observed(
@@ -2704,6 +2759,60 @@ mod tests {
     }
 
     #[test]
+    fn bounded_observed_pattern_searches_preserve_retained_streams() {
+        fn transition_ids(observations: &[ObservationEvent]) -> Vec<&TransitionId> {
+            observations
+                .iter()
+                .map(|event| match event {
+                    ObservationEvent::Transition(observation) => &observation.id,
+                    ObservationEvent::Uncommitted(_) => {
+                        panic!("search cannot retain a rolled-back transition")
+                    }
+                })
+                .collect()
+        }
+
+        let definition = diamond_definition(false);
+        let target = pattern(&definition, "merged{}()");
+        let options = SearchOptions {
+            max_results: Some(1),
+            ..SearchOptions::default()
+        };
+        let states = search_pattern_observed(
+            &definition,
+            initial(&definition),
+            &target,
+            options,
+            &ObservationOptions::all(),
+        );
+        let paths = search_pattern_paths_observed(
+            &definition,
+            initial(&definition),
+            &target,
+            options,
+            &ObservationOptions::all(),
+        );
+
+        assert_eq!(states.matches.len(), 1);
+        assert_eq!(states.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(states.matches[0].state.branch.len(), 2);
+        assert!(
+            transition_ids(&states.matches[0].state.observations)
+                .into_iter()
+                .eq(&states.matches[0].state.branch)
+        );
+
+        assert_eq!(paths.matches.len(), 1);
+        assert_eq!(paths.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(paths.matches[0].witness.id.len(), 2);
+        assert!(
+            transition_ids(&paths.matches[0].witness.observations)
+                .into_iter()
+                .eq(&paths.matches[0].witness.id)
+        );
+    }
+
+    #[test]
     fn path_witness_identities_are_deterministic_across_replays() {
         let search = || {
             let definition = diamond_definition(false);
@@ -2780,6 +2889,37 @@ mod tests {
     }
 
     #[test]
+    fn nonmatching_path_witnesses_do_not_consume_the_bound() {
+        let definition = diamond_definition(false);
+        let result = search_pattern_paths(
+            &definition,
+            initial(&definition),
+            &pattern(&definition, "right{}()"),
+            SearchOptions {
+                search_type: SearchType::Plus,
+                max_results: Some(1),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(
+            state_name(&witness_search_state(result.matches[0].witness.clone())),
+            "right"
+        );
+        assert_eq!(
+            result.matches[0]
+                .witness
+                .id
+                .iter()
+                .map(|transition| transition.rule.as_str())
+                .collect::<Vec<_>>(),
+            ["initial-right"]
+        );
+        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+    }
+
+    #[test]
     fn cycle_control_terminates_path_search_without_duplicate_witnesses() {
         let definition = diamond_definition(true);
         let result = search_paths(
@@ -2836,6 +2976,31 @@ mod tests {
 
         assert_eq!(result.witnesses.len(), 5);
         assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn pattern_path_bound_reports_unchecked_cycle_candidates() {
+        let definition = diamond_definition(true);
+        let target = Pattern {
+            term: Term::variable(result_variable()),
+            constraints: Vec::new(),
+        };
+        let result = search_pattern_paths(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Star,
+                max_results: Some(5),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.matches.len(), 5);
+        // Raw path search can prove that the bound is exact by continuing until its queued
+        // cycle candidates are pruned. Pattern search stops at five matches, so those unchecked
+        // candidates conservatively make this result incomplete.
+        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
     }
 
     #[test]
