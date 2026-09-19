@@ -498,7 +498,23 @@ fn solve_term_pair(
             substitution,
             remainder,
         } if allow_narrowing => {
-            let substitution = compose(&substitution, &solution.substitution);
+            let mut substitution = compose(&substitution, &solution.substitution);
+            let remainder = if mode == MatchMode::Rewrite {
+                let Some(recovered) =
+                    recover_rewrite_candidate(definition, &mut substitution, remainder)
+                else {
+                    return PairSolution::NoSolution;
+                };
+                recovered
+            } else {
+                remainder
+            };
+            if remainder.is_empty() {
+                return PairSolution::Solved(CollectionSolution {
+                    substitution,
+                    ..solution
+                });
+            }
             match unify_term_pairs(definition, substitution, remainder) {
                 UnificationResult::Unified(unified) => {
                     let mut constraints = solution.constraints;
@@ -515,6 +531,44 @@ fn solve_term_pair(
         }
         MatchResult::Indeterminate { .. } => PairSolution::Indeterminate,
     }
+}
+
+/// Re-run each residual AC-candidate pair in rewrite mode before symbolic unification.
+///
+/// Collection solving isolates candidate entries after the whole collection match has deferred.
+/// At that point a residual pair can be decidable even though the collection pair was not.  In
+/// particular, normalized rewrite-rigid heads beneath widening injections must fail as a concrete
+/// candidate rather than becoming an opaque equality through symbolic unification.
+fn recover_rewrite_candidate(
+    definition: &BackendDefinition,
+    substitution: &mut Substitution,
+    remainder: Vec<(Term, Term)>,
+) -> Option<Vec<(Term, Term)>> {
+    let mut unresolved = Vec::new();
+    for (pattern, subject) in remainder {
+        let pattern = substitute(&pattern, substitution);
+        let subject = substitute(&subject, substitution);
+        match match_terms_with_context(
+            MatchMode::Rewrite,
+            &definition.sort_graph,
+            Some(definition),
+            &pattern,
+            &subject,
+        ) {
+            MatchResult::Success(found) => {
+                *substitution = compose(&found, substitution);
+            }
+            MatchResult::Failed(_) => return None,
+            MatchResult::Indeterminate {
+                substitution: found,
+                remainder,
+            } => {
+                *substitution = compose(&found, substitution);
+                unresolved.extend(remainder);
+            }
+        }
+    }
+    Some(unresolved)
 }
 
 fn solve_list_pair(
@@ -2007,6 +2061,10 @@ impl Matcher<'_> {
                 pattern_term.clone(),
             );
             debug_assert_eq!(pattern_term.sort(), subject_term.sort());
+            if self.mode == MatchMode::Rewrite && is_rewrite_rigid(subject_term.kind()) {
+                self.enqueue(pattern_term, subject_term.clone());
+                return Ok(());
+            }
             return self.defer(pattern_term, subject_term.clone());
         }
         if subject_is_subsort {
@@ -2027,6 +2085,10 @@ impl Matcher<'_> {
                     subject_term.clone(),
                 );
                 debug_assert_eq!(pattern_term.sort(), subject_term.sort());
+                if self.mode == MatchMode::Rewrite && is_rewrite_rigid(pattern_term.kind()) {
+                    self.enqueue(pattern_term.clone(), subject_term);
+                    return Ok(());
+                }
                 return self.defer(pattern_term.clone(), subject_term);
             }
         }

@@ -226,6 +226,21 @@ comparisons = [
 ]
 
 [[compile]]
+name = "star-cell-heating"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable", "anywhere", "strictness"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/test.k"
+main-module = "STAR-CELL-HEATING"
+syntax-module = "STAR-CELL-HEATING-SYNTAX"
+pairings = ["kore/llvm"]
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
+
+[[compile]]
 name = "overload-constructors"
 requires = ["reference-toolchain"]
 constructs = ["overload-no-confusion"]

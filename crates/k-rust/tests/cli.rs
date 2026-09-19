@@ -5885,6 +5885,56 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
 }
 
 #[test]
+fn krun_completes_star_cell_heating_with_one_or_two_cells() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/star-cell-heating");
+    let definition = fixtures.join("test.k");
+    for (program, thread_cells, next) in [
+        ("one.cb10", 1, "1"),
+        ("two.cb10", 2, "2"),
+        ("two-late.cb10", 2, "2"),
+    ] {
+        let program_path = fixtures.join(program);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                program_path.to_str().unwrap(),
+                "--main-module",
+                "STAR-CELL-HEATING",
+                "--syntax-module",
+                "STAR-CELL-HEATING-SYNTAX",
+                "--sort",
+                "Stmt",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{program}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            stdout.matches("Lbl'-LT-'thread'-GT-'{}").count(),
+            thread_cells,
+            "{program}: {stdout}"
+        );
+        assert_eq!(
+            stdout.matches("Lbl'-LT-'k'-GT-'{}(dotk{}())").count(),
+            thread_cells,
+            "{program}: {stdout}"
+        );
+        assert!(
+            stdout.contains(&format!(
+                "Lbl'-LT-'next'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"{next}\"))"
+            )),
+            "{program}: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn krun_executes_evm_optimized_add_fixture_to_pinned_kore_result() {
     let expected = concat!(
         "Lbl'-LT-'generatedTop'-GT-'{}(\n",
