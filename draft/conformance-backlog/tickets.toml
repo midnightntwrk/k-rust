@@ -499,9 +499,9 @@ elsewhere = [
 [[driver_followup]]
 id = "DF-08"
 title = "A crashed oracle rerun uses the same oracle_confirmed value as a completed refutation"
-state = "open"
+state = "closed"
 found = "CB-11-3 separated two meanings that currently share oracle_confirmed = false: the reference command completed and differed, or the reference command crashed before producing an oracle. DF-05 already fixed the GHCRTS environment half of that work."
-work = "Implement D-06 independently of CB-11: retain verdict reference-error and the krust divergence, but record oracle_confirmed = 'not-run (reference crash)' when crash classification proves the oracle did not run. Reserve false for a completed reference command whose result differs. Add the fake-crash and completed-refutation driver regressions described in workers/CB-11.md."
+work = "Done on 2026-09-19: scripts/conformance/run.py records oracle_confirmed = 'not-run (reference crash)' for a timed-out reference confirmation, a failing direct command, or a crashing filtered recipe, while retaining reference-error, the existing reason, stderr evidence, and the krust divergence. A completed direct mismatch or non-crashing pipeline refutation alone records false; a reproduction records true. conformance_driver_distinguishes_reference_crashes_from_stale_oracles covers all three states, environmental unavailability, timeout, filtered-pipeline exit semantics, reason preservation, and divergence preservation. docs/testing.md documents the field. The exact focused test passed under with-z3-static-4.16.0; cargo fmt --all -- --check, python3 -m py_compile scripts/conformance/run.py, and git diff --check passed."
 elsewhere = [
   "draft/conformance-backlog/workers/CB-11.md (superseded CB-11-3 remainder)",
 ]

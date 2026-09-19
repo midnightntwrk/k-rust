@@ -1401,7 +1401,7 @@ def confirm_oracle(case, rec, step):
         not direct and rc != 0 and is_reference_crash(err)
     )
     if tool_failed:
-        step["oracle_confirmed"] = False
+        step["oracle_confirmed"] = "not-run (reference crash)"
         step["oracle_output"] = output_excerpt(err or out)
         if step.get("verdict") != "reference-error":
             step["verdict"] = "reference-error"

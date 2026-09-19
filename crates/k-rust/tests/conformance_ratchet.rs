@@ -2608,24 +2608,35 @@ import json, os, sys, tempfile
 sys.path.insert(0, sys.argv[1])
 import run
 
-def probe(mode, incoming="mismatch", pattern=False):
+def probe(mode, incoming="mismatch", pattern=False, filtered=False):
     root = tempfile.mkdtemp()
     case = run.Case("oracle")
     case.dir = root
     with open(os.path.join(root, "program.out"), "w") as output:
         output.write("expected\n")
     pattern_arg = " --pattern '<k> V:K </k>'" if pattern else ""
-    recipe = run.split_recipe("/kbin/krun program --definition ./test-kompiled" + pattern_arg + " | diff - program.out")
+    filter_arg = " | sed 's/value/value/'" if filtered else ""
+    recipe = run.split_recipe("/kbin/krun program --definition ./test-kompiled" + pattern_arg + filter_arg + " | diff - program.out")
     calls = []
     def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
         calls.append({"cmd": cmd, "env": env})
         if mode == "crash":
             return 134, "", "mmap(): Cannot allocate memory\nBackend crashed during rewriting with exit code 134", 0.1, False
+        if mode == "unavailable":
+            return 127, "", "/kbin/krun: No such file or directory", 0.1, False
+        if mode == "timeout":
+            return -9, "", "", 60.0, True
         if mode == "stale":
             return 0, "different\n", "", 0.1, False
+        if mode == "pipeline_refutation":
+            return 1, "1c1\n< different\n---\n> expected\n", "", 0.1, False
         return 0, "expected\n", "", 0.1, False
     run.sh = fake_sh
-    step = {"verdict": incoming, "reason": "C8 reference re-run failed" if incoming == "reference-error" else "text mismatch"}
+    step = {
+        "verdict": incoming,
+        "reason": "C8 reference re-run failed" if incoming == "reference-error" else "text mismatch",
+        "divergence": "krust produced different output",
+    }
     run.confirm_oracle(case, recipe, step)
     step["call"] = calls[0]
     return step
@@ -2674,7 +2685,11 @@ def reference_environments():
 
 print(json.dumps({
     "crash": probe("crash"),
+    "crash_after_reference_error": probe("crash", "reference-error"),
+    "unavailable": probe("unavailable"),
+    "timeout": probe("timeout"),
     "stale": probe("stale"),
+    "pipeline_refutation": probe("pipeline_refutation", filtered=True),
     "live_mismatch": probe("live"),
     "live_reference_error": probe("live", "reference-error"),
     "pattern": probe("live", pattern=True),
@@ -2697,6 +2712,10 @@ print(json.dumps({
     let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let crash = &probes["crash"];
     assert_eq!(crash["verdict"], "reference-error", "{probes}");
+    assert_eq!(
+        crash["oracle_confirmed"], "not-run (reference crash)",
+        "{probes}"
+    );
     let crash_reason = crash["reason"].as_str().unwrap();
     for part in [
         "reference recipe failed to run",
@@ -2716,6 +2735,25 @@ print(json.dumps({
         "{probes}"
     );
     assert_eq!(crash["call"]["env"]["GHCRTS"], "-N1", "{probes}");
+    assert_eq!(
+        crash["divergence"], "krust produced different output",
+        "{probes}"
+    );
+    assert_eq!(
+        probes["crash_after_reference_error"]["reason"], "C8 reference re-run failed",
+        "{probes}"
+    );
+    assert_eq!(
+        probes["crash_after_reference_error"]["oracle_confirmed"], "not-run (reference crash)",
+        "{probes}"
+    );
+    for key in ["unavailable", "timeout"] {
+        assert_eq!(probes[key]["verdict"], "reference-error", "{probes}");
+        assert_eq!(
+            probes[key]["oracle_confirmed"], "not-run (reference crash)",
+            "{probes}"
+        );
+    }
     assert_eq!(probes["pattern"]["call"]["env"]["GHCRTS"], "", "{probes}");
     assert_eq!(probes["environments"]["kompile"]["GHCRTS"], "-N1");
     assert_eq!(
@@ -2726,6 +2764,7 @@ print(json.dumps({
 
     let stale = &probes["stale"];
     assert_eq!(stale["verdict"], "reference-error", "{probes}");
+    assert_eq!(stale["oracle_confirmed"], false, "{probes}");
     assert!(stale["reason"].as_str().unwrap().contains("stale oracle"));
     assert_eq!(stale["oracle_stale"], true, "{probes}");
     assert!(
@@ -2733,6 +2772,14 @@ print(json.dumps({
             .as_str()
             .unwrap()
             .contains("different")
+    );
+    assert_eq!(
+        probes["pipeline_refutation"]["oracle_confirmed"], false,
+        "{probes}"
+    );
+    assert_eq!(
+        probes["pipeline_refutation"]["oracle_stale"], true,
+        "{probes}"
     );
 
     assert_eq!(probes["live_mismatch"]["oracle_confirmed"], true);

@@ -298,3 +298,13 @@ The parsed result has exactly two disjuncts whose user binding multiset is `S = 
 The structural assertion rejects a residual `isKResult` or `\not` constraint, an extra user binding, a duplicate `S` binding, and the former empty-output remainder branch.
 The focused CLI test and formatting check pass; no expectation, floor, budget, exclusion, or conformance case ownership changes.
 CB-11 is closed; DF-08 continues to own the independent crashed-oracle annotation.
+
+## 2026-09-19: DF-08 oracle confirmation tri-state implemented
+
+The conformance driver now records `oracle_confirmed = "not-run (reference crash)"` when a crash, timeout, or unavailable direct reference command prevents an oracle confirmation.
+It retains the `reference-error` verdict, existing reason and stderr evidence, and the krust divergence.
+Completed refutations record `false`, including a non-crashing filtered recipe whose pipeline exits nonzero, while successful reproductions record `true`.
+
+`conformance_driver_distinguishes_reference_crashes_from_stale_oracles` covers the three states, direct and pipeline failure semantics, environmental unavailability, timeout, and diagnostic preservation.
+The focused test passed under `with-z3-static-4.16.0`; formatting, Python compilation, and whitespace checks pass.
+DF-08 is closed with D-06 implemented and documented in `docs/testing.md`.

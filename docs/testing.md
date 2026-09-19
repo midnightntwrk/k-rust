@@ -99,6 +99,8 @@ Implication correctness must therefore have direct Rust contract tests, includin
 The conformance driver's C8 comparison (`scripts/conformance/run.py` `compare_simplified_kore`) is supplementary evidence in the same sense: it simplifies the reference's `--output kore` result and the krust result with `krust kore-simplify` before the structural comparison, so it depends on the port's simplifier, which must have its own contract tests, and it cannot independently validate that simplifier.
 A step that matches only under C8 keeps its text difference and records the C8 comparison label.
 A simplification or comparison that fails or is unavailable leaves the text mismatch in place; a reference re-run that produces no result records `reference-error` with the reference's stderr, which is an oracle change and not evidence for either side.
+The `oracle_confirmed` field is `true` when the reference re-run reproduces the checked-in output, `false` when a completed re-run refutes it, and `"not-run (reference crash)"` when a crash, timeout, or environmental failure prevents the re-run from producing an oracle.
+The driver uses `"not-run (budget)"` when the case budget prevents the confirmation attempt.
 An unavailable or inconclusive equivalence check must not be counted as a successful comparison.
 
 ## Harness recipes
