@@ -1,0 +1,188 @@
+[]
+module OVERLOADED-LIST-OWISE
+    sort SortBottom{} []
+    sort SortVal{} []
+    sort SortName{} []
+    sort SortExp{} []
+    sort SortBottoms{} []
+    sort SortVals{} []
+    sort SortExps{} []
+    sort SortMatchResult{} []
+    sort SortState{} []
+    hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+
+    symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+
+    // Elements. `fun` is an Exp constructor with no Val overload (FUN's `fun _`).
+    symbol bottom{}() : SortBottom{} [constructor{}()]
+    symbol one{}() : SortVal{} [constructor{}()]
+    symbol name{}() : SortName{} [constructor{}()]
+    symbol fun{}() : SortExp{} [constructor{}()]
+
+    // The three-level list family Bottoms < Vals < Exps, with the attributes K's frontend
+    // emits for FUN (fun-untyped.md:149-165): the least productions are constructors, every
+    // greater production is an `anywhere` functional symbol without `constructor`.
+    symbol dotBottoms{}() : SortBottoms{} [constructor{}()]
+    symbol bottoms{}(SortBottom{}, SortBottoms{}) : SortBottoms{}
+        [constructor{}(), injective{}()]
+    symbol dotVals{}() : SortVals{} [anywhere{}(), functional{}(), injective{}()]
+    symbol vals{}(SortVal{}, SortVals{}) : SortVals{}
+        [anywhere{}(), functional{}(), injective{}()]
+    symbol dotExps{}() : SortExps{} [anywhere{}(), functional{}(), injective{}()]
+    symbol exps{}(SortExp{}, SortExps{}) : SortExps{}
+        [anywhere{}(), functional{}(), injective{}()]
+
+    // `Exp ::= "[" Exps "]"` overloading `Val ::= "[" Vals "]"` (fun-untyped.md:215,218).
+    symbol listExp{}(SortExps{}) : SortExp{} [anywhere{}(), functional{}(), injective{}()]
+    symbol listVal{}(SortVals{}) : SortVal{} [constructor{}(), injective{}()]
+
+    // `Exp ::= "[" Exps "|" Exp "]"` (fun-untyped.md:217) is an anywhere head because of the
+    // list-desugaring anywhere rule at fun-untyped.md:397; it is not overloaded.
+    symbol pipe{}(SortExps{}, SortExp{}) : SortExp{}
+        [anywhere{}(), functional{}(), injective{}()]
+
+    // An ordinary (declared) function of the family's sort: the genuinely symbolic control.
+    symbol ordinaryVals{}(SortVals{}) : SortVals{}
+        [function{}(), functional{}(), injective{}(), no-evaluators{}()]
+
+    // The matching functions (fun-untyped.md:750-767, 780).
+    symbol matchResult{}(SortVal{}) : SortMatchResult{} [constructor{}(), injective{}()]
+    symbol matchFailure{}() : SortMatchResult{} [constructor{}()]
+    symbol getMatching{}(SortExp{}, SortVal{}) : SortMatchResult{} [function{}(), total{}()]
+    symbol getMatchingAux{}(SortExps{}, SortVals{}) : SortMatchResult{}
+        [function{}(), total{}()]
+
+    // A configuration whose head is a MatchResult, and the two case-selection rules
+    // (fun-untyped.md:568-571).
+    symbol state{}(SortMatchResult{}) : SortState{} [constructor{}()]
+    symbol bound{}(SortVal{}) : SortState{} [constructor{}()]
+    symbol failed{}() : SortState{} [constructor{}()]
+
+    axiom{R} \exists{R}(V:SortVal{}, \equals{SortVal{}, R}(V:SortVal{}, inj{SortBottom{}, SortVal{}}(F:SortBottom{})))
+        [subsort{SortBottom{}, SortVal{}}()]
+    axiom{R} \exists{R}(V:SortExp{}, \equals{SortExp{}, R}(V:SortExp{}, inj{SortBottom{}, SortExp{}}(F:SortBottom{})))
+        [subsort{SortBottom{}, SortExp{}}()]
+    axiom{R} \exists{R}(V:SortExp{}, \equals{SortExp{}, R}(V:SortExp{}, inj{SortVal{}, SortExp{}}(F:SortVal{})))
+        [subsort{SortVal{}, SortExp{}}()]
+    axiom{R} \exists{R}(V:SortExp{}, \equals{SortExp{}, R}(V:SortExp{}, inj{SortName{}, SortExp{}}(F:SortName{})))
+        [subsort{SortName{}, SortExp{}}()]
+    axiom{R} \exists{R}(V:SortVals{}, \equals{SortVals{}, R}(V:SortVals{}, inj{SortBottoms{}, SortVals{}}(F:SortBottoms{})))
+        [subsort{SortBottoms{}, SortVals{}}()]
+    axiom{R} \exists{R}(V:SortExps{}, \equals{SortExps{}, R}(V:SortExps{}, inj{SortBottoms{}, SortExps{}}(F:SortBottoms{})))
+        [subsort{SortBottoms{}, SortExps{}}()]
+    axiom{R} \exists{R}(V:SortExps{}, \equals{SortExps{}, R}(V:SortExps{}, inj{SortVals{}, SortExps{}}(F:SortVals{})))
+        [subsort{SortVals{}, SortExps{}}()]
+
+    axiom{} \equals{SortExps{}, SortExps{}}(
+        exps{}(inj{SortVal{}, SortExp{}}(K0:SortVal{}), inj{SortVals{}, SortExps{}}(K1:SortVals{})),
+        inj{SortVals{}, SortExps{}}(vals{}(K0:SortVal{}, K1:SortVals{})))
+        [symbol-overload{}(exps{}(), vals{}())]
+    axiom{} \equals{SortExps{}, SortExps{}}(
+        exps{}(inj{SortBottom{}, SortExp{}}(K0:SortBottom{}), inj{SortBottoms{}, SortExps{}}(K1:SortBottoms{})),
+        inj{SortBottoms{}, SortExps{}}(bottoms{}(K0:SortBottom{}, K1:SortBottoms{})))
+        [symbol-overload{}(exps{}(), bottoms{}())]
+    axiom{} \equals{SortVals{}, SortVals{}}(
+        vals{}(inj{SortBottom{}, SortVal{}}(K0:SortBottom{}), inj{SortBottoms{}, SortVals{}}(K1:SortBottoms{})),
+        inj{SortBottoms{}, SortVals{}}(bottoms{}(K0:SortBottom{}, K1:SortBottoms{})))
+        [symbol-overload{}(vals{}(), bottoms{}())]
+    axiom{} \equals{SortExps{}, SortExps{}}(dotExps{}(), inj{SortVals{}, SortExps{}}(dotVals{}()))
+        [symbol-overload{}(dotExps{}(), dotVals{}())]
+    axiom{} \equals{SortExps{}, SortExps{}}(dotExps{}(), inj{SortBottoms{}, SortExps{}}(dotBottoms{}()))
+        [symbol-overload{}(dotExps{}(), dotBottoms{}())]
+    axiom{} \equals{SortVals{}, SortVals{}}(dotVals{}(), inj{SortBottoms{}, SortVals{}}(dotBottoms{}()))
+        [symbol-overload{}(dotVals{}(), dotBottoms{}())]
+    axiom{} \equals{SortExp{}, SortExp{}}(
+        listExp{}(inj{SortVals{}, SortExps{}}(K0:SortVals{})),
+        inj{SortVal{}, SortExp{}}(listVal{}(K0:SortVals{})))
+        [symbol-overload{}(listExp{}(), listVal{}())]
+
+    // getMatchingAux((E, Es), (V, Vs)) => getMatchingAux(Es, Vs)   (fun-untyped.md:765, element check elided)
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(),
+            \and{R}(\in{SortExps{}, R}(X0:SortExps{}, exps{}(E:SortExp{}, Es:SortExps{})),
+            \and{R}(\in{SortVals{}, R}(X1:SortVals{}, vals{}(V:SortVal{}, Vs:SortVals{})), \top{R}()))),
+        \equals{SortMatchResult{}, R}(
+            getMatchingAux{}(X0:SortExps{}, X1:SortVals{}),
+            \and{SortMatchResult{}}(getMatchingAux{}(Es:SortExps{}, Vs:SortVals{}), \top{SortMatchResult{}}())))
+        [label{}("aux-cons")]
+    // getMatchingAux(.Exps, .Vals) => matchResult(one)   (fun-untyped.md:766)
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(),
+            \and{R}(\in{SortExps{}, R}(X0:SortExps{}, dotExps{}()),
+            \and{R}(\in{SortVals{}, R}(X1:SortVals{}, dotVals{}()), \top{R}()))),
+        \equals{SortMatchResult{}, R}(
+            getMatchingAux{}(X0:SortExps{}, X1:SortVals{}),
+            \and{SortMatchResult{}}(matchResult{}(one{}()), \top{SortMatchResult{}}())))
+        [label{}("aux-nil")]
+    // getMatchingAux(_, _) => matchFailure [owise]   (fun-untyped.md:767), in the frontend's form
+    axiom{R} \implies{R}(
+        \and{R}(
+            \not{R}(\or{R}(
+                \exists{R}(G2:SortExp{}, \exists{R}(G3:SortExps{}, \exists{R}(G4:SortVal{}, \exists{R}(G5:SortVals{},
+                    \and{R}(\top{R}(),
+                        \and{R}(\in{SortExps{}, R}(X0:SortExps{}, exps{}(G2:SortExp{}, G3:SortExps{})),
+                        \and{R}(\in{SortVals{}, R}(X1:SortVals{}, vals{}(G4:SortVal{}, G5:SortVals{})), \top{R}()))))))),
+                \or{R}(
+                    \and{R}(\top{R}(),
+                        \and{R}(\in{SortExps{}, R}(X0:SortExps{}, dotExps{}()),
+                        \and{R}(\in{SortVals{}, R}(X1:SortVals{}, dotVals{}()), \top{R}()))),
+                    \bottom{R}()))),
+            \and{R}(\top{R}(),
+                \and{R}(\in{SortExps{}, R}(X0:SortExps{}, G0:SortExps{}),
+                \and{R}(\in{SortVals{}, R}(X1:SortVals{}, G1:SortVals{}), \top{R}())))),
+        \equals{SortMatchResult{}, R}(
+            getMatchingAux{}(X0:SortExps{}, X1:SortVals{}),
+            \and{SortMatchResult{}}(matchFailure{}(), \top{SortMatchResult{}}())))
+        [label{}("aux-owise"), owise{}()]
+
+    // getMatching([Es], [Vs]) => getMatchingAux(Es, Vs)   (fun-untyped.md:757)
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(),
+            \and{R}(\in{SortExp{}, R}(X0:SortExp{}, listExp{}(Es:SortExps{})),
+            \and{R}(\in{SortVal{}, R}(X1:SortVal{}, listVal{}(Vs:SortVals{})), \top{R}()))),
+        \equals{SortMatchResult{}, R}(
+            getMatching{}(X0:SortExp{}, X1:SortVal{}),
+            \and{SortMatchResult{}}(getMatchingAux{}(Es:SortExps{}, Vs:SortVals{}), \top{SortMatchResult{}}())))
+        [label{}("list")]
+    // getMatching(N:Name, V:Val) => matchResult(V)   (fun-untyped.md:762)
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(),
+            \and{R}(\in{SortExp{}, R}(X0:SortExp{}, inj{SortName{}, SortExp{}}(N:SortName{})),
+            \and{R}(\in{SortVal{}, R}(X1:SortVal{}, V:SortVal{}), \top{R}()))),
+        \equals{SortMatchResult{}, R}(
+            getMatching{}(X0:SortExp{}, X1:SortVal{}),
+            \and{SortMatchResult{}}(matchResult{}(V:SortVal{}), \top{SortMatchResult{}}())))
+        [label{}("name")]
+    // getMatching(_, _) => matchFailure [owise]   (fun-untyped.md:763)
+    axiom{R} \implies{R}(
+        \and{R}(
+            \not{R}(\or{R}(
+                \exists{R}(G2:SortExps{}, \exists{R}(G3:SortVals{},
+                    \and{R}(\top{R}(),
+                        \and{R}(\in{SortExp{}, R}(X0:SortExp{}, listExp{}(G2:SortExps{})),
+                        \and{R}(\in{SortVal{}, R}(X1:SortVal{}, listVal{}(G3:SortVals{})), \top{R}()))))),
+                \or{R}(
+                    \exists{R}(G4:SortName{}, \exists{R}(G5:SortVal{},
+                        \and{R}(\top{R}(),
+                            \and{R}(\in{SortExp{}, R}(X0:SortExp{}, inj{SortName{}, SortExp{}}(G4:SortName{})),
+                            \and{R}(\in{SortVal{}, R}(X1:SortVal{}, G5:SortVal{}), \top{R}()))))),
+                    \bottom{R}()))),
+            \and{R}(\top{R}(),
+                \and{R}(\in{SortExp{}, R}(X0:SortExp{}, G0:SortExp{}),
+                \and{R}(\in{SortVal{}, R}(X1:SortVal{}, G1:SortVal{}), \top{R}())))),
+        \equals{SortMatchResult{}, R}(
+            getMatching{}(X0:SortExp{}, X1:SortVal{}),
+            \and{SortMatchResult{}}(matchFailure{}(), \top{SortMatchResult{}}())))
+        [label{}("owise"), owise{}()]
+
+    // <k> matchResult(M) ~> closure(...) => bindMap(M) ... </k>   (fun-untyped.md:568)
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(state{}(matchResult{}(M:SortVal{})), \top{SortState{}}()),
+        bound{}(M:SortVal{}))
+        [label{}("bind")]
+    // (matchFailure => .K) ~> closure(_, (_->_ | Cs => Cs))   (fun-untyped.md:571)
+    axiom{} \rewrites{SortState{}}(
+        \and{SortState{}}(state{}(matchFailure{}()), \top{SortState{}}()),
+        failed{}())
+        [label{}("fail")]
+endmodule []

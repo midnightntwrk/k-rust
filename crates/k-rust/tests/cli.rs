@@ -3132,6 +3132,68 @@ fn krun_search_final_decides_result_predicates_for_ground_overloaded_lists() {
 }
 
 #[test]
+fn krun_owise_decides_distinct_ground_overloaded_list_shapes() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/overloaded-list-owise");
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            fixtures.join("test.k").to_str().unwrap(),
+            "--main-module",
+            "OVERLOADED-LIST-OWISE",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    for (expression, expected) in [("nil-cons", "2"), ("one-cons", "2"), ("cons-nil", "1")] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                "--definition",
+                compiled.to_str().unwrap(),
+                "--sort",
+                "Pgm",
+                "--expression",
+                expression,
+                "--depth",
+                "20",
+                "--strategy",
+                "all",
+                "--pattern",
+                "<k> V:Int </k>",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{expression}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            matches!(parse_pattern(&output).unwrap(), Pattern::Equals { .. }),
+            "{expression}: {output}"
+        );
+        assert!(
+            output.contains(&format!(r#"\dv{{SortInt{{}}}}("{expected}")"#)),
+            "{expression}: {output}"
+        );
+        assert!(!output.contains(r"\or{"), "{expression}: {output}");
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_search_bound_returns_a_subset_of_the_unbounded_solutions() {
     let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/branching-order.k");

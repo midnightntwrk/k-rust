@@ -2004,8 +2004,13 @@ impl Matcher<'_> {
                     && is_function(&subject)) =>
             {
                 if pattern_symbol.name != subject_symbol.name {
+                    // An equation pattern headed by an overloaded production cannot denote a
+                    // different production once the subject is normalized and concrete.
                     if self.mode == MatchMode::Rewrite
                         || (is_constructor(&pattern) && is_constructor(&subject))
+                        || (self.mode == MatchMode::Evaluate
+                            && is_overload_head(self.definition, pattern.kind())
+                            && subject.concrete_after_normalization())
                     {
                         return Err(FailReason::DifferentSymbols(pattern, subject));
                     }
@@ -2117,7 +2122,10 @@ impl Matcher<'_> {
                 if (self.mode == MatchMode::Rewrite
                     && is_rewrite_rigid(left)
                     && is_rewrite_rigid(right))
-                    || (is_rigid(left) && is_rigid(right)) =>
+                    || (is_rigid(left) && is_rigid(right))
+                    || (self.mode == MatchMode::Evaluate
+                        && is_rigid(left)
+                        && subject.concrete_after_normalization()) =>
             {
                 Err(FailReason::DifferentSymbols(pattern, subject))
             }

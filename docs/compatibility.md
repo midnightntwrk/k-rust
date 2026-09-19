@@ -64,6 +64,7 @@ This concrete-after-normalization classification is shared by rewrite instantiat
 Rewrite matching decomposes equal rigid heads and rejects a different rigid head, while matches against variables and ordinary function heads remain symbolic.
 Equation matching lowers a concrete overloaded application through `symbol-overload` relations when every argument can lower to the corresponding lesser sort.
 The most specific successful lowering supplies sort membership; a concrete application for which every compatible lowering fails refutes membership.
+After compatible lowering, equation matching treats different productions in an overload family as distinct rigid heads when the subject is concrete after normalization.
 An ambiguous lowering, a variable, or an ordinary function argument remains symbolic.
 Structural equality rejects distinct normalized concrete terms only when their rigid heads differ or an injective equal head contains structurally distinct arguments.
 This ground-program rule follows LLVM's executable semantics: K's Haskell frontend rejects these definitions, so Kore supplies no execution oracle for them.
