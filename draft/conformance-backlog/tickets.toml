@@ -1,0 +1,504 @@
+version = 1
+seeded = "2026-09-18"
+seeded_from = "target/conformance/ratchet.toml sequence 4 (label int, HEAD 9c1a64d); exclusions as rewritten on branch fix/conformance-backlog"
+
+[[ticket]]
+id = "CB-01"
+worker = "workers/CB-01.md"
+title = "Bison shared-library parser generation"
+state = "closed"
+closed = "2026-09-18, branch commit fa188be merged to main as 3468254, shared sequence 17 (label merged-conformance-backlog)"
+cases = ["bison-parser-library"]
+measured = "shared sequence 17 (label merged-conformance-backlog, main 88035ed): match/bison-parser; both sides install libparser_KItem_TEST.so, test.c links against each library, and test.in produces byte-identical stdout"
+work = "Done. kcompile supports --bison-parser-library through the system Bison/Flex/C toolchain, the driver builds and runs the fixture's C consumer against both libraries, focused CLI and driver regressions cover the contract, and the expectation floor is match/bison-parser. Details: workers/CB-01.md."
+resolution = "2026-09-18: port and driver interoperability work, not a Rust reimplementation of Bison. The tracked compatibility prose now distinguishes the external generator implementation from the supported artifact/byte contract."
+elsewhere = [
+  "draft/simplifier-consistency/followups.toml T12",
+  "draft/compiler-optimization/follow-ups/implementation/emission/bison-parser-artifact/current-head-handoff.toml BISON-LIBRARY-02 (named, unstarted)",
+]
+
+[[ticket]]
+id = "CB-02"
+worker = "workers/CB-02.md"
+title = "kast --gen-parser standalone parser generation"
+state = "closed"
+closed = "2026-09-18, branch commit fa188be merged to main as 3468254, shared sequence 17 (label merged-conformance-backlog)"
+cases = ["kast-bison", "kast-bison-bytes"]
+measured = "shared sequence 17 (label merged-conformance-backlog, main 88035ed): kast-bison and kast-bison-bytes both match/bison-parser; reference and krust standalone parsers produce byte-identical stdout"
+work = "Done. kast exposes --gen-parser and --gen-glr-parser over the existing generator core, the driver executes the generated parser recipes, focused tests cover ordinary String and Bytes tokens, and both expectation floors are match/bison-parser. Details: workers/CB-02.md."
+resolution = "2026-09-18: port and driver interoperability work, with Bison/Flex/C retained as external system tools. No host-UID run was needed."
+elsewhere = [
+  "draft/compiler-optimization/follow-ups/implementation/emission/bison-parser-artifact/current-head-handoff.toml KAST-BISON-02 (named, unstarted)",
+  "draft/fable51-review/D1/D1-13-kast-flag-contract.md (declined the flag on 2026-09-02; superseded by the Bison programme's plan)",
+]
+
+[[ticket]]
+id = "CB-03"
+worker = "workers/CB-03.md"
+title = "kprove Markdown spec loses its VERIFICATION module"
+state = "closed"
+closed = "2026-09-18, branch commit ae9ba3b merged to main as 0121400, shared sequence 17 plus the private 42-case proof cohort"
+cases = ["kprove-markdown"]
+measured = "shared sequence 17 (label merged-conformance-backlog, main 88035ed) records kprove-markdown match/kprove; the private 42-case proof cohort at ae9ba3b had 38 match, two pre-existing declined-capability unsupported, two pre-existing excluded mismatches, zero regressions, and markdownSelectors retaining its expected outer-parse error"
+work = "Done. The driver compiles one proof-ready definition with the kompile selector and passes the unchanged specification with only the kprove selector; prepared manifests retain authored module identities and revalidate available prepared sources without re-lowering them. Focused loader and CLI tests cover selector equality, selector mismatch, and deleted-source fallback. Details: workers/CB-03.md."
+resolution = "2026-09-18: driver and prepared-definition defects fixed. The real two-stage recipe now supplies the oracle the old generated wrapper could not, and the full proof cohort shows no regression."
+elsewhere = [
+  "draft/simplifier-consistency/followups.toml T12",
+  "draft/compiler-optimization/follow-ups/implementation/status.toml FE08 (claims complete at 2cdbc5f; stale)",
+]
+
+[[ticket]]
+id = "CB-04"
+worker = "workers/CB-04.md"
+title = "IO hooks for the imp++ tutorial programs"
+state = "closed"
+closed = "2026-09-18, commit 6e77386 on fix/cb-04-io-exclusion, sequence 14 (label cb-04-excluded)"
+cases = ["pl-tutorial/1_k/4_imp++/lesson_7"]
+measured = "sequence 11 (label cb-04, main af9481c) reproduces sequence 4: krust-error at krun for io.imp, locals.imp, sum-io.imp (`unsupported hook 'IO.write'` on `#write(1, S)`); kompile, the eight Bison parses and the collatz, div, primes, spawn and sum executions match; sequence 14 from the branch records the same run as excluded llvm-only, neither a regression nor below the skipped-with-reason floor"
+work = "Done as step-level llvm-only exclusions for the three programs. Reversal is a product decision (workers/CB-04.md Open questions, W3, weeks): a backend IO evaluator with effect variants and an effect-sequencing guarantee the simplifier lacks, a --output none mode for krust krun, a byte-comparison driver change, the inventory move, and a Backend-scope amendment letting an LLVM output define these hooks."
+resolution = "2026-09-18: outside the contract. The STDOUT-STREAM stdoutWrite rule applies #write(1, S) under $IO on; IO.write, IO.getc, IO.read and IO.putc have no evaluator in either pinned Kore engine (the Haskell backend registers only IO.logString), and docs/compatibility.md Backend scope says an LLVM expected output cannot define such a hook and that krust must report the unsupported-hook error it reports. Same reading as the io-llvm and bytes-memset entries. Step-level rather than case-level so that the compile, parse and other program steps stay compared; while the io.imp row stands, a later-step regression in the same case is masked (a property of the ratchet's first-failing-step matcher). Details: workers/CB-04.md."
+elsewhere = [
+  "draft/simplifier-consistency/followups.toml T12",
+  "draft/fable51-review/design/DECISIONS-NEEDED.toml:456 (deferred completeness item)",
+]
+
+[[ticket]]
+id = "CB-05"
+worker = "workers/CB-05.md"
+title = "A reference crash inside a C8 re-run is reported as a text mismatch"
+state = "closed"
+closed = "2026-09-18, no commit (ledger only), sequence 7 (label cb-05)"
+cases = ["rat/undefined/haskell"]
+measured = "sequence 7 (label cb-05, main af9481c): match at krun on all seven programs (22.5 s); sequence 4's mismatch on 6-3.a was a transient of the --jobs 2 run (the isolated re-run succeeds 10/10 at both 12 GiB and 24 GiB RLIMIT_AS; mechanism unverified)"
+work = "The case needs no work. The driver weakness moved to driver_followup DF-03 below (and draft/simplifier-consistency/followups.toml T13): a failed C8 reference re-run returns the same False as every not-compared outcome, so do_krun records mismatch, and confirm_oracle either leaves it or relabels it with a hard-coded stale-oracle reason that also covers a crashed reference. Details: workers/CB-05.md."
+resolution = "2026-09-18: the case matches on the fresh measurement and --audit lists the ticket as closable; closed as a case ticket. The driver work it described is not done and is tracked as DF-03 so that the ledger keeps indexing pending cases only."
+elsewhere = ["draft/simplifier-consistency/followups.toml T13"]
+
+[[ticket]]
+id = "CB-06"
+worker = "workers/CB-06.md"
+title = "Float NaN literal spelling"
+state = "closed"
+closed = "2026-09-18, commit a0ec49a on fix/cb-06-float-llvm-spelling, sequence 16 (label cb-06-excluded)"
+cases = ["float-id"]
+measured = "sequence 6 (label cb-06, main af9481c) reproduces sequence 4: 1.test to 4.test match; 5.test (program token NaNp24x8) has krust print NaNp24x8 (5.test.krust.pretty) against the checked-in NaNf, and the verdict is reference-error because the confirm_oracle re-run of the LLVM interpreter aborts under the RLIMIT_AS fallback (it mmaps 2 TiB at start-up); sequence 16 from the branch records the same run as excluded llvm-only"
+work = "Done as a case-level llvm-only exclusion. Host-UID confirmation still wanted: a host run should show the excluded mismatch rather than reference-error. Alternatives rejected for now (workers/CB-06.md Decision): a print-side fix would move krust's KORE away from the kore-exec oracle for every echoed Float token and needs a second finite-value formatter; parse-side canonicalisation would break 1.test to 4.test; a comparator normalisation would assert a value equivalence the Haskell oracle and the port's matcher do not have. BE14's value-versus-text Float identity remains a separate semantics decision for the owner."
+resolution = "2026-09-18: outside the contract. The reference frontend (kast --output kore), the pinned Haskell engine (kore-exec) and krust all keep the token NaNp24x8 as written, and the frontend's own printer FloatBuiltin.value spells every Float pNxM; only the LLVM runtime's float_to_string re-spells a binary32 value with the f suffix. The port agrees with the contract's oracle, so the .out difference is LLVM-specific printing under docs/compatibility.md Backend scope. The ticket's premise that K has a single canonical spelling was wrong."
+elsewhere = [
+  "draft/compiler-optimization/follow-ups/backend/BE14-float-id.md",
+  "draft/review-followup-cases.toml nan-spelling (open)",
+  "draft/simplifier-consistency/followups.toml T12 item 3 (the sandbox re-run abort)",
+]
+
+[[ticket]]
+id = "CB-07"
+worker = "workers/CB-07.md"
+title = "The driver passes --search-all twice"
+state = "closed"
+closed = "2026-09-18, commits c153212 and cde0c35 on fix/cb-07-search-flag, sequences 13 (label cb-07-fixed) and 15 (label cb-07-floor)"
+cases = ["quadratic-poly-unparsing"]
+measured = "sequence 5 (label cb-07, main af9481c) reproduces sequence 4: krust-error at search, `the argument '--search-all' cannot be used multiple times`; sequence 13 from the branch: match at search (kompile and search steps both match, C7 renaming), rank 3; sequence 15 after the floor raise: same"
+work = "Done. The ktest KSEARCH recipe is `$(KRUN) --search-all` (ktest-common.mak:23), so the driver's .search default duplicated the recipe's own flag; do_krun now resolves one search mode per recipe (the recipe's mode wins, a repeated mode collapses, two different modes are krust-unsupported, the default applies only when the recipe selected none), with the probe conformance_driver_gives_a_search_recipe_exactly_one_search_flag, and the expectation is raised to match/search with an accepted_basis. Details: workers/CB-07.md."
+resolution = "2026-09-18: driver defect, fixed inline because the fix is a few lines and a probe. Nothing about search semantics had been measured before."
+elsewhere = []
+
+[[ticket]]
+id = "CB-08"
+worker = "workers/CB-08.md"
+title = "Language-tutorial programs exceed the 300 s krun budget"
+state = "closed"
+closed = "2026-09-18, backend tranche 7153d36 merged to main as 88035ed; shared sequence 18 (label cb-08-main) shows the titled budget failure gone for six of the seven cases, and the residue is split into CB-09 to CB-14"
+cases = [
+  "pl-tutorial/2_languages/1_simple/1_untyped",
+  "pl-tutorial/2_languages/1_simple/2_typed/1_static",
+  "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic",
+  "pl-tutorial/2_languages/2_kool/1_untyped",
+  "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic",
+  "pl-tutorial/2_languages/2_kool/2_typed/2_static",
+  "pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
+]
+measured = "shared sequence 18 (label cb-08-main, main 88035ed, 833 s for the seven cases at --jobs 2): six cases complete every driven step inside the 300 s budget (SIMPLE untyped 106.4 s/32 steps, SIMPLE typed-static 82.5 s/36, SIMPLE typed-dynamic 92.8 s/27, KOOL untyped 245.3 s/29, KOOL typed-dynamic 286.6 s/30, KOOL typed-static 115.5 s/31) with no OOM and no branch explosion; FUN untyped still kills ackermann.fun at 289.5 s and skips 49 programs. Remaining step outcomes: 98 IO.write halts (CB-09), 14 thread-program typed-indeterminacy halts (CB-10), three search results with residual isKResult constraints (CB-11), 65 typed-static \\bottom results (CB-13, 29 of them hidden as completion-only matches), one 108 s execution and a 2.2 to 4.5 s recompile per program (CB-12), and the FUN kill (CB-14)."
+work = "Done for the titled failure: the backend groundness tranche (anywhere attributes preserved, normalized non-function anywhere heads rigid in rewrite matching, no existential narrowing from variable-free anywhere/overload fragments) removed the timeout and OOM on six cases. Each remaining residue has its own ticket below; compiled-definition reuse is CB-12-1/2, throughput CB-12-3/4, the remaining rigid-head gaps CB-10 and CB-11, the simplifier unsoundness CB-13, and the FUN kill CB-14. Details: workers/CB-08.md."
+resolution = "2026-09-18: port fix, neither an exclusion nor a normalisation. After five or six cheap steps the configuration becomes an \\or of symbolic branches with existential variables and grows super-exponentially. Cause: the K frontend emits anywhere-ruled productions (_[_], var _;) and overloaded list constructors (_,_) without constructor{}() (ModuleToKORE.java:1728-1754); the port loads them as total functions (definition.rs:1533-1546), so the heating rule HOLE[K11] against main(.Exps) is deferred as indeterminate (matching.rs:1934) instead of failing, freshen_unbound_rule_variables (rewrite.rs:2172-2222) narrows because the overloaded _,_ makes the whole ground configuration non-constructor-like (term.rs:318-320), and Z3 keeps the \\not\\exists remainder branch. RUNTIME-01 (symbolic collatz.imp solver work) is not the mechanism; the review-followup entries static-configuration and catch-grammar are stale (both cases compile with matching KORE). No Kore oracle exists for these definitions (the pinned frontend refuses them for the Haskell backend: anywhere is not supported), and the LLVM interpreter cannot start under the sandbox RLIMIT_AS guard, so the reference throughput is not re-measurable here; no host-UID run is needed for the fix itself. The kool-typed-static (rc -6 at 179 s) and FUN ackermann variants were attributed by definition inspection only."
+elsewhere = [
+  "draft/compiler-optimization/follow-ups/implementation/runtime/status.toml RUNTIME-01 (open)",
+  "draft/compiler-optimization/follow-ups/frontend FE04-FE07 (complete; the parse defects the old reasons described)",
+  "draft/review-followup-cases.toml static-configuration and catch-grammar followups (open)",
+]
+
+[[ticket]]
+id = "CB-09"
+worker = "workers/CB-09.md"
+title = "IO.write halts every printing program of the language tutorials"
+state = "closed"
+closed = "2026-09-19, CB-09-W1/W2 merged at 8f34df5 and shared sequences 21 and 23 confirm that no driven execution halts at IO.write"
+cases = [
+  "pl-tutorial/2_languages/1_simple/1_untyped",
+  "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic",
+  "pl-tutorial/2_languages/2_kool/1_untyped",
+  "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic",
+]
+measured = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, four cases under a 3600 s discovery budget, --jobs 4, 3600 s wall, peak RSS 4026 MiB): both KOOL cases match on every step (29 and 30) and SIMPLE typed-dynamic matches 22 of 27; the ticket's remaining non-matching steps are the SIMPLE thread programs (CB-10) and matrix.simple in SIMPLE untyped (CB-19). Sequence 21 measurement: shared sequence 21 (label post-tranche-main, main e4769a1, 1291 s, 7 cases): no step of the four cases halts at IO.write. 51 executions now match through the C9 stdout-buffer comparison (18 SIMPLE untyped, 3 SIMPLE typed-dynamic, 14 KOOL untyped, 16 KOOL typed-dynamic); the counts differ per case only because matrix.simple and matrix.kool (CB-19) exhaust the case budgets and leave 21, 13 and 12 steps unmeasured. Superseded measurement: shared sequence 18 measured 98 of 104 plain executions halting at unsupported IO.write."
+work = "Done. CB-09-W1/W2 and DF-04 merged at 8f34df5 (implementation 0ef1de3); CB-09-W3 re-measured in sequence 21, which shows the IO.write halt class gone and 51 C9 matches. Sequence 23 confirms both KOOL cases match every driven step. The remaining non-matches in overlapping cases are owned by CB-10, CB-12/CB-16, CB-15, and CB-19; they are not residue of IO.write."
+resolution = "2026-09-18 owner decision: retain comparison C9 as immediate and independent evidence of definition-computed bytes, and make committed-trace console IO a product feature under CB-15. C9 runs with IO off and requires one unconstrained terminal stdout buffer; CB-15 must add branch-local IO state and deliver effects only from a committed ordinary execution, without making the C9 comparison depend on the new effect implementation."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-04.md (Open questions, W3)",
+  "draft/fable51-review/design/DECISIONS-NEEDED.toml:452-462 (Decision 12-2, console IO deferred)",
+  "draft/simplifier-consistency/followups.toml T12",
+]
+
+[[ticket]]
+id = "CB-10"
+worker = "workers/CB-10.md"
+title = "SIMPLE thread programs halt on typed indeterminacy of an anywhere-headed heating rule"
+state = "closed"
+closed = "2026-09-19, implementation 2f02ecb on fix/cb-10-collection-ac; private sequence 1 plus focused runs past every former halt depth. The cases remain pending under CB-12 and CB-19."
+cases = [
+  "pl-tutorial/2_languages/1_simple/1_untyped",
+  "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic",
+]
+measured = "Private sequence 1 (label cb-10-collection-ac, implementation 2f02ecb, --jobs 2, 1200.2 s, peak RSS 886 MiB): SIMPLE untyped threads_01/02/04 match and none of the two cases reports Instantiation; the remaining thread recipes hit or follow case-budget exhaustion. Focused runs of every skipped or killed thread recipe cross its former halt depth: untyped 05/06/09 bounded search, 07/10/11 full execution, 12 at depth 100; typed-dynamic 05 at depth 50, 07/10/11 full execution, 12 at depth 100. The untyped case has 24 matches, matrix.simple returning bottom, threads_05 killed on the remaining 207.1 s, and six skips; typed-dynamic has 22 matches, threads_05 killed on the remaining 493.5 s, and four skips."
+work = "Done for CB-10 in 2f02ecb. Rewrite matching now reinjects and decides normalized rewrite-rigid heads in both widening-injection orientations; collection AC candidates retry Rewrite matching before symbolic unification, while Evaluate/Implies and declared function heads remain symbolic and unification.rs is unchanged. Focused matching tests, a MAP cell regression with one-entry/two-entry/positive cases and measure counters, and the source-driven star-cell CLI fixture cover the contract. Private sequence 1 and focused runs show that no affected thread recipe retains the typed-instantiation halt. The cases do not yet match: matrix.simple remains CB-19 and the newly reachable thread searches/executions exhaust the existing CB-12 throughput ceilings. The Set analogue stays out of scope under D-07."
+resolution = "2026-09-19: port fix, the remaining half of the CB-08 rigid-head rule. K's manual keeps an anywhere-ruled symbol a constructor for matching, docs/compatibility.md Anywhere rules requires rigid rewrite matching after normalization, and Concrete rewrite instantiation reserves typed indeterminacy for substitutions a match may genuinely supply. The implementation decides the impossible head clash before that boundary and preserves symbolic behavior in Evaluate/Implies and for declared functions. No exclusion or comparator normalization applies."
+elsewhere = ["draft/conformance-backlog/workers/CB-08.md (CB-08-1, CB-08-2)"]
+
+[[ticket]]
+id = "CB-11"
+worker = "workers/CB-11.md"
+title = "Ground overloaded lists leave isKResult undecided: residual search disjuncts and stuck remainder leaves"
+state = "open"
+case_role = "evidence"
+cases = [
+  "pl-tutorial/2_languages/1_simple/1_untyped",
+  "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic",
+  "pl-tutorial/2_languages/2_kool/1_untyped",
+  "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic",
+]
+measured = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, four cases under a 3600 s discovery budget, --jobs 4, 3600 s wall, peak RSS 4026 MiB): both KOOL cases match on every step, including their search recipes; the SIMPLE cases match every search recipe too, and their remaining failures are CB-10 and CB-19. Sequence 21 measurement: shared sequence 21 (label post-tranche-main, main e4769a1, 1291 s, 7 cases): the mechanism is confirmed fixed by the driver, not only by backend fixtures: SIMPLE untyped's div-nondet.simple and exceptions_07.simple now match through the search disjunct multiset comparison (C7 renaming), and SIMPLE typed-dynamic's div-nondet.simple matches the same way. No residual isKResult constraint and no stuck remainder leaf appears in any matching execution. Superseded measurement: shared sequence 18, where the same recipes printed extra stuck disjuncts under #Not({true #Equals isKResult(...)})."
+work = "CB-11-1 merged in the shared normalized-ground tranche at 5e1c373 (implementation 82c440d): Evaluate-mode matching lowers concrete normalized overloads through the transitive symbol-overload graph, refutes membership only when all compatible lowerings fail, and preserves symbolic and ordinary-function cases. The fixture pins isKResult and heating behavior with zero remainder recovery or SMT; SIMPLE div-nondet.simple now has exactly three results with no residual isKResult, and sequences 21 and 23 completed the conformance re-measurement. The four cases are historical evidence rather than pending-case ownership. CB-11 remains open only for CB-11-2's end-to-end CLI search regression and closes when that test lands. The crashed-oracle annotation moved to DF-08."
+resolution = "2026-09-18 owner decision: port fix. On a ground program every requires is decided by function evaluation and a search result binds the pattern's variables; a residual isKResult constraint is a semantic gap and the extra disjunct is a wrong answer no normalisation may hide. One concrete-after-normalisation notion must govern rewrite matching, equation matching, sort membership, and predicate truth; docs/compatibility.md must state that common boundary. Host sequence 20 confirmed the checked-in pattern oracles after DF-05."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-08.md (CB-08-5, superseded)",
+  "draft/conformance-backlog/workers/CB-12.md (finding 5)",
+]
+
+[[ticket]]
+id = "CB-12"
+worker = "workers/CB-12.md"
+title = "Tutorial per-case budget: definition recompilation per program and the factorial.kool simplifier cost"
+state = "open"
+cases = [
+  "pl-tutorial/2_languages/1_simple/1_untyped",
+  "pl-tutorial/2_languages/1_simple/2_typed/1_static",
+  "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic",
+  "pl-tutorial/2_languages/2_kool/1_untyped",
+  "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic",
+  "pl-tutorial/2_languages/2_kool/2_typed/2_static",
+  "pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
+]
+measured = "Private CB-10 sequence 1 (label cb-10-collection-ac, implementation 2f02ecb, --jobs 2) exposes a new thread-program cost after the instantiation halt is removed: untyped threads_04 matches in 107.9 s, threads_05 consumes the 207.1 s remaining in the 600 s case budget, and unbounded threads_12 exceeds a focused 300 s limit; typed-dynamic threads_05 consumes the 493.5 s remaining in its 1200 s case budget. Bounded runs cross every former halt depth, but no profile yet establishes that these costs share CB-12-3/4's repeated-simplification mechanism. Earlier evidence: shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, four cases under a 3600 s discovery budget, --jobs 4, 3600 s wall, peak RSS 4026 MiB): the outlier programs terminate, so the whole cost is throughput. SIMPLE typed-dynamic completes 27 steps in 815.1 s (matrix.simple 470.5 s, sortings.simple 200.0 s), KOOL untyped 29 steps in 1244.9 s (matrix.kool 721.9 s, sorting.kool 280.1 s, factorial.kool 94.3 s), KOOL typed-dynamic 30 steps in 1361.2 s (matrix.kool 764.0 s, sorting.kool 299.6 s, factorial.kool 108.1 s); the same programs at --jobs 2 in sequence 22 ran about 12 percent faster (matrix.simple 418.3 s). FUN untyped is the exception: ackermann.fun is killed at 3587.7 s with about 4 GiB RSS, which is CB-14, not throughput. Sequence 23 originally restored FUN's 300 s case budget because DF-06 did not yet exist; DF-06 now gives FUN budget 2700 s and step_budget 60. The current execution budgets are 600/1200/1800/1800 s for SIMPLE untyped, SIMPLE typed-dynamic, KOOL untyped, and KOOL typed-dynamic, based on measured cost. Sequence 21 measurement: shared sequence 21 (label post-tranche-main, main e4769a1, 1291 s, 7 cases): the fixed cost is unchanged (2.2 to 2.5 s per SIMPLE typed-static program and 3.5 to 3.8 s per KOOL typed-static program, almost all of it recompilation, 90.4 s and 131.1 s for those two cases). Budget exhaustion has moved from many slow programs to one outlier per case: matrix.simple and matrix.kool (CB-19) and ackermann.fun (CB-14) consume 233.6 s, 424.9 s, 378.7 s and 289.6 s respectively and leave 21, 13, 12 and 49 steps unmeasured. factorial.kool, the sequence-18 outlier at 112.8 s, now matches within the budget."
+work = "Two port gaps plus one unclassified throughput residue, no exclusion (workers/CB-12.md). Before applying CB-12-3/4 to the newly reachable SIMPLE thread costs, measure counters and state growth on threads_04/05/12 and split them if repeated simplification is not their cause; CB-10 establishes only that the prior instantiation halt is gone. Runnable artifact and driver reuse moved to CB-16, which must measure and select the internal representation before implementation rather than assume unconditional KAST JSON or a catch-all krust.json. The established throughput work remains CB-12-3/4: measure simplifier entries per call site, then stop re-simplifying unchanged frames and store entries and reduce whole-configuration simplification. CB-12-5 re-measures after CB-16 and throughput work. The temporary correctness ceilings are SIMPLE untyped 600 s, SIMPLE typed-dynamic 1200 s, and KOOL untyped/typed-dynamic 1800 s; FUN is 2700 s with a 60 s step budget. They remain removable after compiled-definition reuse and throughput measurements."
+resolution = "2026-09-19 owner decision: port gaps on both counts. Every ordinary kcompile output must be runnable without --for-running, but layout and representation remain open under CB-16: internal JSON versus an existing binary serializer, executable payload versus small consumer-native metadata, and compatibility policy are independent decisions. The CLI/library is the compatibility boundary and the internal directory need not freeze its file layout. Temporary budgets are evidence-driven ceilings, not accepted floors: 600 s for SIMPLE untyped, 1200 s for SIMPLE typed-dynamic, 1800 s for each KOOL executing case, and FUN 2700 s with step_budget 60; remove or reduce them after CB-16 and CB-12 measurements."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-08.md (CB-08-3, CB-08-4)",
+  "draft/conformance-backlog/workers/CB-16.md",
+  "draft/compiler-optimization/follow-ups/implementation/runtime/status.toml RUNTIME-01 (open; symbolic workloads, a different mechanism)",
+]
+
+[[ticket]]
+id = "CB-13"
+worker = "workers/CB-13.md"
+title = "Typed-static type checkers collapse to \\bottom at the first rule that inserts a second <task> cell"
+state = "closed"
+closed = "2026-09-18, commits 951ecb0 (merged 22d113e) and 82c440d (merged 5e1c373), shared sequence 21 (label post-tranche-main)"
+cases = [
+  "pl-tutorial/2_languages/1_simple/2_typed/1_static",
+  "pl-tutorial/2_languages/2_kool/2_typed/2_static",
+]
+measured = "shared sequence 21 (label post-tranche-main, main e4769a1, 1291 s, 7 cases): the titled failure is gone. No step of either typed-static case prints \\bottom: SIMPLE typed-static runs its whole corpus in 90.4 s and KOOL typed-static in 131.1 s, and every program step now halts on an instantiation failure instead (CB-17). DF-04 also stops accepting the KOOL completion-only results as matches. Superseded measurement: shared sequence 18, where all 35 SIMPLE and all 30 KOOL typed-static steps printed \\bottom, 29 of them recorded as false matches."
+work = "Done. CB-13-W1 merged at 22d113e (951ecb0): constructor-head exclusion now requires a one-to-one immediate-variable family covering the existential binders. CB-13-W2 merged at 5e1c373 (82c440d), one work item with CB-11-1 and CB-14-3: normalized structural inequality rejects distinct rigid heads or distinct children below equal injective heads after anywhere normalization. CB-13-W3 re-measured as sequence 21 and confirms no \\bottom remains. The cases stay pending under CB-17, whose relation to CB-10's collection-AC path is an investigation hypothesis, and under CB-12/CB-16."
+resolution = "2026-09-18: port fix, a simplifier unsoundness. SET.concat of distinct elements is defined in K (the Haskell backend guards only overlapping concrete elements, AssociativeCommutative.hs:350-392; LLVM computes the union), and excluding one concrete <task> value excludes no head; \\bottom from a ground type check is a port gap, not an exclusion or a normalisation. krust's #Top/#Bottom printing for --pattern matches K (krun:594-625)."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-11.md (CB-11-4, cycle.kool handed over)",
+  "draft/review-followup-cases.toml static-configuration (stale: the kompile defect it describes is fixed)",
+]
+
+[[ticket]]
+id = "CB-14"
+worker = "workers/CB-14.md"
+title = "FUN untyped expands program macros in the wrong module scope"
+state = "open"
+cases = ["pl-tutorial/2_languages/3_fun/1_untyped/1_environment"]
+measured = "Shared sequence 25 (label fun-step-budget-20, branch chore/simple-budget-ceilings, 1200 s budget with a 20 s step budget from DF-06, 751.5 s) and its 1800 s sweep (target/conformance/runs/25-fun-step-budget-20/sweep-1800/) measure all 51 steps. The 35 killed programs are non-termination at any tutorial-scale budget, not slowness. The macro-scope defect is directly applicable to programs that use a FUN-UNTYPED-MACROS macro (`datatype`, `ref`, `try`, `head`, `tail`, or `null?`). It is not established for every killed program: list-length, list-max, nth, and factorial-and-list-max use none of those constructs; multi-clause functions and `[h | t]` patterns are core syntax; and FUN's `[anywhere]` desugarings are not macros. Those macro-free kills are CB-20, so CB-14 must not claim they will be repaired by macro expansion. CB-14-3 merged in the shared normalized-ground tranche removed the isKResult branching (factorial.fun now yields one result). Earlier: shared sequence 21 records ackermann.fun killed at 289.6 s and 49 steps skipped."
+work = "CLI port gap plus a defensive backend boundary (workers/CB-14.md). `krust krun` parses the program in the syntax module's production catalog, then must use the existing kast-domain Expander with the macro sentences visible from the selected main module; FUN's datatype/head/tail/null?/try macro rules live in FUN-UNTYPED-MACROS, imported only by the main module. CB-14-1 (days): make that scope correction for programs and configuration variables, with a SYNTAX/MACROS/MAIN CLI regression. CB-14-2 (days): reject any surviving macro- or alias-headed input before rewrite step 1, and retain a typed backend guard so direct backend callers can never narrow through such a head. CB-14-3 is merged at 5e1c373: ground overloaded sort membership is decided through the symbol-overload graph. CB-14-4 (hours): re-measure only the macro-using cohort; macro-free kills are investigated by CB-20."
+resolution = "2026-09-18: port fix; the CB-08 tranche is incomplete on two counts and the case was attributed by definition inspection only in the first pass. No host-UID run is needed (LLVM ktest case against checked-in .out files; no FUN program prints)."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-11.md (CB-11-1, the same sort-membership gap)",
+  "draft/conformance-backlog/workers/CB-08.md (CB-08-4)",
+]
+
+[[ticket]]
+id = "CB-20"
+title = "FUN macro-free core programs still diverge with unbounded state growth"
+state = "open"
+investigation = "needed"
+worker = ""
+cases = ["pl-tutorial/2_languages/3_fun/1_untyped/1_environment"]
+measured = "Sequence 25's 1800 s sweep establishes that list-length, list-max, nth, and factorial-and-list-max run for the entire 1800 s with empty stdout and peak RSS of about 16 GiB, 21 GiB, 8.8 GiB, and 8.8 GiB respectively. They do not use datatype, ref, try, head, tail, or null?, so CB-14's macro-scope defect does not explain them. Multi-clause functions and `[h | t]` patterns are core syntax; `[anywhere]` desugarings in FUN-UNTYPED-MACROS are not macros. The ticket deliberately makes no claim yet about a shared cause across the four programs."
+work = "Not investigated. A worker following worker-brief-round3.md must reproduce each program at bounded depth, compare its first divergent state with a matching core-only program, and identify whether the common cause is rule matching, pattern compilation, list representation, or another execution boundary. It must also run one macro-using and one macro-free program after CB-14-1 to establish the split before proposing a combined fix. Add an owning backend or CLI regression only after the shared mechanism is reduced."
+resolution = ""
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-14.md (sequence-25 attribution corrected 2026-09-19)",
+]
+
+[[ticket]]
+id = "CB-15"
+worker = "workers/CB-15.md"
+title = "Committed-trace console IO"
+state = "open"
+case_role = "evidence"
+cases = [
+  "pl-tutorial/2_languages/1_simple/1_untyped",
+  "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic",
+  "pl-tutorial/2_languages/2_kool/1_untyped",
+  "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic",
+]
+measured = "shared sequence 21 (label post-tranche-main, main e4769a1, 1291 s, 7 cases): 51 executions of the four cases now produce their console bytes and match through C9 under --io off, with no step reaching IO.write. That confirms the definitions compute the output and that the remaining gap is delivery: krust still has no committed-trace console IO, no branch-local input cursor, and no live effect path. C9 stays the conformance comparator and must not come to depend on the new hook implementation."
+work = "Product feature rather than a conformance blocker, detailed in workers/CB-15.md. First pin a branch-local effect journal and commit boundary; add an explicit captured batch console mode without changing the default non-interactive output mode; add branch-local stdin cursor and descriptor transcripts; implement IO.write, IO.putc, IO.getc, and IO.read only for console descriptors; then deliver live effects only from committed ordinary execution. The first tranche uses pre-buffered stdin. Search with --io on is rejected and RPC keeps IO unsupported until a later structured transcript protocol is specified. C9 remains independent evidence. Six work items, days each rather than the earlier unexamined weeks estimate."
+resolution = "2026-09-19 owner decision, refining the 2026-09-18 product decision: console IO belongs in krust but does not gate any current conformance case because C9 already compares definition-computed bytes under --io off. Pure simplification must never touch host descriptors; branch-local state records input consumption and ordered output, and only a committed ordinary execution may deliver it. Captured batch output is an explicit first tranche with pre-buffered stdin; it does not silently become the default. Live interactive delivery follows the effect-ownership audit. Search rejects live IO and RPC keeps it unsupported until a separate structured transcript protocol is designed. C9 remains the conformance comparator so the oracle does not share the new hook implementation."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-09.md",
+  "draft/conformance-backlog/workers/CB-15.md",
+  "draft/fable51-review/design/DECISIONS-NEEDED.toml:452-462",
+]
+
+[[ticket]]
+id = "CB-16"
+worker = "workers/CB-16.md"
+title = "Unconditional runnable compiled artifacts"
+state = "open"
+cases = [
+  "pl-tutorial/2_languages/1_simple/1_untyped",
+  "pl-tutorial/2_languages/1_simple/2_typed/1_static",
+  "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic",
+  "pl-tutorial/2_languages/2_kool/1_untyped",
+  "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic",
+  "pl-tutorial/2_languages/2_kool/2_typed/2_static",
+  "pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
+]
+measured = "shared sequence 21 (label post-tranche-main, main e4769a1, 1291 s, 7 cases): every krun still recompiles the definition: 2.2 to 2.5 s per program in SIMPLE typed-static (90.4 s for 36 steps) and 3.5 to 3.8 s per program in KOOL typed-static (131.1 s for 31 steps), where execution stops within a few steps and the elapsed time is therefore almost entirely compilation. Four of the seven cases end with 21, 13, 12 and 49 steps unmeasured after a single outlier program exhausts the case budget, so reuse is what makes the rest of those corpora measurable at all."
+work = "Artifact and reuse programme, detailed in workers/CB-16.md. Inventory runtime data by owner and consumer; benchmark/select an existing serialization implementation rather than assume JSON or invent a codec; define a self-describing versioned but internally unstable directory contract; write the runnable payload unconditionally; add krun --definition without source parsing or transforms; make the driver reuse it; re-measure and remove temporary budgets."
+resolution = "2026-09-18 owner decision: every ordinary kcompile output is runnable without --for-running. Representation and layout are deliberately undecided until measured: KAST JSON remains the external format unless selected on internal merits; executable properties belong in the payload; small metadata follows consumer needs rather than accumulating in krust.json; compatibility is promised through the CLI/library, not a frozen directory layout."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-12.md",
+  "draft/conformance-backlog/workers/CB-16.md",
+]
+
+[[ticket]]
+id = "CB-17"
+title = "Both typed-static type checkers halt on an uncovered instantiation of a ground declaration rule"
+state = "closed"
+closed = "2026-09-19, CB-10 had already removed the titled halt; CB-17-A through E remove the three residual backend defects, add Set coverage, and a private closure run matches all 67 driven steps"
+worker = "workers/CB-17.md"
+cases = [
+  "pl-tutorial/2_languages/1_simple/2_typed/1_static",
+  "pl-tutorial/2_languages/2_kool/2_typed/2_static",
+]
+measured = "Private CB-17 closure run v3 (target/conformance/cb-17-implementation-v3, 1500 s discovery ceilings, --jobs 2, 1437.3 s wall, 996 MiB peak RSS): SIMPLE typed-static matches all 36 steps in 915.7 s and KOOL typed-static matches all 31 steps in 1437.2 s. SIMPLE: collatz 7.8 s, higher-order 104.7 s, matrix 198.7 s, sortings 490.4 s. KOOL: cast-1 13.5 s, cast-2 9.6 s, collatz 12.0 s, matrix 361.4 s, sorting 686.9 s. No Instantiation, Indeterminate, residual Set inequality, or budget kill remains. The single-path throughput residue belongs to CB-12. Superseded: shared sequence 26 measured the pre-fix branching, residual constraint, and nested-collection halt under a 300 s ceiling."
+work = "Done 2026-09-19 (workers/CB-17.md). CB-17-A preserves rule-application candidate groups so any mode selects one deterministic collection candidate while retaining RHS alternatives, and all mode remains exhaustive. CB-17-B decides normalized-ground Set-element and Map-key inequalities without widening constructor_like. CB-17-C solves deferred collection pairs to a fixed point and recursively routes nested collection residuals through the collection solver. CB-17-D adds dedicated Set-multiplicity backend/measure coverage plus source-level Set-cell and nested-Set CLI fixtures. CB-17-E remeasures both cases and raises their expectations to match/krun with temporary measured budgets of 1200 s and 1800 s."
+resolution = "Port fixes only; no exclusion. D-07 is the shared CB-10 collection-AC mechanism and now has Map and Set regression coverage. The residual M1, M2, and M3 defects are fixed, both accepted floors rise to match/krun, and only the measured single-path cost remains under CB-12."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-10.md (the shared collection-AC mechanism and original Map coverage; CB-17-D adds Set coverage)",
+  "draft/conformance-backlog/workers/CB-13.md (exposed the instantiation failure; not this file's mechanism)",
+  "draft/conformance-backlog/workers/CB-12.md (receives only the single-path residual cost measured after CB-17-B)",
+]
+
+[[ticket]]
+id = "CB-18"
+title = "krust krun --pattern on kool-untyped blocks only while standard input stays open: --io off reads stdin to end of file as krun does, and the pattern path matches the reference (not a defect)"
+state = "closed"
+investigation = "done"
+worker = "workers/CB-18.md"
+cases = ["pl-tutorial/2_languages/2_kool/1_untyped"]
+measured = "Investigated 2026-09-19 on main 90ca9d6 (workers/CB-18.md, evidence workers/CB-18-evidence/runs.toml). The recorded command blocks only when standard input is a pipe nobody closes: with `sleep 100 | krust krun … --io off --depth 0 --pattern '<k> .K </k>'` the process is killed at 60 s with no stdout, and so is the identical command without --pattern; from /dev/null the --pattern run returns in 4.0 s at --depth 0, 4.1 s at 5 and 400, 3.9 s unbounded, printing \\bottom, and exits normally under gdb. The pinned krun blocks on the same pipe (krun:553-558 reads /dev/stdin to end of file into $STDIN) and returns from /dev/null in 1.9 s. krust reads standard input at main.rs:2249-2262 (read_stdin_for_stream :4249-4256), after compiling the surface pattern and independently of --pattern. Twelve pattern probes against the reference (LLVM backend kompiled --enable-search, krun --output kore, host UID) agree: <k> .K </k> is \\bottom at depths 0, 5, 400 and unbounded on both engines because kool-untyped.md:528 removes the finished thread and the final <threads> is .ThreadCellSet; <k> KK:K </k> binds the program at depth 0 and is \\bottom at 400 on both; <nextLoc> N:Int </nextLoc> and <output> L:List </output> bind the same values; <threads> .ThreadCellSet </threads> is a parse error on both; CB-09's <output> … #buffer(S:String) … </output> binds S = \"\" at depth 0 and \"Hello world!\\n\" at 400 on both. The Set-typed star-cell fixture STAR-CELL-HEATING-SET agrees the same way on one.cb10 and two.cb10. Only the KORE projection differs: the reference prints the _DotVar rest-variable bindings that krust projects (14/9/9 against 12/8/8 conjuncts), and its text output prints only the named variables. Sequence 23 still measures the case as match on all 29 driven steps; no driven recipe of the case passes --pattern."
+work = "Done 2026-09-19 (workers/CB-18.md). CB-18-A at 119c32e adds the closed-stdin surface-pattern and Set-typed star-cell projection CLI regressions. CB-18-B at f2b2f20 documents the end-of-file read in the --io help and testing guide and prints a terminal-only note before the read; pipe stderr stays unchanged. CB-18-C closes the ledger after the audit no longer lists CB-18 among open tickets whose cases all match and corrects workers/CB-09.md's two stale descriptions. Rejected: a timeout or pipe-skip on the stdin read (diverges from krun and from C9's premise), any change to the pattern path."
+resolution = "Not a port defect, not a driver defect, no exclusion, no normalisation, no floor change, no new decision row (2026-09-19). The hang is K's own --io off contract reproduced faithfully; the pattern path agrees with the pinned reference on this case and on the star-cell fixture. The regression and docs sentence landed at 119c32e and f2b2f20, and CB-18-C closed the ticket after the audit confirmed that no open case-owning ticket was left with all cases matching."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-09.md (open question 3 and the :66 table row, where the kill was attributed to compile_search_pattern or match_disjunction_with_solver; corrected by CB-18)",
+  "draft/conformance-backlog/README.md (the 2026-09-18 state check at :121 contrasted the two invocations; superseded by the 2026-09-19 entry)",
+]
+
+[[ticket]]
+id = "CB-19"
+title = "matrix.simple returns \\bottom in SIMPLE untyped: K's own --io off stdin tokenization is undefined on the delimiter run in matrix.simple.in (not a backend defect)"
+state = "open"
+investigation = "done"
+worker = "workers/CB-19.md"
+cases = ["pl-tutorial/2_languages/1_simple/1_untyped"]
+measured = "Investigated 2026-09-19 on main 90ca9d6 (workers/CB-19.md). Bisection with the recorded command: depth 49 is a configuration whose <k> head is the second read() and whose <input> buffer is \" 4 \\t1\\n5 7 8 27\\n\\n1 2 3\\n\" (the first read consumed \"2\" and one delimiter of the run \"2  4\"); depth 50 is \\bottom. Step 50 is K's builtin STDIN-STREAM.stdinParseInt (domains.md:2746-2754), whose requires hold on a buffer that starts with a delimiter and whose result is String2Int(\"\"), undefined. Three engines agree under --io off: the pinned LLVM interpreter aborts at the same depth with hook_STRING_string2base_long: Not a valid integer (exit 134), the pinned Kore engine returns \\bottom on a reduced fixture (the SIMPLE definition itself does not compile for the Haskell backend: anywhere rules), and krust returns \\bottom (Kore's String2Int contract, haskell-backend/kore/src/Kore/Builtin/String.hs:366, and docs/compatibility.md Trivial rule results). The checked-in .out is reachable only under --io on, where the buffer grows one character at a time and stdinTrim skips the delimiter. matrix.simple.in is the only one of the 26 regression-new .in files with a delimiter run or leading delimiter; the typed-dynamic and KOOL matrix inputs are single-space separated, which is why only this case fails. Earlier measurements: shared sequences 21 to 23 and private CB-10 sequence 1 record the same 3.2 s \\bottom (exit 0, no diagnostic), verdict krust-error under DF-04."
+work = "Three items in workers/CB-19.md. CB-19-A: krun prints a stderr diagnostic when every leaf halted Trivial or Vacuous, naming the depth, the rule, and the refuted obligation (the halt reason exists on the RPC and wire surfaces; only the CLI drops it); stdout and exit code unchanged. CB-19-B (depends on A): the driver's C9 path records an input-program step as skipped-with-reason when krust's diagnostic attributes the collapse to a STDIN-STREAM rule and the .in bytes hold a delimiter run or leading delimiter under the definition's parse delimiters, registers the precondition in the C9 entry of scripts/reference-normalisations.toml and docs/compatibility.md, extends the undriven-recipe category to a single untranslatable step, and adds a step_exclusions row for tests/diverse/matrix.simple. CB-19-C: promote the reduced fixture (workers/CB-19-fixture) to CLI tests and re-measure the case; the case's rank stays with CB-12. Rejected: mimicking the frontend's --io on tokenization inside --io off, changing String2Int's Kore contract, and implementing --io on stdin here (CB-15-5 under D-01 and D-11 is the reconsideration trigger)."
+resolution = ""
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-12.md (budget arithmetic; the outlier was factorial.kool there, not matrix)",
+  "draft/conformance-backlog/workers/CB-13.md (a different ground \\bottom, in the type checkers: a wrong refutation, fixed in the backend)",
+  "draft/conformance-backlog/workers/CB-09.md (C9 and the --io switch; its line 114 claim that an exhausted buffer only leaves the program stuck is corrected by CB-19 M1)",
+  "draft/conformance-backlog/workers/CB-15.md (CB-15-5 --io on stdin is the trigger to re-drive the skipped step)",
+]
+
+# Owner choices are centralized here so implementation workers do not infer policy from stale
+# investigation prose. Every row is decided. Evidence-gated implementation selections state their
+# selection rule rather than pretending that an owner can choose correctly before the evidence exists.
+
+[[decision]]
+id = "D-01"
+state = "decided"
+scope = "CB-09 / CB-15 console output"
+decision = "Keep C9 buffered-stdout comparison as immediate conformance evidence under --io off. Console IO is a separate committed-trace product feature in CB-15; it must not alter C9's evidence path."
+evidence = "8f34df5; sequences 21 and 23"
+
+[[decision]]
+id = "D-02"
+state = "decided"
+scope = "DF-04 completion-only comparison"
+decision = "A completion-only recipe must not record match when krust returns \\bottom or when a non-empty checked-in output makes that completion semantically observable. Keep accepted floors unchanged while the defect is fixed."
+evidence = "8f34df5; sequence 21"
+
+[[decision]]
+id = "D-03"
+state = "decided"
+scope = "CB-10 / CB-11 / CB-13 / CB-14 ground normalized terms"
+decision = "One concrete-after-normalisation boundary governs rewrite matching, equation matching, sort membership, and predicate truth. Do not add per-ticket approximations of reference internals."
+evidence = "5e1c373; docs/compatibility.md Anywhere rules and Concrete rewrite instantiation"
+
+[[decision]]
+id = "D-04"
+state = "decided"
+scope = "CB-12 temporary execution budgets"
+decision = "Temporary ceilings are 600 s for SIMPLE untyped, 1200 s for SIMPLE typed-dynamic, 1800 s for KOOL untyped and typed-dynamic, and FUN budget 2700 s with step_budget 60. They are correctness-discovery budgets, not floor changes, and are removed or reduced after CB-16/CB-12 measurements."
+evidence = "sequences 23 and 25; 4cabcc8 and f006e6e"
+
+[[decision]]
+id = "D-05"
+state = "decided"
+scope = "CB-16 runnable artifacts"
+decision = "Every ordinary kcompile output must be runnable without --for-running. Select payload representation and directory layout only after the CB-16 inventory and benchmark; preserve compatibility at the CLI/library boundary, not through a frozen internal layout."
+evidence = "CB-16 worker plan; owner decision 2026-09-18"
+
+[[decision]]
+id = "D-06"
+state = "decided"
+scope = "DF-03 / CB-11 oracle annotation"
+decision = "A crashed or environmentally unavailable reference re-run retains verdict reference-error and records oracle_confirmed = 'not-run (reference crash)'. False is reserved for a reference command that completed and refuted the checked-in output. Preserve the krust divergence as diagnostic evidence, but do not promote it to the step verdict when the oracle did not run."
+evidence = "DF-03 classification; CB-11-3; docs/testing.md Manual conformance acceptance"
+
+[[decision]]
+id = "D-07"
+state = "decided"
+scope = "CB-10 / CB-17 collection-AC scope"
+decision = "CB-17 must first prove or refute that the Set-cell failure reaches the same collection-AC recovery invariant as CB-10. If it does, the shared fix, contract wording, and regression fixture must cover both Map- and Set-multiplicity cells. If it does not, split the mechanism and its regression into a separate work item or ticket. Similar diagnostics alone are not evidence of a shared cause."
+evidence = "CB-10 worker question 4; CB-17 investigator brief"
+
+[[decision]]
+id = "D-08"
+state = "decided"
+scope = "CB-14 krun macro expansion layer"
+decision = "Source-driven krun parses with the syntax module's production catalog and expands with the existing kast-domain Expander built from macro sentences visible from the selected main module. Keep kast's unparsing-module behavior unchanged. Do not add a KORE serialization-and-reparse path merely to imitate kore-expand-macros; a future consumer of already-lowered KORE would be a separate requirement."
+evidence = "CB-14 cause and work item 1; the Expander already rebases templates across modules"
+
+[[decision]]
+id = "D-09"
+state = "decided"
+scope = "CB-14 surviving macro or alias heads"
+decision = "krust krun rejects a macro- or alias-headed configuration after expansion and before rewrite step 1 because such a head is invalid executable input. The backend also retains a typed defensive failure for direct callers; it must never treat the head as an ordinary function and narrow through it."
+evidence = "CB-14 work item 2; macros are preprocessing constructs and the LLVM execution backend never receives them"
+
+[[decision]]
+id = "D-10"
+state = "decided"
+scope = "CB-10 concrete rewrite instantiation classification"
+decision = "Keep typed indeterminacy for a genuinely unresolved substitution on a concrete normalized configuration, matching the existing Concrete rewrite instantiation contract. CB-10 is instead a missed impossible match before that boundary. Improve diagnostics with the rule and missing variables, but do not turn every coverage failure into an internal panic."
+evidence = "docs/compatibility.md Concrete rewrite instantiation; CB-10 cause"
+
+[[decision]]
+id = "D-11"
+state = "decided"
+scope = "CB-15 console mode and transcript policy"
+decision = "Captured batch console output begins as an explicit mode with pre-buffered stdin. Live interactive input is a later tranche after effect ownership is proved. Search rejects --io on and RPC keeps IO unsupported until a separate structured transcript protocol owns branch-local input and output. CB-15 is a product feature and does not block closing conformance cases that already match through C9."
+evidence = "CB-15 decision, work items 2 and 5, and sequences 21 and 23"
+
+# Driver follow-ups found while working the tickets. These are not cases, so the audit does not
+# read them; each names the case that exposed it and the run that shows it.
+
+[[driver_followup]]
+id = "DF-01"
+title = "A swept or stale driver work tree is measured as skipped-with-reason and ranked as an improvement"
+state = "closed"
+found = "2026-09-18: the sandbox's 7-day /tmp sweep had emptied /tmp/k-rust-conformance/k-distribution (files gone, directories kept); run.py repopulates the work tree only when the directory is missing (run.py:1776-1786), so eight labelled runs recorded every case as `skipped-with-reason: make -n all failed` in 0.1 s, and the ratchet ranked that verdict (rank 2) above krust-error (rank 0) and reported improvements. The runs were removed from the shared log by hand."
+work = "Done in de1be303 on fix/conformance-driver-integrity: validate the source marker and required selected-case files, atomically refresh an invalid work tree, classify recipe-enumeration and driver exceptions as reference-error, and cover stale, swept, and valid-tree controls in conformance_ratchet.rs."
+elsewhere = []
+
+[[driver_followup]]
+id = "DF-02"
+title = "Kompiled directories below the case directory are not cleaned between runs"
+state = "closed"
+found = "2026-09-18: pl-tutorial/1_k/4_imp++/lesson_7 compiles into concrete/imp-kompiled; run.py:1435 removes only top-level *-kompiled entries, so a second measurement of the case in the same work tree found the reference definition already present, `make -n all` printed no kompile recipe, and the run recorded reference-error `reference generator did not install a resolvable parser_PGM` in 0.0 s (removed from the shared log by hand; the residue was deleted and the case re-measured as sequence 14)."
+work = "Done in de1be303 on fix/conformance-driver-integrity: recursively remove guarded non-symlink *-kompiled directories below the scratch case before make expansion, with a nested-output regression probe."
+elsewhere = []
+
+[[driver_followup]]
+id = "DF-03"
+title = "A failed C8 or confirm_oracle reference re-run is reported as mismatch or as a stale oracle"
+state = "closed"
+found = "sequence 4: rat/undefined/haskell 6-3.a was recorded mismatch because the reference --output kore re-run aborted (`failed to create OS thread: Cannot allocate memory`; a transient of the --jobs 2 run) and compare_simplified_kore returns the same False for a crashed re-run as for a compared-and-different one (run.py:998-999, 1247-1252); float-id 5.test is recorded reference-error with the hard-coded reason `checked-in .out is not reproduced by the pinned reference toolchain` although the LLVM interpreter merely cannot start under RLIMIT_AS (run.py:1039-1049)."
+work = "Done in de1be303 on fix/conformance-driver-integrity: C8 reference reruns use a distinct reference-error result carrying stderr, confirmation separates crashed tools from successful stale outputs, all reference calls default GHCRTS=-N1, and the comparison contracts and focused probes cover the boundary. Details: workers/CB-05.md."
+elsewhere = [
+  "draft/simplifier-consistency/followups.toml T13",
+  "draft/simplifier-consistency/followups.toml T12 item 3",
+]
+
+[[driver_followup]]
+id = "DF-04"
+title = "Completion-only steps record match for a \\bottom result against a non-empty .out"
+state = "closed"
+found = "2026-09-18, sequence 18: KOOL typed-static's 29 plain `--output none` programs print `\\bottom{SortGeneratedTopCell{}}()` (CB-13) yet are recorded `match`, because a recipe translated with `--output none` is compared completion-only (run.py:1386-1390) and never looks at the krust result or at the non-empty checked-in .out. Found by the CB-09 investigator (workers/CB-09.md Q2, W1)."
+work = "Done on 2026-09-18 as CB-09-W1, merged at 8f34df5 (implementation 0ef1de3): a completion-only step whose krust result is \\bottom, or whose .out is non-empty while the recipe prints program output, no longer records match. Private df-04-bottom sequence 1 measured all 29 KOOL typed-static steps as krust-error/krun; the case's accepted kompile floor is unchanged, and shared sequence 21 (label post-tranche-main) re-measures it on main. The semantic defect behind the \\bottom results stays with CB-13."
+elsewhere = []
+
+[[driver_followup]]
+id = "DF-05"
+title = "GHCRTS=-N1 reaches the non-threaded kore-match-disjunction, so every --pattern oracle confirmation fails"
+state = "closed"
+found = "2026-09-18, sequence 18: every LLVM `--pattern` or search step whose text differs is reference-error; besides the documented RLIMIT_AS start-up failure of the LLVM interpreter, run.py:234 exports `GHCRTS=-N1` to the whole reference recipe, and `kore-match-disjunction` is not built with -threaded (`the flag -N1 requires the program to be built with -threaded`, verified directly by the CB-11 investigator), so the confirmation would fail on a host too. Found by the CB-11 and CB-12 investigators."
+work = "Done on 2026-09-18: the conformance driver clears its default GHCRTS for non-threaded `kore-parser` and for `krun --pattern`, which delegates to non-threaded `kore-match-disjunction`, while preserving an explicit operator setting and the `-N1` default elsewhere. docs/testing.md records the pinned binary boundary, and conformance_driver_distinguishes_reference_crashes_from_stale_oracles covers the environment split. Host sequence 20 (`host-pattern-oracles`) reran the four affected cases: all 39 previously blocked pattern confirmations report `oracle_confirmed = true`, with no reference-error or non-threaded RTS diagnostic."
+elsewhere = ["draft/simplifier-consistency/followups.toml T13"]
+
+[[driver_followup]]
+id = "DF-06"
+title = "No per-step ceiling: one non-terminating program consumes the whole case budget and starves the corpus"
+state = "closed"
+found = "2026-09-19, sequence 23 (label discovery-3600): FUN untyped under a 3600 s discovery budget spends 3587.7 s on ackermann.fun, its first program, and the other 49 programs are skipped-with-reason exactly as under the 300 s default (sequence 21, 289.6 s). A step is only ever limited by `case.remaining()` (scripts/conformance/run.py:384-388, :742), so a divergent program hides every program behind it and the budget cannot distinguish one divergence from a slow corpus. The same shape cost sequence 21 its readings of matrix.simple and matrix.kool, which sequence 23 showed terminate at 470 to 764 s."
+work = "Done on 2026-09-19 on branch chore/simple-budget-ceilings: expectations `step_budget` caps each krust program execution inside the case budget (scripts/conformance/run.py Case.step_timeout, run_krust_program, krust_timeout_reason); a capped kill is recorded as `krust krun exceeded the step budget (N s)` with the step's `step_budget` field, and the programs behind it still run. The driver rejects a step budget above its case budget. Regression: conformance_driver_caps_each_program_by_the_step_budget_inside_the_case_budget. Sequence 24 (60 s) and 25 (20 s) measured FUN under it; 25 measures all 51 steps in 751.5 s, and the 1800 s sweep under the sequence-25 run directory confirmed the 35 kills are non-termination, so FUN now carries step_budget 60 / budget 2700 from that measurement. Reference re-runs and kompile steps keep the case budget. Original plan: Add a per-step ceiling next to the case budget: an optional `step_budget` in expectations.toml (default: the case budget, so nothing changes for cases that do not set it) applied as the timeout of every krust and reference step, with the kill recorded as krust-error `krust krun exceeded the step budget` so the remaining programs are still measured. Then set FUN untyped to a step budget that lets its 49 other programs run (about 60 s while ackermann.fun is CB-14's problem) and re-measure it. Drivers must not reorder programs to achieve this; the Makefile order is part of the recipe."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-12.md (budget arithmetic)",
+  "draft/conformance-backlog/workers/CB-14.md (ackermann.fun mechanism)",
+]
+
+[[driver_followup]]
+id = "DF-07"
+title = "Confirm whether upstream-disabled typed-dynamic search recipes need undriven-recipe records"
+state = "open"
+found = "CB-10 worker question 5 records that upstream make -n did not expand the typed-dynamic --search --pattern recipes for threads_01/02/04/06/09 and exceptions_07. Sequence 23 measured other typed-dynamic thread recipes, so that run neither proves nor refutes the older recipe-enumeration observation."
+work = "Re-run recipe enumeration for those exact targets from a fresh driver work tree. If upstream's effective Makefile deliberately disables them, record undriven-recipe with that concrete reason. If the driver omitted a recipe that upstream executes, file and fix the translation defect with a focused conformance-driver regression. This is evidence gathering, not an owner policy decision, and does not block CB-10's driven Map-cell fix."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-10.md (historical open question 5)",
+]
+
+[[driver_followup]]
+id = "DF-08"
+title = "A crashed oracle rerun uses the same oracle_confirmed value as a completed refutation"
+state = "open"
+found = "CB-11-3 separated two meanings that currently share oracle_confirmed = false: the reference command completed and differed, or the reference command crashed before producing an oracle. DF-05 already fixed the GHCRTS environment half of that work."
+work = "Implement D-06 independently of CB-11: retain verdict reference-error and the krust divergence, but record oracle_confirmed = 'not-run (reference crash)' when crash classification proves the oracle did not run. Reserve false for a completed reference command whose result differs. Add the fake-crash and completed-refutation driver regressions described in workers/CB-11.md."
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-11.md (superseded CB-11-3 remainder)",
+]
