@@ -20,25 +20,26 @@ Inside a worker file every `[[work_item]]` carries `state` (`open`, `partial`, `
 `[[driver_followup]]` rows (`id`, `title`, `state`, `found`, `work`, `elsewhere`) record conformance-driver defects that are not tied to a pending case; the audit ignores them.
 Seeded 2026-09-18 from ratchet sequence 4 (`target/conformance/ratchet.toml`, label `int`, HEAD `9c1a64d`) and four read-only searches of `draft/` recorded in `/tmp/nonmatch/coverage.md`.
 
-## Current queue (2026-09-19, `main` at `4229d5f`)
+## Current queue (2026-09-20, measured from `af43672`)
 
-The ledger has three open tickets, but only two own pending conformance verdicts.
+The ledger has four open tickets; CB-12, CB-20 and CB-22 own pending conformance verdicts, while CB-15 is evidence-only product work.
 The latest shared-log audit reports three pending cases, zero pending cases without an open owner, no open ticket whose cases all match, and three below-floor cases that are all covered by existing exclusions.
 All eleven `[[decision]]` rows are decided; no owner policy choice blocks the queue.
 
 | ticket | role | current state | next gate |
 |---|---|---|---|
-| CB-20 | owner of FUN untyped | investigated 2026-09-20 (`workers/CB-20.md`): eleven programs branch without bound on one blocked `owise` of `getMatchingAux` (cohort A, a correctness defect), and `tail-recursion` costs a quadratic number of constructed terms over a growing `<k>` (cohort B) | Implement CB-20-A (equation matching decides overloaded nil-versus-cons pairs) and CB-20-B (per-step term construction bounded by the changed spine) from the reduced fixtures under `workers/CB-20-fixture/`, then CB-20-D re-measures the case. |
-| CB-12 | owner of tutorial throughput | partly complete; compiled-definition reuse is closed through CB-16, while SIMPLE thread search and whole-configuration simplification remain | Run CB-12-3 instrumentation and classify the thread, factorial, matrix, and sorting cohorts before applying CB-12-4. Split any mechanism that is not the measured unchanged-frame simplifier cost. |
+| CB-20 | owner of FUN untyped | CB-20-A and CB-20-B implemented at `7e84716` and `af43672`; the equation-matching correctness fix and changed-spine construction fix are covered by reduced regressions | Run CB-20-D over the twelve witnesses and the whole FUN case, classify any residue, and rewrite the expectation reason. CB-20-C remains optional diagnostics. |
+| CB-12 | owner of single-path tutorial simplification | CB-12-3 complete: versioned counters and a reduced ratchet prove that rounds still grow inside a flat number of simplifier entries; CB-20-B already removed the larger reconstruction cost | Implement narrowed CB-12-4: cache a normalized closed anywhere/overloaded application only after its equation scan proves every equation inapplicable. Then wait for CB-20 and CB-22 before CB-12-5. |
+| CB-22 | owner of SIMPLE thread-search residue | split from CB-12-3: collection problems and search states grow together; untyped `threads_04` grows from 60 rules/10 projected answers at depth 20 to 5,202/218 at depth 40, and both `threads_05` commands remain unbounded | Investigate the first expansion before implementation. Decide from state/rule/visited-key evidence whether it is required scheduling, premature collection recovery, or missed canonical deduplication. |
 | CB-15 | evidence-only product work | fleshed out; no pending verdict depends on it because C9 already compares the definition-computed bytes | Implement after the case-owning queue unless product priority overrides conformance closure. Start with captured batch output, then establish effect ownership before live hooks. |
 
 The sequential order is:
 
-1. CB-20 is investigated (2026-09-20). Implement CB-20-A first (it also fixes wrong values on ground programs) and CB-20-B in parallel; CB-20-B is also the larger part of CB-12's measured `factorial.kool` cost.
-2. Run CB-12-3 after CB-20-B lands and classify the cost that remains; CB-12-4 stays limited to the simplifier-rounds mechanism that survives that measurement.
-3. Implement the resulting CB-20 work and the mechanisms verified for CB-12 in causal dependency order. CB-12-4 may address only the unchanged-frame simplifier mechanism established by CB-12-3; every distinct thread or FUN mechanism gets its own work item or ticket.
-4. Verify that the two SIMPLE cases complete their driven corpora without case-budget or step-budget skips and that all twelve FUN witnesses have measured dispositions.
-5. Re-measure all seven tutorial cases once CB-12 and CB-20 are implementation-complete, rewrite the expectation reasons from that run, raise any newly matching floors, and close the two owner tickets from the audit evidence.
+1. Run CB-20-D now that CB-20-A/B have landed; close CB-20 if the twelve witnesses and the complete FUN case match, or split only a newly measured residue.
+2. Investigate CB-22 before assigning an implementation agent. Its current counters prove a separate mechanism but do not justify partial-order reduction, wider deduplication, or a search-order change.
+3. Implement narrowed CB-12-4 independently of CB-22, then run its factorial and growing-collection counter ladders. The change may cache only a closed equation head whose scan reached a fixed point with no applicable or blocked equation.
+4. Implement the cause established by CB-22-1 and re-measure both SIMPLE cases through every driven recipe.
+5. Run CB-12-5 over all seven tutorial cases after CB-20 and CB-22 close, rewrite expectation reasons from that run, and raise floors only for complete matching cases.
 6. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
 
 CB-16 and CB-21 are closed.
@@ -399,3 +400,21 @@ No tracked file changed except this README and `tickets.toml`; no floor, budget,
 - Left in place for the implementer: `~/worktrees/cb-20-probe` (branch `probe/cb-20-blocked-pair`, cohort A probe prints and fixture copies, target `/tmp/cb-20-probe-target`) and `~/worktrees/cb-20-probe-k` (branch `probe/cb-20-k-construction`, construction backtrace probe and the `KRUST_PROBE_SKIP_EMPTY_APPLY` characterisation short-circuit, target `/tmp/cb-20-probe-k-target`), both uncommitted; delete them when CB-20-A and CB-20-B land. `/tmp/cb-20-target` (the measure build) can be deleted at any time; `/tmp/k-rust-cb16-final` holds the runnable artifacts the recorded commands run from and should stay until CB-20-D.
 
 Gates: `taplo lint draft/conformance-backlog/tickets.toml` and on the worker's work-item block pass; the audit is unchanged (3 pending cases all owned, 0 pending without an open ticket, no open ticket whose cases all match, 3 below-floor cases all excluded).
+
+## 2026-09-20: CB-12-3 measured and SIMPLE search split to CB-22
+
+Commit `b38e8d9` adds counter-schema version 2 with `simplify.invocations` and `simplify.nodes_skipped_evaluated`, plus a growing list/map measure ratchet whose normalized closed anywhere values expose the remaining rounds cost.
+The ratchet measures 105 and 665 rounds per late step at depths 8 and 64 while public simplifier entries remain 9 at both depths.
+The exact artifact-driven commands from the CB-16 final run were repeated from `af43672` with the measure build (binary SHA-256 `64ccc46a…`); the machine-readable table and counter dumps are under `workers/CB-12-evidence/af43672/`.
+
+CB-20-B removes the dominant reconstruction cost: KOOL untyped `factorial.kool` reaches depth 5,754 in 6.39 s, `sortings.simple` completes in 12.63 s, `matrix.kool` in 29.15 s, `sorting.kool` in 20.10 s, and untyped `threads_12` in 2.02 s.
+The narrower CB-12-4 mechanism remains because factorial rounds per applied rule rise from 279 at depth 1,000 to 507 at depth 5,754 on one branch while public entries stay about 10.8 per rule.
+CB-12-4 is rewritten to cache only a normalized closed anywhere or overloaded application whose equation scan reached a fixed point with every equation inapplicable; its former whole-configuration `rewrite.rs` tranche is removed.
+
+The SIMPLE searches are a different cause and move to CB-22.
+Untyped `threads_04` grows from 60 applied rules, 3,293 collection problems and 10 projected depth-bound answers at depth 20 to 5,202 rules, 280,597 collection problems and 218 answers at depth 40.
+Untyped `threads_05` grows from 30 rules and 30 collection problems at depth 30 to 2,743 and 190,485 at depth 120, and the unbounded command produces no output within 120 s; typed-dynamic `threads_05` follows the same curve.
+CB-22 must attribute the first expansion and prove whether the excess states are required schedules, premature collection recovery or missed canonical deduplication before an implementation agent changes search.
+
+No expectation, accepted floor, budget, exclusion or normalization changed.
+Focused gates pass: 14 backend measure ratchets, two CB-20-B construction ratchets, 69 `k-rust-kore` tests, and the CLI counter-schema success/failure test.
