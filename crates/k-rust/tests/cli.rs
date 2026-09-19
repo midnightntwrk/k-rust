@@ -2805,6 +2805,87 @@ fn krun_search_all_prints_disjuncts_in_a_deterministic_order() {
 }
 
 #[test]
+fn krun_search_final_decides_result_predicates_for_ground_overloaded_lists() {
+    fn collect_result_bindings(pattern: &Pattern, bindings: &mut Vec<Pattern>) {
+        match pattern {
+            Pattern::And { arguments, .. } => {
+                for argument in arguments {
+                    collect_result_bindings(argument, bindings);
+                }
+            }
+            Pattern::Equals { left, right, .. } => {
+                let variable = match (left.as_ref(), right.as_ref()) {
+                    (Pattern::Variable(variable), _) | (_, Pattern::Variable(variable)) => variable,
+                    _ => panic!("unexpected residual constraint in search result: {pattern:#?}"),
+                };
+                if variable.name == "VarS" {
+                    bindings.push(pattern.clone());
+                } else {
+                    assert!(
+                        variable.name.starts_with("Var'Unds'Gen"),
+                        "unexpected binding in search result: {pattern:#?}"
+                    );
+                }
+            }
+            _ => panic!("unexpected residual constraint in search result: {pattern:#?}"),
+        }
+    }
+
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/search/simple-print");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            fixtures.join("test.k").to_str().unwrap(),
+            fixtures.join("nondeterministic.cb11").to_str().unwrap(),
+            "--main-module",
+            "SIMPLE-PRINT",
+            "--syntax-module",
+            "SIMPLE-PRINT-SYNTAX",
+            "--sort",
+            "Stmt",
+            "--search-final",
+            "--pattern",
+            r#"<output> ListItem(#ostream(1)) ListItem("off") ListItem(#buffer(S:String)) </output>"#,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let mut result = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+    let disjuncts = match &mut result {
+        Pattern::Or { arguments, .. } => std::mem::take(arguments),
+        _ => vec![result],
+    };
+    let mut actual = Vec::new();
+    for disjunct in &disjuncts {
+        let before = actual.len();
+        collect_result_bindings(disjunct, &mut actual);
+        assert_eq!(
+            actual.len(),
+            before + 1,
+            "each disjunct must contain exactly one S binding: {disjunct:#?}"
+        );
+    }
+    actual.sort();
+
+    let mut expected = ["1\\n", "2\\n"]
+        .map(|value| {
+            parse_pattern(&format!(
+                r#"\equals{{SortString{{}}, SortGeneratedTopCell{{}}}}(VarS:SortString{{}}, \dv{{SortString{{}}}}("{value}"))"#
+            ))
+            .unwrap()
+        })
+        .to_vec();
+    expected.sort();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn krun_search_bound_returns_a_subset_of_the_unbounded_solutions() {
     let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/branching-order.k");
