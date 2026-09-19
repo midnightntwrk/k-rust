@@ -151,6 +151,15 @@ implemented = [
   "STRING.token2string",
 ]
 
+# These hooks require the branch-local state supplied only by ordinary execution.
+# The context-free evaluator intentionally continues to report them as unsupported.
+execution_only = [
+  "IO.getc",
+  "IO.putc",
+  "IO.read",
+  "IO.write",
+]
+
 # These hooks identify KORE builtin sorts; the backend internalizer handles
 # them structurally and they are never evaluator calls.
 structural = [
@@ -212,17 +221,14 @@ reason = "randomness and bit-range operations are not implemented"
 hooks = ["INT.bitRange", "INT.rand", "INT.signExtendBitRange", "INT.srand"]
 
 [[unsupported]]
-reason = "host filesystem, process, clock, and stream effects are not exposed by the backend"
+reason = "filesystem, process, clock, logging, and stream-management effects are not exposed by the backend"
 hooks = [
   "IO.accept",
   "IO.close",
-  "IO.getc",
   "IO.lock",
   "IO.log",
   "IO.mkstemp",
   "IO.open",
-  "IO.putc",
-  "IO.read",
   "IO.remove",
   "IO.seek",
   "IO.seekEnd",
@@ -232,7 +238,6 @@ hooks = [
   "IO.time",
   "IO.traceTerm",
   "IO.unlock",
-  "IO.write",
 ]
 
 [[unsupported]]

@@ -97,6 +97,8 @@ pub enum ObservationEvent {
 /// One ordered write to a console descriptor on an execution branch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DescriptorTranscriptEntry {
+    /// The hook that produced this write.
+    pub hook: &'static str,
     pub descriptor: i32,
     pub bytes: Arc<[u8]>,
 }
@@ -141,7 +143,6 @@ impl ExecutionIoState {
     ///
     /// Dropping the context rolls every read and write back. `commit` returns the updated state
     /// for the caller to attach to the retained successor.
-    #[allow(dead_code)] // Reserved for execution-only console hook dispatch.
     pub(crate) fn begin_evaluation(&self) -> ExecutionEvaluationContext {
         ExecutionEvaluationContext {
             state: self.clone(),
@@ -159,7 +160,6 @@ pub(crate) struct ExecutionEvaluationContext {
     state: ExecutionIoState,
 }
 
-#[allow(dead_code)] // Reserved for execution-only console hook dispatch.
 impl ExecutionEvaluationContext {
     pub(crate) fn read(&mut self, maximum: usize) -> &[u8] {
         let start = self.state.cursor;
@@ -168,8 +168,14 @@ impl ExecutionEvaluationContext {
         &self.state.input[start..end]
     }
 
-    pub(crate) fn append(&mut self, descriptor: i32, bytes: impl Into<Arc<[u8]>>) {
+    pub(crate) fn append(
+        &mut self,
+        hook: &'static str,
+        descriptor: i32,
+        bytes: impl Into<Arc<[u8]>>,
+    ) {
         Arc::make_mut(&mut self.state.transcript).push(DescriptorTranscriptEntry {
+            hook,
             descriptor,
             bytes: bytes.into(),
         });
@@ -363,15 +369,17 @@ impl ObservationLog {
         options: Option<&ObservationOptions>,
     ) -> ObservationHead {
         let options = options?;
-        let mut effects = effects.iter();
+        let mut effects = effects.iter().peekable();
         for rule in applied_rules {
             let class = transition_class(definition, rule);
-            let attributed_effects =
-                if class == TransitionClass::Builtin && rule == "builtin:IO.logString" {
-                    effects.next().cloned().into_iter().collect()
-                } else {
-                    Vec::new()
-                };
+            let attributed_effects = if let Some(hook) = rule.strip_prefix("builtin:")
+                && class == TransitionClass::Builtin
+                && effects.peek().is_some_and(|effect| effect.hook() == hook)
+            {
+                vec![effects.next().expect("peeked effect").clone()]
+            } else {
+                Vec::new()
+            };
             if !options.observes(rule) {
                 continue;
             }
@@ -515,10 +523,10 @@ mod tests {
         let mut left = state.begin_evaluation();
         let mut right = state.begin_evaluation();
 
-        left.append(1, Vec::from(&b"left-out"[..]));
-        left.append(2, Vec::from(&b"left-err"[..]));
-        right.append(2, Vec::from(&b"right-err"[..]));
-        right.append(1, Vec::from(&b"right-out"[..]));
+        left.append("IO.write", 1, Vec::from(&b"left-out"[..]));
+        left.append("IO.putc", 2, Vec::from(&b"left-err"[..]));
+        right.append("IO.write", 2, Vec::from(&b"right-err"[..]));
+        right.append("IO.putc", 1, Vec::from(&b"right-out"[..]));
 
         let left = left.commit();
         let right = right.commit();
@@ -527,10 +535,12 @@ mod tests {
             left.transcript(),
             [
                 DescriptorTranscriptEntry {
+                    hook: "IO.write",
                     descriptor: 1,
                     bytes: Vec::from(&b"left-out"[..]).into(),
                 },
                 DescriptorTranscriptEntry {
+                    hook: "IO.putc",
                     descriptor: 2,
                     bytes: Vec::from(&b"left-err"[..]).into(),
                 },
@@ -540,10 +550,12 @@ mod tests {
             right.transcript(),
             [
                 DescriptorTranscriptEntry {
+                    hook: "IO.write",
                     descriptor: 2,
                     bytes: Vec::from(&b"right-err"[..]).into(),
                 },
                 DescriptorTranscriptEntry {
+                    hook: "IO.putc",
                     descriptor: 1,
                     bytes: Vec::from(&b"right-out"[..]).into(),
                 },

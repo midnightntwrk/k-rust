@@ -15,6 +15,7 @@ struct CapabilityManifest {
     version: u32,
     backend_namespaces: Vec<String>,
     implemented: Vec<String>,
+    execution_only: Vec<String>,
     structural: Vec<String>,
     unsupported: Vec<UnsupportedHooks>,
     crypto: CryptoCapabilities,
@@ -145,6 +146,7 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
 
     let declared = declared_prelude_hooks();
     let implemented = manifest.implemented.into_iter().collect::<BTreeSet<_>>();
+    let execution_only = manifest.execution_only.into_iter().collect::<BTreeSet<_>>();
     let structural = manifest.structural.into_iter().collect::<BTreeSet<_>>();
     let mut unsupported = BTreeSet::new();
     for group in manifest.unsupported {
@@ -161,10 +163,26 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
     }
 
     assert_disjoint(&implemented, &structural, "implemented", "structural");
+    assert_disjoint(
+        &implemented,
+        &execution_only,
+        "implemented",
+        "execution-only",
+    );
     assert_disjoint(&implemented, &unsupported, "implemented", "unsupported");
+    assert_disjoint(&execution_only, &structural, "execution-only", "structural");
+    assert_disjoint(
+        &execution_only,
+        &unsupported,
+        "execution-only",
+        "unsupported",
+    );
     assert_disjoint(&structural, &unsupported, "structural", "unsupported");
 
     let classified = implemented
+        .union(&execution_only)
+        .cloned()
+        .collect::<BTreeSet<_>>()
         .union(&structural)
         .cloned()
         .collect::<BTreeSet<_>>()
@@ -200,6 +218,25 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
                         if expected == *arity && actual == arity + 1
                 ),
                 "implemented hook registry does not reach a concrete evaluator for {hook}"
+            );
+        }
+    }
+
+    for hook in &execution_only {
+        let declaration = &declared[hook];
+        assert_eq!(
+            declaration.kind,
+            DeclaredHookKind::Production,
+            "execution-only hooks must be productions: {hook}"
+        );
+        for arity in &declaration.arities {
+            let arguments = vec![dummy_term(); *arity];
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Ok(BuiltinResult::Unsupported(
+                    k_rust_backend::builtin::UnsupportedHookReason::NotImplemented
+                )),
+                "context-free evaluation must not expose execution-only hook {hook}"
             );
         }
     }

@@ -72,6 +72,48 @@ fn definition(axioms: &str) -> BackendDefinition {
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
 }
 
+fn console_io_definition(axioms: &str) -> BackendDefinition {
+    let source = format!(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                sort SortIOError{{}} []
+                sort SortIOInt{{}} []
+                sort SortIOString{{}} []
+                sort SortK{{}} []
+                symbol inj{{From, To}}(From) : To [sortInjection{{}}(), injective{{}}()]
+                symbol dotk{{}}() : SortK{{}} [constructor{{}}(), total{{}}()]
+                symbol Lbl'Hash'EOF{{}}() : SortIOError{{}} [constructor{{}}(), total{{}}()]
+                symbol initial{{}}() : SortK{{}} [constructor{{}}(), total{{}}()]
+                symbol pending{{}}(SortK{{}}) : SortK{{}} [constructor{{}}(), total{{}}()]
+                symbol pair{{}}(SortK{{}}, SortK{{}}) : SortK{{}} [constructor{{}}(), total{{}}()]
+                symbol intPair{{}}(SortIOInt{{}}, SortIOInt{{}}) : SortK{{}} [constructor{{}}(), total{{}}()]
+                symbol keepInt{{}}(SortIOInt{{}}) : SortK{{}} [constructor{{}}(), total{{}}()]
+                symbol keepString{{}}(SortIOString{{}}) : SortK{{}} [constructor{{}}(), total{{}}()]
+                symbol dead{{}}(SortK{{}}) : SortK{{}} [function{{}}(), total{{}}()]
+                symbol deadInt{{}}(SortIOInt{{}}) : SortK{{}} [function{{}}(), total{{}}()]
+                hooked-symbol getc{{}}(SortInt{{}}) : SortIOInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("IO.getc")]
+                hooked-symbol read{{}}(SortInt{{}}, SortInt{{}}) : SortIOString{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("IO.read")]
+                hooked-symbol putc{{}}(SortInt{{}}, SortInt{{}}) : SortK{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("IO.putc")]
+                hooked-symbol write{{}}(SortInt{{}}, SortString{{}}) : SortK{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("IO.write")]
+                {axioms}
+            endmodule []"#
+    );
+    let syntax = parse_definition(&source).expect("console definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("console definition should internalize")
+}
+
+fn console_pattern(definition: &BackendDefinition, pattern: &str) -> Pattern {
+    definition
+        .internalize_pattern(&parse_pattern(pattern).expect("pattern should parse"), &[])
+        .expect("pattern should internalize")
+}
+
 #[test]
 fn direct_rewrite_rejects_a_nested_surviving_macro_without_recovery() {
     let source = r#"[]
@@ -5208,6 +5250,499 @@ fn ordinary_execution_clones_prebuffered_input_into_each_branch() {
     assert_eq!(result.leaves.len(), 2);
     assert!(result.leaves.iter().all(|leaf| leaf.io == input));
     assert!(result.leaves.iter().all(|leaf| leaf.io.cursor() == 0));
+}
+
+#[test]
+fn console_write_and_putc_preserve_hook_order_and_exact_bytes() {
+    let definition = console_io_definition("");
+    let initial = console_pattern(
+        &definition,
+        r#"pair{}(
+            write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("hé")),
+            putc{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("255"))
+        )"#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        initial,
+        ExecutionOptions::default(),
+        ExecutionIoState::default(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one console leaf: {result:#?}");
+    };
+    assert_eq!(leaf.io.transcript().len(), 2);
+    assert_eq!(leaf.io.transcript()[0].hook, "IO.write");
+    assert_eq!(leaf.io.transcript()[0].descriptor, 1);
+    assert_eq!(leaf.io.transcript()[0].bytes.as_ref(), "hé".as_bytes());
+    assert_eq!(leaf.io.transcript()[1].hook, "IO.putc");
+    assert_eq!(leaf.io.transcript()[1].descriptor, 2);
+    assert_eq!(leaf.io.transcript()[1].bytes.as_ref(), [255]);
+}
+
+#[test]
+fn console_getc_reads_unsigned_bytes_and_returns_eof() {
+    let definition = console_io_definition("");
+    let first = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, r#"getc{}(\dv{SortInt{}}("0"))"#),
+        ExecutionOptions::default(),
+        ExecutionIoState::new(Vec::from(&b"\xff"[..])),
+    );
+    let TermKind::Injection { term, .. } = first.leaves[0].pattern.term.kind() else {
+        panic!("getc result was not injected: {first:#?}");
+    };
+    assert!(matches!(term.kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "255"));
+    assert_eq!(first.leaves[0].io.cursor(), 1);
+
+    let eof = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, r#"getc{}(\dv{SortInt{}}("0"))"#),
+        ExecutionOptions::default(),
+        ExecutionIoState::default(),
+    );
+    let TermKind::Injection { term, .. } = eof.leaves[0].pattern.term.kind() else {
+        panic!("EOF result was not injected: {eof:#?}");
+    };
+    assert!(
+        matches!(term.kind(), TermKind::Application { symbol, .. } if symbol.name.as_ref() == "Lbl'Hash'EOF")
+    );
+    assert_eq!(eof.leaves[0].io.cursor(), 0);
+}
+
+#[test]
+fn console_getc_consumes_sequential_reads_in_term_order() {
+    let definition = console_io_definition("");
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"intPair{}(
+                getc{}(\dv{SortInt{}}("0")),
+                getc{}(\dv{SortInt{}}("0"))
+            )"#,
+        ),
+        ExecutionOptions::default(),
+        ExecutionIoState::new(Vec::from(&b"AB"[..])),
+    );
+
+    let TermKind::Application { arguments, .. } = result.leaves[0].pattern.term.kind() else {
+        panic!("expected pair result: {result:#?}");
+    };
+    let values = arguments
+        .iter()
+        .map(|argument| match argument.kind() {
+            TermKind::Injection { term, .. } => match term.kind() {
+                TermKind::DomainValue { value, .. } => value.as_ref(),
+                other => panic!("expected integer: {other:?}"),
+            },
+            other => panic!("expected injection: {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(values, ["65", "66"]);
+    assert_eq!(result.leaves[0].io.cursor(), 2);
+}
+
+#[test]
+fn console_read_returns_short_utf8_reads_and_rolls_back_unrepresentable_boundaries() {
+    let definition = console_io_definition("");
+    let short = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("20"))"#,
+        ),
+        ExecutionOptions::default(),
+        ExecutionIoState::new("hé".as_bytes().to_vec()),
+    );
+    let TermKind::Injection { term, .. } = short.leaves[0].pattern.term.kind() else {
+        panic!("read result was not injected: {short:#?}");
+    };
+    assert!(matches!(term.kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "hé"));
+    assert_eq!(short.leaves[0].io.cursor(), 3);
+
+    let eof = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("4"))"#,
+        ),
+        ExecutionOptions::default(),
+        ExecutionIoState::default(),
+    );
+    let TermKind::Injection { term, .. } = eof.leaves[0].pattern.term.kind() else {
+        panic!("read EOF result was not injected: {eof:#?}");
+    };
+    assert!(matches!(term.kind(), TermKind::DomainValue { value, .. } if value.is_empty()));
+    assert_eq!(eof.leaves[0].io.cursor(), 0);
+
+    let boundary = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("1"))"#,
+        ),
+        ExecutionOptions::default(),
+        ExecutionIoState::new("é".as_bytes().to_vec()),
+    );
+    assert!(matches!(
+        boundary.leaves[0].halt_reason,
+        HaltReason::Simplification(SimplificationError::UnsupportedHook { ref hook, .. })
+            if hook == "IO.read"
+    ));
+    assert_eq!(boundary.leaves[0].io.cursor(), 0);
+}
+
+#[test]
+fn console_hooks_reject_wrong_direction_and_symbolic_descriptors_without_mutation() {
+    let definition = console_io_definition("");
+    for pattern in [
+        r#"getc{}(\dv{SortInt{}}("1"))"#,
+        r#"read{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("1"))"#,
+        r#"putc{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("65"))"#,
+        r#"write{}(\dv{SortInt{}}("0"), \dv{SortString{}}("x"))"#,
+        r#"getc{}(\dv{SortInt{}}("3"))"#,
+        r#"write{}(\dv{SortInt{}}("3"), \dv{SortString{}}("x"))"#,
+        r#"putc{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("256"))"#,
+        r#"putc{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("-1"))"#,
+    ] {
+        let result = execute_with_io_state(
+            &definition,
+            console_pattern(&definition, pattern),
+            ExecutionOptions::default(),
+            ExecutionIoState::new(Vec::from(&b"input"[..])),
+        );
+        assert!(matches!(
+            result.leaves[0].halt_reason,
+            HaltReason::Simplification(SimplificationError::UnsupportedHook { .. })
+        ));
+        assert_eq!(result.leaves[0].io.cursor(), 0);
+        assert!(result.leaves[0].io.transcript().is_empty());
+    }
+
+    let symbolic = console_pattern(&definition, "getc{}(D:SortInt{})");
+    let result = execute_with_io_state(
+        &definition,
+        symbolic.clone(),
+        ExecutionOptions::default(),
+        ExecutionIoState::new(Vec::from(&b"input"[..])),
+    );
+    assert_eq!(result.leaves[0].pattern, symbolic);
+    assert_eq!(result.leaves[0].io.cursor(), 0);
+    assert!(result.leaves[0].io.transcript().is_empty());
+}
+
+#[test]
+fn pure_execution_does_not_enable_console_hooks() {
+    let definition = console_io_definition("");
+    let initial = console_pattern(
+        &definition,
+        r#"write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("hidden"))"#,
+    );
+
+    let result = execute(&definition, initial, ExecutionOptions::default());
+
+    assert!(matches!(
+        result.leaves[0].halt_reason,
+        HaltReason::Simplification(SimplificationError::UnsupportedHook { ref hook, .. })
+            if hook == "IO.write"
+    ));
+    assert!(result.leaves[0].io.transcript().is_empty());
+}
+
+#[test]
+fn search_does_not_enable_console_hooks() {
+    let definition = console_io_definition("");
+    let result = k_rust_backend::search::search_graph(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("hidden"))"#,
+        ),
+        k_rust_backend::search::SearchOptions::default(),
+    );
+
+    assert!(result.states.is_empty());
+    assert!(matches!(
+        result.incomplete.as_slice(),
+        [k_rust_backend::search::IncompleteSearch::Simplification {
+            error: SimplificationError::UnsupportedHook { hook, .. },
+            ..
+        }] if hook == "IO.write"
+    ));
+}
+
+#[test]
+fn execution_disables_console_capability_after_a_symbolic_transition() {
+    let definition = console_io_definition(
+        r#"
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                pending{}(X:SortK{})
+            ) [label{}("make-symbolic")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(pending{}(X:SortK{}), \top{SortK{}}()),
+                write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("hidden"))
+            ) [label{}("write")]
+        "#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, "initial{}()"),
+        ExecutionOptions::default(),
+        ExecutionIoState::default(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one symbolic leaf: {result:#?}");
+    };
+    assert!(matches!(
+        leaf.halt_reason,
+        HaltReason::Simplification(SimplificationError::UnsupportedHook { ref hook, .. })
+            if hook == "IO.write"
+    ));
+    assert!(leaf.io.transcript().is_empty());
+}
+
+#[test]
+fn rejected_console_candidate_does_not_leak_its_transcript() {
+    let definition = console_io_definition(
+        r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortK{}, R}(
+                    dead{}(X:SortK{}),
+                    \and{SortK{}}(X:SortK{}, \bottom{SortK{}}())
+                )
+            ) [label{}("dead"), simplification{}()]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                dead{}(write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("rolled back")))
+            ) [label{}("left")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                write{}(\dv{SortInt{}}("2"), \dv{SortString{}}("retained"))
+            ) [label{}("right")]
+        "#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, "initial{}()"),
+        ExecutionOptions::default(),
+        ExecutionIoState::default(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one retained branch: {result:#?}");
+    };
+    assert_eq!(leaf.io.transcript().len(), 1);
+    assert_eq!(leaf.io.transcript()[0].descriptor, 2);
+    assert_eq!(leaf.io.transcript()[0].bytes.as_ref(), b"retained");
+}
+
+#[test]
+fn rejected_read_candidate_does_not_advance_the_retained_cursor() {
+    let definition = console_io_definition(
+        r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortK{}, R}(
+                    deadInt{}(X:SortIOInt{}),
+                    \and{SortK{}}(dotk{}(), \bottom{SortK{}}())
+                )
+            ) [label{}("dead-int"), simplification{}()]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                deadInt{}(getc{}(\dv{SortInt{}}("0")))
+            ) [label{}("left")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                keepInt{}(getc{}(\dv{SortInt{}}("0")))
+            ) [label{}("right")]
+        "#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, "initial{}()"),
+        ExecutionOptions::default(),
+        ExecutionIoState::new(Vec::from(&b"Z"[..])),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one retained branch: {result:#?}");
+    };
+    assert_eq!(leaf.io.cursor(), 1);
+    let TermKind::Application { arguments, .. } = leaf.pattern.term.kind() else {
+        panic!("expected retained wrapper: {leaf:#?}");
+    };
+    assert!(matches!(
+        arguments[0].kind(),
+        TermKind::Injection { term, .. }
+            if matches!(term.kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "90")
+    ));
+}
+
+#[test]
+fn console_rewrite_branches_own_independent_transcripts() {
+    let definition = console_io_definition(
+        r#"
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("left"))
+            ) [label{}("left")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                write{}(\dv{SortInt{}}("2"), \dv{SortString{}}("right"))
+            ) [label{}("right")]
+        "#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, "initial{}()"),
+        ExecutionOptions::default(),
+        ExecutionIoState::default(),
+    );
+
+    assert_eq!(result.leaves.len(), 2);
+    assert_eq!(result.leaves[0].io.transcript()[0].bytes.as_ref(), b"left");
+    assert_eq!(result.leaves[1].io.transcript()[0].bytes.as_ref(), b"right");
+}
+
+#[test]
+fn console_rewrite_branches_own_independent_input_cursors() {
+    let definition = console_io_definition(
+        r#"
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                keepInt{}(getc{}(\dv{SortInt{}}("0")))
+            ) [label{}("one")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                keepString{}(read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("2")))
+            ) [label{}("two")]
+        "#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, "initial{}()"),
+        ExecutionOptions::default(),
+        ExecutionIoState::new(Vec::from(&b"abc"[..])),
+    );
+
+    assert_eq!(result.leaves.len(), 2);
+    assert_eq!(result.leaves[0].io.cursor(), 1);
+    assert_eq!(result.leaves[1].io.cursor(), 2);
+}
+
+#[test]
+fn console_cut_point_keeps_candidate_output_out_of_the_parent_transcript() {
+    let definition = console_io_definition(
+        r#"
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("candidate"))
+            ) [label{}("stop")]
+        "#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, "initial{}()"),
+        ExecutionOptions {
+            cut_point_rules: BTreeSet::from(["stop".into()]),
+            ..ExecutionOptions::default()
+        },
+        ExecutionIoState::default(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one cut-point leaf: {result:#?}");
+    };
+    assert!(leaf.io.transcript().is_empty());
+    let HaltReason::CutPointRule { rule, next_states } = &leaf.halt_reason else {
+        panic!("expected a cut-point halt: {leaf:#?}");
+    };
+    assert_eq!(rule, "stop");
+    assert_eq!(next_states.len(), 1);
+    assert_eq!(next_states[0].label.as_deref(), Some("stop"));
+}
+
+#[test]
+fn stopped_console_branch_keeps_candidate_output_out_of_the_parent_transcript() {
+    let definition = console_io_definition(
+        r#"
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                write{}(\dv{SortInt{}}("1"), \dv{SortString{}}("left"))
+            ) [label{}("left")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                write{}(\dv{SortInt{}}("2"), \dv{SortString{}}("right"))
+            ) [label{}("right")]
+        "#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, "initial{}()"),
+        ExecutionOptions {
+            branch_mode: ExecutionBranchMode::StopAtBranch,
+            ..ExecutionOptions::default()
+        },
+        ExecutionIoState::default(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one stopped branch leaf: {result:#?}");
+    };
+    assert!(leaf.io.transcript().is_empty());
+    let HaltReason::Branch { branches, .. } = &leaf.halt_reason else {
+        panic!("expected a branch halt: {leaf:#?}");
+    };
+    assert_eq!(branches.len(), 2);
+}
+
+#[test]
+fn console_terminal_rule_commits_the_selected_transition_output() {
+    let definition = console_io_definition(
+        r#"
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                write{}(\dv{SortInt{}}("2"), \dv{SortString{}}("terminal"))
+            ) [label{}("stop")]
+        "#,
+    );
+
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(&definition, "initial{}()"),
+        ExecutionOptions {
+            terminal_rules: BTreeSet::from(["stop".into()]),
+            ..ExecutionOptions::default()
+        },
+        ExecutionIoState::default(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one terminal leaf: {result:#?}");
+    };
+    assert_eq!(
+        leaf.halt_reason,
+        HaltReason::TerminalRule {
+            rule: "stop".into()
+        }
+    );
+    assert_eq!(leaf.io.transcript().len(), 1);
+    assert_eq!(leaf.io.transcript()[0].hook, "IO.write");
+    assert_eq!(leaf.io.transcript()[0].descriptor, 2);
+    assert_eq!(leaf.io.transcript()[0].bytes.as_ref(), b"terminal");
 }
 
 #[test]

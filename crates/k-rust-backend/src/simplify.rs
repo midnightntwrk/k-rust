@@ -14,7 +14,8 @@ use rustc_hash::FxHashSet;
 use crate::{
     builtin::{
         BuiltinEffect, BuiltinError, BuiltinResult, UnsupportedHookReason,
-        evaluate_in_definition as evaluate_builtin, k_sequence_item,
+        evaluate_in_definition as evaluate_builtin,
+        evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     cancellation::cancellation_requested,
     definedness::ceil_term,
@@ -32,6 +33,7 @@ use crate::{
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
+    transition::ExecutionEvaluationContext,
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -179,6 +181,35 @@ pub fn simplify_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
+    simplify_with_optional_execution(definition, term, known_predicates, options, solver, None)
+}
+
+pub(crate) fn simplify_in_execution_with_solver(
+    definition: &BackendDefinition,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    execution: &mut ExecutionEvaluationContext,
+) -> Result<Simplification, SimplificationError> {
+    simplify_with_optional_execution(
+        definition,
+        term,
+        known_predicates,
+        options,
+        solver,
+        Some(execution),
+    )
+}
+
+fn simplify_with_optional_execution(
+    definition: &BackendDefinition,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> Result<Simplification, SimplificationError> {
     measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
@@ -195,6 +226,7 @@ pub fn simplify_with_solver(
         &mut remaining,
         &active_conditions,
         solver,
+        execution,
     )?;
     if let Some(exhausted) = result.exhausted {
         diagnostic::emit(BackendDiagnostic::SimplificationBudgetExhausted {
@@ -844,6 +876,7 @@ fn simplify_predicate_with_budget(
             &mut term_remaining,
             active_conditions,
             solver,
+            None,
         )
     };
     let simplified = match predicate {
@@ -1880,6 +1913,7 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn simplify_with_budget(
     definition: &BackendDefinition,
     term: &Term,
@@ -1888,6 +1922,7 @@ fn simplify_with_budget(
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
+    mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<Simplification, SimplificationError> {
     let mut term = term.clone();
     let mut constraints = Vec::new();
@@ -1931,6 +1966,7 @@ fn simplify_with_budget(
             remaining,
             active_conditions,
             solver,
+            execution.as_deref_mut(),
         )?;
         let root = simplify_root(
             definition,
@@ -1939,6 +1975,7 @@ fn simplify_with_budget(
             options,
             active_conditions,
             solver,
+            execution.as_deref_mut(),
         )?;
         constraints.extend(children.constraints);
         constraints.extend(root.constraints);
@@ -2216,6 +2253,7 @@ fn matches_top_equation(
     Ok(None)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn simplify_children(
     definition: &BackendDefinition,
     term: &Term,
@@ -2224,6 +2262,7 @@ fn simplify_children(
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
+    mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<Simplification, SimplificationError> {
     let mut constraints = Vec::new();
     let mut applied_rules = Vec::new();
@@ -2249,6 +2288,7 @@ fn simplify_children(
             &mut child_remaining,
             active_conditions,
             solver,
+            execution.as_deref_mut(),
         )?;
         constraints.extend(result.constraints);
         applied_rules.extend(result.applied_rules);
@@ -2386,8 +2426,13 @@ fn simplify_root(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<Simplification, SimplificationError> {
-    let builtin = evaluate_builtin(term, definition).map_err(SimplificationError::Builtin)?;
+    let builtin = match execution {
+        Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
+        None => evaluate_builtin(term, definition),
+    }
+    .map_err(SimplificationError::Builtin)?;
     let unsupported = match builtin {
         BuiltinResult::NotApplicable => None,
         BuiltinResult::Unsupported(reason) => Some(reason),

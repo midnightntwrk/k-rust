@@ -1,6 +1,6 @@
 //! In-process evaluation of backend hooks implemented by Booster.
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use num_bigint::{BigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -104,6 +104,14 @@ pub enum BuiltinEffect {
     UserLog(String),
 }
 
+impl BuiltinEffect {
+    pub(crate) const fn hook(&self) -> &'static str {
+        match self {
+            Self::UserLog(_) => "IO.logString",
+        }
+    }
+}
+
 impl From<Option<Term>> for BuiltinResult {
     fn from(value: Option<Term>) -> Self {
         value.map_or(Self::NotApplicable, Self::Value)
@@ -124,10 +132,8 @@ pub(crate) fn evaluate_in_definition(
 
 /// Evaluate a hook candidate with buffered execution state available.
 ///
-/// Console hooks remain unsupported until their individual contracts are implemented. This entry
-/// point establishes the capability boundary for them without exposing host descriptors to pure
-/// simplification.
-#[allow(dead_code)] // Reserved for execution-only console hook dispatch.
+/// This entry point establishes the console capability boundary without exposing buffered
+/// descriptors to pure simplification.
 pub(crate) fn evaluate_in_execution(
     term: &Term,
     definition: &BackendDefinition,
@@ -198,7 +204,7 @@ fn evaluate_hook_with_context(
     result_sort: Option<&Sort>,
     sort_graph: Option<&SortGraph>,
     definition: Option<&BackendDefinition>,
-    _execution: Option<&mut ExecutionEvaluationContext>,
+    execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<BuiltinResult, BuiltinError> {
     check_interrupted()?;
     match hook {
@@ -243,6 +249,18 @@ fn evaluate_hook_with_context(
         "KEQUAL.eq" => kequal(arguments, false, sort_graph),
         "KEQUAL.ne" => kequal(arguments, true, sort_graph),
         "IO.logString" => return io_log_string(arguments),
+        "IO.getc" => {
+            return io_getc(arguments, result_sort, definition, execution);
+        }
+        "IO.read" => {
+            return io_read(arguments, result_sort, execution);
+        }
+        "IO.putc" => {
+            return io_putc(arguments, result_sort, definition, execution);
+        }
+        "IO.write" => {
+            return io_write(arguments, result_sort, definition, execution);
+        }
         _ => {
             return match HookName::parse(hook).map(HookName::kind) {
                 Some(HookNamespace::List) => list::evaluate(hook, arguments),
@@ -262,6 +280,227 @@ fn evaluate_hook_with_context(
         }
     }?;
     Ok(result.into())
+}
+
+fn execution_context(
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> Result<&mut ExecutionEvaluationContext, BuiltinResult> {
+    execution.ok_or(BuiltinResult::Unsupported(
+        UnsupportedHookReason::NotImplemented,
+    ))
+}
+
+fn io_getc(
+    arguments: &[Term],
+    result_sort: Option<&Sort>,
+    definition: Option<&BackendDefinition>,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> Result<BuiltinResult, BuiltinError> {
+    let Ok(execution) = execution_context(execution) else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        ));
+    };
+    expect_arity("IO.getc", arguments, 1)?;
+    let Some(descriptor) = read_int(&arguments[0]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if descriptor != BigInt::ZERO {
+        return Ok(unsupported_console_descriptor("IO.getc", &descriptor, 0));
+    }
+    let Some(result_sort) = result_sort else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        ));
+    };
+    let Some(byte) = execution.read(1).first().copied() else {
+        let Some(definition) = definition else {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::NotImplemented,
+            ));
+        };
+        const EOF_SYMBOL: &str = "Lbl'Hash'EOF";
+        let Some(symbol) = definition.symbols.get(EOF_SYMBOL) else {
+            return Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ArgumentOutOfRange {
+                    detail: format!("IO.getc result symbol {EOF_SYMBOL} is absent"),
+                },
+            ));
+        };
+        let value = Term::application(symbol.clone(), Vec::new(), Vec::new());
+        return Ok(BuiltinResult::Value(inject_result(value, result_sort)));
+    };
+    Ok(BuiltinResult::Value(inject_result(
+        int_term(BigInt::from(byte)),
+        result_sort,
+    )))
+}
+
+fn io_read(
+    arguments: &[Term],
+    result_sort: Option<&Sort>,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> Result<BuiltinResult, BuiltinError> {
+    let Ok(execution) = execution_context(execution) else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        ));
+    };
+    expect_arity("IO.read", arguments, 2)?;
+    let (Some(descriptor), Some(maximum)) = (read_int(&arguments[0]), read_int(&arguments[1]))
+    else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if descriptor != BigInt::ZERO {
+        return Ok(unsupported_console_descriptor("IO.read", &descriptor, 0));
+    }
+    let Some(maximum) = maximum.to_usize() else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ArgumentOutOfRange {
+                detail: format!("IO.read length {maximum} is not representable as usize"),
+            },
+        ));
+    };
+    let Some(result_sort) = result_sort else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        ));
+    };
+    let bytes = execution.read(maximum);
+    let Ok(value) = std::str::from_utf8(bytes) else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ArgumentOutOfRange {
+                detail: "IO.read returned bytes that cannot be represented by the backend's UTF-8 String domain values".into(),
+            },
+        ));
+    };
+    Ok(BuiltinResult::Value(inject_result(
+        Term::domain_value(Sort::builtin(BuiltinSort::String), value),
+        result_sort,
+    )))
+}
+
+fn io_putc(
+    arguments: &[Term],
+    result_sort: Option<&Sort>,
+    definition: Option<&BackendDefinition>,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> Result<BuiltinResult, BuiltinError> {
+    let Ok(execution) = execution_context(execution) else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        ));
+    };
+    expect_arity("IO.putc", arguments, 2)?;
+    let (Some(descriptor), Some(value)) = (read_int(&arguments[0]), read_int(&arguments[1])) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(descriptor) = output_descriptor(&descriptor) else {
+        return Ok(unsupported_console_descriptor("IO.putc", &descriptor, 1));
+    };
+    let Some(value) = value.to_u8() else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ArgumentOutOfRange {
+                detail: format!("IO.putc value {value} is outside the byte range 0..=255"),
+            },
+        ));
+    };
+    let unit = io_k_unit("IO.putc", result_sort, definition);
+    if !matches!(unit, BuiltinResult::Value(_)) {
+        return Ok(unit);
+    }
+    execution.append("IO.putc", descriptor, Arc::<[u8]>::from([value]));
+    Ok(unit)
+}
+
+fn io_write(
+    arguments: &[Term],
+    result_sort: Option<&Sort>,
+    definition: Option<&BackendDefinition>,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> Result<BuiltinResult, BuiltinError> {
+    let Ok(execution) = execution_context(execution) else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented,
+        ));
+    };
+    expect_arity("IO.write", arguments, 2)?;
+    let Some(descriptor) = read_int(&arguments[0]) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let Some(descriptor) = output_descriptor(&descriptor) else {
+        return Ok(unsupported_console_descriptor("IO.write", &descriptor, 1));
+    };
+    let TermKind::DomainValue { sort, value } = arguments[1].kind() else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    if !sort.is_builtin(BuiltinSort::String) {
+        return Ok(BuiltinResult::NotApplicable);
+    }
+    let unit = io_k_unit("IO.write", result_sort, definition);
+    if !matches!(unit, BuiltinResult::Value(_)) {
+        return Ok(unit);
+    }
+    execution.append("IO.write", descriptor, Arc::<[u8]>::from(value.as_bytes()));
+    Ok(unit)
+}
+
+fn io_k_unit(
+    hook: &'static str,
+    result_sort: Option<&Sort>,
+    definition: Option<&BackendDefinition>,
+) -> BuiltinResult {
+    let (Some(result_sort), Some(definition)) = (result_sort, definition) else {
+        return BuiltinResult::Unsupported(UnsupportedHookReason::NotImplemented);
+    };
+    let Some(dotk) = definition.symbols.get(WellKnownSymbol::DotK.as_str()) else {
+        return BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange {
+            detail: format!(
+                "{hook} result symbol {} is absent",
+                WellKnownSymbol::DotK.as_str()
+            ),
+        });
+    };
+    if !dotk.sort_variables.is_empty() || !dotk.argument_sorts.is_empty() {
+        return BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange {
+            detail: format!(
+                "{hook} result symbol {} is not nullary",
+                WellKnownSymbol::DotK.as_str()
+            ),
+        });
+    }
+    let mut dotk = dotk.as_ref().clone();
+    dotk.result_sort = result_sort.clone();
+    BuiltinResult::Value(Term::application(Arc::new(dotk), Vec::new(), Vec::new()))
+}
+
+fn output_descriptor(descriptor: &BigInt) -> Option<i32> {
+    match descriptor.to_i32() {
+        Some(descriptor @ (1 | 2)) => Some(descriptor),
+        _ => None,
+    }
+}
+
+fn unsupported_console_descriptor(
+    hook: &'static str,
+    descriptor: &BigInt,
+    expected: i32,
+) -> BuiltinResult {
+    let direction = if expected == 0 { "input" } else { "output" };
+    BuiltinResult::Unsupported(UnsupportedHookReason::ArgumentOutOfRange {
+        detail: format!(
+            "{hook} descriptor {descriptor} is not a supported console {direction} descriptor"
+        ),
+    })
+}
+
+fn inject_result(value: Term, result_sort: &Sort) -> Term {
+    let source = value.sort();
+    if &source == result_sort {
+        value
+    } else {
+        Term::injection(source, result_sort.clone(), value)
+    }
 }
 
 fn check_interrupted() -> Result<(), BuiltinError> {

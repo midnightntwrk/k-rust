@@ -25,7 +25,7 @@ use crate::{
     simplify::{
         ConditionIndeterminacy, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, PatternSimplification,
         RuleCondition, SimplificationError, SimplificationOptions,
-        binds_element_variable_to_set_pattern, decide_condition,
+        binds_element_variable_to_set_pattern, decide_condition, simplify_in_execution_with_solver,
         simplify_pattern_details_with_solver, simplify_predicates_with_solver,
         simplify_with_solver,
     },
@@ -128,6 +128,8 @@ pub struct AppliedRule {
     /// path constraints. RPC diagnostics use this provenance to report `rule-predicate` exactly.
     pub rule_predicates: Vec<Predicate>,
     pub effects: Vec<BuiltinEffect>,
+    /// Console state tentatively produced while evaluating this candidate's right-hand side.
+    pub(crate) io: Option<ExecutionIoState>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -402,8 +404,7 @@ pub fn execute(
 
 /// Execute one ordinary branch set with pre-buffered console input.
 ///
-/// This does not enable console hooks. It establishes the branch-local state consumed by the
-/// execution-only builtin evaluator once those hooks are implemented.
+/// Console hooks are available only through this ordinary-execution entry point.
 pub fn execute_with_io_state(
     definition: &BackendDefinition,
     initial: Pattern,
@@ -513,17 +514,22 @@ fn execute_using(
     let mut fresh_counter = 0;
     let mut observation_log = ObservationLog::default();
     let initial_input_count = initial.len();
+    let has_execution_io = initial_io.is_some();
     let initial_io = initial_io.unwrap_or_default();
     let mut pending = initial
         .into_iter()
-        .map(|pattern| ExecutionState {
-            pattern,
-            depth: 0,
-            trace: Vec::new(),
-            observation: None,
-            effects: EffectJournal::default(),
-            io: initial_io.clone(),
-            is_initial_input: true,
+        .map(|pattern| {
+            let io_enabled = has_execution_io && pattern_supports_execution_io(&pattern);
+            ExecutionState {
+                pattern,
+                depth: 0,
+                trace: Vec::new(),
+                observation: None,
+                effects: EffectJournal::default(),
+                io: initial_io.clone(),
+                io_enabled,
+                is_initial_input: true,
+            }
         })
         .collect::<VecDeque<_>>();
     let mut leaves = SelectedExecutionLeaves::default();
@@ -651,13 +657,25 @@ fn execute_using(
             }
         }
         let pattern_before_term_simplification = state.pattern.clone();
-        let simplified = simplify_with_solver(
-            definition,
-            &state.pattern.term,
-            &state.pattern.constraints,
-            SimplificationOptions::keep_partial(options.max_simplification_iterations),
-            solver,
-        );
+        state.io_enabled &= pattern_supports_execution_io(&state.pattern);
+        let mut io_evaluation = state.io_enabled.then(|| state.io.begin_evaluation());
+        let simplified = match io_evaluation.as_mut() {
+            Some(execution) => simplify_in_execution_with_solver(
+                definition,
+                &state.pattern.term,
+                &state.pattern.constraints,
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+                execution,
+            ),
+            None => simplify_with_solver(
+                definition,
+                &state.pattern.term,
+                &state.pattern.constraints,
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+            ),
+        };
         finish_if_interrupted!();
         let undefined_term = match simplified {
             Ok(simplified) => {
@@ -723,6 +741,10 @@ fn execute_using(
                 continue;
             }
         }
+        if let Some(execution) = io_evaluation {
+            state.io = execution.commit();
+        }
+        state.io_enabled &= pattern_supports_execution_io(&state.pattern);
         if state.depth >= options.max_depth {
             let pattern = state.pattern.clone();
             leaves.push(externalise_leaf(
@@ -737,7 +759,7 @@ fn execute_using(
             ));
             continue;
         }
-        let rewritten = rewrite_step_with_mode(
+        let rewritten = rewrite_step_with_optional_execution(
             definition,
             &state.pattern,
             &mut fresh_counter,
@@ -745,6 +767,7 @@ fn execute_using(
             solver,
             options.mode,
             options.assume_initial_defined,
+            state.io_enabled.then_some(&state.io),
         );
         finish_if_interrupted!();
         match rewritten {
@@ -1141,6 +1164,10 @@ fn execute_using(
     )
 }
 
+fn pattern_supports_execution_io(pattern: &Pattern) -> bool {
+    pattern.constraints.is_empty() && pattern.term.attributes().variables.is_empty()
+}
+
 /// Kore's `GraphTraversal.checkLeftUnproven` reports stuck and vacuous results in
 /// preference to states that merely reached the depth bound. Apply that selection before
 /// deduplication so an equal depth-bounded leaf cannot hide a later stuck leaf.
@@ -1482,6 +1509,9 @@ fn next_state(
     state.observation =
         observation_log.append_applied(state.observation, &applied, observation_options);
     state.effects.commit(applied.effects.iter().cloned());
+    if let Some(io) = applied.io {
+        state.io = io;
+    }
     state.trace.push(TraceEntry {
         depth: state.depth + 1,
         kind: TraceKind::Rewrite,
@@ -1527,6 +1557,8 @@ struct ExecutionState {
     observation: ObservationHead,
     effects: EffectJournal,
     io: ExecutionIoState,
+    /// Whether the console capability remains available on this concrete execution prefix.
+    io_enabled: bool,
     is_initial_input: bool,
 }
 
@@ -1651,6 +1683,29 @@ pub(crate) fn rewrite_step_with_mode(
     mode: ExecutionMode,
     assume_initial_defined: bool,
 ) -> RewriteResult {
+    rewrite_step_with_optional_execution(
+        definition,
+        pattern,
+        fresh_counter,
+        simplification_options,
+        solver,
+        mode,
+        assume_initial_defined,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rewrite_step_with_optional_execution(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    mode: ExecutionMode,
+    assume_initial_defined: bool,
+    io: Option<&ExecutionIoState>,
+) -> RewriteResult {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
         return RewriteResult::Indeterminate {
             pattern: pattern.clone(),
@@ -1668,6 +1723,7 @@ pub(crate) fn rewrite_step_with_mode(
             simplification_options,
             solver,
             assume_initial_defined,
+            io,
         ),
         ExecutionMode::Any => rewrite_step_any(
             definition,
@@ -1675,6 +1731,7 @@ pub(crate) fn rewrite_step_with_mode(
             fresh_counter,
             simplification_options,
             solver,
+            io,
         ),
     }
 }
@@ -1686,6 +1743,7 @@ fn rewrite_step_all(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
+    io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
     let index = term_index(&pattern.term);
     let priority_groups = applicable_groups(definition, &index);
@@ -1704,6 +1762,7 @@ fn rewrite_step_all(
                 simplification_options,
                 solver,
                 assume_initial_defined,
+                io,
             ) {
                 RuleAttempt::NotApplicable => {}
                 RuleAttempt::Unified { groups } => {
@@ -1818,6 +1877,7 @@ fn rewrite_step_any(
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
+    io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
     let index = term_index(&pattern.term);
     let priority_groups = applicable_groups(definition, &index);
@@ -1841,6 +1901,7 @@ fn rewrite_step_any(
             simplification_options,
             solver,
             false,
+            io,
         ) {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Unified { groups } => {
@@ -2578,6 +2639,7 @@ struct MapNotInKeysSplit {
     map: Term,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_rule(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -2586,6 +2648,7 @@ fn apply_rule(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
+    io: Option<&ExecutionIoState>,
 ) -> RuleAttempt {
     apply_rule_with_match(
         definition,
@@ -2596,6 +2659,7 @@ fn apply_rule(
         solver,
         assume_initial_defined,
         None,
+        io,
     )
 }
 
@@ -2609,6 +2673,7 @@ fn apply_rule_with_match(
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
     matched: Option<PartialRuleMatch>,
+    io: Option<&ExecutionIoState>,
 ) -> RuleAttempt {
     measure::bump(Counter::RewriteRuleAttempts);
     let (matching, mut inherited_conditions) = if let Some(matched) = matched {
@@ -2692,6 +2757,7 @@ fn apply_rule_with_match(
                                 solver,
                                 assume_initial_defined,
                                 Some(matched),
+                                io,
                             )
                         }));
                     }
@@ -2713,6 +2779,7 @@ fn apply_rule_with_match(
                                 solver,
                                 assume_initial_defined,
                                 Some(matched),
+                                io,
                             )
                         }));
                     }
@@ -2737,6 +2804,7 @@ fn apply_rule_with_match(
                                 solver,
                                 assume_initial_defined,
                                 Some(matched),
+                                io,
                             )
                         }));
                     }
@@ -2761,6 +2829,7 @@ fn apply_rule_with_match(
                                 solver,
                                 assume_initial_defined,
                                 Some(matched),
+                                io,
                             )
                         }));
                     }
@@ -2780,6 +2849,7 @@ fn apply_rule_with_match(
                                 solver,
                                 assume_initial_defined,
                                 Some(matched),
+                                io,
                             )
                         }));
                     }
@@ -2826,6 +2896,7 @@ fn apply_rule_with_match(
                                     conditions,
                                     remainder: Vec::new(),
                                 }),
+                                io,
                             )
                         }));
                     }
@@ -2867,6 +2938,7 @@ fn apply_rule_with_match(
                                                     conditions,
                                                     remainder: Vec::new(),
                                                 }),
+                                                io,
                                             )
                                         },
                                     ));
@@ -3120,6 +3192,7 @@ fn apply_rule_with_match(
                     conditions: substitute_predicates(&conditions, &bindings),
                     remainder: Vec::new(),
                 }),
+                io,
             );
         }
     }
@@ -3246,6 +3319,7 @@ fn apply_rule_with_match(
             &applicability,
             simplification_options,
             solver,
+            io,
         ) {
             RhsAlternativeAttempt::Applied(application) => applications.push(application),
             RhsAlternativeAttempt::Trivial {
@@ -3365,20 +3439,40 @@ fn apply_rhs_alternative(
     applicability: &Predicate,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
+    io: Option<&ExecutionIoState>,
 ) -> RhsAlternativeAttempt {
     let rhs = substitute(&substitute(rhs, substitution), existential_substitution);
+    let io = io.filter(|_| {
+        pattern.constraints.is_empty()
+            && rhs.attributes().variables.is_empty()
+            && condition_knowledge.is_empty()
+            && match_conditions.is_empty()
+            && unclear_requires.is_empty()
+    });
     let mut condition_knowledge = condition_knowledge.to_vec();
+    let mut io_evaluation = io.map(ExecutionIoState::begin_evaluation);
     let (rhs, mut rhs_constraints, effects, undefined_term) =
-        if rule.computed_attributes.undefined_symbols.is_empty() {
+        if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
             (rhs, Vec::new(), Vec::new(), None)
         } else {
-            match simplify_with_solver(
-                definition,
-                &rhs,
-                &condition_knowledge,
-                simplification_options,
-                solver,
-            ) {
+            let simplified = match io_evaluation.as_mut() {
+                Some(execution) => simplify_in_execution_with_solver(
+                    definition,
+                    &rhs,
+                    &condition_knowledge,
+                    simplification_options,
+                    solver,
+                    execution,
+                ),
+                None => simplify_with_solver(
+                    definition,
+                    &rhs,
+                    &condition_knowledge,
+                    simplification_options,
+                    solver,
+                ),
+            };
+            match simplified {
                 Ok(simplified) => (
                     simplified.term,
                     simplified.constraints,
@@ -3501,6 +3595,7 @@ fn apply_rhs_alternative(
             rule_substitution,
             rule_predicates,
             effects,
+            io: io_evaluation.map(|execution| execution.commit()),
         },
         remainder: remainder_of(applicability),
     })
@@ -4948,10 +5043,10 @@ mod tests {
         assert_eq!(cursor_evaluation.read(1), b"i");
         let cursor_one = cursor_evaluation.commit();
         let mut left_evaluation = ExecutionIoState::default().begin_evaluation();
-        left_evaluation.append(1, Vec::from(&b"left"[..]));
+        left_evaluation.append("IO.write", 1, Vec::from(&b"left"[..]));
         let left_io = left_evaluation.commit();
         let mut right_evaluation = ExecutionIoState::default().begin_evaluation();
-        right_evaluation.append(1, Vec::from(&b"right"[..]));
+        right_evaluation.append("IO.write", 1, Vec::from(&b"right"[..]));
         let right_io = right_evaluation.commit();
         let leaf = |io| ExecutionLeaf {
             pattern: subject(&definition, "same"),
