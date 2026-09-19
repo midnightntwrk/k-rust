@@ -255,9 +255,10 @@ No execution, expectation, floor, normalisation, exclusion, or differential-mani
 Gates: both focused CLI regressions, all five `io_off` CLI tests, a pseudo-terminal smoke test of the terminal-only note, `cargo fmt --check`, `taplo lint` on `tickets.toml`, and `git diff --check` pass.
 The audit reports 3 pending cases, 0 pending without an open ticket, and 0 open tickets whose cases all match; the 3 below-floor cases remain excluded.
 
-## 2026-09-19: CB-19 implemented and closed (`0188e8a`, `086fd75`)
+## 2026-09-19: CB-19 implemented and closed (`0188e8a`, `086fd75`, `f280fc0`)
 
 CB-19-A/C at `0188e8a` retain the innermost partial builtin application that becomes undefined, carry the applied rule and refuted obligation on trivial execution leaves, and report every dropped trivial or vacuous CLI leaf with its semantic depth while preserving `\bottom`, exit status, RPC and search behavior.
+CB-19-A review completion at `f280fc0` carries the latest applied-rule identity on vacuous execution leaves and names the label, or unique ID fallback, in their CLI diagnostic; initial vacuity remains unattributed.
 The reduced stdin delimiter fixture is promoted under `crates/k-rust/tests/fixtures/reference/execution/stdin-delimiter-run/`: a single delimiter completes with stdout buffer `241`, while a leading delimiter and a delimiter run return `\bottom` with `STDIN-STREAM.stdinParseInt` and `String2Int("")` in the diagnostic.
 
 CB-19-B at `086fd75` makes C9 read the `#parseInput(_, D)` delimiter literal generated into `krust-kompiled/definition.kore` and recognize only a leading or adjacent delimiter together with krust's attributed `STDIN-STREAM` diagnostic.
