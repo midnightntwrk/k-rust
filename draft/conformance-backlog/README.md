@@ -254,3 +254,16 @@ No execution, expectation, floor, normalisation, exclusion, or differential-mani
 
 Gates: both focused CLI regressions, all five `io_off` CLI tests, a pseudo-terminal smoke test of the terminal-only note, `cargo fmt --check`, `taplo lint` on `tickets.toml`, and `git diff --check` pass.
 The audit reports 3 pending cases, 0 pending without an open ticket, and 0 open tickets whose cases all match; the 3 below-floor cases remain excluded.
+
+## 2026-09-19: CB-19 implemented and closed (`0188e8a`, `086fd75`)
+
+CB-19-A/C at `0188e8a` retain the innermost partial builtin application that becomes undefined, carry the applied rule and refuted obligation on trivial execution leaves, and report every dropped trivial or vacuous CLI leaf with its semantic depth while preserving `\bottom`, exit status, RPC and search behavior.
+The reduced stdin delimiter fixture is promoted under `crates/k-rust/tests/fixtures/reference/execution/stdin-delimiter-run/`: a single delimiter completes with stdout buffer `241`, while a leading delimiter and a delimiter run return `\bottom` with `STDIN-STREAM.stdinParseInt` and `String2Int("")` in the diagnostic.
+
+CB-19-B at `086fd75` makes C9 read the `#parseInput(_, D)` delimiter literal generated into `krust-kompiled/definition.kore` and recognize only a leading or adjacent delimiter together with krust's attributed `STDIN-STREAM` diagnostic.
+That step becomes `skipped-with-reason` under the existing `undriven-recipe` doctrine; every other input-program `\bottom` remains a DF-04 error.
+The C9 register, compatibility guide, category meaning and SIMPLE untyped `step_exclusions` row record the precondition and the CB-15-5 reconsideration trigger.
+
+Private sequence 28 (`target/conformance/runs/28-cb-19-implementation-private/`, 600.2 s, `--jobs 1`, peak RSS 838 MiB) preserves the case floor and budget.
+Of 32 steps, 24 match, `matrix.simple` is skipped with the C9 stdin precondition in 3.3 s, `threads_05` consumes the remaining 286.2 s, and `threads_06/07/09/10/11/12` are budget-skipped.
+The post-closure audit lists the case under CB-12 and CB-16 only; CB-19 is closed with no backend semantic change, normalisation, floor or budget change.
