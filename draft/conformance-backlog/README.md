@@ -30,10 +30,10 @@ All eleven `[[decision]]` rows are decided; no owner policy choice blocks the qu
 |---|---|---|---|
 | none | — | all recorded tickets closed | — |
 
-CB-15 is closed through captured output `8fb9a55`, committed effect ownership `d5eb262`, branch-local state `d983b8d`, console hooks `12737c0`, arbitrary-byte strings `eb9e39b`, live delivery `7a2ebe6`, and the CB-15-6 closure commit.
+CB-15 is closed through captured output `8fb9a55`, committed effect ownership `d5eb262`, branch-local state `d983b8d`, console hooks `12737c0`, arbitrary-byte strings `eb9e39b`, live delivery `7a2ebe6`, and the CB-15-6 closure implementation `b865b8a`.
 C9 remains the primary independent oracle for normal tutorial streams; the `matrix.simple` fallback records its C9 input-precondition failure before a separate committed live comparison.
 
-## 2026-09-20: CB-15 closed after `7a2ebe6` and the CB-15-6 closure commit
+## 2026-09-20: CB-15 closed after `7a2ebe6` and the CB-15-6 closure implementation `b865b8a`
 
 The exact-byte regression `c9_captured_and_live_console_paths_agree_on_arbitrary_bytes` independently obtains `ff 80 00 41` from structural C9 extraction of an `--io off` KORE result, `krust krun --output captured`, and committed `--io on --output none` execution.
 It exposed and fixed UTF-8 coercion in captured and C9 stream-buffer extraction; the three paths now preserve the same arbitrary bytes without deriving one observation from another.

@@ -1271,7 +1271,7 @@ def stdout_bytes_divergence(expected, actual):
 
 
 def compare_stdout_buffer(case, step, kore_path, expected_path):
-    """C9: structurally extract one unconstrained stdout buffer and compare its UTF-8 bytes."""
+    """C9: structurally extract one unconstrained stdout buffer and compare its exact bytes."""
     rc, out, err, timed_out = run_test_binary_result(
         "conformance_stdout_stream_buffers",
         {"K_RUST_EXECUTION": kore_path},

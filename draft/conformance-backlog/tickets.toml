@@ -281,7 +281,7 @@ id = "CB-15"
 worker = "workers/CB-15.md"
 title = "Committed-trace console IO"
 state = "closed"
-closed = "2026-09-20, implementations 8fb9a55, d5eb262, d983b8d, 12737c0, eb9e39b and 7a2ebe6; CB-15-6 closure run sequence 31"
+closed = "2026-09-20, implementations 8fb9a55, d5eb262, d983b8d, 12737c0, eb9e39b, 7a2ebe6 and b865b8a; CB-15-6 closure run sequence 31"
 case_role = "evidence"
 cases = [
   "pl-tutorial/2_languages/1_simple/1_untyped",
@@ -289,8 +289,8 @@ cases = [
   "pl-tutorial/2_languages/2_kool/1_untyped",
   "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic",
 ]
-measured = "CB-15-6 sequence 31 (label cb-15-6-four-cases, 7a2ebe6 plus driver closure, --jobs 2): all 118 driven steps in the four cases match in 201.5 s wall time with 1,459 MiB peak RSS. SIMPLE untyped/typed-dynamic and KOOL untyped/typed-dynamic take 130.1/70.3/62.4/71.3 s. Their ordinary console recipes retain 103 independent C9 matches. matrix.simple first reproduces the attributed C9 buffered-tokenization failure, then matches all 607 checked-in bytes through pre-buffered --io on in 13.7 s; its conditional exclusion is removed. Results SHA-256: 37e1aa7c5b4df2959e029b75cc804417aa7b34b1feebd9aeb625efe75ff7b452."
-work = "Done. CB-15-2 added explicit captured output at 8fb9a55. CB-15-1/3/4 established committed effect ownership, branch-local console state and the four descriptor-limited hooks at d5eb262, d983b8d and 12737c0; eb9e39b preserved arbitrary string bytes. CB-15-5 delivered committed live output at 7a2ebe6 while retaining the search and RPC policies. CB-15-6 makes C9 byte-exact, adds the independent C9/captured/live arbitrary-byte regression, translates explicit live recipes and proved C9 stdin-precondition failures, removes matrix.simple's conditional exclusion, and records the four-case acceptance."
+measured = "CB-15-6 sequence 31 (label cb-15-6-four-cases, closure implementation b865b8a on 7a2ebe6, --jobs 2): all 118 driven steps in the four cases match in 201.5 s wall time with 1,459 MiB peak RSS. SIMPLE untyped/typed-dynamic and KOOL untyped/typed-dynamic take 130.1/70.3/62.4/71.3 s. Their ordinary console recipes retain 103 independent C9 matches. matrix.simple first reproduces the attributed C9 buffered-tokenization failure, then matches all 607 checked-in bytes through pre-buffered --io on in 13.7 s; its conditional exclusion is removed. Results SHA-256: 37e1aa7c5b4df2959e029b75cc804417aa7b34b1feebd9aeb625efe75ff7b452."
+work = "Done. CB-15-2 added explicit captured output at 8fb9a55. CB-15-1/3/4 established committed effect ownership, branch-local console state and the four descriptor-limited hooks at d5eb262, d983b8d and 12737c0; eb9e39b preserved arbitrary string bytes. CB-15-5 delivered committed live output at 7a2ebe6 while retaining the search and RPC policies. CB-15-6 at b865b8a makes C9 byte-exact, adds the independent C9/captured/live arbitrary-byte regression, translates explicit live recipes and proved C9 stdin-precondition failures, removes matrix.simple's conditional exclusion, and records the four-case acceptance."
 resolution = "2026-09-20: closed as committed-trace console IO with pre-buffered input. Ordinary execution implements IO.getc/read on descriptor 0 and IO.putc/write on descriptors 1/2 through branch-local state; only a selected --strategy any trace reaches host output. Captured output remains explicit, search rejects --io on, RPC performs no host IO, and other hooks or descriptors remain unsupported. C9 remains the primary independent tutorial oracle wherever buffered tokenization is valid; only its proved matrix.simple input-precondition failure selects the separately measured committed transcript. The exact-byte three-path regression prevents captured, C9 and live observation from deriving one result from another."
 elsewhere = [
   "draft/conformance-backlog/workers/CB-09.md",

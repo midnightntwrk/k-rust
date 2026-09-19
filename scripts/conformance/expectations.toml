@@ -1998,11 +1998,11 @@ reason = "The accepted search recipes match after forwarding --pattern and compa
 name = "pl-tutorial/2_languages/1_simple/1_untyped"
 accepted_verdict = "match"
 accepted_stage = "search"
-accepted_basis = "CB-15-6 sequence 31 on 7a2ebe6 executes all 32 steps in 130.1 s: 22 console recipes match independently through C9, matrix.simple matches its 607-byte output through committed pre-buffered --io on after C9 records the attributed buffered-tokenization failure, and every search recipe matches."
+accepted_basis = "CB-15-6 sequence 31 on closure implementation b865b8a, based on 7a2ebe6, executes all 32 steps in 130.1 s: 22 console recipes match independently through C9, matrix.simple matches its 607-byte output through committed pre-buffered --io on after C9 records the attributed buffered-tokenization failure, and every search recipe matches."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "CB-15-6 sequence 31 (7a2ebe6 plus driver closure, --jobs 2): all 32 steps match in 130.1 s. Twenty-two console recipes retain the independent C9 stdout-buffer comparison. matrix.simple first reproduces C9's attributed STDIN-STREAM.stdinParseInt/String2Int(\"\") precondition failure in 0.5 s, then its recipe is driven with pre-buffered --io on and its 607 committed stdout bytes match in 13.7 s. The former undriven-recipe step exclusion is removed."
+reason = "CB-15-6 sequence 31 (closure implementation b865b8a on 7a2ebe6, --jobs 2): all 32 steps match in 130.1 s. Twenty-two console recipes retain the independent C9 stdout-buffer comparison. matrix.simple first reproduces C9's attributed STDIN-STREAM.stdinParseInt/String2Int(\"\") precondition failure in 0.5 s, then its recipe is driven with pre-buffered --io on and its 607 committed stdout bytes match in 13.7 s. The former undriven-recipe step exclusion is removed."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
@@ -2021,7 +2021,7 @@ accepted_basis = "Private CB-12-5/CB-22-3 acceptance on b64e130 executes all 27 
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "CB-15-6 sequence 31 (7a2ebe6 plus driver closure, --jobs 2): all 27 driven steps match in 70.3 s, including 24 console recipes through the independent C9 stdout-buffer comparison and every search recipe. Six targets remain outside the driven set because the upstream multi-target Make rule selects only its first target."
+reason = "CB-15-6 sequence 31 (closure implementation b865b8a on 7a2ebe6, --jobs 2): all 27 driven steps match in 70.3 s, including 24 console recipes through the independent C9 stdout-buffer comparison and every search recipe. Six targets remain outside the driven set because the upstream multi-target Make rule selects only its first target."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/1_untyped"
@@ -2030,7 +2030,7 @@ accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "CB-15-6 sequence 31 (7a2ebe6 plus driver closure, --jobs 2): all 29 steps match in 62.4 s, including all 28 console recipes through the independent C9 stdout-buffer comparison."
+reason = "CB-15-6 sequence 31 (closure implementation b865b8a on 7a2ebe6, --jobs 2): all 29 steps match in 62.4 s, including all 28 console recipes through the independent C9 stdout-buffer comparison."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"
@@ -2039,7 +2039,7 @@ accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "CB-15-6 sequence 31 (7a2ebe6 plus driver closure, --jobs 2): all 30 steps match in 71.3 s, including all 29 console recipes through the independent C9 stdout-buffer comparison."
+reason = "CB-15-6 sequence 31 (closure implementation b865b8a on 7a2ebe6, --jobs 2): all 30 steps match in 71.3 s, including all 29 console recipes through the independent C9 stdout-buffer comparison."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"
