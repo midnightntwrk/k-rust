@@ -385,10 +385,12 @@ pub(crate) struct Narrowing<'a> {
 }
 
 enum PairSolution {
-    Solved(CollectionSolution),
+    Solved(Vec<CollectionSolution>),
     NoSolution,
     Indeterminate,
 }
+
+const MAX_NESTED_COLLECTION_DEPTH: usize = 64;
 
 /// Solve deferred collection pairs in their original, pattern-oriented order.
 ///
@@ -402,25 +404,13 @@ pub(crate) fn solve_collection_pairs_in_definition(
     pairs: &[(Term, Term)],
     mut narrowing: Option<&mut Narrowing<'_>>,
 ) -> Option<Vec<CollectionSolution>> {
-    let mut solutions = vec![CollectionSolution {
+    let initial = CollectionSolution {
         substitution: initial,
         constraints: Vec::new(),
         fresh: BTreeSet::new(),
-    }];
-    for (pattern, subject) in pairs {
-        let mut next = Vec::new();
-        for solution in solutions {
-            next.extend(solve_collection_pair(
-                mode,
-                definition,
-                pattern,
-                subject,
-                solution,
-                &mut narrowing,
-            )?);
-        }
-        solutions = next;
-    }
+    };
+    let mut solutions =
+        solve_collection_pairs_from_solution(mode, definition, initial, pairs, &mut narrowing, 0)?;
     for solution in &mut solutions {
         solution.constraints.sort();
         solution.constraints.dedup();
@@ -430,6 +420,53 @@ pub(crate) fn solve_collection_pairs_in_definition(
     Some(solutions)
 }
 
+/// Solve whichever deferred collection pair is currently decidable, then restart the remaining
+/// pairs with its substitutions. A whole sweep without a decidable pair is indeterminate.
+fn solve_collection_pairs_from_solution(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    solution: CollectionSolution,
+    pairs: &[(Term, Term)],
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
+) -> Option<Vec<CollectionSolution>> {
+    if depth > MAX_NESTED_COLLECTION_DEPTH {
+        return None;
+    }
+    if pairs.is_empty() {
+        return Some(vec![solution]);
+    }
+
+    let mut deferred = Vec::new();
+    for (index, (pattern, subject)) in pairs.iter().enumerate() {
+        let Some(found) = solve_collection_pair(
+            mode,
+            definition,
+            pattern,
+            subject,
+            solution.clone(),
+            narrowing,
+            depth,
+        ) else {
+            deferred.push((pattern.clone(), subject.clone()));
+            continue;
+        };
+        if found.is_empty() {
+            return Some(Vec::new());
+        }
+
+        deferred.extend(pairs[index + 1..].iter().cloned());
+        let mut completed = Vec::new();
+        for found in found {
+            completed.extend(solve_collection_pairs_from_solution(
+                mode, definition, found, &deferred, narrowing, depth,
+            )?);
+        }
+        return Some(completed);
+    }
+    None
+}
+
 fn solve_collection_pair(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -437,33 +474,33 @@ fn solve_collection_pair(
     subject: &Term,
     solution: CollectionSolution,
     narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
     let pattern = substitute(pattern, &solution.substitution);
     let subject = substitute(subject, &solution.substitution);
     match (pattern.kind(), subject.kind()) {
-        (TermKind::Map { .. }, TermKind::Map { .. }) => {
-            solve_map_pair(mode, definition, &pattern, &subject, solution, narrowing)
-        }
-        (TermKind::Set { .. }, TermKind::Set { .. }) => {
-            solve_set_pair(mode, definition, &pattern, &subject, solution, narrowing)
-        }
+        (TermKind::Map { .. }, TermKind::Map { .. }) => solve_map_pair(
+            mode, definition, &pattern, &subject, solution, narrowing, depth,
+        ),
+        (TermKind::Set { .. }, TermKind::Set { .. }) => solve_set_pair(
+            mode, definition, &pattern, &subject, solution, narrowing, depth,
+        ),
         (TermKind::Application { .. }, TermKind::Set { .. }) if set_parts(&pattern).is_some() => {
-            solve_set_pair(mode, definition, &pattern, &subject, solution, narrowing)
+            solve_set_pair(
+                mode, definition, &pattern, &subject, solution, narrowing, depth,
+            )
         }
         (TermKind::List { .. }, TermKind::List { .. }) => solve_list_pair(
-            mode,
-            definition,
-            &pattern,
-            &subject,
-            solution,
-            narrowing.is_some(),
+            mode, definition, &pattern, &subject, solution, narrowing, depth,
         ),
         (
             TermKind::Map { .. } | TermKind::Set { .. } | TermKind::List { .. },
             TermKind::Variable(_),
         ) if narrowing.is_some() => {
-            match solve_term_pair(mode, definition, solution, &pattern, &subject, true) {
-                PairSolution::Solved(solution) => Some(vec![solution]),
+            match solve_term_pair(
+                mode, definition, solution, &pattern, &subject, narrowing, depth,
+            ) {
+                PairSolution::Solved(solutions) => Some(solutions),
                 PairSolution::NoSolution => Some(Vec::new()),
                 PairSolution::Indeterminate => None,
             }
@@ -478,7 +515,8 @@ fn solve_term_pair(
     solution: CollectionSolution,
     pattern: &Term,
     subject: &Term,
-    allow_narrowing: bool,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
 ) -> PairSolution {
     let pattern = substitute(pattern, &solution.substitution);
     let subject = substitute(subject, &solution.substitution);
@@ -489,15 +527,15 @@ fn solve_term_pair(
         &pattern,
         &subject,
     ) {
-        MatchResult::Success(found) => PairSolution::Solved(CollectionSolution {
+        MatchResult::Success(found) => PairSolution::Solved(vec![CollectionSolution {
             substitution: compose(&found, &solution.substitution),
             ..solution
-        }),
+        }]),
         MatchResult::Failed(_) => PairSolution::NoSolution,
         MatchResult::Indeterminate {
             substitution,
             remainder,
-        } if allow_narrowing => {
+        } if narrowing.is_some() => {
             let mut substitution = compose(&substitution, &solution.substitution);
             let remainder = if mode == MatchMode::Rewrite {
                 let Some(recovered) =
@@ -510,23 +548,68 @@ fn solve_term_pair(
                 remainder
             };
             if remainder.is_empty() {
-                return PairSolution::Solved(CollectionSolution {
+                return PairSolution::Solved(vec![CollectionSolution {
                     substitution,
                     ..solution
-                });
+                }]);
             }
-            match unify_term_pairs(definition, substitution, remainder) {
-                UnificationResult::Unified(unified) => {
-                    let mut constraints = solution.constraints;
-                    constraints.extend(unified.constraints);
-                    PairSolution::Solved(CollectionSolution {
-                        substitution: unified.substitution,
-                        constraints,
-                        fresh: solution.fresh,
-                    })
+            let (collection_pairs, remainder): (Vec<_>, Vec<_>) =
+                remainder.into_iter().partition(|(pattern, subject)| {
+                    is_collection_term(pattern) && is_collection_term(subject)
+                });
+            let mut solutions = if collection_pairs.is_empty() {
+                vec![CollectionSolution {
+                    substitution,
+                    ..solution
+                }]
+            } else {
+                if depth >= MAX_NESTED_COLLECTION_DEPTH {
+                    return PairSolution::Indeterminate;
                 }
-                UnificationResult::Bottom(_) => PairSolution::NoSolution,
-                UnificationResult::Unsupported { .. } => PairSolution::Indeterminate,
+                let Some(solutions) = solve_collection_pairs_from_solution(
+                    mode,
+                    definition,
+                    CollectionSolution {
+                        substitution,
+                        ..solution
+                    },
+                    &collection_pairs,
+                    narrowing,
+                    depth + 1,
+                ) else {
+                    return PairSolution::Indeterminate;
+                };
+                solutions
+            };
+            if remainder.is_empty() {
+                return if solutions.is_empty() {
+                    PairSolution::NoSolution
+                } else {
+                    PairSolution::Solved(solutions)
+                };
+            }
+
+            let mut unified_solutions = Vec::new();
+            for solution in solutions.drain(..) {
+                match unify_term_pairs(definition, solution.substitution.clone(), remainder.clone())
+                {
+                    UnificationResult::Unified(unified) => {
+                        let mut constraints = solution.constraints;
+                        constraints.extend(unified.constraints);
+                        unified_solutions.push(CollectionSolution {
+                            substitution: unified.substitution,
+                            constraints,
+                            fresh: solution.fresh,
+                        });
+                    }
+                    UnificationResult::Bottom(_) => {}
+                    UnificationResult::Unsupported { .. } => return PairSolution::Indeterminate,
+                }
+            }
+            if unified_solutions.is_empty() {
+                PairSolution::NoSolution
+            } else {
+                PairSolution::Solved(unified_solutions)
             }
         }
         MatchResult::Indeterminate { .. } => PairSolution::Indeterminate,
@@ -577,7 +660,8 @@ fn solve_list_pair(
     pattern: &Term,
     subject: &Term,
     mut solution: CollectionSolution,
-    allow_narrowing: bool,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
     match match_terms_with_context(
         mode,
@@ -591,7 +675,7 @@ fn solve_list_pair(
             return Some(vec![solution]);
         }
         MatchResult::Failed(_) => return Some(Vec::new()),
-        MatchResult::Indeterminate { .. } if !allow_narrowing => return None,
+        MatchResult::Indeterminate { .. } if narrowing.is_none() => return None,
         MatchResult::Indeterminate {
             substitution,
             remainder: _,
@@ -632,6 +716,8 @@ fn solve_list_pair(
             subject_middle,
             subject_tails,
             true,
+            narrowing,
+            depth,
         ),
         (Some((pattern_middle, pattern_tails)), None) => solve_single_list_frame(
             mode,
@@ -643,6 +729,8 @@ fn solve_list_pair(
             pattern_middle,
             pattern_tails,
             false,
+            narrowing,
+            depth,
         ),
         (Some((pattern_middle, pattern_tails)), Some((subject_middle, subject_tails))) => {
             solve_two_list_frames(
@@ -656,6 +744,8 @@ fn solve_list_pair(
                 subject_heads,
                 subject_middle,
                 subject_tails,
+                narrowing,
+                depth,
             )
         }
         (None, None) => None,
@@ -673,6 +763,8 @@ fn solve_single_list_frame(
     frame: &Term,
     framed_tails: &[Term],
     frame_on_subject: bool,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
     if !matches!(frame.kind(), TermKind::Variable(_)) {
         return None;
@@ -728,7 +820,7 @@ fn solve_single_list_frame(
             ),
         ));
     }
-    solve_ordered_term_pairs(mode, backend, solution, pairs)
+    solve_ordered_term_pairs(mode, backend, solution, pairs, narrowing, depth)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -743,6 +835,8 @@ fn solve_two_list_frames(
     subject_heads: &[Term],
     subject_middle: &Term,
     subject_tails: &[Term],
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
     if !matches!(pattern_middle.kind(), TermKind::Variable(_))
         || !matches!(subject_middle.kind(), TermKind::Variable(_))
@@ -789,23 +883,32 @@ fn solve_two_list_frames(
         (pattern_middle.clone(), subject_middle.clone())
     };
     pairs.push(middle_pair);
-    solve_ordered_term_pairs(mode, backend, solution, pairs)
+    solve_ordered_term_pairs(mode, backend, solution, pairs, narrowing, depth)
 }
 
 fn solve_ordered_term_pairs(
     mode: MatchMode,
     definition: &BackendDefinition,
-    mut solution: CollectionSolution,
+    solution: CollectionSolution,
     pairs: Vec<(Term, Term)>,
+    narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
+    let mut solutions = vec![solution];
     for (pattern, subject) in pairs {
-        solution = match solve_term_pair(mode, definition, solution, &pattern, &subject, true) {
-            PairSolution::Solved(solution) => solution,
-            PairSolution::NoSolution => return Some(Vec::new()),
-            PairSolution::Indeterminate => return None,
-        };
+        let mut next = Vec::new();
+        for solution in solutions {
+            match solve_term_pair(
+                mode, definition, solution, &pattern, &subject, narrowing, depth,
+            ) {
+                PairSolution::Solved(found) => next.extend(found),
+                PairSolution::NoSolution => {}
+                PairSolution::Indeterminate => return None,
+            }
+        }
+        solutions = next;
     }
-    Some(vec![solution])
+    Some(solutions)
 }
 
 fn solve_map_pair(
@@ -815,6 +918,7 @@ fn solve_map_pair(
     subject: &Term,
     solution: CollectionSolution,
     narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
     let (
         TermKind::Map {
@@ -865,9 +969,10 @@ fn solve_map_pair(
                 solution,
                 &pattern_value,
                 &subject_value,
-                narrowing.is_some(),
+                narrowing,
+                depth,
             ) {
-                PairSolution::Solved(solution) => next.push(solution),
+                PairSolution::Solved(found) => next.extend(found),
                 PairSolution::NoSolution => {}
                 PairSolution::Indeterminate => return None,
             }
@@ -883,6 +988,7 @@ fn solve_map_pair(
         entries: pattern_entries.into_iter().collect(),
         rest: pattern_rest,
         subject_rest,
+        depth,
     };
     let remaining = subject_entries.into_iter().collect::<Vec<_>>();
     let mut found = Vec::new();
@@ -908,6 +1014,7 @@ struct MapCollectionProblem<'a> {
     entries: Vec<(Term, Term)>,
     rest: Option<Term>,
     subject_rest: Option<Term>,
+    depth: usize,
 }
 
 impl MapCollectionProblem<'_> {
@@ -937,47 +1044,53 @@ impl MapCollectionProblem<'_> {
         let (key, value) = &self.entries[index];
         for subject_index in 0..remaining.len() {
             let (subject_key, subject_value) = &remaining[subject_index];
-            let solution = match solve_term_pair(
+            let key_solutions = match solve_term_pair(
                 self.mode,
                 self.backend,
                 solution.clone(),
                 key,
                 subject_key,
-                narrowing.is_some(),
-            ) {
-                PairSolution::Solved(solution) => solution,
-                PairSolution::NoSolution => continue,
-                PairSolution::Indeterminate => {
-                    *indeterminate = true;
-                    continue;
-                }
-            };
-            let solution = match solve_term_pair(
-                self.mode,
-                self.backend,
-                solution,
-                value,
-                subject_value,
-                narrowing.is_some(),
-            ) {
-                PairSolution::Solved(solution) => solution,
-                PairSolution::NoSolution => continue,
-                PairSolution::Indeterminate => {
-                    *indeterminate = true;
-                    continue;
-                }
-            };
-            let mut next_remaining = remaining.clone();
-            next_remaining.remove(subject_index);
-            self.search(
-                index + 1,
-                next_remaining,
-                frame_entries.clone(),
-                solution,
                 narrowing,
-                solutions,
-                indeterminate,
-            );
+                self.depth,
+            ) {
+                PairSolution::Solved(solutions) => solutions,
+                PairSolution::NoSolution => continue,
+                PairSolution::Indeterminate => {
+                    *indeterminate = true;
+                    continue;
+                }
+            };
+            for key_solution in key_solutions {
+                let value_solutions = match solve_term_pair(
+                    self.mode,
+                    self.backend,
+                    key_solution,
+                    value,
+                    subject_value,
+                    narrowing,
+                    self.depth,
+                ) {
+                    PairSolution::Solved(solutions) => solutions,
+                    PairSolution::NoSolution => continue,
+                    PairSolution::Indeterminate => {
+                        *indeterminate = true;
+                        continue;
+                    }
+                };
+                for solution in value_solutions {
+                    let mut next_remaining = remaining.clone();
+                    next_remaining.remove(subject_index);
+                    self.search(
+                        index + 1,
+                        next_remaining,
+                        frame_entries.clone(),
+                        solution,
+                        narrowing,
+                        solutions,
+                        indeterminate,
+                    );
+                }
+            }
         }
 
         if narrowing.is_some()
@@ -1025,9 +1138,10 @@ impl MapCollectionProblem<'_> {
                     solution,
                     rest,
                     &subject,
-                    narrowing.is_some(),
+                    narrowing,
+                    self.depth,
                 ) {
-                    PairSolution::Solved(solution) => solutions.push(solution),
+                    PairSolution::Solved(found) => solutions.extend(found),
                     PairSolution::NoSolution => {}
                     PairSolution::Indeterminate => *indeterminate = true,
                 }
@@ -1047,9 +1161,10 @@ impl MapCollectionProblem<'_> {
                             solution,
                             subject_rest,
                             &empty,
-                            true,
+                            narrowing,
+                            self.depth,
                         ) {
-                            PairSolution::Solved(solution) => solutions.push(solution),
+                            PairSolution::Solved(found) => solutions.extend(found),
                             PairSolution::NoSolution => {}
                             PairSolution::Indeterminate => *indeterminate = true,
                         }
@@ -1092,20 +1207,23 @@ impl MapCollectionProblem<'_> {
                     solution,
                     subject_rest,
                     &value,
-                    true,
+                    narrowing,
+                    self.depth,
                 ) {
-                    PairSolution::Solved(solution) => solutions.push(solution),
+                    PairSolution::Solved(found) => solutions.extend(found),
                     PairSolution::NoSolution => {}
                     PairSolution::Indeterminate => *indeterminate = true,
                 }
             }
             return;
         }
-        let Some(narrowing) = narrowing.as_deref_mut() else {
-            *indeterminate = true;
-            return;
+        let fresh = {
+            let Some(narrowing) = narrowing.as_deref_mut() else {
+                *indeterminate = true;
+                return;
+            };
+            (narrowing.fresh_frame)(&frame.sort)
         };
-        let fresh = (narrowing.fresh_frame)(&frame.sort);
         let fresh_term = Term::variable(fresh.clone());
         let assigned = Term::map(
             self.definition.clone(),
@@ -1120,18 +1238,16 @@ impl MapCollectionProblem<'_> {
                 .collect(),
             Some(fresh_term.clone()),
         );
-        let solution = match solve_term_pair(
+        let assigned_solutions = match solve_term_pair(
             self.mode,
             self.backend,
             solution,
             subject_rest,
             &assigned,
-            true,
+            narrowing,
+            self.depth,
         ) {
-            PairSolution::Solved(mut solution) => {
-                solution.fresh.insert(fresh);
-                solution
-            }
+            PairSolution::Solved(solutions) => solutions,
             PairSolution::NoSolution => return,
             PairSolution::Indeterminate => {
                 *indeterminate = true;
@@ -1139,17 +1255,21 @@ impl MapCollectionProblem<'_> {
             }
         };
         let remainder = Term::map(self.definition.clone(), remaining, Some(fresh_term));
-        match solve_term_pair(
-            self.mode,
-            self.backend,
-            solution,
-            self.rest.as_ref().expect("pattern frame checked above"),
-            &remainder,
-            true,
-        ) {
-            PairSolution::Solved(solution) => solutions.push(solution),
-            PairSolution::NoSolution => {}
-            PairSolution::Indeterminate => *indeterminate = true,
+        for mut solution in assigned_solutions {
+            solution.fresh.insert(fresh.clone());
+            match solve_term_pair(
+                self.mode,
+                self.backend,
+                solution,
+                self.rest.as_ref().expect("pattern frame checked above"),
+                &remainder,
+                narrowing,
+                self.depth,
+            ) {
+                PairSolution::Solved(found) => solutions.extend(found),
+                PairSolution::NoSolution => {}
+                PairSolution::Indeterminate => *indeterminate = true,
+            }
         }
     }
 }
@@ -1209,6 +1329,7 @@ fn solve_set_pair(
     subject: &Term,
     solution: CollectionSolution,
     narrowing: &mut Option<&mut Narrowing<'_>>,
+    depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
     let (
         Some((pattern_definition, pattern_elements, pattern_rest)),
@@ -1243,6 +1364,7 @@ fn solve_set_pair(
         elements: pattern_elements.into_iter().collect(),
         rest: pattern_rest,
         subject_rest,
+        depth,
     };
     let mut found = Vec::new();
     let mut indeterminate = false;
@@ -1265,6 +1387,7 @@ struct SetCollectionProblem<'a> {
     elements: Vec<Term>,
     rest: Option<Term>,
     subject_rest: Option<Term>,
+    depth: usize,
 }
 
 impl SetCollectionProblem<'_> {
@@ -1299,20 +1422,23 @@ impl SetCollectionProblem<'_> {
                 solution.clone(),
                 element,
                 &remaining[subject_index],
-                narrowing.is_some(),
+                narrowing,
+                self.depth,
             ) {
-                PairSolution::Solved(solution) => {
-                    let mut next_remaining = remaining.clone();
-                    next_remaining.remove(subject_index);
-                    self.search(
-                        index + 1,
-                        next_remaining,
-                        frame_elements.clone(),
-                        solution,
-                        narrowing,
-                        solutions,
-                        indeterminate,
-                    );
+                PairSolution::Solved(found) => {
+                    for solution in found {
+                        let mut next_remaining = remaining.clone();
+                        next_remaining.remove(subject_index);
+                        self.search(
+                            index + 1,
+                            next_remaining,
+                            frame_elements.clone(),
+                            solution,
+                            narrowing,
+                            solutions,
+                            indeterminate,
+                        );
+                    }
                 }
                 PairSolution::NoSolution => {}
                 PairSolution::Indeterminate => *indeterminate = true,
@@ -1364,9 +1490,10 @@ impl SetCollectionProblem<'_> {
                     solution,
                     rest,
                     &subject,
-                    narrowing.is_some(),
+                    narrowing,
+                    self.depth,
                 ) {
-                    PairSolution::Solved(solution) => solutions.push(solution),
+                    PairSolution::Solved(found) => solutions.extend(found),
                     PairSolution::NoSolution => {}
                     PairSolution::Indeterminate => *indeterminate = true,
                 }
@@ -1386,9 +1513,10 @@ impl SetCollectionProblem<'_> {
                             solution,
                             subject_rest,
                             &empty,
-                            true,
+                            narrowing,
+                            self.depth,
                         ) {
-                            PairSolution::Solved(solution) => solutions.push(solution),
+                            PairSolution::Solved(found) => solutions.extend(found),
                             PairSolution::NoSolution => {}
                             PairSolution::Indeterminate => *indeterminate = true,
                         }
@@ -1425,20 +1553,23 @@ impl SetCollectionProblem<'_> {
                     solution,
                     subject_rest,
                     &value,
-                    true,
+                    narrowing,
+                    self.depth,
                 ) {
-                    PairSolution::Solved(solution) => solutions.push(solution),
+                    PairSolution::Solved(found) => solutions.extend(found),
                     PairSolution::NoSolution => {}
                     PairSolution::Indeterminate => *indeterminate = true,
                 }
             }
             return;
         }
-        let Some(narrowing) = narrowing.as_deref_mut() else {
-            *indeterminate = true;
-            return;
+        let fresh = {
+            let Some(narrowing) = narrowing.as_deref_mut() else {
+                *indeterminate = true;
+                return;
+            };
+            (narrowing.fresh_frame)(&frame.sort)
         };
-        let fresh = (narrowing.fresh_frame)(&frame.sort);
         let fresh_term = Term::variable(fresh.clone());
         let assigned = Term::set(
             self.definition.clone(),
@@ -1448,18 +1579,16 @@ impl SetCollectionProblem<'_> {
                 .collect(),
             Some(fresh_term.clone()),
         );
-        let solution = match solve_term_pair(
+        let assigned_solutions = match solve_term_pair(
             self.mode,
             self.backend,
             solution,
             subject_rest,
             &assigned,
-            true,
+            narrowing,
+            self.depth,
         ) {
-            PairSolution::Solved(mut solution) => {
-                solution.fresh.insert(fresh);
-                solution
-            }
+            PairSolution::Solved(solutions) => solutions,
             PairSolution::NoSolution => return,
             PairSolution::Indeterminate => {
                 *indeterminate = true;
@@ -1467,17 +1596,21 @@ impl SetCollectionProblem<'_> {
             }
         };
         let remainder = Term::set(self.definition.clone(), remaining, Some(fresh_term));
-        match solve_term_pair(
-            self.mode,
-            self.backend,
-            solution,
-            self.rest.as_ref().expect("pattern frame checked above"),
-            &remainder,
-            true,
-        ) {
-            PairSolution::Solved(solution) => solutions.push(solution),
-            PairSolution::NoSolution => {}
-            PairSolution::Indeterminate => *indeterminate = true,
+        for mut solution in assigned_solutions {
+            solution.fresh.insert(fresh.clone());
+            match solve_term_pair(
+                self.mode,
+                self.backend,
+                solution,
+                self.rest.as_ref().expect("pattern frame checked above"),
+                &remainder,
+                narrowing,
+                self.depth,
+            ) {
+                PairSolution::Solved(found) => solutions.extend(found),
+                PairSolution::NoSolution => {}
+                PairSolution::Indeterminate => *indeterminate = true,
+            }
         }
     }
 }

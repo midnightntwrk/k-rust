@@ -105,10 +105,12 @@ pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> 
             }
             for (position, (left, _)) in entries.iter().enumerate() {
                 for (right, _) in &entries[position + 1..] {
-                    predicates.push(Predicate::Not(Box::new(Predicate::Equals(
-                        left.clone(),
-                        right.clone(),
-                    ))));
+                    if !normalized_ground_terms_are_distinct(definition, left, right) {
+                        predicates.push(Predicate::Not(Box::new(Predicate::Equals(
+                            left.clone(),
+                            right.clone(),
+                        ))));
+                    }
                 }
                 if let Some(rest) = rest {
                     predicates.push(not_in_collection(definition, "MAP.in_keys", left, rest));
@@ -134,10 +136,12 @@ pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> 
             }
             for (position, left) in elements.iter().enumerate() {
                 for right in &elements[position + 1..] {
-                    predicates.push(Predicate::Not(Box::new(Predicate::Equals(
-                        left.clone(),
-                        right.clone(),
-                    ))));
+                    if !normalized_ground_terms_are_distinct(definition, left, right) {
+                        predicates.push(Predicate::Not(Box::new(Predicate::Equals(
+                            left.clone(),
+                            right.clone(),
+                        ))));
+                    }
                 }
                 if let Some(rest) = rest {
                     predicates.push(not_in_collection(definition, "SET.in", left, rest));
@@ -153,6 +157,31 @@ pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> 
     };
     deduplicate(&mut predicates);
     predicates
+}
+
+/// Whether two ground normal forms cannot denote the same collection element.
+///
+/// The structural fast path covers equal injective spines. Rewrite matching additionally knows
+/// how to compare normalized overloads and widening injections, which occur in generated cells.
+/// Requiring failure in both directions keeps the decision independent of matching orientation.
+fn normalized_ground_terms_are_distinct(
+    definition: &BackendDefinition,
+    left: &Term,
+    right: &Term,
+) -> bool {
+    if left.structurally_distinct_after_normalization(right) {
+        return true;
+    }
+    left.concrete_after_normalization()
+        && right.concrete_after_normalization()
+        && matches!(
+            match_terms_in_definition(MatchMode::Rewrite, definition, left, right),
+            MatchResult::Failed(_)
+        )
+        && matches!(
+            match_terms_in_definition(MatchMode::Rewrite, definition, right, left),
+            MatchResult::Failed(_)
+        )
 }
 
 fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {

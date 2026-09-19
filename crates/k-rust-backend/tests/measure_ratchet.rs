@@ -96,6 +96,7 @@ module MAIN
 endmodule []"#;
 
 const CELL_MAP_COVERAGE: &str = include_str!("fixtures/cell-map-coverage.kore");
+const CELL_SET_COVERAGE: &str = include_str!("fixtures/cell-set-coverage.kore");
 
 const GROUND_OVERLOAD: &str = include_str!("fixtures/ground-overload.kore");
 
@@ -260,6 +261,44 @@ fn ground_cell_map_heating_does_not_enter_symbolic_unification() {
         )
     });
     eprintln!("ground cell-map heating: {:?}", nonzero(&delta));
+    assert_eq!(result.leaves.len(), 1, "{result:#?}");
+    assert_eq!(
+        result.leaves[0].pattern.term,
+        pattern(&definition, "fallback{}()").term
+    );
+    assert_eq!(delta.get(Counter::RewriteRulesApplied), 1);
+    assert!(delta.get(Counter::MatchingCollectionProblems) >= 1);
+    assert_eq!(delta.get(Counter::UnificationProblems), 0);
+    assert_eq!(delta.get(Counter::SmtQueries), 0);
+}
+
+#[test]
+fn ground_cell_set_heating_does_not_enter_symbolic_unification() {
+    let definition = definition_in(CELL_SET_COVERAGE, "CELL-SET-COVERAGE");
+    let initial = pattern(
+        &definition,
+        r#"cellState{}(setConcat{}(
+            setItem{}(task{}(kseq{}(
+                inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0")),
+                dotk{}()
+            ))),
+            setItem{}(task{}(kseq{}(
+                inj{SortStmt{}, SortKItem{}}(stmt{}()),
+                dotk{}()
+            )))
+        ))"#,
+    );
+    let (result, delta) = measured(|| {
+        execute(
+            &definition,
+            initial,
+            ExecutionOptions {
+                max_depth: 1,
+                ..ExecutionOptions::default()
+            },
+        )
+    });
+    eprintln!("ground cell-set heating: {:?}", nonzero(&delta));
     assert_eq!(result.leaves.len(), 1, "{result:#?}");
     assert_eq!(
         result.leaves[0].pattern.term,

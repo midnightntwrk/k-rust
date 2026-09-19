@@ -24,7 +24,10 @@ use k_rust_backend::{
 };
 #[cfg(feature = "z3")]
 use k_rust_backend::{substitution::substitute, term::Variable};
-use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+use k_rust_kore::{
+    kore::parser::{parse_definition, parse_pattern},
+    measure::{Counter, snapshot},
+};
 
 use crate::support::{ground_cell_set_definition, ground_overload_definition, internal_term};
 
@@ -256,6 +259,42 @@ fn cell_map_state(definition: &BackendDefinition, entries: &[Term]) -> Pattern {
     }
 }
 
+fn cell_set_coverage_definition() -> BackendDefinition {
+    let syntax = parse_definition(include_str!("../fixtures/cell-set-coverage.kore"))
+        .expect("cell-set coverage fixture should parse");
+    BackendDefinition::internalize(&syntax, "CELL-SET-COVERAGE")
+        .expect("cell-set coverage fixture should internalize")
+}
+
+fn cell_set_task(definition: &BackendDefinition, head: &str) -> Term {
+    internal_term(
+        definition,
+        &format!("setItem{{}}(task{{}}(kseq{{}}({head}, dotk{{}}())))"),
+    )
+}
+
+fn cell_set_state(definition: &BackendDefinition, entries: &[Term]) -> Pattern {
+    let set = entries
+        .iter()
+        .cloned()
+        .reduce(|left, right| {
+            Term::application(
+                definition.symbols["setConcat"].clone(),
+                Vec::new(),
+                vec![left, right],
+            )
+        })
+        .expect("a cell-set test state has at least one task");
+    Pattern {
+        term: Term::application(
+            definition.symbols["cellState"].clone(),
+            Vec::new(),
+            vec![set],
+        ),
+        constraints: Vec::new(),
+    }
+}
+
 #[test]
 fn cell_map_heating_rejects_rigid_heads_and_allows_a_lower_priority_rule() {
     let definition = cell_map_coverage_definition();
@@ -317,6 +356,86 @@ fn cell_map_heating_selects_the_entry_with_the_literal_anywhere_head() {
         )
     );
     assert!(applied.pattern.constraints.is_empty());
+}
+
+#[test]
+fn cell_set_heating_rejects_rigid_heads_and_selects_the_literal_anywhere_head() {
+    let definition = cell_set_coverage_definition();
+    let int_head = r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))"#;
+    let stmt_head = "inj{SortStmt{}, SortKItem{}}(stmt{}())";
+    for entries in [
+        vec![cell_set_task(&definition, int_head)],
+        vec![
+            cell_set_task(&definition, int_head),
+            cell_set_task(&definition, stmt_head),
+        ],
+    ] {
+        let subject = cell_set_state(&definition, &entries);
+        let result = rewrite_step(&definition, &subject, &mut 0);
+        let RewriteResult::Finished(applied) = result else {
+            panic!("an impossible Set-cell heating match must allow the fallback: {result:?}");
+        };
+        assert_eq!(applied.unique_id, "fallback");
+        assert!(applied.pattern.constraints.is_empty());
+    }
+
+    let other = cell_set_task(&definition, "inj{SortExp{}, SortKItem{}}(expA{}())");
+    let matching = cell_set_task(
+        &definition,
+        "inj{SortExp{}, SortKItem{}}(heat{}(expA{}(), expB{}()))",
+    );
+    let subject = cell_set_state(&definition, &[other.clone(), matching]);
+    let result = rewrite_step(&definition, &subject, &mut 0);
+    let RewriteResult::Finished(applied) = result else {
+        panic!("the literal heating head should select exactly one Set element: {result:?}");
+    };
+    assert_eq!(applied.unique_id, "heat");
+    assert_eq!(
+        applied.pattern.term,
+        Term::application(
+            definition.symbols["heated"].clone(),
+            Vec::new(),
+            vec![
+                internal_term(&definition, "expA{}()"),
+                internal_term(&definition, "expB{}()"),
+                other,
+            ],
+        )
+    );
+    assert!(applied.pattern.constraints.is_empty());
+}
+
+#[test]
+fn any_mode_keeps_one_collection_candidate_while_all_keeps_both() {
+    let definition = cell_set_coverage_definition();
+    let subject = cell_set_state(
+        &definition,
+        &[
+            cell_set_task(
+                &definition,
+                "inj{SortExp{}, SortKItem{}}(heat{}(expA{}(), expB{}()))",
+            ),
+            cell_set_task(
+                &definition,
+                "inj{SortExp{}, SortKItem{}}(heat{}(expB{}(), expA{}()))",
+            ),
+        ],
+    );
+
+    let RewriteResult::Branch { branches, .. } = rewrite_step(&definition, &subject, &mut 0) else {
+        panic!("all mode must retain both Set candidates");
+    };
+    assert_eq!(branches.len(), 2);
+
+    let before = snapshot();
+    let result = rewrite_step_sequential_with_solver(&definition, &subject, &mut 0, &NoSolver);
+    let delta = snapshot().delta(&before);
+    let RewriteResult::Finished(applied) = result else {
+        panic!("any mode must retain one Set candidate: {result:?}");
+    };
+    assert_eq!(applied.unique_id, "heat");
+    assert!(applied.pattern.constraints.is_empty());
+    assert_eq!(delta.get(Counter::RewriteRulesApplied), 1);
 }
 
 fn ground_anywhere_defense_definition() -> BackendDefinition {

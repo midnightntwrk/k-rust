@@ -2007,12 +2007,15 @@ reason = "Private CB-10 sequence 1 (label cb-10-collection-ac, branch 2f02ecb, 6
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+# Temporary budget from the measured cost (private CB-17 closure run: 915.7 s at --jobs 2).
+# Remove after compiled-definition reuse and simplifier throughput are measured.
+budget = 1200
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference; the case now runs its whole corpus in 90.4 s instead of exhausting the budget on the first program. The prior \\bottom collapse is gone, and all 35 program steps now halt on one rule, cf6aaec3 (the variable declaration `T:Type X:Id;`), with Rule#VarX:Id and Rule#VarT:Type uncovered, at depths 2 to 114. Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
+reason = "Private CB-17 closure run (target/conformance/cb-17-implementation-v3, 1500 s discovery ceiling, --jobs 2): all 36 steps match in 915.7 s, including all 35 #Top program comparisons. collatz.simple takes 7.8 s, higher-order.simple 104.7 s, matrix.simple 198.7 s and sortings.simple 490.4 s; no Instantiation, Indeterminate, residual Set inequality or budget kill remains. The floor is raised to match at krun. The residual single-path costs belong to CB-12; the temporary budget is 1200 s, the measured corpus cost with headroom. Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic"
@@ -2052,12 +2055,15 @@ reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-c
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+# Temporary budget from the measured cost (private CB-17 closure run: 1437.2 s at --jobs 2).
+# Remove after compiled-definition reuse and simplifier throughput are measured.
+budget = 1800
+accepted_verdict = "match"
+accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 21 (label post-tranche-main, main e4769a1): the definition compiles and its KORE matches the reference, and the case completes in 131.1 s. The prior 34-byte \\bottom results are gone and completion-only comparison no longer accepts such a result as a match; all 30 program steps now halt on one rule, d056a9d1, with Rule#VarE, Rule#VarT and Rule#VarTs uncovered, at depth 3 or 4. The accepted kompile floor is unchanged."
+reason = "Private CB-17 closure run (target/conformance/cb-17-implementation-v3, 1500 s discovery ceiling, --jobs 2): all 31 steps match through the C9 stdout-buffer comparison in 1437.2 s. cast-1.kool and cast-2.kool take 13.5 s and 9.6 s, collatz.kool 12.0 s, matrix.kool 361.4 s and sorting.kool 686.9 s; no Instantiation, Indeterminate or budget kill remains. The floor is raised to match at krun. The residual single-path costs belong to CB-12; the temporary budget is 1800 s, the measured corpus cost with headroom. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"

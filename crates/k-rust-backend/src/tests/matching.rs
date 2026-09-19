@@ -54,6 +54,8 @@ fn collection_definition() -> BackendDefinition {
                     [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
                 hooked-sort SortMap{}
                     [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                hooked-sort SortSetMap{}
+                    [hook{}("MAP.Map"), unit{}(setMapUnit{}()), element{}(setMapItem{}()), concat{}(setMapConcat{}())]
                 hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
                 hooked-symbol listItem{}(SortElement{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
                 hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{} [function{}(), hook{}("LIST.concat"), assoc{}()]
@@ -64,6 +66,11 @@ fn collection_definition() -> BackendDefinition {
                 hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
                 hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{} [function{}(), total{}(), hook{}("MAP.element")]
                 hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-symbol setMapUnit{}() : SortSetMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol setMapItem{}(SortKey{}, SortSet{}) : SortSetMap{} [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol setMapConcat{}(SortSetMap{}, SortSetMap{}) : SortSetMap{} [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol nested{}(SortSet{}) : SortValue{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
                 symbol opaqueMap{}(SortElement{}) : SortMap{} [function{}(), total{}()]
                 symbol opaqueSet{}(SortElement{}) : SortSet{} [function{}(), total{}()]
             endmodule []"#,
@@ -240,6 +247,69 @@ fn symmetrically_enumerates_map_selections_from_a_closed_map() {
         solve_with_test_frames(&definition, &[(closed, open)]),
         Some(expected)
     );
+}
+
+#[test]
+fn nested_collection_remainder_is_solved_by_the_collection_solver() {
+    let definition = collection_definition();
+    let first = r#"\dv{SortElement{}}("first")"#;
+    let second = r#"\dv{SortElement{}}("second")"#;
+    let key = r#"\dv{SortKey{}}("key")"#;
+    let pattern = internal_term(
+        &definition,
+        &format!(
+            "mapItem{{}}(KEY:SortKey{{}}, nested{{}}(setConcat{{}}(setItem{{}}(ELEMENT:SortElement{{}}), REST:SortSet{{}})))"
+        ),
+    );
+    let two = internal_term(
+        &definition,
+        &format!(
+            "mapItem{{}}({key}, nested{{}}(setConcat{{}}(setItem{{}}({first}), setItem{{}}({second}))))"
+        ),
+    );
+    let one = internal_term(
+        &definition,
+        &format!("mapItem{{}}({key}, nested{{}}(setItem{{}}({first})))"),
+    );
+
+    let two_solutions = solve_with_test_frames(&definition, &[(pattern.clone(), two)])
+        .expect("the nested Set pair should be handled by the collection solver");
+    assert_eq!(two_solutions.len(), 2, "{two_solutions:#?}");
+    let one_solutions = solve_with_test_frames(&definition, &[(pattern, one)])
+        .expect("the one-element nested Set pair should be decidable");
+    assert_eq!(one_solutions.len(), 1, "{one_solutions:#?}");
+}
+
+#[test]
+fn deferred_collection_pairs_are_solved_to_a_fixed_point() {
+    let definition = collection_definition();
+    let first = r#"\dv{SortElement{}}("first")"#;
+    let second = r#"\dv{SortElement{}}("second")"#;
+    let key = r#"\dv{SortKey{}}("key")"#;
+    let concrete = internal_term(
+        &definition,
+        &format!("setConcat{{}}(setItem{{}}({first}), setItem{{}}({second}))"),
+    );
+    let rest = internal_term(&definition, "REST:SortSet{}");
+    let binder_pattern = internal_term(
+        &definition,
+        &format!("setMapItem{{}}({key}, REST:SortSet{{}})"),
+    );
+    let binder_subject = internal_term(
+        &definition,
+        &format!(
+            "setMapItem{{}}({key}, setConcat{{}}(setItem{{}}({first}), setItem{{}}({second})))"
+        ),
+    );
+    let deferred = (rest, concrete);
+    let binder = (binder_pattern, binder_subject);
+
+    let forward = solve_with_test_frames(&definition, &[deferred.clone(), binder.clone()])
+        .expect("the later Map pair should bind the earlier collection variable");
+    let reverse = solve_with_test_frames(&definition, &[binder, deferred])
+        .expect("mirroring the deferred pair order should stay decidable");
+    assert_eq!(forward, reverse);
+    assert_eq!(forward.len(), 1, "{forward:#?}");
 }
 
 #[test]

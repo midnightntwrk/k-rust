@@ -241,6 +241,36 @@ comparisons = [
 ]
 
 [[compile]]
+name = "star-cell-heating-set"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable", "set", "anywhere", "strictness"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/test.k"
+main-module = "STAR-CELL-HEATING-SET"
+syntax-module = "STAR-CELL-HEATING-SYNTAX"
+pairings = ["kore/llvm"]
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
+
+[[compile]]
+name = "star-cell-map-nested-set"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable", "cell-map", "set"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-map-nested-set/test.k"
+main-module = "STAR-CELL-MAP-NESTED-SET"
+syntax-module = "STAR-CELL-MAP-NESTED-SET-SYNTAX"
+pairings = ["kore/llvm"]
+comparisons = [
+  "semantic-kore",
+  "syntax-kore",
+  "macro-kore",
+  "parsed-definition",
+]
+
+[[compile]]
 name = "overload-constructors"
 requires = ["reference-toolchain"]
 constructs = ["overload-no-confusion"]
@@ -1245,6 +1275,36 @@ depth = 1
 name = "start-depth-one"
 program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/branching-execution/start.pgm"
 depth = 1
+
+[[execution]]
+name = "star-cell-map-nested-set"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable", "cell-map", "set"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-map-nested-set/test.k"
+main-module = "STAR-CELL-MAP-NESTED-SET"
+syntax-module = "STAR-CELL-MAP-NESTED-SET-SYNTAX"
+sort = "Stmt"
+depth = 100
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-map-nested-set/neg-two.cb17",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-map-nested-set/pos-two.cb17",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-map-nested-set/pos2-two.cb17",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-map-nested-set/two.cb17",
+]
+
+[[execution]]
+name = "star-cell-heating-set"
+requires = ["reference-toolchain"]
+constructs = ["star-cell-variable", "set", "anywhere", "strictness"]
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/test.k"
+main-module = "STAR-CELL-HEATING-SET"
+syntax-module = "STAR-CELL-HEATING-SYNTAX"
+sort = "Stmt"
+depth = 100
+programs = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/two.cb10",
+  "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/two-late.cb10",
+]
 
 [[execution]]
 name = "concrete-symbolic-rules"

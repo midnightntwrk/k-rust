@@ -1,0 +1,1 @@
+decl1 aa bb decl2 cc aa bb spawn { nop nop } cast aa cc

@@ -126,6 +126,7 @@ For `--bound N`, selected results must be distinct members of the same query's u
 The CLI test `krun_search_bound_returns_a_subset_of_the_unbounded_solutions` checks this property against the port's own unbounded search.
 Which successor `--strategy any` follows among equal-priority rules is likewise unspecified; the differential gate checks that the port's any-strategy result is a member of the reference all-strategy set (N26).
 The port follows the first applicable rule in priority order, then `definition.kore` declaration order (main module first, imports depth-first in their written order); which rule the reference follows is engine-internal.
+Among several collection matches of that rule, the port follows the first candidate in deterministic structural order; which candidate the reference follows is engine-internal.
 The RPC `next-states` array is a set of successors and is compared as a multiset (N27).
 
 The port retains every execution leaf when Kore's graph traversal drops `Stop` leaves in the presence of a `Remaining` leaf.

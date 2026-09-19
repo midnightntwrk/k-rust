@@ -1508,13 +1508,12 @@ fn rewrite_step_all(
                 assume_initial_defined,
             ) {
                 RuleAttempt::NotApplicable => {}
-                RuleAttempt::Unified {
-                    applied: found,
-                    trivial: found_trivial,
-                } => {
+                RuleAttempt::Unified { groups } => {
                     measure::bump(Counter::RewriteRulesApplied);
-                    applied.extend(found);
-                    trivial.extend(found_trivial);
+                    for group in groups {
+                        applied.extend(group.applied);
+                        trivial.extend(group.trivial);
+                    }
                 }
                 RuleAttempt::Indeterminate(reason) => {
                     return RewriteResult::Indeterminate {
@@ -1645,12 +1644,15 @@ fn rewrite_step_any(
             false,
         ) {
             RuleAttempt::NotApplicable => {}
-            RuleAttempt::Unified {
-                applied: results,
-                trivial: found_trivial,
-            } => {
+            RuleAttempt::Unified { groups } => {
                 measure::bump(Counter::RewriteRulesApplied);
-                for application in results {
+                // `any` follows one deterministic collection candidate of the first applicable
+                // rule.  Every right-hand-side alternative of that candidate remains a branch.
+                let group = groups
+                    .into_iter()
+                    .next()
+                    .expect("a unified rule has an application group");
+                for application in group.applied {
                     extend_unique(
                         &mut remainder_conditions,
                         std::iter::once(application.remainder.clone()),
@@ -1661,7 +1663,7 @@ fn rewrite_step_any(
                     );
                     applied.push(application.applied);
                 }
-                for application in found_trivial {
+                for application in group.trivial {
                     extend_unique(
                         &mut remainder_conditions,
                         std::iter::once(application.remainder.clone()),
@@ -1786,10 +1788,14 @@ enum RuleAttempt {
     NotApplicable,
     /// The rule unified in at least one sub-case, including results that simplify to bottom.
     Unified {
-        applied: Vec<RuleApplication>,
-        trivial: Vec<TrivialApplication>,
+        groups: Vec<RuleApplicationGroup>,
     },
     Indeterminate(IndeterminateReason),
+}
+
+struct RuleApplicationGroup {
+    applied: Vec<RuleApplication>,
+    trivial: Vec<TrivialApplication>,
 }
 
 pub(crate) struct RecoveredMatch {
@@ -2811,8 +2817,10 @@ fn apply_rule_with_match(
     if predicates_truth(&definedness_conditions) == Truth::False {
         let applicability = quantify_introduced_variables(pattern, match_conditions);
         return RuleAttempt::Unified {
-            applied: Vec::new(),
-            trivial: vec![trivial_application(rule, &applicability)],
+            groups: vec![RuleApplicationGroup {
+                applied: Vec::new(),
+                trivial: vec![trivial_application(rule, &applicability)],
+            }],
         };
     }
     extend_unique(
@@ -2986,8 +2994,10 @@ fn apply_rule_with_match(
         RuleRhs::Top => return RuleAttempt::NotApplicable,
         RuleRhs::Bottom => {
             return RuleAttempt::Unified {
-                applied: Vec::new(),
-                trivial: vec![trivial_application(rule, &applicability)],
+                groups: vec![RuleApplicationGroup {
+                    applied: Vec::new(),
+                    trivial: vec![trivial_application(rule, &applicability)],
+                }],
             };
         }
         RuleRhs::Predicates(_) => return RuleAttempt::NotApplicable,
@@ -3022,8 +3032,10 @@ fn apply_rule_with_match(
         }
     }
     RuleAttempt::Unified {
-        applied: applications,
-        trivial,
+        groups: vec![RuleApplicationGroup {
+            applied: applications,
+            trivial,
+        }],
     }
 }
 
@@ -4028,28 +4040,18 @@ fn recover_overload_symbolic_match(
 }
 
 fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> RuleAttempt {
-    let mut applications = Vec::new();
-    let mut trivial = Vec::new();
+    let mut groups = Vec::new();
     for attempt in attempts {
         match attempt {
             RuleAttempt::NotApplicable => {}
-            RuleAttempt::Unified {
-                applied: mut found,
-                trivial: mut found_trivial,
-            } => {
-                applications.append(&mut found);
-                trivial.append(&mut found_trivial);
-            }
+            RuleAttempt::Unified { groups: found } => groups.extend(found),
             RuleAttempt::Indeterminate(reason) => return RuleAttempt::Indeterminate(reason),
         }
     }
-    if applications.is_empty() && trivial.is_empty() {
+    if groups.is_empty() {
         RuleAttempt::NotApplicable
     } else {
-        RuleAttempt::Unified {
-            applied: applications,
-            trivial,
-        }
+        RuleAttempt::Unified { groups }
     }
 }
 
@@ -4467,7 +4469,8 @@ fn predicate_truth(predicate: &Predicate) -> Truth {
         Predicate::Term(term) => bool_term_truth(term),
         Predicate::Equals(left, right) if left == right => Truth::True,
         Predicate::Equals(left, right)
-            if left.attributes().constructor_like && right.attributes().constructor_like =>
+            if (left.attributes().constructor_like && right.attributes().constructor_like)
+                || left.structurally_distinct_after_normalization(right) =>
         {
             Truth::False
         }

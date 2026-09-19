@@ -5932,6 +5932,83 @@ fn krun_completes_star_cell_heating_with_one_or_two_cells() {
             "{program}: {stdout}"
         );
     }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            fixtures.join("two.cb10").to_str().unwrap(),
+            "--main-module",
+            "STAR-CELL-HEATING-SET",
+            "--syntax-module",
+            "STAR-CELL-HEATING-SYNTAX",
+            "--sort",
+            "Stmt",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "Set-cell variant: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // The two completed, identical Set elements collapse by idempotence.
+    assert_eq!(
+        stdout.matches("Lbl'-LT-'task'-GT-'{}").count(),
+        1,
+        "{stdout}"
+    );
+    assert_eq!(
+        stdout.matches("Lbl'-LT-'k'-GT-'{}(dotk{}())").count(),
+        1,
+        "{stdout}"
+    );
+    assert!(
+        !stdout.contains("\\or{"),
+        "any strategy must print one configuration: {stdout}"
+    );
+}
+
+#[test]
+fn krun_solves_map_keys_bound_by_a_star_set_cell_before_nested_sets() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/star-cell-map-nested-set");
+    let definition = fixtures.join("test.k");
+    for (program, cast_remains) in [
+        ("neg-two.cb17", true),
+        ("pos-two.cb17", false),
+        ("pos2-two.cb17", false),
+        ("two.cb17", false),
+    ] {
+        let program_path = fixtures.join(program);
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                program_path.to_str().unwrap(),
+                "--main-module",
+                "STAR-CELL-MAP-NESTED-SET",
+                "--syntax-module",
+                "STAR-CELL-MAP-NESTED-SET-SYNTAX",
+                "--sort",
+                "Stmt",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{program}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            stdout.contains("Lblcast"),
+            cast_remains,
+            "{program}: {stdout}"
+        );
+        assert!(!stdout.contains("\\or{"), "{program}: {stdout}");
+    }
 }
 
 #[test]

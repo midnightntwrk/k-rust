@@ -1,0 +1,62 @@
+[]
+module CELL-SET-COVERAGE
+  sort SortInt{} [hasDomainValues{}()]
+  sort SortExp{} []
+  sort SortStmt{} []
+  sort SortKItem{} []
+  sort SortK{} []
+  sort SortTask{} []
+  hooked-sort SortTaskSet{}
+    [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+  sort SortState{} []
+  symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+  symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+  symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), total{}(), injective{}()]
+  symbol expA{}() : SortExp{} [constructor{}(), total{}()]
+  symbol expB{}() : SortExp{} [constructor{}(), total{}()]
+  symbol stmt{}() : SortStmt{} [constructor{}(), total{}()]
+  symbol heat{}(SortExp{}, SortExp{}) : SortExp{} [anywhere{}(), total{}(), injective{}()]
+  symbol task{}(SortK{}) : SortTask{} [constructor{}(), total{}(), injective{}()]
+  hooked-symbol setUnit{}() : SortTaskSet{}
+    [function{}(), total{}(), hook{}("SET.unit")]
+  hooked-symbol setItem{}(SortTask{}) : SortTaskSet{}
+    [function{}(), total{}(), hook{}("SET.element")]
+  hooked-symbol setConcat{}(SortTaskSet{}, SortTaskSet{}) : SortTaskSet{}
+    [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+  symbol cellState{}(SortTaskSet{}) : SortState{} [constructor{}(), total{}()]
+  symbol heated{}(SortExp{}, SortExp{}, SortTaskSet{}) : SortState{}
+    [constructor{}(), total{}()]
+  symbol fallback{}() : SortState{} [constructor{}(), total{}()]
+  axiom{R} \exists{R}(E:SortExp{}, \equals{SortExp{}, R}(
+    E:SortExp{}, inj{SortInt{}, SortExp{}}(I:SortInt{})
+  )) [subsort{SortInt{}, SortExp{}}()]
+  axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+    K:SortKItem{}, inj{SortExp{}, SortKItem{}}(E:SortExp{})
+  )) [subsort{SortExp{}, SortKItem{}}()]
+  axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+    K:SortKItem{}, inj{SortStmt{}, SortKItem{}}(S:SortStmt{})
+  )) [subsort{SortStmt{}, SortKItem{}}()]
+  axiom{} \rewrites{SortState{}}(
+    \and{SortState{}}(
+      cellState{}(
+        setConcat{}(
+          setItem{}(
+            task{}(
+              kseq{}(
+                inj{SortExp{}, SortKItem{}}(heat{}(HOLE:SortExp{}, K1:SortExp{})),
+                REST:SortK{}
+              )
+            )
+          ),
+          FRAME:SortTaskSet{}
+        )
+      ),
+      \top{SortState{}}()
+    ),
+    heated{}(HOLE:SortExp{}, K1:SortExp{}, FRAME:SortTaskSet{})
+  ) [label{}("heat"), priority{}("40")]
+  axiom{} \rewrites{SortState{}}(
+    \and{SortState{}}(cellState{}(S:SortTaskSet{}), \top{SortState{}}()),
+    fallback{}()
+  ) [label{}("fallback"), priority{}("50")]
+endmodule []

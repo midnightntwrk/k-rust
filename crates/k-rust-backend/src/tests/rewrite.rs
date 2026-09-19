@@ -57,6 +57,40 @@ fn definition(axioms: &str) -> BackendDefinition {
 }
 
 #[test]
+fn ground_normalized_inequality_is_decided_but_symbolic_inequality_is_not() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortValue{} [hasDomainValues{}()]
+                sort SortCell{} []
+                symbol f{}(SortValue{}) : SortValue{} [anywhere{}(), total{}(), injective{}()]
+                symbol g{}(SortValue{}) : SortValue{} [anywhere{}(), total{}(), injective{}()]
+                symbol cell{}(SortValue{}) : SortCell{} [constructor{}(), total{}(), injective{}()]
+            endmodule []"#,
+    )
+    .expect("ground inequality definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("ground inequality definition should internalize");
+    let term = |source: &str| {
+        definition
+            .internalize_term(&parse_pattern(source).unwrap(), &[])
+            .unwrap()
+    };
+    let value = r#"\dv{SortValue{}}("a")"#;
+    let ground = Predicate::Equals(
+        term(&format!("cell{{}}(f{{}}({value}))")),
+        term(&format!("cell{{}}(g{{}}({value}))")),
+    );
+    let symbolic = Predicate::Equals(
+        term("cell{}(f{}(X:SortValue{}))"),
+        term(&format!("cell{{}}(g{{}}({value}))")),
+    );
+
+    assert_eq!(predicates_truth(&[ground]), Truth::False);
+    assert_eq!(predicates_truth(&[symbolic]), Truth::Unknown);
+}
+
+#[test]
 fn rejects_exclusions_covering_a_finite_constructor_sort() {
     let syntax = parse_definition(
         r#"[]
