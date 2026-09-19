@@ -29,16 +29,15 @@ All eleven `[[decision]]` rows are decided; no owner policy choice blocks the qu
 | ticket | role | current state | next gate |
 |---|---|---|---|
 | CB-12 | owner of single-path tutorial simplification | CB-12-3 complete: versioned counters and a reduced ratchet prove that rounds still grow inside a flat number of simplifier entries; CB-20-B removed the larger reconstruction cost, and CB-20 closure adds FUN `constructor-bst-sorting` as another witness | Implement narrowed CB-12-4: cache a normalized closed anywhere/overloaded application only after its equation scan proves every equation inapplicable. Then wait for CB-22 before CB-12-5. |
-| CB-22 | owner of SIMPLE thread-search residue | split from CB-12-3: collection problems and search states grow together; untyped `threads_04` grows from 60 rules/10 projected answers at depth 20 to 5,202/218 at depth 40, and both `threads_05` commands remain unbounded | Investigate the first expansion before implementation. Decide from state/rule/visited-key evidence whether it is required scheduling, premature collection recovery, or missed canonical deduplication. |
+| CB-22 | owner of SIMPLE thread-search residue | CB-22-1 complete: the frontier contains required schedules and already recombines commuting steps; `search_pattern_using` discards the requested result bound until graph exhaustion, which cannot finish for `threads_05`'s infinite result stream | Implement CB-22-2 during BFS, counting distinct pattern matches rather than graph states; a catch-all fast path is valid. |
 | CB-15 | evidence-only product work | fleshed out; no pending verdict depends on it because C9 already compares the definition-computed bytes | Implement after the case-owning queue unless product priority overrides conformance closure. Start with captured batch output, then establish effect ownership before live hooks. |
 
 The sequential order is:
 
-1. Investigate CB-22 before assigning an implementation agent. Its current counters prove a separate mechanism but do not justify partial-order reduction, wider deduplication, or a search-order change.
-2. Implement narrowed CB-12-4 independently of CB-22, then run its factorial, FUN constructor-BST, and growing-collection counter ladders. The change may cache only a closed equation head whose scan reached a fixed point with no applicable or blocked equation.
-3. Implement the cause established by CB-22-1 and re-measure both SIMPLE cases through every driven recipe.
-4. Run CB-12-5 over all seven tutorial cases after CB-22 closes, rewrite expectation reasons from that run, and raise floors only for complete matching cases.
-5. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
+1. Implement CB-22-2: stop pattern-search traversal after the requested number of distinct matches. Do not add partial-order reduction, wider deduplication, a search-order change or a collection-recovery change.
+2. Implement narrowed CB-12-4 independently, then run its factorial, FUN constructor-BST, and growing-collection counter ladders. The change may cache only a closed equation head whose scan reached a fixed point with no applicable or blocked equation.
+3. Run CB-22-3 and CB-12-5 as one acceptance sequence after both changes, rewrite expectation reasons from that run, and raise floors only for complete matching cases.
+4. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
 
 CB-16, CB-20, and CB-21 are closed.
 Every executed tutorial program now uses one validated runnable artifact per case, so repeated source compilation is no longer part of CB-12.
@@ -416,6 +415,23 @@ CB-22 must attribute the first expansion and prove whether the excess states are
 
 No expectation, accepted floor, budget, exclusion or normalization changed.
 Focused gates pass: 14 backend measure ratchets, two CB-20-B construction ratchets, 69 `k-rust-kore` tests, and the CLI counter-schema success/failure test.
+
+## 2026-09-20: CB-22-1 attributes the bounded thread-search failure
+
+`workers/CB-22.md` on main `7e3191b` and `workers/CB-22-evidence/summary.toml` record the rule, thread key, canonical pattern digest, constraints and visited-key decision at the first split in both definitions.
+The first thread-local steps commute and converge to an identical zero-constraint pattern; the existing `(depth, Pattern)` key drops the repeated arrival.
+Untyped `threads_05` has 6 and 24 complete frontier states at depths 40 and 60, typed-dynamic has 7 at depth 40, and untyped `threads_04` has 10 and 234 at depths 20 and 40.
+The later `threads_05` schedules are semantically distinct because the child may write `x = 0` after any number of parent guards have captured `x = 1`, producing the infinite terminal series `y = 0, 1, 2, ...`.
+
+The nontermination is a result-bound defect rather than excess scheduling or collection matching.
+`search_pattern_using` removes `max_results` before BFS and applies it only to the match list after graph exhaustion; the CLI's default constraint-free variable matches every final state, but the infinite graph never reaches that post-processing pass.
+A characterization probe that retains the bound during graph traversal completes untyped and typed-dynamic `threads_05` in 7.944 s and 7.174 s with exactly the checked-in first five stores, 0 through 4.
+
+CB-22-2 must count distinct pattern matches during traversal, because a selective pattern may reject graph states or project several states to one answer.
+A constraint-free catch-all target may pass its bound straight to graph search as a fast path.
+Partial-order reduction, a wider visited key, a search-order change and collection-recovery changes are outside this fix.
+Implement CB-22-2 before narrowed CB-12-4, then run the two-case CB-22-3 measurement together with CB-12-5 after both independent implementations.
+No expectation, accepted floor, budget, exclusion or normalization changed.
 
 ## 2026-09-20: CB-20 closed after implementations `7e84716` and `af43672`
 
