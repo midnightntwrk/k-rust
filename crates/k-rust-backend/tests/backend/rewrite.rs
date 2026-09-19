@@ -3966,6 +3966,7 @@ fn execution_preserves_user_log_effects() {
     );
 
     assert_eq!(result.effects, [BuiltinEffect::UserLog("one line".into())]);
+    assert_eq!(result.leaves[0].effects, result.effects);
     assert!(matches!(
         result.leaves[0].pattern.term.kind(),
         TermKind::Application { symbol, .. } if symbol.name.as_ref() == "dotk"
@@ -4065,6 +4066,7 @@ fn execution_stops_before_work_when_the_request_is_cancelled() {
             trace: Vec::new(),
             branch: Vec::new(),
             observations: Vec::new(),
+            effects: Vec::new(),
             halt_reason: HaltReason::Cancelled,
         }]
     );
@@ -4611,6 +4613,54 @@ fn terminal_result_simplification_is_observed_in_order() {
 }
 
 #[test]
+fn terminal_result_resimplification_does_not_duplicate_an_effect() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                sort SortState{} []
+                symbol initial{}() : SortState{} [constructor{}()]
+                symbol done{}(SortK{}) : SortState{} [constructor{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                hooked-symbol log{}(SortString{}) : SortK{}
+                    [function{}(), hook{}("IO.logString")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                    done{}(log{}(\dv{SortString{}}("once")))
+                ) [label{}("stop")]
+            endmodule []"#,
+    )
+    .unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+    let initial = definition
+        .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+        .unwrap();
+    let mut observed = Vec::new();
+
+    let result = execute_with_solver_and_observer(
+        &definition,
+        initial,
+        ExecutionOptions {
+            terminal_rules: BTreeSet::from(["stop".into()]),
+            ..ExecutionOptions::default()
+        },
+        &NoSolver,
+        |effect| observed.push(effect.clone()),
+    );
+
+    let expected = [BuiltinEffect::UserLog("once".into())];
+    assert_eq!(result.leaves.len(), 1);
+    assert!(matches!(
+        result.leaves[0].halt_reason,
+        HaltReason::TerminalRule { .. }
+    ));
+    assert_eq!(result.leaves[0].effects, expected);
+    assert_eq!(result.effects, expected);
+    assert_eq!(observed, expected);
+}
+
+#[test]
 fn builtin_observation_owns_its_user_log_effect() {
     let syntax = parse_definition(
         r#"[]
@@ -4747,7 +4797,7 @@ fn stops_at_a_rewrite_branch_when_requested() {
 }
 
 #[test]
-fn stopped_branch_retains_effects_from_every_reported_successor() {
+fn stopped_branch_keeps_candidate_effects_out_of_the_committed_stream() {
     let syntax = parse_definition(
         r#"[]
             module MAIN
@@ -4785,18 +4835,109 @@ fn stopped_branch_retains_effects_from_every_reported_successor() {
         |effect| observed.push(effect.clone()),
     );
 
-    assert!(matches!(
-        result.leaves[0].halt_reason,
-        HaltReason::Branch { .. }
-    ));
+    let HaltReason::Branch { branches, .. } = &result.leaves[0].halt_reason else {
+        panic!("expected a branch point");
+    };
     assert_eq!(
-        result.effects,
+        branches
+            .iter()
+            .map(|branch| branch.effects.as_slice())
+            .collect::<Vec<_>>(),
         [
-            BuiltinEffect::UserLog("left".into()),
-            BuiltinEffect::UserLog("right".into()),
+            [BuiltinEffect::UserLog("left".into())].as_slice(),
+            [BuiltinEffect::UserLog("right".into())].as_slice(),
         ]
     );
-    assert_eq!(observed, result.effects);
+    assert!(result.leaves[0].effects.is_empty());
+    assert!(result.effects.is_empty());
+    assert!(observed.is_empty());
+}
+
+fn effectful_branch_definition() -> (BackendDefinition, Pattern) {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                sort SortState{} []
+                symbol initial{}() : SortState{} [constructor{}()]
+                symbol left{}(SortK{}) : SortState{} [constructor{}()]
+                symbol right{}(SortK{}) : SortState{} [constructor{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                hooked-symbol log{}(SortString{}) : SortK{}
+                    [function{}(), hook{}("IO.logString")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                    left{}(log{}(\dv{SortString{}}("left")))
+                ) [label{}("left")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                    right{}(log{}(\dv{SortString{}}("right")))
+                ) [label{}("right")]
+            endmodule []"#,
+    )
+    .unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+    let initial = definition
+        .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+        .unwrap();
+    (definition, initial)
+}
+
+#[test]
+fn any_execution_commits_only_the_selected_candidate_effects() {
+    let (definition, initial) = effectful_branch_definition();
+    let mut observed = Vec::new();
+
+    let result = execute_with_solver_and_observer(
+        &definition,
+        initial,
+        ExecutionOptions {
+            mode: ExecutionMode::Any,
+            ..ExecutionOptions::default()
+        },
+        &NoSolver,
+        |effect| observed.push(effect.clone()),
+    );
+
+    let expected = [BuiltinEffect::UserLog("left".into())];
+    assert_eq!(result.leaves.len(), 1);
+    assert_eq!(result.leaves[0].trace[0].label.as_deref(), Some("left"));
+    assert_eq!(result.leaves[0].effects, expected);
+    assert_eq!(result.effects, expected);
+    assert_eq!(observed, expected);
+}
+
+#[test]
+fn all_execution_returns_one_effect_transcript_per_leaf() {
+    let (definition, initial) = effectful_branch_definition();
+    let mut observed = Vec::new();
+
+    let result = execute_with_solver_and_observer(
+        &definition,
+        initial,
+        ExecutionOptions::default(),
+        &NoSolver,
+        |effect| observed.push(effect.clone()),
+    );
+
+    assert_eq!(result.leaves.len(), 2);
+    assert_eq!(
+        result
+            .leaves
+            .iter()
+            .map(|leaf| (
+                leaf.trace[0].label.as_deref().unwrap(),
+                leaf.effects.as_slice(),
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("left", [BuiltinEffect::UserLog("left".into())].as_slice(),),
+            ("right", [BuiltinEffect::UserLog("right".into())].as_slice(),),
+        ]
+    );
+    assert!(result.effects.is_empty());
+    assert!(observed.is_empty());
 }
 
 #[test]
@@ -4960,6 +5101,67 @@ fn rolled_back_branch_effects_are_classified_without_committing() {
     assert_eq!(
         discarded.effects,
         [BuiltinEffect::UserLog("rolled back".into())]
+    );
+    assert_eq!(discarded.reason, UncommittedReason::RolledBack);
+}
+
+#[test]
+fn failed_higher_priority_candidate_effects_are_only_uncommitted_diagnostics() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortString{} [hasDomainValues{}()]
+                sort SortK{} []
+                symbol initial{}() : SortK{} [constructor{}()]
+                symbol dotk{}() : SortK{} [constructor{}()]
+                hooked-symbol log{}(SortString{}) : SortK{}
+                    [function{}(), hook{}("IO.logString")]
+                symbol dead{}(SortK{}) : SortK{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortK{}, R}(
+                        dead{}(X:SortK{}),
+                        \and{SortK{}}(X:SortK{}, \bottom{SortK{}}())
+                    )
+                ) [label{}("dead"), simplification{}()]
+                axiom{} \rewrites{SortK{}}(
+                    \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                    dead{}(log{}(\dv{SortString{}}("failed high")))
+                ) [label{}("high"), priority{}("10")]
+                axiom{} \rewrites{SortK{}}(
+                    \and{SortK{}}(initial{}(), \top{SortK{}}()),
+                    log{}(\dv{SortString{}}("lower"))
+                ) [label{}("low"), priority{}("50")]
+            endmodule []"#,
+    )
+    .unwrap();
+    let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+    let initial = definition
+        .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+        .unwrap();
+
+    let result = execute_observed(
+        &definition,
+        initial,
+        ExecutionOptions::default(),
+        &ObservationOptions::all(),
+    );
+
+    assert_eq!(result.leaves.len(), 1);
+    assert!(
+        matches!(result.leaves[0].halt_reason, HaltReason::Trivial { .. }),
+        "{result:#?}"
+    );
+    assert!(result.leaves[0].effects.is_empty());
+    assert!(result.effects.is_empty());
+    let [discarded] = result.discarded.as_slice() else {
+        panic!("expected one failed candidate: {:?}", result.discarded);
+    };
+    assert_eq!(discarded.id.rule, "high");
+    assert_eq!(discarded.rule_label.as_deref(), Some("high"));
+    assert_eq!(
+        discarded.effects,
+        [BuiltinEffect::UserLog("failed high".into())]
     );
     assert_eq!(discarded.reason, UncommittedReason::RolledBack);
 }

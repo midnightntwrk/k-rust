@@ -316,6 +316,7 @@ pub fn prove_claim(
                             constraints,
                         },
                         rule_ids: vec![format!("destination:{}", claim.attributes.unique_id)],
+                        effects: Vec::new(),
                     };
                     if options.stuck_check {
                         record_leaf!(externalise_leaf(
@@ -993,6 +994,7 @@ fn apply_claim(
                 constraints,
             },
             rule_ids: vec![format!("claim:{}", claim.attributes.unique_id)],
+            effects: Vec::new(),
         }
     });
     ClaimApplication::Applied {

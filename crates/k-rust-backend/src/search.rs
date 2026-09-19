@@ -753,15 +753,17 @@ fn externalise_result(
         solver,
         state.depth,
         &mut state.trace,
-        effects,
-        observe,
         Some(&mut observation),
         observation_log,
         observation_options,
     ) {
-        Ok(pattern) if predicates_truth(&pattern.constraints) == Truth::False => None,
-        Ok(pattern) => {
-            state.pattern = pattern;
+        Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
+            record_effects(effects, simplified.effects, observe);
+            None
+        }
+        Ok(simplified) => {
+            record_effects(effects, simplified.effects, observe);
+            state.pattern = simplified.pattern;
             Some(materialize_search_state(
                 state,
                 observation,

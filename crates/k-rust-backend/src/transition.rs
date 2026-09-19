@@ -94,6 +94,27 @@ pub enum ObservationEvent {
     Uncommitted(UncommittedObservation),
 }
 
+/// Effects owned by the committed prefix of one execution branch.
+///
+/// Simplification and rule application return candidate effects as ordinary vectors. The
+/// execution loop may append them here only when it retains that candidate as a successor. A
+/// branch copies the journal with its semantic state, so effects from sibling, rolled-back, or
+/// pruned candidates cannot enter another branch's transcript.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct EffectJournal {
+    committed: Vec<BuiltinEffect>,
+}
+
+impl EffectJournal {
+    pub(crate) fn commit(&mut self, effects: impl IntoIterator<Item = BuiltinEffect>) {
+        self.committed.extend(effects);
+    }
+
+    pub(crate) fn into_committed(self) -> Vec<BuiltinEffect> {
+        self.committed
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationOptions {
     rules: Option<BTreeSet<String>>,

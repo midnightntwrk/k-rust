@@ -37,8 +37,8 @@ use crate::{
     },
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     transition::{
-        ObservationEvent, ObservationHead, ObservationLog, ObservationOptions, PatternDigest,
-        TransitionId, UncommittedObservation, UncommittedReason,
+        EffectJournal, ObservationEvent, ObservationHead, ObservationLog, ObservationOptions,
+        PatternDigest, TransitionId, UncommittedObservation, UncommittedReason,
     },
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
 };
@@ -134,6 +134,8 @@ pub struct AppliedRule {
 pub struct RemainderBranch {
     pub pattern: Pattern,
     pub rule_ids: Vec<String>,
+    /// Effects pending on this remainder candidate.
+    pub effects: Vec<BuiltinEffect>,
 }
 
 /// A rule that unified but whose rewritten result is bottom. Kore retains its unifier in the
@@ -148,6 +150,8 @@ pub struct TrivialApplication {
     pub applicability: Predicate,
     /// The complementary sub-case retained in the priority-group remainder.
     pub remainder: Predicate,
+    /// Effects produced while constructing the candidate that simplified to bottom.
+    pub effects: Vec<BuiltinEffect>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -357,12 +361,18 @@ pub struct ExecutionLeaf {
     pub branch: Vec<TransitionId>,
     /// Ordered structured events retained for this branch.
     pub observations: Vec<ObservationEvent>,
+    /// Ordered effects committed by this branch.
+    pub effects: Vec<BuiltinEffect>,
     pub halt_reason: HaltReason,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionResult {
     pub leaves: Vec<ExecutionLeaf>,
+    /// The committed transcript when final selection retained exactly one leaf.
+    ///
+    /// Multi-leaf executions expose one transcript on each `ExecutionLeaf` and leave this
+    /// single-stream compatibility field empty.
     pub effects: Vec<BuiltinEffect>,
     /// Attempted transitions discarded before they could belong to a surviving branch.
     pub discarded: Vec<UncommittedObservation>,
@@ -475,11 +485,11 @@ fn execute_using(
             depth: 0,
             trace: Vec::new(),
             observation: None,
+            effects: EffectJournal::default(),
             is_initial_input: true,
         })
         .collect::<VecDeque<_>>();
     let mut leaves = SelectedExecutionLeaves::default();
-    let mut effects = Vec::new();
     let mut discarded = Vec::new();
     let mut completed_initial_simplifications = 0;
     let mut bottom_initial_simplifications = 0;
@@ -509,7 +519,7 @@ fn execute_using(
         return (
             ExecutionResult {
                 leaves: merge_equal_final_leaves(bounded),
-                effects,
+                effects: Vec::new(),
                 discarded,
             },
             InitialSimplificationStatus {
@@ -627,7 +637,7 @@ fn execute_using(
                     &simplified.effects,
                     observation,
                 );
-                record_effects(&mut effects, simplified.effects, &mut observe);
+                state.effects.commit(simplified.effects);
                 state
                     .trace
                     .extend(
@@ -685,8 +695,6 @@ fn execute_using(
                 HaltReason::DepthBound,
                 options.max_simplification_iterations,
                 solver,
-                &mut effects,
-                &mut observe,
                 &mut observation_log,
                 observation,
             ));
@@ -715,13 +723,12 @@ fn execute_using(
                     HaltReason::Stuck,
                     options.max_simplification_iterations,
                     solver,
-                    &mut effects,
-                    &mut observe,
                     &mut observation_log,
                     observation,
                 )),
             },
             RewriteResult::Trivial(pattern, applications) => {
+                record_trivial_candidates(&mut discarded, &applications, &pattern, observation);
                 let halt_reason = applications
                     .first()
                     .map(|application| applied_trivial_halt(state.depth + 1, application))
@@ -749,16 +756,14 @@ fn execute_using(
                     HaltReason::Indeterminate(reason),
                     options.max_simplification_iterations,
                     solver,
-                    &mut effects,
-                    &mut observe,
                     &mut observation_log,
                     observation,
                 )),
             },
             RewriteResult::Finished(applied) => {
-                record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                 if let Some(rule) = selected_stop_rule(&applied, &options.cut_point_rules) {
                     let mut applied = applied;
+                    state.effects.commit(applied.effects.iter().cloned());
                     state.observation =
                         observation_log.append_applied(state.observation, &applied, observation);
                     applied.pattern = match simplify_result_pattern(
@@ -768,13 +773,14 @@ fn execute_using(
                         solver,
                         state.depth,
                         &mut state.trace,
-                        &mut effects,
-                        &mut observe,
                         Some(&mut state.observation),
                         &mut observation_log,
                         observation,
                     ) {
-                        Ok(pattern) => pattern,
+                        Ok(simplified) => {
+                            state.effects.commit(simplified.effects);
+                            simplified.pattern
+                        }
                         Err(error) => {
                             leaves.push(state.leaf_with_pattern(
                                 applied.pattern,
@@ -808,6 +814,7 @@ fn execute_using(
                     state.depth,
                     state.trace,
                     state.observation,
+                    state.effects,
                     applied,
                     &mut observation_log,
                     observation,
@@ -820,13 +827,14 @@ fn execute_using(
                         solver,
                         next.depth,
                         &mut next.trace,
-                        &mut effects,
-                        &mut observe,
                         Some(&mut next.observation),
                         &mut observation_log,
                         observation,
                     ) {
-                        Ok(pattern) => pattern,
+                        Ok(simplified) => {
+                            next.effects.commit(simplified.effects);
+                            simplified.pattern
+                        }
                         Err(error) => {
                             leaves.push(
                                 next.leaf(HaltReason::Simplification(error), &observation_log),
@@ -867,8 +875,9 @@ fn execute_using(
                 original,
                 mut branches,
                 mut remainder,
-                ..
+                trivial,
             } => {
+                record_trivial_candidates(&mut discarded, &trivial, &original, observation);
                 if options.branch_mode == ExecutionBranchMode::StopAtBranch {
                     if let Err(error) = expand_stopped_branch_remainder(
                         definition,
@@ -891,13 +900,14 @@ fn execute_using(
                         solver,
                         state.depth,
                         &mut state.trace,
-                        &mut effects,
-                        &mut observe,
                         Some(&mut state.observation),
                         &mut observation_log,
                         observation,
                     ) {
-                        Ok(pattern) => pattern,
+                        Ok(simplified) => {
+                            state.effects.commit(simplified.effects);
+                            simplified.pattern
+                        }
                         Err(error) => {
                             leaves.push(state.leaf_with_pattern(
                                 original,
@@ -934,14 +944,13 @@ fn execute_using(
                             solver,
                             state.depth + 1,
                             &mut state.trace,
-                            &mut effects,
-                            &mut observe,
                             None,
                             &mut observation_log,
                             observation,
                         ) {
-                            Ok(pattern) => {
-                                applied.pattern = pattern;
+                            Ok(simplified) => {
+                                applied.pattern = simplified.pattern;
+                                applied.effects.extend(simplified.effects);
                                 if predicates_truth(&applied.pattern.constraints) != Truth::False {
                                     simplified_branches.push(applied);
                                 } else if observation
@@ -978,13 +987,14 @@ fn execute_using(
                             solver,
                             state.depth,
                             &mut state.trace,
-                            &mut effects,
-                            &mut observe,
                             None,
                             &mut observation_log,
                             observation,
                         ) {
-                            Ok(pattern) => pattern,
+                            Ok(simplified) => {
+                                candidate.effects.extend(simplified.effects);
+                                simplified.pattern
+                            }
                             Err(error) => {
                                 leaves.push(state.leaf_with_pattern(
                                     original,
@@ -1009,17 +1019,13 @@ fn execute_using(
                         }
                         (1, false) => {
                             let applied = branches.pop().expect("one branch remains");
-                            record_effects(
-                                &mut effects,
-                                applied.effects.iter().cloned(),
-                                &mut observe,
-                            );
                             enqueue_execution_states(
                                 &mut pending,
                                 vec![next_state(
                                     state.depth,
                                     state.trace,
                                     state.observation,
+                                    state.effects,
                                     applied,
                                     &mut observation_log,
                                     observation,
@@ -1035,6 +1041,7 @@ fn execute_using(
                                     state.depth,
                                     state.trace,
                                     state.observation,
+                                    state.effects,
                                     before,
                                     remainder,
                                     &mut observation_log,
@@ -1043,13 +1050,6 @@ fn execute_using(
                             );
                         }
                         _ => {
-                            for applied in &branches {
-                                record_effects(
-                                    &mut effects,
-                                    applied.effects.iter().cloned(),
-                                    &mut observe,
-                                );
-                            }
                             leaves.push(state.leaf_with_pattern(
                                 original,
                                 HaltReason::Branch {
@@ -1065,11 +1065,11 @@ fn execute_using(
                 let mut next =
                     Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
                 for applied in branches {
-                    record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
                     next.push(next_state(
                         state.depth,
                         state.trace.clone(),
                         state.observation,
+                        state.effects.clone(),
                         applied,
                         &mut observation_log,
                         observation,
@@ -1081,6 +1081,7 @@ fn execute_using(
                         state.depth,
                         state.trace,
                         state.observation,
+                        state.effects,
                         before,
                         remainder,
                         &mut observation_log,
@@ -1099,11 +1100,19 @@ fn execute_using(
             }
         }
     }
+    let leaves = merge_equal_final_leaves(select_got_stuck_over_depth_bound(leaves.into_inner()));
+    // The legacy observer is a single-stream interface. It receives a transcript only when final
+    // selection retained one leaf; callers consume multi-leaf transcripts from each leaf.
+    let effects = match leaves.as_slice() {
+        [leaf] => leaf.effects.clone(),
+        _ => Vec::new(),
+    };
+    for effect in &effects {
+        observe(effect);
+    }
     (
         ExecutionResult {
-            leaves: merge_equal_final_leaves(select_got_stuck_over_depth_bound(
-                leaves.into_inner(),
-            )),
+            leaves,
             effects,
             discarded,
         },
@@ -1191,6 +1200,7 @@ fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
                     .iter()
                     .cloned()
                     .collect::<BTreeSet<_>>(),
+                leaf.effects.clone(),
             );
             if seen.contains(&key) {
                 false
@@ -1259,6 +1269,31 @@ fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Opt
         })
 }
 
+fn record_trivial_candidates(
+    discarded: &mut Vec<UncommittedObservation>,
+    applications: &[TrivialApplication],
+    target: &Pattern,
+    observation: Option<&ObservationOptions>,
+) {
+    let Some(options) = observation else {
+        return;
+    };
+    for application in applications {
+        if !options.observes(&application.rule_id) {
+            continue;
+        }
+        discarded.push(UncommittedObservation {
+            id: TransitionId {
+                rule: application.rule_id.clone(),
+                target: PatternDigest::of(target),
+            },
+            rule_label: application.label.clone(),
+            effects: application.effects.clone(),
+            reason: UncommittedReason::RolledBack,
+        });
+    }
+}
+
 fn enqueue_execution_states(pending: &mut VecDeque<ExecutionState>, next: Vec<ExecutionState>) {
     for state in next.into_iter().rev() {
         pending.push_front(state);
@@ -1287,17 +1322,6 @@ fn execution_state_at_breadth_bound(
     observation_log: &ObservationLog,
 ) -> ExecutionLeaf {
     state.leaf(HaltReason::BreadthBound, observation_log)
-}
-
-fn record_effects(
-    recorded: &mut Vec<BuiltinEffect>,
-    effects: impl IntoIterator<Item = BuiltinEffect>,
-    observe: &mut impl FnMut(&BuiltinEffect),
-) {
-    for effect in effects {
-        observe(&effect);
-        recorded.push(effect);
-    }
 }
 
 /// Simplify a pattern that leaves the rewriter, the search, or the prover into the one normal
@@ -1343,6 +1367,11 @@ pub(crate) fn simplify_leaf_pattern(
 }
 
 /// `simplify_leaf_pattern` plus the observation and effect bookkeeping of an execution.
+pub(crate) struct ResultPatternSimplification {
+    pub(crate) pattern: Pattern,
+    pub(crate) effects: Vec<BuiltinEffect>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn simplify_result_pattern(
     definition: &BackendDefinition,
@@ -1351,12 +1380,10 @@ pub(crate) fn simplify_result_pattern(
     solver: &dyn SmtSolver,
     depth: u64,
     trace: &mut Vec<TraceEntry>,
-    effects: &mut Vec<BuiltinEffect>,
-    observe: &mut impl FnMut(&BuiltinEffect),
     observation: Option<&mut ObservationHead>,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
-) -> Result<Pattern, SimplificationError> {
+) -> Result<ResultPatternSimplification, SimplificationError> {
     let before = pattern.clone();
     let PatternSimplification {
         pattern,
@@ -1374,8 +1401,10 @@ pub(crate) fn simplify_result_pattern(
             observation_options,
         );
     }
-    record_effects(effects, simplified_effects, observe);
-    Ok(pattern)
+    Ok(ResultPatternSimplification {
+        pattern,
+        effects: simplified_effects,
+    })
 }
 
 /// Externalise a `Stuck`, `DepthBound`, or `Indeterminate` leaf in the simplifier's normal
@@ -1393,8 +1422,6 @@ fn externalise_leaf(
     halt_reason: HaltReason,
     max_iterations: usize,
     solver: &dyn SmtSolver,
-    effects: &mut Vec<BuiltinEffect>,
-    observe: &mut impl FnMut(&BuiltinEffect),
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionLeaf {
@@ -1405,17 +1432,19 @@ fn externalise_leaf(
         solver,
         state.depth,
         &mut state.trace,
-        effects,
-        observe,
         Some(&mut state.observation),
         observation_log,
         observation_options,
     ) {
-        Ok(pattern) if predicates_truth(&pattern.constraints) == Truth::False => {
-            let halt_reason = trivial_halt(state.depth, &pattern);
-            state.leaf_with_pattern(pattern, halt_reason, observation_log)
+        Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
+            state.effects.commit(simplified.effects);
+            let halt_reason = trivial_halt(state.depth, &simplified.pattern);
+            state.leaf_with_pattern(simplified.pattern, halt_reason, observation_log)
         }
-        Ok(pattern) => state.leaf_with_pattern(pattern, halt_reason, observation_log),
+        Ok(simplified) => {
+            state.effects.commit(simplified.effects);
+            state.leaf_with_pattern(simplified.pattern, halt_reason, observation_log)
+        }
         Err(_) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {
             state.leaf_with_pattern(pattern, halt_reason, observation_log)
         }
@@ -1429,11 +1458,14 @@ fn next_state(
     depth: u64,
     mut trace: Vec<TraceEntry>,
     observation: ObservationHead,
+    effects: EffectJournal,
     applied: AppliedRule,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
     let observation = observation_log.append_applied(observation, &applied, observation_options);
+    let mut effects = effects;
+    effects.commit(applied.effects.iter().cloned());
     trace.push(TraceEntry {
         depth: depth + 1,
         kind: TraceKind::Rewrite,
@@ -1445,6 +1477,7 @@ fn next_state(
         depth: depth + 1,
         trace,
         observation,
+        effects,
         is_initial_input: false,
     }
 }
@@ -1453,6 +1486,7 @@ fn remaining_state(
     depth: u64,
     mut trace: Vec<TraceEntry>,
     observation: ObservationHead,
+    mut effects: EffectJournal,
     before: Pattern,
     remainder: RemainderBranch,
     observation_log: &mut ObservationLog,
@@ -1466,11 +1500,13 @@ fn remaining_state(
         label: None,
         unique_id: remainder.rule_ids.join(","),
     });
+    effects.commit(remainder.effects);
     ExecutionState {
         pattern: remainder.pattern,
         depth,
         trace,
         observation,
+        effects,
         is_initial_input: false,
     }
 }
@@ -1480,6 +1516,7 @@ struct ExecutionState {
     depth: u64,
     trace: Vec<TraceEntry>,
     observation: ObservationHead,
+    effects: EffectJournal,
     is_initial_input: bool,
 }
 
@@ -1492,6 +1529,7 @@ impl ExecutionState {
             trace: self.trace,
             branch,
             observations,
+            effects: self.effects.into_committed(),
             halt_reason,
         }
     }
@@ -1741,6 +1779,7 @@ fn rewrite_step_all(
             Some(RemainderBranch {
                 pattern: remainder_pattern,
                 rule_ids,
+                effects: Vec::new(),
             })
         } else {
             None
@@ -1897,6 +1936,7 @@ fn rewrite_step_any(
                     .map(|application| application.rule_id.clone()),
             )
             .collect(),
+        effects: Vec::new(),
     });
     match (applied.len(), trivial.is_empty(), remainder) {
         (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
@@ -2480,6 +2520,7 @@ fn trivial_application(
     rule: &RewriteRule,
     applicability: &Predicate,
     obligation: Predicate,
+    effects: Vec<BuiltinEffect>,
 ) -> TrivialApplication {
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
@@ -2487,6 +2528,7 @@ fn trivial_application(
         obligation,
         applicability: applicability.clone(),
         remainder: remainder_of(applicability),
+        effects,
     }
 }
 
@@ -2981,7 +3023,12 @@ fn apply_rule_with_match(
         return RuleAttempt::Unified {
             groups: vec![RuleApplicationGroup {
                 applied: Vec::new(),
-                trivial: vec![trivial_application(rule, &applicability, Predicate::False)],
+                trivial: vec![trivial_application(
+                    rule,
+                    &applicability,
+                    Predicate::False,
+                    Vec::new(),
+                )],
             }],
         };
     }
@@ -3158,7 +3205,12 @@ fn apply_rule_with_match(
             return RuleAttempt::Unified {
                 groups: vec![RuleApplicationGroup {
                     applied: Vec::new(),
-                    trivial: vec![trivial_application(rule, &applicability, Predicate::False)],
+                    trivial: vec![trivial_application(
+                        rule,
+                        &applicability,
+                        Predicate::False,
+                        Vec::new(),
+                    )],
                 }],
             };
         }
@@ -3185,8 +3237,16 @@ fn apply_rule_with_match(
             solver,
         ) {
             RhsAlternativeAttempt::Applied(application) => applications.push(application),
-            RhsAlternativeAttempt::Trivial(obligation) => {
-                trivial.push(trivial_application(rule, &applicability, obligation));
+            RhsAlternativeAttempt::Trivial {
+                obligation,
+                effects,
+            } => {
+                trivial.push(trivial_application(
+                    rule,
+                    &applicability,
+                    obligation,
+                    effects,
+                ));
             }
             RhsAlternativeAttempt::Indeterminate(reason) => {
                 return RuleAttempt::Indeterminate(reason);
@@ -3203,7 +3263,10 @@ fn apply_rule_with_match(
 
 enum RhsAlternativeAttempt {
     Applied(RuleApplication),
-    Trivial(Predicate),
+    Trivial {
+        obligation: Predicate,
+        effects: Vec<BuiltinEffect>,
+    },
     Indeterminate(IndeterminateReason),
 }
 
@@ -3322,7 +3385,16 @@ fn apply_rhs_alternative(
             }
         };
     if let Some(term) = undefined_term.clone() {
-        return RhsAlternativeAttempt::Trivial(Predicate::Ceil(term));
+        return RhsAlternativeAttempt::Trivial {
+            obligation: Predicate::Ceil(term),
+            effects,
+        };
+    }
+    if predicates_truth(&rhs_constraints) == Truth::False {
+        return RhsAlternativeAttempt::Trivial {
+            obligation: conjunction(&rhs_constraints),
+            effects,
+        };
     }
     extend_unique(&mut condition_knowledge, rhs_constraints.iter().cloned());
     if !rule.computed_attributes.undefined_symbols.is_empty() {
@@ -3348,7 +3420,10 @@ fn apply_rhs_alternative(
         match rhs_obligation_verdict(decide_condition(&obligations, &condition_knowledge, solver)) {
             ObligationVerdict::Discharged => {}
             ObligationVerdict::Trivial => {
-                return RhsAlternativeAttempt::Trivial(reported_obligation);
+                return RhsAlternativeAttempt::Trivial {
+                    obligation: reported_obligation,
+                    effects,
+                };
             }
             ObligationVerdict::Carried => extend_unique(&mut rhs_constraints, obligations),
         }
@@ -3376,7 +3451,10 @@ fn apply_rhs_alternative(
     match rhs_ensures_verdict(decide_condition(&ensures, &condition_knowledge, solver)) {
         EnsuresStepVerdict::Cleared => ensures.clear(),
         EnsuresStepVerdict::Trivial => {
-            return RhsAlternativeAttempt::Trivial(reported_ensures);
+            return RhsAlternativeAttempt::Trivial {
+                obligation: reported_ensures,
+                effects,
+            };
         }
         EnsuresStepVerdict::Carried => {}
         EnsuresStepVerdict::Indeterminate(error) => {
@@ -4831,6 +4909,7 @@ mod tests {
             trace: Vec::new(),
             branch: Vec::new(),
             observations: Vec::new(),
+            effects: Vec::new(),
             halt_reason,
         };
         let mut selected = SelectedExecutionLeaves::default();
