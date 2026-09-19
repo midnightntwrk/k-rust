@@ -254,6 +254,22 @@ elsewhere = [
 ]
 
 [[ticket]]
+id = "CB-21"
+title = "SIMPLE untyped macro expansion rejects source production metadata absent from the caller catalog"
+state = "open"
+investigation = "needed"
+worker = ""
+cases = ["pl-tutorial/2_languages/1_simple/1_untyped"]
+measured = "Private CB-16 acceptance probe on main 8e7931d: the separately compiled runnable artifact loads successfully, then every attempted SIMPLE untyped program stops in macro expansion with `source production metadata #324 on a macro application has no equivalent in the caller catalog` in 0.3 to 0.4 s. The exact source-driven collatz.simple invocation, with the same definition, program, stdin, modules, sort, include and builtin directories, checked type-inference mode, and --io off, fails with the identical diagnostic. This proves the failure is in the shared source execution path rather than CB-16 artifact serialization or loading."
+work = "Not investigated. Reproduce the source-driven failure from the CB-16 command, identify production #324 and the macro application that carries it, and compare the parser-module source catalog with the main-module caller catalog. Establish whether the failure is a regression from CB-14's strict metadata rebasing or an older latent SIMPLE defect, reduce it to a source-level CLI fixture, and fix the catalog or equivalence boundary without discarding non-token application metadata. Re-run the SIMPLE untyped case after the fix; CB-16-7 then remeasures all seven tutorial cases and adjusts only the temporary budgets justified by that measurement."
+resolution = ""
+elsewhere = [
+  "draft/conformance-backlog/workers/CB-16.md (artifact/source parity evidence and blocked CB-16-7 measurement)",
+  "draft/conformance-backlog/workers/CB-14.md (closed FUN macro-scope work that introduced the strict caller-catalog rebasing path; relationship to this failure is unverified)",
+  "crates/k-rust/src/kompile/passes.rs (the rejecting metadata rebase boundary)",
+]
+
+[[ticket]]
 id = "CB-15"
 worker = "workers/CB-15.md"
 title = "Committed-trace console IO"
@@ -288,9 +304,9 @@ cases = [
   "pl-tutorial/2_languages/2_kool/2_typed/2_static",
   "pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
 ]
-measured = "shared sequence 21 (label post-tranche-main, main e4769a1, 1291 s, 7 cases): every krun still recompiles the definition: 2.2 to 2.5 s per program in SIMPLE typed-static (90.4 s for 36 steps) and 3.5 to 3.8 s per program in KOOL typed-static (131.1 s for 31 steps), where execution stops within a few steps and the elapsed time is therefore almost entirely compilation. Four of the seven cases end with 21, 13, 12 and 49 steps unmeasured after a single outlier program exhausts the case budget, so reuse is what makes the rest of those corpora measurable at all."
-work = "Artifact and reuse programme, detailed in workers/CB-16.md. Inventory runtime data by owner and consumer; benchmark/select an existing serialization implementation rather than assume JSON or invent a codec; define a self-describing versioned but internally unstable directory contract; write the runnable payload unconditionally; add krun --definition without source parsing or transforms; make the driver reuse it; re-measure and remove temporary budgets."
-resolution = "2026-09-18 owner decision: every ordinary kcompile output is runnable without --for-running. Representation and layout are deliberately undecided until measured: KAST JSON remains the external format unless selected on internal merits; executable properties belong in the payload; small metadata follows consumer needs rather than accumulating in krust.json; compatibility is promised through the CLI/library, not a frozen directory layout."
+measured = "Implemented at 8e7931d. Ordinary Rust kcompile publishes a versioned runnable artifact, krun --definition loads it without source loading or compiler transforms, and the conformance driver reuses one Rust artifact per case while separately accounting for a Rust compile only when an LLVM comparison case has krun recipes. Release measurements: the macro fixture writes in 0.0517 s and loads in a median 0.0238 s; SIMPLE untyped writes in 0.7100 s and reaches its current source-production metadata error in a median 0.3123 s after artifact loading. The identical source-driven SIMPLE command fails with the same diagnostic, now owned by CB-21, so the seven-case budget remeasurement has not yet run to completion. Superseded baseline: shared sequence 21 measured 2.2 to 4.5 s of repeated compilation per program."
+work = "CB-16-1 through CB-16-6 are done at 8e7931d: runtime inventory and representation measurement, versioned atomic artifact publication, source-independent krun loading, conformance reuse, LLVM/Rust artifact separation, tests, and compatibility documentation. CB-16-7 remains: after CB-21 restores SIMPLE source execution, remeasure all seven tutorial cases, confirm every krust_cmd uses --definition and one Rust runtime compilation per case, and reduce or remove only the temporary budgets supported by the complete measurement."
+resolution = "2026-09-18 owner decision: every ordinary kcompile output is runnable without --for-running and compatibility is promised through the CLI/library rather than a frozen internal layout. Implemented 2026-09-19 at 8e7931d using the existing deterministic KRUST-PROVENANCE JSON serializer for frontend and pattern-compilation data, definition.kore for semantic execution, and a compact manifest with module identities, configuration sorts, rewrite order, schema/backend identity, and payload SHA-256 digests published last. --emit-json remains the optional external KAST representation; proof preparation and LLVM output do not masquerade as Rust runtime artifacts."
 elsewhere = [
   "draft/conformance-backlog/workers/CB-12.md",
   "draft/conformance-backlog/workers/CB-16.md",

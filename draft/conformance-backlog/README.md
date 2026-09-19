@@ -322,3 +322,16 @@ The conformance driver correctly translates the effective upstream `all` goal an
 The typed-dynamic expectation reason records the six targets as `undriven-recipe` evidence, and `workers/DF-07-recipe-enumeration.toml` preserves the fresh-copy marker plus every exact invocation.
 No `step_exclusions` rows were added because the driver has no result steps to select; adding exclusions would mask a mismatch if a later upstream Makefile starts driving these targets.
 DF-07 closes without a driver change, floor change, budget change, or remeasurement.
+
+## 2026-09-19: CB-16 runnable artifacts implemented; CB-21 split
+
+CB-16-1 through CB-16-6 landed at `8e7931d`.
+Every ordinary Rust `kcompile` now publishes a versioned runnable artifact, `krun --definition` loads it without source loading or compiler transforms, and the conformance driver reuses one Rust artifact per case.
+LLVM comparison output stays separate: only LLVM cases with `krun` recipes perform and record one additional Rust runtime compilation.
+The macro fixture writes its artifact in 0.0517 s and loads it in a median 0.0238 s; SIMPLE untyped writes in 0.7100 s and reaches its current frontend error after artifact loading in a median 0.3123 s.
+
+The SIMPLE untyped acceptance probe cannot complete CB-16-7 because every attempted program stops at `source production metadata #324 on a macro application has no equivalent in the caller catalog`.
+The exact source-driven `collatz.simple` command fails with the identical diagnostic, so this is neither artifact corruption nor a source fallback defect.
+CB-21 now owns that source-execution failure and must identify production 324, the affected macro application, and the mismatch between the parser-module source catalog and main-module caller catalog.
+CB-14 remains closed while the relationship to its strict metadata rebasing is unverified, and CB-20 remains the independent FUN post-expansion timeout investigation.
+CB-16 stays open only for the seven-case remeasurement and temporary-budget adjustment after CB-21; no floor or budget changes are justified by the interrupted probe.
