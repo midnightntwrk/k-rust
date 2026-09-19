@@ -61,6 +61,9 @@ An LLVM execution result may still differ because LLVM matches a normalized anyw
 
 After equation normalization reaches a fixed point, the backend treats a term as concrete when every application head is either a constructor or an anywhere-attributed production without the `function` attribute.
 This concrete-after-normalization classification is shared by rewrite instantiation, equation matching, overload lowering, and structural predicate simplification.
+The simplifier may cache a closed normalized anywhere or overloaded application as evaluated only after a fresh scan has found every compatible equation inapplicable independently of the current path condition.
+A symbolic application, a scan with an indeterminate equation, or an equation refuted under the current path condition must remain unevaluated.
+An equality from the path condition that can replace any part of a cached term must be applied before the cache can short-circuit simplification.
 Rewrite matching decomposes equal rigid heads and rejects a different rigid head, while matches against variables and ordinary function heads remain symbolic.
 Equation matching lowers a concrete overloaded application through `symbol-overload` relations when every argument can lower to the corresponding lesser sort.
 The most specific successful lowering supplies sort membership; a concrete application for which every compatible lowering fails refutes membership.

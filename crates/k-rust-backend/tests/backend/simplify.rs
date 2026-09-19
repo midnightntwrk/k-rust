@@ -42,6 +42,225 @@ fn term(definition: &BackendDefinition, source: &str) -> Term {
         .expect("term should internalize")
 }
 
+fn anywhere_cache_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol cached{}(SortBool{}) : SortS{}
+                    [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+                symbol guarded{}() : SortS{}
+                    [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+                symbol condition{}() : SortBool{}
+                    [function{}(), total{}(), no-evaluators{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortBool{}, R}(
+                                B:SortBool{},
+                                \dv{SortBool{}}("true")
+                            ),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortS{}, R}(
+                        cached{}(B:SortBool{}),
+                        \and{SortS{}}(
+                            \dv{SortS{}}("result"),
+                            \top{SortS{}}()
+                        )
+                    )
+                ) [label{}("cached-true"), anywhere{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            condition{}(),
+                            \dv{SortBool{}}("true")
+                        ),
+                        \top{R}()
+                    ),
+                    \equals{SortS{}, R}(
+                        guarded{}(),
+                        \and{SortS{}}(
+                            \dv{SortS{}}("guarded-result"),
+                            \top{SortS{}}()
+                        )
+                    )
+                ) [label{}("guarded"), anywhere{}()]
+            endmodule []"#,
+    )
+    .expect("anywhere cache definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("anywhere cache definition should internalize")
+}
+
+fn overload_cache_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortSub{} []
+                sort SortTop{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                symbol topValue{}() : SortTop{} [constructor{}()]
+                symbol lesser{}(SortSub{}) : SortSub{} [constructor{}()]
+                symbol greater{}(SortTop{}) : SortTop{}
+                    [functional{}(), injective{}(), no-evaluators{}()]
+                axiom{R} \exists{R}(
+                    Value:SortTop{},
+                    \equals{SortTop{}, R}(
+                        Value:SortTop{},
+                        inj{SortSub{}, SortTop{}}(From:SortSub{})
+                    )
+                ) [subsort{SortSub{}, SortTop{}}()]
+                axiom{} \equals{SortTop{}, SortTop{}}(
+                    greater{}(inj{SortSub{}, SortTop{}}(X:SortSub{})),
+                    inj{SortSub{}, SortTop{}}(lesser{}(X:SortSub{}))
+                ) [symbol-overload{}(greater{}(), lesser{}())]
+            endmodule []"#,
+    )
+    .expect("overload cache definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("overload cache definition should internalize")
+}
+
+#[test]
+fn fresh_anywhere_application_runs_its_equation_before_caching() {
+    let definition = anywhere_cache_definition();
+    let input = term(&definition, r#"cached{}(\dv{SortBool{}}("true"))"#);
+    assert!(!input.attributes().evaluated);
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the fresh anywhere equation should simplify");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("result")"#));
+    assert_eq!(result.applied_rules, ["cached-true"]);
+}
+
+#[test]
+fn closed_anywhere_application_caches_an_inapplicable_equation_scan() {
+    let definition = anywhere_cache_definition();
+    let input = term(&definition, r#"cached{}(\dv{SortBool{}}("false"))"#);
+
+    let first = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the incompatible equation should reach a fixed point");
+    assert_eq!(first.term, input);
+    assert!(first.term.attributes().evaluated);
+
+    let second = simplify(&definition, &first.term, SimplificationOptions::default())
+        .expect("the cached fixed point should stay simplified");
+    assert!(second.term.attributes().evaluated);
+    assert!(second.applied_rules.is_empty());
+}
+
+#[test]
+fn closed_overloaded_application_caches_an_inapplicable_equation_scan() {
+    let definition = overload_cache_definition();
+    let input = term(&definition, "greater{}(topValue{}())");
+    assert!(!input.attributes().evaluated);
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the normalized overloaded head should reach a fixed point");
+
+    assert_eq!(result.term, input);
+    assert!(result.term.attributes().evaluated);
+    assert!(result.applied_rules.is_empty());
+}
+
+#[test]
+fn symbolic_anywhere_application_remains_unevaluated() {
+    let definition = anywhere_cache_definition();
+    let input = term(&definition, "cached{}(B:SortBool{})");
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the symbolic anywhere application should remain valid");
+
+    assert_eq!(result.term, input);
+    assert!(!result.term.attributes().evaluated);
+    assert!(result.applied_rules.is_empty());
+}
+
+#[test]
+fn relevant_path_replacement_bypasses_the_anywhere_cache() {
+    let definition = anywhere_cache_definition();
+    let false_value = term(&definition, r#"\dv{SortBool{}}("false")"#);
+    let true_value = term(&definition, r#"\dv{SortBool{}}("true")"#);
+    let input = term(&definition, r#"cached{}(\dv{SortBool{}}("false"))"#);
+    let cached = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the incompatible equation should reach a fixed point")
+        .term;
+    assert!(cached.attributes().evaluated);
+
+    let result = simplify_with_solver(
+        &definition,
+        &cached,
+        &[Predicate::Equals(true_value, false_value)],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the replacement should invalidate the cached fixed point");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("result")"#));
+    assert_eq!(result.applied_rules, ["cached-true"]);
+}
+
+#[test]
+fn indeterminate_anywhere_equation_scan_remains_unevaluated() {
+    let definition = anywhere_cache_definition();
+    let input = term(&definition, "guarded{}()");
+
+    let result = simplify_with_solver(
+        &definition,
+        &input,
+        &[],
+        SimplificationOptions::default(),
+        &FixedValiditySolver(Validity::Indeterminate),
+    )
+    .expect("an indeterminate equation should leave the subject unchanged");
+
+    assert_eq!(result.term, input);
+    assert!(!result.term.attributes().evaluated);
+    assert!(result.applied_rules.is_empty());
+}
+
+#[test]
+fn path_refuted_anywhere_equation_is_rechecked_under_opposing_assumptions() {
+    let definition = anywhere_cache_definition();
+    let input = term(&definition, "guarded{}()");
+    let requires = Predicate::Equals(
+        term(&definition, "condition{}()"),
+        term(&definition, r#"\dv{SortBool{}}("true")"#),
+    );
+    let refuting_assumptions = [Predicate::Not(Box::new(requires.clone()))];
+
+    let refuted = simplify_with_solver(
+        &definition,
+        &input,
+        &refuting_assumptions,
+        SimplificationOptions::default(),
+        &FixedValiditySolver(Validity::Invalid),
+    )
+    .expect("the refuted equation should leave the subject unchanged");
+    assert_eq!(refuted.term, input);
+    assert!(!refuted.term.attributes().evaluated);
+    assert!(refuted.applied_rules.is_empty());
+
+    let discharged = simplify_with_solver(
+        &definition,
+        &refuted.term,
+        &[requires],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the equation should be reconsidered under the opposing assumptions");
+    assert_eq!(
+        discharged.term,
+        term(&definition, r#"\dv{SortS{}}("guarded-result")"#)
+    );
+    assert_eq!(discharged.applied_rules, ["guarded"]);
+}
+
 #[test]
 fn ceil_of_distinct_normalized_ground_cells_in_a_set_is_true() {
     let definition = ground_cell_set_definition();

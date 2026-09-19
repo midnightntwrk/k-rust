@@ -1172,7 +1172,7 @@ fn apply_ceil_theory(
         })? {
             GroupScan::Applied(result) => return Ok(Some(result)),
             GroupScan::Blocked => return Ok(None),
-            GroupScan::NotApplicable => {}
+            GroupScan::ContextDependent | GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -1291,7 +1291,7 @@ fn apply_predicate_theory(
         })? {
             GroupScan::Applied(result) => return Ok(Some(result)),
             GroupScan::Blocked => return Ok(None),
-            GroupScan::NotApplicable => {}
+            GroupScan::ContextDependent | GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -2232,6 +2232,10 @@ fn simplify_children(
     let mut undefined_term = None;
     let children_unchanged = Cell::new(true);
     let mut child = |term: &Term| {
+        if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
+            measure::bump(Counter::SimplifyNodesSkippedEvaluated);
+            return Ok::<_, SimplificationError>(term.clone());
+        }
         // The iteration limit bounds one fixed-point lineage, not the total amount of productive
         // work in an entire term. Siblings receive independent copies of the current budget, while
         // descendants produced by a rewrite inherit that rewrite's reduced budget. This permits
@@ -2425,7 +2429,7 @@ fn simplify_root(
             });
         }
     };
-    if let Some(result) = apply_theory(
+    let function_scan = match apply_theory(
         definition,
         (&definition.function_theory, IndeterminateEquation::Block),
         term,
@@ -2434,9 +2438,10 @@ fn simplify_root(
         active_conditions,
         solver,
     )? {
-        return Ok(result);
-    }
-    if let Some(result) = apply_theory(
+        TheoryScan::Applied(result) => return Ok(result),
+        scan => scan,
+    };
+    let simplification_scan = match apply_theory(
         definition,
         (
             &definition.simplification_theory,
@@ -2448,8 +2453,9 @@ fn simplify_root(
         active_conditions,
         solver,
     )? {
-        return Ok(result);
-    }
+        TheoryScan::Applied(result) => return Ok(result),
+        scan => scan,
+    };
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -2464,6 +2470,7 @@ fn simplify_root(
             undefined_term: None,
         });
     };
+    let builtin_supported = unsupported.is_none();
     if let Some(hook) = symbol.attributes.hook.as_deref() {
         if arguments
             .iter()
@@ -2493,8 +2500,16 @@ fn simplify_root(
             });
         }
     }
+    let equation_fixed_point = matches!(function_scan, TheoryScan::NotApplicable)
+        && matches!(simplification_scan, TheoryScan::NotApplicable);
+    let term =
+        if equation_fixed_point && builtin_supported && cacheable_equation_head(definition, term) {
+            term.with_evaluated_cache()
+        } else {
+            term.clone()
+        };
     Ok(Simplification {
-        term: term.clone(),
+        term,
         constraints: Vec::new(),
         applied_rules: Vec::new(),
         effects: Vec::new(),
@@ -2535,6 +2550,31 @@ enum IndeterminateEquation {
     Continue,
 }
 
+enum TheoryScan {
+    Applied(Simplification),
+    Blocked,
+    ContextDependent,
+    NotApplicable,
+}
+
+/// Whether `term` is one of the normalized value-like equation heads whose fixed point can be
+/// retained in the term itself. Fully evaluated children exclude a closed parent whose child
+/// scan was blocked, and the empty variable set keeps a symbolic application out of the cache.
+/// The caller separately rejects a scan whose result depended on the current path condition.
+fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return false;
+    };
+    term.attributes().variables.is_empty()
+        && arguments
+            .iter()
+            .all(|argument| argument.attributes().evaluated)
+        && (symbol.attributes.anywhere || definition.overloads.is_overloaded(&symbol.name))
+}
+
 fn apply_theory(
     definition: &BackendDefinition,
     theory: (&Theory, IndeterminateEquation),
@@ -2543,9 +2583,11 @@ fn apply_theory(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Option<Simplification>, SimplificationError> {
+) -> Result<TheoryScan, SimplificationError> {
     let (theory, indeterminate_equation) = theory;
     let groups = applicable_groups(theory, &term_index(term));
+    let mut blocked = false;
+    let mut context_dependent = false;
     for rules in groups.values() {
         match scan_group(rules, |rule| {
             apply_equation(
@@ -2558,17 +2600,25 @@ fn apply_theory(
                 solver,
             )
         })? {
-            GroupScan::Applied(result) => return Ok(Some(result)),
+            GroupScan::Applied(result) => return Ok(TheoryScan::Applied(result)),
             GroupScan::Blocked if indeterminate_equation == IndeterminateEquation::Block => {
                 // A rule at this priority may apply after the symbolic subject becomes more
                 // concrete. Function evaluation must preserve the application and must not fall
                 // through to an owise or otherwise lower-priority equation.
-                return Ok(None);
+                return Ok(TheoryScan::Blocked);
             }
-            GroupScan::Blocked | GroupScan::NotApplicable => {}
+            GroupScan::Blocked => blocked = true,
+            GroupScan::ContextDependent => context_dependent = true,
+            GroupScan::NotApplicable => {}
         }
     }
-    Ok(None)
+    Ok(if blocked {
+        TheoryScan::Blocked
+    } else if context_dependent {
+        TheoryScan::ContextDependent
+    } else {
+        TheoryScan::NotApplicable
+    })
 }
 
 fn applicable_groups(theory: &Theory, index: &TermIndex) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
@@ -2593,6 +2643,10 @@ fn applicable_groups(theory: &Theory, index: &TermIndex) -> BTreeMap<u8, Vec<Arc
 
 enum EquationAttempt<T> {
     NotApplicable,
+    /// The equation is inapplicable under the current path condition, but may apply if the same
+    /// term is simplified under different assumptions. Unlike `Indeterminate`, this does not
+    /// block lower-priority equations in the current scan.
+    ContextDependent,
     Indeterminate(ConditionIndeterminacy),
     Applied(T),
 }
@@ -2600,6 +2654,7 @@ enum EquationAttempt<T> {
 enum GroupScan<T> {
     Applied(T),
     Blocked,
+    ContextDependent,
     NotApplicable,
 }
 
@@ -2608,15 +2663,19 @@ fn scan_group<R, T>(
     mut attempt: impl FnMut(&R) -> Result<EquationAttempt<T>, SimplificationError>,
 ) -> Result<GroupScan<T>, SimplificationError> {
     let mut indeterminate = false;
+    let mut context_dependent = false;
     for rule in rules {
         match attempt(rule)? {
             EquationAttempt::Applied(result) => return Ok(GroupScan::Applied(result)),
             EquationAttempt::Indeterminate(_reason) => indeterminate = true,
+            EquationAttempt::ContextDependent => context_dependent = true,
             EquationAttempt::NotApplicable => {}
         }
     }
     Ok(if indeterminate {
         GroupScan::Blocked
+    } else if context_dependent {
+        GroupScan::ContextDependent
     } else {
         GroupScan::NotApplicable
     })
@@ -2787,7 +2846,9 @@ fn apply_equation(
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
     // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`
     // otherwise. An unknown `R[t]` must stay indeterminate, because applying the equation would
-    // narrow the subject to the part where `R` holds.
+    // narrow the subject to the part where `R` holds. A refuted `R[t]` remains context dependent:
+    // it permits lower-priority equations in this scan but cannot justify caching the term across
+    // simplifier calls with different path conditions.
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
@@ -2799,7 +2860,7 @@ fn apply_equation(
         solver,
     )? {
         RuleCondition::Satisfied => {}
-        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        RuleCondition::Refuted => return Ok(EquationAttempt::ContextDependent),
         RuleCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }

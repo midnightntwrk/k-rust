@@ -365,7 +365,7 @@ fn one_simplifier_growth_step(definition: &BackendDefinition, depth: u64) -> Sna
 }
 
 #[test]
-fn simplifier_work_per_step_grows_at_most_linearly_with_unevaluated_collections() {
+fn simplifier_work_per_step_stays_flat_with_cached_closed_collections() {
     let definition = definition(SIMPLIFIER_GROWTH);
     let early = one_simplifier_growth_step(&definition, 8);
     let late = one_simplifier_growth_step(&definition, 64);
@@ -373,16 +373,19 @@ fn simplifier_work_per_step_grows_at_most_linearly_with_unevaluated_collections(
     eprintln!("simplifier growth at step 64: {:?}", nonzero(&late));
     assert_eq!(early.get(Counter::RewriteSteps), 1);
     assert_eq!(late.get(Counter::RewriteSteps), 1);
-    // Measured on af43672 plus the two counter call sites: 105/665 rounds and 9/9 public
-    // simplifier entries. CB-12-4 is expected to re-pin the round bounds downward.
-    assert!(early.get(Counter::SimplifyRounds) <= 110);
-    assert!(late.get(Counter::SimplifyRounds) <= 670);
+    // CB-12-4 caches each closed anywhere head after its inapplicable equation scan. Measured on
+    // this change: 7/7 rounds, 9/9 public entries, and 15/15 constructed terms at steps 8/64.
+    assert!(early.get(Counter::SimplifyRounds) <= 10);
+    assert!(late.get(Counter::SimplifyRounds) <= 10);
     assert_eq!(early.get(Counter::SimplifyInvocations), 9);
     assert_eq!(late.get(Counter::SimplifyInvocations), 9);
     assert!(early.get(Counter::SimplifyNodesSkippedEvaluated) > 0);
-    for counter in [Counter::SimplifyRounds, Counter::SimplifyInvocations] {
+    assert!(late.get(Counter::SimplifyRounds) <= early.get(Counter::SimplifyRounds) + 2);
+    assert!(early.get(Counter::TermConstructed) <= 20);
+    assert!(late.get(Counter::TermConstructed) <= 20);
+    for counter in [Counter::SimplifyInvocations, Counter::TermConstructed] {
         assert!(
-            late.get(counter) <= 8 * early.get(counter) + LINEAR_SLACK,
+            late.get(counter) <= early.get(counter) + LINEAR_SLACK,
             "{}: {} at step 64 versus {} at step 8",
             counter.name(),
             late.get(counter),

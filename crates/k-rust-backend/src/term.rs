@@ -599,6 +599,21 @@ impl Term {
         &self.0.attributes
     }
 
+    /// Return this term with the simplifier's fixed-point cache set.
+    ///
+    /// Construction deliberately leaves equation-headed applications unevaluated. The
+    /// simplifier sets this bit only after scanning the compatible equations for a closed,
+    /// normalized application and finding every one inapplicable independently of the current
+    /// path condition.
+    pub(crate) fn with_evaluated_cache(&self) -> Self {
+        if self.attributes().evaluated {
+            return self.clone();
+        }
+        let mut attributes = self.attributes().clone();
+        attributes.evaluated = true;
+        Self::new(self.kind().clone(), attributes)
+    }
+
     /// Whether two handles share the same immutable term allocation.
     pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
