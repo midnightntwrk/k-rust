@@ -158,6 +158,11 @@ The `declined-capability` category records steps requiring an interface with no 
 Semantic input selection, warning handling, execution status, and configuration initialization remain testable contracts; this policy does not exclude them.
 The source-plus-flags interface includes standalone Bison parser generation and executable or shared-library parser artifacts, while relying on the system Bison, Flex, and C compiler rather than implementing those tools in Rust.
 
+`krun --output captured` is an explicit ordinary-execution mode for definition-computed console output.
+It uses buffered `--io off` stream semantics with pre-buffered standard input, requires exactly one complete unconstrained terminal execution leaf and exactly one structurally identified stdout stream buffer, writes that buffer to process stdout once, and suppresses KORE rendering.
+Bottom, constrained or multiple leaves, incomplete execution, malformed stream state, search, surface result matching, and an explicit `--io on` are errors.
+Default KORE output and live hook evaluation remain unchanged.
+
 ## Driver scope
 
 The conformance driver translates each upstream `ktest` recipe into krust operations and compares their outcomes.
@@ -200,7 +205,8 @@ Any residual leaf, multiple terminal leaves, and malformed stream configurations
 The tutorial stream rules append the same strings in both IO modes and make the `on` mode's `IO.write` hook only a transport for those bytes; K itself selects `off` for search and debug executions.
 For input programs, C9 applies only where krust's buffered stdin is the piped input and K's stream rules tokenize those bytes as they tokenize the recipe's interactive stream.
 When krust attributes an undefined result to a `STDIN-STREAM` rule and the input begins with a parse delimiter or contains adjacent parse delimiters, the driver records the step as an `undriven-recipe` skip because the checked-in output is reachable only under `--io on`.
-This is a comparison transformation, not a backend IO evaluator: explicit `--io on` still reports the unsupported hook, and [Backend scope](#backend-scope) remains unchanged.
+This comparison remains independent of the captured output mode: C9 extracts the KORE result through its own structural helper and does not invoke `krun --output captured`.
+Neither path is a backend IO evaluator: explicit `--io on` still reports the unsupported hook, and [Backend scope](#backend-scope) remains unchanged.
 
 A text difference that neither C8 nor N15 can compare stays a mismatch with a measured reason; no prose exclusion category exists for it.
 Normalization N15 may prove residual constraints equivalent by checking both implications, subject to the independence limitations in [testing.md](testing.md#comparator-evidence).

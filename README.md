@@ -235,6 +235,17 @@ krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 The source positional and `--definition DIR` select mutually exclusive input modes.
 The compiled-directory mode takes its module identities and parser data from the artifact and performs no source loading or compiler transforms.
 
+Pass `--output captured` to emit only a completed program's buffered stdout bytes:
+
+```console
+printf 'input\n' | krust krun definition.k --main-module MAIN --sort Pgm program.pgm --output captured
+```
+
+This explicit batch mode selects `--io off`, reads standard input to end of file into `$STDIN`, and suppresses KORE rendering.
+It succeeds only when ordinary execution produces exactly one complete unconstrained terminal leaf containing exactly one stdout stream buffer.
+Bottom, residual constraints, multiple leaves, malformed stream state, search, `--pattern`, and an explicit `--io on` are errors.
+The default `--output kore` behavior remains unchanged.
+
 Execution follows one successor per step by default (`--strategy any`: the first applicable rule
 by priority and definition order, the single path K's krun takes), so a `strict` production with
 several unevaluated arguments is heated in one order, not every order. Pass `--strategy all` to

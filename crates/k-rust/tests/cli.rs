@@ -265,6 +265,22 @@ fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
     child.wait_with_output().unwrap()
 }
 
+fn captured_output_command(compiled: &Path, expression: &str) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "krun",
+        "--definition",
+        compiled.to_str().unwrap(),
+        "--sort",
+        "Pgm",
+        "--expression",
+        expression,
+        "--output",
+        "captured",
+    ]);
+    command
+}
+
 fn pattern_binding<'a>(pattern: &'a Pattern, variable_name: &str) -> Option<&'a Pattern> {
     match pattern {
         Pattern::Equals { left, right, .. } => match (left.as_ref(), right.as_ref()) {
@@ -1406,6 +1422,123 @@ fn reference_krun_supplies_io_and_stdin_for_stream_cells() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert_eq!(parse_pattern(&stdout).unwrap(), expected);
     assert!(!stdout.contains(r"\bottom"), "{stdout}");
+}
+
+#[test]
+fn krun_captured_output_emits_one_complete_stdout_buffer_without_kore_framing() {
+    let fixture_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/captured-output/test.k");
+    let (root, _) = fixture();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            fixture_path.to_str().unwrap(),
+            "--main-module",
+            "CAPTURED-OUTPUT",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let literal = output_with_stdin(&mut captured_output_command(&compiled, "literal"), b"");
+    assert!(
+        literal.status.success(),
+        "{}",
+        String::from_utf8_lossy(&literal.stderr)
+    );
+    assert_eq!(literal.stdout, b"literal output");
+    assert!(
+        literal.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&literal.stderr)
+    );
+
+    let empty = output_with_stdin(&mut captured_output_command(&compiled, "empty"), b"");
+    assert!(
+        empty.status.success(),
+        "{}",
+        String::from_utf8_lossy(&empty.stderr)
+    );
+    assert!(empty.stdout.is_empty());
+
+    let from_stdin = output_with_stdin(
+        &mut captured_output_command(&compiled, "stdin"),
+        b"piped input\n",
+    );
+    assert!(
+        from_stdin.status.success(),
+        "{}",
+        String::from_utf8_lossy(&from_stdin.stderr)
+    );
+    assert_eq!(from_stdin.stdout, b"piped input\noutput");
+
+    let mut kore = Command::new(env!("CARGO_BIN_EXE_krust"));
+    kore.args([
+        "krun",
+        "--definition",
+        compiled.to_str().unwrap(),
+        "--sort",
+        "Pgm",
+        "--expression",
+        "literal",
+        "--io",
+        "off",
+    ]);
+    let kore = output_with_stdin(&mut kore, b"");
+    assert!(
+        kore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&kore.stderr)
+    );
+    let kore_text = String::from_utf8(kore.stdout).unwrap();
+    assert!(parse_pattern(&kore_text).is_ok(), "{kore_text}");
+    assert_ne!(kore_text.as_bytes(), literal.stdout);
+
+    for (expression, extra, expected) in [
+        ("bottom", &[][..], "found 0 leaves"),
+        (
+            "residual",
+            &[][..],
+            "found 1 leaf: constraints=1, stdout stream buffers=1",
+        ),
+        ("branch", &["--strategy", "all"][..], "found 2 leaves"),
+    ] {
+        let mut command = captured_output_command(&compiled, expression);
+        command.args(extra);
+        let output = output_with_stdin(&mut command, b"");
+        assert!(!output.status.success(), "{expression}");
+        assert!(output.stdout.is_empty(), "{expression}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains(
+                "captured output requires exactly one execution leaf, unconstrained and with exactly one stdout stream buffer"
+            ),
+            "{expression}: {stderr}"
+        );
+        assert!(stderr.contains(expected), "{expression}: {stderr}");
+    }
+
+    let mut explicit_on = captured_output_command(&compiled, "literal");
+    explicit_on.args(["--io", "on"]);
+    let explicit_on = explicit_on.output().unwrap();
+    assert!(!explicit_on.status.success());
+    assert!(explicit_on.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&explicit_on.stderr).contains(
+            "--output captured uses buffered stream semantics and cannot be combined with --io on"
+        ),
+        "{}",
+        String::from_utf8_lossy(&explicit_on.stderr)
+    );
+
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

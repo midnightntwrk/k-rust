@@ -521,6 +521,11 @@ struct KrunArgs {
     #[arg(long, value_enum, value_name = "on|off")]
     io: Option<IoArg>,
 
+    /// Select KORE result rendering (`kore`, the default) or emit the one terminal buffered
+    /// stdout stream (`captured`). Captured output uses `--io off` semantics and suppresses KORE.
+    #[arg(long, value_enum, default_value_t = KrunOutputArg::Kore)]
+    output: KrunOutputArg,
+
     /// Maximum number of semantic rewrite steps per execution branch.
     #[arg(long, value_name = "STEPS")]
     depth: Option<u64>,
@@ -958,6 +963,13 @@ enum IoArg {
     Off,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+enum KrunOutputArg {
+    #[default]
+    Kore,
+    Captured,
+}
+
 impl From<ExecutionStrategyArg> for ExecutionMode {
     fn from(strategy: ExecutionStrategyArg) -> Self {
         match strategy {
@@ -1002,6 +1014,7 @@ struct KrunOptions {
     config_vars: Vec<String>,
     surface_pattern: Option<String>,
     io: Option<bool>,
+    output: KrunOutputArg,
     depth: u64,
     max_simplification_iterations: usize,
     breadth_limit: Option<usize>,
@@ -1050,6 +1063,7 @@ struct BackendRunOptions {
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
     smt: Z3Options,
+    capture_stdout: bool,
 }
 
 #[derive(Debug)]
@@ -1414,6 +1428,7 @@ impl From<KrunArgs> for KrunOptions {
             config_vars: arguments.config_vars,
             surface_pattern: arguments.surface_pattern,
             io: arguments.io.map(|io| io == IoArg::On),
+            output: arguments.output,
             depth: arguments.depth.unwrap_or(u64::MAX),
             max_simplification_iterations: arguments
                 .max_simplification_iterations
@@ -2121,6 +2136,32 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     if options.expression.is_some() && options.program_file.is_some() {
         return Err("--expression cannot be used with a program file".into());
     }
+    if options.output == KrunOutputArg::Captured {
+        if options.io == Some(true) {
+            return Err(
+                "--output captured uses buffered stream semantics and cannot be combined with --io on"
+                    .into(),
+            );
+        }
+        if options.search.is_some() {
+            return Err(
+                "--output captured is supported only for ordinary execution, not search".into(),
+            );
+        }
+        if options.surface_pattern.is_some() {
+            return Err("--output captured cannot be combined with --pattern".into());
+        }
+        if options.config_vars.iter().any(|assignment| {
+            assignment
+                .split_once('=')
+                .is_some_and(|(name, _)| name.strip_prefix('$').unwrap_or(name) == "IO")
+        }) {
+            return Err(
+                "--output captured owns the buffered $IO setting and cannot be combined with -c IO=VALUE"
+                    .into(),
+            );
+        }
+    }
     let compiled = if let Some(directory) = &options.compiled_definition {
         let started = Instant::now();
         let artifact = load_runnable_artifact(directory)?;
@@ -2368,7 +2409,10 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         )?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
-    let io = options.io.unwrap_or(options.search.is_none());
+    let io = match options.output {
+        KrunOutputArg::Captured => false,
+        KrunOutputArg::Kore => options.io.unwrap_or(options.search.is_none()),
+    };
     let string_sort = KastSort::builtin(BuiltinSort::String);
     if available_config_vars.get("IO") == Some(&string_sort) && !seen_config_vars.contains("IO") {
         config_vars.push((
@@ -2474,14 +2518,26 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
             smt: options.smt,
+            capture_stdout: options.output == KrunOutputArg::Captured,
         },
     )?;
     let execute_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
-    println!(
-        "{}",
-        KorePrinter::pretty(100).print_pattern(&output.pattern)
-    );
+    match options.output {
+        KrunOutputArg::Kore => println!(
+            "{}",
+            KorePrinter::pretty(100).print_pattern(&output.pattern)
+        ),
+        KrunOutputArg::Captured => {
+            io::stdout().lock().write_all(
+                output
+                    .captured_stdout
+                    .as_deref()
+                    .expect("captured output was requested and validated")
+                    .as_bytes(),
+            )?;
+        }
+    }
     let output_seconds = started.elapsed().as_secs_f64();
     KrunTimings {
         compile: compiled.timings,
@@ -2544,6 +2600,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             step_timeout: options.timeout.timeout(),
             moving_average_timeout: options.timeout.moving_average,
             smt: options.smt.options(),
+            capture_stdout: false,
         },
     )?;
     let pattern = KorePrinter::pretty(100).print_pattern(&output.pattern);
@@ -3090,6 +3147,157 @@ fn pattern_match_error(error: PatternMatchError) -> io::Error {
 struct BackendRunOutput {
     pattern: KorePattern,
     exit_code: u8,
+    captured_stdout: Option<String>,
+}
+
+fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<String, io::Error> {
+    let details = finals
+        .iter()
+        .map(|leaf| {
+            let term = externalize::term(&leaf.pattern.term);
+            (leaf.pattern.constraints.len(), stdout_stream_buffers(&term))
+        })
+        .collect::<Vec<_>>();
+    let valid_shape =
+        finals.len() == 1 && finals[0].pattern.constraints.is_empty() && details[0].1.len() == 1;
+    if !valid_shape {
+        let summary = details
+            .iter()
+            .map(|(constraints, buffers)| {
+                format!(
+                    "constraints={constraints}, stdout stream buffers={}",
+                    buffers.len()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(io::Error::other(format!(
+            "captured output requires exactly one execution leaf, unconstrained and with exactly one stdout stream buffer; found {} {}{}{}",
+            finals.len(),
+            if finals.len() == 1 { "leaf" } else { "leaves" },
+            if summary.is_empty() { "" } else { ": " },
+            summary,
+        )));
+    }
+    let leaf = finals[0];
+    if !matches!(
+        leaf.halt_reason,
+        HaltReason::Stuck | HaltReason::TerminalRule { .. }
+    ) {
+        return Err(io::Error::other(format!(
+            "captured output requires one complete terminal execution leaf; leaf halted at depth {} with {:?}",
+            leaf.depth, leaf.halt_reason
+        )));
+    }
+    Ok(details[0].1[0].clone())
+}
+
+fn stdout_stream_buffers(pattern: &KorePattern) -> Vec<String> {
+    fn visit(pattern: &KorePattern, buffers: &mut Vec<String>) {
+        if let KorePattern::Application { symbol, arguments } = pattern {
+            if symbol.name.starts_with("Lbl'-LT-'")
+                && symbol.name.contains("'-GT-'")
+                && arguments.len() == 1
+                && let Some(items) = stream_list_items(&arguments[0])
+                && let [descriptor, mode, buffer] = items.as_slice()
+                && is_stream_descriptor(descriptor, "Lbl'Hash'ostream", "SortInt", "1")
+                && domain_value(unwrap_injections(mode), "SortString") == Some("off")
+                && let Some(value) = stream_buffer(buffer)
+            {
+                buffers.push(value.to_owned());
+            }
+            for argument in arguments {
+                visit(argument, buffers);
+            }
+        }
+    }
+
+    let mut buffers = Vec::new();
+    visit(pattern, &mut buffers);
+    buffers
+}
+
+fn stream_list_items(pattern: &KorePattern) -> Option<Vec<&KorePattern>> {
+    fn append<'a>(pattern: &'a KorePattern, items: &mut Vec<&'a KorePattern>) -> bool {
+        let pattern = unwrap_injections(pattern);
+        let KorePattern::Application { symbol, arguments } = pattern else {
+            return false;
+        };
+        if symbol.name == "Lbl'Unds'List'Unds'" && arguments.len() == 2 {
+            append(&arguments[0], items) && append(&arguments[1], items)
+        } else if symbol.name == "LblListItem" && arguments.len() == 1 {
+            items.push(&arguments[0]);
+            true
+        } else {
+            false
+        }
+    }
+
+    let mut items = Vec::new();
+    append(pattern, &mut items).then_some(items)
+}
+
+fn unwrap_injections(mut pattern: &KorePattern) -> &KorePattern {
+    while let KorePattern::Application { symbol, arguments } = pattern
+        && symbol.name == "inj"
+        && arguments.len() == 1
+    {
+        pattern = &arguments[0];
+    }
+    pattern
+}
+
+fn domain_value<'a>(pattern: &'a KorePattern, sort_name: &str) -> Option<&'a str> {
+    let KorePattern::DomainValue { sort, value } = pattern else {
+        return None;
+    };
+    matches!(sort, KoreSort::Application { name, arguments }
+        if name == sort_name && arguments.is_empty())
+    .then_some(value.as_str())
+}
+
+fn is_stream_descriptor(
+    pattern: &KorePattern,
+    symbol_prefix: &str,
+    sort_name: &str,
+    value: &str,
+) -> bool {
+    let KorePattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
+        return false;
+    };
+    symbol.name.starts_with(symbol_prefix)
+        && arguments.len() == 1
+        && domain_value(unwrap_injections(&arguments[0]), sort_name) == Some(value)
+}
+
+fn stream_buffer(pattern: &KorePattern) -> Option<&str> {
+    let KorePattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
+        return None;
+    };
+    if !symbol.name.starts_with("Lbl'Hash'buffer") || arguments.len() != 1 {
+        return None;
+    }
+    let KorePattern::Application {
+        symbol: sequence,
+        arguments: sequence_arguments,
+    } = unwrap_injections(&arguments[0])
+    else {
+        return None;
+    };
+    if sequence.name != "kseq" || sequence_arguments.len() != 2 {
+        return None;
+    }
+    let KorePattern::Application {
+        symbol: terminator,
+        arguments: terminator_arguments,
+    } = &sequence_arguments[1]
+    else {
+        return None;
+    };
+    if terminator.name != "dotk" || !terminator_arguments.is_empty() {
+        return None;
+    }
+    domain_value(unwrap_injections(&sequence_arguments[0]), "SortString")
 }
 
 fn run_backend(
@@ -3160,6 +3368,7 @@ fn run_backend(
                 &options.function_symbols,
             ),
             exit_code: 0,
+            captured_stdout: None,
         });
     }
     let (execution, initial_simplification) =
@@ -3243,6 +3452,10 @@ fn run_backend(
             )
         })
         .collect::<Vec<_>>();
+    let captured_stdout = options
+        .capture_stdout
+        .then(|| captured_stdout_buffer(&finals))
+        .transpose()?;
     let exit_code = exit_code_of(
         backend,
         &solver,
@@ -3329,6 +3542,7 @@ fn run_backend(
                 &options.function_symbols,
             ),
             exit_code,
+            captured_stdout,
         });
     }
     let states = finals
@@ -3344,7 +3558,11 @@ fn run_backend(
             arguments: states,
         },
     };
-    Ok(BackendRunOutput { pattern, exit_code })
+    Ok(BackendRunOutput {
+        pattern,
+        exit_code,
+        captured_stdout,
+    })
 }
 
 /// Match `Kore.Exec.getExitCode` over the merged, non-bottom final configurations.
