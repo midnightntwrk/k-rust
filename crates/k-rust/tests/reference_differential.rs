@@ -1,8 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
+    io::Write,
     path::Path,
-    process::Command,
+    process::{Command, Output, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -1165,7 +1166,7 @@ fn executed_kore_matches_the_reference_backend() {
 #[derive(Debug, Eq, PartialEq, Serialize)]
 struct StdoutLeaf {
     constraints: Vec<String>,
-    buffers: Vec<String>,
+    buffers: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
@@ -1231,7 +1232,7 @@ fn unwrap_exists(mut pattern: &Pattern) -> &Pattern {
     pattern
 }
 
-fn stdout_buffers(term: &Pattern) -> Vec<String> {
+fn stdout_buffers(term: &Pattern) -> Vec<Vec<u8>> {
     let mut work = vec![term];
     let mut buffers = Vec::new();
     while let Some(pattern) = work.pop() {
@@ -1244,7 +1245,7 @@ fn stdout_buffers(term: &Pattern) -> Vec<String> {
             && domain_value(unwrap_injections(mode), "SortString") == Some("off")
             && let Some(value) = stream_buffer(buffer)
         {
-            buffers.push(value.to_owned());
+            buffers.push(value.to_vec());
         }
         work.extend(pattern_children(pattern).into_iter().rev());
     }
@@ -1305,7 +1306,7 @@ fn is_stream_descriptor(
         && domain_value(unwrap_injections(&arguments[0]), sort_name) == Some(value)
 }
 
-fn stream_buffer(pattern: &Pattern) -> Option<&str> {
+fn stream_buffer(pattern: &Pattern) -> Option<&[u8]> {
     let Pattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
         return None;
     };
@@ -1332,7 +1333,16 @@ fn stream_buffer(pattern: &Pattern) -> Option<&str> {
     if terminator.name != "dotk" || !terminator_arguments.is_empty() {
         return None;
     }
-    domain_value(unwrap_injections(&sequence_arguments[0]), "SortString")
+    domain_value_bytes(unwrap_injections(&sequence_arguments[0]), "SortString")
+}
+
+fn domain_value_bytes<'a>(pattern: &'a Pattern, sort_name: &str) -> Option<&'a [u8]> {
+    let Pattern::DomainValue { sort, value } = pattern else {
+        return None;
+    };
+    matches!(sort, k_rust::kore::ast::Sort::Application { name, arguments }
+        if name == sort_name && arguments.is_empty())
+    .then(|| value.as_bytes())
 }
 
 #[test]
@@ -1351,7 +1361,7 @@ fn stdout_stream_buffer_report_requires_a_structural_stdout_cell() {
         StdoutBufferReport {
             leaves: vec![StdoutLeaf {
                 constraints: vec![],
-                buffers: vec!["hello\n".into()],
+                buffers: vec![b"hello\n".to_vec()],
             }],
         }
     );
@@ -1362,9 +1372,9 @@ fn stdout_stream_buffer_report_requires_a_structural_stdout_cell() {
     .unwrap();
     let report = stdout_buffer_report(&residual);
     assert_eq!(report.leaves.len(), 2);
-    assert_eq!(report.leaves[0].buffers, ["hello\n"]);
+    assert_eq!(report.leaves[0].buffers, [b"hello\n".to_vec()]);
     assert!(report.leaves[0].constraints.is_empty());
-    assert_eq!(report.leaves[1].buffers, ["hello\n"]);
+    assert_eq!(report.leaves[1].buffers, [b"hello\n".to_vec()]);
     assert_eq!(report.leaves[1].constraints.len(), 1);
 
     let impostor = parse_pattern(
@@ -1372,6 +1382,100 @@ fn stdout_stream_buffer_report_requires_a_structural_stdout_cell() {
     )
     .unwrap();
     assert!(stdout_buffer_report(&impostor).leaves[0].buffers.is_empty());
+}
+
+fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn c9_captured_and_live_console_paths_agree_on_arbitrary_bytes() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = env::temp_dir().join(format!(
+        "k-rust-three-console-paths-{}-{nonce}",
+        std::process::id()
+    ));
+    let compiled = root.join("compiled");
+    fs::create_dir_all(&root).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live-io/test.k");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            fixture.to_str().unwrap(),
+            "--main-module",
+            "LIVE-IO",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let input = [0xff, 0x80, 0x00, b'A', b'\n'];
+    let expected = &input[..4];
+    let command = |output: &str| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command.args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "--sort",
+            "Pgm",
+            "--expression",
+            "three-path-bytes",
+            "--output",
+            output,
+        ]);
+        command
+    };
+
+    let mut c9_command = command("kore");
+    c9_command.args(["--io", "off"]);
+    let c9 = output_with_stdin(&mut c9_command, &input);
+    assert!(
+        c9.status.success(),
+        "{}",
+        String::from_utf8_lossy(&c9.stderr)
+    );
+    let c9_pattern = parse_pattern(std::str::from_utf8(&c9.stdout).unwrap()).unwrap();
+    let report = stdout_buffer_report(&c9_pattern);
+    assert_eq!(report.leaves.len(), 1, "{report:?}");
+    assert!(report.leaves[0].constraints.is_empty(), "{report:?}");
+    assert_eq!(report.leaves[0].buffers, [expected.to_vec()]);
+
+    let captured = output_with_stdin(&mut command("captured"), &input);
+    assert!(
+        captured.status.success(),
+        "{}",
+        String::from_utf8_lossy(&captured.stderr)
+    );
+    assert_eq!(captured.stdout, expected);
+
+    let mut live_command = command("none");
+    live_command.args(["--io", "on"]);
+    let live = output_with_stdin(&mut live_command, &input);
+    assert!(
+        live.status.success(),
+        "{}",
+        String::from_utf8_lossy(&live.stderr)
+    );
+    assert_eq!(live.stdout, expected);
+
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

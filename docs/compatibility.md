@@ -27,6 +27,11 @@ A hook without an evaluator or applicable K equation must report an unsupported-
 Symbolic applications remain unevaluated.
 This follows the missing-evaluator checks in `kore/src/Kore/Equation/EvaluationStrategy.hs` and the port's completion contract; an exclusion must not turn the unsupported outcome into a successful execution.
 
+Ordinary committed execution implements the console operations `IO.getc` and `IO.read` on descriptor 0 and `IO.putc` and `IO.write` on descriptors 1 and 2.
+Their input cursor and ordered descriptor transcript are branch-local, and rolled-back candidates cannot deliver bytes.
+Input is pre-buffered before execution; live output is delivered exactly once from the selected `--strategy any` trace.
+Other descriptors and IO hooks remain unsupported, pure simplification receives no console state, search rejects `--io on`, and RPC does not perform host IO.
+
 ## Frontend policy
 
 The Rust backend uses K's Haskell policies for existential right-hand-side variables, variables bound through `requires`, and excluded module attributes.
@@ -161,14 +166,16 @@ The source-plus-flags interface includes standalone Bison parser generation and 
 `krun --output captured` is an explicit ordinary-execution mode for definition-computed console output.
 It uses buffered `--io off` stream semantics with pre-buffered standard input, requires exactly one complete unconstrained terminal execution leaf and exactly one structurally identified stdout stream buffer, writes that buffer to process stdout once, and suppresses KORE rendering.
 Bottom, constrained or multiple leaves, incomplete execution, malformed stream state, search, surface result matching, and an explicit `--io on` are errors.
-Default KORE output and live hook evaluation remain unchanged.
+`krun --io on --output none` is the corresponding committed live mode with pre-buffered input and byte-exact descriptor 1/2 delivery.
+Default KORE output remains unchanged.
 
 ## Driver scope
 
 The conformance driver translates each upstream `ktest` recipe into krust operations and compares their outcomes.
 A plain `krun --output none` recipe with a non-empty expected console output runs under `--io off` and compares the stdout stream buffer of its single unconstrained execution leaf with that output under C9; it does not require host console effects from the backend.
+An explicit `--io on` recipe compares the committed console stdout bytes directly with its expected output.
+When C9 proves that buffered stdin cannot reproduce an implicit recipe's tokenization, the driver retains the attributed C9 result and re-runs that recipe under pre-buffered `--io on --output none`; only the live bytes decide that step.
 A recipe that defines no translatable step supplies no oracle: a `ktest-kdep.mak` or sub-make-only Makefile, a Makefile whose `ktest.mak` include is disabled upstream, a recipe that discards the output it would compare, or an expected kompile failure that leaves no definition for a later step.
-The same rule applies to one step whose interactive standard input cannot be translated to krust's buffered `--io off` input semantics.
 The `undriven-recipe` category records such cases with the concrete recipe feature; the skip is not evidence of a Rust pass and must be reconsidered when the driver learns to translate the feature.
 
 Every case whose accepted verdict is not `match` carries exactly one of two dispositions.
@@ -204,9 +211,9 @@ The comparison requires exactly one execution leaf in total, that leaf to be unc
 Any residual leaf, multiple terminal leaves, and malformed stream configurations are mismatches and remain reported.
 The tutorial stream rules append the same strings in both IO modes and make the `on` mode's `IO.write` hook only a transport for those bytes; K itself selects `off` for search and debug executions.
 For input programs, C9 applies only where krust's buffered stdin is the piped input and K's stream rules tokenize those bytes as they tokenize the recipe's interactive stream.
-When krust attributes an undefined result to a `STDIN-STREAM` rule and the input begins with a parse delimiter or contains adjacent parse delimiters, the driver records the step as an `undriven-recipe` skip because the checked-in output is reachable only under `--io on`.
+When krust attributes an undefined result to a `STDIN-STREAM` rule and the input begins with a parse delimiter or contains adjacent parse delimiters, the driver records that C9 precondition failure and drives the implicit recipe under committed pre-buffered `--io on`.
 This comparison remains independent of the captured output mode: C9 extracts the KORE result through its own structural helper and does not invoke `krun --output captured`.
-Neither path is a backend IO evaluator: explicit `--io on` still reports the unsupported hook, and [Backend scope](#backend-scope) remains unchanged.
+C9 also remains independent of live delivery: the normal tutorial measurements continue to use its definition-computed buffer, while only a proved C9 input-precondition failure selects the separate committed transcript path.
 
 A text difference that neither C8 nor N15 can compare stays a mismatch with a measured reason; no prose exclusion category exists for it.
 Normalization N15 may prove residual constraints equivalent by checking both implications, subject to the independence limitations in [testing.md](testing.md#comparator-evidence).

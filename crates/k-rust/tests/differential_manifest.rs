@@ -823,8 +823,9 @@ fn every_conformance_normalisation_is_registered() {
         "Any constrained residual leaf",
         "#ostream(1)",
         "#buffer(S)",
-        "UTF-8 bytes",
+        "exact bytes",
         "explicit --io on",
+        "pre-buffered --io on --output none",
     ] {
         assert!(
             c9["rule"].as_str().unwrap().contains(needle),

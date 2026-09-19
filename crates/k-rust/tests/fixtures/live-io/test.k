@@ -12,6 +12,7 @@ module LIVE-IO-SYNTAX
                | "right-done"
                | "stderr-only"
                | "empty-stdout"
+               | "three-path-bytes"
                | "after-first"
                | "after-error"
                | got(Int)
@@ -19,9 +20,12 @@ endmodule
 
 module LIVE-IO
   imports LIVE-IO-SYNTAX
-  imports K-IO
+  imports DOMAINS
 
   configuration <k> $PGM:Pgm </k>
+                <mode> $IO:String </mode>
+                <saved> $STDIN:String </saved>
+                <output stream="stdout"> .List </output>
 
   syntax K ::= dead(K) [function]
   rule dead(X) => X ensures false [simplification]
@@ -36,6 +40,13 @@ module LIVE-IO
   rule <k> got(65) => #write(1, "accepted") ~> .K </k>
 
   rule <k> bytes => #write(1, {#read(0, 4)}:>String) ~> .K </k>
+
+  rule <k> three-path-bytes => .K </k>
+       <mode> "off" </mode>
+       <saved> S:String </saved>
+       <output>... .List => ListItem(substrString(S, 0, 4)) </output>
+  rule <k> three-path-bytes => #write(1, {#read(0, 4)}:>String) ~> .K </k>
+       <mode> "on" </mode>
 
   rule <k> stderr-only => #write(2, "stderr only") ~> .K </k>
   rule <k> empty-stdout => #write(1, "") ~> #write(2, "after empty stdout") ~> .K </k>

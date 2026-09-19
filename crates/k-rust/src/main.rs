@@ -2574,8 +2574,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                 output
                     .captured_stdout
                     .as_deref()
-                    .expect("captured output was requested and validated")
-                    .as_bytes(),
+                    .expect("captured output was requested and validated"),
             )?;
         }
         KrunOutputArg::None => {}
@@ -3190,7 +3189,7 @@ fn pattern_match_error(error: PatternMatchError) -> io::Error {
 struct BackendRunOutput {
     pattern: KorePattern,
     exit_code: u8,
-    captured_stdout: Option<String>,
+    captured_stdout: Option<Vec<u8>>,
     live_transcript: Option<Vec<DescriptorTranscriptEntry>>,
 }
 
@@ -3219,7 +3218,7 @@ fn deliver_console_transcript(transcript: &[DescriptorTranscriptEntry]) -> io::R
     Ok(())
 }
 
-fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<String, io::Error> {
+fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<Vec<u8>, io::Error> {
     let details = finals
         .iter()
         .map(|leaf| {
@@ -3261,8 +3260,8 @@ fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<String, io::Error
     Ok(details[0].1[0].clone())
 }
 
-fn stdout_stream_buffers(pattern: &KorePattern) -> Vec<String> {
-    fn visit(pattern: &KorePattern, buffers: &mut Vec<String>) {
+fn stdout_stream_buffers(pattern: &KorePattern) -> Vec<Vec<u8>> {
+    fn visit(pattern: &KorePattern, buffers: &mut Vec<Vec<u8>>) {
         if let KorePattern::Application { symbol, arguments } = pattern {
             if symbol.name.starts_with("Lbl'-LT-'")
                 && symbol.name.contains("'-GT-'")
@@ -3273,7 +3272,7 @@ fn stdout_stream_buffers(pattern: &KorePattern) -> Vec<String> {
                 && domain_value(unwrap_injections(mode), "SortString") == Some("off")
                 && let Some(value) = stream_buffer(buffer)
             {
-                buffers.push(value.to_owned());
+                buffers.push(value.to_vec());
             }
             for argument in arguments {
                 visit(argument, buffers);
@@ -3340,7 +3339,7 @@ fn is_stream_descriptor(
         && domain_value(unwrap_injections(&arguments[0]), sort_name) == Some(value)
 }
 
-fn stream_buffer(pattern: &KorePattern) -> Option<&str> {
+fn stream_buffer(pattern: &KorePattern) -> Option<&[u8]> {
     let KorePattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
         return None;
     };
@@ -3367,7 +3366,16 @@ fn stream_buffer(pattern: &KorePattern) -> Option<&str> {
     if terminator.name != "dotk" || !terminator_arguments.is_empty() {
         return None;
     }
-    domain_value(unwrap_injections(&sequence_arguments[0]), "SortString")
+    domain_value_bytes(unwrap_injections(&sequence_arguments[0]), "SortString")
+}
+
+fn domain_value_bytes<'a>(pattern: &'a KorePattern, sort_name: &str) -> Option<&'a [u8]> {
+    let KorePattern::DomainValue { sort, value } = pattern else {
+        return None;
+    };
+    matches!(sort, KoreSort::Application { name, arguments }
+        if name == sort_name && arguments.is_empty())
+    .then(|| value.as_bytes())
 }
 
 fn run_backend(

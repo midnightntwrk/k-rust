@@ -62,7 +62,7 @@ meaning = "The step needs a K CLI capability outside krust's interface (the komp
 [[category]]
 id = "undriven-recipe"
 decided_by = "docs/compatibility.md#driver-scope"
-meaning = "The upstream recipe defines no case or individual step the conformance driver can translate and compare (a kdep or sub-make Makefile, a disabled Makefile, discarded output, an expected kompile failure that leaves no definition, or interactive stdin whose tokenization cannot be translated to buffered --io off); there is no oracle, so the skip is not evidence of a Rust pass."
+meaning = "The upstream recipe defines no case or individual step the conformance driver can translate and compare (a kdep or sub-make Makefile, a disabled Makefile, discarded output, or an expected kompile failure that leaves no definition); there is no oracle, so the skip is not evidence of a Rust pass."
 
 [[case]]
 name = "amb-rew"
@@ -1996,16 +1996,13 @@ reason = "The accepted search recipes match after forwarding --pattern and compa
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/1_untyped"
-accepted_verdict = "skipped-with-reason"
+accepted_verdict = "match"
 accepted_stage = "search"
-accepted_basis = "Private CB-12-5/CB-22-3 acceptance on b64e130 executes all 32 steps without a budget skip: 31 driven steps match and matrix.simple retains its existing undriven-recipe exclusion. Both bounded threads_05 probes return the checked-in five-result BFS prefix."
+accepted_basis = "CB-15-6 sequence 31 on 7a2ebe6 executes all 32 steps in 130.1 s: 22 console recipes match independently through C9, matrix.simple matches its 607-byte output through committed pre-buffered --io on after C9 records the attributed buffered-tokenization failure, and every search recipe matches."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-12-5/CB-22-3 seven-case run (b64e130, --jobs 2): one Rust runtime compilation takes 3.9 s and all 31 program commands consume the case artifact. The 31 driven steps match in a 109.8 s case; matrix.simple is the existing C9 stdin exclusion. Program time has a 0.4 s minimum and 0.5 s median; threads_06 takes 31.6 s, threads_04 21.7 s, sortings 6.0 s, and bounded threads_05 5.6 s. Every recipe after threads_05 executes. The former 600 s discovery override is removed in favor of the 300 s default. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
-step_exclusions = [
-  { test = "tests/diverse/matrix.simple", out = "tests/diverse/matrix.simple.out", exclusion = "undriven-recipe", reason = "C9 cannot translate the recipe's interactive stdin to --io off for matrix.simple.in: its adjacent delimiters make STDIN-STREAM.stdinParseInt apply String2Int(\"\") to the buffered input, while the checked-in output is reachable only under --io on. Reconsider when CB-15-5 provides --io on stdin." },
-]
+reason = "CB-15-6 sequence 31 (7a2ebe6 plus driver closure, --jobs 2): all 32 steps match in 130.1 s. Twenty-two console recipes retain the independent C9 stdout-buffer comparison. matrix.simple first reproduces C9's attributed STDIN-STREAM.stdinParseInt/String2Int(\"\") precondition failure in 0.5 s, then its recipe is driven with pre-buffered --io on and its 607 committed stdout bytes match in 13.7 s. The former undriven-recipe step exclusion is removed."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
@@ -2024,7 +2021,7 @@ accepted_basis = "Private CB-12-5/CB-22-3 acceptance on b64e130 executes all 27 
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-12-5/CB-22-3 seven-case run (b64e130, --jobs 2): all 27 driven steps match in 63.7 s. One Rust runtime compilation takes 4.2 s and all 26 program commands consume the case artifact. Program time has a 0.4 s minimum and 0.5 s median; matrix.simple takes 11.4 s, sortings.simple 6.0 s, bounded threads_05 5.7 s, and threads_12 1.4 s. Every recipe after threads_05 executes. The former 1200 s discovery override is removed in favor of the 300 s default. Six targets remain outside the driven set because the upstream multi-target Make rule selects only its first target. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "CB-15-6 sequence 31 (7a2ebe6 plus driver closure, --jobs 2): all 27 driven steps match in 70.3 s, including 24 console recipes through the independent C9 stdout-buffer comparison and every search recipe. Six targets remain outside the driven set because the upstream multi-target Make rule selects only its first target."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/1_untyped"
@@ -2033,7 +2030,7 @@ accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): all 29 steps match in 60.6 s. One Rust runtime compilation takes 6.3 s and all 28 program commands consume the case artifact. Program time has a 0.6 s minimum and 0.7 s median; matrix.kool takes 11.6 s, sorting.kool 6.2 s, and factorial.kool 4.3 s. A focused measure run completes factorial in 4.114 s over 5,768 applied rules; simplify rounds per rule are 7.12 through depth 1,000 and 7.01 overall, public entries remain 10.8 to 10.7 per rule, and SMT queries remain zero. The former 900 s discovery override is removed in favor of the 300 s default. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "CB-15-6 sequence 31 (7a2ebe6 plus driver closure, --jobs 2): all 29 steps match in 62.4 s, including all 28 console recipes through the independent C9 stdout-buffer comparison."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"
@@ -2042,7 +2039,7 @@ accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): all 30 steps match in 69.6 s. One Rust runtime compilation takes 7.0 s and all 29 program commands consume the case artifact. Program time has a 0.7 s minimum and 0.9 s median; matrix.kool takes 12.3 s, sorting.kool 6.8 s, factorial.kool 4.8 s, and collatz.kool 3.5 s. The former 900 s discovery override is removed in favor of the 300 s default. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "CB-15-6 sequence 31 (7a2ebe6 plus driver closure, --jobs 2): all 30 steps match in 71.3 s, including all 29 console recipes through the independent C9 stdout-buffer comparison."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"

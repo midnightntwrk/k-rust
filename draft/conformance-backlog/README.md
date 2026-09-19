@@ -20,23 +20,37 @@ Inside a worker file every `[[work_item]]` carries `state` (`open`, `partial`, `
 `[[driver_followup]]` rows (`id`, `title`, `state`, `found`, `work`, `elsewhere`) record conformance-driver defects that are not tied to a pending case; the audit ignores them.
 Seeded 2026-09-18 from ratchet sequence 4 (`target/conformance/ratchet.toml`, label `int`, HEAD `9c1a64d`) and four read-only searches of `draft/` recorded in `/tmp/nonmatch/coverage.md`.
 
-## Current queue (2026-09-20, measured through CB-12/CB-22 closure on `b64e130`)
+## Current queue (2026-09-20, measured through CB-15 closure sequence 31)
 
-The ledger has one open ticket: CB-15 is evidence-only product work, and no open ticket owns a pending conformance verdict.
-The combined audit over shared history, CB-20 closure, and the private CB-12/CB-22 acceptance reports zero pending cases, zero pending cases without an open owner, and three below-floor cases that are all covered by existing exclusions.
+The ledger has no open ticket, and no open ticket owns a pending conformance verdict.
+The combined audit over shared history, CB-20 closure, the CB-12/CB-22 acceptance, and CB-15 closure sequence 31 reports zero pending cases, zero pending cases without an open owner, and three below-floor cases that are all covered by existing exclusions.
 All eleven `[[decision]]` rows are decided; no owner policy choice blocks the queue.
 
 | ticket | role | current state | next gate |
 |---|---|---|---|
-| CB-15 | evidence-only product work | fleshed out; no pending verdict depends on it because C9 already compares the definition-computed bytes | Implement after the case-owning queue unless product priority overrides conformance closure. Start with captured batch output, then establish effect ownership before live hooks. |
+| none | — | all recorded tickets closed | — |
 
-The sequential order is:
+CB-15 is closed through captured output `8fb9a55`, committed effect ownership `d5eb262`, branch-local state `d983b8d`, console hooks `12737c0`, arbitrary-byte strings `eb9e39b`, live delivery `7a2ebe6`, and the CB-15-6 closure commit.
+C9 remains the primary independent oracle for normal tutorial streams; the `matrix.simple` fallback records its C9 input-precondition failure before a separate committed live comparison.
 
-1. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
+## 2026-09-20: CB-15 closed after `7a2ebe6` and the CB-15-6 closure commit
 
-CB-12, CB-16, CB-20, CB-21, and CB-22 are closed.
-Every executed tutorial program now uses one validated runnable artifact per case, so repeated source compilation is no longer part of CB-12.
-CB-15 must retain C9 as an independent oracle and must not turn search or RPC into implicit live-IO modes.
+The exact-byte regression `c9_captured_and_live_console_paths_agree_on_arbitrary_bytes` independently obtains `ff 80 00 41` from structural C9 extraction of an `--io off` KORE result, `krust krun --output captured`, and committed `--io on --output none` execution.
+It exposed and fixed UTF-8 coercion in captured and C9 stream-buffer extraction; the three paths now preserve the same arbitrary bytes without deriving one observation from another.
+
+The focused run is `target/conformance/cb-15-6/runs/1-cb-15-6-four-cases/` (label `cb-15-6-four-cases`, composed closure sequence 31), with results SHA-256 `37e1aa7c5b4df2959e029b75cc804417aa7b34b1feebd9aeb625efe75ff7b452`.
+All 118 driven steps match in 201.5 seconds at `--jobs 2`, with 1,459 MiB peak RSS.
+
+| case | verdict | steps | case s | console comparison |
+|---|---|---:|---:|---|
+| SIMPLE untyped | match/search | 32 | 130.1 | 22 C9 matches; `matrix.simple` records the attributed C9 failure, then matches 607 live bytes in 13.7 s |
+| SIMPLE typed dynamic | match/search | 27 | 70.3 | 24 C9 matches |
+| KOOL untyped | match/krun | 29 | 62.4 | 28 C9 matches |
+| KOOL typed dynamic | match/krun | 30 | 71.3 | 29 C9 matches |
+
+The former `matrix.simple` `undriven-recipe` exclusion is removed.
+Search still rejects `--io on`, RPC performs no host IO, and C9 remains independent from captured and live delivery.
+The composed audit at `target/conformance/cb-15-6/closure-ratchet.toml` reports three below-floor cases covered by existing exclusions, zero non-excluded cases below floor, and zero pending or unowned cases.
 
 ## 2026-09-18: first pass over CB-01 to CB-08 (main af9481c)
 

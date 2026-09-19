@@ -1730,26 +1730,33 @@ def fake_run(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
         return ["krust"], 1, "", "in-process backend halted at depth 3: unsupported hook 'IO.write'", 0.1, False
     return ["krust"], 0, "cfg{}()", "", 0.1, False
 
+def fake_run_bytes(case, prog, stdin_path, extra, sort, syntax_module, step):
+    captures.append({"extra": extra, "stdin": stdin_path})
+    if mode == "explicit_on_halt":
+        return ["krust"], 1, b"", "in-process backend halted at depth 3: unsupported hook 'IO.write'", 0.1, False
+    return ["krust"], 0, b"hello\n", "", 0.1, False
+
 def fake_comparator(name, environment, cwd, timeout=120):
     assert name == "conformance_stdout_stream_buffers", name
     reports = {
         "match": {"leaves": [
-            {"constraints": [], "buffers": ["hello\n"]},
+            {"constraints": [], "buffers": [list(b"hello\n")]},
         ]},
         "residual": {"leaves": [
-            {"constraints": [], "buffers": ["hello\n"]},
-            {"constraints": ["\\not{B{}}(p{}())"], "buffers": ["partial"]},
+            {"constraints": [], "buffers": [list(b"hello\n")]},
+            {"constraints": ["\\not{B{}}(p{}())"], "buffers": [list(b"partial")]},
         ]},
-        "bytes_differ": {"leaves": [{"constraints": [], "buffers": ["goodbye\n"]}]},
+        "bytes_differ": {"leaves": [{"constraints": [], "buffers": [list(b"goodbye\n")]}]},
         "two_terminal": {"leaves": [
-            {"constraints": [], "buffers": ["hello\n"]},
-            {"constraints": [], "buffers": ["hello\n"]},
+            {"constraints": [], "buffers": [list(b"hello\n")]},
+            {"constraints": [], "buffers": [list(b"hello\n")]},
         ]},
         "no_buffer": {"leaves": [{"constraints": [], "buffers": []}]},
     }
     return 0, "c9-stdout-report = " + json.dumps(reports[mode]), "", False
 
 run.run_krust_program = fake_run
+run.run_krust_program_bytes = fake_run_bytes
 run.run_test_binary_result = fake_comparator
 
 def probe(selected, expected, explicit_io=False, stdin=False):
@@ -1792,6 +1799,7 @@ print(json.dumps({
     "bottom_nonempty": probe("bottom", "hello\n"),
     "bottom_empty": probe("bottom", ""),
     "empty_completion": probe("empty_completion", ""),
+    "explicit_on_match": probe("explicit_on_match", "hello\n", explicit_io=True),
     "explicit_on_halt": probe("explicit_on_halt", "hello\n", explicit_io=True),
 }))
 "#;
@@ -1884,6 +1892,14 @@ print(json.dumps({
             .starts_with("completion only"),
         "{probes}"
     );
+    assert_eq!(step("explicit_on_match")["verdict"], "match", "{probes}");
+    assert!(
+        step("explicit_on_match")["comparison"]
+            .as_str()
+            .unwrap()
+            .contains("committed console stdout"),
+        "{probes}"
+    );
     assert_eq!(
         step("explicit_on_halt")["verdict"],
         "krust-error",
@@ -1892,8 +1908,83 @@ print(json.dumps({
     assert_eq!(step("explicit_on_halt")["stage"], "krun", "{probes}");
     assert_eq!(
         probes["explicit_on_halt"]["capture"]["extra"],
-        serde_json::json!(["--io", "on"]),
-        "an explicit IO mode must not be normalized: {probes}"
+        serde_json::json!(["--io", "on", "--output", "none"]),
+        "an explicit live IO recipe must retain live mode and suppress KORE rendering: {probes}"
+    );
+}
+
+#[test]
+fn conformance_driver_retries_only_a_proven_c9_stdin_precondition_in_live_mode() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run
+
+calls = []
+diagnostic = ('warning: execution ended with no successor at depth 8: '
+              'rule STDIN-STREAM.stdinParseInt applied with an undefined result; '
+              'refuted obligation \\ceil{SortInt{}, SortGeneratedTopCell{}}(String2Int(""))')
+
+def fake_run(case, kind, prog, stdin_path, extra, sort, syntax_module, step):
+    calls.append(extra)
+    return ["krust", "buffered"], 0, "\\bottom{SortGeneratedTopCell{}}()", diagnostic, 0.1, False
+
+def fake_live(case, prog, stdin_path, extra, sort, syntax_module, step):
+    calls.append(extra)
+    return ["krust", "live"], 0, b"expected\n", "", 0.1, False
+
+run.run_krust_program = fake_run
+run.run_krust_program_bytes = fake_live
+
+root = tempfile.mkdtemp()
+case = run.Case("c9-live-fallback")
+case.dir = root
+case.log = os.path.join(root, "logs")
+case.ref_kompiled = os.path.join(root, "reference-kompiled")
+case.def_file = "test.k"
+case.main_module = "TEST"
+case.syntax_module = "TEST"
+case.pgm_sort = "KItem"
+os.makedirs(os.path.join(root, "krust-kompiled"))
+with open(os.path.join(root, "krust-kompiled", "definition.kore"), "w") as definition:
+    definition.write('''
+      Lbl'Hash'parseInput{}(\\dv{SortString{}}("Int"), \\dv{SortString{}}("|"))
+    ''')
+with open(os.path.join(root, "program.in"), "w") as input_file:
+    input_file.write("2||4")
+with open(os.path.join(root, "program.out"), "wb") as output:
+    output.write(b"expected\n")
+recipe = run.split_recipe("/kbin/krun program --output none | diff - program.out")
+recipe["stdin"] = "program.in"
+step = run.do_krun(case, recipe)
+print(json.dumps({"step": step, "calls": calls}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probe: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(probe["step"]["verdict"], "match", "{probe}");
+    assert!(
+        probe["step"]["c9_stdin_precondition"]
+            .as_str()
+            .unwrap()
+            .contains("STDIN-STREAM.stdinParseInt"),
+        "{probe}"
+    );
+    assert_eq!(probe["calls"][0], serde_json::json!(["--io", "off"]));
+    assert_eq!(
+        probe["calls"][1],
+        serde_json::json!(["--io", "on", "--output", "none"])
     );
 }
 
@@ -3000,16 +3091,8 @@ fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() 
         .iter()
         .find(|case| case["name"].as_str() == Some("pl-tutorial/2_languages/1_simple/1_untyped"))
         .expect("SIMPLE untyped expectation");
-    let matrix = simple["step_exclusions"]
-        .as_array()
-        .expect("matrix step exclusion");
-    assert!(matches!(
-        matrix.as_slice(),
-        [entry]
-            if entry["test"].as_str() == Some("tests/diverse/matrix.simple")
-                && entry["out"].as_str() == Some("tests/diverse/matrix.simple.out")
-                && entry["exclusion"].as_str() == Some("undriven-recipe")
-    ));
+    assert_eq!(simple["accepted_verdict"].as_str(), Some("match"));
+    assert!(simple.get("step_exclusions").is_none());
 }
 
 #[test]

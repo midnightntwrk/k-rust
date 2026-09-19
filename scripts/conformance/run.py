@@ -215,6 +215,28 @@ def sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
     return rc, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), time.monotonic() - t0, to
 
 
+def sh_bytes(cmd, cwd, timeout, stdin_path=None, env=None):
+    """Run a command while preserving stdout as exact bytes."""
+    e = dict(os.environ); e["K_OPTS"] = K_OPTS
+    if env: e.update(env)
+    stdin = open(stdin_path, "rb") if stdin_path and os.path.exists(stdin_path) else subprocess.DEVNULL
+    t0 = time.monotonic()
+    try:
+        p = subprocess.Popen(cmd, cwd=cwd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             env=e, start_new_session=True)
+        try:
+            out, err = p.communicate(timeout=max(1.0, timeout))
+            to = False
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, 9); out, err = p.communicate(); to = True
+        rc = p.returncode
+    except FileNotFoundError as ex:
+        rc, out, err, to = 127, b"", str(ex).encode(), False
+    finally:
+        if stdin is not subprocess.DEVNULL: stdin.close()
+    return rc, out, err.decode("utf-8", "replace"), time.monotonic() - t0, to
+
+
 def sh_to_file(cmd, cwd, timeout, stdout_path, env=None):
     """Run a command with stdout connected directly to a binary file."""
     e = dict(os.environ); e["K_OPTS"] = K_OPTS
@@ -418,6 +440,10 @@ class Case:
     def logfile(self, name, text):
         os.makedirs(self.log, exist_ok=True)
         with open(f"{self.log}/{name}", "w") as f: f.write(text)
+
+    def binary_logfile(self, name, data):
+        os.makedirs(self.log, exist_ok=True)
+        with open(f"{self.log}/{name}", "wb") as f: f.write(data)
 
 
 def enumerate_cases(rel=""):
@@ -1094,6 +1120,14 @@ def run_krust_program(case, kind, prog, stdin_path, extra, sort, syntax_module, 
     return args, rc, out, err, secs, to
 
 
+def run_krust_program_bytes(case, prog, stdin_path, extra, sort, syntax_module, step):
+    args = krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module)
+    timeout, capped = case.step_timeout()
+    if capped: step["step_budget"] = case.step_budget
+    rc, out, err, secs, to = sh_bytes(args, case.dir, timeout, stdin_path=stdin_path)
+    return args, rc, out, err, secs, to
+
+
 def krust_timeout_reason(step, tool):
     """The kill reason of a krust program run: its own step budget, or the case budget."""
     if step.get("step_budget"):
@@ -1157,6 +1191,7 @@ SIMPLIFIED_KORE_COMPARISON = (
 
 
 C9_STDOUT_COMPARISON = "C9: stdout stream buffer under --io off vs .out"
+LIVE_STDOUT_COMPARISON = "committed console stdout under --io on vs .out"
 DEFAULT_STDIN_PARSE_DELIMITERS = " \n\t\r"
 STDIN_EMPTY_SUCCESSOR = re.compile(
     r"^warning: execution ended with no successor at depth \d+: "
@@ -1293,7 +1328,15 @@ def compare_stdout_buffer(case, step, kore_path, expected_path):
         )
         return
     expected = Path(expected_path).read_bytes()
-    actual = terminal[0]["buffers"][0].encode("utf-8")
+    try:
+        actual = bytes(terminal[0]["buffers"][0])
+    except (TypeError, ValueError):
+        step.update(
+            verdict="krust-error",
+            reason="C9 structural comparator returned an invalid byte buffer",
+            divergence=output_excerpt(json.dumps(terminal[0]["buffers"][0])),
+        )
+        return
     step["stdout_buffer_bytes"] = len(actual)
     if expected == actual:
         step["verdict"] = "match"
@@ -1302,6 +1345,56 @@ def compare_stdout_buffer(case, step, kore_path, expected_path):
             verdict="mismatch",
             reason="stdout stream buffer differs from the checked-in console output",
             divergence=stdout_bytes_divergence(expected, actual),
+        )
+
+
+def live_io_options(extra):
+    """Select krust's pre-buffered committed live-IO mode for an ordinary recipe."""
+    translated = []
+    index = 0
+    while index < len(extra):
+        if extra[index] == "--io" and index + 1 < len(extra):
+            index += 2
+            continue
+        translated.append(extra[index])
+        index += 1
+    translated += ["--io", "on", "--output", "none"]
+    return translated
+
+
+def compare_live_console_output(case, step, prog, stdin_path, extra, sort, syntax_module,
+                                expected_path, tag, primary=False):
+    """Run one ordinary committed trace and compare its console stdout byte for byte."""
+    args, rc, out, err, secs, timed_out = run_krust_program_bytes(
+        case, prog, stdin_path, live_io_options(extra), sort, syntax_module, step
+    )
+    prefix = "" if primary else "live_"
+    step[f"{prefix}krust_cmd"] = " ".join(shlex.quote(argument) for argument in args)
+    step[f"{prefix}krust_rc"] = rc
+    step[f"{prefix}krust_seconds"] = round(secs, 1)
+    case.binary_logfile(f"{tag}.krust.live.stdout", out)
+    case.logfile(f"{tag}.krust.live.stderr", err)
+    step["comparison"] = LIVE_STDOUT_COMPARISON
+    if timed_out:
+        step.update(verdict="krust-error", stage="krun", reason=krust_timeout_reason(step, "krun --io on"))
+        return
+    if rc != 0:
+        step.update(
+            verdict="krust-error",
+            stage="krun",
+            reason=f"krust krun --io on exited {rc} where the reference recipe requires successful completion",
+            divergence=output_excerpt(err),
+        )
+        return
+    expected = Path(expected_path).read_bytes()
+    step["live_stdout_bytes"] = len(out)
+    if out == expected:
+        step["verdict"] = "match"
+    else:
+        step.update(
+            verdict="mismatch",
+            reason="committed console stdout differs from the checked-in console output",
+            divergence=stdout_bytes_divergence(expected, out),
         )
 
 
@@ -1641,11 +1734,19 @@ def do_krun(case, rec, search_file=False):
     )
     explicit_io = (opts.get("--io") or [None])[-1]
     c9_stdout = completion_only and nonempty_expected_output and explicit_io != "on"
+    live_stdout = completion_only and nonempty_expected_output and explicit_io == "on"
     if c9_stdout and explicit_io is None:
         extra += ["--io", "off"]
     stdin_path = f"{case.dir}/{rec['stdin']}" if rec["stdin"] and os.path.exists(f"{case.dir}/{rec['stdin']}") else None
     if stdin_path: step["stdin"] = rec["stdin"]
     sort = case.pgm_sort or "KItem"
+    if live_stdout:
+        step["stage"] = "krun"
+        compare_live_console_output(
+            case, step, prog, stdin_path, extra, sort, case.syntax_module,
+            expected_path, tag, primary=True,
+        )
+        return step_record(case, **step)
     args, rc, out, err, secs, to = run_krust_program(case, "krun", prog, stdin_path, extra, sort, case.syntax_module, step)
     step["krust_cmd"] = " ".join(shlex.quote(a) for a in args); step["krust_rc"] = rc; step["krust_seconds"] = round(secs, 1)
     case.logfile(f"{tag}.krust.log", out + "\n--- stderr ---\n" + err)
@@ -1695,12 +1796,22 @@ def do_krun(case, rec, search_file=False):
                 )
             if stdin_precondition:
                 label, obligation = stdin_precondition
+                step["c9_stdin_precondition"] = (
+                    f"{label} is undefined on the buffered input ({obligation})"
+                )
+                step["c9_result"] = out.strip()
+                if explicit_io is None:
+                    compare_live_console_output(
+                        case, step, prog, stdin_path, extra, sort, case.syntax_module,
+                        expected_path, tag,
+                    )
+                    return step_record(case, **step)
                 step.update(
                     verdict="skipped-with-reason",
                     stage="krun",
                     reason=(
                         f"C9 stdin precondition: {label} is undefined on the buffered input "
-                        f"({obligation}); the checked-in output is reachable only under --io on"
+                        f"({obligation}); the explicit --io off recipe supplies no live oracle"
                     ),
                     divergence=out,
                 )
