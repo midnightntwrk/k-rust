@@ -107,7 +107,7 @@ fn is_true_bool(term: &Term) -> bool {
     matches!(
         term.kind(),
         TermKind::DomainValue { sort, value }
-            if sort.is_builtin(BuiltinSort::Bool) && value.as_ref() == "true"
+            if sort.is_builtin(BuiltinSort::Bool) && value == "true"
     )
 }
 
@@ -187,14 +187,14 @@ mod tests {
     #[test]
     fn preserves_binary_string_and_bytes_domain_values_after_validation() {
         let definition = definition();
-        let value: String = (0..=u8::MAX).map(char::from).collect();
+        let value: Vec<u8> = (0..=u8::MAX).collect();
         for name in ["SortString", "SortBytes"] {
             let syntax = kore::Pattern::DomainValue {
                 sort: kore::Sort::Application {
                     name: name.into(),
                     arguments: Vec::new(),
                 },
-                value: value.clone(),
+                value: value.clone().into(),
             };
             let bytes = encode_term(&syntax).unwrap();
             let decoded = decode_term(&definition, &bytes).unwrap();
@@ -206,7 +206,7 @@ mod tests {
                 panic!("expected a domain value");
             };
             assert_eq!(sort, &Sort::simple(name));
-            assert_eq!(actual.as_ref(), value);
+            assert_eq!(actual.as_bytes(), value);
         }
 
         // Wire syntax alone cannot establish that a declared sort admits domain values.

@@ -213,7 +213,10 @@ impl TranslationState {
             TermKind::DomainValue { sort, value }
                 if sort.is_builtin(BuiltinSort::Bool) || sort.is_builtin(BuiltinSort::Int) =>
             {
-                Ok(SExpr::atom(value.as_ref()))
+                let value = value.as_utf8().map_err(|_| {
+                    TranslationError::UnsupportedPredicate("non-UTF-8 Bool or Int SMT literal")
+                })?;
+                Ok(SExpr::atom(value))
             }
             TermKind::Variable(variable) => {
                 match self

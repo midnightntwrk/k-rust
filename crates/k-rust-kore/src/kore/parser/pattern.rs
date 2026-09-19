@@ -1,4 +1,4 @@
-use crate::kore::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
+use crate::kore::ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind};
 use crate::kore::lexer::TokenKind;
 use crate::kore::string;
 
@@ -242,7 +242,7 @@ impl Parser<'_> {
         Ok(Pattern::String(value))
     }
 
-    fn string_value(&mut self) -> Result<String, ParseError> {
+    fn string_value(&mut self) -> Result<KoreString, ParseError> {
         let token = self.expect(TokenKind::String)?;
         string::unquote(token.text).map_err(|error| ParseError {
             offset: token.offset + error.offset,

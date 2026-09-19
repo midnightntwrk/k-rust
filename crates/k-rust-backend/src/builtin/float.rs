@@ -401,6 +401,9 @@ fn read_float(hook: &str, term: &Term) -> Result<Option<KFloat>, BuiltinError> {
     if !sort.is_builtin(BuiltinSort::Float) {
         return Ok(None);
     }
+    let Ok(value) = value.as_utf8() else {
+        return Ok(None);
+    };
     KFloat::parse(hook, value).map(Some)
 }
 

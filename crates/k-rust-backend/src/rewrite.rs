@@ -4196,7 +4196,7 @@ fn bool_domain_value(term: &Term) -> Option<bool> {
     if !sort.is_builtin(BuiltinSort::Bool) {
         return None;
     }
-    match value.as_ref() {
+    match value.as_utf8().ok()? {
         "true" => Some(true),
         "false" => Some(false),
         _ => None,
@@ -4871,12 +4871,12 @@ fn predicate_truth(predicate: &Predicate) -> Truth {
 fn bool_term_truth(term: &Term) -> Truth {
     match term.kind() {
         TermKind::DomainValue { sort, value }
-            if sort.is_builtin(BuiltinSort::Bool) && value.as_ref() == "true" =>
+            if sort.is_builtin(BuiltinSort::Bool) && value == "true" =>
         {
             Truth::True
         }
         TermKind::DomainValue { sort, value }
-            if sort.is_builtin(BuiltinSort::Bool) && value.as_ref() == "false" =>
+            if sort.is_builtin(BuiltinSort::Bool) && value == "false" =>
         {
             Truth::False
         }

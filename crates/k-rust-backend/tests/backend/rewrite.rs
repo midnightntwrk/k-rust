@@ -27,6 +27,7 @@ use k_rust_backend::{substitution::substitute, term::Variable};
 use k_rust_kore::{
     kore::parser::{parse_definition, parse_pattern},
     measure::{Counter, snapshot},
+    names::BuiltinSort,
 };
 
 use crate::support::{ground_cell_set_definition, ground_overload_definition, internal_term};
@@ -1286,7 +1287,7 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
     assert!(matches!(leaf.halt_reason, HaltReason::Stuck));
     assert!(matches!(
         leaf.pattern.term.kind(),
-        TermKind::DomainValue { value, .. } if value.as_ref() == "20"
+        TermKind::DomainValue { value, .. } if value == "20"
     ));
     assert!(
         leaf.pattern
@@ -1334,7 +1335,7 @@ fn a_mixed_group_keeps_its_trivial_sub_case_visible() {
     };
     assert!(matches!(
         leaf.pattern.term.kind(),
-        TermKind::DomainValue { value, .. } if value.as_ref() == "survivor"
+        TermKind::DomainValue { value, .. } if value == "survivor"
     ));
 }
 
@@ -1360,7 +1361,7 @@ fn sequential_mode_narrows_by_trivial_rules() {
     };
     assert!(matches!(
         branch.pattern.term.kind(),
-        TermKind::DomainValue { value, .. } if value.as_ref() == "20"
+        TermKind::DomainValue { value, .. } if value == "20"
     ));
     assert!(branch.pattern.constraints.contains(&trivial[0].remainder));
 }
@@ -1537,7 +1538,7 @@ fn rewritten_value(result: RewriteResult) -> String {
     let TermKind::DomainValue { value, .. } = applied.pattern.term.kind() else {
         panic!("expected domain value, found {:?}", applied.pattern.term);
     };
-    value.to_string()
+    value.as_utf8().unwrap().to_owned()
 }
 
 #[test]
@@ -2584,7 +2585,7 @@ fn carries_a_symbolic_remainder_to_lower_priority_rules() {
                     leaf.pattern.term
                 );
             };
-            value.to_string()
+            value.as_utf8().unwrap().to_owned()
         })
         .collect::<Vec<_>>();
     values.sort();
@@ -2628,7 +2629,7 @@ fn narrows_a_ground_rule_fragment_over_a_symbolic_configuration() {
         branches[0].pattern.constraints.as_slice(),
         [Predicate::Equals(left, right)]
             if matches!(left.kind(), TermKind::Variable(_))
-                && matches!(right.kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "0")
+                && matches!(right.kind(), TermKind::DomainValue { value, .. } if value == "0")
     ));
     assert!(matches!(
         remainder.pattern.constraints.as_slice(),
@@ -3574,7 +3575,7 @@ fn executes_to_a_stuck_normal_form_and_records_the_trace() {
     );
     assert!(matches!(
         leaf.pattern.term.kind(),
-        TermKind::DomainValue { value, .. } if value.as_ref() == "done"
+        TermKind::DomainValue { value, .. } if value == "done"
     ));
 }
 
@@ -3837,7 +3838,7 @@ fn deep_concrete_recursion_has_bounded_linear_productive_work_inner() {
     assert_eq!(leaf.halt_reason, HaltReason::Stuck);
     assert!(matches!(
         leaf.pattern.term.kind(),
-        TermKind::DomainValue { value, .. } if value.as_ref() == "done"
+        TermKind::DomainValue { value, .. } if value == "done"
     ));
 }
 
@@ -5022,7 +5023,7 @@ fn normalizes_branch_payloads_before_reporting_branching() {
         branches
             .iter()
             .map(|branch| match branch.pattern.term.kind() {
-                TermKind::DomainValue { value, .. } => value.as_ref(),
+                TermKind::DomainValue { value, .. } => value.as_utf8().unwrap(),
                 other => panic!("branch payload was not normalized: {other:?}"),
             })
             .collect::<Vec<_>>(),
@@ -5294,7 +5295,7 @@ fn console_getc_reads_unsigned_bytes_and_returns_eof() {
     let TermKind::Injection { term, .. } = first.leaves[0].pattern.term.kind() else {
         panic!("getc result was not injected: {first:#?}");
     };
-    assert!(matches!(term.kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "255"));
+    assert!(matches!(term.kind(), TermKind::DomainValue { value, .. } if value == "255"));
     assert_eq!(first.leaves[0].io.cursor(), 1);
 
     let eof = execute_with_io_state(
@@ -5335,7 +5336,7 @@ fn console_getc_consumes_sequential_reads_in_term_order() {
         .iter()
         .map(|argument| match argument.kind() {
             TermKind::Injection { term, .. } => match term.kind() {
-                TermKind::DomainValue { value, .. } => value.as_ref(),
+                TermKind::DomainValue { value, .. } => value.as_utf8().unwrap(),
                 other => panic!("expected integer: {other:?}"),
             },
             other => panic!("expected injection: {other:?}"),
@@ -5346,7 +5347,7 @@ fn console_getc_consumes_sequential_reads_in_term_order() {
 }
 
 #[test]
-fn console_read_returns_short_utf8_reads_and_rolls_back_unrepresentable_boundaries() {
+fn console_read_preserves_arbitrary_short_reads_and_utf8_boundaries() {
     let definition = console_io_definition("");
     let short = execute_with_io_state(
         &definition,
@@ -5355,13 +5356,17 @@ fn console_read_returns_short_utf8_reads_and_rolls_back_unrepresentable_boundari
             r#"read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("20"))"#,
         ),
         ExecutionOptions::default(),
-        ExecutionIoState::new("hé".as_bytes().to_vec()),
+        ExecutionIoState::new(vec![0xff, 0x80, 0x00, b'A']),
     );
     let TermKind::Injection { term, .. } = short.leaves[0].pattern.term.kind() else {
         panic!("read result was not injected: {short:#?}");
     };
-    assert!(matches!(term.kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "hé"));
-    assert_eq!(short.leaves[0].io.cursor(), 3);
+    assert!(matches!(
+        term.kind(),
+        TermKind::DomainValue { value, .. }
+            if value.as_bytes() == [0xff, 0x80, 0x00, b'A']
+    ));
+    assert_eq!(short.leaves[0].io.cursor(), 4);
 
     let eof = execute_with_io_state(
         &definition,
@@ -5378,7 +5383,7 @@ fn console_read_returns_short_utf8_reads_and_rolls_back_unrepresentable_boundari
     assert!(matches!(term.kind(), TermKind::DomainValue { value, .. } if value.is_empty()));
     assert_eq!(eof.leaves[0].io.cursor(), 0);
 
-    let boundary = execute_with_io_state(
+    let first = execute_with_io_state(
         &definition,
         console_pattern(
             &definition,
@@ -5387,12 +5392,76 @@ fn console_read_returns_short_utf8_reads_and_rolls_back_unrepresentable_boundari
         ExecutionOptions::default(),
         ExecutionIoState::new("é".as_bytes().to_vec()),
     );
+    let TermKind::Injection { term, .. } = first.leaves[0].pattern.term.kind() else {
+        panic!("first split read was not injected: {first:#?}");
+    };
     assert!(matches!(
-        boundary.leaves[0].halt_reason,
-        HaltReason::Simplification(SimplificationError::UnsupportedHook { ref hook, .. })
-            if hook == "IO.read"
+        term.kind(),
+        TermKind::DomainValue { value, .. } if value.as_bytes() == [0xc3]
     ));
-    assert_eq!(boundary.leaves[0].io.cursor(), 0);
+    assert_eq!(first.leaves[0].io.cursor(), 1);
+
+    let second = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("1"))"#,
+        ),
+        ExecutionOptions::default(),
+        first.leaves[0].io.clone(),
+    );
+    let TermKind::Injection { term, .. } = second.leaves[0].pattern.term.kind() else {
+        panic!("second split read was not injected: {second:#?}");
+    };
+    assert!(matches!(
+        term.kind(),
+        TermKind::DomainValue { value, .. } if value.as_bytes() == [0xa9]
+    ));
+    assert_eq!(second.leaves[0].io.cursor(), 2);
+}
+
+#[test]
+fn console_write_reproduces_bytes_returned_by_read() {
+    let definition = console_io_definition("");
+    let read = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("4"))"#,
+        ),
+        ExecutionOptions::default(),
+        ExecutionIoState::new(vec![0xff, 0x80, 0x00, b'A']),
+    );
+    let TermKind::Injection { term, .. } = read.leaves[0].pattern.term.kind() else {
+        panic!("read result was not injected: {read:#?}");
+    };
+    let TermKind::DomainValue { value, .. } = term.kind() else {
+        panic!("read payload was not a domain value: {read:#?}");
+    };
+    let write = Pattern {
+        term: Term::application(
+            definition.symbols["write"].clone(),
+            Vec::new(),
+            vec![
+                Term::domain_value(Sort::builtin(BuiltinSort::Int), "1"),
+                Term::domain_value(Sort::builtin(BuiltinSort::String), value.clone()),
+            ],
+        ),
+        constraints: Vec::new(),
+    };
+    let written = execute_with_io_state(
+        &definition,
+        write,
+        ExecutionOptions::default(),
+        read.leaves[0].io.clone(),
+    );
+
+    assert_eq!(written.leaves[0].io.cursor(), 4);
+    assert_eq!(written.leaves[0].io.transcript().len(), 1);
+    assert_eq!(
+        written.leaves[0].io.transcript()[0].bytes.as_ref(),
+        [0xff, 0x80, 0x00, b'A']
+    );
 }
 
 #[test]
@@ -5583,7 +5652,7 @@ fn rejected_read_candidate_does_not_advance_the_retained_cursor() {
     assert!(matches!(
         arguments[0].kind(),
         TermKind::Injection { term, .. }
-            if matches!(term.kind(), TermKind::DomainValue { value, .. } if value.as_ref() == "90")
+            if matches!(term.kind(), TermKind::DomainValue { value, .. } if value == "90")
     ));
 }
 
@@ -5770,7 +5839,7 @@ fn breadth_bound_returns_the_live_execution_frontier() {
             .leaves
             .iter()
             .map(|leaf| match leaf.pattern.term.kind() {
-                TermKind::DomainValue { value, .. } => value.as_ref(),
+                TermKind::DomainValue { value, .. } => value.as_utf8().unwrap(),
                 other => panic!("expected a domain value, found {other:?}"),
             })
             .collect::<Vec<_>>(),
@@ -5815,7 +5884,7 @@ fn any_mode_uses_the_first_applicable_rule() {
     assert_eq!(result.leaves[0].depth, 1);
     assert!(matches!(
         result.leaves[0].pattern.term.kind(),
-        TermKind::DomainValue { value, .. } if value.as_ref() == "left"
+        TermKind::DomainValue { value, .. } if value == "left"
     ));
     assert_eq!(result.leaves[0].trace[0].label.as_deref(), Some("left"));
 }
@@ -5864,7 +5933,7 @@ fn any_mode_passes_only_the_first_rules_remainder_to_later_rules() {
         .find(|leaf| {
             matches!(
                 leaf.pattern.term.kind(),
-                TermKind::DomainValue { value, .. } if value.as_ref() == "first"
+                TermKind::DomainValue { value, .. } if value == "first"
             )
         })
         .expect("the first rule should own its matching branch");

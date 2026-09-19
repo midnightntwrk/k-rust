@@ -386,7 +386,7 @@ impl<'a> VerifyContext<'a> {
                     ));
                 }
                 if info.hook.as_deref() == Some("BOOL.Bool")
-                    && !matches!(value.as_str(), "true" | "false")
+                    && !matches!(value.as_utf8(), Ok("true" | "false"))
                 {
                     return Err(ctx.error(format!(
                         "Verifying builtin sort 'BOOL.Bool': While parsing domain value: expecting \"false\" or \"true\", found {value:?}"

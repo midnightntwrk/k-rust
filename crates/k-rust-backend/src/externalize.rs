@@ -33,7 +33,7 @@ pub fn term(term: &Term) -> kore::Pattern {
             value,
         } => kore::Pattern::DomainValue {
             sort: sort(value_sort),
-            value: value.to_string(),
+            value: value.clone(),
         },
         TermKind::Variable(variable) => kore::Pattern::Variable(variable_pattern(variable)),
         TermKind::Injection {
@@ -309,7 +309,7 @@ fn predicate_as_boolean_term(
         Predicate::Equals(left, right) => {
             let bool_value = |term: &Term| match term.kind() {
                 TermKind::DomainValue { sort, value } if sort == &boolean_sort => {
-                    match value.as_ref() {
+                    match value.as_utf8().ok()? {
                         "true" => Some(true),
                         "false" => Some(false),
                         _ => None,
@@ -545,7 +545,7 @@ fn boolean_domain_value_of_sort(boolean_sort: &Sort, term: &Term) -> Option<bool
     if sort != boolean_sort {
         return None;
     }
-    match value.as_ref() {
+    match value.as_utf8().ok()? {
         "true" => Some(true),
         "false" => Some(false),
         _ => None,

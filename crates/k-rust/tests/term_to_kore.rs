@@ -358,7 +358,7 @@ fn decodes_string_and_bytes_token_syntax() {
                 token: r#""line\nα""#.into(),
                 sort: Sort::new("String"),
             },
-            "\\dv{SortString{}}(\"line\\n\\u03b1\")",
+            "\\dv{SortString{}}(\"line\\n\\xce\\xb1\")",
         ),
         (
             Term::Token {

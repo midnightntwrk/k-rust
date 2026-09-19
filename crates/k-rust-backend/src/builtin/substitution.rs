@@ -1,6 +1,9 @@
 //! Capture-avoiding substitution of object-language `KVar` tokens.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use super::{BuiltinError, BuiltinResult, UnsupportedHookReason, check_interrupted, expect_arity};
 use crate::{
@@ -888,7 +891,9 @@ fn read_kvar(term: &Term, kvar_sorts: &BTreeSet<Name>) -> Option<Name> {
         TermKind::DomainValue {
             sort: Sort::Application { name, arguments },
             value,
-        } if arguments.is_empty() && kvar_sorts.contains(name) => Some(value.clone()),
+        } if arguments.is_empty() && kvar_sorts.contains(name) => {
+            value.as_utf8().ok().map(Arc::<str>::from)
+        }
         TermKind::Injection { term, .. } => read_kvar(term, kvar_sorts),
         _ => None,
     }

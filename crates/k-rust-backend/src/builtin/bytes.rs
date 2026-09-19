@@ -300,10 +300,7 @@ pub(super) fn read_bytes(term: &Term) -> Option<Vec<u8>> {
     if !sort.is_builtin(BuiltinSort::Bytes) {
         return None;
     }
-    value
-        .chars()
-        .map(|character| u8::try_from(character as u32).ok())
-        .collect()
+    Some(value.as_bytes().to_vec())
 }
 
 fn read_string(term: &Term) -> Option<&str> {
@@ -311,7 +308,8 @@ fn read_string(term: &Term) -> Option<&str> {
         return None;
     };
     sort.is_builtin(BuiltinSort::String)
-        .then_some(value.as_ref())
+        .then(|| value.as_utf8().ok())
+        .flatten()
 }
 
 fn read_index(term: &Term) -> Option<usize> {
@@ -374,13 +372,7 @@ fn read_signedness(term: &Term) -> Option<Signedness> {
 }
 
 pub(super) fn bytes_term(bytes: &[u8]) -> Term {
-    Term::domain_value(
-        Sort::builtin(BuiltinSort::Bytes),
-        bytes
-            .iter()
-            .map(|byte| char::from(*byte))
-            .collect::<String>(),
-    )
+    Term::domain_value(Sort::builtin(BuiltinSort::Bytes), bytes.to_vec())
 }
 
 fn string_term(value: impl Into<String>) -> Term {

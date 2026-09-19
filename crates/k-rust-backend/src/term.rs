@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use k_rust_kore::kore::ast::KoreString;
 use k_rust_kore::measure::{self, Counter};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use num_bigint::BigInt;
@@ -230,7 +231,7 @@ pub enum TermKind {
     },
     DomainValue {
         sort: Sort,
-        value: Arc<str>,
+        value: KoreString,
     },
     Variable(Variable),
     Injection {
@@ -422,7 +423,7 @@ impl Term {
         Self::application_raw(symbol, sort_arguments, arguments)
     }
 
-    pub fn domain_value(sort: Sort, value: impl Into<Arc<str>>) -> Self {
+    pub fn domain_value(sort: Sort, value: impl Into<KoreString>) -> Self {
         let value = value.into();
         let value = if is_int_sort(&sort) {
             canonical_int_text(value)
@@ -932,8 +933,11 @@ fn is_int_sort(sort: &Sort) -> bool {
     sort.is_builtin(BuiltinSort::Int)
 }
 
-fn canonical_int_text(value: Arc<str>) -> Arc<str> {
-    let bytes = value.as_bytes();
+fn canonical_int_text(value: KoreString) -> KoreString {
+    let Ok(text) = value.as_utf8() else {
+        return value;
+    };
+    let bytes = text.as_bytes();
     let canonical = match bytes {
         [b'0'] => true,
         [b'-', b'1'..=b'9', rest @ ..] | [b'1'..=b'9', rest @ ..] => {
@@ -944,9 +948,8 @@ fn canonical_int_text(value: Arc<str>) -> Arc<str> {
     if canonical {
         return value;
     }
-    value
-        .parse::<BigInt>()
-        .map_or(value.clone(), |integer| integer.to_string().into())
+    text.parse::<BigInt>()
+        .map_or(value, |integer| integer.to_string().into())
 }
 
 fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Vec<(Term, Term)>, Option<Term>) {
@@ -1217,15 +1220,15 @@ mod tests {
             let TermKind::DomainValue { value, .. } = term.kind() else {
                 unreachable!()
             };
-            assert_eq!(value.as_ref(), expected, "{source}");
+            assert_eq!(value, expected, "{source}");
         }
 
-        let canonical: Arc<str> = "12".into();
+        let canonical = KoreString::from("12");
         let canonical_term = Term::domain_value(int_sort.clone(), canonical.clone());
         let TermKind::DomainValue { value, .. } = canonical_term.kind() else {
             unreachable!()
         };
-        assert!(Arc::ptr_eq(value, &canonical));
+        assert!(std::ptr::eq(value.as_bytes(), canonical.as_bytes()));
 
         let signed = Term::domain_value(int_sort.clone(), "+3");
         let unsigned = Term::domain_value(int_sort, "3");
@@ -1234,6 +1237,18 @@ mod tests {
             calculate_hash(signed.kind()),
             calculate_hash(unsigned.kind())
         );
+    }
+
+    #[test]
+    fn domain_value_equality_and_hash_preserve_raw_bytes() {
+        let sort = Sort::builtin(BuiltinSort::String);
+        let raw = Term::domain_value(sort.clone(), vec![0xff, 0x80]);
+        let same = Term::domain_value(sort.clone(), vec![0xff, 0x80]);
+        let utf8 = Term::domain_value(sort, "ÿ\u{80}");
+
+        assert_eq!(raw, same);
+        assert_eq!(calculate_hash(raw.kind()), calculate_hash(same.kind()));
+        assert_ne!(raw, utf8);
     }
 
     #[test]

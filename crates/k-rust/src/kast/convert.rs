@@ -135,14 +135,21 @@ impl<'a> Converter<'a> {
             Pattern::DomainValue { sort, value } => {
                 let sort = self.sort(sort)?;
                 let token = match self.sort_hooks.get(&sort.name).map(String::as_str) {
-                    Some("STRING.String") => string::quote(value),
-                    Some("BYTES.Bytes") => format!("b{}", string::quote(value)),
-                    _ => value.clone(),
+                    Some("STRING.String") => string::quote_bytes(value.as_bytes()),
+                    Some("BYTES.Bytes") => format!("b{}", string::quote_bytes(value.as_bytes())),
+                    _ => value.as_utf8().map(str::to_owned).map_err(|_| {
+                        ConversionError(format!(
+                            "domain value of sort {} is not valid UTF-8",
+                            sort.name
+                        ))
+                    })?,
                 };
                 Ok(Term::Token { token, sort })
             }
             Pattern::String(value) => Ok(Term::Token {
-                token: value.clone(),
+                token: value.as_utf8().map(str::to_owned).map_err(|_| {
+                    ConversionError("KORE string pattern is not valid UTF-8".into())
+                })?,
                 sort: Sort::frontend(FrontendSort::KString),
             }),
             Pattern::Iff { .. } => {

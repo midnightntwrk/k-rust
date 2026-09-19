@@ -7,7 +7,7 @@
 use crate::json_tree::{self, Node};
 
 use super::{
-    ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind},
+    ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind},
     lexical::{self, Problem},
 };
 
@@ -368,6 +368,22 @@ enum PatternHead {
     Associative(Associativity, Symbol),
 }
 
+fn json_string_bytes(value: &str) -> KoreString {
+    KoreString::from(
+        value
+            .chars()
+            .map(|character| {
+                u8::try_from(u32::from(character))
+                    .expect("JSON KORE lexical validation limits strings to Latin-1")
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn json_string_value(value: &KoreString) -> String {
+    value.as_bytes().iter().copied().map(char::from).collect()
+}
+
 fn variable(kind: VariableKind, name: String, sort: Sort) -> Variable {
     Variable { kind, name, sort }
 }
@@ -603,7 +619,7 @@ fn build_pattern(root: Node) -> Result<Pattern, Error> {
                 )
             };
             Ok(match self.head {
-                PatternHead::String(value) => Pattern::String(value),
+                PatternHead::String(value) => Pattern::String(json_string_bytes(&value)),
                 PatternHead::Variable(variable) => Pattern::Variable(variable),
                 PatternHead::Application(symbol) => Pattern::Application {
                     symbol,
@@ -682,7 +698,10 @@ fn build_pattern(root: Node) -> Result<Pattern, Error> {
                     left: child(),
                     right: child(),
                 },
-                PatternHead::DomainValue(sort, value) => Pattern::DomainValue { sort, value },
+                PatternHead::DomainValue(sort, value) => Pattern::DomainValue {
+                    sort,
+                    value: json_string_bytes(&value),
+                },
                 PatternHead::MultiOr(associativity, sort) => {
                     let mut arguments = children;
                     let first = arguments.next().ok_or(Error::EmptyMultiOr)?;
@@ -749,7 +768,7 @@ fn pattern_node(pattern: &Pattern) -> Node {
         match pattern {
             Pattern::String(value) => Node::Object(vec![
                 ("tag".into(), Node::String("String".into())),
-                ("value".into(), Node::String(value.clone())),
+                ("value".into(), Node::String(json_string_value(value))),
             ]),
             Pattern::Variable(variable) => Node::Object(vec![
                 (
@@ -935,7 +954,7 @@ fn pattern_node(pattern: &Pattern) -> Node {
             Pattern::DomainValue { sort, value } => Node::Object(vec![
                 ("tag".into(), Node::String("DV".into())),
                 ("sort".into(), sort_node(sort)),
-                ("value".into(), Node::String(value.clone())),
+                ("value".into(), Node::String(json_string_value(value))),
             ]),
             Pattern::AssociativeApplication {
                 associativity,
@@ -1020,6 +1039,19 @@ mod tests {
 
         assert!(encoded.contains(r#""patterns":[]"#));
         assert!(!encoded.contains(r#""first""#));
+        assert_eq!(from_str(&encoded).unwrap(), pattern);
+    }
+
+    #[test]
+    fn round_trips_arbitrary_string_bytes() {
+        let pattern = Pattern::DomainValue {
+            sort: Sort::Application {
+                name: "SortString".into(),
+                arguments: Vec::new(),
+            },
+            value: KoreString::from(vec![0xff, 0x80, 0x00, b'A']),
+        };
+        let encoded = to_string(&pattern).unwrap();
         assert_eq!(from_str(&encoded).unwrap(), pattern);
     }
 

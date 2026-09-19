@@ -1,5 +1,88 @@
 //! Syntax tree for textual KORE.
 
+use std::{fmt, sync::Arc};
+
+/// The byte sequence carried by a KORE string pattern.
+///
+/// Text KORE uses `\xNN` escapes for individual bytes and `\u`/`\U` escapes for Unicode
+/// scalar values encoded as UTF-8. Binary KORE carries the same bytes directly. Keeping the
+/// payload byte-oriented is necessary because concrete K strings may contain the result of a
+/// byte-counted `IO.read`, including incomplete or invalid UTF-8.
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct KoreString(Arc<[u8]>);
+
+impl KoreString {
+    pub fn from_bytes(value: impl Into<Arc<[u8]>>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn as_utf8(&self) -> Result<&str, std::str::Utf8Error> {
+        std::str::from_utf8(&self.0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for KoreString {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.as_utf8() {
+            Ok(value) => fmt::Debug::fmt(value, formatter),
+            Err(_) => formatter
+                .debug_tuple("KoreString")
+                .field(&self.0.as_ref())
+                .finish(),
+        }
+    }
+}
+
+impl From<&str> for KoreString {
+    fn from(value: &str) -> Self {
+        Self::from_bytes(Arc::<[u8]>::from(value.as_bytes()))
+    }
+}
+
+impl From<String> for KoreString {
+    fn from(value: String) -> Self {
+        Self::from_bytes(Arc::<[u8]>::from(value.into_bytes()))
+    }
+}
+
+impl From<Vec<u8>> for KoreString {
+    fn from(value: Vec<u8>) -> Self {
+        Self::from_bytes(Arc::<[u8]>::from(value))
+    }
+}
+
+impl From<Arc<[u8]>> for KoreString {
+    fn from(value: Arc<[u8]>) -> Self {
+        Self::from_bytes(value)
+    }
+}
+
+impl From<Arc<str>> for KoreString {
+    fn from(value: Arc<str>) -> Self {
+        Self::from_bytes(Arc::<[u8]>::from(value.as_bytes()))
+    }
+}
+
+impl PartialEq<str> for KoreString {
+    fn eq(&self, other: &str) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl PartialEq<&str> for KoreString {
+    fn eq(&self, other: &&str) -> bool {
+        self == *other
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Definition {
     pub attributes: Attributes,
@@ -88,7 +171,7 @@ pub enum Associativity {
 
 #[derive(Debug)]
 pub enum Pattern {
-    String(String),
+    String(KoreString),
     Variable(Variable),
     Application {
         symbol: Symbol,
@@ -173,7 +256,7 @@ pub enum Pattern {
     },
     DomainValue {
         sort: Sort,
-        value: String,
+        value: KoreString,
     },
     AssociativeApplication {
         associativity: Associativity,

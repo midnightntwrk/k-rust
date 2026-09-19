@@ -1801,7 +1801,7 @@ fn bool_value(term: &Term) -> Option<bool> {
     if !sort.is_builtin(BuiltinSort::Bool) {
         return None;
     }
-    match value.as_ref() {
+    match value.as_utf8().ok()? {
         "true" => Some(true),
         "false" => Some(false),
         _ => None,

@@ -8,6 +8,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::kore::string as kore_string;
 use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
@@ -981,7 +982,7 @@ impl BackendDefinition {
         match pattern {
             kore::Pattern::String(value) => Ok(Term::domain_value(
                 Sort::builtin(BuiltinSort::String),
-                value.as_str(),
+                value.clone(),
             )),
             kore::Pattern::Variable(variable) => {
                 let sort = internalize_sort(&variable.sort, &self.sorts, sort_variables)?;
@@ -1009,7 +1010,7 @@ impl BackendDefinition {
             kore::Pattern::DomainValue { sort, value } => {
                 let sort = internalize_sort(sort, &self.sorts, sort_variables)?;
                 self.validate_domain_value(&sort, value)?;
-                Ok(Term::domain_value(sort, value.as_str()))
+                Ok(Term::domain_value(sort, value.clone()))
             }
             kore::Pattern::And { arguments, .. } => {
                 let (terms, predicates): (Vec<_>, Vec<_>) = arguments
@@ -1097,7 +1098,11 @@ impl BackendDefinition {
         }
     }
 
-    fn validate_domain_value(&self, sort: &Sort, value: &str) -> Result<(), DefinitionError> {
+    fn validate_domain_value(
+        &self,
+        sort: &Sort,
+        value: &kore::KoreString,
+    ) -> Result<(), DefinitionError> {
         let Sort::Application { name, .. } = sort else {
             return Err(DefinitionError::SortWithoutDomainValues { sort: sort.clone() });
         };
@@ -1107,16 +1112,17 @@ impl BackendDefinition {
         if !info.has_domain_values {
             return Err(DefinitionError::SortWithoutDomainValues { sort: sort.clone() });
         }
-        if info.hook.as_deref() == Some("BOOL.Bool") && !matches!(value, "true" | "false") {
+        let text = value.as_utf8().ok();
+        if info.hook.as_deref() == Some("BOOL.Bool") && !matches!(text, Some("true" | "false")) {
             return Err(DefinitionError::InvalidDomainValue {
                 sort: sort.clone(),
-                value: value.into(),
+                value: text.map_or_else(|| kore_string::quote(value), str::to_owned),
             });
         }
-        if info.hook.as_deref() == Some("INT.Int") && !is_decimal_integer(value) {
+        if info.hook.as_deref() == Some("INT.Int") && !text.is_some_and(is_decimal_integer) {
             return Err(DefinitionError::InvalidDomainValue {
                 sort: sort.clone(),
-                value: value.into(),
+                value: text.map_or_else(|| kore_string::quote(value), str::to_owned),
             });
         }
         Ok(())

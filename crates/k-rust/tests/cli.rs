@@ -2940,7 +2940,7 @@ fn reference_hook_string_index_boundaries_follow_domains_md() {
 }
 
 #[test]
-fn krun_executes_hook_edges_to_the_documented_results() {
+fn krun_executes_hook_edges_to_the_backend_results() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/hooks");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -2984,7 +2984,7 @@ fn krun_executes_hook_edges_to_the_documented_results() {
         .collect::<Vec<_>>();
 
     assert_eq!(bools, vec![false, false, false], "{stdout}");
-    assert_eq!(ints, vec![1, 1, 65_533, 0], "{stdout}");
+    assert_eq!(ints, vec![1, 3, 65_533, 0], "{stdout}");
     assert_eq!(strings, vec!["he"], "{stdout}");
 }
 

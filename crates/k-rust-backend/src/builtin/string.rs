@@ -3,6 +3,7 @@
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
 
+use k_rust_kore::kore::ast::KoreString;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
@@ -44,10 +45,12 @@ pub(super) fn evaluate(
 fn compare(
     hook: &str,
     arguments: &[Term],
-    comparison: impl FnOnce(&str, &str) -> bool,
+    comparison: impl FnOnce(&[u8], &[u8]) -> bool,
 ) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
-    let Some((left, right)) = read_string(&arguments[0]).zip(read_string(&arguments[1])) else {
+    let Some((left, right)) =
+        read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
+    else {
         return Ok(BuiltinResult::NotApplicable);
     };
     Ok(BuiltinResult::Value(bool_term(comparison(left, right))))
@@ -55,15 +58,20 @@ fn compare(
 
 fn concatenate(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("STRING.concat", arguments, 2)?;
-    let Some((left, right)) = read_string(&arguments[0]).zip(read_string(&arguments[1])) else {
+    let Some((left, right)) =
+        read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
+    else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(BuiltinResult::Value(string_term(format!("{left}{right}"))))
+    let mut result = Vec::with_capacity(left.len().saturating_add(right.len()));
+    result.extend_from_slice(left);
+    result.extend_from_slice(right);
+    Ok(BuiltinResult::Value(string_term(result)))
 }
 
 fn substring(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("STRING.substr", arguments, 3)?;
-    let Some(value) = read_string(&arguments[0]) else {
+    let Some(value) = read_string_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some((start, end)) = read_int(&arguments[1]).zip(read_int(&arguments[2])) else {
@@ -73,38 +81,25 @@ fn substring(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let end = saturating_i64(&end);
     let start_index = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
     let count = usize::try_from(end.saturating_sub(start).max(0)).unwrap_or(usize::MAX);
-    let mut result = String::new();
-    for (index, character) in value.chars().enumerate() {
-        if index % 1024 == 0 {
-            check_interrupted()?;
-        }
-        if index >= start_index && index - start_index < count {
-            result.push(character);
-        } else if index >= start_index.saturating_add(count) {
-            break;
-        }
-    }
-    Ok(BuiltinResult::Value(string_term(result)))
+    let start_index = start_index.min(value.len());
+    let end_index = start_index.saturating_add(count).min(value.len());
+    Ok(BuiltinResult::Value(string_term(
+        value[start_index..end_index].to_vec(),
+    )))
 }
 
 fn length(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("STRING.length", arguments, 1)?;
-    let Some(value) = read_string(&arguments[0]) else {
+    let Some(value) = read_string_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut length = 0_usize;
-    for _ in value.chars() {
-        if length.is_multiple_of(1024) {
-            check_interrupted()?;
-        }
-        length += 1;
-    }
-    Ok(BuiltinResult::Value(int_term(BigInt::from(length))))
+    Ok(BuiltinResult::Value(int_term(BigInt::from(value.len()))))
 }
 
 fn find(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("STRING.find", arguments, 3)?;
-    let Some((haystack, needle)) = read_string(&arguments[0]).zip(read_string(&arguments[1]))
+    let Some((haystack, needle)) =
+        read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
     else {
         return Ok(BuiltinResult::NotApplicable);
     };
@@ -112,8 +107,6 @@ fn find(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         return Ok(BuiltinResult::NotApplicable);
     };
     let start = saturating_i64(&start);
-    let haystack = haystack.chars().collect::<Vec<_>>();
-    let needle = needle.chars().collect::<Vec<_>>();
     let start = usize::try_from(start.max(0)).unwrap_or(usize::MAX);
     let found = if needle.is_empty() {
         (start <= haystack.len()).then_some(start)
@@ -226,7 +219,10 @@ fn token_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let TermKind::DomainValue { value, .. } = arguments[0].kind() else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    Ok(BuiltinResult::Value(string_term(value.as_ref())))
+    Ok(BuiltinResult::Value(Term::domain_value(
+        Sort::builtin(BuiltinSort::String),
+        value.clone(),
+    )))
 }
 
 fn string_to_token(
@@ -265,14 +261,20 @@ fn saturating_i64(value: &BigInt) -> i64 {
 }
 
 fn read_string(term: &Term) -> Option<&str> {
+    std::str::from_utf8(read_string_bytes(term)?).ok()
+}
+
+// The LLVM runtime represents SortString as a length-tagged byte sequence. Hooks that model
+// textual conversions call `read_string`; byte-oriented string operations call this helper.
+fn read_string_bytes(term: &Term) -> Option<&[u8]> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
     sort.is_builtin(BuiltinSort::String)
-        .then_some(value.as_ref())
+        .then(|| value.as_bytes())
 }
 
-fn string_term(value: impl Into<String>) -> Term {
+fn string_term(value: impl Into<KoreString>) -> Term {
     Term::domain_value(Sort::builtin(BuiltinSort::String), value.into())
 }
 
@@ -285,24 +287,65 @@ mod tests {
     }
 
     #[test]
-    fn evaluates_unicode_string_operations_by_code_point() {
+    fn evaluates_string_operations_by_byte() {
         assert_eq!(
             evaluate("STRING.length", vec![string_term("a🦀é")]),
-            BuiltinResult::Value(int_term(BigInt::from(3)))
+            BuiltinResult::Value(int_term(BigInt::from(7)))
         );
         assert_eq!(
             evaluate(
                 "STRING.substr",
-                vec![string_term("a🦀é"), int_term(1.into()), int_term(3.into())]
+                vec![string_term("a🦀é"), int_term(1.into()), int_term(5.into())]
             ),
-            BuiltinResult::Value(string_term("🦀é"))
+            BuiltinResult::Value(string_term("🦀"))
         );
         assert_eq!(
             evaluate(
                 "STRING.find",
                 vec![string_term("a🦀é🦀"), string_term("🦀"), int_term(2.into())]
             ),
-            BuiltinResult::Value(int_term(BigInt::from(3)))
+            BuiltinResult::Value(int_term(BigInt::from(7)))
+        );
+    }
+
+    #[test]
+    fn string_operations_preserve_arbitrary_bytes() {
+        let raw = || string_term(vec![0xff, 0x80, 0x00, b'A']);
+        assert_eq!(
+            evaluate("STRING.length", vec![raw()]),
+            BuiltinResult::Value(int_term(BigInt::from(4)))
+        );
+        assert_eq!(
+            evaluate(
+                "STRING.substr",
+                vec![raw(), int_term(1.into()), int_term(3.into())]
+            ),
+            BuiltinResult::Value(string_term(vec![0x80, 0x00]))
+        );
+        assert_eq!(
+            evaluate(
+                "STRING.find",
+                vec![raw(), string_term(vec![0x80, 0x00]), int_term(0.into())]
+            ),
+            BuiltinResult::Value(int_term(BigInt::from(1)))
+        );
+        assert_eq!(
+            evaluate(
+                "STRING.concat",
+                vec![string_term(vec![0xff]), string_term(vec![0x80, 0x00])]
+            ),
+            BuiltinResult::Value(string_term(vec![0xff, 0x80, 0x00]))
+        );
+        assert_eq!(
+            evaluate("STRING.eq", vec![raw(), raw()]),
+            BuiltinResult::Value(bool_term(true))
+        );
+        assert_eq!(
+            evaluate(
+                "STRING.lt",
+                vec![string_term(vec![0x80]), string_term(vec![0xff])]
+            ),
+            BuiltinResult::Value(bool_term(true))
         );
     }
 

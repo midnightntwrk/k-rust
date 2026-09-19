@@ -100,7 +100,7 @@ fn fixture_rule_ids(file_name: &str, source: &str, main_module: &str) -> BTreeMa
                 let [KorePattern::String(value)] = arguments.as_slice() else {
                     unreachable!()
                 };
-                Some(value.clone())
+                Some(value.as_utf8().unwrap().to_owned())
             }
             _ => None,
         })
@@ -416,7 +416,7 @@ fn reference_let_list_binder_lambda_parameter_sorts_match() {
         attributes.0.iter().find_map(|attribute| match attribute {
             KorePattern::Application { symbol, arguments } if symbol.name == name => {
                 match arguments.as_slice() {
-                    [KorePattern::String(value)] => Some(value.clone()),
+                    [KorePattern::String(value)] => Some(value.as_utf8().unwrap().to_owned()),
                     [] => Some(String::new()),
                     _ => None,
                 }

@@ -190,7 +190,7 @@ pub(crate) fn clone_node(pattern: &Pattern, children: Vec<Pattern>) -> Pattern {
 
 pub(crate) fn take_children(pattern: &mut Pattern) -> Vec<Pattern> {
     fn take_box(pattern: &mut Box<Pattern>) -> Pattern {
-        std::mem::replace(pattern.as_mut(), Pattern::String(String::new()))
+        std::mem::replace(pattern.as_mut(), Pattern::String(String::new().into()))
     }
 
     match pattern {

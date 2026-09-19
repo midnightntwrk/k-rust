@@ -9,13 +9,15 @@
 
 use std::cmp::Ordering;
 
-use k_rust_kore::kore::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
+use k_rust_kore::kore::ast::{
+    Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind,
+};
 use k_rust_kore::kore::parser::parse_pattern;
 use proptest::prelude::*;
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Derived {
-    String(String),
+    String(KoreString),
     Variable(Variable),
     Application {
         symbol: Symbol,
@@ -100,7 +102,7 @@ enum Derived {
     },
     DomainValue {
         sort: Sort,
-        value: String,
+        value: KoreString,
     },
     AssociativeApplication {
         associativity: Associativity,
@@ -291,11 +293,14 @@ fn text() -> impl Strategy<Value = String> {
 
 fn pattern() -> impl Strategy<Value = Pattern> {
     let leaf = prop_oneof![
-        text().prop_map(Pattern::String),
+        text().prop_map(|value| Pattern::String(value.into())),
         any_variable().prop_map(Pattern::Variable),
         sort().prop_map(|sort| Pattern::Top { sort }),
         sort().prop_map(|sort| Pattern::Bottom { sort }),
-        (sort(), text()).prop_map(|(sort, value)| Pattern::DomainValue { sort, value }),
+        (sort(), text()).prop_map(|(sort, value)| Pattern::DomainValue {
+            sort,
+            value: value.into(),
+        }),
     ];
     leaf.prop_recursive(4, 24, 3, |inner| {
         let boxed = || inner.clone().prop_map(Box::new);

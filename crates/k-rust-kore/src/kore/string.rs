@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use super::ast::KoreString;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StringError {
     pub offset: usize,
@@ -16,7 +18,7 @@ impl fmt::Display for StringError {
 
 impl std::error::Error for StringError {}
 
-pub fn unquote(input: &str) -> Result<String, StringError> {
+pub fn unquote(input: &str) -> Result<KoreString, StringError> {
     if !input.starts_with('"') {
         return Err(error(0, "expected opening quote"));
     }
@@ -25,7 +27,7 @@ pub fn unquote(input: &str) -> Result<String, StringError> {
     }
 
     let body = &input[1..input.len() - 1];
-    let mut result = String::new();
+    let mut result = Vec::new();
     let mut offset = 0;
     while offset < body.len() {
         let character = body[offset..].chars().next().expect("offset is in bounds");
@@ -33,7 +35,8 @@ pub fn unquote(input: &str) -> Result<String, StringError> {
             if character.is_control() {
                 return Err(error(offset, "non-printable character in string"));
             }
-            result.push(character);
+            let mut encoded = [0; 4];
+            result.extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
             offset += character.len_utf8();
             continue;
         }
@@ -45,52 +48,62 @@ pub fn unquote(input: &str) -> Result<String, StringError> {
         };
         offset += escape.len_utf8();
         match escape {
-            '"' => result.push('"'),
-            '\\' => result.push('\\'),
-            'n' => result.push('\n'),
-            'r' => result.push('\r'),
-            't' => result.push('\t'),
-            'f' => result.push('\u{c}'),
-            'x' => result.push(read_escape(body, &mut offset, 2, escape_offset)?),
-            'u' => result.push(read_escape(body, &mut offset, 4, escape_offset)?),
-            'U' => result.push(read_escape(body, &mut offset, 8, escape_offset)?),
+            '"' => result.push(b'"'),
+            '\\' => result.push(b'\\'),
+            'n' => result.push(b'\n'),
+            'r' => result.push(b'\r'),
+            't' => result.push(b'\t'),
+            'f' => result.push(0x0c),
+            'x' => result.push(read_byte_escape(body, &mut offset, escape_offset)?),
+            'u' => push_unicode_escape(body, &mut offset, 4, escape_offset, &mut result)?,
+            'U' => push_unicode_escape(body, &mut offset, 8, escape_offset, &mut result)?,
             _ => return Err(error(escape_offset, "unknown escape")),
         }
     }
-    Ok(result)
+    Ok(KoreString::from(result))
 }
 
-pub fn quote(value: &str) -> String {
-    let mut result = String::with_capacity(value.len() + 2);
+pub fn quote(value: &KoreString) -> String {
+    let mut result = String::with_capacity(value.as_bytes().len() + 2);
     result.push('"');
-    for character in value.chars() {
-        match character {
-            '"' => result.push_str("\\\""),
-            '\\' => result.push_str("\\\\"),
-            '\n' => result.push_str("\\n"),
-            '\r' => result.push_str("\\r"),
-            '\t' => result.push_str("\\t"),
-            '\u{c}' => result.push_str("\\f"),
-            character if character.is_ascii_graphic() || character == ' ' => result.push(character),
-            character if character <= '\u{ff}' => {
-                result.push_str(&format!("\\x{:02x}", character as u32));
-            }
-            character if character <= '\u{ffff}' => {
-                result.push_str(&format!("\\u{:04x}", character as u32));
-            }
-            character => result.push_str(&format!("\\U{:08x}", character as u32)),
+    for byte in value.as_bytes() {
+        match *byte {
+            b'"' => result.push_str("\\\""),
+            b'\\' => result.push_str("\\\\"),
+            b'\n' => result.push_str("\\n"),
+            b'\r' => result.push_str("\\r"),
+            b'\t' => result.push_str("\\t"),
+            0x0c => result.push_str("\\f"),
+            byte if byte.is_ascii_graphic() || byte == b' ' => result.push(char::from(byte)),
+            byte => result.push_str(&format!("\\x{byte:02x}")),
         }
     }
     result.push('"');
     result
 }
 
-fn read_escape(
+fn read_byte_escape(
+    body: &str,
+    offset: &mut usize,
+    escape_offset: usize,
+) -> Result<u8, StringError> {
+    let end = offset.saturating_add(2);
+    let Some(hex) = body.get(*offset..end) else {
+        return Err(error(escape_offset, "truncated Unicode escape"));
+    };
+    let byte =
+        u8::from_str_radix(hex, 16).map_err(|_| error(escape_offset, "invalid Unicode escape"))?;
+    *offset = end;
+    Ok(byte)
+}
+
+fn push_unicode_escape(
     body: &str,
     offset: &mut usize,
     digits: usize,
     escape_offset: usize,
-) -> Result<char, StringError> {
+    result: &mut Vec<u8>,
+) -> Result<(), StringError> {
     let end = offset.saturating_add(digits);
     let Some(hex) = body.get(*offset..end) else {
         return Err(error(escape_offset, "truncated Unicode escape"));
@@ -99,8 +112,10 @@ fn read_escape(
         u32::from_str_radix(hex, 16).map_err(|_| error(escape_offset, "invalid Unicode escape"))?;
     let character = char::from_u32(codepoint)
         .ok_or_else(|| error(escape_offset, "invalid Unicode scalar value"))?;
+    let mut encoded = [0; 4];
+    result.extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
     *offset = end;
-    Ok(character)
+    Ok(())
 }
 
 const fn error(offset: usize, message: &'static str) -> StringError {

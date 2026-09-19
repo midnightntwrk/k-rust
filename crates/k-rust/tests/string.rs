@@ -1,32 +1,40 @@
 // Cases ported from pyk and expanded to pin reference KORE string behavior.
 
+use k_rust::kore::ast::KoreString;
 use k_rust::kore::string::{quote, unquote};
 
 #[test]
 fn unquotes_kore_escapes() {
     let cases = [
-        ("\"\"", ""),
-        (r#"" ""#, " "),
-        (r#""foo""#, "foo"),
-        (r#""\t""#, "\t"),
-        (r#""\n""#, "\n"),
-        (r#""\f""#, "\u{c}"),
-        (r#""\r""#, "\r"),
-        (r#""\\""#, "\\"),
-        (r#""\"""#, "\""),
-        (r#""\x80""#, "\u{80}"),
-        (r#""\x0f""#, "\u{f}"),
-        (r#""\x0F""#, "\u{f}"),
-        (r#""\u03b1""#, "α"),
-        (r#""\u03B1""#, "α"),
-        (r#""\U0001f642""#, "🙂"),
-        (r#""\U0001F642""#, "🙂"),
-        (r#""\x80\x80""#, "\u{80}\u{80}"),
-        (r#""a\u03b1\x80\U0001f642b""#, "aα\u{80}🙂b"),
+        ("\"\"", Vec::new()),
+        (r#"" ""#, b" ".to_vec()),
+        (r#""foo""#, b"foo".to_vec()),
+        (r#""\t""#, b"\t".to_vec()),
+        (r#""\n""#, b"\n".to_vec()),
+        (r#""\f""#, vec![0x0c]),
+        (r#""\r""#, b"\r".to_vec()),
+        (r#""\\""#, b"\\".to_vec()),
+        (r#""\"""#, b"\"".to_vec()),
+        (r#""\x80""#, vec![0x80]),
+        (r#""\x0f""#, vec![0x0f]),
+        (r#""\x0F""#, vec![0x0f]),
+        (r#""\u03b1""#, "α".as_bytes().to_vec()),
+        (r#""\u03B1""#, "α".as_bytes().to_vec()),
+        (r#""\U0001f642""#, "🙂".as_bytes().to_vec()),
+        (r#""\U0001F642""#, "🙂".as_bytes().to_vec()),
+        (r#""\x80\x80""#, vec![0x80, 0x80]),
+        (
+            r#""a\u03b1\x80\U0001f642b""#,
+            ["aα".as_bytes(), &[0x80], "🙂b".as_bytes()].concat(),
+        ),
     ];
 
     for (input, expected) in cases {
-        assert_eq!(unquote(input).as_deref(), Ok(expected), "input: {input}");
+        assert_eq!(
+            unquote(input).unwrap().as_bytes(),
+            expected,
+            "input: {input}"
+        );
     }
 }
 
@@ -36,13 +44,17 @@ fn quotes_using_the_canonical_kore_form() {
         ("", "\"\""),
         ("plain ASCII", r#""plain ASCII""#),
         ("\"\\\n\r\t\u{c}", r#""\"\\\n\r\t\f""#),
-        ("\u{0}\u{f}\u{80}\u{ff}", r#""\x00\x0f\x80\xff""#),
-        ("α", r#""\u03b1""#),
-        ("🙂", r#""\U0001f642""#),
+        ("\u{0}\u{f}\u{80}\u{ff}", r#""\x00\x0f\xc2\x80\xc3\xbf""#),
+        ("α", r#""\xce\xb1""#),
+        ("🙂", r#""\xf0\x9f\x99\x82""#),
     ];
 
     for (input, expected) in cases {
-        assert_eq!(quote(input), expected, "input: {input:?}");
+        assert_eq!(
+            quote(&KoreString::from(input)),
+            expected,
+            "input: {input:?}"
+        );
     }
 }
 
@@ -53,8 +65,17 @@ fn round_trips_unicode_scalar_values() {
             continue;
         };
         let value = character.to_string();
-        assert_eq!(unquote(&quote(&value)).as_deref(), Ok(value.as_str()));
+        let value = KoreString::from(value);
+        assert_eq!(unquote(&quote(&value)).unwrap(), value);
     }
+}
+
+#[test]
+fn round_trips_invalid_utf8_and_embedded_nul() {
+    let value = KoreString::from(vec![0xff, 0x80, 0x00, b'A']);
+    let encoded = quote(&value);
+    assert_eq!(encoded, r#""\xff\x80\x00A""#);
+    assert_eq!(unquote(&encoded).unwrap(), value);
 }
 
 #[test]

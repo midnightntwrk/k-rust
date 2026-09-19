@@ -320,7 +320,7 @@ fn substitution_equality(predicate: &Predicate) -> Option<(Term, Term)> {
     };
     let boolean = |term: &Term| match term.kind() {
         TermKind::DomainValue { sort, value } if sort.is_builtin(BuiltinSort::Bool) => {
-            match value.as_ref() {
+            match value.as_utf8().ok()? {
                 "true" => Some(true),
                 "false" => Some(false),
                 _ => None,

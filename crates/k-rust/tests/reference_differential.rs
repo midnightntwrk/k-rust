@@ -1287,8 +1287,8 @@ fn domain_value<'a>(pattern: &'a Pattern, sort_name: &str) -> Option<&'a str> {
     };
     matches!(sort, k_rust::kore::ast::Sort::Application { name, arguments }
         if name == sort_name && arguments.is_empty())
-    .then_some(value)
-    .map(String::as_str)
+    .then(|| value.as_utf8().ok())
+    .flatten()
 }
 
 fn is_stream_descriptor(
@@ -2160,7 +2160,7 @@ fn normalize_execution_disjunct(mut pattern: Pattern, names: &GeneratedNames) ->
     // N16: reference execution can leave an AC remainder variable free while
     // the port quantifies its corresponding generated variable.
     while let Pattern::Exists { body, .. } = &mut pattern {
-        pattern = std::mem::replace(body.as_mut(), Pattern::String(String::new()));
+        pattern = std::mem::replace(body.as_mut(), Pattern::String(String::new().into()));
     }
     normalize_conjunctions(&mut pattern);
     canonicalize_remainder_existentials(&mut pattern, names);
@@ -2492,7 +2492,7 @@ fn canonicalize_remainder_existentials(pattern: &mut Pattern, names: &GeneratedN
             innermost = body;
         }
         let sort = sort.expect("recorded as an existential");
-        let body = std::mem::replace(innermost, Pattern::String(String::new()));
+        let body = std::mem::replace(innermost, Pattern::String(String::new().into()));
         *innermost = local
             .iter()
             .rev()
@@ -2649,7 +2649,7 @@ fn rename_execution_variables(pattern: &mut Pattern, names: &GeneratedNames) {
                 } else {
                     Quantifier::Forall
                 };
-                let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
+                let mut current = std::mem::replace(pattern, Pattern::String(String::new().into()));
                 let mut binders = Vec::new();
                 loop {
                     let fields = match (quantifier, &mut current) {
@@ -2671,7 +2671,7 @@ fn rename_execution_variables(pattern: &mut Pattern, names: &GeneratedNames) {
                         ) => Some((
                             sort.clone(),
                             variable.clone(),
-                            std::mem::replace(body.as_mut(), Pattern::String(String::new())),
+                            std::mem::replace(body.as_mut(), Pattern::String(String::new().into())),
                         )),
                         _ => None,
                     };
@@ -3263,7 +3263,7 @@ fn canonicalize_quantifier_chains(pattern: &mut Pattern) {
         Pattern::Mu { body, .. } | Pattern::Nu { body, .. } => canonicalize_quantifier_chains(body),
         Pattern::Exists { .. } | Pattern::Forall { .. } => {
             let exists = matches!(pattern, Pattern::Exists { .. });
-            let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
+            let mut current = std::mem::replace(pattern, Pattern::String(String::new().into()));
             let mut binders = Vec::new();
             loop {
                 let fields = match (exists, &mut current) {
@@ -3285,7 +3285,7 @@ fn canonicalize_quantifier_chains(pattern: &mut Pattern) {
                     ) => Some((
                         sort.clone(),
                         variable.clone(),
-                        std::mem::replace(body.as_mut(), Pattern::String(String::new())),
+                        std::mem::replace(body.as_mut(), Pattern::String(String::new().into())),
                     )),
                     _ => None,
                 };
@@ -4133,7 +4133,7 @@ fn sentence_attribute(sentence: &Sentence, name: &str) -> Option<String> {
     attributes.0.iter().find_map(|attribute| match attribute {
         Pattern::Application { symbol, arguments } if symbol.name == name => {
             arguments.first().and_then(|argument| match argument {
-                Pattern::String(value) => Some(value.clone()),
+                Pattern::String(value) => Some(value.as_utf8().unwrap().to_owned()),
                 _ => None,
             })
         }
@@ -4190,7 +4190,7 @@ fn sentence_identity(sentence: &Sentence) -> Option<String> {
                 || symbol.name == "org'Stop'kframework'Stop'attributes'Stop'Source" =>
         {
             arguments.first().and_then(|argument| match argument {
-                Pattern::String(value) => Some(value.clone()),
+                Pattern::String(value) => Some(value.as_utf8().unwrap().to_owned()),
                 _ => None,
             })
         }
@@ -4430,7 +4430,7 @@ fn canonicalize_commuting_quantifier_chains(pattern: &mut Pattern) {
             } else {
                 Quantifier::Forall
             };
-            let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
+            let mut current = std::mem::replace(pattern, Pattern::String(String::new().into()));
             let mut binders = Vec::new();
             loop {
                 let fields = match (quantifier, &mut current) {
@@ -4452,7 +4452,7 @@ fn canonicalize_commuting_quantifier_chains(pattern: &mut Pattern) {
                     ) => Some((
                         sort.clone(),
                         variable.clone(),
-                        std::mem::replace(body.as_mut(), Pattern::String(String::new())),
+                        std::mem::replace(body.as_mut(), Pattern::String(String::new().into())),
                     )),
                     _ => None,
                 };
@@ -4558,7 +4558,7 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
         Pattern::Forall { .. } => Quantifier::Forall,
         _ => return,
     };
-    let mut current = std::mem::replace(pattern, Pattern::String(String::new()));
+    let mut current = std::mem::replace(pattern, Pattern::String(String::new().into()));
     let mut binders = Vec::new();
     loop {
         let fields = match (quantifier, &mut current) {
@@ -4580,7 +4580,7 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
             ) => Some((
                 sort.clone(),
                 variable.clone(),
-                std::mem::replace(body.as_mut(), Pattern::String(String::new())),
+                std::mem::replace(body.as_mut(), Pattern::String(String::new().into())),
             )),
             _ => None,
         };

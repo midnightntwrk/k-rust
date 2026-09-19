@@ -38,7 +38,9 @@ fn json_pattern() -> BoxedStrategy<Pattern> {
 
 fn pattern_with_strings(strings: BoxedStrategy<String>) -> BoxedStrategy<Pattern> {
     let leaf = prop_oneof![
-        strings.clone().prop_map(Pattern::String),
+        strings
+            .clone()
+            .prop_map(|value| Pattern::String(value.into())),
         ("[A-Z][A-Za-z0-9]{0,5}", sort()).prop_map(|(name, sort)| Pattern::Variable(Variable {
             kind: VariableKind::Element,
             name,
@@ -51,7 +53,10 @@ fn pattern_with_strings(strings: BoxedStrategy<String>) -> BoxedStrategy<Pattern
         })),
         sort().prop_map(|sort| Pattern::Top { sort }),
         sort().prop_map(|sort| Pattern::Bottom { sort }),
-        (sort(), strings).prop_map(|(sort, value)| Pattern::DomainValue { sort, value }),
+        (sort(), strings).prop_map(|(sort, value)| Pattern::DomainValue {
+            sort,
+            value: value.into()
+        }),
     ];
 
     leaf.prop_recursive(5, 128, 8, |inner| {

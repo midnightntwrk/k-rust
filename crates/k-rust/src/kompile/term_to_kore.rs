@@ -8,7 +8,7 @@ use crate::definition::{
     ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{self, FrontendSort, InternalLabel, Label, Sort, Term, identifier};
-use crate::kore::ast::{Pattern, Symbol, Variable, VariableKind};
+use crate::kore::ast::{KoreString, Pattern, Symbol, Variable, VariableKind};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
@@ -567,7 +567,7 @@ impl<'a> TermConverter<'a> {
         }
     }
 
-    fn token_value(&self, token: &str, sort: &Sort) -> Result<String, TermConversionError> {
+    fn token_value(&self, token: &str, sort: &Sort) -> Result<KoreString, TermConversionError> {
         let hook = self
             .token_sorts
             .as_ref()
@@ -590,15 +590,17 @@ impl<'a> TermConverter<'a> {
                     message: "expected a leading `b`".into(),
                 })
                 .and_then(|token| self.unquote_token(token, sort)),
-            _ => Ok(token.to_owned()),
+            _ => Ok(token.into()),
         }
     }
 
-    fn unquote_token(&self, token: &str, sort: &Sort) -> Result<String, TermConversionError> {
-        kast::string::unquote(token).map_err(|message| TermConversionError::InvalidToken {
-            sort: sort.clone(),
-            message,
-        })
+    fn unquote_token(&self, token: &str, sort: &Sort) -> Result<KoreString, TermConversionError> {
+        kast::string::unquote_bytes(token)
+            .map(Into::into)
+            .map_err(|message| TermConversionError::InvalidToken {
+                sort: sort.clone(),
+                message,
+            })
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {

@@ -35,9 +35,9 @@ use k_rust::{
     },
     kore::{
         ast::{
-            Attributes as KoreAttributes, Definition as KoreDefinition, Module as KoreModule,
-            Pattern as KorePattern, Sentence as KoreSentence, Sort as KoreSort,
-            Symbol as KoreSymbol, VariableKind as KoreVariableKind,
+            Attributes as KoreAttributes, Definition as KoreDefinition, KoreString,
+            Module as KoreModule, Pattern as KorePattern, Sentence as KoreSentence,
+            Sort as KoreSort, Symbol as KoreSymbol, VariableKind as KoreVariableKind,
         },
         binary as kore_binary, json as kore_json,
         parser::{
@@ -2426,7 +2426,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         && !seen_config_vars.contains("STDIN")
     {
         let input = if io || program_uses_stdin {
-            String::new()
+            Vec::new()
         } else {
             if std::io::stdin().is_terminal() {
                 eprintln!(
@@ -2434,7 +2434,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                      redirect from /dev/null or end the input with Ctrl-D"
                 );
             }
-            buffered_stdin_text(read_stdin_for_stream()?)
+            buffered_stdin_bytes(read_stdin_for_stream()?)
         };
         config_vars.push((
             "$STDIN".into(),
@@ -3253,7 +3253,8 @@ fn domain_value<'a>(pattern: &'a KorePattern, sort_name: &str) -> Option<&'a str
     };
     matches!(sort, KoreSort::Application { name, arguments }
         if name == sort_name && arguments.is_empty())
-    .then_some(value.as_str())
+    .then(|| value.as_utf8().ok())
+    .flatten()
 }
 
 fn is_stream_descriptor(
@@ -3624,7 +3625,7 @@ fn term_exit_code(term: &Term) -> Option<u8> {
     if !sort.is_builtin(BuiltinSort::Int) {
         return None;
     }
-    let value = value.parse::<BigInt>().ok()?;
+    let value = value.as_utf8().ok()?.parse::<BigInt>().ok()?;
     let modulus = BigInt::from(256_u16);
     (((value % &modulus) + &modulus) % modulus).to_u8()
 }
@@ -4646,7 +4647,7 @@ fn kore_sort(name: &str) -> KoreSort {
     }
 }
 
-fn string_domain_value(value: impl Into<String>) -> KorePattern {
+fn string_domain_value(value: impl Into<KoreString>) -> KorePattern {
     KorePattern::DomainValue {
         sort: kore_sort(BuiltinSort::String.kore_name()),
         value: value.into(),
@@ -4659,13 +4660,10 @@ fn read_stdin() -> io::Result<String> {
     Ok(source)
 }
 
-fn read_stdin_for_stream() -> io::Result<String> {
+fn read_stdin_for_stream() -> io::Result<Vec<u8>> {
     let mut input = Vec::new();
     io::stdin().read_to_end(&mut input)?;
-    Ok(match String::from_utf8(input) {
-        Ok(input) => input,
-        Err(error) => error.into_bytes().into_iter().map(char::from).collect(),
-    })
+    Ok(input)
 }
 
 /// The text K's krun buffers into `$STDIN` under `--io off` (krun:557-558): standard input is
@@ -4673,10 +4671,13 @@ fn read_stdin_for_stream() -> io::Result<String> {
 /// here-string, which appends one, to the escaping awk script, which emits every record with
 /// `ORS`. The buffer therefore ends in exactly one newline, also when standard input is empty
 /// (`#buffer("\n")`); interior newlines and every other byte are kept.
-fn buffered_stdin_text(mut input: String) -> String {
-    let trimmed = input.trim_end_matches('\n').len();
+fn buffered_stdin_bytes(mut input: Vec<u8>) -> Vec<u8> {
+    let trimmed = input
+        .iter()
+        .rposition(|byte| *byte != b'\n')
+        .map_or(0, |index| index + 1);
     input.truncate(trimmed);
-    input.push('\n');
+    input.push(b'\n');
     input
 }
 
@@ -4704,13 +4705,16 @@ mod tests {
 
     #[test]
     fn buffered_stdin_ends_in_exactly_one_newline() {
-        assert_eq!(buffered_stdin_text(String::new()), "\n");
-        assert_eq!(buffered_stdin_text("ab".into()), "ab\n");
-        assert_eq!(buffered_stdin_text("ab\n".into()), "ab\n");
-        assert_eq!(buffered_stdin_text("ab\n\n\n".into()), "ab\n");
-        assert_eq!(buffered_stdin_text("\n\n".into()), "\n");
-        assert_eq!(buffered_stdin_text("a\r\n\nb\r\n".into()), "a\r\n\nb\r\n");
-        assert_eq!(buffered_stdin_text("x\u{80}".into()), "x\u{80}\n");
+        assert_eq!(buffered_stdin_bytes(Vec::new()), b"\n");
+        assert_eq!(buffered_stdin_bytes(b"ab".to_vec()), b"ab\n");
+        assert_eq!(buffered_stdin_bytes(b"ab\n".to_vec()), b"ab\n");
+        assert_eq!(buffered_stdin_bytes(b"ab\n\n\n".to_vec()), b"ab\n");
+        assert_eq!(buffered_stdin_bytes(b"\n\n".to_vec()), b"\n");
+        assert_eq!(
+            buffered_stdin_bytes(b"a\r\n\nb\r\n".to_vec()),
+            b"a\r\n\nb\r\n"
+        );
+        assert_eq!(buffered_stdin_bytes(vec![b'x', 0x80]), [b'x', 0x80, b'\n']);
     }
 
     #[test]

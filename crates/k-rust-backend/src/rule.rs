@@ -1417,7 +1417,7 @@ fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore:
     let mut variables = Vec::new();
     while let kore::Pattern::Exists { variable, body, .. } = &mut pattern {
         variables.push(variable.clone());
-        pattern = std::mem::replace(body.as_mut(), kore::Pattern::String(String::new()));
+        pattern = std::mem::replace(body.as_mut(), kore::Pattern::String(String::new().into()));
     }
     (pattern, variables)
 }
@@ -1484,7 +1484,10 @@ fn attribute_constrained_variables(
                 Ok(format!("{}:{sort}", variable.name))
             }
             // Older generated definitions encoded the same pair as a string.
-            kore::Pattern::String(value) => Ok(value.clone()),
+            kore::Pattern::String(value) => value
+                .as_utf8()
+                .map(str::to_owned)
+                .map_err(|_| AxiomError::MalformedAttribute(attribute.as_str().into())),
             _ => Err(AxiomError::MalformedAttribute(attribute.as_str().into())),
         })
         .collect::<Result<Vec<_>, _>>()

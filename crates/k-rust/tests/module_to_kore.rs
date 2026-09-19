@@ -100,7 +100,7 @@ fn strictness_rules_do_not_emit_frontend_only_production_attributes() {
                     let [Pattern::String(label)] = arguments.as_slice() else {
                         unreachable!()
                     };
-                    Some(label.clone())
+                    Some(label.as_utf8().unwrap().to_owned())
                 }
                 _ => None,
             })?;
@@ -1074,7 +1074,7 @@ fn backend_dispatched_namespaces_are_emitted_as_real_hooks() {
                     attribute,
                     Pattern::Application { symbol, arguments }
                         if symbol.name == "hook"
-                            && arguments == &[Pattern::String(hook.clone())]
+                            && arguments == &[Pattern::String(hook.clone().into())]
                 )),
                 "{label} dropped hook({hook})"
             );

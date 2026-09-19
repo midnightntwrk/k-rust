@@ -626,7 +626,7 @@ fn definition_attributes(
                 name: KoreAttribute::from(AttributeKey::Source).as_str().into(),
                 sort_parameters: Vec::new(),
             },
-            arguments: vec![Pattern::String(format!("Source({source})"))],
+            arguments: vec![Pattern::String(format!("Source({source})").into())],
         });
     }
     Attributes(attributes)
@@ -3677,7 +3677,8 @@ fn emit_attributes(
                         entries
                             .get(&key)
                             .map(|value| attribute_value_string(&key, value))
-                            .unwrap_or_default(),
+                            .unwrap_or_default()
+                            .into(),
                     )]
                 } else {
                     Vec::new()

@@ -367,15 +367,8 @@ fn io_read(
         ));
     };
     let bytes = execution.read(maximum);
-    let Ok(value) = std::str::from_utf8(bytes) else {
-        return Ok(BuiltinResult::Unsupported(
-            UnsupportedHookReason::ArgumentOutOfRange {
-                detail: "IO.read returned bytes that cannot be represented by the backend's UTF-8 String domain values".into(),
-            },
-        ));
-    };
     Ok(BuiltinResult::Value(inject_result(
-        Term::domain_value(Sort::builtin(BuiltinSort::String), value),
+        Term::domain_value(Sort::builtin(BuiltinSort::String), bytes.to_vec()),
         result_sort,
     )))
 }
@@ -519,8 +512,15 @@ fn io_log_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     if !sort.is_builtin(BuiltinSort::String) {
         return Ok(BuiltinResult::NotApplicable);
     }
+    let Ok(value) = value.as_utf8() else {
+        return Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::ArgumentOutOfRange {
+                detail: "IO.logString argument is not valid UTF-8".into(),
+            },
+        ));
+    };
     Ok(BuiltinResult::Effect(BuiltinEffect::UserLog(
-        value.to_string(),
+        value.to_owned(),
     )))
 }
 
@@ -979,7 +979,7 @@ fn read_bool(term: &Term) -> Option<bool> {
     if !sort.is_builtin(BuiltinSort::Bool) {
         return None;
     }
-    match value.as_ref() {
+    match value.as_utf8().ok()? {
         "true" => Some(true),
         "false" => Some(false),
         _ => None,
@@ -991,7 +991,7 @@ pub(super) fn read_int(term: &Term) -> Option<BigInt> {
         return None;
     };
     sort.is_builtin(BuiltinSort::Int)
-        .then(|| value.parse().ok())
+        .then(|| value.as_utf8().ok()?.parse().ok())
         .flatten()
 }
 

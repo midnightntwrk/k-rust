@@ -681,7 +681,7 @@ mod tests {
     }
 
     #[test]
-    fn wrong_sort_and_non_byte_domain_values_are_not_applicable() {
+    fn wrong_sort_and_non_domain_values_are_not_applicable() {
         let sort_bytes = Sort::simple("SortBytes");
         let non_domain = Term::application(
             Arc::new(Symbol::constructor("bytes", vec![], sort_bytes.clone())),
@@ -690,7 +690,6 @@ mod tests {
         );
         let cases = [
             Term::domain_value(Sort::simple("SortString"), "abc"),
-            Term::domain_value(sort_bytes, "\u{100}"),
             non_domain,
         ];
 

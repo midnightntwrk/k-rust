@@ -394,7 +394,12 @@ impl Attributes {
     pub fn string(&self, attribute: KoreAttribute) -> Result<Option<&str>, MalformedAttribute> {
         match self.arguments(attribute) {
             None => Ok(None),
-            Some([Pattern::String(value)]) => Ok(Some(value)),
+            Some([Pattern::String(value)]) => {
+                value.as_utf8().map(Some).map_err(|_| MalformedAttribute {
+                    attribute,
+                    expected: "one UTF-8 string",
+                })
+            }
             Some(_) => Err(MalformedAttribute {
                 attribute,
                 expected: "one string",

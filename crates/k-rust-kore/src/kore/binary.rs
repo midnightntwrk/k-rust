@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeMap, error::Error, fmt};
 
-use super::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
+use super::ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind};
 
 const MAGIC: &[u8; 5] = b"\x7fKORE";
 const HEADER_SIZE_V1_0: usize = 11;
@@ -215,7 +215,7 @@ fn expect_pattern(
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Block {
     Pattern(Pattern),
-    String(String),
+    String(KoreString),
     Sort(Sort),
     Symbol(Symbol),
 }
@@ -236,7 +236,7 @@ struct Decoder<'a> {
     cursor: usize,
     end: usize,
     version: Version,
-    strings: BTreeMap<usize, String>,
+    strings: BTreeMap<usize, KoreString>,
     stack: Vec<Block>,
 }
 
@@ -314,23 +314,23 @@ impl<'a> Decoder<'a> {
             match self.byte()? {
                 COMPOSITE_PATTERN => self.composite_pattern(offset)?,
                 STRING_PATTERN => {
-                    let string = self.string()?;
+                    let string = self.raw_string()?;
                     self.stack.push(Block::String(string));
                 }
                 COMPOSITE_SORT => {
                     let arity = self.length(2)?;
-                    let name = self.string()?;
+                    let name = self.identifier()?;
                     let arguments = self.pop_sorts(arity, offset)?;
                     self.stack
                         .push(Block::Sort(Sort::Application { name, arguments }));
                 }
                 SORT_VARIABLE => {
-                    let name = self.string()?;
+                    let name = self.identifier()?;
                     self.stack.push(Block::Sort(Sort::Variable(name)));
                 }
                 SYMBOL => {
                     let arity = self.length(2)?;
-                    let name = self.string()?;
+                    let name = self.identifier()?;
                     let sort_parameters = self.pop_sorts(arity, offset)?;
                     self.stack.push(Block::Symbol(Symbol {
                         name,
@@ -339,7 +339,7 @@ impl<'a> Decoder<'a> {
                 }
                 VARIABLE_PATTERN => {}
                 VARIABLE => {
-                    let name = self.string()?;
+                    let name = self.identifier()?;
                     let mut sorts = self.pop_sorts(1, offset)?;
                     let sort = sorts.pop().expect("one sort was requested");
                     let kind = if name.starts_with('@') {
@@ -408,17 +408,25 @@ impl<'a> Decoder<'a> {
             .collect()
     }
 
-    fn string(&mut self) -> Result<String, BinaryError> {
+    fn identifier(&mut self) -> Result<String, BinaryError> {
+        let offset = self.cursor;
+        let value = self.raw_string()?;
+        value.as_utf8().map(str::to_owned).map_err(|error| {
+            BinaryError::new(
+                offset + error.valid_up_to(),
+                "identifier is not valid UTF-8",
+            )
+        })
+    }
+
+    fn raw_string(&mut self) -> Result<KoreString, BinaryError> {
         let tag_offset = self.cursor;
         match self.byte()? {
             0x01 => {
                 let position = self.cursor;
                 let length = self.length(4)?;
                 let bytes = self.bytes(length)?;
-                // KORE strings are byte strings on the binary wire.  Decode
-                // each byte as its corresponding Latin-1 code point instead
-                // of attempting UTF-8 validation.
-                let string: String = bytes.iter().map(|byte| char::from(*byte)).collect();
+                let string = KoreString::from(bytes.to_vec());
                 self.strings.insert(position, string.clone());
                 Ok(string)
             }
@@ -791,18 +799,18 @@ impl Encoder<'_> {
                     self.sort(&variable.sort)?;
                     self.output.push(VARIABLE_PATTERN);
                     self.output.push(VARIABLE);
-                    self.string(&variable.name)?;
+                    self.identifier(&variable.name)?;
                 }
                 Task::Pattern(Pattern::String(value)) => {
                     self.output.push(STRING_PATTERN);
-                    self.string(value)?;
+                    self.raw_string(value)?;
                 }
                 Task::Pattern(Pattern::Variable(variable)) => {
                     tasks.push(Task::Variable(variable));
                 }
                 Task::Pattern(Pattern::DomainValue { sort, value }) => {
                     self.output.push(STRING_PATTERN);
-                    self.string(value)?;
+                    self.raw_string(value)?;
                     self.finish_application("\\dv", std::slice::from_ref(sort), 1)?;
                 }
                 Task::Pattern(node) => {
@@ -980,14 +988,14 @@ impl Encoder<'_> {
         }
         self.output.push(SYMBOL);
         self.length(sorts.len(), 2)?;
-        self.string(name)
+        self.identifier(name)
     }
 
     fn sort(&mut self, sort: &Sort) -> Result<(), BinaryError> {
         match sort {
             Sort::Variable(name) => {
                 self.output.push(SORT_VARIABLE);
-                self.string(name)
+                self.identifier(name)
             }
             Sort::Application { name, arguments } => {
                 for argument in arguments {
@@ -995,31 +1003,23 @@ impl Encoder<'_> {
                 }
                 self.output.push(COMPOSITE_SORT);
                 self.length(arguments.len(), 2)?;
-                self.string(name)
+                self.identifier(name)
             }
         }
     }
 
-    fn string(&mut self, value: &str) -> Result<(), BinaryError> {
-        // The binary format has one byte per KORE string code point.  Reject
-        // values outside Latin-1 rather than silently emitting UTF-8 bytes.
-        let bytes = value
-            .chars()
-            .map(|character| {
-                u8::try_from(u32::from(character)).map_err(|_| {
-                    BinaryError::new(
-                        self.output.len(),
-                        format!(
-                            "string contains character U+{:04X} outside Latin-1 range",
-                            u32::from(character)
-                        ),
-                    )
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+    fn identifier(&mut self, value: &str) -> Result<(), BinaryError> {
+        self.raw_bytes(value.as_bytes())
+    }
+
+    fn raw_string(&mut self, value: &KoreString) -> Result<(), BinaryError> {
+        self.raw_bytes(value.as_bytes())
+    }
+
+    fn raw_bytes(&mut self, bytes: &[u8]) -> Result<(), BinaryError> {
         self.output.push(0x01);
         self.length(bytes.len(), 4)?;
-        self.output.extend_from_slice(&bytes);
+        self.output.extend_from_slice(bytes);
         Ok(())
     }
 
@@ -1083,7 +1083,7 @@ mod tests {
                     name: "S".to_owned(),
                     arguments: vec![],
                 },
-                value: char::from(byte).to_string(),
+                value: KoreString::from(vec![byte]),
             };
             let encoded = encode_term(&value).expect("Latin-1 strings should encode");
             assert_eq!(decode_term(&encoded).unwrap(), value);
@@ -1096,16 +1096,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_latin1_string_values() {
+    fn round_trips_utf8_string_values_as_their_bytes() {
         let value = Pattern::DomainValue {
             sort: Sort::Application {
                 name: "S".to_owned(),
                 arguments: vec![],
             },
-            value: "Ā".to_owned(),
+            value: KoreString::from("Ā"),
         };
-        let error = encode_term(&value).expect_err("non-Latin-1 strings must be rejected");
-        assert!(error.message.contains("U+0100"));
+        let encoded = encode_term(&value).expect("UTF-8 bytes should encode");
+        assert_eq!(decode_term(&encoded).unwrap(), value);
     }
 
     #[test]
