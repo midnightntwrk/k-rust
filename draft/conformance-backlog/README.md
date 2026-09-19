@@ -33,6 +33,19 @@ All eleven `[[decision]]` rows are decided; no owner policy choice blocks the qu
 CB-15 is closed through captured output `8fb9a55`, committed effect ownership `d5eb262`, branch-local state `d983b8d`, console hooks `12737c0`, arbitrary-byte strings `eb9e39b`, live delivery `7a2ebe6`, and the CB-15-6 closure implementation `b865b8a`.
 C9 remains the primary independent oracle for normal tutorial streams; the `matrix.simple` fallback records its C9 input-precondition failure before a separate committed live comparison.
 
+## 2026-09-20: stale accepted floors raised at `5381427`
+
+The composed closure history through sequence 31 was restored as the main worktree's local `target/conformance/ratchet.toml` before measurement.
+Sequence 32 (`target/conformance/runs/32-stale-floor-current-head`, label `stale-floor-current-head`, revision `3ce69c2`) remeasured `bison-glr-bug`, `issue-3450-kprove-fresh`, and `pl-tutorial/1_k/1_lambda/lesson_8` on current main.
+All 26 driven steps match: three definition comparisons, eleven Bison parser outputs, two proof verdicts, and ten executions.
+The results SHA-256 is `807cd46c9f51998adfcf476b165f876ba0fa07bae0e7c6c418905a4166e360e4`.
+
+Commit `5381427` raises all three versioned acceptance floors to `match` and records the measured basis.
+The audit reports zero pending cases, zero pending cases without an owner, and three below-floor cases all covered by existing exclusions.
+`taplo lint scripts/conformance/expectations.toml`, `git diff --check`, and the 44 conformance-ratchet plus 16 differential-manifest tests pass.
+The complete `--workspace --all-targets --all-features` Rust suite passes with 2,260 passed, zero failed, and seven environment-driven differential comparator entry points ignored; the two tests Cargo reported after 60 seconds both completed successfully.
+The Rust gate requires the machine's `with-z3-static-4.16.0` wrapper because the plain environment has no dynamic `libz3`.
+
 ## 2026-09-20: CB-15 closed after `7a2ebe6` and the CB-15-6 closure implementation `b865b8a`
 
 The exact-byte regression `c9_captured_and_live_console_paths_agree_on_arbitrary_bytes` independently obtains `ff 80 00 41` from structural C9 extraction of an `--io off` KORE result, `krust krun --output captured`, and committed `--io on --output none` execution.
