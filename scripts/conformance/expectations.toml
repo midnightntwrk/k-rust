@@ -2065,16 +2065,17 @@ reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 31 st
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
-# Post-CB-16 final run: 749.4 s with 38 matches and the same 12 CB-20 step timeouts.
-# Revisit the reduced case ceiling after CB-20 and CB-12 throughput work; keep the per-step cap.
-budget = 1200
-step_budget = 60
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+# CB-20 closure run: 115.7 s with all 51 driven steps matching.
+# CB-12 retains the 81.3 s constructor-bst-sorting.fun throughput residue.
+budget = 300
+step_budget = 120
+accepted_verdict = "match"
+accepted_stage = "krun"
+accepted_basis = "Private CB-20 closure run 2 on bac3841 verifies definition.kore agreement and all 50 artifact-driven programs against their checked-in outputs; backend and CLI regressions at 7e84716 cover overloaded-list owise selection, and the construction ratchets at af43672 cover changed-spine path replacement."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 51 driven steps are measured in 749.4 s. One Rust runtime compilation takes 2.7 s and all 50 program commands consume krust-kompiled-runtime through --definition. Thirty-eight programs match; the same twelve CB-20 witnesses reach the 60 s step cap. Matching programs have a 0.3 s median (0.2 s minimum). The case ceiling is reduced from 2700 s to 1200 s while the 60 s step budget remains. Artifact reuse is complete under CB-16; the post-expansion timeouts remain CB-20 and broader throughput remains CB-12. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
+reason = "Private CB-20 closure run 2 (main bac3841, /tmp/cb-20-closure-bac3841/runs/2-cb-20-closure-120, --jobs 1): the kompile comparison and all 50 artifact-driven program steps match in 115.7 s. The eleven former equation-matching witnesses now produce their checked-in result without SMT queries, and tail-recursion.fun completes in 7.4 s instead of 123.7 s. constructor-bst-sorting.fun is the remaining throughput outlier at 81.3 s; its flat public simplifier entries and growing rounds are assigned to CB-12-4. The measured 300 s case budget and 120 s step budget retain 2.6x and 1.5x headroom. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
 
 [[case]]
 name = "poly-kitem"

@@ -20,30 +20,28 @@ Inside a worker file every `[[work_item]]` carries `state` (`open`, `partial`, `
 `[[driver_followup]]` rows (`id`, `title`, `state`, `found`, `work`, `elsewhere`) record conformance-driver defects that are not tied to a pending case; the audit ignores them.
 Seeded 2026-09-18 from ratchet sequence 4 (`target/conformance/ratchet.toml`, label `int`, HEAD `9c1a64d`) and four read-only searches of `draft/` recorded in `/tmp/nonmatch/coverage.md`.
 
-## Current queue (2026-09-20, measured from `af43672`)
+## Current queue (2026-09-20, measured through CB-20 closure on `bac3841`)
 
-The ledger has four open tickets; CB-12, CB-20 and CB-22 own pending conformance verdicts, while CB-15 is evidence-only product work.
-The latest shared-log audit reports three pending cases, zero pending cases without an open owner, no open ticket whose cases all match, and three below-floor cases that are all covered by existing exclusions.
+The ledger has three open tickets; CB-12 and CB-22 own pending conformance verdicts, while CB-15 is evidence-only product work.
+The private CB-20 closure audit reports CB-20 as closable after all 51 FUN steps match; the combined audit over the shared history and the private closure result reports the two pending SIMPLE cases under CB-12/CB-22, zero pending cases without an open owner, and three below-floor cases that are all covered by existing exclusions.
 All eleven `[[decision]]` rows are decided; no owner policy choice blocks the queue.
 
 | ticket | role | current state | next gate |
 |---|---|---|---|
-| CB-20 | owner of FUN untyped | CB-20-A and CB-20-B implemented at `7e84716` and `af43672`; the equation-matching correctness fix and changed-spine construction fix are covered by reduced regressions | Run CB-20-D over the twelve witnesses and the whole FUN case, classify any residue, and rewrite the expectation reason. CB-20-C remains optional diagnostics. |
-| CB-12 | owner of single-path tutorial simplification | CB-12-3 complete: versioned counters and a reduced ratchet prove that rounds still grow inside a flat number of simplifier entries; CB-20-B already removed the larger reconstruction cost | Implement narrowed CB-12-4: cache a normalized closed anywhere/overloaded application only after its equation scan proves every equation inapplicable. Then wait for CB-20 and CB-22 before CB-12-5. |
+| CB-12 | owner of single-path tutorial simplification | CB-12-3 complete: versioned counters and a reduced ratchet prove that rounds still grow inside a flat number of simplifier entries; CB-20-B removed the larger reconstruction cost, and CB-20 closure adds FUN `constructor-bst-sorting` as another witness | Implement narrowed CB-12-4: cache a normalized closed anywhere/overloaded application only after its equation scan proves every equation inapplicable. Then wait for CB-22 before CB-12-5. |
 | CB-22 | owner of SIMPLE thread-search residue | split from CB-12-3: collection problems and search states grow together; untyped `threads_04` grows from 60 rules/10 projected answers at depth 20 to 5,202/218 at depth 40, and both `threads_05` commands remain unbounded | Investigate the first expansion before implementation. Decide from state/rule/visited-key evidence whether it is required scheduling, premature collection recovery, or missed canonical deduplication. |
 | CB-15 | evidence-only product work | fleshed out; no pending verdict depends on it because C9 already compares the definition-computed bytes | Implement after the case-owning queue unless product priority overrides conformance closure. Start with captured batch output, then establish effect ownership before live hooks. |
 
 The sequential order is:
 
-1. Run CB-20-D now that CB-20-A/B have landed; close CB-20 if the twelve witnesses and the complete FUN case match, or split only a newly measured residue.
-2. Investigate CB-22 before assigning an implementation agent. Its current counters prove a separate mechanism but do not justify partial-order reduction, wider deduplication, or a search-order change.
-3. Implement narrowed CB-12-4 independently of CB-22, then run its factorial and growing-collection counter ladders. The change may cache only a closed equation head whose scan reached a fixed point with no applicable or blocked equation.
-4. Implement the cause established by CB-22-1 and re-measure both SIMPLE cases through every driven recipe.
-5. Run CB-12-5 over all seven tutorial cases after CB-20 and CB-22 close, rewrite expectation reasons from that run, and raise floors only for complete matching cases.
-6. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
+1. Investigate CB-22 before assigning an implementation agent. Its current counters prove a separate mechanism but do not justify partial-order reduction, wider deduplication, or a search-order change.
+2. Implement narrowed CB-12-4 independently of CB-22, then run its factorial, FUN constructor-BST, and growing-collection counter ladders. The change may cache only a closed equation head whose scan reached a fixed point with no applicable or blocked equation.
+3. Implement the cause established by CB-22-1 and re-measure both SIMPLE cases through every driven recipe.
+4. Run CB-12-5 over all seven tutorial cases after CB-22 closes, rewrite expectation reasons from that run, and raise floors only for complete matching cases.
+5. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
 
-CB-16 and CB-21 are closed.
-Every executed tutorial program now uses one validated runnable artifact per case, so repeated source compilation is no longer part of CB-12 or CB-20.
+CB-16, CB-20, and CB-21 are closed.
+Every executed tutorial program now uses one validated runnable artifact per case, so repeated source compilation is no longer part of CB-12.
 CB-15 must retain C9 as an independent oracle and must not turn search or RPC into implicit live-IO modes.
 
 ## 2026-09-18: first pass over CB-01 to CB-08 (main af9481c)
@@ -418,3 +416,19 @@ CB-22 must attribute the first expansion and prove whether the excess states are
 
 No expectation, accepted floor, budget, exclusion or normalization changed.
 Focused gates pass: 14 backend measure ratchets, two CB-20-B construction ratchets, 69 `k-rust-kore` tests, and the CLI counter-schema success/failure test.
+
+## 2026-09-20: CB-20 closed after implementations `7e84716` and `af43672`
+
+CB-20-D rebuilt the release measure binary on `bac3841`, repeated the twelve recorded artifact commands, and ran the complete FUN case twice from a private acceptance log.
+The first driver run (`/tmp/cb-20-closure-bac3841/runs/1-cb-20-closure-60`) records the kompile step and 49 programs as `match`; only `constructor-bst-sorting.fun` reaches the old 60 second cap.
+The second run (`/tmp/cb-20-closure-bac3841/runs/2-cb-20-closure-120`) records all 51 driven steps as `match` in 115.7 seconds, with `constructor-bst-sorting.fun` at 81.3 seconds, `tail-recursion.fun` at 7.4 seconds, and every other program at no more than 0.9 seconds.
+
+The FUN floor rises from `krust-error`/`kompile` to `match`/`krun`.
+The measured case budget is 300 seconds and the step budget is 120 seconds, retaining 2.6x and 1.5x headroom.
+CB-20-A's equation-matching defect has no remaining equation-remainder branch or SMT query, and CB-20-B reduces tail recursion from 123.7 seconds to 7.43 seconds over the same 33,048 rewrite steps.
+
+`constructor-bst-sorting.fun` remains a measured throughput outlier rather than an unowned residue.
+Its public simplifier entries stay approximately flat at 8.1 to 8.5 per applied rule while rounds per rule rise from 449 at depth 320 to 6,635 at depth 12,000, the existing CB-12-4 flat-entry/growing-round mechanism.
+CB-12's ticket and worker now name that witness and must revisit the temporary 120 second step budget after the cache work.
+Optional diagnostics item CB-20-C is explicitly deferred after closure.
+Machine-readable focused evidence is `workers/CB-20-evidence/closure-bac3841.toml`; full driver evidence remains under the private run path.
