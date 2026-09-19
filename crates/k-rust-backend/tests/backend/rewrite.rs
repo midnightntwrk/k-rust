@@ -1235,6 +1235,8 @@ fn reports_vacuous_execution_paths() {
             depth: 0,
             halt_reason: HaltReason::Vacuous {
                 depth: 0,
+                rule_id: None,
+                label: None,
                 constraint: Predicate::False,
             },
             ..
@@ -1287,21 +1289,38 @@ fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt
     let rewritten = execute(&definition, pattern("b"), ExecutionOptions::default());
     let stuck = execute(&definition, pattern("d"), ExecutionOptions::default());
 
-    assert!(matches!(
-        rewritten.leaves.as_slice(),
-        [ExecutionLeaf {
-            pattern: Pattern { term, constraints },
-            depth: 1,
-            halt_reason: HaltReason::Vacuous { .. },
-            ..
-        }] if term == &internal_term(&definition, "d{}()")
-            && constraints.iter().any(|predicate| matches!(predicate, Predicate::False))
-    ));
+    assert!(
+        matches!(
+            rewritten.leaves.as_slice(),
+            [ExecutionLeaf {
+                pattern: Pattern { term, constraints },
+                depth: 1,
+                halt_reason: HaltReason::Vacuous {
+                    depth: 1,
+                    rule_id: Some(rule_id),
+                    label: Some(label),
+                    constraint,
+                },
+                ..
+            }] if term == &internal_term(&definition, "d{}()")
+                && rule_id == "step"
+                && label == "step"
+                && matches!(constraint, Predicate::And(predicates)
+                    if predicates.iter().any(|predicate| matches!(predicate, Predicate::False)))
+                && constraints.iter().any(|predicate| matches!(predicate, Predicate::False))
+        ),
+        "{rewritten:#?}"
+    );
     assert!(matches!(
         stuck.leaves.as_slice(),
         [ExecutionLeaf {
             depth: 0,
-            halt_reason: HaltReason::Vacuous { .. },
+            halt_reason: HaltReason::Vacuous {
+                depth: 0,
+                rule_id: None,
+                label: None,
+                ..
+            },
             ..
         }]
     ));

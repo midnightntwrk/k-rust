@@ -1428,6 +1428,116 @@ endmodule
 }
 
 #[test]
+fn kore_exec_reports_the_rule_that_precedes_a_vacuous_path() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports INT
+  syntax State ::= "a" | "b"
+  configuration <k> $PGM:State </k>
+  rule a => b [label(step)]
+endmodule
+"#,
+    )
+    .unwrap();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN",
+            "--backend",
+            "rust",
+            "--output-directory",
+            compiled.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let initial = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "MAIN",
+            "--sort",
+            "State",
+            "--expression",
+            "a",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        initial.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initial.stderr)
+    );
+    let initial_term = String::from_utf8(initial.stdout).unwrap();
+    let constrained = format!(
+        r#"\and{{SortGeneratedTopCell{{}}}}(
+  {},
+  \and{{SortGeneratedTopCell{{}}}}(
+    \equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(
+      Lbl'UndsEqlsEqls'Int'Unds'{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+      \dv{{SortBool{{}}}}("true")
+    ),
+    \equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(
+      Lbl'UndsEqlsSlshEqls'Int'Unds'{{}}(N:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+      \dv{{SortBool{{}}}}("true")
+    )
+  )
+)"#,
+        initial_term.trim()
+    );
+    let initial_path = root.join("vacuous.kore");
+    fs::write(&initial_path, constrained).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            compiled.join("definition.kore").to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            initial_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "\\bottom{SortGeneratedTopCell{}}()\n"
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(
+            "execution ended with no successor at depth 1: rule step applied with a false path constraint; refuted obligation"
+        ),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn reference_krun_exits_with_the_exit_cell_value_and_prints_the_final_pattern() {
     let output = exit_krun_command().output().unwrap();
 

@@ -263,6 +263,8 @@ pub enum HaltReason {
     Vacuous {
         /// Semantic depth at which the path constraint became false.
         depth: u64,
+        rule_id: Option<String>,
+        label: Option<String>,
         constraint: Predicate,
     },
     Branch {
@@ -309,9 +311,15 @@ fn applied_trivial_halt(depth: u64, application: &TrivialApplication) -> HaltRea
     }
 }
 
-fn vacuous_halt(depth: u64, pattern: &Pattern) -> HaltReason {
+fn vacuous_halt(depth: u64, pattern: &Pattern, trace: &[TraceEntry]) -> HaltReason {
+    let applied = trace
+        .iter()
+        .rev()
+        .find(|entry| entry.kind == TraceKind::Rewrite);
     HaltReason::Vacuous {
         depth,
+        rule_id: applied.map(|entry| entry.unique_id.clone()),
+        label: applied.and_then(|entry| entry.label.clone()),
         constraint: false_constraint(pattern),
     }
 }
@@ -545,7 +553,7 @@ fn execute_using(
                         label: applied.label.clone(),
                         obligation: obligation.clone(),
                     },
-                    _ => vacuous_halt(state.depth, &state.pattern),
+                    _ => vacuous_halt(state.depth, &state.pattern, &state.trace),
                 };
                 leaves.push(state.leaf(halt_reason, &observation_log));
                 continue;
@@ -602,7 +610,7 @@ fn execute_using(
                 && predicates_truth(&state.pattern.constraints) == Truth::False
             {
                 bottom_initial_simplifications += 1;
-                let halt_reason = vacuous_halt(state.depth, &state.pattern);
+                let halt_reason = vacuous_halt(state.depth, &state.pattern, &state.trace);
                 leaves.push(state.leaf(halt_reason, &observation_log));
                 continue;
             }
@@ -653,7 +661,7 @@ fn execute_using(
         match rewritten {
             RewriteResult::Stuck(pattern) => match deferred_initial_vacuity {
                 Some(pattern) => {
-                    let halt_reason = vacuous_halt(state.depth, &pattern);
+                    let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace);
                     leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log));
                 }
                 None => leaves.push(externalise_leaf(
@@ -677,7 +685,7 @@ fn execute_using(
                 leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log))
             }
             RewriteResult::Vacuous(pattern) => {
-                let halt_reason = vacuous_halt(state.depth, &pattern);
+                let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace);
                 leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log))
             }
             RewriteResult::Indeterminate { pattern, reason } => match reason {

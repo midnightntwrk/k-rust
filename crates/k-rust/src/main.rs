@@ -3149,12 +3149,23 @@ fn run_backend(
                         );
                     }
                 }
-                HaltReason::Vacuous { depth, constraint } => {
+                HaltReason::Vacuous {
+                    depth,
+                    rule_id,
+                    label,
+                    constraint,
+                } => {
                     let constraint = KorePrinter::compact()
                         .print_pattern(&externalize::ml_pattern(constraint, &result_sort));
-                    eprintln!(
-                        "warning: execution ended with no successor at depth {depth}: the path constraint is false; refuted obligation {constraint}"
-                    );
+                    if let Some(rule) = label.as_ref().or(rule_id.as_ref()) {
+                        eprintln!(
+                            "warning: execution ended with no successor at depth {depth}: rule {rule} applied with a false path constraint; refuted obligation {constraint}"
+                        );
+                    } else {
+                        eprintln!(
+                            "warning: execution ended with no successor at depth {depth}: the path constraint is false; refuted obligation {constraint}"
+                        );
+                    }
                 }
                 _ => unreachable!("all dropped leaves were checked above"),
             }
