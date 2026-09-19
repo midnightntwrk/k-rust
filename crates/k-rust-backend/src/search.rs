@@ -535,7 +535,7 @@ fn search_graph_using(
                     break;
                 }
             }
-            RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
+            RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => {
                 state.pattern = pattern;
                 incomplete.push(rewrite_incomplete(
@@ -951,7 +951,7 @@ fn search_paths_using(
                     break;
                 }
             }
-            RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => {}
+            RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => {
                 path.state.pattern = pattern;
                 incomplete.push(rewrite_incomplete(
@@ -1643,7 +1643,7 @@ fn state_may_expand(
             simplification_options(options),
             solver,
         ),
-        RewriteResult::Stuck(_) | RewriteResult::Trivial(_) | RewriteResult::Vacuous(_)
+        RewriteResult::Stuck(_) | RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_)
     )
 }
 

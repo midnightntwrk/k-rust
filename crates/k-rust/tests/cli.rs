@@ -108,6 +108,33 @@ fn exit_reference_fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/exit")
 }
 
+fn stdin_delimiter_run_command() -> (Command, PathBuf) {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fixtures = manifest.join("tests/fixtures/reference/execution/stdin-delimiter-run");
+    let builtin = manifest
+        .join("../..")
+        .join("k/k-distribution/include/kframework/builtin");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "krun",
+        fixtures.join("cb19.k").to_str().unwrap(),
+        fixtures.join("three.cb19").to_str().unwrap(),
+        "--main-module",
+        "CB19",
+        "--syntax-module",
+        "CB19-SYNTAX",
+        "--sort",
+        "Stmt",
+        "-I",
+        fixtures.to_str().unwrap(),
+        "--builtin-directory",
+        builtin.to_str().unwrap(),
+        "--io",
+        "off",
+    ]);
+    (command, fixtures)
+}
+
 fn exit_krun_command() -> Command {
     let fixtures = exit_reference_fixtures();
     let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
@@ -1054,6 +1081,55 @@ fn reference_krun_io_off_feeds_standard_input_into_stdin() {
 }
 
 #[test]
+fn reference_krun_io_off_reads_single_delimiters() {
+    let (mut command, fixtures) = stdin_delimiter_run_command();
+    let input = fs::read(fixtures.join("single.in")).unwrap();
+    let output = output_with_stdin(&mut command, &input);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stdout.contains(r#"\dv{SortString{}}("241")"#), "{stdout}");
+    assert!(
+        !stderr.contains("execution ended with no successor"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn reference_krun_io_off_reports_undefined_delimiter_runs() {
+    for input in ["runs.in", "leading.in"] {
+        let (mut command, fixtures) = stdin_delimiter_run_command();
+        let output = output_with_stdin(&mut command, &fs::read(fixtures.join(input)).unwrap());
+
+        assert!(
+            output.status.success(),
+            "{input}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "\\bottom{SortGeneratedTopCell{}}()\n"
+        );
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains("rule STDIN-STREAM.stdinParseInt applied with an undefined result"),
+            "{input}: {stderr}"
+        );
+        assert!(stderr.contains("refuted obligation"), "{input}: {stderr}");
+        assert!(stderr.contains("String2Int"), "{input}: {stderr}");
+        assert!(
+            stderr.contains(r#"(\dv{SortString{}}(""))"#),
+            "{input}: {stderr}"
+        );
+    }
+}
+
+#[test]
 fn reference_krun_io_off_surface_pattern_reads_closed_stdin() {
     // reference: printf 'ab\n' | k/result/bin/krun program.pgm --definition ref --io off
     //   --depth 0 --pattern '<k> KK:K </k>' --output kore
@@ -1298,7 +1374,7 @@ endmodule
 }
 
 #[test]
-fn krun_does_not_warn_when_the_first_semantic_rewrite_is_bottom() {
+fn krun_reports_when_the_first_semantic_rewrite_is_bottom() {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -1306,7 +1382,7 @@ fn krun_does_not_warn_when_the_first_semantic_rewrite_is_bottom() {
 module MAIN
   imports INT
   syntax KItem ::= fail(Int) [symbol(fail)]
-  rule fail(_:Int) => #Bottom
+  rule fail(_:Int) => #Bottom [label(fail)]
   configuration <k> fail($PGM:Int) </k>
 endmodule
 "#,
@@ -1340,6 +1416,13 @@ endmodule
             .contains("the initial configuration simplified to \\bottom"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "execution ended with no successor at depth 1: rule fail applied with an undefined result; refuted obligation"
+        ),
+        "{stderr}"
     );
     fs::remove_dir_all(root).unwrap();
 }

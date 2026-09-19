@@ -554,7 +554,7 @@ pub fn prove_claim(
                     definition, state, outcome, options, solver
                 ));
             }
-            RewriteResult::Trivial(_) => {
+            RewriteResult::Trivial(_, _) => {
                 state.depth += 1;
                 state.trace.push(TraceEntry {
                     depth: state.depth,

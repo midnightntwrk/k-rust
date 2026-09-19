@@ -944,8 +944,8 @@ fn halt_reason(reason: &HaltReason) -> (&'static str, Option<String>) {
     match reason {
         HaltReason::Cancelled => ("cancelled", None),
         HaltReason::Stuck => ("stuck", None),
-        HaltReason::Trivial => ("trivial", None),
-        HaltReason::Vacuous => ("vacuous", None),
+        HaltReason::Trivial { .. } => ("trivial", None),
+        HaltReason::Vacuous { .. } => ("vacuous", None),
         HaltReason::Branch { .. } => ("branch", Some(format!("{reason:?}"))),
         HaltReason::CutPointRule { .. } => ("cut-point", Some(format!("{reason:?}"))),
         HaltReason::TerminalRule { .. } => ("terminal", Some(format!("{reason:?}"))),

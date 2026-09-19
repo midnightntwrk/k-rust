@@ -122,6 +122,8 @@ pub struct RemainderBranch {
 pub struct TrivialApplication {
     pub rule_id: String,
     pub label: Option<String>,
+    /// The definedness or ensures obligation refuted by this application.
+    pub obligation: Predicate,
     /// The sub-case that rewrites to bottom: the incoming constraints and this predicate.
     pub applicability: Predicate,
     /// The complementary sub-case retained in the priority-group remainder.
@@ -131,7 +133,7 @@ pub struct TrivialApplication {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RewriteResult {
     Stuck(Pattern),
-    Trivial(Pattern),
+    Trivial(Pattern, Vec<TrivialApplication>),
     Vacuous(Pattern),
     Finished(AppliedRule),
     Branch {
@@ -251,8 +253,18 @@ pub enum TraceKind {
 pub enum HaltReason {
     Cancelled,
     Stuck,
-    Trivial,
-    Vacuous,
+    Trivial {
+        /// Semantic depth after the rule that produced the empty successor.
+        depth: u64,
+        rule_id: Option<String>,
+        label: Option<String>,
+        obligation: Predicate,
+    },
+    Vacuous {
+        /// Semantic depth at which the path constraint became false.
+        depth: u64,
+        constraint: Predicate,
+    },
     Branch {
         branches: Vec<AppliedRule>,
         remainder: Option<RemainderBranch>,
@@ -269,6 +281,39 @@ pub enum HaltReason {
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
     Timeout(StepTimeoutMode),
+}
+
+fn false_constraint(pattern: &Pattern) -> Predicate {
+    match pattern.constraints.as_slice() {
+        [] => Predicate::False,
+        [constraint] => constraint.clone(),
+        constraints => Predicate::And(constraints.to_vec()),
+    }
+}
+
+fn trivial_halt(depth: u64, pattern: &Pattern) -> HaltReason {
+    HaltReason::Trivial {
+        depth,
+        rule_id: None,
+        label: None,
+        obligation: false_constraint(pattern),
+    }
+}
+
+fn applied_trivial_halt(depth: u64, application: &TrivialApplication) -> HaltReason {
+    HaltReason::Trivial {
+        depth,
+        rule_id: Some(application.rule_id.clone()),
+        label: application.label.clone(),
+        obligation: application.obligation.clone(),
+    }
+}
+
+fn vacuous_halt(depth: u64, pattern: &Pattern) -> HaltReason {
+    HaltReason::Vacuous {
+        depth,
+        constraint: false_constraint(pattern),
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -484,7 +529,25 @@ fn execute_using(
                     completed_initial_simplifications += 1;
                     bottom_initial_simplifications += 1;
                 }
-                leaves.push(state.leaf(HaltReason::Vacuous, &observation_log));
+                let applied = state
+                    .trace
+                    .iter()
+                    .rev()
+                    .find(|entry| entry.kind == TraceKind::Rewrite);
+                let refuted_ceil = pattern_before_constraint_simplification
+                    .constraints
+                    .iter()
+                    .find(|predicate| matches!(predicate, Predicate::Ceil(_)));
+                let halt_reason = match (applied, refuted_ceil) {
+                    (Some(applied), Some(obligation)) => HaltReason::Trivial {
+                        depth: state.depth,
+                        rule_id: Some(applied.unique_id.clone()),
+                        label: applied.label.clone(),
+                        obligation: obligation.clone(),
+                    },
+                    _ => vacuous_halt(state.depth, &state.pattern),
+                };
+                leaves.push(state.leaf(halt_reason, &observation_log));
                 continue;
             }
         }
@@ -497,8 +560,9 @@ fn execute_using(
             solver,
         );
         finish_if_interrupted!();
-        match simplified {
+        let undefined_term = match simplified {
             Ok(simplified) => {
+                let undefined_term = simplified.undefined_term.clone();
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
                 normalize_pattern_substitution(&mut state.pattern, &definition.sort_graph);
@@ -525,19 +589,38 @@ fn execute_using(
                                 unique_id,
                             }),
                     );
+                undefined_term
             }
             Err(error) => {
                 leaves.push(state.leaf(HaltReason::Simplification(error), &observation_log));
                 continue;
             }
-        }
+        };
         if state.is_initial_input {
             completed_initial_simplifications += 1;
             if deferred_initial_vacuity.is_none()
                 && predicates_truth(&state.pattern.constraints) == Truth::False
             {
                 bottom_initial_simplifications += 1;
-                leaves.push(state.leaf(HaltReason::Vacuous, &observation_log));
+                let halt_reason = vacuous_halt(state.depth, &state.pattern);
+                leaves.push(state.leaf(halt_reason, &observation_log));
+                continue;
+            }
+        }
+        if predicates_truth(&state.pattern.constraints) == Truth::False {
+            if let Some(term) = undefined_term {
+                let applied = state
+                    .trace
+                    .iter()
+                    .rev()
+                    .find(|entry| entry.kind == TraceKind::Rewrite);
+                let halt_reason = HaltReason::Trivial {
+                    depth: state.depth,
+                    rule_id: applied.map(|entry| entry.unique_id.clone()),
+                    label: applied.and_then(|entry| entry.label.clone()),
+                    obligation: Predicate::Ceil(term),
+                };
+                leaves.push(state.leaf(halt_reason, &observation_log));
                 continue;
             }
         }
@@ -569,11 +652,10 @@ fn execute_using(
         finish_if_interrupted!();
         match rewritten {
             RewriteResult::Stuck(pattern) => match deferred_initial_vacuity {
-                Some(pattern) => leaves.push(state.leaf_with_pattern(
-                    pattern,
-                    HaltReason::Vacuous,
-                    &observation_log,
-                )),
+                Some(pattern) => {
+                    let halt_reason = vacuous_halt(state.depth, &pattern);
+                    leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log));
+                }
                 None => leaves.push(externalise_leaf(
                     definition,
                     state,
@@ -587,11 +669,16 @@ fn execute_using(
                     observation,
                 )),
             },
-            RewriteResult::Trivial(pattern) => {
-                leaves.push(state.leaf_with_pattern(pattern, HaltReason::Trivial, &observation_log))
+            RewriteResult::Trivial(pattern, applications) => {
+                let halt_reason = applications
+                    .first()
+                    .map(|application| applied_trivial_halt(state.depth + 1, application))
+                    .unwrap_or_else(|| trivial_halt(state.depth + 1, &pattern));
+                leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log))
             }
             RewriteResult::Vacuous(pattern) => {
-                leaves.push(state.leaf_with_pattern(pattern, HaltReason::Vacuous, &observation_log))
+                let halt_reason = vacuous_halt(state.depth, &pattern);
+                leaves.push(state.leaf_with_pattern(pattern, halt_reason, &observation_log))
             }
             RewriteResult::Indeterminate { pattern, reason } => match reason {
                 // The simplifier already failed on this state; the leaf reports that failure
@@ -647,9 +734,10 @@ fn execute_using(
                     };
                     finish_if_interrupted!();
                     if predicates_truth(&applied.pattern.constraints) == Truth::False {
+                        let halt_reason = trivial_halt(state.depth + 1, &applied.pattern);
                         leaves.push(state.leaf_with_pattern(
                             applied.pattern,
-                            HaltReason::Trivial,
+                            halt_reason,
                             &observation_log,
                         ));
                         continue;
@@ -705,14 +793,12 @@ fn execute_using(
                         continue;
                     }
                     let trivial = predicates_truth(&next.pattern.constraints) == Truth::False;
-                    leaves.push(next.leaf(
-                        if trivial {
-                            HaltReason::Trivial
-                        } else {
-                            HaltReason::TerminalRule { rule }
-                        },
-                        &observation_log,
-                    ));
+                    let halt_reason = if trivial {
+                        trivial_halt(next.depth, &next.pattern)
+                    } else {
+                        HaltReason::TerminalRule { rule }
+                    };
+                    leaves.push(next.leaf(halt_reason, &observation_log));
                     continue;
                 }
                 enqueue_execution_states(&mut pending, vec![next]);
@@ -770,9 +856,10 @@ fn execute_using(
                         }
                     };
                     if predicates_truth(&original.constraints) == Truth::False {
+                        let halt_reason = trivial_halt(state.depth, &original);
                         leaves.push(state.leaf_with_pattern(
                             original,
-                            HaltReason::Trivial,
+                            halt_reason,
                             &observation_log,
                         ));
                         continue;
@@ -983,7 +1070,7 @@ fn select_got_stuck_over_depth_bound(mut leaves: Vec<ExecutionLeaf>) -> Vec<Exec
     let got_stuck = leaves.iter().any(|leaf| {
         matches!(
             leaf.halt_reason,
-            HaltReason::Stuck | HaltReason::Trivial | HaltReason::Vacuous
+            HaltReason::Stuck | HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
         )
     });
     if got_stuck {
@@ -1002,7 +1089,7 @@ impl SelectedExecutionLeaves {
     fn push(&mut self, leaf: ExecutionLeaf) {
         let got_stuck = matches!(
             leaf.halt_reason,
-            HaltReason::Stuck | HaltReason::Trivial | HaltReason::Vacuous
+            HaltReason::Stuck | HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
         );
         if got_stuck && !self.got_stuck {
             self.retained
@@ -1039,7 +1126,10 @@ fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
     leaves
         .into_iter()
         .filter(|leaf| {
-            if matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous) {
+            if matches!(
+                leaf.halt_reason,
+                HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
+            ) {
                 return true;
             }
             let key = (
@@ -1098,7 +1188,7 @@ fn expand_stopped_branch_remainder(
                 *remainder = Some(current);
                 break;
             }
-            RewriteResult::Trivial(_) | RewriteResult::Vacuous(_) => break,
+            RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => break,
         }
     }
     Ok(())
@@ -1270,7 +1360,8 @@ fn externalise_leaf(
         observation_options,
     ) {
         Ok(pattern) if predicates_truth(&pattern.constraints) == Truth::False => {
-            state.leaf_with_pattern(pattern, HaltReason::Trivial, observation_log)
+            let halt_reason = trivial_halt(state.depth, &pattern);
+            state.leaf_with_pattern(pattern, halt_reason, observation_log)
         }
         Ok(pattern) => state.leaf_with_pattern(pattern, halt_reason, observation_log),
         Err(_) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {
@@ -1597,7 +1688,7 @@ fn rewrite_step_all(
             None
         };
         return match (applied.len(), trivial.is_empty(), remainder) {
-            (0, false, None) => RewriteResult::Trivial(pattern.clone()),
+            (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
             (1, true, None) => RewriteResult::Finished(applied.pop().unwrap().applied),
             (_, _, remainder) => RewriteResult::Branch {
                 original: pattern.clone(),
@@ -1750,7 +1841,7 @@ fn rewrite_step_any(
             .collect(),
     });
     match (applied.len(), trivial.is_empty(), remainder) {
-        (0, false, None) => RewriteResult::Trivial(pattern.clone()),
+        (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
         (1, true, None) => RewriteResult::Finished(applied.pop().unwrap()),
         (_, _, remainder) => RewriteResult::Branch {
             original: pattern.clone(),
@@ -2327,12 +2418,25 @@ fn remainder_of(applicability: &Predicate) -> Predicate {
     }
 }
 
-fn trivial_application(rule: &RewriteRule, applicability: &Predicate) -> TrivialApplication {
+fn trivial_application(
+    rule: &RewriteRule,
+    applicability: &Predicate,
+    obligation: Predicate,
+) -> TrivialApplication {
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
         label: rule.attributes.label.clone(),
+        obligation,
         applicability: applicability.clone(),
         remainder: remainder_of(applicability),
+    }
+}
+
+fn conjunction(predicates: &[Predicate]) -> Predicate {
+    match predicates {
+        [] => Predicate::True,
+        [predicate] => predicate.clone(),
+        predicates => Predicate::And(predicates.to_vec()),
     }
 }
 
@@ -2819,7 +2923,7 @@ fn apply_rule_with_match(
         return RuleAttempt::Unified {
             groups: vec![RuleApplicationGroup {
                 applied: Vec::new(),
-                trivial: vec![trivial_application(rule, &applicability)],
+                trivial: vec![trivial_application(rule, &applicability, Predicate::False)],
             }],
         };
     }
@@ -2996,7 +3100,7 @@ fn apply_rule_with_match(
             return RuleAttempt::Unified {
                 groups: vec![RuleApplicationGroup {
                     applied: Vec::new(),
-                    trivial: vec![trivial_application(rule, &applicability)],
+                    trivial: vec![trivial_application(rule, &applicability, Predicate::False)],
                 }],
             };
         }
@@ -3023,8 +3127,8 @@ fn apply_rule_with_match(
             solver,
         ) {
             RhsAlternativeAttempt::Applied(application) => applications.push(application),
-            RhsAlternativeAttempt::Trivial => {
-                trivial.push(trivial_application(rule, &applicability));
+            RhsAlternativeAttempt::Trivial(obligation) => {
+                trivial.push(trivial_application(rule, &applicability, obligation));
             }
             RhsAlternativeAttempt::Indeterminate(reason) => {
                 return RuleAttempt::Indeterminate(reason);
@@ -3041,7 +3145,7 @@ fn apply_rule_with_match(
 
 enum RhsAlternativeAttempt {
     Applied(RuleApplication),
-    Trivial,
+    Trivial(Predicate),
     Indeterminate(IndeterminateReason),
 }
 
@@ -3132,9 +3236,9 @@ fn apply_rhs_alternative(
 ) -> RhsAlternativeAttempt {
     let rhs = substitute(&substitute(rhs, substitution), existential_substitution);
     let mut condition_knowledge = condition_knowledge.to_vec();
-    let (rhs, mut rhs_constraints, effects) =
+    let (rhs, mut rhs_constraints, effects, undefined_term) =
         if rule.computed_attributes.undefined_symbols.is_empty() {
-            (rhs, Vec::new(), Vec::new())
+            (rhs, Vec::new(), Vec::new(), None)
         } else {
             match simplify_with_solver(
                 definition,
@@ -3143,7 +3247,12 @@ fn apply_rhs_alternative(
                 simplification_options,
                 solver,
             ) {
-                Ok(simplified) => (simplified.term, simplified.constraints, simplified.effects),
+                Ok(simplified) => (
+                    simplified.term,
+                    simplified.constraints,
+                    simplified.effects,
+                    simplified.undefined_term,
+                ),
                 Err(error) => {
                     return RhsAlternativeAttempt::Indeterminate(
                         IndeterminateReason::simplification(
@@ -3154,9 +3263,15 @@ fn apply_rhs_alternative(
                 }
             }
         };
+    if let Some(term) = undefined_term.clone() {
+        return RhsAlternativeAttempt::Trivial(Predicate::Ceil(term));
+    }
     extend_unique(&mut condition_knowledge, rhs_constraints.iter().cloned());
     if !rule.computed_attributes.undefined_symbols.is_empty() {
         let obligations = ceil_term(definition, &rhs);
+        let reported_obligation = undefined_term
+            .map(Predicate::Ceil)
+            .unwrap_or_else(|| conjunction(&obligations));
         let obligations = match simplify_predicates_with_solver(
             definition,
             &obligations,
@@ -3174,7 +3289,9 @@ fn apply_rhs_alternative(
         };
         match rhs_obligation_verdict(decide_condition(&obligations, &condition_knowledge, solver)) {
             ObligationVerdict::Discharged => {}
-            ObligationVerdict::Trivial => return RhsAlternativeAttempt::Trivial,
+            ObligationVerdict::Trivial => {
+                return RhsAlternativeAttempt::Trivial(reported_obligation);
+            }
             ObligationVerdict::Carried => extend_unique(&mut rhs_constraints, obligations),
         }
     }
@@ -3182,6 +3299,7 @@ fn apply_rhs_alternative(
         &substitute_predicates(ensures, substitution),
         existential_substitution,
     );
+    let reported_ensures = conjunction(&ensures);
     let mut ensures = match simplify_predicates_with_solver(
         definition,
         &ensures,
@@ -3199,7 +3317,9 @@ fn apply_rhs_alternative(
     };
     match rhs_ensures_verdict(decide_condition(&ensures, &condition_knowledge, solver)) {
         EnsuresStepVerdict::Cleared => ensures.clear(),
-        EnsuresStepVerdict::Trivial => return RhsAlternativeAttempt::Trivial,
+        EnsuresStepVerdict::Trivial => {
+            return RhsAlternativeAttempt::Trivial(reported_ensures);
+        }
         EnsuresStepVerdict::Carried => {}
         EnsuresStepVerdict::Indeterminate(error) => {
             return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {

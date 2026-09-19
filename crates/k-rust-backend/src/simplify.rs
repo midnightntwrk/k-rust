@@ -98,6 +98,12 @@ pub struct Simplification {
     pub applied_rules: Vec<String>,
     pub effects: Vec<BuiltinEffect>,
     pub exhausted: Option<BudgetExhaustion>,
+    /// The innermost partial builtin application that evaluated to bottom.
+    ///
+    /// Rewrite execution uses this provenance to report the exact definedness
+    /// obligation that made a successor empty. It is deliberately separate from
+    /// `constraints`: other simplification paths can also produce `false`.
+    pub undefined_term: Option<Term>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1885,6 +1891,7 @@ fn simplify_with_budget(
     let mut applied_rules = Vec::new();
     let mut effects = Vec::new();
     let mut exhausted = None;
+    let mut undefined_term = None;
     loop {
         measure::bump(Counter::SimplifyRounds);
         if cancellation_requested() {
@@ -1898,6 +1905,7 @@ fn simplify_with_budget(
                 applied_rules,
                 effects,
                 exhausted,
+                undefined_term,
             });
         }
         let children = simplify_children(
@@ -1924,6 +1932,9 @@ fn simplify_with_budget(
         effects.extend(children.effects);
         effects.extend(root.effects);
         exhausted = exhausted.or(children.exhausted).or(root.exhausted);
+        if undefined_term.is_none() {
+            undefined_term = children.undefined_term.or(root.undefined_term);
+        }
         if root.term == children.term || root.term.attributes().evaluated {
             return Ok(Simplification {
                 term: root.term,
@@ -1931,6 +1942,7 @@ fn simplify_with_budget(
                 applied_rules,
                 effects,
                 exhausted,
+                undefined_term,
             });
         }
         if *remaining == 0 {
@@ -1948,6 +1960,7 @@ fn simplify_with_budget(
                         limit: options.max_iterations,
                         subject: BudgetSubject::Term,
                     }),
+                    undefined_term,
                 }),
             };
         }
@@ -1958,6 +1971,7 @@ fn simplify_with_budget(
                 applied_rules,
                 effects,
                 exhausted,
+                undefined_term,
             });
         }
         *remaining -= 1;
@@ -2200,6 +2214,7 @@ fn simplify_children(
     let mut applied_rules = Vec::new();
     let mut effects = Vec::new();
     let mut exhausted = None;
+    let mut undefined_term = None;
     let mut child = |term: &Term| {
         // The iteration limit bounds one fixed-point lineage, not the total amount of productive
         // work in an entire term. Siblings receive independent copies of the current budget, while
@@ -2219,6 +2234,9 @@ fn simplify_children(
         applied_rules.extend(result.applied_rules);
         effects.extend(result.effects);
         exhausted = exhausted.or(result.exhausted);
+        if undefined_term.is_none() {
+            undefined_term = result.undefined_term;
+        }
         Ok::<_, SimplificationError>(result.term)
     };
     let term = match term.kind() {
@@ -2329,6 +2347,7 @@ fn simplify_children(
         applied_rules,
         effects,
         exhausted,
+        undefined_term,
     })
 }
 
@@ -2349,13 +2368,19 @@ fn simplify_root(
             let TermKind::Application { symbol, .. } = term.kind() else {
                 unreachable!("only applications have builtin hooks")
             };
-            let (term, constraints, effects) = match builtin {
-                BuiltinResult::Value(result) => (result, Vec::new(), Vec::new()),
-                BuiltinResult::Bottom => (term.clone(), vec![Predicate::False], Vec::new()),
+            let (term, constraints, effects, undefined_term) = match builtin {
+                BuiltinResult::Value(result) => (result, Vec::new(), Vec::new(), None),
+                BuiltinResult::Bottom => (
+                    term.clone(),
+                    vec![Predicate::False],
+                    Vec::new(),
+                    Some(term.clone()),
+                ),
                 BuiltinResult::Effect(effect) => (
                     builtin_effect_result(definition, term, &effect)?,
                     Vec::new(),
                     vec![effect],
+                    None,
                 ),
                 BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_) => unreachable!(),
             };
@@ -2372,6 +2397,7 @@ fn simplify_root(
                 )],
                 effects,
                 exhausted: None,
+                undefined_term,
             });
         }
     };
@@ -2411,6 +2437,7 @@ fn simplify_root(
             applied_rules: Vec::new(),
             effects: Vec::new(),
             exhausted: None,
+            undefined_term: None,
         });
     };
     if let Some(hook) = symbol.attributes.hook.as_deref() {
@@ -2448,6 +2475,7 @@ fn simplify_root(
         applied_rules: Vec::new(),
         effects: Vec::new(),
         exhausted: None,
+        undefined_term: None,
     })
 }
 
@@ -2854,6 +2882,7 @@ fn apply_equation(
                 applied_rules: vec![rule.attributes.unique_id.clone()],
                 effects: Vec::new(),
                 exhausted: None,
+                undefined_term: None,
             }))
         }
         alternatives => Err(SimplificationError::DisjunctiveResult {
@@ -2873,6 +2902,7 @@ fn bottom_subject(rule: &RewriteRule, term: &Term) -> Simplification {
         applied_rules: vec![rule.attributes.unique_id.clone()],
         effects: Vec::new(),
         exhausted: None,
+        undefined_term: None,
     }
 }
 

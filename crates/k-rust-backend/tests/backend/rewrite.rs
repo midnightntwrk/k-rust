@@ -854,7 +854,10 @@ fn treats_an_undefined_matched_subterm_as_trivial() {
 
     let result = rewrite_step(&definition, &subject, &mut fresh);
 
-    assert_eq!(result, RewriteResult::Trivial(subject));
+    assert!(matches!(
+        result,
+        RewriteResult::Trivial(pattern, _) if pattern == subject
+    ));
 }
 
 #[test]
@@ -911,7 +914,20 @@ fn internalizes_a_nested_bottom_rewrite_rhs_as_trivial() {
 
     let result = rewrite_step(&definition, &subject, &mut fresh);
 
-    assert_eq!(result, RewriteResult::Trivial(subject.clone()));
+    assert!(
+        matches!(
+            &result,
+            RewriteResult::Trivial(pattern, applications)
+                if pattern == &subject
+                    && matches!(applications.as_slice(), [TrivialApplication {
+                        rule_id,
+                        label: Some(label),
+                        obligation: Predicate::False,
+                        ..
+                    }] if rule_id == "bottom" && label == "bottom")
+        ),
+        "{result:#?}"
+    );
     let (execution, initial_status) =
         execute_disjunction_with_solver_and_observer_with_initial_status(
             &definition,
@@ -925,9 +941,14 @@ fn internalizes_a_nested_bottom_rewrite_rhs_as_trivial() {
         execution.leaves.as_slice(),
         [ExecutionLeaf {
             depth: 0,
-            halt_reason: HaltReason::Trivial,
+            halt_reason: HaltReason::Trivial {
+                depth: 1,
+                rule_id: Some(rule_id),
+                label: Some(label),
+                obligation: Predicate::False,
+            },
             ..
-        }]
+        }] if rule_id == "bottom" && label == "bottom"
     ));
 }
 
@@ -989,17 +1010,17 @@ fn a_trivial_rule_shadows_lower_priority_rules() {
     let initial = subject(&definition, "value");
     let mut fresh = 0;
 
-    assert_eq!(
+    assert!(matches!(
         rewrite_step(&definition, &initial, &mut fresh),
-        RewriteResult::Trivial(initial.clone())
-    );
+        RewriteResult::Trivial(pattern, _) if pattern == initial
+    ));
     assert!(matches!(
         execute(&definition, initial.clone(), ExecutionOptions::default())
             .leaves
             .as_slice(),
         [ExecutionLeaf {
             depth: 0,
-            halt_reason: HaltReason::Trivial,
+            halt_reason: HaltReason::Trivial { .. },
             ..
         }]
     ));
@@ -1212,7 +1233,10 @@ fn reports_vacuous_execution_paths() {
         execution.leaves.as_slice(),
         [ExecutionLeaf {
             depth: 0,
-            halt_reason: HaltReason::Vacuous,
+            halt_reason: HaltReason::Vacuous {
+                depth: 0,
+                constraint: Predicate::False,
+            },
             ..
         }]
     ));
@@ -1268,7 +1292,7 @@ fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt
         [ExecutionLeaf {
             pattern: Pattern { term, constraints },
             depth: 1,
-            halt_reason: HaltReason::Vacuous,
+            halt_reason: HaltReason::Vacuous { .. },
             ..
         }] if term == &internal_term(&definition, "d{}()")
             && constraints.iter().any(|predicate| matches!(predicate, Predicate::False))
@@ -1277,7 +1301,7 @@ fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt
         stuck.leaves.as_slice(),
         [ExecutionLeaf {
             depth: 0,
-            halt_reason: HaltReason::Vacuous,
+            halt_reason: HaltReason::Vacuous { .. },
             ..
         }]
     ));
@@ -1939,9 +1963,8 @@ fn assert_solver_verdicts(
                 assert_eq!(&applied.pattern.constraints, constraints, "{validity:?}");
             }
             VerdictLeaf::Trivial => {
-                assert_eq!(
-                    result,
-                    RewriteResult::Trivial(subject.clone()),
+                assert!(
+                    matches!(result, RewriteResult::Trivial(pattern, _) if pattern == *subject),
                     "{validity:?}"
                 );
             }
@@ -4161,7 +4184,7 @@ fn bottom_leaves_are_not_merged() {
         result
             .leaves
             .iter()
-            .all(|leaf| leaf.halt_reason == HaltReason::Trivial)
+            .all(|leaf| matches!(leaf.halt_reason, HaltReason::Trivial { .. }))
     );
 }
 

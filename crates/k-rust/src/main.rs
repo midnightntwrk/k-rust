@@ -3103,7 +3103,12 @@ fn run_backend(
     let finals = execution
         .leaves
         .iter()
-        .filter(|leaf| !matches!(leaf.halt_reason, HaltReason::Trivial | HaltReason::Vacuous))
+        .filter(|leaf| {
+            !matches!(
+                leaf.halt_reason,
+                HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
+            )
+        })
         .collect::<Vec<_>>();
     let exit_code = exit_code_of(
         backend,
@@ -3115,6 +3120,45 @@ fn run_backend(
         eprintln!(
             "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
         );
+    } else if finals.is_empty()
+        && execution.leaves.iter().all(|leaf| {
+            matches!(
+                leaf.halt_reason,
+                HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
+            )
+        })
+    {
+        for leaf in &execution.leaves {
+            let result_sort = leaf.pattern.term.sort();
+            match &leaf.halt_reason {
+                HaltReason::Trivial {
+                    depth,
+                    rule_id,
+                    label,
+                    obligation,
+                } => {
+                    let obligation = KorePrinter::compact()
+                        .print_pattern(&externalize::ml_pattern(obligation, &result_sort));
+                    if let Some(rule) = label.as_ref().or(rule_id.as_ref()) {
+                        eprintln!(
+                            "warning: execution ended with no successor at depth {depth}: rule {rule} applied with an undefined result; refuted obligation {obligation}"
+                        );
+                    } else {
+                        eprintln!(
+                            "warning: execution ended with no successor at depth {depth}: the result simplified to bottom; refuted obligation {obligation}"
+                        );
+                    }
+                }
+                HaltReason::Vacuous { depth, constraint } => {
+                    let constraint = KorePrinter::compact()
+                        .print_pattern(&externalize::ml_pattern(constraint, &result_sort));
+                    eprintln!(
+                        "warning: execution ended with no successor at depth {depth}: the path constraint is false; refuted obligation {constraint}"
+                    );
+                }
+                _ => unreachable!("all dropped leaves were checked above"),
+            }
+        }
     }
     if let Some(target) = match_target {
         let subjects = finals

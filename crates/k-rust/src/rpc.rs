@@ -528,7 +528,7 @@ impl RpcService {
         let (reason, next_states, rule) = match &leaf.halt_reason {
             HaltReason::Cancelled => return Err(RpcFault::cancelled()),
             HaltReason::Stuck => ("stuck", None, None),
-            HaltReason::Trivial | HaltReason::Vacuous => ("vacuous", None, None),
+            HaltReason::Trivial { .. } | HaltReason::Vacuous { .. } => ("vacuous", None, None),
             HaltReason::DepthBound => ("depth-bound", None, None),
             HaltReason::BreadthBound => ("aborted", None, None),
             HaltReason::Timeout(_) => ("timeout", None, None),
