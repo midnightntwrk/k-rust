@@ -116,8 +116,9 @@ fn write_counters_if_requested() {
     let Some(path) = env::var_os("KRUST_COUNTERS") else {
         return;
     };
-    let mut text = String::from(
-        "{\n  \"format\": \"krust-counters\",\n  \"version\": 1,\n  \"counters\": {\n",
+    let mut text = format!(
+        "{{\n  \"format\": \"krust-counters\",\n  \"version\": {},\n  \"counters\": {{\n",
+        k_rust_kore::measure::COUNTER_SCHEMA_VERSION
     );
     let snapshot = k_rust_kore::measure::snapshot();
     let mut counters = snapshot.iter().peekable();

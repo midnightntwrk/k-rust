@@ -179,6 +179,7 @@ pub fn simplify_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<Simplification, SimplificationError> {
+    measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
     let path_condition = PathConditionReplacements::new(known_predicates);
@@ -386,6 +387,7 @@ pub fn simplify_predicates_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<Vec<Predicate>, SimplificationError> {
+    measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
     match simplify_predicates_with_budget(
@@ -1899,6 +1901,7 @@ fn simplify_with_budget(
             return Err(SimplificationError::Cancelled);
         }
         if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
+            measure::bump(Counter::SimplifyNodesSkippedEvaluated);
             return Ok(Simplification {
                 term,
                 constraints,
@@ -1910,6 +1913,7 @@ fn simplify_with_budget(
         }
         term = assumptions.path_condition.apply(&term);
         if term.attributes().evaluated {
+            measure::bump(Counter::SimplifyNodesSkippedEvaluated);
             return Ok(Simplification {
                 term,
                 constraints,

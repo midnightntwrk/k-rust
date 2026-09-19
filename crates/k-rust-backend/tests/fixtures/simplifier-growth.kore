@@ -1,0 +1,35 @@
+[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  sort SortItem{} []
+  hooked-sort SortList{}
+    [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+  hooked-sort SortMap{}
+    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+  sort SortState{} []
+  hooked-symbol plusInt{}(SortInt{}, SortInt{}) : SortInt{}
+    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+  hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+  hooked-symbol listItem{}(SortItem{}) : SortList{}
+    [function{}(), total{}(), hook{}("LIST.element")]
+  hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+    [function{}(), hook{}("LIST.concat"), assoc{}()]
+  hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol mapItem{}(SortInt{}, SortItem{}) : SortMap{}
+    [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+  symbol stuck{}(SortInt{}) : SortItem{} [anywhere{}(), total{}()]
+  symbol state{}(SortInt{}, SortList{}, SortMap{}) : SortState{} [constructor{}()]
+  axiom{} \rewrites{SortState{}}(
+    \and{SortState{}}(
+      state{}(N:SortInt{}, L:SortList{}, M:SortMap{}),
+      \top{SortState{}}()
+    ),
+    state{}(
+      plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")),
+      listConcat{}(L:SortList{}, listItem{}(stuck{}(N:SortInt{}))),
+      mapConcat{}(M:SortMap{}, mapItem{}(N:SortInt{}, stuck{}(N:SortInt{})))
+    )
+  ) [label{}("grow")]
+endmodule []

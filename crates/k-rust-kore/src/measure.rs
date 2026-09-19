@@ -18,6 +18,9 @@
 //! The counter names are a schema for the dump written by `krust` under `KRUST_COUNTERS`; a
 //! rename is a contract change and bumps the dump's `version`.
 
+/// Schema version of the `KRUST_COUNTERS` document.
+pub const COUNTER_SCHEMA_VERSION: u64 = 2;
+
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 #[repr(u16)]
@@ -89,6 +92,10 @@ pub enum Counter {
     UnificationProblems,
     /// Iterations of the bounded fixed-point simplification loop.
     SimplifyRounds,
+    /// Public term and predicate simplifier entries.
+    SimplifyInvocations,
+    /// Simplifier rounds that skipped a term already known to be evaluated.
+    SimplifyNodesSkippedEvaluated,
     /// Function-equation trials.
     SimplifyEquationAttempts,
     /// Hooked builtin evaluations that produced a result.
@@ -109,7 +116,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 40;
+    pub const COUNT: usize = 42;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -145,6 +152,8 @@ impl Counter {
         Counter::MatchingCollectionProblems,
         Counter::UnificationProblems,
         Counter::SimplifyRounds,
+        Counter::SimplifyInvocations,
+        Counter::SimplifyNodesSkippedEvaluated,
         Counter::SimplifyEquationAttempts,
         Counter::SimplifyBuiltinEvaluations,
         Counter::SmtQueries,
@@ -192,6 +201,8 @@ impl Counter {
             Counter::MatchingCollectionProblems => "matching.collection_problems",
             Counter::UnificationProblems => "unification.problems",
             Counter::SimplifyRounds => "simplify.rounds",
+            Counter::SimplifyInvocations => "simplify.invocations",
+            Counter::SimplifyNodesSkippedEvaluated => "simplify.nodes_skipped_evaluated",
             Counter::SimplifyEquationAttempts => "simplify.equation_attempts",
             Counter::SimplifyBuiltinEvaluations => "simplify.builtin_evaluations",
             Counter::SmtQueries => "smt.queries",
@@ -312,7 +323,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_lists_forty_distinct_counters_with_distinct_names_in_index_order() {
+    fn all_lists_every_counter_with_distinct_names_in_index_order() {
         assert_eq!(Counter::ALL.len(), Counter::COUNT);
         let names = Counter::ALL
             .iter()
@@ -335,7 +346,7 @@ mod tests {
             *value = index as u64 * 3;
         }
         let snapshot = Snapshot(values);
-        assert_eq!(snapshot.get(Counter::TermConstructed), 39 * 3);
+        assert_eq!(snapshot.get(Counter::TermConstructed), 41 * 3);
         let names = snapshot.iter().map(|(name, _)| name).collect::<Vec<_>>();
         let expected = Counter::ALL.map(Counter::name);
         assert_eq!(names, expected);

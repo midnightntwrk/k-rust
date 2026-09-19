@@ -7285,7 +7285,10 @@ fn krust_counters_writes_every_counter_in_schema_order_on_success_and_failure() 
     let text = fs::read_to_string(&counters).unwrap();
     let document: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(document["format"], "krust-counters");
-    assert_eq!(document["version"], 1);
+    assert_eq!(
+        document["version"],
+        k_rust_kore::measure::COUNTER_SCHEMA_VERSION
+    );
     let written = document["counters"].as_object().unwrap();
     let expected = k_rust_kore::measure::Counter::ALL.map(k_rust_kore::measure::Counter::name);
     assert_eq!(written.len(), expected.len());
@@ -7313,7 +7316,10 @@ fn krust_counters_writes_every_counter_in_schema_order_on_success_and_failure() 
     assert!(!output.status.success());
     let document: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&failed_counters).unwrap()).unwrap();
-    assert_eq!(document["counters"].as_object().unwrap().len(), 40);
+    assert_eq!(
+        document["counters"].as_object().unwrap().len(),
+        k_rust_kore::measure::Counter::COUNT
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
