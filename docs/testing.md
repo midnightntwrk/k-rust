@@ -117,6 +117,7 @@ The `--ignored` flag is required: without it the test is skipped and the run exi
 A kompile-stage mismatch report names every axiom that mentions a differing generated symbol, so one differing `#lambda` or `#freezer` name hides a second difference in the same axioms; the comparator collapses multi-suffix `#lambda` families first (`scripts/reference-normalisations.toml` N23) and prints the collapsed axiom count per case, and what remains is the difference to read.
 
 Reproduce one conformance driver step with the `krust_cmd` recorded in the run's `results.toml` rather than with a hand-written command.
+Under `--io off`, both `krust krun` and the pinned `krun` read standard input to end of file into `$STDIN`, so a manual probe must redirect standard input from `/dev/null` or the step's `.in` file or it blocks with no output at any depth; the driver already supplies one of those inputs.
 For every kprove recipe, the driver first compiles a separate proof-ready definition with the kompile recipe's Markdown selector and `--for-proving`, then passes the specification source unchanged through `--compiled-definition` with only the kprove recipe's Markdown selector.
 This preserves the frontend boundary between definition and specification parsing; a generated source wrapper does not model that boundary.
 The checked-inference probe of a regression case has the shape

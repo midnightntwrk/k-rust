@@ -3,7 +3,7 @@ use std::{
     env,
     error::Error,
     fmt, fs,
-    io::{self, Read, Write},
+    io::{self, IsTerminal, Read, Write},
     num::{NonZeroU32, NonZeroUsize},
     path::{Path, PathBuf},
     process::ExitCode,
@@ -517,8 +517,8 @@ struct KrunArgs {
     )]
     surface_pattern: Option<String>,
 
-    /// Enable real input/output for stream cells. `off` buffers standard input into `$STDIN`
-    /// with its trailing newlines replaced by exactly one, as K's krun does.
+    /// Enable real input/output for stream cells. `off` buffers standard input to end of file
+    /// into `$STDIN`, with its trailing newlines replaced by exactly one, as K's krun does.
     /// Defaults to `on` for execution and `off` for search.
     #[arg(long, value_enum, value_name = "on|off")]
     io: Option<IoArg>,
@@ -2252,6 +2252,12 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let input = if io || program_uses_stdin {
             String::new()
         } else {
+            if std::io::stdin().is_terminal() {
+                eprintln!(
+                    "note: reading standard input into $STDIN until end of file (--io off); \
+                     redirect from /dev/null or end the input with Ctrl-D"
+                );
+            }
             buffered_stdin_text(read_stdin_for_stream()?)
         };
         config_vars.push((
