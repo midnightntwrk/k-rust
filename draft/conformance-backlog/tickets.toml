@@ -187,7 +187,8 @@ elsewhere = [
 id = "CB-12"
 worker = "workers/CB-12.md"
 title = "Tutorial execution throughput: thread searches and whole-configuration simplification"
-state = "open"
+state = "closed"
+closed = "2026-09-20, implementations 1df865a and 068cbac; private CB-12-5/CB-22-3 closure runs on b64e130"
 cases = [
   "pl-tutorial/2_languages/1_simple/1_untyped",
   "pl-tutorial/2_languages/1_simple/2_typed/1_static",
@@ -197,9 +198,9 @@ cases = [
   "pl-tutorial/2_languages/2_kool/2_typed/2_static",
   "pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
 ]
-measured = "CB-12-3 measurement on af43672 after CB-20-B, using the exact CB-16 runnable artifacts and a version-2 measure build: factorial.kool reaches depth 5754 in 6.39 s; simplify rounds per applied rule still rise from 279 at depth 1000 to 507 at depth 5754 while public simplifier entries stay about 10.8 per rule and execution remains one branch. The reduced growing-list/map fixture holds public entries at 9 but grows rounds from 105 at step 8 to 665 at step 64. sortings.simple, matrix.kool and sorting.kool now complete in 12.63, 29.15 and 20.10 s. CB-20 closure measurement on bac3841 adds FUN constructor-bst-sorting to this cohort: one path completes 13,914 rules in 84.82 s; public simplifier entries remain 8.1 to 8.5 per rule while rounds per rule rise from 449 at depth 320 to 6,635 at depth 12,000. The complete FUN driver case matches under a measured 120 s step budget. The SIMPLE search cohort is distinct: untyped threads_04 grows from 60 rules / 3293 collection problems / 10 projected depth-bound answers at depth 20 to 5202 / 280597 / 218 at depth 40; untyped threads_05 grows from 30 rules / 30 collection problems at depth 30 to 2743 / 190485 at depth 120 and its unbounded command produces no output in 120 s; typed-dynamic threads_05 has the same curve. Machine-readable evidence: workers/CB-12-evidence/af43672/cohorts.toml and workers/CB-20-evidence/closure-bac3841.toml."
-work = "CB-12-1/2 are complete through CB-16. CB-12-3 is complete: counter schema version 2 adds simplify.invocations and simplify.nodes_skipped_evaluated, the measure ratchet pins the growing normalized-anywhere list/map fixture, and artifact-driven ladders classify the cohorts. CB-12-4 remains justified but is narrowed to caching a normalized closed anywhere or overloaded application only after its equation scan proves every compatible equation NotApplicable; the old whole-configuration rewrite tranche is removed because CB-20-B already fixed reconstruction and current public entry counts are flat. CB-12-4 now also owns constructor-bst-sorting.fun, whose CB-20 closure ladder exhibits the same flat-entry/growing-round shape. The distinct SIMPLE schedule-frontier and collection-recovery growth moved to CB-22. CB-12-5 follows CB-12-4 and CB-22 and re-measures all seven cases."
-resolution = "2026-09-20: CB-20-B closes the dominant reconstruction cost; it brings factorial.kool to 6.39 s and the matrix/sorting controls to 12.63 to 29.15 s. A smaller first-principles simplifier cache gap remains and is isolated by the reduced ratchet, factorial.kool, and the FUN constructor-bst-sorting ladder, so CB-12-4 stays open with narrower scope. SIMPLE thread search is not assigned that fix: its rules, collection candidates, recoveries and frontier grow together, so CB-22 owns investigation and implementation. The FUN case now matches with a measured temporary 120 s step budget; CB-12-5 must revisit that budget after CB-12-4. No exclusion or normalization is used."
+measured = "Private CB-12-5 seven-case run on b64e130 (/tmp/cb-12-22-closure-b64e130/runs/2-cb-12-5-seven-cases, --jobs 2): all non-excluded driven steps match in 262.5 s wall time. Case times are 109.8/36.7/63.7 s for SIMPLE, 60.6/69.6/83.5 s for KOOL, and 83.1 s for FUN. Each case records one runtime compile and every program uses its case artifact. Focused factorial counters record 7.12 simplify rounds per applied rule through depth 1,000 and 7.01 through completion, compared with 279 and 507 before the cache; public entries remain 10.8 to 10.7 per rule and SMT queries remain zero. The reduced fixture records 7/7 rounds, 9/9 entries and 15/15 constructed terms at steps 8/64. Results SHA-256: 567bc06a4f7da0ecbfafe5f9a512604f5af99e7f032bd9af7bacb5aeb4652fe2."
+work = "Done. CB-12-1/2 are complete through CB-16; CB-12-3 supplied versioned counters and the reduced ratchet. CB-12-4 landed at 1df865a and caches only context-safe evaluated equation heads after a complete inapplicable scan. CB-12-5 measured all seven cases with --jobs 2, rewrote every affected expectation reason, removed the six temporary case-budget overrides, and set FUN's measured 90 s step budget. The distinct SIMPLE search defect closed under CB-22."
+resolution = "2026-09-20: closed as the context-safe evaluated equation cache at 1df865a plus complete acceptance on b64e130. The reduced fixture is flat at 7 rounds per step, factorial remains one path with approximately 7 rounds per rule from depth 1,000 through completion, and all semantic outputs remain unchanged. Every case completes within the 300 s default case budget; FUN retains a 90 s step budget with 1.8x measured headroom. No exclusion or normalization was added for performance."
 elsewhere = [
   "draft/conformance-backlog/workers/CB-08.md (CB-08-3, CB-08-4)",
   "draft/conformance-backlog/workers/CB-16.md",
@@ -374,16 +375,17 @@ elsewhere = [
 [[ticket]]
 id = "CB-22"
 title = "SIMPLE thread search explores a growing collection-AC schedule frontier"
-state = "open"
+state = "closed"
+closed = "2026-09-20, implementation 068cbac; private CB-22-3 focused and two-case runs on b64e130"
 investigation = "complete"
 worker = "workers/CB-22.md"
 cases = [
   "pl-tutorial/2_languages/1_simple/1_untyped",
   "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic",
 ]
-measured = "CB-22-1 on main 7e3191b identifies the bounded-search failure: search_pattern_using clears max_results before graph traversal and truncates matches only after graph exhaustion. threads_05 has infinitely many real terminal stores y = 0, 1, 2, ...; a catch-all characterization probe that preserves the bound during traversal completes both definitions in 7.2 to 7.9 s with exactly the checked-in prefix 0 through 4. The first untyped split is two constraint-free thread-local successors at depth 36 that reconverge and deduplicate at depth 37; typed-dynamic has the analogous split and merge one depth earlier. Full frontiers are 10/234 for untyped threads_04 at depths 20/40, 6/24 for untyped threads_05 at depths 40/60, and 7 for typed-dynamic threads_05 at depth 40. Machine-readable evidence: workers/CB-22-evidence/summary.toml."
-work = "CB-22-1 is complete. CB-22-2 must enforce a pattern-search bound during BFS after counting distinct (substitution, constraints) matches; nonmatches and duplicate projections cannot consume the bound. A constraint-free catch-all target may pass the bound directly to graph search as a fast path. Do not add partial-order reduction, widen the visited key, change search order or modify collection recovery. CB-22-3 re-measures the focused commands, then both cases after CB-12-4. Details: workers/CB-22.md."
-resolution = "Port search-control defect; no exclusion, normalization, floor or budget change. Required schedules create the frontier and collection recovery is repeated downstream work, while the existing same-depth Pattern key merges the first commuting square. The titled nontermination occurs because the requested result bound is deferred until an infinite graph is exhausted. Implement CB-22-2 before narrowed CB-12-4, then measure both independent changes together."
+measured = "Private CB-22-3 focused runs on b64e130 use the exact cli,measure binary SHA-256 3dccdd4c09f52eaf29bbb8ac4dd467d87bf85b5369f0a575c8357d7344ee6dd2. Untyped and typed-dynamic threads_05 complete in 5.544 and 5.653 s; their KORE result hashes are ecba6cf98d8951fa8fe2943a1e617011a5d788cb459d206e4f2d4c0a0575275a and fb44341535f75af62ff95ee5d5dcae4692a3f58fbc249572d8a2a11ec93172f5. kprint yields the checked-in five terminal stores and outputs 0 through 4 byte for byte. The two-case driver run at /tmp/cb-12-22-closure-b64e130/runs/1-cb-22-3-simple completes in 109.5 s: typed-dynamic fully matches and untyped has only its existing matrix.simple undriven-recipe exclusion; every later driven recipe executes and matches."
+work = "Done. CB-22-1 attributed the infinite search. CB-22-2 landed at 068cbac and counts distinct pattern matches during BFS while preserving selective nonmatch, duplicate projection, exact-exhaustion and incomplete-search contracts. CB-22-3 repeated both focused artifact commands and both complete cases after CB-12-4, then raised the SIMPLE floors from the complete measurements."
+resolution = "2026-09-20: closed as a pattern-search result-bound port fix at 068cbac. Both infinite threads_05 programs now stop after the requested five distinct matches in BFS order, and every later driven recipe executes. No partial-order reduction, visited-key widening, search-order emulation, exclusion or normalization was introduced."
 elsewhere = [
   "draft/conformance-backlog/workers/CB-10.md (the fixed typed-instantiation halt that exposed this search cost)",
   "draft/conformance-backlog/workers/CB-12.md (single-path simplifier work remains CB-12-4)",
@@ -419,8 +421,8 @@ evidence = "5e1c373; docs/compatibility.md Anywhere rules and Concrete rewrite i
 id = "D-04"
 state = "decided"
 scope = "CB-12 temporary execution budgets"
-decision = "Post-CB-16 temporary execution ceilings are 600 s for SIMPLE untyped, 1200 s for both typed SIMPLE cases, 900 s for KOOL untyped and typed-dynamic, 1800 s for KOOL typed-static, and 1200 s for FUN with step_budget 60. They are correctness-discovery budgets, not floor changes. Revisit them after CB-12 throughput work and, for FUN, CB-20."
-evidence = "private CB-16 final acceptance run on main b71227a, 3220 s wall, results sha256 969fcaf6…; 8e7931d and b71227a"
+decision = "CB-12 closure removes all six tutorial case-budget overrides; every case uses the 300 s default. FUN uses a 90 s step budget so its measured 49.9 s constructor-bst-sorting outlier retains 1.8x headroom without hiding later recipes."
+evidence = "private CB-12-5 seven-case run on b64e130, 262.5 s wall at --jobs 2, results SHA-256 567bc06a4f7da0ecbfafe5f9a512604f5af99e7f032bd9af7bacb5aeb4652fe2; 1df865a and 068cbac"
 
 [[decision]]
 id = "D-05"

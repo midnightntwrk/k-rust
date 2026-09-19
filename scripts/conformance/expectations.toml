@@ -1996,86 +1996,73 @@ reason = "The accepted search recipes match after forwarding --pattern and compa
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/1_untyped"
-# Post-CB-16 final run exhausts this ceiling in the CB-12 thread search; revisit after CB-12 throughput work.
-budget = 600
-accepted_verdict = "krust-error"
-accepted_stage = "kompile"
+accepted_verdict = "skipped-with-reason"
+accepted_stage = "search"
+accepted_basis = "Private CB-12-5/CB-22-3 acceptance on b64e130 executes all 32 steps without a budget skip: 31 driven steps match and matrix.simple retains its existing undriven-recipe exclusion. Both bounded threads_05 probes return the checked-in five-result BFS prefix."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): the case uses one Rust runtime compilation (3.9 s), then all 25 invoked program commands consume krust-kompiled-runtime through --definition. It reaches its 600.0 s ceiling with 23 program matches, the existing matrix.simple C9 stdin skip, threads_05.simple killed after 350.6 s, and six later thread recipes budget-skipped. The cheap executed programs have a 0.6 s median (0.4 s minimum), down from the former 3.1 s source-recompilation floor; threads_04 takes 100.2 s, sortings 90.8 s and higher-order 14.8 s. The caller-catalog diagnostic fixed by CB-21 is absent. Artifact reuse is complete under CB-16; the remaining search state-growth cost and the 600 s ceiling belong to CB-12. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Private CB-12-5/CB-22-3 seven-case run (b64e130, --jobs 2): one Rust runtime compilation takes 3.9 s and all 31 program commands consume the case artifact. The 31 driven steps match in a 109.8 s case; matrix.simple is the existing C9 stdin exclusion. Program time has a 0.4 s minimum and 0.5 s median; threads_06 takes 31.6 s, threads_04 21.7 s, sortings 6.0 s, and bounded threads_05 5.6 s. Every recipe after threads_05 executes. The former 600 s discovery override is removed in favor of the 300 s default. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 step_exclusions = [
   { test = "tests/diverse/matrix.simple", out = "tests/diverse/matrix.simple.out", exclusion = "undriven-recipe", reason = "C9 cannot translate the recipe's interactive stdin to --io off for matrix.simple.in: its adjacent delimiters make STDIN-STREAM.stdinParseInt apply String2Int(\"\") to the buffered input, while the checked-in output is reachable only under --io on. Reconsider when CB-15-5 provides --io on stdin." },
 ]
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
-# Post-CB-16 final run: 878.6 s at --jobs 2; retain measured headroom until CB-12 throughput work.
-budget = 1200
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 36 steps match in 878.6 s. One Rust runtime compilation takes 2.3 s and all 35 program commands consume krust-kompiled-runtime through --definition. The minimum program time is 0.4 s; the execution-heavy outliers remain sortings.simple 505.1 s, matrix.simple 203.5 s, higher-order.simple 106.5 s and collatz.simple 6.0 s. Artifact reuse removes the former repeated compilation, while the residual single-path costs remain CB-12; the 1200 s ceiling retains measured headroom. Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
+reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): all 36 steps match in 36.7 s. One Rust runtime compilation takes 2.3 s and all 35 program commands consume the case artifact. Program time has a 0.3 s minimum and median; sortings.simple takes 6.2 s, matrix.simple 2.8 s, and higher-order.simple 2.6 s. The former 1200 s discovery override is removed in favor of the 300 s default. Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic"
-# Post-CB-16 final run exhausts this ceiling in the CB-12 thread search; revisit after CB-12 throughput work.
-budget = 1200
-accepted_verdict = "krust-error"
-accepted_stage = "inner-parse"
+accepted_verdict = "match"
+accepted_stage = "search"
+accepted_basis = "Private CB-12-5/CB-22-3 acceptance on b64e130 executes all 27 driven steps without a budget skip; every result matches, including the checked-in five-result threads_05 BFS prefix."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): the case uses one Rust runtime compilation (4.2 s), then all 22 invoked program commands consume krust-kompiled-runtime through --definition. It reaches its 1200.1 s ceiling with 21 program matches, threads_05.simple killed after 940.7 s, and four later thread recipes budget-skipped. Cheap programs have a 0.6 s median (0.4 s minimum); matrix.simple takes 107.2 s, sortings.simple 98.9 s and higher-order.simple 15.6 s. Artifact reuse is complete under CB-16; the remaining thread search cost and the 1200 s ceiling belong to CB-12. Six undriven-recipe targets remain outside the 27 steps because the upstream multi-target Make rule drives only its first selected target. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Private CB-12-5/CB-22-3 seven-case run (b64e130, --jobs 2): all 27 driven steps match in 63.7 s. One Rust runtime compilation takes 4.2 s and all 26 program commands consume the case artifact. Program time has a 0.4 s minimum and 0.5 s median; matrix.simple takes 11.4 s, sortings.simple 6.0 s, bounded threads_05 5.7 s, and threads_12 1.4 s. Every recipe after threads_05 executes. The former 1200 s discovery override is removed in favor of the 300 s default. Six targets remain outside the driven set because the upstream multi-target Make rule selects only its first target. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/1_untyped"
-# Post-CB-16 final run: 543.6 s at --jobs 2; reduced with headroom and revisited after CB-12 throughput work.
-budget = 900
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 29 steps match in 543.6 s. One Rust runtime compilation takes 6.0 s and all 28 program commands consume krust-kompiled-runtime through --definition. The program median is 1.2 s (0.6 s minimum); matrix.kool takes 265.1 s, sorting.kool 188.7 s and factorial.kool 33.9 s. The ceiling is reduced from 1800 s to 900 s with measured headroom. Artifact reuse is complete under CB-16; the remaining algorithmic simplifier costs belong to CB-12. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): all 29 steps match in 60.6 s. One Rust runtime compilation takes 6.3 s and all 28 program commands consume the case artifact. Program time has a 0.6 s minimum and 0.7 s median; matrix.kool takes 11.6 s, sorting.kool 6.2 s, and factorial.kool 4.3 s. A focused measure run completes factorial in 4.114 s over 5,768 applied rules; simplify rounds per rule are 7.12 through depth 1,000 and 7.01 overall, public entries remain 10.8 to 10.7 per rule, and SMT queries remain zero. The former 900 s discovery override is removed in favor of the 300 s default. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"
-# Post-CB-16 final run: 626.7 s at --jobs 2; reduced with headroom and revisited after CB-12 throughput work.
-budget = 900
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 30 steps match in 626.7 s. One Rust runtime compilation takes 6.7 s and all 29 program commands consume krust-kompiled-runtime through --definition. The program median is 1.5 s (0.7 s minimum); matrix.kool takes 291.3 s, sorting.kool 215.2 s, factorial.kool 37.0 s and collatz.kool 20.5 s. The ceiling is reduced from 1800 s to 900 s with measured headroom. Artifact reuse is complete under CB-16; the remaining algorithmic simplifier costs belong to CB-12. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): all 30 steps match in 69.6 s. One Rust runtime compilation takes 7.0 s and all 29 program commands consume the case artifact. Program time has a 0.7 s minimum and 0.9 s median; matrix.kool takes 12.3 s, sorting.kool 6.8 s, factorial.kool 4.8 s, and collatz.kool 3.5 s. The former 900 s discovery override is removed in favor of the 300 s default. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"
-# Post-CB-16 final run: 1419.6 s at --jobs 2; retain measured headroom until CB-12 throughput work.
-budget = 1800
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 31 steps match in 1419.6 s. One Rust runtime compilation takes 4.1 s and all 30 program commands consume krust-kompiled-runtime through --definition. The minimum program time is 0.5 s; execution remains dominated by sorting.kool at 725.8 s, matrix.kool at 374.8 s, function-types.kool at 41.6 s and point.kool at 28.6 s. Artifact reuse is complete under CB-16; the residual single-path costs remain CB-12 and require retaining the 1800 s ceiling. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): all 31 steps match in 83.5 s. One Rust runtime compilation takes 4.3 s and all 30 program commands consume the case artifact. Program time has a 0.4 s minimum and 1.2 s median; sorting.kool takes 11.7 s, matrix.kool 8.5 s, super-2.kool 3.6 s, and function-types.kool 2.7 s. The former 1800 s discovery override is removed in favor of the 300 s default. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
-# CB-20 closure run: 115.7 s with all 51 driven steps matching.
-# CB-12 retains the 81.3 s constructor-bst-sorting.fun throughput residue.
-budget = 300
-step_budget = 120
+step_budget = 90
 accepted_verdict = "match"
 accepted_stage = "krun"
 accepted_basis = "Private CB-20 closure run 2 on bac3841 verifies definition.kore agreement and all 50 artifact-driven programs against their checked-in outputs; backend and CLI regressions at 7e84716 cover overloaded-list owise selection, and the construction ratchets at af43672 cover changed-spine path replacement."
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-20 closure run 2 (main bac3841, /tmp/cb-20-closure-bac3841/runs/2-cb-20-closure-120, --jobs 1): the kompile comparison and all 50 artifact-driven program steps match in 115.7 s. The eleven former equation-matching witnesses now produce their checked-in result without SMT queries, and tail-recursion.fun completes in 7.4 s instead of 123.7 s. constructor-bst-sorting.fun is the remaining throughput outlier at 81.3 s; its flat public simplifier entries and growing rounds are assigned to CB-12-4. The measured 300 s case budget and 120 s step budget retain 2.6x and 1.5x headroom. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
+reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): the kompile comparison and all 50 artifact-driven program steps match in 83.1 s. One Rust runtime compilation takes 2.7 s. Program time has a 0.2 s minimum and median; constructor-bst-sorting.fun takes 49.9 s, tail-recursion.fun 7.1 s, and every other program at most 0.7 s. The 300 s default case budget retains 3.6x headroom; the measured 90 s step budget retains 1.8x headroom and ensures later recipes remain observable if the outlier regresses. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
 
 [[case]]
 name = "poly-kitem"

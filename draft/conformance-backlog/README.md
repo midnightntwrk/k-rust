@@ -20,26 +20,21 @@ Inside a worker file every `[[work_item]]` carries `state` (`open`, `partial`, `
 `[[driver_followup]]` rows (`id`, `title`, `state`, `found`, `work`, `elsewhere`) record conformance-driver defects that are not tied to a pending case; the audit ignores them.
 Seeded 2026-09-18 from ratchet sequence 4 (`target/conformance/ratchet.toml`, label `int`, HEAD `9c1a64d`) and four read-only searches of `draft/` recorded in `/tmp/nonmatch/coverage.md`.
 
-## Current queue (2026-09-20, measured through CB-20 closure on `bac3841`)
+## Current queue (2026-09-20, measured through CB-12/CB-22 closure on `b64e130`)
 
-The ledger has three open tickets; CB-12 and CB-22 own pending conformance verdicts, while CB-15 is evidence-only product work.
-The private CB-20 closure audit reports CB-20 as closable after all 51 FUN steps match; the combined audit over the shared history and the private closure result reports the two pending SIMPLE cases under CB-12/CB-22, zero pending cases without an open owner, and three below-floor cases that are all covered by existing exclusions.
+The ledger has one open ticket: CB-15 is evidence-only product work, and no open ticket owns a pending conformance verdict.
+The combined audit over shared history, CB-20 closure, and the private CB-12/CB-22 acceptance reports zero pending cases, zero pending cases without an open owner, and three below-floor cases that are all covered by existing exclusions.
 All eleven `[[decision]]` rows are decided; no owner policy choice blocks the queue.
 
 | ticket | role | current state | next gate |
 |---|---|---|---|
-| CB-12 | owner of single-path tutorial simplification | CB-12-3 complete: versioned counters and a reduced ratchet prove that rounds still grow inside a flat number of simplifier entries; CB-20-B removed the larger reconstruction cost, and CB-20 closure adds FUN `constructor-bst-sorting` as another witness | Implement narrowed CB-12-4: cache a normalized closed anywhere/overloaded application only after its equation scan proves every equation inapplicable. Then wait for CB-22 before CB-12-5. |
-| CB-22 | owner of SIMPLE thread-search residue | CB-22-1 complete: the frontier contains required schedules and already recombines commuting steps; `search_pattern_using` discards the requested result bound until graph exhaustion, which cannot finish for `threads_05`'s infinite result stream | Implement CB-22-2 during BFS, counting distinct pattern matches rather than graph states; a catch-all fast path is valid. |
 | CB-15 | evidence-only product work | fleshed out; no pending verdict depends on it because C9 already compares the definition-computed bytes | Implement after the case-owning queue unless product priority overrides conformance closure. Start with captured batch output, then establish effect ownership before live hooks. |
 
 The sequential order is:
 
-1. Implement CB-22-2: stop pattern-search traversal after the requested number of distinct matches. Do not add partial-order reduction, wider deduplication, a search-order change or a collection-recovery change.
-2. Implement narrowed CB-12-4 independently, then run its factorial, FUN constructor-BST, and growing-collection counter ladders. The change may cache only a closed equation head whose scan reached a fixed point with no applicable or blocked equation.
-3. Run CB-22-3 and CB-12-5 as one acceptance sequence after both changes, rewrite expectation reasons from that run, and raise floors only for complete matching cases.
-4. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
+1. Implement CB-15 as the remaining independent product programme: CB-15-2, then CB-15-1/3/4/5, then CB-15-6.
 
-CB-16, CB-20, and CB-21 are closed.
+CB-12, CB-16, CB-20, CB-21, and CB-22 are closed.
 Every executed tutorial program now uses one validated runnable artifact per case, so repeated source compilation is no longer part of CB-12.
 CB-15 must retain C9 as an independent oracle and must not turn search or RPC into implicit live-IO modes.
 
@@ -448,3 +443,43 @@ Its public simplifier entries stay approximately flat at 8.1 to 8.5 per applied 
 CB-12's ticket and worker now name that witness and must revisit the temporary 120 second step budget after the cache work.
 Optional diagnostics item CB-20-C is explicitly deferred after closure.
 Machine-readable focused evidence is `workers/CB-20-evidence/closure-bac3841.toml`; full driver evidence remains under the private run path.
+
+## 2026-09-20: CB-12 and CB-22 closed on `b64e130`
+
+The closure used the exact `b64e130` release `cli,measure` binary at `/home/sebastiengllmt/worktrees/cb-12-22-closure/target/release/krust`, SHA-256 `3dccdd4c09f52eaf29bbb8ac4dd467d87bf85b5369f0a575c8357d7344ee6dd2`.
+Both artifact-driven `threads_05` commands return the five checked-in terminal configurations byte for byte after `kprint`: SIMPLE untyped completes in 5.544 seconds with KORE SHA-256 `ecba6cf98d8951fa8fe2943a1e617011a5d788cb459d206e4f2d4c0a0575275a`, and typed dynamic completes in 5.653 seconds with KORE SHA-256 `fb44341535f75af62ff95ee5d5dcae4692a3f58fbc249572d8a2a11ec93172f5`.
+The focused evidence is under `/tmp/cb-12-22-closure-b64e130/focused/`.
+
+The two-case CB-22-3 ratchet run is `/tmp/cb-12-22-closure-b64e130/runs/1-cb-22-3-simple/`.
+It completes in 109.5 seconds at `--jobs 2` with no case-budget or step-budget skip.
+Typed dynamic fully matches; untyped has 31 matching driven steps and only the existing `matrix.simple` `undriven-recipe` exclusion.
+Every driven recipe after `threads_05` executes and matches.
+
+The seven-case CB-12-5 run is `/tmp/cb-12-22-closure-b64e130/runs/2-cb-12-5-seven-cases/`, results SHA-256 `567bc06a4f7da0ecbfafe5f9a512604f5af99e7f032bd9af7bacb5aeb4652fe2`.
+It completes in 262.5 seconds at `--jobs 2`, with 1,467 MiB peak RSS, zero regressions, zero oracle changes, and no non-excluded result below its floor.
+Each case performs exactly one Rust runtime compilation, and every program command consumes that case artifact.
+
+| case | verdict | case s | runtime compile s | minimum / median program s | named outliers |
+|---|---|---:|---:|---:|---|
+| SIMPLE untyped | 31 matches plus the existing matrix exclusion | 109.8 | 3.9 | 0.4 / 0.5 | threads_06 31.6 s; threads_04 21.7 s; sortings 6.0 s; threads_05 5.6 s |
+| SIMPLE typed static | match | 36.7 | 2.3 | 0.3 / 0.3 | sortings 6.2 s; matrix 2.8 s; higher-order 2.6 s |
+| SIMPLE typed dynamic | match | 63.7 | 4.2 | 0.4 / 0.5 | matrix 11.4 s; sortings 6.0 s; threads_05 5.7 s; threads_12 1.4 s |
+| KOOL untyped | match | 60.6 | 6.3 | 0.6 / 0.7 | matrix 11.6 s; sorting 6.2 s; factorial 4.3 s |
+| KOOL typed dynamic | match | 69.6 | 7.0 | 0.7 / 0.9 | matrix 12.3 s; sorting 6.8 s; factorial 4.8 s; collatz 3.5 s |
+| KOOL typed static | match | 83.5 | 4.3 | 0.4 / 1.2 | sorting 11.7 s; matrix 8.5 s; super-2 3.6 s; function-types 2.7 s |
+| FUN untyped | match | 83.1 | 2.7 | 0.2 / 0.2 | constructor-bst-sorting 49.9 s; tail-recursion 7.1 s |
+
+Focused `factorial.kool` measure runs record 1.071 seconds through depth 1,000 and 4.114 seconds through completion at 5,768 applied rules.
+The completion segment after depth 1,000 costs 0.64 milliseconds per applied rule.
+Simplifier rounds are 7.12 per applied rule through depth 1,000 and 7.01 overall, public simplifier entries are 10.8 and 10.7 per applied rule, and SMT queries remain zero.
+The reduced growing-collection ratchet records 7 rounds, 9 public entries, and 15 constructed terms at both steps 8 and 64.
+This replaces the pre-cache growth from 279 to 507 factorial rounds per rule and from 105 to 665 reduced-fixture rounds per step.
+
+All six temporary tutorial case-budget overrides are removed; the seven cases complete within the 300 second default with at least 2.7x measured case headroom.
+FUN retains a 90 second step budget, 1.8x its measured 49.9 second outlier, so a single regression cannot hide later recipes.
+The SIMPLE untyped acceptance floor rises to `skipped-with-reason`/`search` because its only skipped step is the existing per-step exclusion; SIMPLE typed dynamic rises to `match`/`search`.
+The other five match floors, including FUN, are preserved.
+
+The combined private audit is `/tmp/cb-12-22-closure-b64e130/combined-audit.toml`.
+It reports zero pending cases, zero pending cases without an open ticket, no non-excluded case below floor, and CB-15 as the only open evidence-only ticket.
+No exclusion or normalization was added for performance, no accepted floor was lowered, and C9 remains independent.
