@@ -24,6 +24,7 @@ use crate::{
         names::{HookName, HookNamespace},
     },
     timeout::interruption_requested,
+    transition::ExecutionEvaluationContext,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -121,11 +122,30 @@ pub(crate) fn evaluate_in_definition(
     evaluate_with_definition(term, Some(definition))
 }
 
+/// Evaluate a hook candidate with buffered execution state available.
+///
+/// Console hooks remain unsupported until their individual contracts are implemented. This entry
+/// point establishes the capability boundary for them without exposing host descriptors to pure
+/// simplification.
+#[allow(dead_code)] // Reserved for execution-only console hook dispatch.
+pub(crate) fn evaluate_in_execution(
+    term: &Term,
+    definition: &BackendDefinition,
+    execution: &mut ExecutionEvaluationContext,
+) -> Result<BuiltinResult, BuiltinError> {
+    evaluate_with_context(
+        term,
+        Some(&definition.sort_graph),
+        Some(definition),
+        Some(execution),
+    )
+}
+
 fn evaluate_with_sort_graph(
     term: &Term,
     sort_graph: Option<&SortGraph>,
 ) -> Result<BuiltinResult, BuiltinError> {
-    evaluate_with_context(term, sort_graph, None)
+    evaluate_with_context(term, sort_graph, None, None)
 }
 
 fn evaluate_with_definition(
@@ -136,6 +156,7 @@ fn evaluate_with_definition(
         term,
         definition.map(|definition| &definition.sort_graph),
         definition,
+        None,
     )
 }
 
@@ -143,6 +164,7 @@ fn evaluate_with_context(
     term: &Term,
     sort_graph: Option<&SortGraph>,
     definition: Option<&BackendDefinition>,
+    execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<BuiltinResult, BuiltinError> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -154,13 +176,20 @@ fn evaluate_with_context(
         return Ok(BuiltinResult::NotApplicable);
     };
     let result_sort = term.sort();
-    evaluate_hook_with_context(hook, arguments, Some(&result_sort), sort_graph, definition)
+    evaluate_hook_with_context(
+        hook,
+        arguments,
+        Some(&result_sort),
+        sort_graph,
+        definition,
+        execution,
+    )
 }
 
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
 
 pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
-    evaluate_hook_with_context(hook, arguments, None, None, None)
+    evaluate_hook_with_context(hook, arguments, None, None, None, None)
 }
 
 fn evaluate_hook_with_context(
@@ -169,6 +198,7 @@ fn evaluate_hook_with_context(
     result_sort: Option<&Sort>,
     sort_graph: Option<&SortGraph>,
     definition: Option<&BackendDefinition>,
+    _execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<BuiltinResult, BuiltinError> {
     check_interrupted()?;
     match hook {

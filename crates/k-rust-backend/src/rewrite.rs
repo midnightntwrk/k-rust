@@ -37,8 +37,8 @@ use crate::{
     },
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     transition::{
-        EffectJournal, ObservationEvent, ObservationHead, ObservationLog, ObservationOptions,
-        PatternDigest, TransitionId, UncommittedObservation, UncommittedReason,
+        EffectJournal, ExecutionIoState, ObservationEvent, ObservationHead, ObservationLog,
+        ObservationOptions, PatternDigest, TransitionId, UncommittedObservation, UncommittedReason,
     },
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
 };
@@ -363,6 +363,8 @@ pub struct ExecutionLeaf {
     pub observations: Vec<ObservationEvent>,
     /// Ordered effects committed by this branch.
     pub effects: Vec<BuiltinEffect>,
+    /// Buffered console state retained by this branch.
+    pub io: ExecutionIoState,
     pub halt_reason: HaltReason,
 }
 
@@ -398,6 +400,28 @@ pub fn execute(
     execute_with_solver(definition, initial, options, &NoSolver)
 }
 
+/// Execute one ordinary branch set with pre-buffered console input.
+///
+/// This does not enable console hooks. It establishes the branch-local state consumed by the
+/// execution-only builtin evaluator once those hooks are implemented.
+pub fn execute_with_io_state(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: ExecutionOptions,
+    io: ExecutionIoState,
+) -> ExecutionResult {
+    execute_using(
+        definition,
+        vec![initial],
+        options,
+        &NoSolver,
+        Some(io),
+        None,
+        |_| {},
+    )
+    .0
+}
+
 pub fn execute_with_solver(
     definition: &BackendDefinition,
     initial: Pattern,
@@ -430,6 +454,7 @@ pub fn execute_observed_with_solver(
         vec![initial],
         options,
         solver,
+        None,
         Some(observation),
         |_| {},
     )
@@ -443,7 +468,16 @@ pub fn execute_with_solver_and_observer(
     solver: &dyn SmtSolver,
     observe: impl FnMut(&BuiltinEffect),
 ) -> ExecutionResult {
-    execute_using(definition, vec![initial], options, solver, None, observe).0
+    execute_using(
+        definition,
+        vec![initial],
+        options,
+        solver,
+        None,
+        None,
+        observe,
+    )
+    .0
 }
 
 pub fn execute_disjunction_with_solver_and_observer(
@@ -453,7 +487,7 @@ pub fn execute_disjunction_with_solver_and_observer(
     solver: &dyn SmtSolver,
     observe: impl FnMut(&BuiltinEffect),
 ) -> ExecutionResult {
-    execute_using(definition, initial, options, solver, None, observe).0
+    execute_using(definition, initial, options, solver, None, None, observe).0
 }
 
 /// Execute a disjunction and report the outcome of its initial simplification phase.
@@ -464,7 +498,7 @@ pub fn execute_disjunction_with_solver_and_observer_with_initial_status(
     solver: &dyn SmtSolver,
     observe: impl FnMut(&BuiltinEffect),
 ) -> (ExecutionResult, InitialSimplificationStatus) {
-    execute_using(definition, initial, options, solver, None, observe)
+    execute_using(definition, initial, options, solver, None, None, observe)
 }
 
 fn execute_using(
@@ -472,12 +506,14 @@ fn execute_using(
     initial: Vec<Pattern>,
     options: ExecutionOptions,
     solver: &dyn SmtSolver,
+    initial_io: Option<ExecutionIoState>,
     observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
 ) -> (ExecutionResult, InitialSimplificationStatus) {
     let mut fresh_counter = 0;
     let mut observation_log = ObservationLog::default();
     let initial_input_count = initial.len();
+    let initial_io = initial_io.unwrap_or_default();
     let mut pending = initial
         .into_iter()
         .map(|pattern| ExecutionState {
@@ -486,6 +522,7 @@ fn execute_using(
             trace: Vec::new(),
             observation: None,
             effects: EffectJournal::default(),
+            io: initial_io.clone(),
             is_initial_input: true,
         })
         .collect::<VecDeque<_>>();
@@ -810,15 +847,7 @@ fn execute_using(
                     continue;
                 }
                 let terminal_rule = selected_stop_rule(&applied, &options.terminal_rules);
-                let mut next = next_state(
-                    state.depth,
-                    state.trace,
-                    state.observation,
-                    state.effects,
-                    applied,
-                    &mut observation_log,
-                    observation,
-                );
+                let mut next = next_state(state, applied, &mut observation_log, observation);
                 if let Some(rule) = terminal_rule {
                     next.pattern = match simplify_result_pattern(
                         definition,
@@ -1022,10 +1051,7 @@ fn execute_using(
                             enqueue_execution_states(
                                 &mut pending,
                                 vec![next_state(
-                                    state.depth,
-                                    state.trace,
-                                    state.observation,
-                                    state.effects,
+                                    state,
                                     applied,
                                     &mut observation_log,
                                     observation,
@@ -1038,10 +1064,7 @@ fn execute_using(
                             enqueue_execution_states(
                                 &mut pending,
                                 vec![remaining_state(
-                                    state.depth,
-                                    state.trace,
-                                    state.observation,
-                                    state.effects,
+                                    state,
                                     before,
                                     remainder,
                                     &mut observation_log,
@@ -1066,22 +1089,16 @@ fn execute_using(
                     Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
                 for applied in branches {
                     next.push(next_state(
-                        state.depth,
-                        state.trace.clone(),
-                        state.observation,
-                        state.effects.clone(),
+                        state.clone(),
                         applied,
                         &mut observation_log,
                         observation,
                     ));
                 }
                 if let Some(remainder) = remainder {
-                    let before = state.pattern;
+                    let before = state.pattern.clone();
                     next.push(remaining_state(
-                        state.depth,
-                        state.trace,
-                        state.observation,
-                        state.effects,
+                        state,
                         before,
                         remainder,
                         &mut observation_log,
@@ -1179,9 +1196,10 @@ impl SelectedExecutionLeaves {
     }
 }
 
-/// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342): leaves that carry the
-/// same structural term and constraint set collapse into the first one found. Bottom leaves carry
-/// no configuration, so whole-state trivial and vacuous outcomes remain distinct.
+/// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342), extended with branch-local
+/// observable state: leaves collapse only when their structural term, constraint set, committed
+/// effects, and console state agree. Bottom leaves carry no configuration, so whole-state trivial
+/// and vacuous outcomes remain distinct.
 fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
     let mut seen = Vec::new();
     leaves
@@ -1201,6 +1219,7 @@ fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
                     .cloned()
                     .collect::<BTreeSet<_>>(),
                 leaf.effects.clone(),
+                leaf.io.clone(),
             );
             if seen.contains(&key) {
                 false
@@ -1455,68 +1474,59 @@ fn externalise_leaf(
 }
 
 fn next_state(
-    depth: u64,
-    mut trace: Vec<TraceEntry>,
-    observation: ObservationHead,
-    effects: EffectJournal,
+    mut state: ExecutionState,
     applied: AppliedRule,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
-    let observation = observation_log.append_applied(observation, &applied, observation_options);
-    let mut effects = effects;
-    effects.commit(applied.effects.iter().cloned());
-    trace.push(TraceEntry {
-        depth: depth + 1,
+    state.observation =
+        observation_log.append_applied(state.observation, &applied, observation_options);
+    state.effects.commit(applied.effects.iter().cloned());
+    state.trace.push(TraceEntry {
+        depth: state.depth + 1,
         kind: TraceKind::Rewrite,
         label: applied.label,
         unique_id: applied.unique_id,
     });
-    ExecutionState {
-        pattern: applied.pattern,
-        depth: depth + 1,
-        trace,
-        observation,
-        effects,
-        is_initial_input: false,
-    }
+    state.pattern = applied.pattern;
+    state.depth += 1;
+    state.is_initial_input = false;
+    state
 }
 
 fn remaining_state(
-    depth: u64,
-    mut trace: Vec<TraceEntry>,
-    observation: ObservationHead,
-    mut effects: EffectJournal,
+    mut state: ExecutionState,
     before: Pattern,
     remainder: RemainderBranch,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
-    let observation =
-        observation_log.append_remainder(observation, before, &remainder, observation_options);
-    trace.push(TraceEntry {
-        depth,
+    state.observation = observation_log.append_remainder(
+        state.observation,
+        before,
+        &remainder,
+        observation_options,
+    );
+    state.trace.push(TraceEntry {
+        depth: state.depth,
         kind: TraceKind::Remainder,
         label: None,
         unique_id: remainder.rule_ids.join(","),
     });
-    effects.commit(remainder.effects);
-    ExecutionState {
-        pattern: remainder.pattern,
-        depth,
-        trace,
-        observation,
-        effects,
-        is_initial_input: false,
-    }
+    state.effects.commit(remainder.effects);
+    state.pattern = remainder.pattern;
+    state.is_initial_input = false;
+    state
 }
 
+#[derive(Clone)]
 struct ExecutionState {
     pattern: Pattern,
     depth: u64,
     trace: Vec<TraceEntry>,
     observation: ObservationHead,
     effects: EffectJournal,
+    io: ExecutionIoState,
     is_initial_input: bool,
 }
 
@@ -1530,6 +1540,7 @@ impl ExecutionState {
             branch,
             observations,
             effects: self.effects.into_committed(),
+            io: self.io,
             halt_reason,
         }
     }
@@ -4910,6 +4921,7 @@ mod tests {
             branch: Vec::new(),
             observations: Vec::new(),
             effects: Vec::new(),
+            io: ExecutionIoState::default(),
             halt_reason,
         };
         let mut selected = SelectedExecutionLeaves::default();
@@ -4926,5 +4938,45 @@ mod tests {
         assert_eq!(selected.retained().len(), 2);
         assert_eq!(selected.retained()[0].halt_reason, HaltReason::Stuck);
         assert_eq!(selected.retained()[1].halt_reason, HaltReason::Cancelled);
+    }
+
+    #[test]
+    fn final_leaves_with_distinct_console_states_do_not_merge() {
+        let definition = definition("");
+        let cursor_zero = ExecutionIoState::new(Vec::from(&b"input"[..]));
+        let mut cursor_evaluation = cursor_zero.begin_evaluation();
+        assert_eq!(cursor_evaluation.read(1), b"i");
+        let cursor_one = cursor_evaluation.commit();
+        let mut left_evaluation = ExecutionIoState::default().begin_evaluation();
+        left_evaluation.append(1, Vec::from(&b"left"[..]));
+        let left_io = left_evaluation.commit();
+        let mut right_evaluation = ExecutionIoState::default().begin_evaluation();
+        right_evaluation.append(1, Vec::from(&b"right"[..]));
+        let right_io = right_evaluation.commit();
+        let leaf = |io| ExecutionLeaf {
+            pattern: subject(&definition, "same"),
+            depth: 1,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+            effects: Vec::new(),
+            io,
+            halt_reason: HaltReason::Stuck,
+        };
+
+        let cursor_leaves = merge_equal_final_leaves(vec![leaf(cursor_zero), leaf(cursor_one)]);
+        assert_eq!(cursor_leaves.len(), 2);
+
+        let transcript_leaves = merge_equal_final_leaves(vec![leaf(left_io), leaf(right_io)]);
+
+        assert_eq!(transcript_leaves.len(), 2);
+        assert_eq!(
+            transcript_leaves[0].io.transcript()[0].bytes.as_ref(),
+            b"left"
+        );
+        assert_eq!(
+            transcript_leaves[1].io.transcript()[0].bytes.as_ref(),
+            b"right"
+        );
     }
 }

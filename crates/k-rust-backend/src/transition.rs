@@ -1,6 +1,6 @@
 //! Stable transition identities and opt-in structured observation contracts.
 
-use std::{collections::BTreeMap, collections::BTreeSet, fmt};
+use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
 
 use sha2::{Digest, Sha256};
 
@@ -92,6 +92,92 @@ pub struct UncommittedObservation {
 pub enum ObservationEvent {
     Transition(TransitionObservation),
     Uncommitted(UncommittedObservation),
+}
+
+/// One ordered write to a console descriptor on an execution branch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DescriptorTranscriptEntry {
+    pub descriptor: i32,
+    pub bytes: Arc<[u8]>,
+}
+
+/// Buffered console state owned by one execution branch.
+///
+/// Input is immutable and shared between forks. The cursor and transcript are values of the
+/// branch, while the transcript storage is copied only when a fork first appends to it.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExecutionIoState {
+    input: Arc<[u8]>,
+    cursor: usize,
+    transcript: Arc<Vec<DescriptorTranscriptEntry>>,
+}
+
+impl ExecutionIoState {
+    pub fn new(input: impl Into<Arc<[u8]>>) -> Self {
+        Self {
+            input: input.into(),
+            cursor: 0,
+            transcript: Arc::default(),
+        }
+    }
+
+    pub fn input(&self) -> &[u8] {
+        &self.input
+    }
+
+    pub const fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    pub fn remaining_input(&self) -> &[u8] {
+        &self.input[self.cursor..]
+    }
+
+    pub fn transcript(&self) -> &[DescriptorTranscriptEntry] {
+        &self.transcript
+    }
+
+    /// Fork a tentative evaluator state from this branch.
+    ///
+    /// Dropping the context rolls every read and write back. `commit` returns the updated state
+    /// for the caller to attach to the retained successor.
+    #[allow(dead_code)] // Reserved for execution-only console hook dispatch.
+    pub(crate) fn begin_evaluation(&self) -> ExecutionEvaluationContext {
+        ExecutionEvaluationContext {
+            state: self.clone(),
+        }
+    }
+}
+
+/// The console capability available to an impure builtin candidate.
+///
+/// This context owns only buffered semantic state. It has no process handles and cannot read from
+/// or write to the host. Candidate selection commits it by attaching `commit()`'s result to the
+/// selected successor; a failed candidate is rolled back by dropping the context.
+#[derive(Debug)]
+pub(crate) struct ExecutionEvaluationContext {
+    state: ExecutionIoState,
+}
+
+#[allow(dead_code)] // Reserved for execution-only console hook dispatch.
+impl ExecutionEvaluationContext {
+    pub(crate) fn read(&mut self, maximum: usize) -> &[u8] {
+        let start = self.state.cursor;
+        let end = start.saturating_add(maximum).min(self.state.input.len());
+        self.state.cursor = end;
+        &self.state.input[start..end]
+    }
+
+    pub(crate) fn append(&mut self, descriptor: i32, bytes: impl Into<Arc<[u8]>>) {
+        Arc::make_mut(&mut self.state.transcript).push(DescriptorTranscriptEntry {
+            descriptor,
+            bytes: bytes.into(),
+        });
+    }
+
+    pub(crate) fn commit(self) -> ExecutionIoState {
+        self.state
+    }
 }
 
 /// Effects owned by the committed prefix of one execution branch.
@@ -369,4 +455,99 @@ fn theory_contains_rule(theory: &crate::rule::Theory, rule_id: &str) -> bool {
         .flat_map(|priorities| priorities.values())
         .flatten()
         .any(|rule| rule.attributes.unique_id == rule_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DescriptorTranscriptEntry, ExecutionIoState};
+
+    #[test]
+    fn evaluation_reads_prebuffered_input_in_order() {
+        let state = ExecutionIoState::new(Vec::from(&b"abcd"[..]));
+        let mut evaluation = state.begin_evaluation();
+
+        assert_eq!(evaluation.read(2), b"ab");
+        assert_eq!(evaluation.read(3), b"cd");
+        assert_eq!(evaluation.read(1), b"");
+
+        let committed = evaluation.commit();
+        assert_eq!(committed.cursor(), 4);
+        assert_eq!(committed.remaining_input(), b"");
+    }
+
+    #[test]
+    fn dropping_a_failed_evaluation_does_not_advance_the_branch_cursor() {
+        let state = ExecutionIoState::new(Vec::from(&b"retry"[..]));
+        let mut failed = state.begin_evaluation();
+        assert_eq!(failed.read(3), b"ret");
+        drop(failed);
+
+        assert_eq!(state.cursor(), 0);
+        let mut retry = state.begin_evaluation();
+        assert_eq!(retry.read(3), b"ret");
+        assert_eq!(retry.commit().cursor(), 3);
+    }
+
+    #[test]
+    fn forks_after_a_read_have_independent_cursors() {
+        let state = ExecutionIoState::new(Vec::from(&b"abcdef"[..]));
+        let mut first = state.begin_evaluation();
+        assert_eq!(first.read(1), b"a");
+        let fork_point = first.commit();
+
+        let mut left = fork_point.begin_evaluation();
+        let mut right = fork_point.begin_evaluation();
+        assert_eq!(left.read(2), b"bc");
+        assert_eq!(right.read(4), b"bcde");
+
+        let left = left.commit();
+        let right = right.commit();
+        assert_eq!(fork_point.cursor(), 1);
+        assert_eq!(left.cursor(), 3);
+        assert_eq!(right.cursor(), 5);
+        assert_eq!(left.remaining_input(), b"def");
+        assert_eq!(right.remaining_input(), b"f");
+    }
+
+    #[test]
+    fn forks_retain_distinct_ordered_descriptor_transcripts() {
+        let state = ExecutionIoState::default();
+        let mut left = state.begin_evaluation();
+        let mut right = state.begin_evaluation();
+
+        left.append(1, Vec::from(&b"left-out"[..]));
+        left.append(2, Vec::from(&b"left-err"[..]));
+        right.append(2, Vec::from(&b"right-err"[..]));
+        right.append(1, Vec::from(&b"right-out"[..]));
+
+        let left = left.commit();
+        let right = right.commit();
+        assert!(state.transcript().is_empty());
+        assert_eq!(
+            left.transcript(),
+            [
+                DescriptorTranscriptEntry {
+                    descriptor: 1,
+                    bytes: Vec::from(&b"left-out"[..]).into(),
+                },
+                DescriptorTranscriptEntry {
+                    descriptor: 2,
+                    bytes: Vec::from(&b"left-err"[..]).into(),
+                },
+            ]
+        );
+        assert_eq!(
+            right.transcript(),
+            [
+                DescriptorTranscriptEntry {
+                    descriptor: 2,
+                    bytes: Vec::from(&b"right-err"[..]).into(),
+                },
+                DescriptorTranscriptEntry {
+                    descriptor: 1,
+                    bytes: Vec::from(&b"right-out"[..]).into(),
+                },
+            ]
+        );
+    }
 }

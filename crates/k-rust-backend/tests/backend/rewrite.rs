@@ -18,8 +18,8 @@ use k_rust_backend::{
     term::{Sort, Term, TermKind},
     timeout::StepTimeoutMode,
     transition::{
-        ObservationEvent, ObservationFilterError, ObservationOptions, PatternDigest,
-        TransitionClass, UncommittedReason,
+        ExecutionIoState, ObservationEvent, ObservationFilterError, ObservationOptions,
+        PatternDigest, TransitionClass, UncommittedReason,
     },
 };
 #[cfg(feature = "z3")]
@@ -4067,6 +4067,7 @@ fn execution_stops_before_work_when_the_request_is_cancelled() {
             branch: Vec::new(),
             observations: Vec::new(),
             effects: Vec::new(),
+            io: k_rust_backend::transition::ExecutionIoState::default(),
             halt_reason: HaltReason::Cancelled,
         }]
     );
@@ -5190,6 +5191,23 @@ fn explores_each_rewrite_branch_by_default() {
             .collect::<Vec<_>>(),
         vec!["left", "right"]
     );
+}
+
+#[test]
+fn ordinary_execution_clones_prebuffered_input_into_each_branch() {
+    let definition = unconditional_branch_definition();
+    let input = ExecutionIoState::new(Vec::from(&b"prebuffered"[..]));
+
+    let result = execute_with_io_state(
+        &definition,
+        subject(&definition, "value"),
+        ExecutionOptions::default(),
+        input.clone(),
+    );
+
+    assert_eq!(result.leaves.len(), 2);
+    assert!(result.leaves.iter().all(|leaf| leaf.io == input));
+    assert!(result.leaves.iter().all(|leaf| leaf.io.cursor() == 0));
 }
 
 #[test]
