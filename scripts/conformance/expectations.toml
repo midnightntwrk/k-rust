@@ -1996,91 +1996,85 @@ reason = "The accepted search recipes match after forwarding --pattern and compa
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/1_untyped"
-# Temporary correctness ceiling. Remove after compiled-definition reuse and simplifier throughput are measured.
+# Post-CB-16 final run exhausts this ceiling in the CB-12 thread search; revisit after CB-12 throughput work.
 budget = 600
 accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private sequence 28 (label cb-19-implementation-private, implementation 0188e8a measured from its pre-commit tree, 600 s ceiling, --jobs 1): the definition compiles with reference-equal KORE and 24 of 32 steps match (the compile plus 23 programs). matrix.simple runs in 3.3 s and is skipped with the C9 stdin precondition reason below, preserving its command, exit status, elapsed time and \\bottom divergence as evidence; it is no longer a backend defect. threads_04 matches in 105.9 s, threads_05 consumes the remaining 286.2 s, and threads_06/07/09/10/11/12 are budget-skipped. The case remains at its accepted krust-error/search floor under CB-12 and CB-16 only; the 600 s ceiling and accepted verdict are unchanged. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): the case uses one Rust runtime compilation (3.9 s), then all 25 invoked program commands consume krust-kompiled-runtime through --definition. It reaches its 600.0 s ceiling with 23 program matches, the existing matrix.simple C9 stdin skip, threads_05.simple killed after 350.6 s, and six later thread recipes budget-skipped. The cheap executed programs have a 0.6 s median (0.4 s minimum), down from the former 3.1 s source-recompilation floor; threads_04 takes 100.2 s, sortings 90.8 s and higher-order 14.8 s. The caller-catalog diagnostic fixed by CB-21 is absent. Artifact reuse is complete under CB-16; the remaining search state-growth cost and the 600 s ceiling belong to CB-12. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 step_exclusions = [
   { test = "tests/diverse/matrix.simple", out = "tests/diverse/matrix.simple.out", exclusion = "undriven-recipe", reason = "C9 cannot translate the recipe's interactive stdin to --io off for matrix.simple.in: its adjacent delimiters make STDIN-STREAM.stdinParseInt apply String2Int(\"\") to the buffered input, while the checked-in output is reachable only under --io on. Reconsider when CB-15-5 provides --io on stdin." },
 ]
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"
-# Temporary budget from the measured cost (private CB-17 closure run: 915.7 s at --jobs 2).
-# Remove after compiled-definition reuse and simplifier throughput are measured.
+# Post-CB-16 final run: 878.6 s at --jobs 2; retain measured headroom until CB-12 throughput work.
 budget = 1200
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Private CB-17 closure run (target/conformance/cb-17-implementation-v3, 1500 s discovery ceiling, --jobs 2): all 36 steps match in 915.7 s, including all 35 #Top program comparisons. collatz.simple takes 7.8 s, higher-order.simple 104.7 s, matrix.simple 198.7 s and sortings.simple 490.4 s; no Instantiation, Indeterminate, residual Set inequality or budget kill remains. The floor is raised to match at krun. The residual single-path costs belong to CB-12; the temporary budget is 1200 s, the measured corpus cost with headroom. Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
+reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 36 steps match in 878.6 s. One Rust runtime compilation takes 2.3 s and all 35 program commands consume krust-kompiled-runtime through --definition. The minimum program time is 0.4 s; the execution-heavy outliers remain sortings.simple 505.1 s, matrix.simple 203.5 s, higher-order.simple 106.5 s and collatz.simple 6.0 s. Artifact reuse removes the former repeated compilation, while the residual single-path costs remain CB-12; the 1200 s ceiling retains measured headroom. Earlier baseline observation: emit KORE label mismatch for `__;_` (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/2_dynamic"
-# Temporary budget from the measured cost (sequence 23: 815 s at --jobs 4). Remove after
-# compiled-definition reuse and simplifier throughput are measured.
+# Post-CB-16 final run exhausts this ceiling in the CB-12 thread search; revisit after CB-12 throughput work.
 budget = 1200
 accepted_verdict = "krust-error"
 accepted_stage = "inner-parse"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-10 sequence 1 (label cb-10-collection-ac, branch 2f02ecb, 1200 s ceiling): the definition compiles with reference-equal KORE and 22 of 27 steps match, including matrix.simple in 427.7 s and sortings.simple in 162.2 s. threads_05 consumes the 493.5 s remaining in the case budget and threads_07/10/11/12 are budget-skipped. Focused runs show the CB-10 failure class is gone: threads_05 crosses its former instantiation depth under a depth-50 search, full executions of 07/10/11 exit 0, and threads_12 crosses its former depth-75 halt at depth 100. The thread search and execution costs, matrix, sortings, and repeated compilation remain under CB-12; the 1200 s ceiling and accepted floor are unchanged. Six undriven-recipe targets sit outside these 27 steps: upstream `make -n all` selects the seven-target search-pattern rule for its `div-nondet.simple` peer and then considers `exceptions_07` and `threads_01/02/04/06/09` already, even though each exact target emits the intended recipe. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): the case uses one Rust runtime compilation (4.2 s), then all 22 invoked program commands consume krust-kompiled-runtime through --definition. It reaches its 1200.1 s ceiling with 21 program matches, threads_05.simple killed after 940.7 s, and four later thread recipes budget-skipped. Cheap programs have a 0.6 s median (0.4 s minimum); matrix.simple takes 107.2 s, sortings.simple 98.9 s and higher-order.simple 15.6 s. Artifact reuse is complete under CB-16; the remaining thread search cost and the 1200 s ceiling belong to CB-12. Six undriven-recipe targets remain outside the 27 steps because the upstream multi-target Make rule drives only its first selected target. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/1_untyped"
-# Temporary budget from the measured cost (sequence 23: 1245 s at --jobs 4). Remove after
-# compiled-definition reuse and simplifier throughput are measured.
-budget = 1800
+# Post-CB-16 final run: 543.6 s at --jobs 2; reduced with headroom and revisited after CB-12 throughput work.
+budget = 900
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, 3600 s discovery budget, --jobs 4): all 29 steps match, the compile and 28 program executions through the C9 stdout-buffer comparison, in 1244.9 s. matrix.kool, killed at 424.9 s under the 600 s ceiling and initially classified as non-terminating, completes and matches in 721.9 s; sorting.kool takes 280.1 s and factorial.kool 94.3 s. The floor is raised to match at krun. The remaining costs are simplifier throughput and per-program recompilation; the budget is 1800 s, the measured cost with headroom, to be removed after the reuse measurement while retaining elapsed-time reporting. The separate --pattern hang is not exercised by this case's driven recipes. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 29 steps match in 543.6 s. One Rust runtime compilation takes 6.0 s and all 28 program commands consume krust-kompiled-runtime through --definition. The program median is 1.2 s (0.6 s minimum); matrix.kool takes 265.1 s, sorting.kool 188.7 s and factorial.kool 33.9 s. The ceiling is reduced from 1800 s to 900 s with measured headroom. Artifact reuse is complete under CB-16; the remaining algorithmic simplifier costs belong to CB-12. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/1_dynamic"
-# Temporary budget from the measured cost (sequence 23: 1361 s at --jobs 4). Remove after
-# compiled-definition reuse and simplifier throughput are measured.
-budget = 1800
+# Post-CB-16 final run: 626.7 s at --jobs 2; reduced with headroom and revisited after CB-12 throughput work.
+budget = 900
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 23 (label discovery-3600, branch chore/simple-budget-ceilings, 3600 s discovery budget, --jobs 4): all 30 steps match, the compile and 29 program executions through the C9 stdout-buffer comparison, in 1361.2 s. matrix.kool, killed at 378.7 s under the 600 s ceiling and initially classified as non-terminating, completes and matches in 764.0 s; sorting.kool takes 299.6 s, factorial.kool 108.1 s and collatz.kool 28.4 s. The floor is raised to match at krun. The remaining costs are simplifier throughput and per-program recompilation; the budget is 1800 s, the measured cost with headroom, to be removed after the reuse measurement while retaining elapsed-time reporting. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 30 steps match in 626.7 s. One Rust runtime compilation takes 6.7 s and all 29 program commands consume krust-kompiled-runtime through --definition. The program median is 1.5 s (0.7 s minimum); matrix.kool takes 291.3 s, sorting.kool 215.2 s, factorial.kool 37.0 s and collatz.kool 20.5 s. The ceiling is reduced from 1800 s to 900 s with measured headroom. Artifact reuse is complete under CB-16; the remaining algorithmic simplifier costs belong to CB-12. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/2_kool/2_typed/2_static"
-# Temporary budget from the measured cost (private CB-17 closure run: 1437.2 s at --jobs 2).
-# Remove after compiled-definition reuse and simplifier throughput are measured.
+# Post-CB-16 final run: 1419.6 s at --jobs 2; retain measured headroom until CB-12 throughput work.
 budget = 1800
 accepted_verdict = "match"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-17 closure run (target/conformance/cb-17-implementation-v3, 1500 s discovery ceiling, --jobs 2): all 31 steps match through the C9 stdout-buffer comparison in 1437.2 s. cast-1.kool and cast-2.kool take 13.5 s and 9.6 s, collatz.kool 12.0 s, matrix.kool 361.4 s and sorting.kool 686.9 s; no Instantiation, Indeterminate or budget kill remains. The floor is raised to match at krun. The residual single-path costs belong to CB-12; the temporary budget is 1800 s, the measured corpus cost with headroom. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
+reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 31 steps match in 1419.6 s. One Rust runtime compilation takes 4.1 s and all 30 program commands consume krust-kompiled-runtime through --definition. The minimum program time is 0.5 s; execution remains dominated by sorting.kool at 725.8 s, matrix.kool at 374.8 s, function-types.kool at 41.6 s and point.kool at 28.6 s. Artifact reuse is complete under CB-16; the residual single-path costs remain CB-12 and require retaining the 1800 s ceiling. Earlier baseline observation: `#KSequence` associativity in a configuration (fixed)."
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
-# Temporary, from the private cb-14-final implementation-candidate measurement: 38 programs match and
-# the other 12 reach the existing 60 s step budget after executable macros are erased. Keep the budgets
-# until CB-20 classifies the post-expansion divergence and CB-12/CB-16 address fixed execution costs.
-budget = 2700
+# Post-CB-16 final run: 749.4 s with 38 matches and the same 12 CB-20 step timeouts.
+# Revisit the reduced case ceiling after CB-20 and CB-12 throughput work; keep the per-step cap.
+budget = 1200
 step_budget = 60
 accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private cb-14-final implementation-candidate run at the code committed as ea60da8 (budget 2700 s, step_budget 60 s, 838.9 s wall, 2062 MiB peak RSS) measures all 51 driven steps: the definition and KORE match the reference, and 38/50 programs match through the C9 stdout comparison, up from 15/50 in sequence 25. ackermann.fun now matches in 5.0 s. Twelve programs reach the existing 60 s step budget with no mismatch or new error class: callcc-efficient-with-1, callcc-efficient-with-2, callcc-inefficient-without, callcc-return-2, constructor-bst-sorting, factorial-and-list-max, list-length, list-max, nth, pattern, references-1, and tail-recursion. Eight use FUN-UNTYPED-MACROS constructs whose heads are now demonstrably erased before execution; the other four are the existing macro-free CB-20 witnesses. CB-14 is closed. The 2700 s case budget and 60 s step budget remain temporary while CB-20 investigates this post-expansion cohort and CB-12/CB-16 address throughput and compiled-artifact costs. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
+reason = "Private CB-16 final acceptance run (main b71227a, --jobs 2): all 51 driven steps are measured in 749.4 s. One Rust runtime compilation takes 2.7 s and all 50 program commands consume krust-kompiled-runtime through --definition. Thirty-eight programs match; the same twelve CB-20 witnesses reach the 60 s step cap. Matching programs have a 0.3 s median (0.2 s minimum). The case ceiling is reduced from 2700 s to 1200 s while the 60 s step budget remains. Artifact reuse is complete under CB-16; the post-expansion timeouts remain CB-20 and broader throughput remains CB-12. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
 
 [[case]]
 name = "poly-kitem"

@@ -335,3 +335,30 @@ The exact source-driven `collatz.simple` command fails with the identical diagno
 CB-21 now owns that source-execution failure and must identify production 324, the affected macro application, and the mismatch between the parser-module source catalog and main-module caller catalog.
 CB-14 remains closed while the relationship to its strict metadata rebasing is unverified, and CB-20 remains the independent FUN post-expansion timeout investigation.
 CB-16 stays open only for the seven-case remeasurement and temporary-budget adjustment after CB-21; no floor or budget changes are justified by the interrupted probe.
+
+## 2026-09-19: CB-21 and CB-16 closed
+
+CB-21 closes at `b71227a` as a CB-14 follow-up port regression.
+Executable applications now transition from the selected parser catalog into the main catalog before main-visible macro expansion, sort injection, and KORE conversion; only self-describing tokens may discard unavailable source production metadata, with parser-first and main-fallback lexical hooks.
+The exact guarded SIMPLE source invocation, the source/artifact cross-catalog fixture, the complete CLI suite, and the final SIMPLE case all pass without the caller-catalog diagnostic.
+
+The final CB-16 acceptance run on `main` at `b71227a` used the seven tutorial cases with `--jobs 2` and completed in 3220 s (`/tmp/k-rust-cb16-final/results.toml`, SHA-256 `969fcaf69b963bbff5f504ec974b435e60809cc279217fd412888e231a34846b`).
+Every case records exactly one ordinary LLVM comparison compile and one successful Rust runtime compile.
+All 219 executed program commands use `krun --definition krust-kompiled-runtime`; none repeats source loading or compiler transforms.
+The existing driver regression retains the complementary compile-only and LLVM-only no-runtime-compile contract.
+
+| case | result | case s | runtime compile s | largest program costs | budget |
+|---|---|---:|---:|---|---:|
+| SIMPLE untyped | CB-12 search ceiling | 600.0 | 3.9 | threads_05 350.6 s; threads_04 100.2 s | 600 retained |
+| SIMPLE typed static | match | 878.6 | 2.3 | sortings 505.1 s; matrix 203.5 s | 1200 retained |
+| SIMPLE typed dynamic | CB-12 search ceiling | 1200.1 | 4.2 | threads_05 940.7 s; matrix 107.2 s | 1200 retained |
+| KOOL untyped | match | 543.6 | 6.0 | matrix 265.1 s; sorting 188.7 s | 1800 → 900 |
+| KOOL typed dynamic | match | 626.7 | 6.7 | matrix 291.3 s; sorting 215.2 s | 1800 → 900 |
+| KOOL typed static | match | 1419.6 | 4.1 | sorting 725.8 s; matrix 374.8 s | 1800 retained |
+| FUN untyped | 38 matches, 12 CB-20 step timeouts | 749.4 | 2.7 | each timeout 60.1 s | 2700 → 1200; step 60 retained |
+
+Cheap-program medians are 0.3 to 1.5 s, compared with the superseded 2.2 to 4.5 s source-recompilation floor; these whole-program figures remain upper bounds on loading, parsing, and execution, while the isolated macro-fixture artifact-load median is 0.0238 s.
+The long programs in the table are semantic execution or search costs and remain under CB-12 or CB-20.
+CB-16 closes with all seven work items complete and no accepted floor change.
+
+Gates: `taplo lint` passes for the expectations and ticket ledgers, `git diff --check` passes, and the conformance audit reports three pending cases, all owned by CB-12 or CB-20, with no open ticket whose cases all match and no non-excluded case below its accepted floor.
