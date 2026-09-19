@@ -1,0 +1,26 @@
+[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  sort SortK{} []
+  sort SortKItem{} []
+  sort SortS{} []
+  hooked-symbol plusInt{}(SortInt{}, SortInt{}) : SortInt{}
+    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+  symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), functional{}(), injective{}()]
+  symbol dotk{}() : SortK{} [constructor{}(), functional{}(), injective{}()]
+  symbol k{}(SortK{}) : SortS{} [constructor{}()]
+  symbol head{}(SortInt{}) : SortKItem{} [constructor{}()]
+  symbol inert{}(SortInt{}) : SortKItem{} [constructor{}()]
+  symbol f{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+  axiom{R} \implies{R}(
+    \top{R}(),
+    \equals{SortInt{}, R}(
+      f{}(N:SortInt{}),
+      \and{SortInt{}}(plusInt{}(N:SortInt{}, \dv{SortInt{}}("1")), \top{SortInt{}}())
+    )
+  ) [label{}("f"), simplification{}()]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(k{}(kseq{}(head{}(N:SortInt{}), Rest:SortK{})), \top{SortS{}}()),
+    k{}(kseq{}(head{}(f{}(N:SortInt{})), kseq{}(inert{}(N:SortInt{}), Rest:SortK{})))
+  ) [label{}("push")]
+endmodule []

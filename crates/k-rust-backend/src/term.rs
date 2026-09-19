@@ -599,6 +599,145 @@ impl Term {
         &self.0.attributes
     }
 
+    /// Whether two handles share the same immutable term allocation.
+    pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// Transform the immediate children and preserve this term when every child is unchanged.
+    ///
+    /// Constructors recompute their synthetic attributes when a child changes. Keeping the
+    /// original allocation otherwise avoids both that work and structural equality walks in
+    /// callers that descend to a fixed point.
+    pub(crate) fn try_map_children<E>(
+        &self,
+        mut transform: impl FnMut(&Self) -> Result<Self, E>,
+    ) -> Result<Self, E> {
+        let mapped = match self.kind() {
+            TermKind::And(left, right) => {
+                let new_left = transform(left)?;
+                let new_right = transform(right)?;
+                if left.ptr_eq(&new_left) && right.ptr_eq(&new_right) {
+                    return Ok(self.clone());
+                }
+                Self::and(new_left, new_right)
+            }
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            } => {
+                let new_arguments = arguments
+                    .iter()
+                    .map(&mut transform)
+                    .collect::<Result<Vec<_>, _>>()?;
+                if arguments
+                    .iter()
+                    .zip(&new_arguments)
+                    .all(|(old, new)| old.ptr_eq(new))
+                {
+                    return Ok(self.clone());
+                }
+                Self::application(symbol.clone(), sort_arguments.clone(), new_arguments)
+            }
+            TermKind::Injection {
+                source,
+                target,
+                term,
+            } => {
+                let new_term = transform(term)?;
+                if term.ptr_eq(&new_term) {
+                    return Ok(self.clone());
+                }
+                Self::injection(source.clone(), target.clone(), new_term)
+            }
+            TermKind::Map {
+                definition,
+                entries,
+                rest,
+            } => {
+                let new_entries = entries
+                    .iter()
+                    .map(|(key, value)| Ok((transform(key)?, transform(value)?)))
+                    .collect::<Result<Vec<_>, E>>()?;
+                let new_rest = rest.as_ref().map(&mut transform).transpose()?;
+                if entries.iter().zip(&new_entries).all(
+                    |((old_key, old_value), (new_key, new_value))| {
+                        old_key.ptr_eq(new_key) && old_value.ptr_eq(new_value)
+                    },
+                ) && options_ptr_eq(rest.as_ref(), new_rest.as_ref())
+                {
+                    return Ok(self.clone());
+                }
+                Self::map(definition.clone(), new_entries, new_rest)
+            }
+            TermKind::List {
+                definition,
+                heads,
+                rest,
+            } => {
+                let new_heads = heads
+                    .iter()
+                    .map(&mut transform)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let new_rest = rest
+                    .as_ref()
+                    .map(|(middle, tails)| {
+                        Ok((
+                            transform(middle)?,
+                            tails
+                                .iter()
+                                .map(&mut transform)
+                                .collect::<Result<Vec<_>, E>>()?,
+                        ))
+                    })
+                    .transpose()?;
+                let rest_unchanged = match (rest, &new_rest) {
+                    (None, None) => true,
+                    (Some((old_middle, old_tails)), Some((new_middle, new_tails))) => {
+                        old_middle.ptr_eq(new_middle)
+                            && old_tails
+                                .iter()
+                                .zip(new_tails)
+                                .all(|(old, new)| old.ptr_eq(new))
+                    }
+                    _ => false,
+                };
+                if heads
+                    .iter()
+                    .zip(&new_heads)
+                    .all(|(old, new)| old.ptr_eq(new))
+                    && rest_unchanged
+                {
+                    return Ok(self.clone());
+                }
+                Self::list(definition.clone(), new_heads, new_rest)
+            }
+            TermKind::Set {
+                definition,
+                elements,
+                rest,
+            } => {
+                let new_elements = elements
+                    .iter()
+                    .map(&mut transform)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let new_rest = rest.as_ref().map(&mut transform).transpose()?;
+                if elements
+                    .iter()
+                    .zip(&new_elements)
+                    .all(|(old, new)| old.ptr_eq(new))
+                    && options_ptr_eq(rest.as_ref(), new_rest.as_ref())
+                {
+                    return Ok(self.clone());
+                }
+                Self::set(definition.clone(), new_elements, new_rest)
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => return Ok(self.clone()),
+        };
+        Ok(mapped)
+    }
+
     /// Visit application symbols in preorder, including applications nested in collections.
     pub fn visit_symbols(&self, visitor: &mut impl FnMut(&Symbol)) {
         match self.kind() {
@@ -763,6 +902,14 @@ impl Term {
         measure::bump(Counter::TermConstructed);
         attributes.hash = calculate_hash(&kind);
         Self(Arc::new(TermData { attributes, kind }))
+    }
+}
+
+fn options_ptr_eq(left: Option<&Term>, right: Option<&Term>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => left.ptr_eq(right),
+        _ => false,
     }
 }
 

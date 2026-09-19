@@ -1,6 +1,7 @@
 //! Recursive equation simplification to a bounded fixed point.
 
 use std::{
+    cell::Cell,
     collections::{BTreeMap, BTreeSet},
     fmt,
     sync::Arc,
@@ -1897,6 +1898,16 @@ fn simplify_with_budget(
         if cancellation_requested() {
             return Err(SimplificationError::Cancelled);
         }
+        if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
+            return Ok(Simplification {
+                term,
+                constraints,
+                applied_rules,
+                effects,
+                exhausted,
+                undefined_term,
+            });
+        }
         term = assumptions.path_condition.apply(&term);
         if term.attributes().evaluated {
             return Ok(Simplification {
@@ -1935,7 +1946,10 @@ fn simplify_with_budget(
         if undefined_term.is_none() {
             undefined_term = children.undefined_term.or(root.undefined_term);
         }
-        if root.term == children.term || root.term.attributes().evaluated {
+        if root.term.ptr_eq(&children.term)
+            || root.term == children.term
+            || root.term.attributes().evaluated
+        {
             return Ok(Simplification {
                 term: root.term,
                 constraints,
@@ -2028,8 +2042,23 @@ impl PathConditionReplacements {
     }
 
     fn apply(&self, term: &Term) -> Term {
+        if self.substitution.is_empty() && self.replacements.is_empty() {
+            return term.clone();
+        }
         let term = substitute(term, &self.substitution);
+        if self.replacements.is_empty() {
+            return term;
+        }
         replace_terms_bottom_up(&term, &self.replacements)
+    }
+
+    fn can_change(&self, term: &Term) -> bool {
+        term.attributes()
+            .variables
+            .iter()
+            .any(|variable| self.substitution.contains_key(variable))
+            || (!self.replacements.is_empty()
+                && term_contains_replacement_original(term, &self.replacements))
     }
 }
 
@@ -2056,64 +2085,46 @@ fn is_scalar_domain_value(term: &Term) -> bool {
 }
 
 fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
-    let replace = |term: &Term| replace_terms_bottom_up(term, replacements);
-    let rebuilt = match term.kind() {
-        TermKind::And(left, right) => Term::and(replace(left), replace(right)),
-        TermKind::Application {
-            symbol,
-            sort_arguments,
-            arguments,
-        } => Term::application(
-            symbol.clone(),
-            sort_arguments.clone(),
-            arguments.iter().map(replace).collect(),
-        ),
-        TermKind::Injection {
-            source,
-            target,
-            term,
-        } => Term::injection(source.clone(), target.clone(), replace(term)),
-        TermKind::Map {
-            definition,
-            entries,
-            rest,
-        } => Term::map(
-            definition.clone(),
-            entries
-                .iter()
-                .map(|(key, value)| (replace(key), replace(value)))
-                .collect(),
-            rest.as_ref().map(replace),
-        ),
-        TermKind::List {
-            definition,
-            heads,
-            rest,
-        } => Term::list(
-            definition.clone(),
-            heads.iter().map(replace).collect(),
-            rest.as_ref().map(|(middle, tails)| {
-                (
-                    replace(middle),
-                    tails.iter().map(replace).collect::<Vec<_>>(),
-                )
-            }),
-        ),
-        TermKind::Set {
-            definition,
-            elements,
-            rest,
-        } => Term::set(
-            definition.clone(),
-            elements.iter().map(replace).collect(),
-            rest.as_ref().map(replace),
-        ),
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
-    };
+    let rebuilt = term
+        .try_map_children(|child| {
+            Ok::<_, std::convert::Infallible>(replace_terms_bottom_up(child, replacements))
+        })
+        .expect("an infallible term transformation cannot fail");
     replacements
         .iter()
         .find_map(|(original, replacement)| (original == &rebuilt).then(|| replacement.clone()))
         .unwrap_or(rebuilt)
+}
+
+fn term_contains_replacement_original(term: &Term, replacements: &[(Term, Term)]) -> bool {
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if replacements.iter().any(|(original, _)| original == term) {
+            return true;
+        }
+        match term.kind() {
+            TermKind::And(left, right) => pending.extend([left, right]),
+            TermKind::Application { arguments, .. } => pending.extend(arguments),
+            TermKind::Injection { term, .. } => pending.push(term),
+            TermKind::Map { entries, rest, .. } => {
+                pending.extend(entries.iter().flat_map(|(key, value)| [key, value]));
+                pending.extend(rest);
+            }
+            TermKind::List { heads, rest, .. } => {
+                pending.extend(heads);
+                if let Some((middle, tails)) = rest {
+                    pending.push(middle);
+                    pending.extend(tails);
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                pending.extend(elements);
+                pending.extend(rest);
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+    false
 }
 
 fn matches_top_equation(
@@ -2215,6 +2226,7 @@ fn simplify_children(
     let mut effects = Vec::new();
     let mut exhausted = None;
     let mut undefined_term = None;
+    let children_unchanged = Cell::new(true);
     let mut child = |term: &Term| {
         // The iteration limit bounds one fixed-point lineage, not the total amount of productive
         // work in an entire term. Siblings receive independent copies of the current budget, while
@@ -2237,9 +2249,10 @@ fn simplify_children(
         if undefined_term.is_none() {
             undefined_term = result.undefined_term;
         }
+        children_unchanged.set(children_unchanged.get() && term.ptr_eq(&result.term));
         Ok::<_, SimplificationError>(result.term)
     };
-    let term = match term.kind() {
+    let rebuilt = match term.kind() {
         TermKind::And(left, right) => {
             let left_top = matches_top_equation(
                 definition,
@@ -2259,12 +2272,14 @@ fn simplify_children(
             )?;
             match (left_top, right_top) {
                 (Some((rule_id, obligations)), None) => {
+                    children_unchanged.set(false);
                     let retained = child(right)?;
                     applied_rules.push(rule_id);
                     constraints.extend(obligations);
                     retained
                 }
                 (None, Some((rule_id, obligations))) => {
+                    children_unchanged.set(false);
                     let retained = child(left)?;
                     applied_rules.push(rule_id);
                     constraints.extend(obligations);
@@ -2340,6 +2355,11 @@ fn simplify_children(
             rest.as_ref().map(&mut child).transpose()?,
         ),
         TermKind::DomainValue { .. } | TermKind::Variable(_) => term.clone(),
+    };
+    let term = if children_unchanged.get() {
+        term.clone()
+    } else {
+        rebuilt
     };
     Ok(Simplification {
         term,
@@ -2955,12 +2975,121 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
+    use crate::term::{CollectionSymbols, ListDefinition, MapDefinition};
 
     fn term(definition: &BackendDefinition, source: &str) -> Term {
         let syntax = parse_pattern(source).expect("term should parse");
         definition
             .internalize_term(&syntax, &[])
             .expect("term should internalize")
+    }
+
+    fn collection_symbols(prefix: &str) -> CollectionSymbols {
+        CollectionSymbols {
+            unit: format!("{prefix}Unit").into(),
+            element: format!("{prefix}Element").into(),
+            concat: format!("{prefix}Concat").into(),
+        }
+    }
+
+    #[test]
+    fn path_condition_replacements_preserve_unaffected_term_identity() {
+        let int = Sort::builtin(BuiltinSort::Int);
+        let one = Term::domain_value(int.clone(), "1");
+        let two = Term::domain_value(int.clone(), "2");
+        let subject = Term::injection(int.clone(), Sort::simple("SortKItem"), one.clone());
+
+        let empty = PathConditionReplacements {
+            substitution: Substitution::new(),
+            replacements: Vec::new(),
+        };
+        assert!(empty.apply(&subject).ptr_eq(&subject));
+
+        let unrelated = PathConditionReplacements {
+            substitution: Substitution::new(),
+            replacements: vec![(two, Term::domain_value(int.clone(), "3"))],
+        };
+        assert!(unrelated.apply(&subject).ptr_eq(&subject));
+
+        let substitution = PathConditionReplacements {
+            substitution: Substitution::from([(
+                Variable::new("X", int.clone()),
+                Term::domain_value(int, "4"),
+            )]),
+            replacements: Vec::new(),
+        };
+        assert!(substitution.apply(&subject).ptr_eq(&subject));
+    }
+
+    #[test]
+    fn path_condition_replacements_descend_through_injections_and_collections() {
+        let int = Sort::builtin(BuiltinSort::Int);
+        let one = Term::domain_value(int.clone(), "1");
+        let two = Term::domain_value(int.clone(), "2");
+        let key = Term::domain_value(Sort::simple("SortKey"), "key");
+        let map_definition = Arc::new(MapDefinition {
+            symbols: collection_symbols("map"),
+            key_sort: "SortKey".into(),
+            value_sort: "SortInt".into(),
+            map_sort: "SortMap".into(),
+        });
+        let list_definition = Arc::new(ListDefinition {
+            symbols: collection_symbols("list"),
+            element_sort: "SortInt".into(),
+            list_sort: "SortList".into(),
+        });
+        let set_definition = Arc::new(ListDefinition {
+            symbols: collection_symbols("set"),
+            element_sort: "SortInt".into(),
+            list_sort: "SortSet".into(),
+        });
+        let composite = Term::and(
+            Term::injection(int.clone(), Sort::simple("SortKItem"), one.clone()),
+            Term::and(
+                Term::map(
+                    map_definition.clone(),
+                    vec![(key.clone(), one.clone())],
+                    None,
+                ),
+                Term::and(
+                    Term::list(list_definition.clone(), vec![one.clone()], None),
+                    Term::set(set_definition.clone(), vec![one.clone()], None),
+                ),
+            ),
+        );
+        let attributes = composite.attributes().clone();
+        let replacements = PathConditionReplacements {
+            substitution: Substitution::new(),
+            replacements: vec![(one, two.clone())],
+        };
+        let replaced = replacements.apply(&composite);
+        let expected = Term::and(
+            Term::injection(int, Sort::simple("SortKItem"), two.clone()),
+            Term::and(
+                Term::map(map_definition, vec![(key, two.clone())], None),
+                Term::and(
+                    Term::list(list_definition, vec![two.clone()], None),
+                    Term::set(set_definition, vec![two], None),
+                ),
+            ),
+        );
+
+        assert_eq!(replaced, expected);
+        assert_eq!(replaced.attributes().variables, attributes.variables);
+        assert_eq!(replaced.attributes().evaluated, attributes.evaluated);
+        assert_eq!(
+            replaced.attributes().constructor_like,
+            attributes.constructor_like
+        );
+        assert_eq!(
+            replaced.attributes().concrete_after_normalization,
+            attributes.concrete_after_normalization
+        );
+        assert_eq!(
+            replaced.attributes().can_be_evaluated,
+            attributes.can_be_evaluated
+        );
+        assert!(!replaced.ptr_eq(&composite));
     }
 
     #[test]
