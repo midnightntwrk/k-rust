@@ -65,7 +65,7 @@ fn expand_macros_inner(definition: &Definition) -> Result<Definition, ExpandMacr
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let mut expander = match Expander::new(&resolved, module_id) {
+        let mut expander = match Expander::new(&resolved, module_id, module_id) {
             Ok(expander) => expander,
             Err(message) => {
                 diagnostics.push(plain_error(message));
@@ -130,13 +130,33 @@ pub fn expand_macros_in_term(
     module: &str,
     term: Term,
 ) -> Result<Term, String> {
+    expand_macros_in_term_with_scope(definition, module, module, term)
+}
+
+/// Expand a standalone term using one module's production catalog and another module's visible
+/// macro sentences.
+///
+/// Source-driven execution parses concrete input in a syntax or configuration parser module,
+/// while K selects executable macro rules from the main module. The term keeps the parser
+/// module's production indexes throughout expansion, sort injection, and KORE conversion.
+pub fn expand_macros_in_term_with_scope(
+    definition: &Definition,
+    term_module: &str,
+    macro_module: &str,
+    term: Term,
+) -> Result<Term, String> {
     // Rule parsing retains semantic-cast wrappers around variables. The compilation pipeline
     // removes those wrappers before macro matching, so concrete terms must build their expander
     // from the same rule shape.
     let definition = super::resolve_semantic_casts(definition);
     let definition = super::propagate_macro_attributes(&definition)?;
     let resolved = ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
-    let mut expanded = expand_macros_in_terms_from_resolved(&resolved, module, vec![term])?;
+    let mut expanded = expand_macros_in_terms_from_resolved_with_scope(
+        &resolved,
+        term_module,
+        macro_module,
+        vec![term],
+    )?;
     Ok(expanded
         .terms
         .pop()
@@ -155,10 +175,22 @@ pub(crate) fn expand_macros_in_terms_from_resolved(
     module: &str,
     terms: Vec<Term>,
 ) -> Result<ExpandedMacroTerms, String> {
-    let module = definition
-        .module_id(module)
-        .ok_or_else(|| format!("unknown module {module}"))?;
-    let mut expander = Expander::new(definition, module)?;
+    expand_macros_in_terms_from_resolved_with_scope(definition, module, module, terms)
+}
+
+fn expand_macros_in_terms_from_resolved_with_scope(
+    definition: &ResolvedDefinition,
+    term_module: &str,
+    macro_module: &str,
+    terms: Vec<Term>,
+) -> Result<ExpandedMacroTerms, String> {
+    let term_module = definition
+        .module_id(term_module)
+        .ok_or_else(|| format!("unknown module {term_module}"))?;
+    let macro_module = definition
+        .module_id(macro_module)
+        .ok_or_else(|| format!("unknown module {macro_module}"))?;
+    let mut expander = Expander::new(definition, term_module, macro_module)?;
     expander.fresh = FreshNames::for_terms(terms.iter());
     let terms = terms
         .into_iter()
@@ -183,16 +215,20 @@ struct Expander<'a> {
 }
 
 impl<'a> Expander<'a> {
-    fn new(definition: &'a ResolvedDefinition, module: ModuleId) -> Result<Self, String> {
-        let productions = definition.production_catalog(module);
-        let sorts = definition.sort_catalog(module);
-        let injector = SortInjector::new(definition, &definition.module(module).name)
+    fn new(
+        definition: &'a ResolvedDefinition,
+        term_module: ModuleId,
+        macro_module: ModuleId,
+    ) -> Result<Self, String> {
+        let productions = definition.production_catalog(term_module);
+        let sorts = definition.sort_catalog(term_module);
+        let injector = SortInjector::new(definition, &definition.module(term_module).name)
             .map_err(|error| error.to_string())?;
         let subsorts = definition
-            .subsorts(module)
+            .subsorts(term_module)
             .map_err(|error| error.to_string())?;
         let overloads = definition
-            .overloads(module)
+            .overloads(term_module)
             .map_err(|error| error.to_string())?;
         let owners = definition
             .modules()
@@ -204,7 +240,7 @@ impl<'a> Expander<'a> {
             })
             .collect::<BTreeMap<_, _>>();
         let all = definition
-            .sentences(module)
+            .sentences(macro_module)
             .into_iter()
             .enumerate()
             .filter_map(|(id, sentence)| {
@@ -212,21 +248,48 @@ impl<'a> Expander<'a> {
             })
             .map(|(sentence, mut rule)| {
                 let owner = owners[&std::ptr::from_ref(sentence)];
-                if owner != module {
-                    // Macro templates carry production indexes from their defining module.
-                    // Translate those indexes before substitution; substituted caller terms
-                    // already use this module's catalog and must not be translated again.
-                    super::rebase_sentence(
-                        &mut rule.sentence,
-                        &definition.production_catalog(owner),
+                if owner != term_module {
+                    // Project away the rule-body rewrite before rebasing. Its metadata describes
+                    // no executable production. Template applications remain strict, while a
+                    // private lexical token can discard its self-describing production index.
+                    let source = definition.production_catalog(owner);
+                    rule.left = super::rebase_macro_term_to_visible_catalog(
+                        rule.left,
+                        &source,
                         &productions,
                         &sentence_equivalent,
                     )?;
-                    let Sentence::Rule { body, .. } = &rule.sentence else {
+                    rule.right = super::rebase_macro_term_to_visible_catalog(
+                        rule.right,
+                        &source,
+                        &productions,
+                        &sentence_equivalent,
+                    )?;
+                    let Sentence::Rule {
+                        body,
+                        requires,
+                        ensures,
+                        ..
+                    } = &mut rule.sentence
+                    else {
                         unreachable!("macro rules are rules")
                     };
-                    rule.left = rewrite_projection(body, false);
-                    rule.right = rewrite_projection(body, true);
+                    *requires = super::rebase_macro_term_to_visible_catalog(
+                        std::mem::replace(requires, truth()),
+                        &source,
+                        &productions,
+                        &sentence_equivalent,
+                    )?;
+                    *ensures = super::rebase_macro_term_to_visible_catalog(
+                        std::mem::replace(ensures, truth()),
+                        &source,
+                        &productions,
+                        &sentence_equivalent,
+                    )?;
+                    *body = Term::Rewrite {
+                        left: Box::new(rule.left.clone()),
+                        right: Box::new(rule.right.clone()),
+                    };
                 }
                 Ok(rule)
             })

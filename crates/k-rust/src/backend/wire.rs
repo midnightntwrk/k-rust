@@ -288,6 +288,9 @@ pub enum SatisfiabilityOutput {
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 pub enum SearchFailureOutput {
     Cancelled,
+    SurvivingMacroOrAlias {
+        symbol: String,
+    },
     Builtin {
         error: BuiltinFailureOutput,
     },
@@ -838,6 +841,11 @@ fn indeterminate_failure_output(
     result_sort: &Sort,
 ) -> Result<SearchFailureOutput, BackendError> {
     Ok(match reason {
+        IndeterminateReason::SurvivingMacroOrAlias { symbol } => {
+            SearchFailureOutput::SurvivingMacroOrAlias {
+                symbol: symbol.to_string(),
+            }
+        }
         IndeterminateReason::Simplification { rule_id, error } => {
             let failure = simplification_failure_output(error, result_sort)?;
             match (rule_id, failure) {

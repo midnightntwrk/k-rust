@@ -49,6 +49,26 @@ pub struct Pattern {
     pub constraints: Vec<Predicate>,
 }
 
+impl Pattern {
+    pub(crate) fn macro_or_alias_symbol(&self) -> Option<crate::term::Name> {
+        if let Some(symbol) = self.term.macro_or_alias_symbol() {
+            return Some(symbol);
+        }
+        let mut found = None;
+        for predicate in &self.constraints {
+            predicate.visit_terms(&mut |term| {
+                if found.is_none() {
+                    found = term.macro_or_alias_symbol();
+                }
+            });
+            if found.is_some() {
+                break;
+            }
+        }
+        found
+    }
+}
+
 /// Apply the acyclic substitution encoded by a pattern's equality constraints while retaining
 /// canonical equality predicates for later RPC projection.
 pub fn normalize_pattern_substitution(pattern: &mut Pattern, sorts: &SortGraph) -> Substitution {
@@ -151,6 +171,10 @@ pub enum RewriteResult {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IndeterminateReason {
+    /// A preprocessing symbol survived into an executable backend term.
+    SurvivingMacroOrAlias {
+        symbol: crate::term::Name,
+    },
     Simplification {
         rule_id: Option<String>,
         error: SimplificationError,
@@ -463,15 +487,28 @@ fn execute_using(
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
     });
+    let mut validated = VecDeque::with_capacity(pending.len());
+    while let Some(state) = pending.pop_front() {
+        if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
+            leaves.push(state.leaf(
+                HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias { symbol }),
+                &observation_log,
+            ));
+        } else {
+            validated.push_back(state);
+        }
+    }
+    pending = validated;
     if options.max_breadth == Some(0) {
+        let mut bounded = leaves.into_inner();
+        bounded.extend(
+            pending
+                .drain(..)
+                .map(|state| execution_state_at_breadth_bound(state, &observation_log)),
+        );
         return (
             ExecutionResult {
-                leaves: merge_equal_final_leaves(
-                    pending
-                        .drain(..)
-                        .map(|state| execution_state_at_breadth_bound(state, &observation_log))
-                        .collect(),
-                ),
+                leaves: merge_equal_final_leaves(bounded),
                 effects,
                 discarded,
             },
@@ -498,6 +535,13 @@ fn execute_using(
             };
         }
         finish_if_interrupted!();
+        if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
+            leaves.push(state.leaf(
+                HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias { symbol }),
+                &observation_log,
+            ));
+            continue;
+        }
         let retained_substitution =
             normalize_pattern_substitution(&mut state.pattern, &definition.sort_graph);
         let pattern_before_constraint_simplification = state.pattern.clone();
@@ -1558,6 +1602,12 @@ pub(crate) fn rewrite_step_with_mode(
     mode: ExecutionMode,
     assume_initial_defined: bool,
 ) -> RewriteResult {
+    if let Some(symbol) = pattern.macro_or_alias_symbol() {
+        return RewriteResult::Indeterminate {
+            pattern: pattern.clone(),
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+        };
+    }
     if predicates_truth(&pattern.constraints) == Truth::False {
         return RewriteResult::Vacuous(pattern.clone());
     }

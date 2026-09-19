@@ -364,6 +364,9 @@ impl Backend {
         }
         let syntax = decode_pattern(request.state)?;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            definition
+                .validate_executable_pattern(&syntax)
+                .map_err(error("invalid executable state"))?;
             let initial = definition
                 .internalize_pattern(&syntax, &[])
                 .map_err(error("could not internalize execution state"))?;
@@ -418,6 +421,9 @@ impl Backend {
         let options = search_options(&request);
         let syntax = decode_pattern(request.state)?;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            definition
+                .validate_executable_pattern(&syntax)
+                .map_err(error("invalid executable state"))?;
             let initial = definition
                 .internalize_pattern(&syntax, &[])
                 .map_err(error("could not internalize search state"))?;
@@ -462,6 +468,9 @@ impl Backend {
         let options = search_options(&request);
         let syntax = decode_pattern(request.state)?;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            definition
+                .validate_executable_pattern(&syntax)
+                .map_err(error("invalid executable state"))?;
             let initial = definition
                 .internalize_pattern(&syntax, &[])
                 .map_err(error("could not internalize path-search state"))?;
@@ -507,6 +516,9 @@ impl Backend {
         let initial_syntax = decode_pattern(request.state)?;
         let target_syntax = decode_pattern(request.pattern)?;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            definition
+                .validate_executable_pattern(&initial_syntax)
+                .map_err(error("invalid executable state"))?;
             let initial = definition
                 .internalize_pattern(&initial_syntax, &[])
                 .map_err(error("could not internalize pattern-search state"))?;
@@ -556,6 +568,9 @@ impl Backend {
         let initial_syntax = decode_pattern(request.state)?;
         let target_syntax = decode_pattern(request.pattern)?;
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
+            definition
+                .validate_executable_pattern(&initial_syntax)
+                .map_err(error("invalid executable state"))?;
             let initial = definition
                 .internalize_pattern(&initial_syntax, &[])
                 .map_err(error("could not internalize path-pattern-search state"))?;
@@ -1373,6 +1388,7 @@ mod tests {
             symbol a{}() : SortS{} [constructor{}()]
             symbol b{}() : SortS{} [constructor{}()]
             symbol c{}() : SortS{} [constructor{}()]
+            symbol macroValue{}() : SortS{} [constructor{}(), macro{}()]
             alias weakExistsFinally{S}(S) : S
                 where weakExistsFinally{S}(@X:S) := @X:S []
             axiom{} \rewrites{SortS{}}(
@@ -1430,6 +1446,65 @@ mod tests {
 
     fn backend() -> Backend {
         Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap()
+    }
+
+    #[test]
+    fn executable_facade_rejects_nested_macro_and_alias_states_before_internalization() {
+        let alias = json("weakExistsFinally{SortS{}}(a{}())");
+        let nested_macro = json(r#"\and{SortS{}}(a{}(), macroValue{}())"#);
+        let assert_invalid = |error: BackendError, symbol: &str| {
+            let error = error.to_string();
+            assert!(error.contains("invalid executable state"), "{error}");
+            assert!(error.contains(symbol), "{error}");
+        };
+
+        assert_invalid(
+            backend()
+                .execute(ExecuteRequest {
+                    state: alias.clone(),
+                    ..ExecuteRequest::default()
+                })
+                .unwrap_err(),
+            "weakExistsFinally",
+        );
+        assert_invalid(
+            backend()
+                .search(SearchRequest {
+                    state: nested_macro.clone(),
+                    ..SearchRequest::default()
+                })
+                .unwrap_err(),
+            "macroValue",
+        );
+        assert_invalid(
+            backend()
+                .search_paths(SearchRequest {
+                    state: alias.clone(),
+                    ..SearchRequest::default()
+                })
+                .unwrap_err(),
+            "weakExistsFinally",
+        );
+        assert_invalid(
+            backend()
+                .search_pattern(SearchPatternRequest {
+                    state: nested_macro,
+                    pattern: json("a{}()"),
+                    ..SearchPatternRequest::default()
+                })
+                .unwrap_err(),
+            "macroValue",
+        );
+        assert_invalid(
+            backend()
+                .search_pattern_paths(SearchPatternRequest {
+                    state: alias,
+                    pattern: json("a{}()"),
+                    ..SearchPatternRequest::default()
+                })
+                .unwrap_err(),
+            "weakExistsFinally",
+        );
     }
 
     fn json(source: &str) -> Value {

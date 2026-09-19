@@ -33,6 +33,30 @@ pub enum Predicate {
 }
 
 impl Predicate {
+    /// Visit every term carried by this predicate, including nested logical predicates.
+    pub fn visit_terms(&self, visitor: &mut impl FnMut(&Term)) {
+        match self {
+            Self::True | Self::False => {}
+            Self::Term(term) | Self::Ceil(term) | Self::Floor(term) => visitor(term),
+            Self::Equals(left, right) | Self::In(left, right) => {
+                visitor(left);
+                visitor(right);
+            }
+            Self::Not(inner) | Self::Exists(_, inner) | Self::Forall(_, inner) => {
+                inner.visit_terms(visitor);
+            }
+            Self::And(inner) | Self::Or(inner) => {
+                for predicate in inner {
+                    predicate.visit_terms(visitor);
+                }
+            }
+            Self::Implies(left, right) | Self::Iff(left, right) => {
+                left.visit_terms(visitor);
+                right.visit_terms(visitor);
+            }
+        }
+    }
+
     pub fn free_variables(&self) -> BTreeSet<Variable> {
         match self {
             Self::True | Self::False => BTreeSet::new(),
@@ -1105,7 +1129,7 @@ fn make_rule(
 fn computed_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> ComputedRuleAttributes {
     let mut result = ComputedRuleAttributes::default();
     for term in terms {
-        visit_symbols(term, &mut |symbol| {
+        term.visit_symbols(&mut |symbol| {
             result.contains_ac_symbols |=
                 symbol.attributes.associative || symbol.attributes.idempotent;
             if symbol.attributes.symbol_type
@@ -1169,53 +1193,6 @@ fn visit_partial_collections(term: &Term, visitor: &mut impl FnMut(&Name)) {
             }
             if let Some(rest) = rest {
                 visit_partial_collections(rest, visitor);
-            }
-        }
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
-    }
-}
-
-fn visit_symbols(term: &Term, visitor: &mut impl FnMut(&crate::term::Symbol)) {
-    match term.kind() {
-        TermKind::Application {
-            symbol, arguments, ..
-        } => {
-            visitor(symbol);
-            for argument in arguments {
-                visit_symbols(argument, visitor);
-            }
-        }
-        TermKind::And(left, right) => {
-            visit_symbols(left, visitor);
-            visit_symbols(right, visitor);
-        }
-        TermKind::Injection { term, .. } => visit_symbols(term, visitor),
-        TermKind::Map { entries, rest, .. } => {
-            for (key, value) in entries {
-                visit_symbols(key, visitor);
-                visit_symbols(value, visitor);
-            }
-            if let Some(rest) = rest {
-                visit_symbols(rest, visitor);
-            }
-        }
-        TermKind::List { heads, rest, .. } => {
-            for head in heads {
-                visit_symbols(head, visitor);
-            }
-            if let Some((middle, tails)) = rest {
-                visit_symbols(middle, visitor);
-                for tail in tails {
-                    visit_symbols(tail, visitor);
-                }
-            }
-        }
-        TermKind::Set { elements, rest, .. } => {
-            for element in elements {
-                visit_symbols(element, visitor);
-            }
-            if let Some(rest) = rest {
-                visit_symbols(rest, visitor);
             }
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => {}

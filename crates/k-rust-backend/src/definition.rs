@@ -222,6 +222,7 @@ pub enum DefinitionError {
     MalformedAlias(String),
     AliasCycle(Vec<String>),
     MacroOrAliasInImplication(String),
+    MacroOrAliasInExecutablePattern(String),
     PredicateInTermPosition {
         count: usize,
     },
@@ -343,6 +344,10 @@ impl fmt::Display for DefinitionError {
                     "A symbol cannot be an alias or a macro: '{symbol}'"
                 )
             }
+            Self::MacroOrAliasInExecutablePattern(symbol) => write!(
+                formatter,
+                "invalid executable input: macro or alias symbol '{symbol}' survived expansion"
+            ),
             Self::PredicateInTermPosition { count } => write!(
                 formatter,
                 "predicate in term position ({count} floated conjuncts) where a term is required"
@@ -857,6 +862,21 @@ impl BackendDefinition {
     ) -> Result<(), DefinitionError> {
         if let Some(name) = self.macro_or_alias_in_pattern(pattern) {
             Err(DefinitionError::MacroOrAliasInImplication(name))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Reject preprocessing symbols before executable KORE is internalized.
+    ///
+    /// Alias internalization expands alias applications, so callers that execute a raw pattern
+    /// must validate it first to preserve the invalid-input boundary.
+    pub fn validate_executable_pattern(
+        &self,
+        pattern: &kore::Pattern,
+    ) -> Result<(), DefinitionError> {
+        if let Some(name) = self.macro_or_alias_in_pattern(pattern) {
+            Err(DefinitionError::MacroOrAliasInExecutablePattern(name))
         } else {
             Ok(())
         }
@@ -2959,6 +2979,14 @@ mod tests {
             ),
         ] {
             let pattern = parse_pattern(source).expect("pattern should parse");
+            let symbol = match &expected {
+                DefinitionError::MacroOrAliasInImplication(symbol) => symbol.clone(),
+                _ => unreachable!("the table contains only macro-or-alias failures"),
+            };
+            assert_eq!(
+                definition.validate_executable_pattern(&pattern),
+                Err(DefinitionError::MacroOrAliasInExecutablePattern(symbol))
+            );
             assert_eq!(
                 definition
                     .internalize_implication_pattern(&pattern, &[])

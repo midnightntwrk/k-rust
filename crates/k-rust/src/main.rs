@@ -31,7 +31,7 @@ use k_rust::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
         KoreVariableIdentity, SortInjector, compile_loaded_definition,
         compile_loaded_definition_timed, compile_search_pattern, encode_kore_sort,
-        expand_macros_in_term, term_to_kore_from_resolved,
+        expand_macros_in_term_with_scope, term_to_kore_from_resolved,
     },
     kore::{
         ast::{
@@ -2139,7 +2139,12 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let start_sort = parse_sort(&options.sort)?;
         let program_parser = ProgramParser::from_resolved(&program_resolved, &syntax_module.name)?;
         let program = program_parser.parse(&start_sort, &source)?;
-        let program = expand_macros_in_term(&program_definition, &syntax_module.name, program)?;
+        let program = expand_macros_in_term_with_scope(
+            &program_definition,
+            &syntax_module.name,
+            &options.common.module,
+            program,
+        )?;
         // Parser annotations refer to the source definition's production catalog. Perform
         // production-sensitive conversion there, before crossing into the transformed
         // definition.
@@ -2230,7 +2235,12 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let value = parser.parse(&parse_sort, source).map_err(|error| {
             format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
         })?;
-        let value = expand_macros_in_term(&program_definition, parser_module, value)?;
+        let value = expand_macros_in_term_with_scope(
+            &program_definition,
+            parser_module,
+            &options.common.module,
+            value,
+        )?;
         let value_sort = injector.term_sort(&value, None)?;
         let value = injector.inject_at_top(&value)?;
         let value = term_to_kore_from_resolved(&program_resolved, parser_module, &value)?;
@@ -2301,6 +2311,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         &options.common.module,
         &compiled.execution_rewrite_order,
     )?;
+    backend.validate_executable_pattern(&initial)?;
     let initial = backend.internalize_frontend_term(&initial, &[])?;
     let match_target = match match_target_source {
         Some(MatchTargetSource::Surface(compiled)) => {
@@ -3303,6 +3314,7 @@ fn load_backend_patterns(
     let input = fs::read(path)?;
     let syntax = decode_kore_syntax(path, purpose, &input)?;
     definition.verify_standalone_pattern(&syntax)?;
+    definition.validate_executable_pattern(&syntax)?;
     definition
         .internalize_disjunction(&syntax, &[])
         .map_err(Into::into)

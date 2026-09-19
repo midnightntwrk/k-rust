@@ -496,6 +496,9 @@ impl RpcService {
         let _booster_only = booster_only;
         let definition = self.definition(module.as_deref())?;
         let syntax = state.0;
+        definition
+            .validate_executable_pattern(&syntax)
+            .map_err(|error| pattern_fault(error, &syntax))?;
         let initial = definition
             .internalize_pattern(&syntax, &[])
             .map_err(|error| pattern_fault(error, &syntax))?;
@@ -1487,6 +1490,9 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
     let (reason, rule_id) = match reason {
         HaltReason::Stuck => ("No applicable rules found", None),
         HaltReason::Indeterminate(indeterminate) => match indeterminate {
+            k_rust_backend::rewrite::IndeterminateReason::SurvivingMacroOrAlias { .. } => {
+                ("Invalid executable macro or alias symbol", None)
+            }
             k_rust_backend::rewrite::IndeterminateReason::Match { rule_id, .. } => {
                 ("Uncertain about unification of rule", Some(rule_id))
             }

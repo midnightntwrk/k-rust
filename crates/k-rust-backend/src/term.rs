@@ -599,6 +599,65 @@ impl Term {
         &self.0.attributes
     }
 
+    /// Visit application symbols in preorder, including applications nested in collections.
+    pub fn visit_symbols(&self, visitor: &mut impl FnMut(&Symbol)) {
+        match self.kind() {
+            TermKind::Application {
+                symbol, arguments, ..
+            } => {
+                visitor(symbol);
+                for argument in arguments {
+                    argument.visit_symbols(visitor);
+                }
+            }
+            TermKind::And(left, right) => {
+                left.visit_symbols(visitor);
+                right.visit_symbols(visitor);
+            }
+            TermKind::Injection { term, .. } => term.visit_symbols(visitor),
+            TermKind::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    key.visit_symbols(visitor);
+                    value.visit_symbols(visitor);
+                }
+                if let Some(rest) = rest {
+                    rest.visit_symbols(visitor);
+                }
+            }
+            TermKind::List { heads, rest, .. } => {
+                for head in heads {
+                    head.visit_symbols(visitor);
+                }
+                if let Some((middle, tails)) = rest {
+                    middle.visit_symbols(visitor);
+                    for tail in tails {
+                        tail.visit_symbols(visitor);
+                    }
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                for element in elements {
+                    element.visit_symbols(visitor);
+                }
+                if let Some(rest) = rest {
+                    rest.visit_symbols(visitor);
+                }
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+
+    /// Return the first preprocessing symbol that survived into an internal executable term.
+    pub fn macro_or_alias_symbol(&self) -> Option<Name> {
+        let mut found = None;
+        self.visit_symbols(&mut |symbol| {
+            if found.is_none() && symbol.attributes.macro_or_alias {
+                found = Some(symbol.name.clone());
+            }
+        });
+        found
+    }
+
     /// Whether this term is concrete once equation normalization has reached a fixed point.
     ///
     /// K emits overloaded productions and productions with anywhere equations without the

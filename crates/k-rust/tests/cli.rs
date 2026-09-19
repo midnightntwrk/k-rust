@@ -375,6 +375,127 @@ endmodule
 }
 
 #[test]
+fn krun_uses_main_module_macros_for_syntax_and_configuration_inputs() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module COMMON
+  syntax Hidden
+  syntax Input ::= Hidden
+  syntax Input ::= "done" [symbol(done)]
+                 | "programMacro" [macro, symbol(programMacro)]
+                 | "configMacro" [macro, symbol(configMacro)]
+                 | "hiddenMacro" [macro, symbol(hiddenMacro)]
+                 | "hiddenConditional" [macro, symbol(hiddenConditional)]
+endmodule
+
+module SYNTAX
+  imports COMMON
+endmodule
+
+module MACROS
+  imports COMMON
+  syntax Hidden ::= "$hidden" [token]
+  rule programMacro => done
+  rule configMacro => done
+  rule hiddenMacro => $hidden
+  rule hiddenConditional => done requires true
+endmodule
+
+module MAIN
+  imports COMMON
+  imports MACROS
+  configuration <k> $PGM:Input </k>
+                <state parser="STATE, SYNTAX"> $STATE:Input </state>
+                <local parser="LOCAL, SYNTAX"> $LOCAL:Input </local>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "SYNTAX",
+            "--sort",
+            "Input",
+            "--expression",
+            "programMacro",
+            "-c",
+            "STATE=configMacro",
+            "-c",
+            "LOCAL=hiddenMacro",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.contains("LblprogramMacro"), "{output}");
+    assert!(!output.contains("LblconfigMacro"), "{output}");
+    assert!(!output.contains("LblhiddenMacro"), "{output}");
+    assert!(
+        output.matches("Lbldone{}()").count() >= 2,
+        "expected both parsed inputs to expand: {output}"
+    );
+    assert!(
+        output.contains(r#"\dv{SortHidden{}}("$hidden")"#),
+        "expected the macro module's private token to survive expansion: {output}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_rejects_a_macro_symbol_that_survives_expansion() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  syntax Input ::= "stuck" [macro, symbol(stuckMacro)]
+  configuration <k> $PGM:Input </k>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "Input",
+            "--expression",
+            "stuck",
+            "--depth",
+            "1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("invalid executable input"), "{error}");
+    assert!(error.contains("LblstuckMacro"), "{error}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn krun_parses_programs_with_the_selected_syntax_module() {
     let (root, definition) = fixture();
     fs::write(

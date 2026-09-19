@@ -43,7 +43,9 @@ pub use check_simplification::{CheckSimplificationError, check_simplification_ru
 pub use concretize_cells::{ConcretizeCellsError, concretize_cells, concretize_cells_in_sentence};
 pub use constant_folding::{ConstantFoldingError, constant_fold};
 pub(crate) use expand_macros::expand_macros_in_terms_from_resolved;
-pub use expand_macros::{ExpandMacrosError, expand_macros, expand_macros_in_term};
+pub use expand_macros::{
+    ExpandMacrosError, expand_macros, expand_macros_in_term, expand_macros_in_term_with_scope,
+};
 pub use finalize::{add_cool_like_attributes, add_semantics_module, generate_sort_predicate_rules};
 pub use generate_sort_helpers::{
     generate_sort_predicate_syntax, generate_sort_projections, regenerate_sort_predicate_syntax,
@@ -117,9 +119,52 @@ pub(crate) fn rebase_sentence(
     target: &ProductionCatalog<'_>,
     production_matches: &impl Fn(&Sentence, &Sentence) -> bool,
 ) -> Result<(), String> {
+    rebase_sentence_with_policy(
+        sentence,
+        source,
+        target,
+        production_matches,
+        MissingProductionMetadata::Error,
+    )
+}
+
+/// Rebase a projected macro term into the caller's catalog.
+///
+/// A macro module may use a private lexical production in its right-hand side while the concrete
+/// term stays in a syntax module's catalog. Tokens retain their sort without a production index.
+/// Applications still require an equivalent visible production so a template cannot smuggle a
+/// main-only executable symbol into syntax-scoped sort injection or KORE conversion.
+pub(crate) fn rebase_macro_term_to_visible_catalog(
+    term: Term,
+    source: &ProductionCatalog<'_>,
+    target: &ProductionCatalog<'_>,
+    production_matches: &impl Fn(&Sentence, &Sentence) -> bool,
+) -> Result<Term, String> {
+    rebase_term(
+        term,
+        source,
+        target,
+        production_matches,
+        MissingProductionMetadata::DiscardToken,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum MissingProductionMetadata {
+    Error,
+    DiscardToken,
+}
+
+fn rebase_sentence_with_policy(
+    sentence: &mut Sentence,
+    source: &ProductionCatalog<'_>,
+    target: &ProductionCatalog<'_>,
+    production_matches: &impl Fn(&Sentence, &Sentence) -> bool,
+    missing: MissingProductionMetadata,
+) -> Result<(), String> {
     let rebase = |term: &mut Term| {
         let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
-        *term = rebase_term(taken, source, target, production_matches)?;
+        *term = rebase_term(taken, source, target, production_matches, missing)?;
         Ok::<_, String>(())
     };
     match sentence {
@@ -158,7 +203,9 @@ fn rebase_term(
     source: &ProductionCatalog<'_>,
     target: &ProductionCatalog<'_>,
     production_matches: &impl Fn(&Sentence, &Sentence) -> bool,
+    missing: MissingProductionMetadata,
 ) -> Result<Term, String> {
+    let token = matches!(term.unannotated(), Term::Token { .. });
     let mut metadata = term.metadata().cloned().unwrap_or_default();
     if let Some(ResolvedProductionId(index)) = metadata.production {
         if index >= source.len() {
@@ -170,34 +217,66 @@ fn rebase_term(
         let production = source.production(crate::definition::ProductionId(index));
         let rebased = target
             .productions()
-            .find_map(|(id, candidate)| production_matches(production, candidate).then_some(id))
-            .ok_or_else(|| {
-                format!(
+            .find_map(|(id, candidate)| production_matches(production, candidate).then_some(id));
+        metadata.production = match (rebased, missing) {
+            (Some(rebased), _) => Some(ResolvedProductionId(rebased.0)),
+            (None, MissingProductionMetadata::DiscardToken) if token => None,
+            (None, MissingProductionMetadata::Error) => {
+                return Err(format!(
                     "source production metadata #{index} has no equivalent in the transformed catalog"
-                )
-            })?;
-        metadata.production = Some(ResolvedProductionId(rebased.0));
+                ));
+            }
+            (None, MissingProductionMetadata::DiscardToken) => {
+                return Err(format!(
+                    "source production metadata #{index} on a macro application has no equivalent in the caller catalog"
+                ));
+            }
+        };
     }
     let rebuilt = match term.into_unannotated() {
         Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(rebase_term(*left, source, target, production_matches)?),
-            right: Box::new(rebase_term(*right, source, target, production_matches)?),
+            left: Box::new(rebase_term(
+                *left,
+                source,
+                target,
+                production_matches,
+                missing,
+            )?),
+            right: Box::new(rebase_term(
+                *right,
+                source,
+                target,
+                production_matches,
+                missing,
+            )?),
         },
         Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(rebase_term(*pattern, source, target, production_matches)?),
-            alias: Box::new(rebase_term(*alias, source, target, production_matches)?),
+            pattern: Box::new(rebase_term(
+                *pattern,
+                source,
+                target,
+                production_matches,
+                missing,
+            )?),
+            alias: Box::new(rebase_term(
+                *alias,
+                source,
+                target,
+                production_matches,
+                missing,
+            )?),
         },
         Term::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
-                .map(|item| rebase_term(item, source, target, production_matches))
+                .map(|item| rebase_term(item, source, target, production_matches, missing))
                 .collect::<Result<_, _>>()?,
         ),
         Term::Apply { label, arguments } => Term::Apply {
             label,
             arguments: arguments
                 .into_iter()
-                .map(|argument| rebase_term(argument, source, target, production_matches))
+                .map(|argument| rebase_term(argument, source, target, production_matches, missing))
                 .collect::<Result<_, _>>()?,
         },
         leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,

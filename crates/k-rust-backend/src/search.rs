@@ -363,6 +363,26 @@ fn search_graph_using(
     // configurations rather than by the number of interleavings that reach them.
     let mut expanded: HashSet<(u64, Pattern)> = HashSet::new();
 
+    let mut validated = VecDeque::with_capacity(pending.len());
+    while let Some(work) = pending.pop_front() {
+        if let Some(symbol) = work.state.pattern.macro_or_alias_symbol() {
+            incomplete.push(rewrite_incomplete(
+                work.materialize(&observation_log),
+                IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            ));
+        } else {
+            validated.push_back(work);
+        }
+    }
+    pending = validated;
+    if pending.is_empty() && !incomplete.is_empty() {
+        return SearchResult {
+            states,
+            effects,
+            incomplete,
+        };
+    }
+
     if options.max_breadth == Some(0) {
         incomplete.push(IncompleteSearch::BreadthBound(
             pending
@@ -391,6 +411,13 @@ fn search_graph_using(
             mut state,
             observation: mut observation_head,
         } = work;
+        if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
+            incomplete.push(rewrite_incomplete(
+                materialize_search_state(state, observation_head, &observation_log),
+                IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            ));
+            continue;
+        }
         match simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
@@ -800,6 +827,26 @@ fn search_paths_using(
     let mut incomplete = Vec::new();
     let mut fresh_counter = 0;
 
+    let mut validated = VecDeque::with_capacity(pending.len());
+    while let Some(path) = pending.pop_front() {
+        if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
+            incomplete.push(rewrite_incomplete(
+                path.materialize_state(&observation_log),
+                IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            ));
+        } else {
+            validated.push_back(path);
+        }
+    }
+    pending = validated;
+    if pending.is_empty() && !incomplete.is_empty() {
+        return PathSearchResult {
+            witnesses,
+            effects,
+            incomplete,
+        };
+    }
+
     if options.max_breadth == Some(0) {
         incomplete.push(IncompleteSearch::BreadthBound(
             pending
@@ -824,6 +871,13 @@ fn search_paths_using(
     }
 
     while let Some(mut path) = pending.pop_front() {
+        if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
+            incomplete.push(rewrite_incomplete(
+                path.materialize_state(&observation_log),
+                IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            ));
+            continue;
+        }
         match simplify_predicates_with_solver(
             definition,
             &path.state.pattern.constraints,

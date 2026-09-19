@@ -73,6 +73,140 @@ fn definition(axioms: &str) -> BackendDefinition {
 }
 
 #[test]
+fn direct_rewrite_rejects_a_nested_surviving_macro_without_recovery() {
+    let source = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol state{}(SortS{}) : SortS{} [constructor{}(), total{}()]
+            symbol c{}(SortS{}) : SortS{} [constructor{}(), total{}()]
+            symbol a{}() : SortS{} [constructor{}(), total{}()]
+            symbol done{}() : SortS{} [constructor{}(), total{}()]
+            symbol m{}(SortS{}) : SortS{}
+                [functional{}(), injective{}(), macro{}(), no-evaluators{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(state{}(c{}(X:SortS{})), \top{SortS{}}()),
+                done{}()
+            ) [label{}("execute")]
+        endmodule []"#;
+    let syntax = parse_definition(source).expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let subject = Pattern {
+        term: internal_term(&definition, "state{}(m{}(a{}()))"),
+        constraints: Vec::new(),
+    };
+    let before = snapshot();
+    let mut fresh = 0;
+
+    let result = rewrite_step(&definition, &subject, &mut fresh);
+    let delta = snapshot().delta(&before);
+
+    assert_eq!(
+        result,
+        RewriteResult::Indeterminate {
+            pattern: subject.clone(),
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol: "m".into() },
+        }
+    );
+    assert_eq!(fresh, 0);
+    assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);
+    assert_eq!(delta.get(Counter::MatchingPairs), 0);
+
+    let before = snapshot();
+    let execution = execute(
+        &definition,
+        subject,
+        ExecutionOptions {
+            max_depth: 0,
+            ..ExecutionOptions::default()
+        },
+    );
+    let delta = snapshot().delta(&before);
+    let [leaf] = execution.leaves.as_slice() else {
+        panic!("expected one invalid-input leaf: {execution:?}");
+    };
+    assert_eq!(
+        leaf.halt_reason,
+        HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias {
+            symbol: "m".into(),
+        })
+    );
+    assert_eq!(leaf.depth, 0);
+    assert_eq!(delta.get(Counter::SimplifyRounds), 0);
+    assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);
+    assert_eq!(delta.get(Counter::MatchingPairs), 0);
+
+    let constrained = Pattern {
+        term: internal_term(&definition, "state{}(a{}())"),
+        constraints: vec![Predicate::Equals(
+            internal_term(&definition, "m{}(a{}())"),
+            internal_term(&definition, "a{}()"),
+        )],
+    };
+    let before = snapshot();
+    let rewrite = rewrite_step(&definition, &constrained, &mut 0);
+    assert!(matches!(
+        rewrite,
+        RewriteResult::Indeterminate {
+            reason: IndeterminateReason::SurvivingMacroOrAlias { ref symbol },
+            ..
+        } if symbol.as_ref() == "m"
+    ));
+    let execution = execute(
+        &definition,
+        constrained.clone(),
+        ExecutionOptions {
+            max_depth: 0,
+            max_breadth: Some(0),
+            ..ExecutionOptions::default()
+        },
+    );
+    assert!(matches!(
+        execution.leaves.as_slice(),
+        [ExecutionLeaf {
+            halt_reason: HaltReason::Indeterminate(
+                IndeterminateReason::SurvivingMacroOrAlias { symbol }
+            ),
+            ..
+        }] if symbol.as_ref() == "m"
+    ));
+    let state_search = k_rust_backend::search::search_graph(
+        &definition,
+        constrained.clone(),
+        k_rust_backend::search::SearchOptions {
+            max_breadth: Some(0),
+            ..k_rust_backend::search::SearchOptions::default()
+        },
+    );
+    assert!(matches!(
+        state_search.incomplete.as_slice(),
+        [k_rust_backend::search::IncompleteSearch::Indeterminate {
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            ..
+        }] if symbol.as_ref() == "m"
+    ));
+    let path_search = k_rust_backend::search::search_paths(
+        &definition,
+        constrained,
+        k_rust_backend::search::SearchOptions {
+            max_results: Some(0),
+            ..k_rust_backend::search::SearchOptions::default()
+        },
+    );
+    assert!(matches!(
+        path_search.incomplete.as_slice(),
+        [k_rust_backend::search::IncompleteSearch::Indeterminate {
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            ..
+        }] if symbol.as_ref() == "m"
+    ));
+    let delta = snapshot().delta(&before);
+    assert_eq!(delta.get(Counter::SimplifyRounds), 0);
+    assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);
+    assert_eq!(delta.get(Counter::MatchingPairs), 0);
+}
+
+#[test]
 fn spawning_a_distinct_normalized_ground_cell_has_no_residual_inequality() {
     let definition = ground_cell_set_definition();
     let value = r#"\dv{SortValue{}}("a")"#;

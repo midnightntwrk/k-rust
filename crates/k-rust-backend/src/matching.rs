@@ -3139,6 +3139,7 @@ fn is_rigid(kind: &TermKind) -> bool {
         kind,
         TermKind::Application { symbol, .. }
             if symbol.attributes.symbol_type == SymbolType::Constructor
+                || symbol.attributes.macro_or_alias
     )
 }
 
