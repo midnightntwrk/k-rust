@@ -2989,6 +2989,62 @@ fn search_bound_truncation_is_reported_to_the_user() {
 }
 
 #[test]
+fn search_bound_stops_a_catch_all_over_an_infinite_result_stream() {
+    fn flatten_disjuncts<'a>(pattern: &'a Pattern, disjuncts: &mut Vec<&'a Pattern>) {
+        match pattern {
+            Pattern::Or { arguments, .. } => {
+                for argument in arguments {
+                    flatten_disjuncts(argument, disjuncts);
+                }
+            }
+            pattern => disjuncts.push(pattern),
+        }
+    }
+
+    let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/search-pattern/infinite-result.k");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "INFINITE-RESULT",
+            "--syntax-module",
+            "INFINITE-RESULT-SYNTAX",
+            "--sort",
+            "State",
+            "--expression",
+            "loop(z)",
+            "--search-final",
+            "--search-bound",
+            "5",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("search stopped at the requested result bound"),
+        "{stderr}"
+    );
+    let result = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+    let mut disjuncts = Vec::new();
+    flatten_disjuncts(&result, &mut disjuncts);
+    assert_eq!(disjuncts.len(), 5);
+    let mut successor_counts = disjuncts
+        .iter()
+        .map(|disjunct| disjunct.to_string().matches("Lbls{}(").count())
+        .collect::<Vec<_>>();
+    successor_counts.sort_unstable();
+    assert_eq!(successor_counts, [0, 1, 2, 3, 4]);
+}
+
+#[test]
 fn krun_search_all_prints_disjuncts_in_a_deterministic_order() {
     let definition = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/branching-order.k");

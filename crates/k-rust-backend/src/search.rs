@@ -335,7 +335,28 @@ fn search_graph_using(
     options: SearchOptions,
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
+    observe: impl FnMut(&BuiltinEffect),
+) -> SearchResult {
+    search_graph_collecting(
+        definition,
+        initial,
+        options,
+        solver,
+        observation,
+        observe,
+        |_| false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_graph_collecting(
+    definition: &BackendDefinition,
+    initial: Vec<Pattern>,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
+    mut pattern_bound_reached: impl FnMut(&SearchState) -> bool,
 ) -> SearchResult {
     let mut observation_log = ObservationLog::default();
     let mut pending = initial
@@ -494,28 +515,62 @@ fn search_graph_using(
         let at_depth_bound = state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, state.depth)
             || (options.search_type == SearchType::Final && at_depth_bound);
-        let result_bound_reached = is_result
-            && externalise_result(
-                definition,
-                state.clone(),
-                observation_head,
-                options.max_simplification_iterations,
-                solver,
-                &mut effects,
-                &mut observe,
-                &mut incomplete,
-                &mut observation_log,
-                observation,
-            )
-            .is_some_and(|result| push_unique(&mut states, result, options.max_results));
-        if result_bound_reached {
-            let truncated = !pending.is_empty()
-                || (options.search_type != SearchType::Final
-                    && state_may_expand(definition, &state, options, &mut fresh_counter, solver));
-            if truncated {
-                incomplete.push(IncompleteSearch::ResultBound);
+        let retention = is_result
+            .then(|| {
+                externalise_result(
+                    definition,
+                    state.clone(),
+                    observation_head,
+                    options.max_simplification_iterations,
+                    solver,
+                    &mut effects,
+                    &mut observe,
+                    &mut incomplete,
+                    &mut observation_log,
+                    observation,
+                )
+                .map(|result| {
+                    retain_state_result(
+                        &mut states,
+                        result,
+                        options.max_results,
+                        &mut pattern_bound_reached,
+                    )
+                })
+                .unwrap_or(StateRetention::Continue)
+            })
+            .unwrap_or(StateRetention::Continue);
+        match retention {
+            StateRetention::ResultBound => {
+                let truncated = !pending.is_empty()
+                    || (options.search_type != SearchType::Final
+                        && state_may_expand(
+                            definition,
+                            &state,
+                            options,
+                            &mut fresh_counter,
+                            solver,
+                        ));
+                if truncated {
+                    incomplete.push(IncompleteSearch::ResultBound);
+                }
+                break;
             }
-            break;
+            StateRetention::PatternBound
+                if !pending.is_empty()
+                    || (options.search_type != SearchType::Final
+                        && state_may_expand(
+                            definition,
+                            &state,
+                            options,
+                            &mut fresh_counter,
+                            solver,
+                        )) =>
+            {
+                incomplete.push(IncompleteSearch::ResultBound);
+                break;
+            }
+            _ => {}
         }
         if options.search_type == SearchType::One && state.depth == 1 {
             continue;
@@ -542,7 +597,7 @@ fn search_graph_using(
                     continue;
                 }
                 state.pattern = pattern;
-                let result_bound_reached = externalise_result(
+                let retention = externalise_result(
                     definition,
                     state,
                     observation_head,
@@ -554,12 +609,27 @@ fn search_graph_using(
                     &mut observation_log,
                     observation,
                 )
-                .is_some_and(|result| push_unique(&mut states, result, options.max_results));
-                if result_bound_reached {
-                    if !pending.is_empty() {
-                        incomplete.push(IncompleteSearch::ResultBound);
+                .map(|result| {
+                    retain_state_result(
+                        &mut states,
+                        result,
+                        options.max_results,
+                        &mut pattern_bound_reached,
+                    )
+                })
+                .unwrap_or(StateRetention::Continue);
+                match retention {
+                    StateRetention::ResultBound => {
+                        if !pending.is_empty() {
+                            incomplete.push(IncompleteSearch::ResultBound);
+                        }
+                        break;
                     }
-                    break;
+                    StateRetention::PatternBound if !pending.is_empty() => {
+                        incomplete.push(IncompleteSearch::ResultBound);
+                        break;
+                    }
+                    _ => {}
                 }
             }
             RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => {}
@@ -809,6 +879,17 @@ fn search_paths_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PathSearchResult {
+    search_paths_collecting(definition, initial, options, solver, observation, |_| false)
+}
+
+fn search_paths_collecting(
+    definition: &BackendDefinition,
+    initial: Pattern,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+    observation: Option<&ObservationOptions>,
+    mut pattern_bound_reached: impl FnMut(&PathWitness) -> bool,
+) -> PathSearchResult {
     let mut observation_log = ObservationLog::default();
     let mut pending = VecDeque::from([PathSearchState {
         state: SearchState {
@@ -952,8 +1033,8 @@ fn search_paths_using(
         let at_depth_bound = path.state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, path.state.depth)
             || (options.search_type == SearchType::Final && at_depth_bound);
-        if is_result
-            && !retain_witness(
+        let retention = is_result.then(|| {
+            retain_witness(
                 definition,
                 &mut witnesses,
                 &path,
@@ -963,10 +1044,29 @@ fn search_paths_using(
                 &mut incomplete,
                 &mut observation_log,
                 observation,
+                &mut pattern_bound_reached,
             )
-        {
-            incomplete.push(IncompleteSearch::ResultBound);
-            break;
+        });
+        match retention {
+            Some(WitnessRetention::ResultBound) => {
+                incomplete.push(IncompleteSearch::ResultBound);
+                break;
+            }
+            Some(WitnessRetention::PatternBound)
+                if !pending.is_empty()
+                    || (options.search_type != SearchType::Final
+                        && state_may_expand(
+                            definition,
+                            &path.state,
+                            options,
+                            &mut fresh_counter,
+                            solver,
+                        )) =>
+            {
+                incomplete.push(IncompleteSearch::ResultBound);
+                break;
+            }
+            _ => {}
         }
         if options.search_type == SearchType::One && path.state.depth == 1 {
             continue;
@@ -988,8 +1088,8 @@ fn search_paths_using(
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 path.state.pattern = pattern;
-                if options.search_type == SearchType::Final
-                    && !retain_witness(
+                let retention = (options.search_type == SearchType::Final).then(|| {
+                    retain_witness(
                         definition,
                         &mut witnesses,
                         &path,
@@ -999,10 +1099,19 @@ fn search_paths_using(
                         &mut incomplete,
                         &mut observation_log,
                         observation,
+                        &mut pattern_bound_reached,
                     )
-                {
-                    incomplete.push(IncompleteSearch::ResultBound);
-                    break;
+                });
+                match retention {
+                    Some(WitnessRetention::ResultBound) => {
+                        incomplete.push(IncompleteSearch::ResultBound);
+                        break;
+                    }
+                    Some(WitnessRetention::PatternBound) if !pending.is_empty() => {
+                        incomplete.push(IncompleteSearch::ResultBound);
+                        break;
+                    }
+                    _ => {}
                 }
             }
             RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => {}
@@ -1085,7 +1194,14 @@ impl PathSearchState {
     }
 }
 
-/// Returns false only when this witness proves that the retained result bound truncates answers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WitnessRetention {
+    Continue,
+    ResultBound,
+    PatternBound,
+}
+
+/// Retain one externalized path witness and classify any result bound reached there.
 ///
 /// The witness is externalised in the simplifier's normal form (`externalise_result`); an
 /// empty witness is not retained and a failed simplification is reported as incomplete.
@@ -1100,12 +1216,13 @@ fn retain_witness(
     incomplete: &mut Vec<IncompleteSearch>,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
-) -> bool {
+    pattern_bound_reached: &mut impl FnMut(&PathWitness) -> bool,
+) -> WitnessRetention {
     if options
         .max_results
         .is_some_and(|limit| witnesses.len() >= limit)
     {
-        return false;
+        return WitnessRetention::ResultBound;
     }
     if let Some(state) = externalise_result(
         definition,
@@ -1119,15 +1236,20 @@ fn retain_witness(
         observation_log,
         observation_options,
     ) {
-        witnesses.push(PathWitness {
+        let witness = PathWitness {
             id: path.id.clone(),
             pattern: state.pattern,
             depth: state.depth,
             trace: state.trace,
             observations: state.observations,
-        });
+        };
+        let pattern_bound_reached = pattern_bound_reached(&witness);
+        witnesses.push(witness);
+        if pattern_bound_reached {
+            return WitnessRetention::PatternBound;
+        }
     }
-    true
+    WitnessRetention::Continue
 }
 
 fn next_path_state(
@@ -1275,29 +1397,10 @@ fn search_pattern_using(
         max_results: None,
         ..options
     };
-    let graph = match observation {
-        Some(observation) => search_graph_using(
-            definition,
-            initial,
-            graph_options,
-            solver,
-            Some(observation),
-            |_| {},
-        ),
-        None => search_graph_disjunction_with_solver_and_observer(
-            definition,
-            initial,
-            graph_options,
-            solver,
-            |_| {},
-        ),
-    };
     let mut matches = Vec::new();
-    let mut incomplete = graph.incomplete;
+    let mut match_incomplete = Vec::new();
     let output_variables = pattern_variables(target);
-
-    let mut remaining = graph.states.into_iter();
-    while let Some(state) = remaining.next() {
+    let mut collect_match = |state: &SearchState| {
         let found = match match_pattern_with_variables(
             definition,
             target,
@@ -1308,46 +1411,48 @@ fn search_pattern_using(
             false,
         ) {
             Ok(Some(found)) => found,
-            Ok(None) => continue,
+            Ok(None) => return false,
             Err(PatternMatchError::Indeterminate {
                 substitution,
                 remainder,
             }) => {
-                incomplete.push(IncompleteSearch::Match {
-                    state,
+                match_incomplete.push(IncompleteSearch::Match {
+                    state: state.clone(),
                     substitution,
                     remainder,
                 });
-                continue;
+                return false;
             }
             Err(PatternMatchError::Simplification(error)) => {
-                incomplete.push(simplification_incomplete(state, error));
-                continue;
+                match_incomplete.push(simplification_incomplete(state.clone(), error));
+                return false;
             }
             Err(PatternMatchError::Smt(error)) => {
-                incomplete.push(IncompleteSearch::Smt { state, error });
-                continue;
+                match_incomplete.push(IncompleteSearch::Smt {
+                    state: state.clone(),
+                    error,
+                });
+                return false;
             }
         };
 
         let found = SearchMatch {
             substitution: found.substitution,
             constraints: found.constraints,
-            state,
+            state: state.clone(),
         };
-        if !matches.iter().any(|existing: &SearchMatch| {
-            existing.substitution == found.substitution && existing.constraints == found.constraints
-        }) {
-            matches.push(found);
-        }
-        if requested_bound.is_some_and(|bound| matches.len() >= bound) {
-            // The bound only truncates the answer when candidate states were left unchecked.
-            if remaining.len() > 0 {
-                incomplete.push(IncompleteSearch::ResultBound);
-            }
-            break;
-        }
-    }
+        retain_pattern_match(&mut matches, found, requested_bound)
+    };
+    let graph = search_graph_collecting(
+        definition,
+        initial,
+        graph_options,
+        solver,
+        observation,
+        |_| {},
+        &mut collect_match,
+    );
+    let incomplete = merge_pattern_incomplete(graph.incomplete, match_incomplete);
 
     PatternSearchResult {
         matches,
@@ -1434,21 +1539,10 @@ fn search_pattern_paths_using(
         max_results: None,
         ..options
     };
-    let graph = match observation {
-        Some(observation) => search_paths_observed_with_solver(
-            definition,
-            initial,
-            graph_options,
-            solver,
-            observation,
-        ),
-        None => search_paths_with_solver(definition, initial, graph_options, solver),
-    };
     let mut matches = Vec::new();
-    let mut incomplete = graph.incomplete;
+    let mut match_incomplete = Vec::new();
     let output_variables = pattern_variables(target);
-
-    for witness in graph.witnesses {
+    let mut collect_match = |witness: &PathWitness| {
         let found = match match_pattern_with_variables(
             definition,
             target,
@@ -1459,44 +1553,50 @@ fn search_pattern_paths_using(
             false,
         ) {
             Ok(Some(found)) => found,
-            Ok(None) => continue,
+            Ok(None) => return false,
             Err(PatternMatchError::Indeterminate {
                 substitution,
                 remainder,
             }) => {
-                incomplete.push(IncompleteSearch::Match {
-                    state: witness_search_state(witness),
+                match_incomplete.push(IncompleteSearch::Match {
+                    state: witness_search_state(witness.clone()),
                     substitution,
                     remainder,
                 });
-                continue;
+                return false;
             }
             Err(PatternMatchError::Simplification(error)) => {
-                incomplete.push(simplification_incomplete(
-                    witness_search_state(witness),
+                match_incomplete.push(simplification_incomplete(
+                    witness_search_state(witness.clone()),
                     error,
                 ));
-                continue;
+                return false;
             }
             Err(PatternMatchError::Smt(error)) => {
-                incomplete.push(IncompleteSearch::Smt {
-                    state: witness_search_state(witness),
+                match_incomplete.push(IncompleteSearch::Smt {
+                    state: witness_search_state(witness.clone()),
                     error,
                 });
-                continue;
+                return false;
             }
         };
 
-        if requested_bound.is_some_and(|bound| matches.len() >= bound) {
-            incomplete.push(IncompleteSearch::ResultBound);
-            break;
-        }
         matches.push(PathSearchMatch {
             substitution: found.substitution,
             constraints: found.constraints,
-            witness,
+            witness: witness.clone(),
         });
-    }
+        requested_bound.is_some_and(|bound| matches.len() >= bound)
+    };
+    let graph = search_paths_collecting(
+        definition,
+        initial,
+        graph_options,
+        solver,
+        observation,
+        &mut collect_match,
+    );
+    let incomplete = merge_pattern_incomplete(graph.incomplete, match_incomplete);
 
     PatternPathSearchResult {
         matches,
@@ -1520,6 +1620,32 @@ fn simplification_incomplete(state: SearchState, error: SimplificationError) -> 
         SimplificationError::Cancelled => IncompleteSearch::Cancelled(state),
         error => IncompleteSearch::Simplification { state, error },
     }
+}
+
+fn merge_pattern_incomplete(
+    mut traversal: Vec<IncompleteSearch>,
+    mut matching: Vec<IncompleteSearch>,
+) -> Vec<IncompleteSearch> {
+    let result_bound = matches!(traversal.last(), Some(IncompleteSearch::ResultBound))
+        .then(|| traversal.pop())
+        .flatten();
+    traversal.append(&mut matching);
+    traversal.extend(result_bound);
+    traversal
+}
+
+fn retain_pattern_match(
+    matches: &mut Vec<SearchMatch>,
+    found: SearchMatch,
+    max_results: Option<usize>,
+) -> bool {
+    if matches.iter().any(|existing| {
+        existing.substitution == found.substitution && existing.constraints == found.constraints
+    }) {
+        return false;
+    }
+    matches.push(found);
+    max_results.is_some_and(|bound| matches.len() >= bound)
 }
 
 fn rewrite_incomplete(state: SearchState, reason: IndeterminateReason) -> IncompleteSearch {
@@ -1701,16 +1827,32 @@ fn state_may_expand(
     )
 }
 
-/// Returns whether the requested solution bound has been reached.
-fn push_unique(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StateRetention {
+    Continue,
+    ResultBound,
+    PatternBound,
+}
+
+/// Retain one unique state result and classify any result bound reached there.
+fn retain_state_result(
     states: &mut Vec<SearchState>,
     state: SearchState,
     max_results: Option<usize>,
-) -> bool {
-    if !states.iter().any(|found| found.pattern == state.pattern) {
-        states.push(state);
+    pattern_bound_reached: &mut impl FnMut(&SearchState) -> bool,
+) -> StateRetention {
+    if states.iter().any(|found| found.pattern == state.pattern) {
+        return StateRetention::Continue;
     }
-    max_results.is_some_and(|limit| states.len() >= limit)
+    let pattern_bound_reached = pattern_bound_reached(&state);
+    states.push(state);
+    if pattern_bound_reached {
+        StateRetention::PatternBound
+    } else if max_results.is_some_and(|limit| states.len() >= limit) {
+        StateRetention::ResultBound
+    } else {
+        StateRetention::Continue
+    }
 }
 
 fn record_effects(
@@ -1887,6 +2029,31 @@ mod tests {
         .expect("search-bound definition should parse");
         BackendDefinition::internalize(&syntax, "SEARCH-BOUND")
             .expect("search-bound definition should internalize")
+    }
+
+    fn infinite_result_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module INFINITE-RESULT
+                sort SortNat{} []
+                sort SortS{} []
+                symbol zero{}() : SortNat{} [constructor{}()]
+                symbol successor{}(SortNat{}) : SortNat{} [constructor{}()]
+                symbol loop{}(SortNat{}) : SortS{} [constructor{}()]
+                symbol done{}(SortNat{}) : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(loop{}(N:SortNat{}), \top{SortS{}}()),
+                    done{}(N:SortNat{})
+                ) [label{}("emit")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(loop{}(N:SortNat{}), \top{SortS{}}()),
+                    loop{}(successor{}(N:SortNat{}))
+                ) [label{}("continue")]
+            endmodule []"#,
+        )
+        .expect("infinite-result definition should parse");
+        BackendDefinition::internalize(&syntax, "INFINITE-RESULT")
+            .expect("infinite-result definition should internalize")
     }
 
     fn diamond_definition(cyclic: bool) -> BackendDefinition {
@@ -2588,7 +2755,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_pattern_path_bound_ignores_later_nonmatches() {
+    fn pattern_path_bound_reports_unchecked_later_witnesses() {
         let definition = diamond_definition(false);
         let target = Pattern {
             term: Term::variable(result_variable()),
@@ -2609,7 +2776,7 @@ mod tests {
         );
 
         assert_eq!(result.matches.len(), 2);
-        assert!(result.incomplete.is_empty());
+        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
     }
 
     #[test]
@@ -2939,6 +3106,147 @@ mod tests {
         );
         assert_eq!(result.matches.len(), 2);
         assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn selective_pattern_bound_skips_nonmatches_and_honors_constraints() {
+        let definition = definition();
+        let result_variable = result_variable();
+        let target = Pattern {
+            term: Term::variable(result_variable.clone()),
+            constraints: vec![Predicate::Not(Box::new(Predicate::Equals(
+                pattern(&definition, "final1{}()").term,
+                Term::variable(result_variable.clone()),
+            )))],
+        };
+        let result = search_pattern(
+            &definition,
+            initial(&definition),
+            &target,
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_results: Some(1),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(
+            result.matches[0].substitution[&result_variable],
+            pattern(&definition, "final2{}()").term
+        );
+        assert!(result.matches[0].constraints.is_empty());
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn duplicate_pattern_projections_do_not_consume_the_bound() {
+        let definition = definition();
+        let initial = |variable: &str| Pattern {
+            term: pattern(&definition, "final1{}()").term,
+            constraints: vec![Predicate::Equals(
+                Term::variable(Variable::new(variable, Sort::simple("SortS"))),
+                pattern(&definition, "final2{}()").term,
+            )],
+        };
+        let alternatives = vec![initial("Hidden1"), initial("Hidden2")];
+        let graph = search_graph_disjunction_with_solver_and_observer(
+            &definition,
+            alternatives.clone(),
+            SearchOptions::default(),
+            &NoSolver,
+            |_| {},
+        );
+        assert_eq!(graph.states.len(), 2);
+
+        let result = search_pattern_disjunction_with_solver(
+            &definition,
+            alternatives,
+            &pattern(&definition, "final1{}()"),
+            SearchOptions {
+                max_results: Some(2),
+                ..SearchOptions::default()
+            },
+            &NoSolver,
+        );
+
+        assert_eq!(result.matches.len(), 1);
+        assert!(result.matches[0].substitution.is_empty());
+        assert!(result.matches[0].constraints.is_empty());
+        assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    fn bounded_pattern_search_stops_on_an_infinite_result_stream() {
+        let definition = infinite_result_definition();
+        let result_variable = Variable::new("Result", Sort::simple("SortNat"));
+        let target = pattern(&definition, "done{}(Result:SortNat{})");
+        let expected = [
+            "zero{}()",
+            "successor{}(zero{}())",
+            "successor{}(successor{}(zero{}()))",
+            "successor{}(successor{}(successor{}(zero{}())))",
+            "successor{}(successor{}(successor{}(successor{}(zero{}()))))",
+        ]
+        .map(|source| pattern(&definition, source).term);
+        let options = SearchOptions {
+            search_type: SearchType::Final,
+            max_results: Some(5),
+            ..SearchOptions::default()
+        };
+
+        let states = search_pattern(
+            &definition,
+            pattern(&definition, "loop{}(zero{}())"),
+            &target,
+            options,
+        );
+        assert_eq!(states.matches.len(), 5);
+        assert_eq!(
+            states
+                .matches
+                .iter()
+                .map(|found| found.substitution[&result_variable].clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(states.incomplete, [IncompleteSearch::ResultBound]);
+
+        let paths = search_pattern_paths(
+            &definition,
+            pattern(&definition, "loop{}(zero{}())"),
+            &target,
+            options,
+        );
+        assert_eq!(paths.matches.len(), 5);
+        assert_eq!(
+            paths
+                .matches
+                .iter()
+                .map(|found| found.substitution[&result_variable].clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(paths.incomplete, [IncompleteSearch::ResultBound]);
+    }
+
+    #[test]
+    fn zero_pattern_path_bound_does_not_traverse() {
+        let definition = infinite_result_definition();
+        let result = search_pattern_paths(
+            &definition,
+            pattern(&definition, "loop{}(zero{}())"),
+            &pattern(&definition, "done{}(Result:SortNat{})"),
+            SearchOptions {
+                search_type: SearchType::Final,
+                max_results: Some(0),
+                ..SearchOptions::default()
+            },
+        );
+
+        assert!(result.matches.is_empty());
+        assert!(result.effects.is_empty());
+        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
     }
 
     #[test]
