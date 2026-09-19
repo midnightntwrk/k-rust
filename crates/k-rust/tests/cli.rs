@@ -595,7 +595,6 @@ endmodule
 module MACROS
   imports COMMON
   syntax Hidden ::= "$hidden" [token]
-  rule programMacro => done
   rule configMacro => done
   rule hiddenMacro => $hidden
   rule hiddenConditional => done requires true
@@ -604,6 +603,8 @@ endmodule
 module MAIN
   imports COMMON
   imports MACROS
+  syntax Input ::= "wrapped" [symbol(mainWrap)]
+  rule programMacro => wrapped
   configuration <k> $PGM:Input </k>
                 <state parser="STATE, SYNTAX"> $STATE:Input </state>
                 <local parser="LOCAL, SYNTAX"> $LOCAL:Input </local>
@@ -639,13 +640,60 @@ endmodule
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--syntax-module",
+            "SYNTAX",
+            "--output-directory",
+        ])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let artifact = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "--sort",
+            "Input",
+            "--expression",
+            "programMacro",
+            "-c",
+            "STATE=configMacro",
+            "-c",
+            "LOCAL=hiddenMacro",
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        artifact.status.success(),
+        "{}",
+        String::from_utf8_lossy(&artifact.stderr)
+    );
+    assert_eq!(artifact.stdout, output.stdout);
     let output = String::from_utf8(output.stdout).unwrap();
     assert!(!output.contains("LblprogramMacro"), "{output}");
     assert!(!output.contains("LblconfigMacro"), "{output}");
     assert!(!output.contains("LblhiddenMacro"), "{output}");
     assert!(
-        output.matches("Lbldone{}()").count() >= 2,
-        "expected both parsed inputs to expand: {output}"
+        output.contains("LblmainWrap{}()"),
+        "expected a main-only application on a macro RHS to survive expansion: {output}"
+    );
+    assert!(
+        output.contains("Lbldone{}()"),
+        "expected the configuration input to expand: {output}"
     );
     assert!(
         output.contains(r#"\dv{SortHidden{}}("$hidden")"#),

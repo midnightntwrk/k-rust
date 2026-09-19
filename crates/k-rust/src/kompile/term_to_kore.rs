@@ -119,6 +119,7 @@ impl std::error::Error for TermConversionError {}
 pub struct TermConverter<'a> {
     productions: ProductionCatalog<'a>,
     sorts: SortCatalog<'a>,
+    token_sorts: Option<SortCatalog<'a>>,
     subsorts: PartialOrder<Sort>,
     sort_variables: BTreeSet<String>,
     generated_anonymous: Option<BTreeSet<GeneratedVariableIdentity>>,
@@ -138,10 +139,29 @@ impl<'a> TermConverter<'a> {
         Ok(Self {
             productions: definition.production_catalog(module),
             sorts: definition.sort_catalog(module),
+            token_sorts: None,
             subsorts,
             sort_variables: BTreeSet::new(),
             generated_anonymous: None,
         })
+    }
+
+    /// Read lexical token hooks from `token_module` before falling back to the executable module.
+    ///
+    /// Source-driven execution rebases applications into the main module, but a parser-only token
+    /// has no application production to rebase. Its sort is self-describing while its STRING or
+    /// BYTES decoding hook can remain local to the parser module.
+    pub fn new_with_token_module(
+        definition: &'a ResolvedDefinition,
+        module: &str,
+        token_module: &str,
+    ) -> Result<Self, TermConversionError> {
+        let token_module = definition
+            .module_id(token_module)
+            .ok_or_else(|| TermConversionError::MissingModule(token_module.to_owned()))?;
+        let mut converter = Self::new(definition, module)?;
+        converter.token_sorts = Some(definition.sort_catalog(token_module));
+        Ok(converter)
     }
 
     /// Convert ML binders using exact allocation-site provenance for generated anonymous
@@ -549,9 +569,18 @@ impl<'a> TermConverter<'a> {
 
     fn token_value(&self, token: &str, sort: &Sort) -> Result<String, TermConversionError> {
         let hook = self
-            .sorts
-            .attributes_for(&SortHead::from(sort))
-            .and_then(|attributes| attributes.string(AttributeKey::Hook));
+            .token_sorts
+            .as_ref()
+            .and_then(|sorts| {
+                sorts
+                    .attributes_for(&SortHead::from(sort))
+                    .and_then(|attributes| attributes.string(AttributeKey::Hook))
+            })
+            .or_else(|| {
+                self.sorts
+                    .attributes_for(&SortHead::from(sort))
+                    .and_then(|attributes| attributes.string(AttributeKey::Hook))
+            });
         match hook {
             Some("STRING.String") => self.unquote_token(token, sort),
             Some("BYTES.Bytes") => token
@@ -779,6 +808,16 @@ pub fn term_to_kore_from_resolved(
     term: &Term,
 ) -> Result<Pattern, TermConversionError> {
     TermConverter::new(definition, module)?.convert(term)
+}
+
+/// Convert applications with `module` while retaining lexical token hooks from `token_module`.
+pub fn term_to_kore_from_resolved_with_token_module(
+    definition: &ResolvedDefinition,
+    module: &str,
+    token_module: &str,
+    term: &Term,
+) -> Result<Pattern, TermConversionError> {
+    TermConverter::new_with_token_module(definition, module, token_module)?.convert(term)
 }
 
 fn application(name: &str, arguments: Vec<Pattern>) -> Pattern {

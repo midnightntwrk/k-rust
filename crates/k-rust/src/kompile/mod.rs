@@ -46,4 +46,5 @@ pub use sort_injections::{
 };
 pub use term_to_kore::{
     TermConversionError, TermConverter, term_to_kore, term_to_kore_from_resolved,
+    term_to_kore_from_resolved_with_token_module,
 };

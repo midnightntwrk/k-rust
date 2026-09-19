@@ -128,13 +128,12 @@ pub(crate) fn rebase_sentence(
     )
 }
 
-/// Rebase a projected macro term into the caller's catalog.
+/// Rebase a standalone term into another visible production catalog.
 ///
-/// A macro module may use a private lexical production in its right-hand side while the concrete
-/// term stays in a syntax module's catalog. Tokens retain their sort without a production index.
-/// Applications still require an equivalent visible production so a template cannot smuggle a
-/// main-only executable symbol into syntax-scoped sort injection or KORE conversion.
-pub(crate) fn rebase_macro_term_to_visible_catalog(
+/// Tokens describe their executable KORE value with their sort and may therefore discard an
+/// absent lexical production index. Applications require an equivalent visible production so
+/// sort injection and KORE conversion never interpret an index from another catalog.
+pub(crate) fn rebase_term_to_visible_catalog(
     term: Term,
     source: &ProductionCatalog<'_>,
     target: &ProductionCatalog<'_>,
@@ -228,7 +227,7 @@ fn rebase_term(
             }
             (None, MissingProductionMetadata::DiscardToken) => {
                 return Err(format!(
-                    "source production metadata #{index} on a macro application has no equivalent in the caller catalog"
+                    "source production metadata #{index} on an application has no equivalent in the target catalog"
                 ));
             }
         };

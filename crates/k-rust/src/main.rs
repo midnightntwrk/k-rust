@@ -31,7 +31,7 @@ use k_rust::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
         KoreVariableIdentity, SortInjector, compile_loaded_definition,
         compile_loaded_definition_timed, compile_search_pattern, encode_kore_sort,
-        expand_macros_in_term_with_scope, term_to_kore_from_resolved,
+        expand_macros_in_term_with_scope, term_to_kore_from_resolved_with_token_module,
     },
     kore::{
         ast::{
@@ -2259,14 +2259,17 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             &compiled.main_module,
             program,
         )?;
-        // Parser annotations refer to the source definition's production catalog. Perform
-        // production-sensitive conversion there, before crossing into the transformed
-        // definition.
-        let program_injector = SortInjector::new(&program_resolved, &compiled.syntax_module)?;
+        // Expansion rebases applications into the executable catalog. Tokens remain
+        // self-describing, and conversion retains lexical hooks from the parser module.
+        let program_injector = SortInjector::new(&program_resolved, &compiled.main_module)?;
         let program_sort = program_injector.term_sort(&program, None)?;
         let program = program_injector.inject_at_top(&program)?;
-        let program =
-            term_to_kore_from_resolved(&program_resolved, &compiled.syntax_module, &program)?;
+        let program = term_to_kore_from_resolved_with_token_module(
+            &program_resolved,
+            &compiled.main_module,
+            &compiled.syntax_module,
+            &program,
+        )?;
         Some((program, encode_kore_sort(&program_sort)))
     } else {
         None
@@ -2277,7 +2280,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let config_parser_modules =
         configuration_variable_parser_modules(&program_resolved, &compiled.main_module)?;
     let mut config_parsers = BTreeMap::new();
-    let mut config_injectors = BTreeMap::new();
+    let config_injector = (!options.config_vars.is_empty())
+        .then(|| SortInjector::new(&program_resolved, &compiled.main_module))
+        .transpose()?;
     let mut seen_config_vars = BTreeSet::new();
     let mut config_vars = Vec::new();
     for assignment in &options.config_vars {
@@ -2331,17 +2336,10 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                 parser_module.to_owned(),
                 ProgramParser::from_resolved(&program_resolved, parser_module)?,
             );
-            config_injectors.insert(
-                parser_module.to_owned(),
-                SortInjector::new(&program_resolved, parser_module)?,
-            );
         }
         let parser = config_parsers
             .get(parser_module)
             .expect("configuration parser was inserted above");
-        let injector = config_injectors
-            .get(parser_module)
-            .expect("configuration injector was inserted above");
         let parse_sort = if sort.name == BuiltinSort::K.k_name() {
             KastSort::builtin(BuiltinSort::KItem)
         } else {
@@ -2356,9 +2354,17 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             &compiled.main_module,
             value,
         )?;
+        let injector = config_injector
+            .as_ref()
+            .expect("a configuration assignment creates the main-module injector");
         let value_sort = injector.term_sort(&value, None)?;
         let value = injector.inject_at_top(&value)?;
-        let value = term_to_kore_from_resolved(&program_resolved, parser_module, &value)?;
+        let value = term_to_kore_from_resolved_with_token_module(
+            &program_resolved,
+            &compiled.main_module,
+            parser_module,
+            &value,
+        )?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
     let io = options.io.unwrap_or(options.search.is_none());

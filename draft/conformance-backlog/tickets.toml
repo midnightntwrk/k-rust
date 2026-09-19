@@ -257,11 +257,11 @@ elsewhere = [
 id = "CB-21"
 title = "SIMPLE untyped macro expansion rejects source production metadata absent from the caller catalog"
 state = "open"
-investigation = "needed"
-worker = ""
+investigation = "done"
+worker = "workers/CB-21.md"
 cases = ["pl-tutorial/2_languages/1_simple/1_untyped"]
-measured = "Private CB-16 acceptance probe on main 8e7931d: the separately compiled runnable artifact loads successfully, then every attempted SIMPLE untyped program stops in macro expansion with `source production metadata #324 on a macro application has no equivalent in the caller catalog` in 0.3 to 0.4 s. The exact source-driven collatz.simple invocation, with the same definition, program, stdin, modules, sort, include and builtin directories, checked type-inference mode, and --io off, fails with the identical diagnostic. This proves the failure is in the shared source execution path rather than CB-16 artifact serialization or loading."
-work = "Not investigated. Reproduce the source-driven failure from the CB-16 command, identify production #324 and the macro application that carries it, and compare the parser-module source catalog with the main-module caller catalog. Establish whether the failure is a regression from CB-14's strict metadata rebasing or an older latent SIMPLE defect, reduce it to a source-level CLI fixture, and fix the catalog or equivalence boundary without discarding non-token application metadata. Re-run the SIMPLE untyped case after the fix; CB-16-7 then remeasures all seven tutorial cases and adjusts only the temporary budgets justified by that measurement."
+measured = "Private CB-16 acceptance probe on main 8e7931d: the separately compiled runnable artifact loads successfully, then every attempted SIMPLE untyped program stops in macro expansion with `source production metadata #324 on a macro application has no equivalent in the caller catalog` in 0.3 to 0.4 s. The exact source-driven collatz.simple invocation fails identically. Investigation identifies production #324 as the main-only `nothing_SIMPLE-UNTYPED_Val` application in `rule return; => return nothing;`: SIMPLE-UNTYPED imports the syntax module and has the valid superset catalog, while SIMPLE-UNTYPED-SYNTAX cannot represent the macro result. Sequence 21 at e4769a1 ran collatz.simple successfully before ea60da8, establishing CB-21 as a CB-14 regression rather than an older latent defect. The implementation candidate restores the exact guarded source invocation with exit 0; case-level remeasurement remains pending."
+work = "Investigated and implemented as detailed in workers/CB-21.md. Parse with the selected syntax or configuration module, strictly rebase applications into the main executable catalog, discard an absent production index only from a self-describing token, expand main-visible macros in the main catalog, and inject and convert applications there. Token conversion reads lexical hooks from the parser module before falling back to the main module. Source and runnable-artifact regressions cover a main-only non-token macro result while retaining private-token and configuration-parser coverage. Re-run SIMPLE untyped to close CB-21, then complete CB-16-7's seven-case measurement."
 resolution = ""
 elsewhere = [
   "draft/conformance-backlog/workers/CB-16.md (artifact/source parity evidence and blocked CB-16-7 measurement)",
@@ -421,8 +421,8 @@ evidence = "CB-10 worker question 4; CB-17 investigator brief"
 id = "D-08"
 state = "decided"
 scope = "CB-14 krun macro expansion layer"
-decision = "Source-driven krun parses with the syntax module's production catalog and expands with the existing kast-domain Expander built from macro sentences visible from the selected main module. Keep kast's unparsing-module behavior unchanged. Do not add a KORE serialization-and-reparse path merely to imitate kore-expand-macros; a future consumer of already-lowered KORE would be a separate requirement."
-evidence = "CB-14 cause and work item 1; the Expander already rebases templates across modules"
+decision = "Source-driven krun parses with the selected syntax or configuration parser module, then strictly rebases applications into the selected main module's executable production catalog before using the existing kast-domain Expander with main-visible macro sentences. Only a self-describing token may discard a production index absent from the target catalog; token conversion reads lexical hooks from the parser module before falling back to the main module. Keep kast's unparsing-module behavior unchanged. Do not add a KORE serialization-and-reparse path merely to imitate kore-expand-macros."
+evidence = "CB-14 cause and work item 1; CB-21 main-only `nothing` macro result and parser-local STRING token regression"
 
 [[decision]]
 id = "D-09"

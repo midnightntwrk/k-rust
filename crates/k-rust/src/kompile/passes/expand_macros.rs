@@ -133,12 +133,13 @@ pub fn expand_macros_in_term(
     expand_macros_in_term_with_scope(definition, module, module, term)
 }
 
-/// Expand a standalone term using one module's production catalog and another module's visible
-/// macro sentences.
+/// Expand a standalone term parsed in one module with another module's executable syntax.
 ///
 /// Source-driven execution parses concrete input in a syntax or configuration parser module,
-/// while K selects executable macro rules from the main module. The term keeps the parser
-/// module's production indexes throughout expansion, sort injection, and KORE conversion.
+/// while K selects executable macro rules from the main module. Parsed applications are rebased
+/// into the executable module before expansion so a macro right-hand side may use a production
+/// visible only there. A parser-only lexical token instead keeps its self-describing sort and
+/// discards the production index.
 pub fn expand_macros_in_term_with_scope(
     definition: &Definition,
     term_module: &str,
@@ -151,9 +152,25 @@ pub fn expand_macros_in_term_with_scope(
     let definition = super::resolve_semantic_casts(definition);
     let definition = super::propagate_macro_attributes(&definition)?;
     let resolved = ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
+    let term_module_id = resolved
+        .module_id(term_module)
+        .ok_or_else(|| format!("unknown module {term_module}"))?;
+    let macro_module_id = resolved
+        .module_id(macro_module)
+        .ok_or_else(|| format!("unknown module {macro_module}"))?;
+    let term = if term_module_id == macro_module_id {
+        term
+    } else {
+        super::rebase_term_to_visible_catalog(
+            term,
+            &resolved.production_catalog(term_module_id),
+            &resolved.production_catalog(macro_module_id),
+            &sentence_equivalent,
+        )?
+    };
     let mut expanded = expand_macros_in_terms_from_resolved_with_scope(
         &resolved,
-        term_module,
+        macro_module,
         macro_module,
         vec![term],
     )?;
@@ -253,13 +270,13 @@ impl<'a> Expander<'a> {
                     // no executable production. Template applications remain strict, while a
                     // private lexical token can discard its self-describing production index.
                     let source = definition.production_catalog(owner);
-                    rule.left = super::rebase_macro_term_to_visible_catalog(
+                    rule.left = super::rebase_term_to_visible_catalog(
                         rule.left,
                         &source,
                         &productions,
                         &sentence_equivalent,
                     )?;
-                    rule.right = super::rebase_macro_term_to_visible_catalog(
+                    rule.right = super::rebase_term_to_visible_catalog(
                         rule.right,
                         &source,
                         &productions,
@@ -274,13 +291,13 @@ impl<'a> Expander<'a> {
                     else {
                         unreachable!("macro rules are rules")
                     };
-                    *requires = super::rebase_macro_term_to_visible_catalog(
+                    *requires = super::rebase_term_to_visible_catalog(
                         std::mem::replace(requires, truth()),
                         &source,
                         &productions,
                         &sentence_equivalent,
                     )?;
-                    *ensures = super::rebase_macro_term_to_visible_catalog(
+                    *ensures = super::rebase_term_to_visible_catalog(
                         std::mem::replace(ensures, truth()),
                         &source,
                         &productions,
