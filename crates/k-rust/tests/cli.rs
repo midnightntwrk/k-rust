@@ -67,6 +67,20 @@ fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
     child.wait_with_output().unwrap()
 }
 
+fn pattern_binding<'a>(pattern: &'a Pattern, variable_name: &str) -> Option<&'a Pattern> {
+    match pattern {
+        Pattern::Equals { left, right, .. } => match (left.as_ref(), right.as_ref()) {
+            (Pattern::Variable(variable), value) if variable.name == variable_name => Some(value),
+            (value, Pattern::Variable(variable)) if variable.name == variable_name => Some(value),
+            _ => None,
+        },
+        Pattern::And { arguments, .. } => arguments
+            .iter()
+            .find_map(|argument| pattern_binding(argument, variable_name)),
+        _ => None,
+    }
+}
+
 fn wait_with_stderr(mut child: Child, timeout: Duration) -> (ExitStatus, Vec<u8>) {
     let mut stderr = child.stderr.take().unwrap();
     let reader = thread::spawn(move || {
@@ -1030,6 +1044,58 @@ fn reference_krun_io_off_feeds_standard_input_into_stdin() {
     assert_eq!(
         parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap(),
         expected
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr)
+            .contains("reading standard input into $STDIN until end of file"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn reference_krun_io_off_surface_pattern_reads_closed_stdin() {
+    // reference: printf 'ab\n' | k/result/bin/krun program.pgm --definition ref --io off
+    //   --depth 0 --pattern '<k> KK:K </k>' --output kore
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "krun",
+        fixtures.join("io.k").to_str().unwrap(),
+        fixtures.join("program.pgm").to_str().unwrap(),
+        "--main-module",
+        "IO",
+        "--sort",
+        "Int",
+        "--depth",
+        "0",
+        "--io",
+        "off",
+        "--pattern",
+        "<k> KK:K </k>",
+    ]);
+    let output = output_with_stdin(&mut command, b"ab\n");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+    let expected_binding =
+        parse_pattern(r#"kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5")), dotk{}())"#)
+            .unwrap();
+    assert_eq!(
+        pattern_binding(&actual, "VarKK"),
+        Some(&expected_binding),
+        "{actual:?}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr)
+            .contains("reading standard input into $STDIN until end of file"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
@@ -5967,6 +6033,107 @@ fn krun_completes_star_cell_heating_with_one_or_two_cells() {
     assert!(
         !stdout.contains("\\or{"),
         "any strategy must print one configuration: {stdout}"
+    );
+}
+
+#[test]
+fn krun_surface_pattern_projects_set_typed_star_cell() {
+    // reference: workers/CB-18-evidence/star-cell-heating-set/ref-{one,two}-kKk.out and
+    //   ref-{one,two}-kKKKk.out; the reference krun additionally prints _DotVar0/_DotVar1
+    //   bindings that krust projects away. ref-two-d0-K.out binds KK to the injected Stmt program.
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/reference/execution/star-cell-heating");
+    let definition = fixtures.join("test.k");
+    for program in ["one.cb10", "two.cb10"] {
+        for (surface_pattern, expected_binding) in [
+            ("<k> .K </k>", None),
+            ("<k> KK:K </k>", Some(parse_pattern("dotk{}()").unwrap())),
+        ] {
+            let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+                .args([
+                    "krun",
+                    definition.to_str().unwrap(),
+                    fixtures.join(program).to_str().unwrap(),
+                    "--main-module",
+                    "STAR-CELL-HEATING-SET",
+                    "--syntax-module",
+                    "STAR-CELL-HEATING-SYNTAX",
+                    "--sort",
+                    "Stmt",
+                    "--io",
+                    "off",
+                    "--pattern",
+                    surface_pattern,
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{program}, {surface_pattern}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let actual = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+            if let Some(expected_binding) = expected_binding {
+                assert_eq!(
+                    pattern_binding(&actual, "VarKK"),
+                    Some(&expected_binding),
+                    "{program}: {actual:?}"
+                );
+            } else {
+                assert!(
+                    matches!(actual, Pattern::Top { .. }),
+                    "{program}: {actual:?}"
+                );
+            }
+        }
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            fixtures.join("two.cb10").to_str().unwrap(),
+            "--main-module",
+            "STAR-CELL-HEATING-SET",
+            "--syntax-module",
+            "STAR-CELL-HEATING-SYNTAX",
+            "--sort",
+            "Stmt",
+            "--io",
+            "off",
+            "--depth",
+            "0",
+            "--pattern",
+            "<k> KK:K </k>",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+    let binding = pattern_binding(&actual, "VarKK").expect("KK binding");
+    let Pattern::Application { symbol, arguments } = binding else {
+        panic!("expected K sequence, got {binding:?}");
+    };
+    assert_eq!(symbol.name, "kseq", "{binding:?}");
+    let Some(Pattern::Application {
+        symbol: injection, ..
+    }) = arguments.first()
+    else {
+        panic!("expected injected Stmt at the head of {binding:?}");
+    };
+    assert_eq!(injection.name, "inj", "{binding:?}");
+    assert_eq!(
+        injection
+            .sort_parameters
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["SortStmt{}", "SortKItem{}"],
+        "{binding:?}"
     );
 }
 
