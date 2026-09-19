@@ -1118,6 +1118,19 @@ SIMPLIFIED_KORE_COMPARISON = (
 
 
 C9_STDOUT_COMPARISON = "C9: stdout stream buffer under --io off vs .out"
+DEFAULT_STDIN_PARSE_DELIMITERS = " \n\t\r"
+STDIN_EMPTY_SUCCESSOR = re.compile(
+    r"^warning: execution ended with no successor at depth \d+: "
+    r"rule (?P<label>STDIN-STREAM\.[^ ]+) applied with an undefined result; "
+    r"refuted obligation (?P<obligation>.+)$",
+    re.M,
+)
+PARSE_INPUT_DELIMITERS = re.compile(
+    r"Lbl'Hash'parseInput[^\n]*\{\}\(\s*"
+    r'\\dv\{SortString\{\}\}\("(?:\\.|[^"\\])*"\),\s*'
+    r'\\dv\{SortString\{\}\}\("(?P<delimiters>(?:\\.|[^"\\])*)"\)',
+    re.S,
+)
 
 
 def is_bottom_result(source):
@@ -1126,6 +1139,51 @@ def is_bottom_result(source):
         r"\s*\\bottom\{(?:[^{}]|\{[^{}]*\})*\}\(\)\s*",
         source,
     ) is not None
+
+
+def definition_stdin_delimiters(definition_path):
+    """Return the stream parse delimiters generated into definition.kore."""
+    try:
+        source = Path(definition_path).read_text(errors="replace")
+    except OSError:
+        return [DEFAULT_STDIN_PARSE_DELIMITERS]
+    delimiters = []
+    for match in PARSE_INPUT_DELIMITERS.finditer(source):
+        try:
+            value = json.loads(f'"{match.group("delimiters")}"')
+        except json.JSONDecodeError:
+            continue
+        if value not in delimiters:
+            delimiters.append(value)
+    return delimiters or [DEFAULT_STDIN_PARSE_DELIMITERS]
+
+
+def input_has_delimiter_run(stdin_path, delimiter_sets):
+    """Whether buffered stdin starts with a delimiter or contains adjacent delimiters."""
+    try:
+        source = Path(stdin_path).read_text(errors="replace")
+    except OSError:
+        return False
+    for delimiters in delimiter_sets:
+        if not delimiters:
+            continue
+        members = set(delimiters)
+        if source[:1] and source[0] in members:
+            return True
+        if any(left in members and right in members for left, right in zip(source, source[1:])):
+            return True
+    return False
+
+
+def c9_stdin_precondition_failure(stderr, stdin_path, definition_path):
+    """Return the attributed STDIN-STREAM collapse when C9 cannot translate the input."""
+    diagnostic = STDIN_EMPTY_SUCCESSOR.search(stderr)
+    if not diagnostic:
+        return None
+    delimiters = definition_stdin_delimiters(definition_path)
+    if not input_has_delimiter_run(stdin_path, delimiters):
+        return None
+    return diagnostic.group("label"), diagnostic.group("obligation").strip()
 
 
 def stdout_bytes_divergence(expected, actual):
@@ -1589,6 +1647,25 @@ def do_krun(case, rec, search_file=False):
             return step_record(case, **step)
         case.logfile(f"{tag}.krust.kore", out)
         if is_bottom_result(out):
+            stdin_precondition = None
+            if c9_stdout and stdin_path:
+                stdin_precondition = c9_stdin_precondition_failure(
+                    err,
+                    stdin_path,
+                    os.path.join(case.dir, "krust-kompiled", "definition.kore"),
+                )
+            if stdin_precondition:
+                label, obligation = stdin_precondition
+                step.update(
+                    verdict="skipped-with-reason",
+                    stage="krun",
+                    reason=(
+                        f"C9 stdin precondition: {label} is undefined on the buffered input "
+                        f"({obligation}); the checked-in output is reachable only under --io on"
+                    ),
+                    divergence=out,
+                )
+                return step_record(case, **step)
             step.update(
                 verdict="krust-error",
                 stage="krun",

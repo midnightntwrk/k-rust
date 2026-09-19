@@ -152,6 +152,7 @@ The source-plus-flags interface includes standalone Bison parser generation and 
 The conformance driver translates each upstream `ktest` recipe into krust operations and compares their outcomes.
 A plain `krun --output none` recipe with a non-empty expected console output runs under `--io off` and compares the stdout stream buffer of its single unconstrained execution leaf with that output under C9; it does not require host console effects from the backend.
 A recipe that defines no translatable step supplies no oracle: a `ktest-kdep.mak` or sub-make-only Makefile, a Makefile whose `ktest.mak` include is disabled upstream, a recipe that discards the output it would compare, or an expected kompile failure that leaves no definition for a later step.
+The same rule applies to one step whose interactive standard input cannot be translated to krust's buffered `--io off` input semantics.
 The `undriven-recipe` category records such cases with the concrete recipe feature; the skip is not evidence of a Rust pass and must be reconsidered when the driver learns to translate the feature.
 
 Every case whose accepted verdict is not `match` carries exactly one of two dispositions.
@@ -186,7 +187,8 @@ C9 compares the bytes a tutorial definition accumulates in its stdout stream buf
 The comparison requires exactly one execution leaf in total, that leaf to be unconstrained, and exactly one structurally identified `#ostream(1)`, `"off"`, `#buffer(S)` stream.
 Any residual leaf, multiple terminal leaves, and malformed stream configurations are mismatches and remain reported.
 The tutorial stream rules append the same strings in both IO modes and make the `on` mode's `IO.write` hook only a transport for those bytes; K itself selects `off` for search and debug executions.
-For input programs, C9 applies only where krust's buffered stdin is the piped input (the corpus inputs end in one newline, so its trailing-newline normalization preserves their bytes).
+For input programs, C9 applies only where krust's buffered stdin is the piped input and K's stream rules tokenize those bytes as they tokenize the recipe's interactive stream.
+When krust attributes an undefined result to a `STDIN-STREAM` rule and the input begins with a parse delimiter or contains adjacent parse delimiters, the driver records the step as an `undriven-recipe` skip because the checked-in output is reachable only under `--io on`.
 This is a comparison transformation, not a backend IO evaluator: explicit `--io on` still reports the unsupported hook, and [Backend scope](#backend-scope) remains unchanged.
 
 A text difference that neither C8 nor N15 can compare stays a mismatch with a measured reason; no prose exclusion category exists for it.

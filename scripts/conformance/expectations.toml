@@ -62,7 +62,7 @@ meaning = "The step needs a K CLI capability outside krust's interface (the komp
 [[category]]
 id = "undriven-recipe"
 decided_by = "docs/compatibility.md#driver-scope"
-meaning = "The upstream recipe defines no step the conformance driver can translate and compare (a kdep or sub-make Makefile, a disabled Makefile, discarded output, or an expected kompile failure that leaves no definition); there is no oracle, so the skip is not evidence of a Rust pass."
+meaning = "The upstream recipe defines no case or individual step the conformance driver can translate and compare (a kdep or sub-make Makefile, a disabled Makefile, discarded output, an expected kompile failure that leaves no definition, or interactive stdin whose tokenization cannot be translated to buffered --io off); there is no oracle, so the skip is not evidence of a Rust pass."
 
 [[case]]
 name = "amb-rew"
@@ -2003,7 +2003,10 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Private CB-10 sequence 1 (label cb-10-collection-ac, branch 2f02ecb, 600 s ceiling): the definition compiles with reference-equal KORE and 24 of 32 steps match. threads_01/02/04 now match their search outputs in 4.7/6.2/107.9 s with no typed instantiation failure. threads_05 consumes the 207.1 s remaining in the case budget, threads_06/07/09/10/11/12 are budget-skipped, and focused runs show the CB-10 failure class is gone: bounded searches for 05/06/09 cross their former halt depths, full executions of 07/10/11 exit 0, and threads_12 crosses its former depth-79 halt at depth 100 (its unbounded execution exceeds 300 s). matrix.simple remains the CB-19 \\bottom defect. The new thread costs, sortings.simple, and repeated compilation remain under CB-12; the 600 s ceiling and accepted floor are unchanged. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+reason = "Private sequence 28 (label cb-19-implementation-private, implementation 0188e8a measured from its pre-commit tree, 600 s ceiling, --jobs 1): the definition compiles with reference-equal KORE and 24 of 32 steps match (the compile plus 23 programs). matrix.simple runs in 3.3 s and is skipped with the C9 stdin precondition reason below, preserving its command, exit status, elapsed time and \\bottom divergence as evidence; it is no longer a backend defect. threads_04 matches in 105.9 s, threads_05 consumes the remaining 286.2 s, and threads_06/07/09/10/11/12 are budget-skipped. The case remains at its accepted krust-error/search floor under CB-12 and CB-16 only; the 600 s ceiling and accepted verdict are unchanged. Earlier baseline observation: parenthesised cell rewrite to .Bag failed to parse (fixed)."
+step_exclusions = [
+  { test = "tests/diverse/matrix.simple", out = "tests/diverse/matrix.simple.out", exclusion = "undriven-recipe", reason = "C9 cannot translate the recipe's interactive stdin to --io off for matrix.simple.in: its adjacent delimiters make STDIN-STREAM.stdinParseInt apply String2Int(\"\") to the buffered input, while the checked-in output is reachable only under --io on. Reconsider when CB-15-5 provides --io on stdin." },
+]
 
 [[case]]
 name = "pl-tutorial/2_languages/1_simple/2_typed/1_static"

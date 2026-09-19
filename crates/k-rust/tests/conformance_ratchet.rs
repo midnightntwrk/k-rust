@@ -246,6 +246,52 @@ fn conformance_driver_mirrors_the_ratchet_ranks() {
 }
 
 #[test]
+fn c9_stdin_precondition_requires_diagnostic_and_definition_delimiter_run() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import importlib.util
+import pathlib
+import tempfile
+
+workspace = pathlib.Path(__import__('os').environ['WORKSPACE'])
+path = workspace / 'scripts/conformance/run.py'
+spec = importlib.util.spec_from_file_location('conformance_run', path)
+driver = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(driver)
+diagnostic = ('warning: execution ended with no successor at depth 8: '
+              'rule STDIN-STREAM.stdinParseInt applied with an undefined result; '
+              'refuted obligation \\ceil{SortInt{}, SortGeneratedTopCell{}}(String2Int(""))')
+with tempfile.TemporaryDirectory() as root:
+    root = pathlib.Path(root)
+    definition = root / 'definition.kore'
+    definition.write_text('''
+      Lbl'Hash'parseInput'LParUndsCommUndsRParUnds'K-IO'Unds'Stream'Unds'String'Unds'String{}(
+        \\dv{SortString{}}("Int"),
+        \\dv{SortString{}}("|")
+      )
+    ''')
+    repeated = root / 'repeated.in'
+    repeated.write_text('2||4')
+    single = root / 'single.in'
+    single.write_text('2|4')
+    assert driver.definition_stdin_delimiters(definition) == ['|']
+    assert driver.c9_stdin_precondition_failure(diagnostic, repeated, definition)[0] == 'STDIN-STREAM.stdinParseInt'
+    assert driver.c9_stdin_precondition_failure('', repeated, definition) is None
+    assert driver.c9_stdin_precondition_failure(diagnostic, single, definition) is None
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .env("WORKSPACE", &workspace)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn measurement_metadata_preserves_command_arguments() {
     let fixture = Fixture::new();
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -2786,6 +2832,25 @@ fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() 
                 "excluded case {name} needs a reason"
             );
         }
+        if let Some(step_exclusions) = case.get("step_exclusions") {
+            for step in step_exclusions.as_array().expect("step exclusions array") {
+                assert!(
+                    ["test", "out", "step"]
+                        .iter()
+                        .any(|selector| step.get(*selector).is_some()),
+                    "step exclusion on {name} needs a selector"
+                );
+                let exclusion = step["exclusion"].as_str().expect("step exclusion category");
+                assert!(
+                    category_ids.contains(exclusion),
+                    "unknown step exclusion on {name}: {exclusion}"
+                );
+                assert!(
+                    !step["reason"].as_str().unwrap_or_default().is_empty(),
+                    "step exclusion on {name} needs a reason"
+                );
+            }
+        }
         if accepted != "match" {
             assert!(
                 !case["reason"].as_str().unwrap_or_default().is_empty(),
@@ -2803,6 +2868,30 @@ fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() 
             ("skipped-with-reason", 10),
         ])
     );
+    let undriven = categories
+        .iter()
+        .find(|category| category["id"].as_str() == Some("undriven-recipe"))
+        .expect("undriven-recipe category");
+    assert!(
+        undriven["meaning"]
+            .as_str()
+            .unwrap()
+            .contains("individual step")
+    );
+    let simple = cases
+        .iter()
+        .find(|case| case["name"].as_str() == Some("pl-tutorial/2_languages/1_simple/1_untyped"))
+        .expect("SIMPLE untyped expectation");
+    let matrix = simple["step_exclusions"]
+        .as_array()
+        .expect("matrix step exclusion");
+    assert!(matches!(
+        matrix.as_slice(),
+        [entry]
+            if entry["test"].as_str() == Some("tests/diverse/matrix.simple")
+                && entry["out"].as_str() == Some("tests/diverse/matrix.simple.out")
+                && entry["exclusion"].as_str() == Some("undriven-recipe")
+    ));
 }
 
 #[test]
