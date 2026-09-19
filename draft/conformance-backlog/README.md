@@ -268,3 +268,22 @@ The C9 register, compatibility guide, category meaning and SIMPLE untyped `step_
 Private sequence 28 (`target/conformance/runs/28-cb-19-implementation-private/`, 600.2 s, `--jobs 1`, peak RSS 838 MiB) preserves the case floor and budget.
 Of 32 steps, 24 match, `matrix.simple` is skipped with the C9 stdin precondition in 3.3 s, `threads_05` consumes the remaining 286.2 s, and `threads_06/07/09/10/11/12` are budget-skipped.
 The post-closure audit lists the case under CB-12 and CB-16 only; CB-19 is closed with no backend semantic change, normalisation, floor or budget change.
+
+## 2026-09-19: CB-14 main-module macro expansion implemented and closed (`ea60da8`)
+
+CB-14-1 and CB-14-2 landed together at `ea60da8`.
+`krust krun` now parses programs and configuration values with the selected parser module's production catalog while sourcing executable macro rules from the selected main module.
+Macro templates are rebased into that catalog, private lexical tokens retain their explicit sorts, and application metadata remains strict.
+Every CLI, backend, search, wire, and RPC execution boundary rejects a surviving macro- or alias-headed application with a typed error before simplification, matching, rewrite recovery, or a zero-bound return.
+The existing `kast` and search-pattern macro scopes remain unchanged.
+
+Review found no remaining actionable issue after coverage was added for private macro tokens, strict application metadata, raw aliases, nested constraint terms, state and path search, zero breadth/result bounds, and facade and RPC entry points.
+The implementation passed all 391 backend library tests, all 218 backend integration tests, 15 macro-pass tests, focused CLI and facade regressions, formatting, and whitespace checks.
+Focused release probes for `ackermann.fun`, `list-1.fun`, `tuple-1.fun`, `exceptions.fun`, and `factorial.fun` each produce one matching result with no disjunction, surviving macro head, or residual `isKResult` predicate; `ackermann.fun` completes in 5.0 seconds.
+
+The private `cb-14-final` implementation-candidate run measures all 51 driven steps in 838.9 seconds with 2062 MiB peak RSS.
+The kompile step and 38/50 programs match, compared with 15/50 programs in sequence 25.
+Twelve programs reach the unchanged 60-second step budget, with no mismatch or new error class.
+Eight formerly macro-using programs still diverge after their macro heads are erased, alongside the four existing macro-free witnesses.
+That twelve-program post-expansion cohort transfers to CB-20.
+The FUN case remains `krust-error` under CB-20, CB-12, and CB-16; its accepted floor, 2700-second case budget, and 60-second step budget do not change.

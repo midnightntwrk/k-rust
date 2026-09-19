@@ -2070,10 +2070,9 @@ reason = "Private CB-17 closure run (target/conformance/cb-17-implementation-v3,
 
 [[case]]
 name = "pl-tutorial/2_languages/3_fun/1_untyped/1_environment"
-# Temporary, from measurement: the 15 programs that match take at most 3.2 s, and the other 35 do not
-# terminate in 1800 s each (sequence 25 sweep-1800; ackermann.fun not in 3600 s, sequence 23), so a
-# 60 s step budget kills nothing that would finish. Re-measure after main-module macro expansion;
-# remove or reduce the budgets only after the macro-free divergence and fixed costs are also addressed.
+# Temporary, from the private cb-14-final implementation-candidate measurement: 38 programs match and
+# the other 12 reach the existing 60 s step budget after executable macros are erased. Keep the budgets
+# until CB-20 classifies the post-expansion divergence and CB-12/CB-16 address fixed execution costs.
 budget = 2700
 step_budget = 60
 accepted_verdict = "krust-error"
@@ -2081,7 +2080,7 @@ accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
-reason = "Shared sequence 25 (label fun-step-budget-20, branch chore/simple-budget-ceilings, budget 1200 s, step_budget 20 s, 751.5 s) measured all 51 steps: the definition compiles and its KORE matches the reference; 15 programs match through the C9 stdout comparison in 2.4 to 3.2 s (callcc-1 to -5, factorial, list-4, list-nth, polymorphism-1 to -4 and -6, references-5, stuck-letrec) and 35 are killed, with no mismatch. The 35 kills are not a budget artifact: re-run from the same work tree with the recorded commands and a 1800 s kill each (target/conformance/runs/25-fun-step-budget-20/sweep-1800/), all 35 run the full 1800 s with empty output, most at 1.2 to 2.3 GiB and list-max at 21 GiB, and ackermann.fun was killed at 3587.7 s in sequence 23. Of the 35 killed programs, 31 use at least one FUN-UNTYPED-MACROS construct (datatype, ref, try, head, tail, or null?) and are exposed to krun expanding programs with the syntax module's macro scope instead of the main module's. Four killed programs are macro-free—list-length, list-max, nth, and factorial-and-list-max—and remain a separate unbounded-growth investigation; multi-clause functions and list patterns are core syntax, not macros. The 60 s step budget is from those measurements and kills nothing that would finish. Re-measure after the macro-scope fix, then remove or reduce the budgets only after the macro-free cohort and the fixed compile/throughput costs are addressed. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
+reason = "Private cb-14-final implementation-candidate run at the code committed as ea60da8 (budget 2700 s, step_budget 60 s, 838.9 s wall, 2062 MiB peak RSS) measures all 51 driven steps: the definition and KORE match the reference, and 38/50 programs match through the C9 stdout comparison, up from 15/50 in sequence 25. ackermann.fun now matches in 5.0 s. Twelve programs reach the existing 60 s step budget with no mismatch or new error class: callcc-efficient-with-1, callcc-efficient-with-2, callcc-inefficient-without, callcc-return-2, constructor-bst-sorting, factorial-and-list-max, list-length, list-max, nth, pattern, references-1, and tail-recursion. Eight use FUN-UNTYPED-MACROS constructs whose heads are now demonstrably erased before execution; the other four are the existing macro-free CB-20 witnesses. CB-14 is closed. The 2700 s case budget and 60 s step budget remain temporary while CB-20 investigates this post-expansion cohort and CB-12/CB-16 address throughput and compiled-artifact costs. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
 
 [[case]]
 name = "poly-kitem"

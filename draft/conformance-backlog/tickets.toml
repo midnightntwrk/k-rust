@@ -227,11 +227,12 @@ elsewhere = [
 id = "CB-14"
 worker = "workers/CB-14.md"
 title = "FUN untyped expands program macros in the wrong module scope"
-state = "open"
+state = "closed"
+closed = "2026-09-19, ea60da8, private cb-14-final implementation-candidate measurement"
 cases = ["pl-tutorial/2_languages/3_fun/1_untyped/1_environment"]
-measured = "Shared sequence 25 (label fun-step-budget-20, branch chore/simple-budget-ceilings, 1200 s budget with a 20 s step budget from DF-06, 751.5 s) and its 1800 s sweep (target/conformance/runs/25-fun-step-budget-20/sweep-1800/) measure all 51 steps. The 35 killed programs are non-termination at any tutorial-scale budget, not slowness. The macro-scope defect is directly applicable to programs that use a FUN-UNTYPED-MACROS macro (`datatype`, `ref`, `try`, `head`, `tail`, or `null?`). It is not established for every killed program: list-length, list-max, nth, and factorial-and-list-max use none of those constructs; multi-clause functions and `[h | t]` patterns are core syntax; and FUN's `[anywhere]` desugarings are not macros. Those macro-free kills are CB-20, so CB-14 must not claim they will be repaired by macro expansion. CB-14-3 merged in the shared normalized-ground tranche removed the isKResult branching (factorial.fun now yields one result). Earlier: shared sequence 21 records ackermann.fun killed at 289.6 s and 49 steps skipped."
-work = "CLI port gap plus a defensive backend boundary (workers/CB-14.md). `krust krun` parses the program in the syntax module's production catalog, then must use the existing kast-domain Expander with the macro sentences visible from the selected main module; FUN's datatype/head/tail/null?/try macro rules live in FUN-UNTYPED-MACROS, imported only by the main module. CB-14-1 (days): make that scope correction for programs and configuration variables, with a SYNTAX/MACROS/MAIN CLI regression. CB-14-2 (days): reject any surviving macro- or alias-headed input before rewrite step 1, and retain a typed backend guard so direct backend callers can never narrow through such a head. CB-14-3 is merged at 5e1c373: ground overloaded sort membership is decided through the symbol-overload graph. CB-14-4 (hours): re-measure only the macro-using cohort; macro-free kills are investigated by CB-20."
-resolution = "2026-09-18: port fix; the CB-08 tranche is incomplete on two counts and the case was attributed by definition inspection only in the first pass. No host-UID run is needed (LLVM ktest case against checked-in .out files; no FUN program prints)."
+measured = "Private cb-14-final implementation-candidate run at the code committed as ea60da8 (51 driven steps, 838.9 s, 2062 MiB peak RSS) preserves the kompile match and raises program matches from 15/50 in sequence 25 to 38/50. ackermann.fun matches in 5.0 s; list-1.fun, tuple-1.fun, exceptions.fun, and factorial.fun also match in focused release probes. Twelve programs reach the unchanged 60 s step budget with no mismatches or new error class. Eight of those programs use FUN-UNTYPED-MACROS constructs whose heads are now erased before execution; four are the existing macro-free witnesses. All twelve transfer to CB-20 as post-expansion execution failures."
+work = "Done. CB-14-1 and CB-14-2 merged at ea60da8: programs and configuration variables retain the selected parser module's production catalog while executable macro rules come from the selected main module, and every CLI, backend, search, wire, and RPC execution boundary rejects a surviving macro- or alias-headed application with a typed error. CB-14-3 remains merged at 5e1c373. CB-14-4 is the private cb-14-final full measurement: 38/50 programs match, 12 reach the existing step budget, and the case floor remains unchanged. The residual cohort is CB-20."
+resolution = "2026-09-19: closed as a port fix at ea60da8. Main-module executable macro scope and the defensive surviving-head boundary now match the krun contract; parser-module selection and kast macro scope remain unchanged. The full implementation-candidate run proves the original macro-scope failure fixed without raising the case floor. CB-20 owns the twelve post-expansion execution timeouts, while CB-12 and CB-16 retain the throughput and compiled-artifact work."
 elsewhere = [
   "draft/conformance-backlog/workers/CB-11.md (CB-11-1, the same sort-membership gap)",
   "draft/conformance-backlog/workers/CB-08.md (CB-08-4)",
@@ -239,16 +240,16 @@ elsewhere = [
 
 [[ticket]]
 id = "CB-20"
-title = "FUN macro-free core programs still diverge with unbounded state growth"
+title = "FUN programs still diverge after executable macro expansion"
 state = "open"
 investigation = "needed"
 worker = ""
 cases = ["pl-tutorial/2_languages/3_fun/1_untyped/1_environment"]
-measured = "Sequence 25's 1800 s sweep establishes that list-length, list-max, nth, and factorial-and-list-max run for the entire 1800 s with empty stdout and peak RSS of about 16 GiB, 21 GiB, 8.8 GiB, and 8.8 GiB respectively. They do not use datatype, ref, try, head, tail, or null?, so CB-14's macro-scope defect does not explain them. Multi-clause functions and `[h | t]` patterns are core syntax; `[anywhere]` desugarings in FUN-UNTYPED-MACROS are not macros. The ticket deliberately makes no claim yet about a shared cause across the four programs."
-work = "Not investigated. A worker following worker-brief-round3.md must reproduce each program at bounded depth, compare its first divergent state with a matching core-only program, and identify whether the common cause is rule matching, pattern compilation, list representation, or another execution boundary. It must also run one macro-using and one macro-free program after CB-14-1 to establish the split before proposing a combined fix. Add an owning backend or CLI regression only after the shared mechanism is reduced."
+measured = "The private cb-14-final implementation-candidate run establishes twelve residual post-expansion failures at the unchanged 60 s step budget: callcc-efficient-with-1, callcc-efficient-with-2, callcc-inefficient-without, callcc-return-2, constructor-bst-sorting, factorial-and-list-max, list-length, list-max, nth, pattern, references-1, and tail-recursion. The executable macro heads are erased in the eight formerly macro-using programs, yet they still time out; the four macro-free witnesses from sequence 25 remain. The run therefore completes the required macro-using versus macro-free comparison without establishing a shared backend cause."
+work = "Not investigated. A worker following worker-brief-round3.md must reproduce the twelve-program post-expansion cohort at bounded depth, compare each first divergent state with a matching program, and identify whether one or more mechanisms lie in rule matching, pattern compilation, list representation, control handling, or another execution boundary. Macro expansion is no longer a candidate cause. Add an owning backend or CLI regression only after each shared mechanism is reduced."
 resolution = ""
 elsewhere = [
-  "draft/conformance-backlog/workers/CB-14.md (sequence-25 attribution corrected 2026-09-19)",
+  "draft/conformance-backlog/workers/CB-14.md (sequence-25 attribution and cb-14-final closure measurement)",
 ]
 
 [[ticket]]
