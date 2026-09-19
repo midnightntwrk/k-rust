@@ -218,6 +218,107 @@ fn rewrite_coverage_definition() -> BackendDefinition {
         .expect("coverage fixture should internalize")
 }
 
+fn cell_map_coverage_definition() -> BackendDefinition {
+    let syntax = parse_definition(include_str!("../fixtures/cell-map-coverage.kore"))
+        .expect("cell-map coverage fixture should parse");
+    BackendDefinition::internalize(&syntax, "CELL-MAP-COVERAGE")
+        .expect("cell-map coverage fixture should internalize")
+}
+
+fn cell_map_thread(definition: &BackendDefinition, key: &str, head: &str) -> Term {
+    internal_term(
+        definition,
+        &format!(
+            "mapItem{{}}(\\dv{{SortKey{{}}}}(\"{key}\"), thread{{}}(\\dv{{SortKey{{}}}}(\"{key}\"), kseq{{}}({head}, dotk{{}}())))"
+        ),
+    )
+}
+
+fn cell_map_state(definition: &BackendDefinition, entries: &[Term]) -> Pattern {
+    let map = entries
+        .iter()
+        .cloned()
+        .reduce(|left, right| {
+            Term::application(
+                definition.symbols["mapConcat"].clone(),
+                Vec::new(),
+                vec![left, right],
+            )
+        })
+        .expect("a cell-map test state has at least one thread");
+    Pattern {
+        term: Term::application(
+            definition.symbols["cellState"].clone(),
+            Vec::new(),
+            vec![map],
+        ),
+        constraints: Vec::new(),
+    }
+}
+
+#[test]
+fn cell_map_heating_rejects_rigid_heads_and_allows_a_lower_priority_rule() {
+    let definition = cell_map_coverage_definition();
+    let int_head = r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))"#;
+    let stmt_head = "inj{SortStmt{}, SortKItem{}}(stmt{}())";
+
+    for entries in [
+        vec![cell_map_thread(&definition, "first", int_head)],
+        vec![
+            cell_map_thread(&definition, "first", int_head),
+            cell_map_thread(&definition, "second", stmt_head),
+        ],
+    ] {
+        let subject = cell_map_state(&definition, &entries);
+        let result = rewrite_step(&definition, &subject, &mut 0);
+        let RewriteResult::Finished(applied) = result else {
+            panic!("an impossible heating match must not block the fallback: {result:?}");
+        };
+        assert_eq!(applied.unique_id, "fallback");
+        assert_eq!(
+            applied.pattern.term,
+            internal_term(&definition, "fallback{}()")
+        );
+        assert!(applied.pattern.constraints.is_empty());
+    }
+}
+
+#[test]
+fn cell_map_heating_selects_the_entry_with_the_literal_anywhere_head() {
+    let definition = cell_map_coverage_definition();
+    let other = cell_map_thread(
+        &definition,
+        "first",
+        r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))"#,
+    );
+    let matching = cell_map_thread(
+        &definition,
+        "second",
+        "inj{SortExp{}, SortKItem{}}(heat{}(expA{}(), expB{}()))",
+    );
+    let subject = cell_map_state(&definition, &[other.clone(), matching]);
+
+    let result = rewrite_step(&definition, &subject, &mut 0);
+    let RewriteResult::Finished(applied) = result else {
+        panic!("the literal heating head should select exactly one cell: {result:?}");
+    };
+    assert_eq!(applied.unique_id, "heat");
+    assert_eq!(
+        applied.pattern.term,
+        Term::application(
+            definition.symbols["heated"].clone(),
+            Vec::new(),
+            vec![
+                internal_term(&definition, r#"\dv{SortKey{}}("second")"#),
+                internal_term(&definition, "expA{}()"),
+                internal_term(&definition, "expB{}()"),
+                other,
+            ],
+        )
+    );
+    assert!(applied.pattern.constraints.is_empty());
+}
+
 fn ground_anywhere_defense_definition() -> BackendDefinition {
     let source = include_str!("../fixtures/rewrite-coverage.kore").replace(
         "endmodule []",

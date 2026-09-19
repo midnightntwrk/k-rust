@@ -658,6 +658,93 @@ fn anywhere_heads_are_rigid_only_for_rewrite_matching() {
 }
 
 #[test]
+fn rewrite_matching_decides_an_anywhere_head_under_a_widening_injection() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                sort SortExp{} []
+                sort SortKItem{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                symbol first{}() : SortExp{} [constructor{}(), total{}()]
+                symbol second{}() : SortExp{} [constructor{}(), total{}()]
+                symbol anywhereHead{}(SortExp{}, SortExp{}) : SortExp{}
+                    [anywhere{}(), total{}(), injective{}()]
+                symbol declaredHead{}(SortExp{}, SortExp{}) : SortExp{}
+                    [function{}(), total{}(), injective{}()]
+                axiom{R} \exists{R}(E:SortExp{}, \equals{SortExp{}, R}(
+                    E:SortExp{}, inj{SortInt{}, SortExp{}}(I:SortInt{})
+                )) [subsort{SortInt{}, SortExp{}}()]
+                axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+                    K:SortKItem{}, inj{SortExp{}, SortKItem{}}(E:SortExp{})
+                )) [subsort{SortExp{}, SortKItem{}}()]
+            endmodule []"#,
+    )
+    .expect("widening-injection definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("widening-injection definition should internalize");
+    let pattern = internal_term(
+        &definition,
+        "inj{SortExp{}, SortKItem{}}(anywhereHead{}(HOLE:SortExp{}, K1:SortExp{}))",
+    );
+    let unlike = internal_term(
+        &definition,
+        r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))"#,
+    );
+
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &unlike),
+        MatchResult::Failed(FailReason::DifferentSymbols(..))
+    ));
+    for mode in [MatchMode::Evaluate, MatchMode::Implies] {
+        assert!(matches!(
+            match_terms_in_definition(mode, &definition, &pattern, &unlike),
+            MatchResult::Indeterminate { .. }
+        ));
+    }
+
+    let positive = internal_term(
+        &definition,
+        "inj{SortExp{}, SortKItem{}}(anywhereHead{}(first{}(), second{}()))",
+    );
+    assert_eq!(
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &pattern, &positive),
+        MatchResult::Success(Substitution::from([
+            (
+                Variable::new("HOLE", Sort::simple("SortExp")),
+                internal_term(&definition, "first{}()"),
+            ),
+            (
+                Variable::new("K1", Sort::simple("SortExp")),
+                internal_term(&definition, "second{}()"),
+            ),
+        ]))
+    );
+
+    let declared = internal_term(
+        &definition,
+        "inj{SortExp{}, SortKItem{}}(declaredHead{}(HOLE:SortExp{}, K1:SortExp{}))",
+    );
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &declared, &unlike),
+        MatchResult::Indeterminate { .. }
+    ));
+
+    let narrow_pattern = internal_term(
+        &definition,
+        r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))"#,
+    );
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &narrow_pattern, &positive,),
+        MatchResult::Failed(FailReason::DifferentSymbols(..))
+    ));
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Evaluate, &definition, &narrow_pattern, &positive,),
+        MatchResult::Indeterminate { .. }
+    ));
+}
+
+#[test]
 fn lifts_a_direct_overload_across_a_sort_injection() {
     let definition = overload_definition();
     let variable = Variable::new("X", Sort::simple("SortTop"));

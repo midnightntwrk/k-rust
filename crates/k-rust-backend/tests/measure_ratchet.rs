@@ -95,6 +95,8 @@ module MAIN
     ) [label{}("program"), priority{}("50")]
 endmodule []"#;
 
+const CELL_MAP_COVERAGE: &str = include_str!("fixtures/cell-map-coverage.kore");
+
 const GROUND_OVERLOAD: &str = include_str!("fixtures/ground-overload.kore");
 
 fn definition(source: &str) -> BackendDefinition {
@@ -222,6 +224,50 @@ fn ground_anywhere_heating_does_not_enter_symbolic_recovery() {
     );
     assert_eq!(delta.get(Counter::RewriteRulesApplied), 1);
     assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);
+    assert_eq!(delta.get(Counter::SmtQueries), 0);
+}
+
+#[test]
+fn ground_cell_map_heating_does_not_enter_symbolic_unification() {
+    let definition = definition_in(CELL_MAP_COVERAGE, "CELL-MAP-COVERAGE");
+    let initial = pattern(
+        &definition,
+        r#"cellState{}(mapConcat{}(
+            mapItem{}(
+                \dv{SortKey{}}("first"),
+                thread{}(
+                    \dv{SortKey{}}("first"),
+                    kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0")), dotk{}())
+                )
+            ),
+            mapItem{}(
+                \dv{SortKey{}}("second"),
+                thread{}(
+                    \dv{SortKey{}}("second"),
+                    kseq{}(inj{SortStmt{}, SortKItem{}}(stmt{}()), dotk{}())
+                )
+            )
+        ))"#,
+    );
+    let (result, delta) = measured(|| {
+        execute(
+            &definition,
+            initial,
+            ExecutionOptions {
+                max_depth: 1,
+                ..ExecutionOptions::default()
+            },
+        )
+    });
+    eprintln!("ground cell-map heating: {:?}", nonzero(&delta));
+    assert_eq!(result.leaves.len(), 1, "{result:#?}");
+    assert_eq!(
+        result.leaves[0].pattern.term,
+        pattern(&definition, "fallback{}()").term
+    );
+    assert_eq!(delta.get(Counter::RewriteRulesApplied), 1);
+    assert!(delta.get(Counter::MatchingCollectionProblems) >= 1);
+    assert_eq!(delta.get(Counter::UnificationProblems), 0);
     assert_eq!(delta.get(Counter::SmtQueries), 0);
 }
 
