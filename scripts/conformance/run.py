@@ -379,6 +379,8 @@ class Case:
         self.step_budget = STEP_BUDGETS.get(rel)
         self.deadline = self.t0 + self.budget
         self.ref_kompiled = None
+        self.krust_runtime_definition = "krust-kompiled"
+        self.needs_krust_runtime = False
         self.main_module = None
         self.syntax_module = None
         self.pgm_sort = None
@@ -673,8 +675,8 @@ def krust_kompile_args(case, rec, expect_fail=False):
             "--output-directory", "krust-kompiled", "-I", ".", "--builtin-directory", BUILTIN]
     if syn or expect_fail:
         args += ["--syntax-module", syn or gs]
-    # krust recompiles the definition on every krun/kast/kprove step, so the kompile
-    # recipe's Markdown selection must reach those steps too (regression-new markdownSelectors).
+    # Preserve the selection in this compilation. Program runs consume the published runnable
+    # artifact and therefore do not repeat source or Markdown parsing.
     case.md_selectors = list(opts.get("--md-selector", []))
     if case.def_file is None: case.def_file = src
     if not case.main_module: case.main_module = main
@@ -733,6 +735,16 @@ def krust_proof_kompile_args(case, rec):
     return args, None, info
 
 
+def krust_runtime_kompile_args(args, info):
+    """Return the separately accounted Rust compilation required by an LLVM comparison."""
+    if info["backend"] != "llvm":
+        return None
+    runtime_args = list(args)
+    runtime_args[runtime_args.index("--backend") + 1] = "rust"
+    runtime_args[runtime_args.index("--output-directory") + 1] = "krust-kompiled-runtime"
+    return runtime_args
+
+
 def do_kompile(case, rec, expect_fail):
     """Reference kompile (verbatim recipe) + krust kcompile + KORE comparison."""
     step = dict(step="kompile", ref_cmd=rec["raw"], out=rec["out"])
@@ -789,6 +801,32 @@ def do_kompile(case, rec, expect_fail):
     if krc != 0:
         step.update(verdict="krust-error", stage=classify_error(kerr), divergence=(kerr or kout)[-1500:])
         return step_record(case, **step)
+    runtime_args = (krust_runtime_kompile_args(args, info)
+                    if case.needs_krust_runtime else None)
+    if runtime_args is not None:
+        # The LLVM KORE is retained for the frontend comparison above. It is not a Rust runtime
+        # payload: generate a distinct Rust artifact once and account for that work explicitly.
+        case.krust_runtime_definition = "krust-kompiled-runtime"
+        runtime_path = f"{case.dir}/{case.krust_runtime_definition}"
+        if os.path.exists(runtime_path): shutil.rmtree(runtime_path)
+        step["krust_runtime_compile_cmd"] = env_prefix + " ".join(shlex.quote(a) for a in runtime_args)
+        rrc, rout, rerr, rsecs, rto = sh(
+            runtime_args, case.dir, case.remaining(), env=krust_env
+        )
+        case.logfile("kompile.krust-runtime.log", rout + "\n--- stderr ---\n" + rerr)
+        step["krust_runtime_compile_rc"] = rrc
+        step["krust_runtime_compile_seconds"] = round(rsecs, 1)
+        if rto or rrc != 0:
+            step.update(
+                verdict="krust-error",
+                stage="kompile",
+                reason=("Rust runnable artifact compilation timed out" if rto else
+                        f"Rust runnable artifact compilation exited {rrc}"),
+                divergence=(rerr or rout)[-1500:],
+            )
+            return step_record(case, **step)
+    else:
+        case.krust_runtime_definition = "krust-kompiled"
     step["stage"] = "kompile"
     ref_kore = f"{case.dir}/{kompiled}/definition.kore" if kompiled else None
     rust_kore = f"{case.dir}/krust-kompiled/definition.kore"
@@ -1040,10 +1078,11 @@ def default_parser_script(case, value):
 
 
 def krust_krun_args(case, prog, stdin_path, extra, sort, syntax_module):
-    args = [KRUST, "krun", case.def_file, "--main-module", case.main_module, "--syntax-module", syntax_module,
-            "--sort", sort, "-I", ".", "--builtin-directory", BUILTIN] + md_selector_args(case) + extra
-    if prog: args.insert(3, prog)
-    elif stdin_path: args.insert(3, "-")
+    args = [KRUST, "krun", "--definition", case.krust_runtime_definition,
+            "--sort", sort]
+    if prog: args.append(prog)
+    elif stdin_path: args.append("-")
+    args += extra
     return args
 
 
@@ -2047,6 +2086,7 @@ def run_case(rel, kind):
         case.note(f"{len(custom)} recipe line(s) without a K tool were not driven")
     kompiles = [r for r in recs if r["tool"] == "kompile"]
     tests = [] if BISON_PARSER_ONLY else [r for r in recs if r["tool"] != "kompile"]
+    case.needs_krust_runtime = any(r["tool"] == "krun" for r in tests)
     if kind == "fail":
         case.deadline = case.t0 + max(case.budget, 12.0 * len(kompiles))
         case.note(f"ktest-fail case: budget {int(case.deadline - case.t0)} s for {len(kompiles)} kompile recipes")

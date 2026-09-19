@@ -46,7 +46,9 @@ use k_rust::{
         },
         printer::Printer as KorePrinter,
     },
-    native::FileResolver,
+    native::{
+        FileResolver, load_runnable_artifact, unpublish_runnable_artifact, write_runnable_artifact,
+    },
     outer::{
         LoadOptions, PreparedModuleDeclaration, SourceResolver, SyntaxModule,
         load_for_compilation_timed, load_with_options_timed, load_with_prepared_base_timed,
@@ -474,13 +476,13 @@ impl SmtArgs {
 
 #[derive(Debug, Args)]
 struct KrunArgs {
-    /// K definition whose semantics should execute the program.
-    #[arg(value_name = "DEFINITION")]
-    definition: PathBuf,
+    /// Runnable directory produced by `krust kcompile`.
+    #[arg(long = "definition", value_name = "DIR")]
+    compiled_definition: Option<PathBuf>,
 
     /// Main module of the definition.
     #[arg(short = 'm', long = "main-module", value_name = "MODULE")]
-    module: String,
+    module: Option<String>,
 
     /// Module whose grammar should parse the program (defaults to the main module).
     #[arg(long, value_name = "MODULE")]
@@ -491,18 +493,13 @@ struct KrunArgs {
     sort: String,
 
     /// Execute this program text instead of reading a file or standard input.
-    #[arg(
-        short = 'e',
-        long,
-        conflicts_with = "program_file",
-        allow_hyphen_values = true,
-        value_name = "PROGRAM"
-    )]
+    #[arg(short = 'e', long, allow_hyphen_values = true, value_name = "PROGRAM")]
     expression: Option<String>,
 
-    /// Program file to execute, or `-` for standard input.
-    #[arg(value_name = "PROGRAM_FILE")]
-    program_file: Option<PathBuf>,
+    /// Source definition followed by an optional program file. With `--definition`, this is only
+    /// the optional program file.
+    #[arg(value_names = ["SOURCE_DEFINITION", "PROGRAM_FILE"], num_args = 0..=2)]
+    inputs: Vec<PathBuf>,
 
     /// Set a configuration variable (for example `-c ENV=.Map`). May be repeated.
     #[arg(short = 'c', long = "config-var", value_name = "NAME=VALUE")]
@@ -993,11 +990,14 @@ struct KastBatchCase {
 
 #[derive(Debug)]
 struct KrunOptions {
-    common: CommonOptions,
+    source: Option<CommonOptions>,
+    compiled_definition: Option<PathBuf>,
+    requested_main_module: Option<String>,
     syntax_module: Option<String>,
     sort: String,
     expression: Option<String>,
     program_file: Option<PathBuf>,
+    extra_input: Option<PathBuf>,
     config_vars: Vec<String>,
     surface_pattern: Option<String>,
     io: Option<bool>,
@@ -1020,6 +1020,17 @@ struct KrunSearchOptions {
     search_type: SearchType,
     pattern: Option<PathBuf>,
     bound: Option<usize>,
+}
+
+struct KrunCompiledInput {
+    main_module: String,
+    syntax_module: String,
+    frontend_definition: k_rust::definition::Definition,
+    execution_definition: k_rust::definition::Definition,
+    configuration_variables: BTreeMap<String, KastSort>,
+    execution_rewrite_order: Vec<String>,
+    definition_kore: String,
+    timings: CompileTimings,
 }
 
 #[derive(Debug)]
@@ -1375,16 +1386,30 @@ impl From<KastArgs> for KastOptions {
 
 impl From<KrunArgs> for KrunOptions {
     fn from(arguments: KrunArgs) -> Self {
-        Self {
-            common: arguments.source.common(
-                arguments.definition,
-                arguments.module,
+        let mut inputs = arguments.inputs.into_iter();
+        let definition = arguments
+            .compiled_definition
+            .is_none()
+            .then(|| inputs.next())
+            .flatten();
+        let program_file = inputs.next();
+        let extra_input = inputs.next();
+        let source = definition.map(|definition| {
+            arguments.source.common(
+                definition,
+                arguments.module.clone().unwrap_or_default(),
                 arguments.warnings.policy(),
-            ),
+            )
+        });
+        Self {
+            source,
+            compiled_definition: arguments.compiled_definition,
+            requested_main_module: arguments.module,
             syntax_module: arguments.syntax_module,
             sort: arguments.sort,
             expression: arguments.expression,
-            program_file: arguments.program_file,
+            program_file,
+            extra_input,
             config_vars: arguments.config_vars,
             surface_pattern: arguments.surface_pattern,
             io: arguments.io.map(|io| io == IoArg::On),
@@ -1793,6 +1818,10 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     };
     emit_diagnostics(&artifacts.diagnostics);
     fs::create_dir_all(&options.output_directory)?;
+    // A directory is runnable only after its new Rust manifest is published. Removing an older
+    // marker first prevents both interrupted recompilation and LLVM output written over a prior
+    // Rust directory from appearing runnable.
+    unpublish_runnable_artifact(&options.output_directory)?;
     let mut write_timings = PhaseTimings::default();
     let bison_mode = if options.gen_glr_bison_parser {
         Some(k_rust::bison::Mode::Glr)
@@ -1870,16 +1899,32 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         }
         fs::write(
             options.output_directory.join("definition.kore"),
-            artifacts.definition_kore,
+            &artifacts.definition_kore,
         )?;
         fs::write(
             options.output_directory.join("syntaxDefinition.kore"),
-            artifacts.syntax_definition_kore,
+            &artifacts.syntax_definition_kore,
         )?;
         fs::write(
             options.output_directory.join("macros.kore"),
-            artifacts.macros_kore,
+            &artifacts.macros_kore,
         )?;
+        // Proof preparation has its own parsed-definition contract and can combine source tables
+        // from a prepared semantics and a new specification. It is not an executable definition
+        // compilation, so publish the krun payload only for ordinary Rust definitions.
+        if options.backend == CompilationBackend::Rust && !options.for_proving {
+            write_runnable_artifact(
+                &options.output_directory,
+                &options.common.module,
+                &syntax_module.name,
+                &loaded.definition,
+                &loaded.source_table,
+                &artifacts.execution_definition,
+                &artifacts.configuration_variables,
+                &artifacts.execution_rewrite_order,
+                &artifacts.definition_kore,
+            )?;
+        }
         Ok::<_, Box<dyn Error>>(())
     })?;
     CompileTimings::new(load_timings, compile_timings, write_timings)
@@ -2062,36 +2107,104 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
-    let (mut loaded, _, load_timings) = load_definition_impl(
-        &options.common,
-        Some(CompilationBackend::Rust),
-        None,
-        None,
-        false,
-    )?;
-    let syntax_module = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
-    if let Some(warning) = syntax_module.fallback_warning {
-        loaded
-            .diagnostics
-            .extend(options.common.diagnostics.apply(vec![warning]));
+    if options.source.is_none() && options.compiled_definition.is_none() {
+        return Err("a source definition or --definition DIR is required".into());
     }
-    let builtin_source_prefixes = options.common.builtin_source_prefixes();
-    let (compiled, compile_timings) = match compile_loaded_definition_timed(
-        &loaded,
-        CompileOptions {
-            backend: CompilationBackend::Rust,
-            diagnostics: options.common.diagnostics,
-            builtin_source_prefixes,
-            ..CompileOptions::default()
-        },
-    ) {
-        Ok(compiled) => compiled,
-        Err(error) => {
-            emit_diagnostics(&error.diagnostics);
-            return Err(error.into());
+    if let Some(extra) = &options.extra_input {
+        return Err(format!(
+            "unexpected positional argument `{}` with --definition; pass only the program file",
+            extra.display()
+        )
+        .into());
+    }
+    if options.expression.is_some() && options.program_file.is_some() {
+        return Err("--expression cannot be used with a program file".into());
+    }
+    let compiled = if let Some(directory) = &options.compiled_definition {
+        let started = Instant::now();
+        let artifact = load_runnable_artifact(directory)?;
+        if let Some(requested) = &options.requested_main_module
+            && requested != &artifact.main_module
+        {
+            return Err(format!(
+                "runnable artifact main module is `{}`, not requested `{requested}`",
+                artifact.main_module
+            )
+            .into());
+        }
+        if let Some(requested) = &options.syntax_module
+            && requested != &artifact.syntax_module
+        {
+            return Err(format!(
+                "runnable artifact syntax module is `{}`, not requested `{requested}`",
+                artifact.syntax_module
+            )
+            .into());
+        }
+        let mut load_timings = PhaseTimings::default();
+        load_timings.phases.push(PhaseTiming {
+            name: "read runnable artifact",
+            seconds: started.elapsed().as_secs_f64(),
+        });
+        KrunCompiledInput {
+            main_module: artifact.main_module,
+            syntax_module: artifact.syntax_module,
+            frontend_definition: artifact.frontend_definition,
+            execution_definition: artifact.execution_definition,
+            configuration_variables: artifact.configuration_variables,
+            execution_rewrite_order: artifact.execution_rewrite_order,
+            definition_kore: artifact.definition_kore,
+            timings: CompileTimings::new(
+                load_timings,
+                PhaseTimings::default(),
+                PhaseTimings::default(),
+            ),
+        }
+    } else {
+        let common = options
+            .source
+            .as_ref()
+            .expect("clap requires a source or compiled definition");
+        if common.module.is_empty() {
+            return Err("--main-module is required with a source definition".into());
+        }
+        let (mut loaded, _, load_timings) =
+            load_definition_impl(common, Some(CompilationBackend::Rust), None, None, false)?;
+        let syntax_module =
+            resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
+        if let Some(warning) = syntax_module.fallback_warning {
+            loaded
+                .diagnostics
+                .extend(common.diagnostics.apply(vec![warning]));
+        }
+        let builtin_source_prefixes = common.builtin_source_prefixes();
+        let (artifacts, compile_timings) = match compile_loaded_definition_timed(
+            &loaded,
+            CompileOptions {
+                backend: CompilationBackend::Rust,
+                diagnostics: common.diagnostics,
+                builtin_source_prefixes,
+                ..CompileOptions::default()
+            },
+        ) {
+            Ok(compiled) => compiled,
+            Err(error) => {
+                emit_diagnostics(&error.diagnostics);
+                return Err(error.into());
+            }
+        };
+        emit_diagnostics(&artifacts.diagnostics);
+        KrunCompiledInput {
+            main_module: common.module.clone(),
+            syntax_module: syntax_module.name,
+            frontend_definition: loaded.definition,
+            execution_definition: artifacts.execution_definition,
+            configuration_variables: artifacts.configuration_variables,
+            execution_rewrite_order: artifacts.execution_rewrite_order,
+            definition_kore: artifacts.definition_kore,
+            timings: CompileTimings::new(load_timings, compile_timings, PhaseTimings::default()),
         }
     };
-    emit_diagnostics(&compiled.diagnostics);
 
     let started = Instant::now();
     let available_config_vars = &compiled.configuration_variables;
@@ -2108,7 +2221,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     // projections of every production (RuleGrammarGenerator.getCombinedGrammar); the source
     // definition gains the same productions so that a projection a program applies has a
     // production for sort injection and KORE conversion.
-    let program_definition = definition_with_named_projections(&loaded.definition);
+    let program_definition = definition_with_named_projections(&compiled.frontend_definition);
     let program_resolved = k_rust::definition::ResolvedDefinition::resolve(&program_definition)?;
     let compiled_surface_pattern = if let Some(contents) = options.surface_pattern.as_deref() {
         let execution_resolved =
@@ -2117,7 +2230,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         match compile_search_pattern(
             &program_resolved,
             &execution_resolved,
-            &options.common.module,
+            &compiled.main_module,
             contents,
             attributes,
         ) {
@@ -2137,21 +2250,23 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let program = if program_supplied || available_config_vars.contains_key("PGM") {
         let source = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
-        let program_parser = ProgramParser::from_resolved(&program_resolved, &syntax_module.name)?;
+        let program_parser =
+            ProgramParser::from_resolved(&program_resolved, &compiled.syntax_module)?;
         let program = program_parser.parse(&start_sort, &source)?;
         let program = expand_macros_in_term_with_scope(
             &program_definition,
-            &syntax_module.name,
-            &options.common.module,
+            &compiled.syntax_module,
+            &compiled.main_module,
             program,
         )?;
         // Parser annotations refer to the source definition's production catalog. Perform
         // production-sensitive conversion there, before crossing into the transformed
         // definition.
-        let program_injector = SortInjector::new(&program_resolved, &syntax_module.name)?;
+        let program_injector = SortInjector::new(&program_resolved, &compiled.syntax_module)?;
         let program_sort = program_injector.term_sort(&program, None)?;
         let program = program_injector.inject_at_top(&program)?;
-        let program = term_to_kore_from_resolved(&program_resolved, &syntax_module.name, &program)?;
+        let program =
+            term_to_kore_from_resolved(&program_resolved, &compiled.syntax_module, &program)?;
         Some((program, encode_kore_sort(&program_sort)))
     } else {
         None
@@ -2160,7 +2275,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let started = Instant::now();
     let program_uses_stdin = program_uses_stdin && program.is_some();
     let config_parser_modules =
-        configuration_variable_parser_modules(&program_resolved, &options.common.module)?;
+        configuration_variable_parser_modules(&program_resolved, &compiled.main_module)?;
     let mut config_parsers = BTreeMap::new();
     let mut config_injectors = BTreeMap::new();
     let mut seen_config_vars = BTreeSet::new();
@@ -2203,7 +2318,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             None if matches!(name, "IO" | "STDIN") && sort.is_builtin(BuiltinSort::String) => {
                 "STRING-SYNTAX"
             }
-            None => &options.common.module,
+            None => &compiled.main_module,
         };
         if program_resolved.module_id(parser_module).is_none() {
             return Err(format!(
@@ -2238,7 +2353,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let value = expand_macros_in_term_with_scope(
             &program_definition,
             parser_module,
-            &options.common.module,
+            &compiled.main_module,
             value,
         )?;
         let value_sort = injector.term_sort(&value, None)?;
@@ -2308,7 +2423,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
 
     let backend = BackendDefinition::internalize_for_source_execution(
         &syntax,
-        &options.common.module,
+        &compiled.main_module,
         &compiled.execution_rewrite_order,
     )?;
     backend.validate_executable_pattern(&initial)?;
@@ -2362,7 +2477,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     );
     let output_seconds = started.elapsed().as_secs_f64();
     KrunTimings {
-        compile: CompileTimings::new(load_timings, compile_timings, PhaseTimings::default()),
+        compile: compiled.timings,
         program_parse_seconds,
         config_vars_parse_seconds,
         internalize_seconds,
@@ -4827,8 +4942,9 @@ mod tests {
         };
         let options = KrunOptions::from(options);
 
-        assert_eq!(options.common.definition, Path::new("definition.k"));
-        assert_eq!(options.common.module, "MAIN");
+        let source = options.source.as_ref().unwrap();
+        assert_eq!(source.definition, Path::new("definition.k"));
+        assert_eq!(source.module, "MAIN");
         assert_eq!(options.syntax_module.as_deref(), Some("GRAMMAR"));
         assert_eq!(options.sort, "Exp");
         assert_eq!(options.expression.as_deref(), Some("1 + 2"));

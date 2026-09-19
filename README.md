@@ -156,6 +156,20 @@ by the in-process Rust backend. Both modes write:
 - `syntaxDefinition.kore`
 - `macros.kore`
 
+An ordinary successful Rust definition compilation also publishes a versioned runnable artifact in the output directory.
+Run it without reopening or transforming the source definition:
+
+```console
+krust krun --definition definition-kompiled --sort Exp --expression '1 + 2'
+krust krun --definition definition-kompiled --sort Exp program.exp --depth 1000
+```
+
+The artifact records its main and syntax modules, configuration variables, frontend and execution definitions, rewrite order, and Rust KORE payload.
+`krun` validates its version, backend, completeness, and SHA-256 payload identities before execution.
+Recompile the directory when validation fails.
+The files inside the directory are private implementation details; compatibility is provided through the `kcompile` and `krun` CLI and library interfaces.
+`--emit-json` remains the opt-in external KAST JSON output and is independent of the runtime payload.
+
 Generate an executable parser or a shared library for the `$PGM` sort through the system Bison, Flex, and C compiler:
 
 ```console
@@ -217,6 +231,9 @@ Execute a concrete program using the in-process Rust backend:
 krust krun definition.k --main-module MAIN --sort Exp --expression '1 + 2'
 krust krun definition.k --main-module MAIN --sort Exp program.exp --depth 1000
 ```
+
+The source positional and `--definition DIR` select mutually exclusive input modes.
+The compiled-directory mode takes its module identities and parser data from the artifact and performs no source loading or compiler transforms.
 
 Execution follows one successor per step by default (`--strategy any`: the first applicable rule
 by priority and definition order, the single path K's krun takes), so a `strict` production with

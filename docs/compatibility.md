@@ -17,6 +17,12 @@ The conformance expectations retain each affected case or step with its concrete
 An LLVM expected output cannot define the behavior of a hook that neither pinned Kore engine evaluates, or of a definition that `kore-parser --verify` rejects.
 The [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records implemented and unsupported operations.
 
+Ordinary `kcompile --backend rust` output is directly runnable through `krun --definition DIR`.
+The runtime validates the artifact identity, schema version, Rust backend identity, and every payload digest before use.
+The CLI and Rust library are the compatibility boundary; individual files and their serialization inside the compiled directory may change between releases.
+LLVM compilation does not publish a Rust runnable artifact.
+The conformance driver retains LLVM output for its frontend comparison and accounts for one explicit, separate Rust compilation when execution steps need a runnable directory.
+
 A hook without an evaluator or applicable K equation must report an unsupported-hook error when every argument is constructor-like.
 Symbolic applications remain unevaluated.
 This follows the missing-evaluator checks in `kore/src/Kore/Equation/EvaluationStrategy.hs` and the port's completion contract; an exclusion must not turn the unsupported outcome into a successful execution.

@@ -56,6 +56,204 @@ fn fixture() -> (PathBuf, PathBuf) {
     (root, definition)
 }
 
+#[test]
+fn runnable_compiled_artifact_is_equivalent_and_validated() {
+    let (root, definition) = fixture();
+    let definition_source = r#"
+module MAIN
+  syntax Input ::= "zero" | "twice" "(" Input ")" [macro]
+  rule twice(I:Input) => I
+  context alias [input]: HERE requires isInput(HOLE)
+  configuration <top><k> $PGM:Input </k><env> $ENV:Input </env></top>
+endmodule
+"#;
+    fs::write(&definition, definition_source).unwrap();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", definition.to_str().unwrap(), "-m", "MAIN", "-o"])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    for name in [
+        "runtime.json",
+        "frontend.json",
+        "execution.json",
+        "definition.kore",
+    ] {
+        assert!(compiled.join(name).is_file(), "missing {name}");
+    }
+    assert!(!compiled.join("parsed.json").exists());
+
+    let source = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "-m",
+            "MAIN",
+            "-s",
+            "Input",
+            "-e",
+            "twice(zero)",
+            "-c",
+            "ENV=twice(zero)",
+            "--search-final",
+            "--pattern",
+            "<k> ?K:K </k>",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        source.status.success(),
+        "{}",
+        String::from_utf8_lossy(&source.stderr)
+    );
+    fs::remove_file(&definition).unwrap();
+    let artifact = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "-s",
+            "Input",
+            "-e",
+            "twice(zero)",
+            "-c",
+            "ENV=twice(zero)",
+            "--search-final",
+            "--pattern",
+            "<k> ?K:K </k>",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        artifact.status.success(),
+        "{}",
+        String::from_utf8_lossy(&artifact.stderr)
+    );
+    assert_eq!(artifact.stdout, source.stdout);
+
+    fs::write(&definition, definition_source).unwrap();
+    let compiled_again = root.join("compiled-again");
+    let repeated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", definition.to_str().unwrap(), "-m", "MAIN", "-o"])
+        .arg(&compiled_again)
+        .output()
+        .unwrap();
+    assert!(
+        repeated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&repeated.stderr)
+    );
+    for name in [
+        "runtime.json",
+        "frontend.json",
+        "execution.json",
+        "definition.kore",
+    ] {
+        assert_eq!(
+            fs::read(compiled.join(name)).unwrap(),
+            fs::read(compiled_again.join(name)).unwrap(),
+            "nondeterministic {name}"
+        );
+    }
+
+    let frontend = fs::read(compiled.join("frontend.json")).unwrap();
+    let manifest = fs::read(compiled.join("runtime.json")).unwrap();
+    fs::write(compiled.join("frontend.json"), "corrupt").unwrap();
+    let corrupt = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "-s",
+            "Input",
+            "-e",
+            "zero",
+        ])
+        .output()
+        .unwrap();
+    assert!(!corrupt.status.success());
+    let stderr = String::from_utf8(corrupt.stderr).unwrap();
+    assert!(stderr.contains("failed SHA-256 validation"), "{stderr}");
+    assert!(stderr.contains("fresh runnable artifact"), "{stderr}");
+
+    fs::write(compiled.join("frontend.json"), frontend).unwrap();
+    let mut incompatible: serde_json::Value = serde_json::from_slice(&manifest).unwrap();
+    incompatible["version"] = 2.into();
+    fs::write(
+        compiled.join("runtime.json"),
+        serde_json::to_vec(&incompatible).unwrap(),
+    )
+    .unwrap();
+    let version = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "-s",
+            "Input",
+            "-e",
+            "zero",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&version.stderr).contains("unsupported runnable artifact version"),
+        "{}",
+        String::from_utf8_lossy(&version.stderr)
+    );
+
+    incompatible["version"] = 1.into();
+    incompatible["backend"] = "llvm".into();
+    fs::write(
+        compiled.join("runtime.json"),
+        serde_json::to_vec(&incompatible).unwrap(),
+    )
+    .unwrap();
+    let backend = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "-s",
+            "Input",
+            "-e",
+            "zero",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&backend.stderr).contains("is not executable by the Rust backend"),
+        "{}",
+        String::from_utf8_lossy(&backend.stderr)
+    );
+
+    fs::remove_file(compiled.join("runtime.json")).unwrap();
+    let partial = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "-s",
+            "Input",
+            "-e",
+            "zero",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&partial.stderr).contains("manifest")
+            && String::from_utf8_lossy(&partial.stderr).contains("missing or unreadable"),
+        "{}",
+        String::from_utf8_lossy(&partial.stderr)
+    );
+}
+
 fn output_with_stdin(command: &mut Command, input: &[u8]) -> Output {
     let mut child = command
         .stdin(Stdio::piped())
@@ -3900,6 +4098,7 @@ endmodule
         "{}",
         String::from_utf8_lossy(&compile.stderr)
     );
+    assert!(!compiled.join("runtime.json").exists());
     fs::remove_file(&semantics).unwrap();
 
     let load = Command::new(env!("CARGO_BIN_EXE_krust"))
@@ -3976,6 +4175,7 @@ endmodule
         "{}",
         String::from_utf8_lossy(&compile_spec.stderr)
     );
+    assert!(!prepared_spec.join("runtime.json").exists());
     fs::remove_file(&specification).unwrap();
     let prepared_proof = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([

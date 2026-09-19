@@ -1,15 +1,300 @@
 //! Native host adapters kept out of the portable frontend build.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs, io,
     path::{Path, PathBuf},
 };
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
 use crate::{
     builtin::embedded,
+    definition::{AttributeKey, Definition, Sentence, json as definition_json},
+    kast::Sort,
     outer::{ResolvedSource, SourceResolver, normalize_virtual_path},
+    provenance::SourceTable,
 };
+
+/// File published last to make a compiled directory runnable.
+pub const RUNTIME_MANIFEST: &str = "runtime.json";
+const RUNTIME_FORMAT: &str = "krust-runnable-definition";
+const RUNTIME_VERSION: u32 = 1;
+const FRONTEND_PAYLOAD: &str = "frontend.json";
+const EXECUTION_PAYLOAD: &str = "execution.json";
+const KORE_PAYLOAD: &str = "definition.kore";
+
+#[derive(Clone, Debug)]
+pub struct RunnableArtifact {
+    pub main_module: String,
+    pub syntax_module: String,
+    pub frontend_definition: Definition,
+    pub source_table: SourceTable,
+    pub execution_definition: Definition,
+    pub configuration_variables: BTreeMap<String, Sort>,
+    pub execution_rewrite_order: Vec<String>,
+    pub definition_kore: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeManifest {
+    format: String,
+    version: u32,
+    backend: String,
+    main_module: String,
+    syntax_module: String,
+    frontend: PayloadIdentity,
+    execution: PayloadIdentity,
+    definition_kore: PayloadIdentity,
+    configuration_variables: BTreeMap<String, String>,
+    execution_rewrite_order: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct PayloadIdentity {
+    file: String,
+    sha256: String,
+}
+
+/// Remove the publication marker before changing any file in a compiled directory.
+pub fn unpublish_runnable_artifact(directory: &Path) -> io::Result<()> {
+    match fs::remove_file(directory.join(RUNTIME_MANIFEST)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Write the runtime payloads atomically and publish their manifest last.
+#[allow(clippy::too_many_arguments)]
+pub fn write_runnable_artifact(
+    directory: &Path,
+    main_module: &str,
+    syntax_module: &str,
+    frontend_definition: &Definition,
+    source_table: &SourceTable,
+    execution_definition: &Definition,
+    configuration_variables: &BTreeMap<String, Sort>,
+    execution_rewrite_order: &[String],
+    definition_kore: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    unpublish_runnable_artifact(directory)?;
+    // Execution consumes semantic rules from definition.kore. The transformed definition serves
+    // only command-line pattern compilation, whose catalogs need syntax sentences and macro-like
+    // rules. Removing the other generated sentences avoids serializing the large compiled rule set
+    // a second time. The source frontend keeps ordinary rules because macro attributes can be
+    // propagated from their head productions when a concrete program is expanded.
+    let mut runtime_frontend = frontend_definition.clone();
+    for module in &mut runtime_frontend.modules {
+        // Context aliases have already affected the transformed execution definition and KORE.
+        // External KAST v4 represents them as an undecodable KBadsentence, and the runtime parser
+        // does not consume them.
+        module
+            .local_sentences
+            .retain(|sentence| !matches!(sentence, Sentence::ContextAlias { .. }));
+    }
+    let mut runtime_execution = execution_definition.clone();
+    retain_pattern_sentences(&mut runtime_execution);
+    let frontend = definition_json::to_provenance_string(&runtime_frontend, source_table)?;
+    let execution = definition_json::to_provenance_string(&runtime_execution, source_table)?;
+    let payloads = [
+        (FRONTEND_PAYLOAD, frontend.as_bytes()),
+        (EXECUTION_PAYLOAD, execution.as_bytes()),
+        (KORE_PAYLOAD, definition_kore.as_bytes()),
+    ];
+    for (name, bytes) in payloads {
+        write_atomic(&directory.join(name), bytes)?;
+    }
+    let manifest = RuntimeManifest {
+        format: RUNTIME_FORMAT.into(),
+        version: RUNTIME_VERSION,
+        backend: "rust".into(),
+        main_module: main_module.into(),
+        syntax_module: syntax_module.into(),
+        frontend: payload_identity(FRONTEND_PAYLOAD, frontend.as_bytes()),
+        execution: payload_identity(EXECUTION_PAYLOAD, execution.as_bytes()),
+        definition_kore: payload_identity(KORE_PAYLOAD, definition_kore.as_bytes()),
+        configuration_variables: configuration_variables
+            .iter()
+            .map(|(name, sort)| (name.clone(), sort.to_string()))
+            .collect(),
+        execution_rewrite_order: execution_rewrite_order.to_vec(),
+    };
+    let manifest = serde_json::to_vec_pretty(&manifest)?;
+    write_atomic(&directory.join(RUNTIME_MANIFEST), &manifest)?;
+    Ok(())
+}
+
+fn retain_pattern_sentences(definition: &mut Definition) {
+    for module in &mut definition.modules {
+        module.local_sentences.retain(|sentence| {
+            matches!(
+                sentence,
+                Sentence::SyntaxSort { .. }
+                    | Sentence::SortSynonym { .. }
+                    | Sentence::SyntaxLexical { .. }
+                    | Sentence::Production { .. }
+                    | Sentence::SyntaxAssociativity { .. }
+                    | Sentence::SyntaxPriority { .. }
+            ) || matches!(
+                sentence,
+                Sentence::Rule { attributes, .. }
+                    if attributes.has_any(&AttributeKey::MACRO_LIKE)
+            )
+        });
+    }
+}
+
+/// Load and validate a runnable compiled directory without consulting source files.
+pub fn load_runnable_artifact(
+    directory: &Path,
+) -> Result<RunnableArtifact, Box<dyn std::error::Error>> {
+    let remedy = "run `krust kcompile` again to create a fresh runnable artifact";
+    let manifest_path = directory.join(RUNTIME_MANIFEST);
+    let bytes = fs::read(&manifest_path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "runnable artifact manifest `{}` is missing or unreadable: {error}; {remedy}",
+                manifest_path.display()
+            ),
+        )
+    })?;
+    let manifest: RuntimeManifest = serde_json::from_slice(&bytes).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "runnable artifact manifest `{}` is corrupt: {error}; {remedy}",
+                manifest_path.display()
+            ),
+        )
+    })?;
+    if manifest.format != RUNTIME_FORMAT {
+        return Err(format!(
+            "unsupported runnable artifact format {:?}; {remedy}",
+            manifest.format
+        )
+        .into());
+    }
+    if manifest.version != RUNTIME_VERSION {
+        return Err(format!(
+            "unsupported runnable artifact version {}; this krust accepts version {RUNTIME_VERSION}; {remedy}",
+            manifest.version
+        )
+        .into());
+    }
+    if manifest.backend != "rust" {
+        return Err(format!(
+            "runnable artifact backend {:?} is not executable by the Rust backend; {remedy}",
+            manifest.backend
+        )
+        .into());
+    }
+    let frontend = read_validated_payload(directory, &manifest.frontend, remedy)?;
+    let execution = read_validated_payload(directory, &manifest.execution, remedy)?;
+    let definition_kore = read_validated_payload(directory, &manifest.definition_kore, remedy)?;
+    let frontend = std::str::from_utf8(&frontend)
+        .map_err(|error| corrupt_payload_error(&manifest.frontend.file, error, remedy))?;
+    let frontend = definition_json::from_provenance_str(frontend)
+        .map_err(|error| corrupt_payload_error(&manifest.frontend.file, error, remedy))?;
+    let execution = std::str::from_utf8(&execution)
+        .map_err(|error| corrupt_payload_error(&manifest.execution.file, error, remedy))?;
+    let execution = definition_json::from_provenance_str(execution)
+        .map_err(|error| corrupt_payload_error(&manifest.execution.file, error, remedy))?;
+    let configuration_variables = manifest
+        .configuration_variables
+        .into_iter()
+        .map(|(name, sort)| {
+            crate::kast::parser::parse_sort(&sort)
+                .map(|sort| (name.clone(), sort))
+                .map_err(|error| {
+                    corrupt_payload_error(
+                        RUNTIME_MANIFEST,
+                        format!("invalid sort for configuration variable `{name}`: {error}"),
+                        remedy,
+                    )
+                })
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(RunnableArtifact {
+        main_module: manifest.main_module,
+        syntax_module: manifest.syntax_module,
+        frontend_definition: frontend.definition,
+        source_table: frontend.source_table,
+        execution_definition: execution.definition,
+        configuration_variables,
+        execution_rewrite_order: manifest.execution_rewrite_order,
+        definition_kore: String::from_utf8(definition_kore).map_err(|error| {
+            corrupt_payload_error(&manifest.definition_kore.file, error, remedy)
+        })?,
+    })
+}
+
+fn payload_identity(file: &str, bytes: &[u8]) -> PayloadIdentity {
+    PayloadIdentity {
+        file: file.into(),
+        sha256: sha256(bytes),
+    }
+}
+
+fn read_validated_payload(
+    directory: &Path,
+    identity: &PayloadIdentity,
+    remedy: &str,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    if identity.file.contains('/')
+        || identity.file.contains('\\')
+        || matches!(identity.file.as_str(), "." | "..")
+    {
+        return Err(format!(
+            "invalid runnable artifact payload name {:?}; {remedy}",
+            identity.file
+        )
+        .into());
+    }
+    let path = directory.join(&identity.file);
+    let bytes = fs::read(&path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "runnable artifact payload `{}` is missing or unreadable: {error}; {remedy}",
+                path.display()
+            ),
+        )
+    })?;
+    let actual = sha256(&bytes);
+    if actual != identity.sha256 {
+        return Err(format!(
+            "runnable artifact payload `{}` failed SHA-256 validation; {remedy}",
+            path.display()
+        )
+        .into());
+    }
+    Ok(bytes)
+}
+
+fn corrupt_payload_error(file: &str, error: impl std::fmt::Display, remedy: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("runnable artifact payload `{file}` is corrupt: {error}; {remedy}"),
+    )
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+    fs::write(&temporary, bytes)?;
+    fs::rename(temporary, path)
+}
 
 /// Filesystem-backed resolution for entry files and recursive `requires`.
 ///

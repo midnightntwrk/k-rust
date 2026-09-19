@@ -352,8 +352,8 @@ fn conformance_driver_compares_expected_errors_and_program_statuses() {
 #[test]
 fn conformance_driver_forwards_kompile_warning_flags_and_md_selectors() {
     // checkWarns requires `-w2e -w all`, and markdownSelectors requires that
-    // krust's per-run recompilation receive the
-    // kompile recipe's `--md-selector`. The translations are pure functions of the
+    // compilation receive the recipe's `--md-selector`. krun reuses that artifact, while kast
+    // still parses source and receives the selector. The translations are pure functions of the
     // recipe, so they are checked without the reference toolchain. The recipe is a
     // ktest-fail one: `-w2e` is forwarded only where the reference's rejection depends
     // on it (see conformance_driver_forwards_w2e_only_where_the_reference_rejects_on_it).
@@ -414,21 +414,92 @@ print(json.dumps({
         serde_json::Value::Array(Vec::new()),
         "no kompile flag is dropped: {translated}"
     );
-    for tool in ["krun", "kast"] {
-        let args = words(tool);
-        assert!(
-            args.windows(2)
-                .any(|pair| pair == ["--md-selector", "(k|keep) & !discard"]),
-            "{tool} carries the kompile md-selector: {args:?}"
-        );
-        assert_eq!(args[0], "/krust");
-    }
+    let kast = words("kast");
+    assert!(
+        kast.windows(2)
+            .any(|pair| pair == ["--md-selector", "(k|keep) & !discard"]),
+        "kast carries the kompile md-selector: {kast:?}"
+    );
     let krun = words("krun");
+    assert_eq!(krun[0], "/krust");
+    assert!(
+        krun.windows(2)
+            .any(|pair| pair == ["--definition", "krust-kompiled"])
+    );
+    assert!(
+        !krun
+            .iter()
+            .any(|arg| arg == "test.md" || arg == "--md-selector")
+    );
     assert!(
         krun.windows(2).any(|pair| pair == ["--depth", "3"]),
         "{krun:?}"
     );
-    assert_eq!(krun[1..4], ["krun", "test.md", "1.test"], "{krun:?}");
+    assert_eq!(
+        krun[1..4],
+        ["krun", "--definition", "krust-kompiled"],
+        "{krun:?}"
+    );
+}
+
+#[test]
+fn conformance_driver_reuses_one_rust_artifact_and_never_runs_an_llvm_payload() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import run
+case = run.Case("llvm-runtime")
+case.needs_krust_runtime = True
+compile_args, why, info = run.krust_kompile_args(
+    case,
+    run.split_recipe("/kbin/kompile --backend llvm test.k --main-module TEST --output-definition test-kompiled"),
+)
+runtime = run.krust_runtime_kompile_args(compile_args, info)
+case.krust_runtime_definition = "krust-kompiled-runtime"
+first = run.krust_krun_args(case, "one.test", None, [], "KItem", "TEST-SYNTAX")
+second = run.krust_krun_args(case, "two.test", None, ["--search-final"], "KItem", "TEST-SYNTAX")
+print(json.dumps({"runtime": runtime, "first": first, "second": second, "source": case.def_file, "why": why}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env("CONFORMANCE_KRUST", "/krust")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let translated: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let words = |name: &str| {
+        translated[name]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|word| word.as_str().unwrap())
+            .collect::<Vec<_>>()
+    };
+    let runtime = words("runtime");
+    assert!(runtime.windows(2).any(|pair| pair == ["--backend", "rust"]));
+    assert!(
+        runtime
+            .windows(2)
+            .any(|pair| pair == ["--output-directory", "krust-kompiled-runtime"])
+    );
+    for name in ["first", "second"] {
+        let run = words(name);
+        assert!(
+            run.windows(2)
+                .any(|pair| pair == ["--definition", "krust-kompiled-runtime"])
+        );
+        assert!(
+            !run.iter()
+                .any(|word| *word == "test.k" || *word == "--main-module")
+        );
+    }
 }
 
 #[test]
