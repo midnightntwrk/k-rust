@@ -7,12 +7,9 @@ use k_rust_backend::smt::NoSolver;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::smt::{ModelResult, Z3Options, Z3Solver};
 use k_rust_backend::{
-    definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
+    definition::{BackendDefinition, PatternOrPredicate},
     externalize,
-    implication::{
-        ImplicationRequestError, ImplicationStatus, Side,
-        check_implication_with_existentials_complete, special_case, validate_request,
-    },
+    implication::ImplicationStatus,
     proof::{ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
@@ -31,7 +28,7 @@ use k_rust_backend::{
     },
     smt::SmtSolver,
     substitution::Substitution,
-    term::{Name, Sort},
+    term::Sort,
     transition::ObservationOptions,
 };
 use serde::{Deserialize, Serialize};
@@ -681,96 +678,22 @@ impl Backend {
         validate_backend_schema_version(request.schema_version)?;
         let antecedent = decode_pattern(request.antecedent)?;
         let consequent = decode_pattern(request.consequent)?;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
-            validate_request(definition, &antecedent, &consequent).map_err(|request_error| {
-                BackendError(match request_error {
-                    ImplicationRequestError::MacroOrAlias { side, name } => format!(
-                        "invalid implication {}: {}",
-                        match side {
-                            Side::Antecedent => "antecedent",
-                            Side::Consequent => "consequent",
-                        },
-                        DefinitionError::MacroOrAliasInImplication(name)
-                    ),
-                    ImplicationRequestError::NonFunctionLikeAntecedent => {
-                        "implication antecedent must be function-like".into()
-                    }
-                    ImplicationRequestError::NonSingletonConsequent => {
-                        "implication consequent must contain exactly one pattern".into()
-                    }
-                    ImplicationRequestError::ExistentialCapture { captured, .. } => format!(
-                        "consequent existentials capture antecedent variables: {}",
-                        captured.join(", ")
-                    ),
-                    ImplicationRequestError::SortMismatch {
-                        antecedent,
-                        consequent,
-                    } => format!(
-                        "antecedent and consequent sorts differ: {antecedent} and {consequent}"
-                    ),
-                })
-            })?;
-            let sort_variables = antecedent
-                .sort_variables()
-                .into_iter()
-                .chain(consequent.sort_variables())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .map(Name::from)
-                .collect::<Vec<_>>();
-            let special_result = special_case(&antecedent, &consequent);
-            let antecedent_pattern =
-                if matches!(antecedent.strip_exists(), KorePattern::Bottom { .. }) {
-                    None
-                } else {
-                    Some(
-                        definition
-                            .internalize_implication_pattern(&antecedent, &sort_variables)
-                            .map_err(error("could not internalize implication antecedent"))?,
-                    )
-                };
-            let result_sort = match &antecedent_pattern {
-                Some((pattern, _)) => pattern.term.sort(),
-                None => {
-                    definition
-                        .internalize_predicate(&antecedent, &sort_variables)
-                        .map_err(error("could not internalize implication antecedent"))?
-                        .1
-                }
-            };
-            let result = if let Some(result) = special_result {
-                result
-            } else {
-                let (antecedent_pattern, antecedent_existentials) = antecedent_pattern
-                    .expect("only a bottom antecedent bypasses implication internalization");
-                let (consequent_pattern, consequent_existentials) = definition
-                    .internalize_implication_pattern(&consequent, &sort_variables)
-                    .map_err(error("could not internalize implication consequent"))?;
-                check_implication_with_existentials_complete(
-                    definition,
-                    &antecedent_pattern,
-                    &antecedent_existentials,
-                    &consequent_pattern,
-                    &consequent_existentials,
-                    solver,
-                )
-                .map_err(error("could not check implication"))?
-            };
-            Ok(ImplicationResult {
-                schema_version: IMPLICATION_SCHEMA_VERSION,
-                status: match result.status {
-                    ImplicationStatus::Valid => "valid",
-                    ImplicationStatus::Invalid => "invalid",
-                    ImplicationStatus::Indeterminate => "unknown",
-                }
-                .into(),
-                condition: result
-                    .condition
-                    .as_ref()
-                    .map(|condition| condition_pattern(condition, &result_sort))
-                    .transpose()?,
-                failure: result.failure.map(|failure| format!("{failure:?}")),
-            })
+        let (result, result_sort) =
+            self.implies_kore(request.module_name.as_deref(), &antecedent, &consequent)?;
+        Ok(ImplicationResult {
+            schema_version: IMPLICATION_SCHEMA_VERSION,
+            status: match result.status {
+                ImplicationStatus::Valid => "valid",
+                ImplicationStatus::Invalid => "invalid",
+                ImplicationStatus::Indeterminate => "unknown",
+            }
+            .into(),
+            condition: result
+                .condition
+                .as_ref()
+                .map(|condition| condition_pattern(condition, &result_sort))
+                .transpose()?,
+            failure: result.failure.map(|failure| format!("{failure:?}")),
         })
     }
 

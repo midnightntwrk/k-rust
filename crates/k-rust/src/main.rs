@@ -60,12 +60,9 @@ use k_rust::{
 use k_rust_backend::{
     builtin::BuiltinEffect,
     claim::ReachabilityClaim,
-    definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
+    definition::{BackendDefinition, PatternOrPredicate},
     externalize,
-    implication::{
-        ImplicationCondition, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        check_implication_with_existentials_complete, special_case, validate_request,
-    },
+    implication::{ImplicationCondition, ImplicationResult, ImplicationStatus},
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
@@ -2810,105 +2807,18 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut backend = Backend::from_definition(
+        definition,
+        &options.module,
+        BackendOptions {
+            smt_timeout_ms: options.smt.options().timeout_ms,
+            smt_retry_limit: options.smt.options().retry_limit,
+        },
+    )?;
     let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
     let consequent_syntax = load_kore_syntax(&options.consequent, "consequent")?;
-    if let Err(request_error) = validate_request(&backend, &antecedent_syntax, &consequent_syntax) {
-        let message = match request_error {
-            ImplicationRequestError::MacroOrAlias { side, name } => format!(
-                "invalid implication {}: {}",
-                match side {
-                    Side::Antecedent => "antecedent",
-                    Side::Consequent => "consequent",
-                },
-                DefinitionError::MacroOrAliasInImplication(name)
-            ),
-            ImplicationRequestError::NonFunctionLikeAntecedent => {
-                "implication antecedent must be function-like".into()
-            }
-            ImplicationRequestError::NonSingletonConsequent => {
-                "implication consequent must contain exactly one pattern".into()
-            }
-            ImplicationRequestError::ExistentialCapture { captured, .. } => format!(
-                "consequent existentials capture antecedent variables: {}",
-                captured.join(", ")
-            ),
-            // CQ-09's approved contract commit makes this syntactic check a CLI boundary.
-            // Until then, retain the existing internalized-sort check and its rendered text.
-            ImplicationRequestError::SortMismatch { .. } => String::new(),
-        };
-        if !message.is_empty() {
-            return Err(io::Error::other(message).into());
-        }
-    }
-
-    let sort_variables = antecedent_syntax
-        .sort_variables()
-        .into_iter()
-        .chain(consequent_syntax.sort_variables())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .map(BackendName::from)
-        .collect::<Vec<_>>();
-    let special_result = special_case(&antecedent_syntax, &consequent_syntax);
-    let antecedent = if matches!(antecedent_syntax.strip_exists(), KorePattern::Bottom { .. }) {
-        None
-    } else {
-        Some(
-            backend
-                .internalize_implication_pattern(&antecedent_syntax, &sort_variables)
-                .map_err(|error| {
-                    io::Error::other(format!("invalid implication antecedent: {error}"))
-                })?,
-        )
-    };
-    let result_sort = match &antecedent {
-        Some((antecedent, _)) => antecedent.term.sort(),
-        None => {
-            backend
-                .internalize_predicate(&antecedent_syntax, &sort_variables)
-                .map_err(|error| {
-                    io::Error::other(format!("invalid implication antecedent: {error}"))
-                })?
-                .1
-        }
-    };
-    let result = if let Some(result) = special_result {
-        result
-    } else if matches!(consequent_syntax.strip_exists(), KorePattern::Not { .. }) {
-        ImplicationResult {
-            status: ImplicationStatus::Invalid,
-            condition: None,
-            failure: None,
-            vacuous: false,
-        }
-    } else {
-        let (antecedent, antecedent_existentials) =
-            antecedent.expect("only a bottom antecedent bypasses implication internalization");
-        let (consequent, consequent_existentials) = backend
-            .internalize_implication_pattern(&consequent_syntax, &sort_variables)
-            .map_err(|error| {
-                io::Error::other(format!("invalid implication consequent: {error}"))
-            })?;
-        if antecedent.term.sort() != consequent.term.sort() {
-            return Err(io::Error::other(format!(
-                "antecedent and consequent sorts differ: {:?} and {:?}",
-                antecedent.term.sort(),
-                consequent.term.sort()
-            ))
-            .into());
-        }
-        let solver = Z3Solver::with_options(&backend, options.smt.options())
-            .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-        check_implication_with_existentials_complete(
-            &backend,
-            &antecedent,
-            &antecedent_existentials,
-            &consequent,
-            &consequent_existentials,
-            &solver,
-        )?
-    };
+    let (result, result_sort) =
+        backend.implies_kore(None, &antecedent_syntax, &consequent_syntax)?;
     let output = implication_output(&antecedent_syntax, &consequent_syntax, &result_sort, result)?;
     if let Some(path) = options.output {
         fs::write(path, output)?;
