@@ -1258,6 +1258,7 @@ fn apply_rhs_alternative(
             rule_substitution,
             rule_predicates,
             effects,
+            remainder_simplifications: Vec::new(),
             io: io_evaluation.map(|execution| execution.commit()),
         },
         remainder: remainder_of(applicability),

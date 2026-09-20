@@ -375,6 +375,7 @@ fn search_graph_collecting(
                 observations: Vec::new(),
             },
             observation: None,
+            kind: QueuedStateKind::Rewritable,
         })
         .collect::<VecDeque<_>>();
     let mut states = Vec::new();
@@ -387,7 +388,7 @@ fn search_graph_collecting(
     // work states with one simplified pattern at one depth have the same successors, so the
     // second is dropped here, which bounds the work per step by the number of distinct
     // configurations rather than by the number of interleavings that reach them.
-    let mut expanded: HashSet<(u64, Pattern)> = HashSet::new();
+    let mut expanded: HashSet<(u64, Pattern, bool)> = HashSet::new();
 
     let mut validated = VecDeque::with_capacity(pending.len());
     while let Some(work) = pending.pop_front() {
@@ -439,7 +440,9 @@ fn search_graph_collecting(
         let SearchWorkState {
             mut state,
             observation: mut observation_head,
+            kind,
         } = work;
+        let is_rewritable = matches!(kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
             incomplete.push(rewrite_incomplete(
                 materialize_search_state(state, observation_head, &observation_log),
@@ -516,38 +519,38 @@ fn search_graph_collecting(
         if predicates_truth(&state.pattern.constraints) == Truth::False {
             continue;
         }
-        if !expanded.insert((state.depth, state.pattern.clone())) {
+        if !expanded.insert((state.depth, state.pattern.clone(), is_rewritable)) {
             measure::bump(Counter::SearchStatesDeduplicated);
             continue;
         }
         let at_depth_bound = state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, state.depth)
             || (options.search_type == SearchType::Final && at_depth_bound);
-        let retention = is_result
-            .then(|| {
-                externalise_result(
-                    definition,
-                    state.clone(),
-                    observation_head,
-                    options.max_simplification_iterations,
-                    solver,
-                    &mut effects,
-                    &mut observe,
-                    &mut incomplete,
-                    &mut observation_log,
-                    observation,
+        let retention = if is_result {
+            externalise_result(
+                definition,
+                state.clone(),
+                observation_head,
+                options.max_simplification_iterations,
+                solver,
+                &mut effects,
+                &mut observe,
+                &mut incomplete,
+                &mut observation_log,
+                observation,
+            )
+            .map(|result| {
+                retain_state_result(
+                    &mut states,
+                    result,
+                    options.max_results,
+                    &mut pattern_bound_reached,
                 )
-                .map(|result| {
-                    retain_state_result(
-                        &mut states,
-                        result,
-                        options.max_results,
-                        &mut pattern_bound_reached,
-                    )
-                })
-                .unwrap_or(StateRetention::Continue)
             })
-            .unwrap_or(StateRetention::Continue);
+            .unwrap_or(StateRetention::Continue)
+        } else {
+            StateRetention::Continue
+        };
         match retention {
             StateRetention::ResultBound => {
                 let truncated = !pending.is_empty()
@@ -555,6 +558,7 @@ fn search_graph_collecting(
                         && state_may_expand(
                             definition,
                             &state,
+                            is_rewritable,
                             options,
                             &mut fresh_counter,
                             solver,
@@ -570,6 +574,7 @@ fn search_graph_collecting(
                         && state_may_expand(
                             definition,
                             &state,
+                            is_rewritable,
                             options,
                             &mut fresh_counter,
                             solver,
@@ -592,13 +597,20 @@ fn search_graph_collecting(
             continue;
         }
 
-        let rewrite = rewrite_step_with_options(
-            definition,
-            &state.pattern,
-            &mut fresh_counter,
-            SimplificationOptions::keep_partial(options.max_simplification_iterations),
-            solver,
-        );
+        let rewrite = match kind {
+            QueuedStateKind::Rewritable => rewrite_step_with_options(
+                definition,
+                &state.pattern,
+                &mut fresh_counter,
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+            ),
+            QueuedStateKind::Remaining(None) => RewriteResult::Stuck(state.pattern.clone()),
+            QueuedStateKind::Remaining(Some(reason)) => RewriteResult::Indeterminate {
+                pattern: state.pattern.clone(),
+                reason,
+            },
+        };
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 if options.search_type != SearchType::Final {
@@ -649,8 +661,9 @@ fn search_graph_collecting(
                 ));
             }
             RewriteResult::Finished(applied) => {
-                record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
+                record_applied_effects(&mut effects, &applied, &mut observe);
                 pending.push_back(next_search_work_state(
+                    definition,
                     state.depth,
                     state.trace,
                     observation_head,
@@ -673,8 +686,9 @@ fn search_graph_collecting(
                 ..
             } => {
                 for applied in branches {
-                    record_effects(&mut effects, applied.effects.iter().cloned(), &mut observe);
+                    record_applied_effects(&mut effects, &applied, &mut observe);
                     pending.push_back(next_search_work_state(
+                        definition,
                         state.depth,
                         state.trace.clone(),
                         observation_head,
@@ -684,7 +698,13 @@ fn search_graph_collecting(
                     ));
                 }
                 if let Some(remainder) = remainder {
-                    pending.push_back(remaining_search_work_state(
+                    record_effects(
+                        &mut effects,
+                        remainder.effects.iter().cloned(),
+                        &mut observe,
+                    );
+                    let remaining = remaining_search_work_state(
+                        definition,
                         state.depth,
                         state.trace,
                         observation_head,
@@ -692,7 +712,8 @@ fn search_graph_collecting(
                         remainder,
                         &mut observation_log,
                         observation,
-                    ));
+                    );
+                    pending.push_back(remaining);
                 }
                 if observed_search_breadth_exceeded(
                     &mut pending,
@@ -717,6 +738,13 @@ fn search_graph_collecting(
 struct SearchWorkState {
     state: SearchState,
     observation: ObservationHead,
+    kind: QueuedStateKind,
+}
+
+#[derive(Clone)]
+enum QueuedStateKind {
+    Rewritable,
+    Remaining(Option<IndeterminateReason>),
 }
 
 impl SearchWorkState {
@@ -789,6 +817,7 @@ fn externalise_result(
 }
 
 fn next_search_work_state(
+    definition: &BackendDefinition,
     depth: u64,
     trace: Vec<TraceEntry>,
     observation: ObservationHead,
@@ -796,15 +825,29 @@ fn next_search_work_state(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> SearchWorkState {
+    let mut observation = observation;
+    for simplification in &applied.remainder_simplifications {
+        observation = observation_log.append_simplification(
+            observation,
+            definition,
+            simplification.before.clone(),
+            &simplification.after,
+            &simplification.applied_rules,
+            &simplification.effects,
+            observation_options,
+        );
+    }
     let observation = observation_log.append_applied(observation, &applied, observation_options);
     SearchWorkState {
         state: next_state(depth, trace, applied),
         observation,
+        kind: QueuedStateKind::Rewritable,
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn remaining_search_work_state(
+    definition: &BackendDefinition,
     depth: u64,
     trace: Vec<TraceEntry>,
     observation: ObservationHead,
@@ -813,11 +856,18 @@ fn remaining_search_work_state(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> SearchWorkState {
-    let observation =
-        observation_log.append_remainder(observation, before, &remainder, observation_options);
+    let (observation, kind) = replay_search_remainder(
+        definition,
+        observation,
+        before,
+        &remainder,
+        observation_log,
+        observation_options,
+    );
     SearchWorkState {
         state: remaining_state(depth, trace, remainder),
         observation,
+        kind,
     }
 }
 
@@ -912,6 +962,7 @@ fn search_paths_collecting(
         id: Vec::new(),
         visited: Vec::new(),
         observation: None,
+        kind: QueuedStateKind::Rewritable,
     }]);
     let mut witnesses = Vec::new();
     let mut effects = Vec::new();
@@ -963,6 +1014,7 @@ fn search_paths_collecting(
 
     // Invariant: a queued path's `visited` is exactly its own patterns, so paths stay simple.
     while let Some(mut path) = pending.pop_front() {
+        let is_rewritable = matches!(path.kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
             incomplete.push(rewrite_incomplete(
                 path.materialize_state(&observation_log),
@@ -1036,10 +1088,14 @@ fn search_paths_collecting(
         if predicates_truth(&path.state.pattern.constraints) == Truth::False {
             continue;
         }
-        if path.visited.contains(&path.state.pattern) {
+        if path
+            .visited
+            .contains(&(path.state.pattern.clone(), is_rewritable))
+        {
             continue;
         }
-        path.visited.push(path.state.pattern.clone());
+        path.visited
+            .push((path.state.pattern.clone(), is_rewritable));
 
         let at_depth_bound = path.state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, path.state.depth)
@@ -1069,6 +1125,7 @@ fn search_paths_collecting(
                         && state_may_expand(
                             definition,
                             &path.state,
+                            is_rewritable,
                             options,
                             &mut fresh_counter,
                             solver,
@@ -1089,13 +1146,20 @@ fn search_paths_collecting(
             continue;
         }
 
-        let rewrite = rewrite_step_with_options(
-            definition,
-            &path.state.pattern,
-            &mut fresh_counter,
-            SimplificationOptions::keep_partial(options.max_simplification_iterations),
-            solver,
-        );
+        let rewrite = match path.kind.clone() {
+            QueuedStateKind::Rewritable => rewrite_step_with_options(
+                definition,
+                &path.state.pattern,
+                &mut fresh_counter,
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+            ),
+            QueuedStateKind::Remaining(None) => RewriteResult::Stuck(path.state.pattern.clone()),
+            QueuedStateKind::Remaining(Some(reason)) => RewriteResult::Indeterminate {
+                pattern: path.state.pattern.clone(),
+                reason,
+            },
+        };
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 path.state.pattern = pattern;
@@ -1134,8 +1198,15 @@ fn search_paths_collecting(
                 ));
             }
             RewriteResult::Finished(applied) => {
+                effects.extend(
+                    applied
+                        .remainder_simplifications
+                        .iter()
+                        .flat_map(|simplification| simplification.effects.iter().cloned()),
+                );
                 effects.extend(applied.effects.iter().cloned());
                 pending.push_back(next_path_state(
+                    definition,
                     path,
                     applied,
                     &mut observation_log,
@@ -1156,8 +1227,15 @@ fn search_paths_collecting(
                 ..
             } => {
                 for applied in branches {
+                    effects.extend(
+                        applied
+                            .remainder_simplifications
+                            .iter()
+                            .flat_map(|simplification| simplification.effects.iter().cloned()),
+                    );
                     effects.extend(applied.effects.iter().cloned());
                     pending.push_back(next_path_state(
+                        definition,
                         path.clone(),
                         applied,
                         &mut observation_log,
@@ -1165,12 +1243,15 @@ fn search_paths_collecting(
                     ));
                 }
                 if let Some(remainder) = remainder {
-                    pending.push_back(remaining_path_state(
+                    effects.extend(remainder.effects.iter().cloned());
+                    let remaining = remaining_path_state(
+                        definition,
                         path,
                         remainder,
                         &mut observation_log,
                         observation,
-                    ));
+                    );
+                    pending.push_back(remaining);
                 }
                 if path_search_breadth_exceeded(
                     &mut pending,
@@ -1195,8 +1276,9 @@ fn search_paths_collecting(
 struct PathSearchState {
     state: SearchState,
     id: Vec<TransitionId>,
-    visited: Vec<Pattern>,
+    visited: Vec<(Pattern, bool)>,
     observation: ObservationHead,
+    kind: QueuedStateKind,
 }
 
 impl PathSearchState {
@@ -1264,6 +1346,7 @@ fn retain_witness(
 }
 
 fn next_path_state(
+    definition: &BackendDefinition,
     mut path: PathSearchState,
     applied: AppliedRule,
     observation_log: &mut ObservationLog,
@@ -1273,13 +1356,26 @@ fn next_path_state(
         rule: applied.unique_id.clone(),
         target: PatternDigest::of(&applied.pattern),
     });
+    for simplification in &applied.remainder_simplifications {
+        path.observation = observation_log.append_simplification(
+            path.observation,
+            definition,
+            simplification.before.clone(),
+            &simplification.after,
+            &simplification.applied_rules,
+            &simplification.effects,
+            observation_options,
+        );
+    }
     path.observation =
         observation_log.append_applied(path.observation, &applied, observation_options);
     path.state = next_state(path.state.depth, path.state.trace, applied);
+    path.kind = QueuedStateKind::Rewritable;
     path
 }
 
 fn remaining_path_state(
+    definition: &BackendDefinition,
     mut path: PathSearchState,
     remainder: RemainderBranch,
     observation_log: &mut ObservationLog,
@@ -1289,13 +1385,17 @@ fn remaining_path_state(
         rule: format!("remainder:{}", remainder.rule_ids.join(",")),
         target: PatternDigest::of(&remainder.pattern),
     });
-    path.observation = observation_log.append_remainder(
+    let (observation, kind) = replay_search_remainder(
+        definition,
         path.observation,
         path.state.pattern.clone(),
         &remainder,
+        observation_log,
         observation_options,
     );
+    path.observation = observation;
     path.state = remaining_state(path.state.depth, path.state.trace, remainder);
+    path.kind = kind;
     path
 }
 
@@ -1816,10 +1916,14 @@ fn selects_reachable_state(search_type: SearchType, depth: u64) -> bool {
 fn state_may_expand(
     definition: &BackendDefinition,
     state: &SearchState,
+    is_rewritable: bool,
     options: SearchOptions,
     fresh_counter: &mut u64,
     solver: &dyn SmtSolver,
 ) -> bool {
+    if !is_rewritable {
+        return false;
+    }
     if options.search_type == SearchType::One && state.depth == 1 {
         return false;
     }
@@ -1878,7 +1982,36 @@ fn record_effects(
     }
 }
 
+fn record_applied_effects(
+    recorded: &mut Vec<BuiltinEffect>,
+    applied: &AppliedRule,
+    observe: &mut impl FnMut(&BuiltinEffect),
+) {
+    for simplification in &applied.remainder_simplifications {
+        record_effects(
+            recorded,
+            simplification.effects.iter().cloned(),
+            &mut *observe,
+        );
+    }
+    record_effects(recorded, applied.effects.iter().cloned(), observe);
+}
+
 fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> SearchState {
+    for simplification in &applied.remainder_simplifications {
+        trace.extend(
+            simplification
+                .applied_rules
+                .iter()
+                .cloned()
+                .map(|unique_id| TraceEntry {
+                    depth,
+                    kind: TraceKind::Simplification,
+                    label: None,
+                    unique_id,
+                }),
+        );
+    }
     trace.push(TraceEntry {
         depth: depth + 1,
         kind: TraceKind::Rewrite,
@@ -1905,6 +2038,20 @@ fn remaining_state(
         label: None,
         unique_id: remainder.rule_ids.join(","),
     });
+    for simplification in &remainder.simplifications {
+        trace.extend(
+            simplification
+                .applied_rules
+                .iter()
+                .cloned()
+                .map(|unique_id| TraceEntry {
+                    depth,
+                    kind: TraceKind::Simplification,
+                    label: None,
+                    unique_id,
+                }),
+        );
+    }
     SearchState {
         pattern: remainder.pattern,
         depth,
@@ -1912,6 +2059,45 @@ fn remaining_state(
         branch: Vec::new(),
         observations: Vec::new(),
     }
+}
+
+fn replay_search_remainder(
+    definition: &BackendDefinition,
+    mut observation: ObservationHead,
+    before: Pattern,
+    remainder: &RemainderBranch,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> (ObservationHead, QueuedStateKind) {
+    let transition_pattern = remainder
+        .simplifications
+        .first()
+        .map_or_else(|| remainder.pattern.clone(), |record| record.before.clone());
+    let transition_remainder = RemainderBranch {
+        pattern: transition_pattern,
+        ..remainder.clone()
+    };
+    observation = observation_log.append_remainder(
+        observation,
+        before,
+        &transition_remainder,
+        observation_options,
+    );
+    for simplification in &remainder.simplifications {
+        observation = observation_log.append_simplification(
+            observation,
+            definition,
+            simplification.before.clone(),
+            &simplification.after,
+            &simplification.applied_rules,
+            &simplification.effects,
+            observation_options,
+        );
+    }
+    (
+        observation,
+        QueuedStateKind::Remaining(remainder.indeterminate.clone()),
+    )
 }
 
 #[cfg(test)]
@@ -2012,6 +2198,37 @@ mod tests {
         .expect("converging search definition should parse");
         BackendDefinition::internalize(&syntax, "SEARCH")
             .expect("converging search definition should internalize")
+    }
+
+    #[cfg(feature = "z3")]
+    fn conditional_remainder_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module SEARCH-REMAINDER
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol initial{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol middle{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(initial{}(X:SortInt{}), \top{SortS{}}()),
+                    middle{}(X:SortInt{})
+                ) [label{}("initial-middle")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        middle{}(X:SortInt{}),
+                        \equals{SortInt{}, SortS{}}(
+                            X:SortInt{},
+                            \dv{SortInt{}}("0")
+                        )
+                    ),
+                    done{}()
+                ) [label{}("middle-done")]
+            endmodule []"#,
+        )
+        .expect("conditional-remainder search definition should parse");
+        BackendDefinition::internalize(&syntax, "SEARCH-REMAINDER")
+            .expect("conditional-remainder search definition should internalize")
     }
 
     fn search_bound_definition() -> BackendDefinition {
@@ -3148,6 +3365,50 @@ mod tests {
             BTreeSet::from(["final1".into(), "final2".into()])
         );
         assert!(result.incomplete.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "z3")]
+    fn queued_remainders_follow_normal_search_selection() {
+        let definition = conditional_remainder_definition();
+        let initial = pattern(&definition, "initial{}(X:SortInt{})");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        for search_type in [SearchType::Star, SearchType::Plus, SearchType::Final] {
+            let options = SearchOptions {
+                search_type,
+                ..SearchOptions::default()
+            };
+            let graph = search_graph_with_solver(&definition, initial.clone(), options, &solver);
+            assert!(graph.incomplete.is_empty(), "{search_type:?}: {graph:#?}");
+            assert_eq!(
+                graph
+                    .states
+                    .iter()
+                    .filter(|state| state
+                        .trace
+                        .iter()
+                        .any(|entry| entry.kind == TraceKind::Remainder))
+                    .count(),
+                1,
+                "{search_type:?}: {graph:#?}"
+            );
+
+            let paths = search_paths_with_solver(&definition, initial.clone(), options, &solver);
+            assert!(paths.incomplete.is_empty(), "{search_type:?}: {paths:#?}");
+            assert_eq!(
+                paths
+                    .witnesses
+                    .iter()
+                    .filter(|witness| witness
+                        .trace
+                        .iter()
+                        .any(|entry| entry.kind == TraceKind::Remainder))
+                    .count(),
+                1,
+                "{search_type:?}: {paths:#?}"
+            );
+        }
     }
 
     #[test]

@@ -34,6 +34,8 @@ use recover::{
     recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
 };
 pub(crate) use recover::{collection_unification_definedness, recover_indeterminate_match};
+#[cfg(test)]
+pub(crate) use step::rewrite_step_all_first_group_for_tests;
 use step::{rewrite_step_all, rewrite_step_any};
 
 use std::{collections::BTreeSet, hash::Hash, time::Duration};
@@ -139,8 +141,18 @@ pub struct AppliedRule {
     /// path constraints. RPC diagnostics use this provenance to report `rule-predicate` exactly.
     pub rule_predicates: Vec<Predicate>,
     pub effects: Vec<BuiltinEffect>,
+    /// Simplifications of a higher-priority remainder that precede this lower-priority rewrite.
+    pub(crate) remainder_simplifications: Vec<RemainderSimplification>,
     /// Console state tentatively produced while evaluating this candidate's right-hand side.
     pub(crate) io: Option<ExecutionIoState>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemainderSimplification {
+    pub before: Pattern,
+    pub after: Pattern,
+    pub applied_rules: Vec<String>,
+    pub effects: Vec<BuiltinEffect>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -149,6 +161,11 @@ pub struct RemainderBranch {
     pub rule_ids: Vec<String>,
     /// Effects pending on this remainder candidate.
     pub effects: Vec<BuiltinEffect>,
+    /// Simplifications performed while folding this remainder through lower priority groups.
+    pub simplifications: Vec<RemainderSimplification>,
+    /// A lower priority group that could not be decided. Earlier branches remain valid, while
+    /// this remainder alone is reported as indeterminate.
+    pub indeterminate: Option<IndeterminateReason>,
 }
 
 /// A rule that unified but whose rewritten result is bottom. Kore retains its unifier in the

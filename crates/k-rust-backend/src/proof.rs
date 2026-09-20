@@ -186,6 +186,7 @@ pub fn prove_claim(
         pattern: initial,
         depth: 0,
         trace: Vec::new(),
+        kind: ProofStateKind::Rewritable,
     }]);
     let mut leaves = Vec::new();
     let mut fresh_counter = 0;
@@ -202,8 +203,8 @@ pub fn prove_claim(
             }
         }};
     }
-    // Every queued state is a rewrite successor (depth + 1), a claim successor (depth + 1), or a
-    // remainder at its parent's depth; an implication remainder is never re-enqueued.
+    // Every queued state is a rewrite or claim successor at depth + 1. Complete rewrite
+    // remainders and implication remainders are classified without entering the frontier.
     // Invariant: `pending` holds the unexpanded states; `leaves` only grows; pops are counted.
     while let Some(mut state) = match options.search_order {
         ProofSearchOrder::BreadthFirst => pending.pop_front(),
@@ -326,6 +327,8 @@ pub fn prove_claim(
                         },
                         rule_ids: vec![format!("destination:{}", claim.attributes.unique_id)],
                         effects: Vec::new(),
+                        simplifications: Vec::new(),
+                        indeterminate: None,
                     };
                     if options.stuck_check {
                         record_leaf!(externalise_leaf(
@@ -363,6 +366,22 @@ pub fn prove_claim(
             // attached so that rewriting gets a chance to make progress. Re-enqueuing
             // it would immediately repeat the same implication check forever.
             state = state.remaining(remainder);
+        }
+
+        if let ProofStateKind::Remaining(reason) = state.kind.clone() {
+            let outcome = match reason {
+                Some(reason) => {
+                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Rewrite(reason))
+                }
+                None if implication_indeterminate => {
+                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
+                }
+                None => ProofLeafOutcome::Stuck,
+            };
+            record_leaf!(externalise_leaf(
+                definition, state, outcome, options, solver
+            ));
+            continue;
         }
 
         if state.depth >= options.max_depth {
@@ -502,29 +521,14 @@ pub fn prove_claim(
                 trivial,
                 ..
             } => {
-                if extend_frontier(
-                    &mut pending,
-                    branches
-                        .into_iter()
-                        .map(|applied| state.clone().rewritten(applied)),
-                    options.breadth_limit,
-                ) {
-                    return Ok(finish_at_breadth_limit(
-                        definition,
-                        leaves,
-                        pending,
-                        explored_states,
-                        options,
-                        solver,
-                    ));
+                let mut successors = branches
+                    .into_iter()
+                    .map(|applied| state.clone().rewritten(applied))
+                    .collect::<Vec<_>>();
+                if let Some(remainder) = remainder {
+                    successors.push(state.clone().rewrite_remaining(remainder));
                 }
-                if let Some(remainder) = remainder
-                    && extend_frontier(
-                        &mut pending,
-                        std::iter::once(state.clone().remaining(remainder)),
-                        options.breadth_limit,
-                    )
-                {
+                if extend_frontier(&mut pending, successors, options.breadth_limit) {
                     return Ok(finish_at_breadth_limit(
                         definition,
                         leaves,
@@ -694,6 +698,13 @@ struct ProofState {
     pattern: Pattern,
     depth: u64,
     trace: Vec<TraceEntry>,
+    kind: ProofStateKind,
+}
+
+#[derive(Clone)]
+enum ProofStateKind {
+    Rewritable,
+    Remaining(Option<IndeterminateReason>),
 }
 
 impl ProofState {
@@ -707,6 +718,20 @@ impl ProofState {
     }
 
     fn rewritten(mut self, applied: crate::rewrite::AppliedRule) -> Self {
+        for simplification in &applied.remainder_simplifications {
+            self.trace.extend(
+                simplification
+                    .applied_rules
+                    .iter()
+                    .cloned()
+                    .map(|unique_id| TraceEntry {
+                        depth: self.depth,
+                        kind: TraceKind::Simplification,
+                        label: None,
+                        unique_id,
+                    }),
+            );
+        }
         self.depth += 1;
         self.trace.push(TraceEntry {
             depth: self.depth,
@@ -715,6 +740,7 @@ impl ProofState {
             unique_id: applied.unique_id,
         });
         self.pattern = applied.pattern;
+        self.kind = ProofStateKind::Rewritable;
         self
     }
 
@@ -727,6 +753,7 @@ impl ProofState {
             unique_id,
         });
         self.pattern = pattern;
+        self.kind = ProofStateKind::Rewritable;
         self
     }
 
@@ -737,8 +764,27 @@ impl ProofState {
             label: None,
             unique_id: remainder.rule_ids.join(","),
         });
+        for simplification in &remainder.simplifications {
+            self.trace.extend(
+                simplification
+                    .applied_rules
+                    .iter()
+                    .cloned()
+                    .map(|unique_id| TraceEntry {
+                        depth: self.depth,
+                        kind: TraceKind::Simplification,
+                        label: None,
+                        unique_id,
+                    }),
+            );
+        }
         self.pattern = remainder.pattern;
         self
+    }
+
+    fn rewrite_remaining(mut self, remainder: crate::rewrite::RemainderBranch) -> Self {
+        self.kind = ProofStateKind::Remaining(remainder.indeterminate.clone());
+        self.remaining(remainder)
     }
 }
 
@@ -1004,6 +1050,8 @@ fn apply_claim(
             },
             rule_ids: vec![format!("claim:{}", claim.attributes.unique_id)],
             effects: Vec::new(),
+            simplifications: Vec::new(),
+            indeterminate: None,
         }
     });
     ClaimApplication::Applied {
@@ -2039,6 +2087,71 @@ mod tests {
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
         assert_eq!(result.explored_states, 2);
         assert_eq!(result.unexplored_states, 0);
+    }
+
+    #[test]
+    #[cfg(feature = "z3")]
+    fn checks_implication_before_classifying_a_rewrite_remainder_as_stuck() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol b{}() : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        start{}(X:SortInt{}),
+                        \equals{SortInt{}, SortState{}}(
+                            X:SortInt{},
+                            \dv{SortInt{}}("0")
+                        )
+                    ),
+                    b{}()
+                ) [label{}("guarded")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(
+                        \or{SortState{}}(
+                            b{}(),
+                            \and{SortState{}}(
+                                start{}(X:SortInt{}),
+                                \not{SortState{}}(
+                                    \equals{SortInt{}, SortState{}}(
+                                        X:SortInt{},
+                                        \dv{SortInt{}}("0")
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ) [label{}("remainder-covered")]
+            endmodule []"#,
+        )
+        .expect("remainder implication probe should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("remainder implication probe should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = prove_claim(
+            &definition,
+            claim_with_label(&definition, "remainder-covered"),
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert_eq!(result.explored_states, 3, "{result:#?}");
+        assert!(
+            result
+                .leaves
+                .iter()
+                .all(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Proven(_))),
+            "{result:#?}"
+        );
     }
 
     const NON_TERMINATING_SIMPLIFIER: &str = r#"
