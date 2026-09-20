@@ -17,6 +17,7 @@ use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::kore::binary as kore_binary;
 use k_rust::names::{BuiltinSort, KoreAttribute, WellKnownSymbol};
 use k_rust::{
+    backend::{Backend, BackendError, BackendOptions},
     definition::{
         AttributeKey, Attributes, CheckMode, Sentence, checks::check_definition,
         json as definition_json,
@@ -1066,7 +1067,6 @@ struct BackendRunOptions {
     stop_leaves: Option<PathBuf>,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
-    smt: Z3Options,
     capture_stdout: bool,
     execution_input: Option<Vec<u8>>,
 }
@@ -2483,8 +2483,16 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     let internalize_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
+    let mut backend = Backend::from_internalized(
+        backend,
+        BackendOptions {
+            smt_timeout_ms: options.smt.timeout_ms,
+            smt_retry_limit: options.smt.retry_limit,
+        },
+    )?;
     let output = run_backend(
-        &backend,
+        &mut backend,
+        None,
         vec![Pattern {
             term: initial,
             constraints: Vec::new(),
@@ -2503,7 +2511,6 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             stop_leaves: None,
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
-            smt: options.smt,
             capture_stdout: options.output == KrunOutputArg::Captured,
             execution_input,
         },
@@ -2565,7 +2572,18 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
         )
     })?;
     let mut function_symbols = kore_function_symbols(&definition);
-    let mut session = BackendSession::new(definition, &options.module);
+    let construction_module = definition
+        .modules
+        .iter()
+        .any(|module| module.name == options.module)
+        .then(|| options.module.clone())
+        .or_else(|| definition.modules.last().map(|module| module.name.clone()))
+        .ok_or_else(|| io::Error::other("KORE definition has no modules"))?;
+    let backend_options = BackendOptions {
+        smt_timeout_ms: options.smt.options().timeout_ms,
+        smt_retry_limit: options.smt.options().retry_limit,
+    };
+    let mut backend = Backend::from_definition(definition, construction_module, backend_options)?;
     for path in &options.added_modules {
         let source = fs::read_to_string(path)?;
         let module = parse_kore_module(&source).map_err(|error| {
@@ -2578,12 +2596,15 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             )
         })?;
         function_symbols.extend(kore_module_function_symbols(&module));
-        session.add_module(&source, module, true)?;
+        backend.add_module(&source, true)?;
     }
-    let backend = session.definition(None)?;
-    let initial = load_backend_patterns(&backend, &options.pattern, "initial")?;
+    let initial = backend.with_solver(Some(&options.module), |definition, _| {
+        load_backend_patterns(definition, &options.pattern, "initial")
+            .map_err(|error| BackendError(error.to_string()))
+    })?;
     let output = run_backend(
-        &backend,
+        &mut backend,
+        Some(&options.module),
         initial,
         BackendRunOptions {
             depth: options.depth.unwrap_or(u64::MAX),
@@ -2601,7 +2622,6 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             stop_leaves: options.stop_leaves,
             step_timeout: options.timeout.timeout(),
             moving_average_timeout: options.timeout.moving_average,
-            smt: options.smt.options(),
             capture_stdout: false,
             execution_input: None,
         },
@@ -3264,7 +3284,22 @@ fn domain_value_bytes<'a>(pattern: &'a KorePattern, sort_name: &str) -> Option<&
 }
 
 fn run_backend(
+    backend: &mut Backend,
+    module: Option<&str>,
+    initial: Vec<Pattern>,
+    options: BackendRunOptions,
+) -> Result<BackendRunOutput, Box<dyn Error>> {
+    backend
+        .with_solver(module, |definition, solver| {
+            run_backend_with_solver(definition, solver, initial, options)
+                .map_err(|error| BackendError(error.to_string()))
+        })
+        .map_err(Into::into)
+}
+
+fn run_backend_with_solver(
     backend: &BackendDefinition,
+    solver: &dyn SmtSolver,
     initial: Vec<Pattern>,
     options: BackendRunOptions,
 ) -> Result<BackendRunOutput, Box<dyn Error>> {
@@ -3272,8 +3307,6 @@ fn run_backend(
         return Err(io::Error::other("initial pattern has no live disjuncts").into());
     };
     let output_sort = externalize::sort(&first_initial.term.sort());
-    let solver = Z3Solver::with_options(backend, options.smt)
-        .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
     let mut match_target = options.match_target;
     if let Some(search) = options.search {
         if options.stop_leaves.is_some() {
@@ -3300,7 +3333,7 @@ fn run_backend(
                 max_results: search.bound,
                 max_simplification_iterations: options.max_simplification_iterations,
             },
-            &solver,
+            solver,
         );
         for effect in &result.effects {
             match effect {
@@ -3357,7 +3390,7 @@ fn run_backend(
             backend,
             initial,
             execution_options,
-            &solver,
+            solver,
             ExecutionIoState::new(input),
             |effect| match effect {
                 BuiltinEffect::UserLog(message) => eprintln!("{message}"),
@@ -3368,7 +3401,7 @@ fn run_backend(
             backend,
             initial,
             execution_options,
-            &solver,
+            solver,
             |effect| match effect {
                 BuiltinEffect::UserLog(message) => eprintln!("{message}"),
             },
@@ -3451,7 +3484,7 @@ fn run_backend(
     };
     let exit_code = exit_code_of(
         backend,
-        &solver,
+        solver,
         &finals,
         options.max_simplification_iterations,
     )?;
@@ -3523,7 +3556,7 @@ fn run_backend(
                 max_iterations: options.max_simplification_iterations,
                 ..SimplificationOptions::default()
             },
-            &solver,
+            solver,
         )
         .map_err(pattern_match_error)?;
         return Ok(BackendRunOutput {
