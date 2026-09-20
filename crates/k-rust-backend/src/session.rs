@@ -55,6 +55,23 @@ impl BackendSession {
         }
     }
 
+    /// Seed a session with an already internalized definition.
+    pub fn with_definition(definition: BackendDefinition) -> Self {
+        let default_module = definition.main_module.to_string();
+        let mut definitions = BTreeMap::new();
+        definitions.insert(default_module.clone(), Arc::new(definition));
+        Self {
+            syntax: kore::Definition {
+                attributes: Default::default(),
+                modules: Vec::new(),
+            },
+            default_module,
+            definitions,
+            added_sources: BTreeMap::new(),
+            module_aliases: BTreeMap::new(),
+        }
+    }
+
     pub fn default_module(&self) -> &str {
         &self.default_module
     }

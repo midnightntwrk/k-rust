@@ -46,6 +46,11 @@ use crate::kore::{
     parser::{parse_definition, parse_module},
 };
 
+pub mod execution;
+pub mod implication;
+pub mod proving;
+pub mod search;
+pub mod simplification;
 mod wire;
 pub use wire::*;
 
@@ -292,6 +297,8 @@ pub struct Backend {
     options: BackendOptions,
     #[cfg(feature = "z3-inference")]
     solvers: std::collections::BTreeMap<String, Z3Solver>,
+    #[cfg(feature = "z3-inference")]
+    smt_prelude: Option<String>,
 }
 
 impl Backend {
@@ -302,13 +309,50 @@ impl Backend {
     ) -> Result<Self, BackendError> {
         let syntax =
             parse_definition(definition_kore).map_err(error("could not parse KORE definition"))?;
+        Self::from_definition(syntax, module_name, options)
+    }
+
+    pub fn from_definition(
+        syntax: k_rust_kore::kore::ast::Definition,
+        module_name: impl Into<String>,
+        options: BackendOptions,
+    ) -> Result<Self, BackendError> {
+        Self::from_session(BackendSession::new(syntax, module_name), options, None)
+    }
+
+    pub fn from_definition_with_prelude(
+        syntax: k_rust_kore::kore::ast::Definition,
+        module_name: impl Into<String>,
+        options: BackendOptions,
+        smt_prelude: String,
+    ) -> Result<Self, BackendError> {
+        Self::from_session(
+            BackendSession::new(syntax, module_name),
+            options,
+            Some(smt_prelude),
+        )
+    }
+
+    pub fn from_internalized(
+        definition: BackendDefinition,
+        options: BackendOptions,
+    ) -> Result<Self, BackendError> {
+        Self::from_session(BackendSession::with_definition(definition), options, None)
+    }
+
+    fn from_session(
+        session: BackendSession,
+        options: BackendOptions,
+        _smt_prelude: Option<String>,
+    ) -> Result<Self, BackendError> {
         let mut backend = Self {
-            session: BackendSession::new(syntax, module_name),
+            session,
             options,
             #[cfg(feature = "z3-inference")]
             solvers: Default::default(),
+            #[cfg(feature = "z3-inference")]
+            smt_prelude: _smt_prelude,
         };
-        // Fail at construction time if the selected module or its native SMT prelude is invalid.
         backend.with_solver(None, |_, _| Ok(()))?;
         Ok(backend)
     }
@@ -864,7 +908,7 @@ impl Backend {
         })
     }
 
-    fn with_solver<T>(
+    pub fn with_solver<T>(
         &mut self,
         module: Option<&str>,
         operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, BackendError>,
@@ -884,13 +928,15 @@ impl Backend {
     ) -> Result<T, BackendError> {
         let module = definition.main_module.to_string();
         if !self.solvers.contains_key(&module) {
-            let solver = Z3Solver::with_options(
-                &definition,
-                Z3Options {
-                    timeout_ms: self.options.smt_timeout_ms,
-                    retry_limit: self.options.smt_retry_limit,
-                },
-            )
+            let options = Z3Options {
+                timeout_ms: self.options.smt_timeout_ms,
+                retry_limit: self.options.smt_retry_limit,
+            };
+            let solver = if let Some(prelude) = self.smt_prelude.as_deref() {
+                Z3Solver::with_options_and_prelude(&definition, options, Some(prelude))
+            } else {
+                Z3Solver::with_options(&definition, options)
+            }
             .map_err(error("could not initialize Z3"))?;
             self.solvers.insert(module.clone(), solver);
         }
