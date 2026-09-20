@@ -87,6 +87,13 @@ impl Backend {
                 let (consequent_pattern, consequent_existentials) = definition
                     .internalize_implication_pattern(consequent, &sort_variables)
                     .map_err(error("could not internalize implication consequent"))?;
+                if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
+                    return Err(BackendError(format!(
+                        "antecedent and consequent sorts differ after internalization: {:?} and {:?}",
+                        antecedent_pattern.term.sort(),
+                        consequent_pattern.term.sort()
+                    )));
+                }
                 check_implication_with_existentials_complete(
                     definition,
                     &antecedent_pattern,

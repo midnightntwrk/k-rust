@@ -1008,9 +1008,11 @@ mod tests {
     const DEFINITION: &str = r#"[]
         module MAIN
             sort SortS{} []
+            sort SortT{} []
             symbol a{}() : SortS{} [constructor{}()]
             symbol b{}() : SortS{} [constructor{}()]
             symbol c{}() : SortS{} [constructor{}()]
+            symbol t{}() : SortT{} [constructor{}()]
             symbol macroValue{}() : SortS{} [constructor{}(), macro{}()]
             alias weakExistsFinally{S}(S) : S
                 where weakExistsFinally{S}(@X:S) := @X:S []
@@ -1402,6 +1404,38 @@ mod tests {
                 .expect_err("a top antecedent must be rejected");
             assert!(error.to_string().contains("function-like"), "{error}");
         }
+    }
+
+    #[test]
+    fn persistent_backend_short_circuits_a_not_consequent() {
+        let result = backend()
+            .implies(ImplicationRequest {
+                antecedent: json("a{}()"),
+                consequent: json(r#"\not{SortS{}}(a{}())"#),
+                module_name: None,
+                schema_version: BACKEND_SCHEMA_VERSION,
+            })
+            .unwrap();
+        assert_eq!(result.status, "invalid");
+        assert!(result.condition.is_none());
+    }
+
+    #[test]
+    fn implies_rejects_internalized_sort_mismatch() {
+        let error = backend()
+            .implies(ImplicationRequest {
+                antecedent: json("a{}()"),
+                consequent: json("t{}()"),
+                module_name: None,
+                schema_version: BACKEND_SCHEMA_VERSION,
+            })
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("sorts differ after internalization"),
+            "{error}"
+        );
     }
 
     #[test]
