@@ -273,7 +273,9 @@ fn assert_be08_snapshot(name: &str, actual: Snapshot, expected: [u64; Counter::C
     }
 }
 
-/// T3 / I9 and T15 / D4. Captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+/// T3 / I9 and T15 / D4. Replay baseline captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d;
+/// S2-P2 S0/S1 cascade counters captured at 538f2a79bd1e81f45fad1dbc72d386052021e493.
+/// T15's Any replay snapshot remains the baseline capture.
 #[cfg(feature = "z3")]
 #[test]
 fn stopped_branch_cascade_attempts_each_candidate_rule_once() {
@@ -281,11 +283,11 @@ fn stopped_branch_cascade_attempts_each_candidate_rule_once() {
     let s1 = be08_measure_stopped(&be08_measure_s1(), ExecutionMode::All);
     let any_replay = be08_measure_stopped(&be08_measure_any_replay(), ExecutionMode::Any);
 
-    assert_eq!(s0.get(Counter::RewriteRuleAttempts), 6);
+    assert_eq!(s0.get(Counter::RewriteRuleAttempts), 4);
     assert_eq!(s0.get(Counter::RewriteRulesApplied), 4);
     assert_eq!(s0.get(Counter::RewriteMatchFailures), 0);
     assert_eq!(s0.get(Counter::RewriteSteps), 1);
-    assert_eq!(s1.get(Counter::RewriteRuleAttempts), 46);
+    assert_eq!(s1.get(Counter::RewriteRuleAttempts), 10);
     assert_eq!(s1.get(Counter::RewriteRulesApplied), 10);
     assert_eq!(s1.get(Counter::RewriteMatchFailures), 0);
     assert_eq!(s1.get(Counter::RewriteSteps), 1);
@@ -297,16 +299,16 @@ fn stopped_branch_cascade_attempts_each_candidate_rule_once() {
         "T3 S0 All",
         s0,
         [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 6, 0, 4, 0, 6, 12,
-            0, 0, 24, 36, 38, 0, 0, 17, 9, 0, 0, 0, 34,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 4, 0, 4, 0, 4, 8,
+            0, 0, 20, 30, 32, 0, 0, 17, 9, 0, 0, 0, 28,
         ],
     );
     assert_be08_snapshot(
         "T3 S1 All",
         s1,
         [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 46, 0, 10, 0, 46,
-            92, 0, 0, 168, 181, 280, 0, 0, 128, 108, 0, 0, 0, 270,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 10, 0, 10, 0, 10,
+            20, 0, 0, 96, 73, 172, 0, 0, 128, 108, 0, 0, 0, 162,
         ],
     );
     assert_be08_snapshot(

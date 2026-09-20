@@ -3055,7 +3055,8 @@ fn cancellation_during_lower_group_work_is_observed_after_result_simplification(
     assert_eq!(result.discarded[0].id.rule, "trivial");
 }
 
-/// T10 / D2. Replay outcome and transcript captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+/// T10 / D2. The S2-P2 cascade skips the replay's indeterminate re-attempt and reaches the
+/// unconditional lower group; its expected outcome follows D2 in the 40b5d6d design.
 #[test]
 fn cascade_continues_where_a_reattempt_would_have_been_indeterminate() {
     let definition = be08_portable_definition(
@@ -3100,32 +3101,38 @@ fn cascade_continues_where_a_reattempt_would_have_been_indeterminate() {
     );
     let transcript = solver.transcript.borrow().clone();
     assert!(solver.answers.borrow().is_empty());
-    assert!(solver.validity.borrow().is_empty());
-    assert_be08_capture(
-        "T10 result and solver transcript",
-        &(&result, &transcript),
-        "97244da3a93d53d202a4ea1e5511b8b7e7ffed437781c6010135ed5c0fd9ae46",
-    );
+    assert_eq!(solver.validity.borrow().len(), 1);
 
     let [
         ExecutionLeaf {
             halt_reason:
                 HaltReason::Branch {
                     branches,
-                    remainder: Some(_),
+                    remainder: None,
                 },
             ..
         },
     ] = result.leaves.as_slice()
     else {
-        panic!("expected replay to stop with its first branch and remainder: {result:#?}");
+        panic!("expected the cascade to reach the unconditional lower group: {result:#?}");
     };
-    assert_eq!(branches.len(), 1);
-    assert_eq!(branches[0].label.as_deref(), Some("conditional"));
     assert!(matches!(
-        transcript.last(),
-        Some(ScriptedQuery::CheckPredicates { .. })
+        transcript.as_slice(),
+        [
+            ScriptedQuery::CheckPredicates { .. },
+            ScriptedQuery::IsSat { .. },
+            ScriptedQuery::CheckPredicates { .. },
+            ScriptedQuery::CheckPredicates { .. },
+            ScriptedQuery::CheckPredicates { .. },
+        ]
     ));
+    assert_eq!(
+        branches
+            .iter()
+            .map(|branch| branch.label.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        ["fallback", "conditional"]
+    );
 }
 
 /// T12 / I10. Complete leaf and diagnostics captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.

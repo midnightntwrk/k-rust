@@ -1,8 +1,10 @@
-//! Priority-grouped rewrite step with remainder: `All` mode applies a whole priority group and
-//! SAT-checks path ∧ ¬(∨ applicability) (Booster rewriteStep); `Any` mode threads the remainder
-//! through the rules sequentially (Kore applyRewriteRulesSequence). O(c) rule attempts per step
-//! for the c candidates of `rule::applicable_groups` plus one SAT check per step (`All`) or per
-//! applied rule (`Any`); `Counter::RewriteRulesApplied` (row B10).
+//! Priority-grouped rewrite step with remainder: `All` mode applies the first productive priority
+//! group and SAT-checks path ∧ ¬(∨ applicability) (Booster rewriteStep); `cascade_remainder`
+//! continues Kore's `transitionAllRewrite` fold through the lower groups for stopped-branch
+//! execution, each group once on the remainder of the groups before it; `Any` mode threads the
+//! remainder through the rules sequentially (Kore applyRewriteRulesSequence). O(c) rule attempts
+//! per step for the c candidates of `rule::applicable_groups` in every mode plus one SAT check per
+//! productive group (`All`) or per applied rule (`Any`); `Counter::RewriteRulesApplied` (row B10).
 
 use std::sync::Arc;
 
@@ -11,7 +13,7 @@ use k_rust_kore::measure::{self, Counter};
 use crate::{
     definition::BackendDefinition,
     rule::{RewriteRule, applicable_groups, term_index},
-    simplify::{SimplificationOptions, simplify_predicates_with_solver},
+    simplify::{SimplificationError, SimplificationOptions, simplify_predicates_with_solver},
     smt::{Satisfiability, SmtSolver},
     substitution::Substitution,
     transition::ExecutionIoState,
@@ -32,6 +34,23 @@ enum PriorityGroupOutcome {
     },
     Indeterminate(IndeterminateReason),
 }
+
+/// Whether an `All` step hands back the priority groups it left unvisited.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RemainderPolicy {
+    /// Return at the first productive group; the caller owns the remainder (search, proof,
+    /// `ExploreAll`, and the public entry points). The returned groups are always empty.
+    Return,
+    /// Return at the first productive group and hand back the lower groups so stopped-branch
+    /// execution can cascade the remainder through them once (Kore `transitionAllRewrite`).
+    Cascade,
+}
+
+/// The priority groups after the first productive one, ascending, each in declaration order;
+/// empty when no group was productive, the step was `Indeterminate`, or the policy was `Return`.
+/// Moved out of the `applicable_groups` map: no rule is cloned.
+#[derive(Debug, Default)]
+pub(super) struct LowerPriorityGroups(Vec<Vec<Arc<RewriteRule>>>);
 
 fn apply_priority_group(
     definition: &BackendDefinition,
@@ -197,6 +216,7 @@ fn classify_first_group(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn rewrite_step_all(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -205,11 +225,15 @@ pub(super) fn rewrite_step_all(
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
-) -> RewriteResult {
+    policy: RemainderPolicy,
+) -> (RewriteResult, LowerPriorityGroups) {
     let index = term_index(&pattern.term);
     let priority_groups = applicable_groups(&definition.rewrite_theory, &index);
     if priority_groups.is_empty() {
-        return RewriteResult::Stuck(pattern.clone());
+        return (
+            RewriteResult::Stuck(pattern.clone()),
+            LowerPriorityGroups::default(),
+        );
     }
     let mut groups = priority_groups.into_values();
     match first_productive_group(
@@ -222,17 +246,85 @@ pub(super) fn rewrite_step_all(
         assume_initial_defined,
         io,
     ) {
-        PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
-        PriorityGroupOutcome::Indeterminate(reason) => RewriteResult::Indeterminate {
-            pattern: pattern.clone(),
-            reason,
-        },
+        PriorityGroupOutcome::NotProductive => (
+            RewriteResult::Stuck(pattern.clone()),
+            LowerPriorityGroups::default(),
+        ),
+        PriorityGroupOutcome::Indeterminate(reason) => (
+            RewriteResult::Indeterminate {
+                pattern: pattern.clone(),
+                reason,
+            },
+            LowerPriorityGroups::default(),
+        ),
         PriorityGroupOutcome::Productive {
             branches,
             trivial,
             remainder,
-        } => classify_first_group(pattern, branches, trivial, remainder),
+        } => {
+            let result = classify_first_group(pattern, branches, trivial, remainder);
+            let lower_groups = if policy == RemainderPolicy::Cascade {
+                LowerPriorityGroups(groups.collect())
+            } else {
+                LowerPriorityGroups::default()
+            };
+            (result, lower_groups)
+        }
     }
+}
+
+/// Continue Kore's `transitionAllRewrite` from the group after the first productive one: feed
+/// `remainder` to each lower group in turn, once. A productive lower group's applications are
+/// prepended to `branches` and its remainder replaces `remainder`; its trivial sub-cases are
+/// dropped (as the replay dropped them). A group that is not productive leaves both unchanged. A
+/// `Stuck` tail, or a lower-group `Indeterminate` other than a simplification error, keeps the
+/// remainder and ends the cascade; a simplification error is the caller's `Simplification` leaf.
+/// No lower group receives execution IO: a remainder carries constraints. At most one attempt per
+/// candidate rule per step (row B10). Invariant: `remainder` is the part of the parent pattern that
+/// `branches` does not cover, restricted to the groups visited so far.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn cascade_remainder(
+    definition: &BackendDefinition,
+    branches: &mut Vec<AppliedRule>,
+    remainder: &mut Option<RemainderBranch>,
+    lower_groups: LowerPriorityGroups,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
+) -> Result<(), SimplificationError> {
+    for rules in lower_groups.0 {
+        let Some(current) = remainder.as_ref() else {
+            return Ok(());
+        };
+        match apply_priority_group(
+            definition,
+            &current.pattern,
+            &rules,
+            fresh_counter,
+            simplification_options,
+            solver,
+            assume_initial_defined,
+            None,
+        ) {
+            PriorityGroupOutcome::NotProductive => {}
+            PriorityGroupOutcome::Indeterminate(IndeterminateReason::Simplification {
+                error,
+                ..
+            }) => return Err(error),
+            PriorityGroupOutcome::Indeterminate(_) => return Ok(()),
+            PriorityGroupOutcome::Productive {
+                branches: mut lower,
+                trivial: _,
+                remainder: lower_remainder,
+            } => {
+                lower.append(branches);
+                *branches = lower;
+                *remainder = lower_remainder;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn rewrite_step_any(

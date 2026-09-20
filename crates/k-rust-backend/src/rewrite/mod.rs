@@ -34,7 +34,9 @@ use recover::{
     recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
 };
 pub(crate) use recover::{collection_unification_definedness, recover_indeterminate_match};
-use step::{rewrite_step_all, rewrite_step_any};
+use step::{
+    LowerPriorityGroups, RemainderPolicy, cascade_remainder, rewrite_step_all, rewrite_step_any,
+};
 
 use std::{collections::BTreeSet, hash::Hash, time::Duration};
 
@@ -642,7 +644,9 @@ pub(crate) fn rewrite_step_with_mode(
         mode,
         assume_initial_defined,
         None,
+        RemainderPolicy::Return,
     )
+    .0
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -655,15 +659,22 @@ fn rewrite_step_with_optional_execution(
     mode: ExecutionMode,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
-) -> RewriteResult {
+    policy: RemainderPolicy,
+) -> (RewriteResult, LowerPriorityGroups) {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
-        return RewriteResult::Indeterminate {
-            pattern: pattern.clone(),
-            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
-        };
+        return (
+            RewriteResult::Indeterminate {
+                pattern: pattern.clone(),
+                reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            },
+            LowerPriorityGroups::default(),
+        );
     }
     if predicates_truth(&pattern.constraints) == Truth::False {
-        return RewriteResult::Vacuous(pattern.clone());
+        return (
+            RewriteResult::Vacuous(pattern.clone()),
+            LowerPriorityGroups::default(),
+        );
     }
     match mode {
         ExecutionMode::All => rewrite_step_all(
@@ -674,14 +685,20 @@ fn rewrite_step_with_optional_execution(
             solver,
             assume_initial_defined,
             io,
+            policy,
         ),
-        ExecutionMode::Any => rewrite_step_any(
-            definition,
-            pattern,
-            fresh_counter,
-            simplification_options,
-            solver,
-            io,
+        // Any already threads its remainder through every rule of every group; the policy has
+        // nothing to select.
+        ExecutionMode::Any => (
+            rewrite_step_any(
+                definition,
+                pattern,
+                fresh_counter,
+                simplification_options,
+                solver,
+                io,
+            ),
+            LowerPriorityGroups::default(),
         ),
     }
 }

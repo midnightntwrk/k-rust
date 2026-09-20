@@ -33,11 +33,11 @@ use crate::{
 
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions,
-    ExecutionResult, HaltReason, IndeterminateReason, InitialSimplificationStatus, Pattern,
-    RemainderBranch, RewriteResult, TraceEntry, TraceKind, TrivialApplication, Truth,
-    applied_trivial_halt, normalize_pattern_substitution, predicates_truth,
-    retain_substitution_predicates, rewrite_step_with_mode, rewrite_step_with_optional_execution,
-    trivial_halt, vacuous_halt,
+    ExecutionResult, HaltReason, IndeterminateReason, InitialSimplificationStatus,
+    LowerPriorityGroups, Pattern, RemainderBranch, RemainderPolicy, RewriteResult, TraceEntry,
+    TraceKind, TrivialApplication, Truth, applied_trivial_halt, cascade_remainder,
+    normalize_pattern_substitution, predicates_truth, retain_substitution_predicates,
+    rewrite_step_with_mode, rewrite_step_with_optional_execution, trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -216,7 +216,7 @@ impl<'a> Execution<'a> {
         }
         let (state, deferred_initial_vacuity) = self.normalise_constraints(state, step_timer)?;
         let state = self.simplify_term(state, step_timer, deferred_initial_vacuity.is_some())?;
-        let rewritten = self.step(&state);
+        let (rewritten, lower_groups) = self.step(&state);
         let state = self.check_interrupted(state, step_timer)?;
         match rewritten {
             RewriteResult::Stuck(_)
@@ -231,7 +231,15 @@ impl<'a> Execution<'a> {
                 branches,
                 remainder,
                 trivial,
-            } => self.branch(state, original, branches, remainder, trivial, step_timer),
+            } => self.branch(
+                state,
+                original,
+                branches,
+                remainder,
+                trivial,
+                lower_groups,
+                step_timer,
+            ),
         }
     }
 
@@ -434,7 +442,14 @@ impl<'a> Execution<'a> {
     }
 
     /// E4: one priority-grouped rewrite step (row B10) under the option's mode.
-    fn step(&mut self, state: &ExecutionState) -> RewriteResult {
+    fn step(&mut self, state: &ExecutionState) -> (RewriteResult, LowerPriorityGroups) {
+        let policy = if self.options.mode == ExecutionMode::All
+            && self.options.branch_mode == ExecutionBranchMode::StopAtBranch
+        {
+            RemainderPolicy::Cascade
+        } else {
+            RemainderPolicy::Return
+        };
         rewrite_step_with_optional_execution(
             self.definition,
             &state.pattern,
@@ -444,6 +459,7 @@ impl<'a> Execution<'a> {
             self.options.mode,
             self.options.assume_initial_defined,
             state.io_enabled.then_some(&state.io),
+            policy,
         )
     }
 
@@ -604,10 +620,13 @@ impl<'a> Execution<'a> {
     }
 
     /// E7: several rules applied, or one with a remainder. Under `StopAtBranch` the remainder is
-    /// expanded to a fixed point, the original and every branch are simplified (a failing branch
-    /// is reported at the parent), and the outcome is classified as `Stuck`, one successor, one
-    /// remainder, or a `Branch` leaf; otherwise every branch and the remainder become successors,
-    /// branches first and the remainder last (the order N27 leaves unspecified).
+    /// cascaded through the priority groups the step did not visit (`All`: `cascade_remainder`,
+    /// Kore `transitionAllRewrite`, one attempt per candidate rule; `Any`: re-stepped to a fixed
+    /// point), the original and every branch are simplified (a failing branch is reported at the
+    /// parent), and the outcome is classified as `Stuck`, one successor, one remainder, or a
+    /// `Branch` leaf; otherwise every branch and the remainder become successors, branches first
+    /// and the remainder last (the order N27 leaves unspecified).
+    #[allow(clippy::too_many_arguments)]
     fn branch(
         &mut self,
         mut state: ExecutionState,
@@ -615,19 +634,33 @@ impl<'a> Execution<'a> {
         mut branches: Vec<AppliedRule>,
         mut remainder: Option<RemainderBranch>,
         trivial: Vec<TrivialApplication>,
+        lower_groups: LowerPriorityGroups,
         step_timer: &mut StepTimer<'_>,
     ) -> Phase<Expansion> {
         record_trivial_candidates(&mut self.discarded, &trivial, &original, self.observation);
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
-            if let Err(error) = expand_stopped_branch_remainder(
-                self.definition,
-                &mut branches,
-                &mut remainder,
-                &mut self.fresh_counter,
-                SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                self.solver,
-                (self.options.mode, self.options.assume_initial_defined),
-            ) {
+            let cascaded = match self.options.mode {
+                ExecutionMode::All => cascade_remainder(
+                    self.definition,
+                    &mut branches,
+                    &mut remainder,
+                    lower_groups,
+                    &mut self.fresh_counter,
+                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
+                    self.solver,
+                    self.options.assume_initial_defined,
+                ),
+                ExecutionMode::Any => replay_any_remainder(
+                    self.definition,
+                    &mut branches,
+                    &mut remainder,
+                    &mut self.fresh_counter,
+                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
+                    self.solver,
+                    self.options.assume_initial_defined,
+                ),
+            };
+            if let Err(error) = cascaded {
                 return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
             }
             let original = match simplify_result_pattern(
@@ -948,18 +981,18 @@ fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
         .collect()
 }
 
-fn expand_stopped_branch_remainder(
+fn replay_any_remainder(
     definition: &BackendDefinition,
     branches: &mut Vec<AppliedRule>,
     remainder: &mut Option<RemainderBranch>,
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
-    execution: (ExecutionMode, bool),
+    assume_initial_defined: bool,
 ) -> Result<(), SimplificationError> {
-    let (mode, assume_initial_defined) = execution;
-    // Each iteration applies one more rule to the remainder (a strictly smaller applicability
-    // space) or ends it as stuck, indeterminate, trivial, or vacuous.
+    // Any mode re-steps the remainder to a fixed point: each generation re-attempts every rule on
+    // the remainder and terminates when a generation applies nothing or the solver refutes the
+    // accumulated negations (follow-up D4 moves Any onto the cascade).
     // Invariant: `remainder` is the part of the parent pattern that `branches` does not yet cover.
     while let Some(current) = remainder.take() {
         match rewrite_step_with_mode(
@@ -968,7 +1001,7 @@ fn expand_stopped_branch_remainder(
             fresh_counter,
             simplification_options,
             solver,
-            mode,
+            ExecutionMode::Any,
             assume_initial_defined,
         ) {
             RewriteResult::Finished(applied) => branches.insert(0, applied),
