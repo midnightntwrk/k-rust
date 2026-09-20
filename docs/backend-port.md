@@ -56,7 +56,7 @@ section 4.1 (row ids B1 to B21), one home per row.
 | `rewrite/mod.rs` | B9-B11, B21 | shared types, entry points, and re-exports of the rewrite homes | see the homes |
 | `rewrite/apply.rs` | B9 | one-rule conditional rewriting step: the thirteen phases of `apply_rule_with_match` | `RewriteRuleAttempts`, `RewriteMatchFailures` |
 | `rewrite/recover.rs` | B9 | the indeterminate-match recovery ladder: simplification, six splits, overload and general unification, functional witnesses | `RewriteIndeterminateRecoveries` |
-| `rewrite/step.rs` | B10 | priority-grouped rewrite step with remainder (`All`) or sequential remainder threading (`Any`) | `RewriteRulesApplied` |
+| `rewrite/step.rs` | B10 | priority-grouped rewrite step with remainder: `All` applies the first productive group and `cascade_remainder` continues Kore's `transitionAllRewrite` through each lower group once under `StopAtBranch`, so each candidate is attempted at most once per step; `Any` threads the remainder sequentially and retains replay under `StopAtBranch` | `RewriteRulesApplied` |
 | `rewrite/execute.rs` | B11 | depth-first exploration of the rewrite tree with got-stuck-over-depth-bound leaf selection and equal-leaf merge | `RewriteSteps` |
 | `rewrite/predicates.rs` | B21 | predicate truth, alpha equivalence, unique extension, constructor-domain coverage, concreteness | none |
 | `fresh.rs` | B20 | counter-suffixed fresh variable naming with collision retry; Booster's existential renaming | none |
