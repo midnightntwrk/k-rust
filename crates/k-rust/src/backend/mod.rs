@@ -10,7 +10,7 @@ use k_rust_backend::{
     definition::BackendDefinition,
     externalize,
     implication::ImplicationStatus,
-    proof::{ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
+    proof::{ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
         execute_observed_with_solver, execute_with_solver,
@@ -332,6 +332,18 @@ impl Backend {
         options: BackendOptions,
     ) -> Result<Self, BackendError> {
         Self::from_session(BackendSession::with_definition(definition), options, None)
+    }
+
+    pub fn from_internalized_with_prelude(
+        definition: BackendDefinition,
+        options: BackendOptions,
+        smt_prelude: Option<String>,
+    ) -> Result<Self, BackendError> {
+        Self::from_session(
+            BackendSession::with_definition(definition),
+            options,
+            smt_prelude,
+        )
     }
 
     fn from_session(
@@ -720,12 +732,12 @@ impl Backend {
             ));
         }
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
-            let (claim_index, claim) = select_claim(definition, request.claim.as_deref())?;
+            let (claim_index, claim) = proving::select_claim(definition, request.claim.as_deref())?;
             let mut seen = BTreeSet::new();
             let circularities = if let Some(selectors) = &request.circularities {
                 let mut circularities = Vec::new();
                 for selector in selectors {
-                    let (_, candidate) = select_claim(definition, Some(selector))?;
+                    let (_, candidate) = proving::select_claim(definition, Some(selector))?;
                     if seen.insert(candidate.attributes.unique_id.clone()) {
                         circularities.push(candidate);
                     }
@@ -741,7 +753,7 @@ impl Backend {
                     })
                     .collect()
             };
-            let result = prove_claim(
+            let result = proving::run_claim(
                 definition,
                 claim,
                 &circularities,
@@ -972,43 +984,6 @@ fn model_substitution(substitution: &Substitution, result_sort: &Sort) -> Option
         externalize::BindingOrder::Container,
         externalize::ConjunctionShape::Flat,
     )
-}
-
-fn select_claim<'a>(
-    definition: &'a BackendDefinition,
-    selector: Option<&str>,
-) -> Result<(usize, &'a k_rust_backend::claim::ReachabilityClaim), BackendError> {
-    if let Some(selector) = selector {
-        if let Some(index) = selector
-            .strip_prefix('#')
-            .and_then(|value| value.parse().ok())
-        {
-            return definition
-                .reachability_claims
-                .get(index)
-                .map(|claim| (index, claim))
-                .ok_or_else(|| BackendError(format!("no reachability claim at index {index}")));
-        }
-        return definition
-            .reachability_claims
-            .iter()
-            .enumerate()
-            .find(|(_, claim)| {
-                claim.attributes.label.as_deref() == Some(selector)
-                    || claim.attributes.unique_id == selector
-            })
-            .ok_or_else(|| BackendError(format!("no reachability claim named {selector:?}")));
-    }
-    match definition.reachability_claims.as_slice() {
-        [claim] => Ok((0, claim)),
-        [] => Err(BackendError(
-            "the selected module contains no reachability claims".into(),
-        )),
-        claims => Err(BackendError(format!(
-            "the selected module contains {} reachability claims; select one by label or #index",
-            claims.len()
-        ))),
-    }
 }
 
 fn proof_status(status: ProofStatus) -> &'static str {

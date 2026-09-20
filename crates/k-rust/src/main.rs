@@ -14,10 +14,17 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 #[cfg(test)]
+use k_rust::backend::proving::{
+    SAVED_PROOFS_MODULE, claim_unique_id, resolve_claim_labels, saved_proof_definition,
+};
+#[cfg(test)]
 use k_rust::kore::binary as kore_binary;
 use k_rust::names::{BuiltinSort, KoreAttribute, WellKnownSymbol};
 use k_rust::{
-    backend::{Backend, BackendError, BackendOptions},
+    backend::{
+        Backend, BackendError, BackendOptions,
+        proving::{ClaimFilter, SavedProofs, filter_claims},
+    },
     definition::{
         AttributeKey, Attributes, CheckMode, Sentence, checks::check_definition,
         json as definition_json,
@@ -36,9 +43,9 @@ use k_rust::{
     },
     kore::{
         ast::{
-            Attributes as KoreAttributes, Definition as KoreDefinition, KoreString,
-            Module as KoreModule, Pattern as KorePattern, Sentence as KoreSentence,
-            Sort as KoreSort, Symbol as KoreSymbol, VariableKind as KoreVariableKind,
+            Definition as KoreDefinition, KoreString, Module as KoreModule, Pattern as KorePattern,
+            Sentence as KoreSentence, Sort as KoreSort, Symbol as KoreSymbol,
+            VariableKind as KoreVariableKind,
         },
         codec as kore_codec, json as kore_json,
         parser::{
@@ -59,11 +66,10 @@ use k_rust::{
 };
 use k_rust_backend::{
     builtin::BuiltinEffect,
-    claim::ReachabilityClaim,
     definition::BackendDefinition,
     externalize,
     implication::{ImplicationCondition, ImplicationResult, ImplicationStatus},
-    proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
+    proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status,
@@ -79,7 +85,7 @@ use k_rust_backend::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
         simplify_pattern_with_solver,
     },
-    smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
+    smt::{ModelResult, SmtSolver, Z3Options},
     substitution::Substitution,
     term::{
         Name as BackendName, Sort as BackendSort, Term, TermKind, Variable,
@@ -90,6 +96,7 @@ use k_rust_backend::{
 #[cfg(test)]
 use k_rust_backend::{
     definition::PatternOrPredicate, simplify::simplify_and_decide_predicate_with_solver,
+    smt::Z3Solver,
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -1240,13 +1247,6 @@ struct PreparedDefinitionManifest {
     sources: Vec<String>,
     #[serde(default)]
     modules: Vec<PreparedModuleDeclaration>,
-}
-
-#[derive(Debug, Default)]
-struct ClaimFilter {
-    selected: Vec<String>,
-    excluded: Vec<String>,
-    trusted: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -4010,35 +4010,20 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         ..ProofTimings::default()
     };
     let started = Instant::now();
-    let backend = BackendDefinition::internalize(&syntax, &options.module)?;
+    let definition = BackendDefinition::internalize(&syntax, &options.module)?;
     timings.internalize_seconds = started.elapsed().as_secs_f64();
     if options.load_only {
         return timings.write(options.timings.as_deref());
     }
     let setup_started = Instant::now();
-    let saved_claims = options
-        .save_proofs
-        .as_deref()
-        .map(load_saved_claims)
-        .transpose()?
-        .unwrap_or_default();
+    let saved_proofs = SavedProofs::load(options.save_proofs.as_deref())?;
     let spec_module = syntax
         .modules
         .iter()
         .find(|module| module.name == options.module)
         .ok_or_else(|| format!("compiled KORE has no module `{}`", options.module))?;
-    let mut proven_ids = spec_module
-        .sentences
-        .iter()
-        .filter_map(|sentence| {
-            let id = claim_unique_id(sentence)?;
-            saved_claims
-                .iter()
-                .any(|saved| same_claim(sentence, saved))
-                .then_some(id)
-        })
-        .collect::<BTreeSet<_>>();
-    if backend.reachability_claims.is_empty() {
+    let mut proven_ids = saved_proofs.proven_ids(spec_module);
+    if definition.reachability_claims.is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
     let smt_prelude = options
@@ -4053,17 +4038,8 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             })
         })
         .transpose()?;
-    let solver = Z3Solver::with_options_and_prelude(&backend, options.smt, smt_prelude.as_deref())
-        .map_err(|error| {
-            io::Error::other(match error {
-                SmtError::InconsistentPrelude => {
-                    "the definitions sent to the solver are inconsistent".to_owned()
-                }
-                error => format!("could not initialize Z3: {error:?}"),
-            })
-        })?;
     let kept = filter_claims(
-        &backend.reachability_claims,
+        &definition.reachability_claims,
         &ClaimFilter {
             selected: options.claims,
             excluded: options.excluded_claims,
@@ -4075,6 +4051,23 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         return Err("the selected module contains no modal reachability claims".into());
     }
     let circularities = kept.iter().collect::<Vec<_>>();
+    let mut backend = Backend::from_internalized_with_prelude(
+        definition,
+        BackendOptions {
+            smt_timeout_ms: options.smt.timeout_ms,
+            smt_retry_limit: options.smt.retry_limit,
+        },
+        smt_prelude,
+    )
+    .map_err(|error| {
+        io::Error::other(
+            if error.0 == "could not initialize Z3: InconsistentPrelude" {
+                "the definitions sent to the solver are inconsistent".to_owned()
+            } else {
+                error.to_string()
+            },
+        )
+    })?;
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     let mut output = io::stdout().lock();
@@ -4105,24 +4098,28 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             continue;
         }
         let started = Instant::now();
-        let result = prove_claim(
-            &backend,
-            claim,
-            &circularities,
-            ProofOptions {
-                max_depth: options.depth,
-                min_depth: options.min_depth,
-                breadth_limit: options.breadth_limit,
-                max_counterexamples: options.max_counterexamples,
-                max_simplification_iterations: options.max_simplification_iterations,
-                allow_vacuous: options.allow_vacuous,
-                search_order: options.graph_search,
-                stuck_check: options.stuck_check,
-                step_timeout: options.step_timeout,
-                moving_average_timeout: options.moving_average_timeout,
-            },
-            &solver,
-        )?;
+        let proof_options = ProofOptions {
+            max_depth: options.depth,
+            min_depth: options.min_depth,
+            breadth_limit: options.breadth_limit,
+            max_counterexamples: options.max_counterexamples,
+            max_simplification_iterations: options.max_simplification_iterations,
+            allow_vacuous: options.allow_vacuous,
+            search_order: options.graph_search,
+            stuck_check: options.stuck_check,
+            step_timeout: options.step_timeout,
+            moving_average_timeout: options.moving_average_timeout,
+        };
+        let result = backend.with_solver(None, |definition, solver| {
+            k_rust::backend::proving::run_claim(
+                definition,
+                claim,
+                &circularities,
+                proof_options,
+                solver,
+            )
+            .map_err(|error| BackendError(format!("could not prove claim: {error:?}")))
+        })?;
         let seconds = started.elapsed().as_secs_f64();
         timings.proof_seconds += seconds;
         timings.claims.push(ClaimTiming {
@@ -4166,9 +4163,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    if let Some(path) = &options.save_proofs {
-        save_proven_claims(path, spec_module, &proven_ids)?;
-    }
+    saved_proofs.save(spec_module, &proven_ids)?;
     timings.write(options.timings.as_deref())?;
     if !all_proven {
         return Err("one or more reachability claims were not proven".into());
@@ -4201,176 +4196,6 @@ fn load_compiled_definition(path: &Path) -> Result<KoreDefinition, Box<dyn Error
         )
         .into()
     })
-}
-
-/// Apply K's proof-module filter while retaining this CLI's suffix label resolution.
-fn filter_claims(
-    claims: &[ReachabilityClaim],
-    filter: &ClaimFilter,
-) -> Result<Vec<ReachabilityClaim>, Box<dyn Error>> {
-    let labels = claims
-        .iter()
-        .filter_map(|claim| claim.attributes.label.clone())
-        .collect::<Vec<_>>();
-    let selected = resolve_claim_labels(&labels, &filter.selected)?;
-    let excluded = resolve_claim_labels(&labels, &filter.excluded)?;
-    let trusted = resolve_claim_labels(&labels, &filter.trusted)?;
-    if let Some(label) = selected.intersection(&excluded).next() {
-        return Err(format!("label `{label}` used for both --claim and --exclude").into());
-    }
-
-    Ok(claims
-        .iter()
-        .filter_map(|claim| {
-            let Some(label) = &claim.attributes.label else {
-                return Some(claim.clone());
-            };
-            if excluded.contains(label) || (!selected.is_empty() && !selected.contains(label)) {
-                return None;
-            }
-            let mut claim = claim.clone();
-            if trusted.contains(label) {
-                claim.attributes.trusted = true;
-            }
-            Some(claim)
-        })
-        .collect())
-}
-
-fn resolve_claim_labels(
-    labels: &[String],
-    requested: &[String],
-) -> Result<BTreeSet<String>, Box<dyn Error>> {
-    let mut selected = BTreeSet::new();
-    for requested in requested {
-        if labels.iter().any(|label| label == requested) {
-            selected.insert(requested.clone());
-            continue;
-        }
-        let suffix = format!(".{requested}");
-        let matches = labels
-            .iter()
-            .filter(|label| label.ends_with(&suffix))
-            .collect::<Vec<_>>();
-        match matches.as_slice() {
-            [] => {
-                return Err(format!("no modal reachability claim has label `{requested}`").into());
-            }
-            [label] => {
-                selected.insert((**label).clone());
-            }
-            _ => {
-                return Err(format!(
-                    "claim label `{requested}` is ambiguous; matches {}",
-                    matches
-                        .iter()
-                        .map(|label| format!("`{label}`"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-                .into());
-            }
-        }
-    }
-    Ok(selected)
-}
-
-const SAVED_PROOFS_MODULE: &str =
-    "haskell-backend-saved-claims-43943e50-f723-47cd-99fd-07104d664c6d";
-
-fn load_saved_claims(path: &Path) -> Result<Vec<KoreSentence>, Box<dyn Error>> {
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let definition = parse_kore_definition(&fs::read_to_string(path)?)?;
-    let module = definition
-        .modules
-        .iter()
-        .find(|module| module.name == SAVED_PROOFS_MODULE)
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("saved proof file has no `{SAVED_PROOFS_MODULE}` module"),
-            )
-        })?;
-    Ok(module
-        .sentences
-        .iter()
-        .filter(|sentence| matches!(sentence, KoreSentence::Claim { .. }))
-        .cloned()
-        .collect())
-}
-
-fn save_proven_claims(
-    path: &Path,
-    spec_module: &KoreModule,
-    proven_ids: &BTreeSet<String>,
-) -> Result<(), Box<dyn Error>> {
-    let definition = saved_proof_definition(spec_module, proven_ids);
-    let rendered = KorePrinter::pretty(100).print_definition(&definition);
-    fs::write(path, rendered)?;
-    Ok(())
-}
-
-fn saved_proof_definition(
-    spec_module: &KoreModule,
-    proven_ids: &BTreeSet<String>,
-) -> KoreDefinition {
-    let declarations = spec_module
-        .sentences
-        .iter()
-        .filter(|sentence| {
-            !matches!(
-                sentence,
-                KoreSentence::Axiom { .. } | KoreSentence::Claim { .. }
-            )
-        })
-        .cloned();
-    let claims = spec_module
-        .sentences
-        .iter()
-        .filter(|sentence| claim_unique_id(sentence).is_some_and(|id| proven_ids.contains(&id)))
-        .cloned();
-    KoreDefinition {
-        attributes: KoreAttributes::default(),
-        modules: vec![KoreModule {
-            name: SAVED_PROOFS_MODULE.into(),
-            sentences: declarations.chain(claims).collect(),
-            attributes: KoreAttributes::default(),
-        }],
-    }
-}
-
-fn claim_unique_id(sentence: &KoreSentence) -> Option<String> {
-    let KoreSentence::Claim { attributes, .. } = sentence else {
-        return None;
-    };
-    attributes
-        .string(KoreAttribute::UniqueId)
-        .ok()
-        .flatten()
-        .or_else(|| attributes.string(KoreAttribute::Label).ok().flatten())
-        .map(str::to_owned)
-}
-
-fn same_claim(left: &KoreSentence, right: &KoreSentence) -> bool {
-    let (
-        KoreSentence::Claim {
-            parameters: left_parameters,
-            pattern: left_pattern,
-            ..
-        },
-        KoreSentence::Claim {
-            parameters: right_parameters,
-            pattern: right_pattern,
-            ..
-        },
-    ) = (left, right)
-    else {
-        return false;
-    };
-
-    left_parameters == right_parameters && left_pattern == right_pattern
 }
 
 fn kore_module_function_symbols(module: &KoreModule) -> BTreeSet<String> {
