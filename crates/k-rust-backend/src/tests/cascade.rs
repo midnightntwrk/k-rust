@@ -13,7 +13,7 @@ use crate::{
     definition::BackendDefinition,
     rewrite::{
         AppliedRule, ExecutionMode, IndeterminateReason, Pattern, RemainderBranch, RewriteResult,
-        cascade_step_for_tests, rewrite_step_with_mode,
+        cascade_step_for_tests, conjunctively_contains_alpha_equivalent, rewrite_step_with_mode,
     },
     rule::Predicate,
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
@@ -463,6 +463,183 @@ fn scripted_solver(satisfiability_queries: usize, validity_queries: usize) -> Sc
         (0..satisfiability_queries).map(|_| Ok(Satisfiability::Sat)),
         (0..validity_queries).map(|_| Ok(Validity::Indeterminate)),
     )
+}
+
+#[derive(Debug, Default)]
+struct D3SearchSolver {
+    transcript: RefCell<Vec<ScriptedQuery>>,
+}
+
+impl SmtSolver for D3SearchSolver {
+    fn is_sat(
+        &self,
+        predicates: &[Predicate],
+        substitution: &Substitution,
+    ) -> Result<Satisfiability, SmtError> {
+        self.transcript.borrow_mut().push(ScriptedQuery::IsSat {
+            predicates: predicates.to_vec(),
+            substitution: substitution.clone(),
+        });
+        Ok(Satisfiability::Sat)
+    }
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Result<Validity, SmtError> {
+        self.transcript
+            .borrow_mut()
+            .push(ScriptedQuery::CheckPredicates {
+                known: known.to_vec(),
+                substitution: substitution.clone(),
+                checked: checked.to_vec(),
+            });
+        Ok(Validity::Indeterminate)
+    }
+}
+
+fn conjunction(predicates: &[Predicate]) -> Predicate {
+    match predicates {
+        [] => Predicate::True,
+        [predicate] => predicate.clone(),
+        predicates => Predicate::And(predicates.to_vec()),
+    }
+}
+
+fn reached_instantiate(result: &RewriteResult) -> bool {
+    match result {
+        RewriteResult::Finished(_) | RewriteResult::Trivial(_, _) => true,
+        RewriteResult::Branch {
+            branches, trivial, ..
+        } => !branches.is_empty() || !trivial.is_empty(),
+        RewriteResult::Stuck(_)
+        | RewriteResult::Vacuous(_)
+        | RewriteResult::Indeterminate { .. } => false,
+    }
+}
+
+struct D3SearchFixture<'a> {
+    name: &'a str,
+    condition: &'a str,
+    /// Whether simplification should retain `Not(applicability)` alpha equivalently so P12 can
+    /// reject the replay generation. `false` cases exercise normalization and must be rejected
+    /// earlier by P11 instead.
+    p12_guard_retained: bool,
+}
+
+/// T11 bounded search: one deleted-replay generation must not instantiate a rule whose
+/// generation-zero remainder is already on the path.
+///
+/// The solver deliberately answers `Sat` to satisfiability and `ImplicationIndeterminate` to
+/// validity. A second application therefore means the replay passed P11 and the P12
+/// alpha-equivalence guard and reached instantiate, which is the D3 witness. The table includes
+/// the three shapes named by the design and adjacent Boolean normalizations. Some negated shapes
+/// intentionally do not retain the exact P12 premise: double-negation and De Morgan
+/// normalization change `Not(applicability)`, but their normalized path still refutes the
+/// original requires at P11.
+#[test]
+fn d3_bounded_search_finds_no_semantically_empty_reapplication() {
+    let fixtures = [
+        D3SearchFixture {
+            name: "not-equals",
+            condition: r#"\equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("0"))"#,
+            p12_guard_retained: true,
+        },
+        D3SearchFixture {
+            name: "not-hooked-lt-term",
+            condition: r#"\equals{SortBool{}, SortK{}}(lt{}(X:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true"))"#,
+            p12_guard_retained: true,
+        },
+        D3SearchFixture {
+            name: "double-negation-from-negated-equals",
+            condition: r#"\not{SortK{}}(\equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("0")))"#,
+            p12_guard_retained: false,
+        },
+        D3SearchFixture {
+            name: "double-negated-requires-normalizes-before-applicability",
+            condition: r#"\not{SortK{}}(\not{SortK{}}(\equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("0"))))"#,
+            p12_guard_retained: true,
+        },
+        D3SearchFixture {
+            name: "hooked-lt-false-double-negation",
+            condition: r#"\equals{SortBool{}, SortK{}}(lt{}(X:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("false"))"#,
+            p12_guard_retained: false,
+        },
+        D3SearchFixture {
+            name: "de-morgan-over-equalities",
+            condition: r#"\or{SortK{}}(\equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("0")), \equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("1")))"#,
+            p12_guard_retained: false,
+        },
+    ];
+
+    for fixture in fixtures {
+        let rules = format!(
+            r#"
+                axiom{{}} \rewrites{{SortK{{}}}}(
+                    \and{{SortK{{}}}}(state{{}}(X:SortInt{{}}), {}),
+                    done{{}}()) [label{{}}("d3-search"), priority{{}}("10")]
+            "#,
+            fixture.condition,
+        );
+        let definition = portable_definition(&rules);
+        let initial = portable_subject(&definition);
+        let solver = D3SearchSolver::default();
+        let mut fresh_counter = 0;
+        let first = rewrite_step_with_mode(
+            &definition,
+            &initial,
+            &mut fresh_counter,
+            SimplificationOptions::keep_partial(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
+            &solver,
+            ExecutionMode::All,
+            false,
+        );
+        let (first_branches, remainder) = step_parts(&first);
+        let [first_application] = first_branches.as_slice() else {
+            panic!(
+                "{}: generation zero did not produce exactly one branch: {first:#?}; transcript: {:#?}",
+                fixture.name,
+                solver.transcript.borrow(),
+            );
+        };
+        let Some(remainder) = remainder else {
+            panic!(
+                "{}: generation zero did not retain a remainder: {first:#?}; transcript: {:#?}",
+                fixture.name,
+                solver.transcript.borrow(),
+            );
+        };
+        let applicability = conjunction(&first_application.rule_predicates);
+        let negated_applicability = Predicate::Not(Box::new(applicability));
+        assert_eq!(
+            conjunctively_contains_alpha_equivalent(
+                &remainder.pattern.constraints,
+                &negated_applicability,
+            ),
+            fixture.p12_guard_retained,
+            "{}: unexpected generation-zero remainder normalization\nremainder: {:#?}\nnegated applicability: {negated_applicability:#?}",
+            fixture.name,
+            remainder.pattern.constraints,
+        );
+
+        let second = rewrite_step_with_mode(
+            &definition,
+            &remainder.pattern,
+            &mut fresh_counter,
+            SimplificationOptions::keep_partial(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
+            &solver,
+            ExecutionMode::All,
+            false,
+        );
+        assert!(
+            !reached_instantiate(&second),
+            "{}: D3 witness: the deleted replay reached instantiate in its first re-attempt\nsecond result: {second:#?}\ntranscript: {:#?}",
+            fixture.name,
+            solver.transcript.borrow(),
+        );
+    }
 }
 
 fn exact_transcript_projection(
