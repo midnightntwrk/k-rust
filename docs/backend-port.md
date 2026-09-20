@@ -30,7 +30,8 @@ The intended workspace structure is:
 - `k-rust-backend`: definition verification and internalization, matching, substitution,
   simplification, SMT reasoning, and rewriting. It depends on `k-rust-kore`, not on the frontend.
 - `k-rust`: the K frontend and the unified `krust` binary. It compiles K to KORE and invokes
-  `k-rust-backend` directly in the same process.
+  `k-rust-backend` directly in the same process. `k_rust::backend` is the orchestration layer
+  called by the CLI, RPC server, NAPI binding, and WASM binding.
 
 Keeping the backend independent from frontend ASTs preserves KORE as the semantic boundary while
 avoiding a package dependency cycle when the CLI links both halves into one static binary.
