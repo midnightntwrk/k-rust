@@ -1,4 +1,9 @@
-//! Reachability search over the symbolic execution tree.
+//! Breadth-first search over configurations with `(depth, pattern)` deduplication (Kore
+//! constructExecutionGraph; the LLVM backend's search), O(distinct configurations per depth)
+//! rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of simple
+//! paths with a per-path visited list, exponential in branching plus O(depth) per pop; pattern
+//! search over the result set (row B12). `normalize_match_condition` is the output-restricted
+//! variant of substitution extraction, O(c^2 x t) for c constraints, no counter (row B6b).
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
@@ -427,6 +432,9 @@ fn search_graph_collecting(
         };
     }
 
+    // `pending` is FIFO, so popped depths never decrease; `expanded` holds every
+    // `(depth, simplified pattern)` expanded so far, so a configuration is expanded once per depth.
+    // Invariant: `pending` holds unexpanded states no deeper than `max_depth`; `states` only grows.
     while let Some(work) = pending.pop_front() {
         let SearchWorkState {
             mut state,
@@ -953,6 +961,7 @@ fn search_paths_collecting(
         };
     }
 
+    // Invariant: a queued path's `visited` is exactly its own patterns, so paths stay simple.
     while let Some(mut path) = pending.pop_front() {
         if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
             incomplete.push(rewrite_incomplete(
@@ -1736,6 +1745,7 @@ fn normalize_match_condition(
     output_variables: &BTreeSet<crate::term::Variable>,
 ) -> (Substitution, Vec<Predicate>) {
     let mut solved = Substitution::new();
+    // Invariant: each round moves one solvable equality into `solved`; exit when none remains.
     loop {
         let mut binding = None;
         for (index, constraint) in constraints.iter().enumerate() {

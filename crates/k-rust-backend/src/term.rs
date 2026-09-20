@@ -1,4 +1,6 @@
-//! Immutable backend terms with cached synthetic attributes.
+//! Immutable backend terms with cached synthetic attributes (`variables`, `evaluated`,
+//! `constructor_like`): the layer-1 representation every algorithm shares; a responsibility, not
+//! an algorithm; `Counter::TermConstructed` per construction; no worklist.
 
 use std::{
     cmp::Ordering,

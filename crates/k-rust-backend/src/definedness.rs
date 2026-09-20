@@ -1,4 +1,5 @@
-//! Definedness analysis for rewrite rules and partial-function applications.
+//! Structural definedness (ceil) constraint generation and rewrite-rule definedness discharge,
+//! O(|term|) with `FxHashSet` deduplication; no counter, no worklist loop (row B16).
 
 use std::sync::Arc;
 

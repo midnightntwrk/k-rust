@@ -1,4 +1,8 @@
-//! Breadth-first reachability proof execution.
+//! Reachability-logic proof search (Kore proveClaim; pyk APR): per explored state one
+//! simplification, one subsumption check (`Counter::ProofImplicationChecks`), circularity
+//! application at depth > 0, one rewrite step; breadth- or depth-first by option, no state
+//! deduplication; O(explored states) x (simplification + implication + |circularities| x
+//! claim application + one step), `Counter::ProofStatesExplored` (row B13).
 
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -13,6 +17,7 @@ use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
     definedness::ceil_term,
     definition::BackendDefinition,
+    fresh::fresh_name,
     implication::{
         ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus,
         check_disjunctive_implication_with_existentials,
@@ -33,6 +38,7 @@ use crate::{
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
+    term::names::FreshMarker,
     term::{Term, TermKind},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     unification::{UnificationResult, unify_term_pairs},
@@ -196,6 +202,9 @@ pub fn prove_claim(
             }
         }};
     }
+    // Every queued state is a rewrite successor (depth + 1), a claim successor (depth + 1), or a
+    // remainder at its parent's depth; an implication remainder is never re-enqueued.
+    // Invariant: `pending` holds the unexpanded states; `leaves` only grows; pops are counted.
     while let Some(mut state) = match options.search_order {
         ProofSearchOrder::BreadthFirst => pending.pop_front(),
         ProofSearchOrder::DepthFirst => pending.pop_back(),
@@ -1129,13 +1138,12 @@ fn freshen_claim(
     let variables = variables_of_claim(claim);
     let mut renaming = Substitution::new();
     for variable in variables {
-        let name = loop {
-            let name = format!("{}!claim{}", variable.name, *fresh_counter);
-            *fresh_counter += 1;
-            if names.insert(name.as_str().into()) {
-                break name;
-            }
-        };
+        let name = fresh_name(
+            &variable.name,
+            FreshMarker::Claim,
+            fresh_counter,
+            &mut names,
+        );
         renaming.insert(variable.clone(), Term::variable(variable.with_name(name)));
     }
     let rename_pattern = |pattern: &Pattern| Pattern {

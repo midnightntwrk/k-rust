@@ -1,4 +1,8 @@
-//! Capture-avoiding substitution of object-language `KVar` tokens.
+//! Capture-avoiding substitution of object-language `KVar` tokens (Barendregt renaming through
+//! `FreshNames::mint`), O(|term|) plus O(|replacement|) per binder renamed; counted as a hook
+//! under `Counter::SimplifyBuiltinEvaluations`; the only loops are the fresh-name retry and the
+//! injection peel (row B19). Its name domain is the object language, distinct from the
+//! backend-variable fresh naming (row B20).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -90,6 +94,7 @@ struct FreshNames {
 
 impl FreshNames {
     fn mint(&mut self, base: &str) -> Name {
+        // Invariant: `next_suffix` only grows, so at most |used| + 1 candidates are tried.
         loop {
             let candidate: Name = format!("{base}{}", self.next_suffix).into();
             self.next_suffix += 1;
@@ -922,6 +927,7 @@ fn rename_kvar_token(term: &Term, new: &Name, kvar_sorts: &BTreeSet<Name>) -> Op
 
 fn peel_injections(term: &Term) -> Term {
     let mut term = term;
+    // Invariant: each iteration steps to the injected subterm; on exit `term` is not an injection.
     while let TermKind::Injection { term: inner, .. } = term.kind() {
         term = inner;
     }

@@ -1,4 +1,5 @@
-//! Concrete `MAP` hooks implemented by Booster.
+//! Concrete `MAP` hooks implemented by Booster: per-call operations on the internal map
+//! representation; a responsibility, not an algorithm; no counter of its own, no worklist.
 
 use std::{
     collections::{BTreeMap, BTreeSet},

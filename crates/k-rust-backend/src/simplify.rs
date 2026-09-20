@@ -1,11 +1,12 @@
-//! Recursive equation simplification to a bounded fixed point.
+//! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
+//! builtin hooks, and evaluated-attribute memoisation (Booster ApplyEquations): cost O(rounds x
+//! |term| x candidates per node), rounds <= `max_iterations` per lineage;
+//! `Counter::SimplifyRounds`, `Counter::SimplifyEquationAttempts`,
+//! `Counter::SimplifyBuiltinEvaluations` (row B7).
+//! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index, O(1) membership per
+//! conjunct, budget-bounded re-entry through the ceil and predicate theories (row B8).
 
-use std::{
-    cell::Cell,
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-    sync::Arc,
-};
+use std::{cell::Cell, collections::BTreeSet, fmt, sync::Arc};
 
 use k_rust_kore::measure::{self, Counter};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
@@ -29,7 +30,10 @@ use crate::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
         retain_substitution_predicates, substitute_predicates, violates_finite_constructor_domain,
     },
-    rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, Theory, term_index},
+    rule::{
+        Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, Theory, applicable_groups,
+        term_index,
+    },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
@@ -591,6 +595,7 @@ fn simplify_predicates_with_budget(
         });
     }
     *remaining -= 1;
+    // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
     simplify_predicates_with_budget(
         definition,
         &simplified,
@@ -1106,6 +1111,7 @@ fn simplify_predicate_with_budget(
             });
         }
         *remaining -= 1;
+        // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
         return simplify_predicate_with_budget(
             definition,
             &simplified,
@@ -1137,6 +1143,7 @@ fn simplify_predicate_with_budget(
         });
     }
     *remaining -= 1;
+    // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
     simplify_predicate_with_budget(
         definition,
         &simplified,
@@ -1930,6 +1937,9 @@ fn simplify_with_budget(
     let mut effects = Vec::new();
     let mut exhausted = None;
     let mut undefined_term = None;
+    // Each round simplifies the children then the root; the loop exits on a fixed point, an
+    // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` never grows.
+    // Invariant: `term` equals the input modulo `applied_rules` under `constraints`.
     loop {
         measure::bump(Counter::SimplifyRounds);
         if cancellation_requested() {
@@ -2664,26 +2674,6 @@ fn apply_theory(
     } else {
         TheoryScan::NotApplicable
     })
-}
-
-fn applicable_groups(theory: &Theory, index: &TermIndex) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
-    let mut result = BTreeMap::new();
-    let indexes = if index == &TermIndex::Variable {
-        vec![index]
-    } else {
-        vec![index, &TermIndex::Variable]
-    };
-    for index in indexes {
-        if let Some(groups) = theory.get(index) {
-            for (priority, rules) in groups {
-                result
-                    .entry(*priority)
-                    .or_insert_with(Vec::new)
-                    .extend(rules.iter().cloned());
-            }
-        }
-    }
-    result
 }
 
 enum EquationAttempt<T> {

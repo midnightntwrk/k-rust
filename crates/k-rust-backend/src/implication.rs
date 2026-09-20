@@ -1,9 +1,14 @@
-//! Subsumption checks between constrained backend patterns.
+//! Subsumption by Implies-mode matching, existential witness elimination, and SMT validity of
+//! the residual, iterated to a fixed point of the simplified antecedent (Kore checkImplication):
+//! O(rounds x (|consequents| x one matching problem + witness saturation + one SMT validity));
+//! one `Counter::SmtQueries` per residual, `Counter::ProofImplicationChecks` at the caller
+//! (row B14).
 
 use std::{collections::BTreeSet, error::Error, fmt};
 
 use crate::{
     definition::BackendDefinition,
+    fresh::fresh_name,
     ite::{IteSplit, split_ite_pair},
     matching::{
         FailReason, MatchMode, MatchResult, SortError, expand_closed_map_implication_remainders,
@@ -18,6 +23,7 @@ use crate::{
     smt::{Satisfiability, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::Variable,
+    term::names::FreshMarker,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -240,6 +246,7 @@ pub fn check_disjunctive_implication_with_existentials(
     }
 
     let mut antecedent = antecedent.clone();
+    // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
     loop {
         let mut branches = Vec::new();
         let mut matched = false;
@@ -465,6 +472,7 @@ fn check_implication_with_existentials_and_options_and_policy(
         _ => None,
     };
     let mut antecedent = antecedent.clone();
+    // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
     loop {
         match match_terms_in_definition(
             MatchMode::Implies,
@@ -579,14 +587,8 @@ fn freshen_existentials(
     let mut substitution = Substitution::new();
     let mut fresh = BTreeSet::new();
     for (counter, original) in existentials.iter().enumerate() {
-        let mut suffix = counter;
-        let name = loop {
-            let candidate = format!("{}!exists{suffix}", original.name);
-            if names.insert(candidate.as_str().into()) {
-                break candidate;
-            }
-            suffix += 1;
-        };
+        let mut suffix = counter as u64;
+        let name = fresh_name(&original.name, FreshMarker::Exists, &mut suffix, &mut names);
         let variable = original.with_name(name);
         substitution.insert(
             original.clone(),
@@ -817,6 +819,8 @@ fn eliminate_existential_witnesses(
     }
 
     let mut remaining = existentials.clone();
+    // A round that finds no witness exits; one that finds some removes them from `remaining`.
+    // Invariant: `remaining` holds the existentials that have no witness yet.
     loop {
         let (found, rest) = extract_substitution_for(&branch, &remaining, &definition.sort_graph);
         if found.is_empty() {

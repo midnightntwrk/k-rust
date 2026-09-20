@@ -1,6 +1,7 @@
 //! In-process concrete and symbolic execution for KORE definitions.
 
 mod alias;
+mod fresh;
 mod ite;
 mod verify;
 

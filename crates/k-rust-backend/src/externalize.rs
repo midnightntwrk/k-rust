@@ -1,4 +1,5 @@
-//! Conversion of internal backend terms and constrained patterns back to KORE.
+//! Conversion of internal backend terms and constrained patterns back to KORE: one structural
+//! pass per pattern; a responsibility, not an algorithm; no counter, no worklist.
 
 use k_rust_kore::kore::ast as kore;
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};

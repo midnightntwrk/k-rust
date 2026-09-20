@@ -1,4 +1,5 @@
-//! Syntactic verification of KORE sentences before backend classification.
+//! Syntactic verification of KORE sentences before backend classification: one pass per
+//! sentence; a responsibility, not an algorithm; no counter, no worklist.
 
 use std::{
     collections::{BTreeMap, BTreeSet},

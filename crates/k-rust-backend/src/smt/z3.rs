@@ -1,4 +1,7 @@
-//! In-process Z3 implementation of the backend SMT interface.
+//! In-process Z3 behind a bounded FIFO result cache: `Counter::SmtQueries` in,
+//! `Counter::SmtSolverRuns` out, O(1) per hit, eviction pops the oldest entry until the entry
+//! and key-byte limits admit the new key (row B15). A solver is constructed per run, which is
+//! the visible cost in the IMP proof profile and the next measurable step.
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -87,6 +90,7 @@ impl SolverResultCache {
             return;
         }
 
+        // Invariant: `entries` and `insertion_order` agree; pops stop once both limits admit the key.
         while self.entries.len() >= self.entry_limit
             || self.key_bytes + script.len() > self.key_byte_limit
         {

@@ -90,7 +90,7 @@ This includes Kore constructor-like terms and extends them for the supported any
 A variable below such an application keeps the configuration symbolic.
 A ground function-headed term can still narrow, and symbolic configurations retain fresh rule arguments and their existentially quantified complementary conditions.
 Anywhere equation evaluation, overload lowering, and covered function-equality matching remain supported before this boundary is applied.
-The [rewrite coverage fixture](../crates/k-rust-backend/tests/fixtures/rewrite-coverage.kore) and [rewrite tests](../crates/k-rust-backend/src/rewrite.rs) exercise this boundary, false and binding requirements, equation normalization, and symbolic complements.
+The [rewrite coverage fixture](../crates/k-rust-backend/tests/fixtures/rewrite-coverage.kore) and [rewrite tests](../crates/k-rust-backend/tests/backend/rewrite.rs) exercise this boundary, false and binding requirements, equation normalization, and symbolic complements.
 
 ## Trivial rule results
 
@@ -98,7 +98,7 @@ A rule whose left-hand side matches and whose `requires` holds has applied even 
 Its matched region must be removed from the remainder available to lower-priority and `owise` rules.
 This follows `kore/src/Kore/Rewrite.hs`, which computes the remainder from unification, and K's documented requirement that `owise` applies only when other rules fail to apply.
 Booster's `OnlyTrivial` fall-through is excluded from the RPC differential for that shape.
-[Rewrite tests](../crates/k-rust-backend/src/rewrite.rs), including `a_trivial_rule_shadows_lower_priority_rules`, cover concrete and symbolic remainders.
+[Rewrite tests](../crates/k-rust-backend/tests/backend/rewrite.rs), including `a_trivial_rule_shadows_lower_priority_rules`, cover concrete and symbolic remainders.
 
 ## Hook specification exceptions
 
