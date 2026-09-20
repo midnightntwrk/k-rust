@@ -22,18 +22,18 @@ use k_rust::kore::{
 use k_rust::names::WellKnownSymbol;
 use k_rust_backend::{
     cancellation::{CancellationToken, cancellation_requested},
-    definition::{BackendDefinition, DefinitionError},
+    definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
     externalize,
     implication::{
-        ImplicationError, ImplicationResult, ImplicationStatus,
-        check_implication_with_existentials_complete,
+        ImplicationError, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
+        check_implication_with_existentials_complete, special_case, validate_request,
     },
     matching::SortGraph,
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         TraceKind, execute_with_solver, substitute_predicates,
     },
-    rule::{Predicate, RulePatternError},
+    rule::Predicate,
     session::{BackendSession, SessionError},
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
@@ -628,8 +628,11 @@ impl RpcService {
         let definition = self.definition(params.module.as_deref())?;
         let syntax = params.state.0;
         let solver = solver(&definition, self.smt_options)?;
-        match definition.internalize_pattern(&syntax, &[]) {
-            Ok(pattern) => {
+        match definition
+            .internalize_pattern_or_predicate(&syntax, &[])
+            .map_err(|error| pattern_fault(error, &syntax))?
+        {
+            PatternOrPredicate::Term(pattern) => {
                 let simplified = simplify_pattern_with_solver(
                     &definition,
                     &pattern,
@@ -641,21 +644,20 @@ impl RpcService {
                     "state": encode_kore(&externalize::constrained_pattern(&simplified))?
                 }));
             }
-            Err(DefinitionError::RulePattern(RulePatternError::MissingTerm)) => {}
-            Err(error) => return Err(pattern_fault(error, &syntax)),
+            PatternOrPredicate::Predicate(predicate, result_sort) => {
+                let simplified = simplify_and_decide_predicate_with_solver(
+                    &definition,
+                    &predicate,
+                    &[],
+                    SimplificationOptions::unbounded(),
+                    &solver,
+                )
+                .map_err(|error| simplify_fault(error, &result_sort))?;
+                return Ok(json!({
+                    "state": encode_kore(&externalize::ml_pattern(&simplified, &result_sort))?
+                }));
+            }
         }
-        let (predicate, result_sort) = definition
-            .internalize_predicate(&syntax, &[])
-            .map_err(|error| pattern_fault(error, &syntax))?;
-        let simplified = simplify_and_decide_predicate_with_solver(
-            &definition,
-            &predicate,
-            &[],
-            SimplificationOptions::unbounded(),
-            &solver,
-        )
-        .map_err(|error| simplify_fault(error, &result_sort))?;
-        Ok(json!({ "state": encode_kore(&externalize::ml_pattern(&simplified, &result_sort))? }))
     }
 
     fn add_module(&mut self, params: AddModuleParams) -> Result<Value, RpcFault> {
@@ -732,17 +734,53 @@ impl RpcService {
         let definition = self.definition(params.module.as_deref())?;
         let antecedent = params.antecedent.0;
         let consequent = params.consequent.0;
-        definition
-            .validate_implication_pattern(&antecedent)
-            .map_err(|error| implication_pattern_fault(error, &antecedent))?;
-        definition
-            .validate_implication_pattern(&consequent)
-            .map_err(|error| implication_pattern_fault(error, &consequent))?;
-        validate_singleton_implication_patterns(&antecedent, &consequent)?;
-        validate_implication_variable_capture(&antecedent, &consequent)?;
-        validate_implication_sorts(&antecedent, &consequent)?;
+        if let Err(request_error) = validate_request(&definition, &antecedent, &consequent) {
+            return Err(match request_error {
+                ImplicationRequestError::MacroOrAlias { side, name } => {
+                    let pattern = match side {
+                        Side::Antecedent => &antecedent,
+                        Side::Consequent => &consequent,
+                    };
+                    implication_pattern_fault(
+                        DefinitionError::MacroOrAliasInImplication(name),
+                        pattern,
+                    )
+                }
+                ImplicationRequestError::NonFunctionLikeAntecedent => RpcFault::implication(
+                    "The check implication step expects the antecedent term to be function-like.",
+                    vec![antecedent.strip_exists().to_string()],
+                ),
+                ImplicationRequestError::NonSingletonConsequent => RpcFault::implication(
+                    "Term does not simplify to a singleton pattern",
+                    vec![format!("RHS: {}", consequent.strip_exists())],
+                ),
+                ImplicationRequestError::ExistentialCapture {
+                    captured,
+                    existentials,
+                } => {
+                    let consequent_body = consequent.strip_exists();
+                    RpcFault::implication(
+                        format!(
+                            "Existentials capture free variables of the antecedent: {}",
+                            captured.join(", ")
+                        ),
+                        implication_pattern_context(&antecedent, consequent_body, &existentials),
+                    )
+                }
+                ImplicationRequestError::SortMismatch {
+                    antecedent,
+                    consequent,
+                } => RpcFault::implication(
+                    "Antecedent and consequent must have the same sort.",
+                    vec![
+                        format!("LHS sort: {antecedent}"),
+                        format!("RHS sort: {consequent}"),
+                    ],
+                ),
+            });
+        }
         let sort_variables = super::implication_sort_variables(&antecedent, &consequent);
-        let mut special_result = super::special_implication_result(&antecedent, &consequent);
+        let mut special_result = special_case(&antecedent, &consequent);
         if matches!(super::strip_exists(&antecedent), KorePattern::Bottom { .. })
             && let Some(result) = special_result.take()
         {
@@ -1149,33 +1187,6 @@ fn explicit_pattern_sort(pattern: &KorePattern) -> Option<&KoreSort> {
     }
 }
 
-fn validate_singleton_implication_patterns(
-    antecedent: &KorePattern,
-    consequent: &KorePattern,
-) -> Result<(), RpcFault> {
-    let antecedent = super::strip_exists(antecedent);
-    if matches!(antecedent, KorePattern::Or { arguments, .. } if arguments.len() != 1)
-        || matches!(
-            antecedent,
-            KorePattern::Top { .. } | KorePattern::Mu { .. } | KorePattern::Nu { .. }
-        )
-    {
-        return Err(RpcFault::implication(
-            "The check implication step expects the antecedent term to be function-like.",
-            vec![antecedent.to_string()],
-        ));
-    }
-
-    let consequent = super::strip_exists(consequent);
-    if matches!(consequent, KorePattern::Or { arguments, .. } if arguments.len() != 1) {
-        return Err(RpcFault::implication(
-            "Term does not simplify to a singleton pattern",
-            vec![format!("RHS: {consequent}")],
-        ));
-    }
-    Ok(())
-}
-
 fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> KorePattern {
     /// Term leaves are the non-predicate conjuncts of the request pattern; they are kept in
     /// the caller's syntax while the predicate conjuncts are replaced by the simplified
@@ -1343,56 +1354,6 @@ fn simplified_not_consequent_response_syntax(
     })
 }
 
-fn validate_implication_variable_capture(
-    antecedent: &KorePattern,
-    consequent: &KorePattern,
-) -> Result<(), RpcFault> {
-    let mut antecedent_free = BTreeSet::new();
-    super::collect_free_kore_variables(antecedent, &mut BTreeSet::new(), &mut antecedent_free);
-    let (consequent_body, existentials) = leading_existentials(consequent);
-    let captured = existentials
-        .iter()
-        .filter(|variable| antecedent_free.contains(*variable))
-        .map(|variable| variable.name.clone())
-        .collect::<Vec<_>>();
-    if captured.is_empty() {
-        return Ok(());
-    }
-    let existentials = existentials
-        .iter()
-        .map(|variable| variable.name.clone())
-        .collect::<Vec<_>>();
-    Err(RpcFault::implication(
-        format!(
-            "Existentials capture free variables of the antecedent: {}",
-            captured.join(", ")
-        ),
-        implication_pattern_context(antecedent, consequent_body, &existentials),
-    ))
-}
-
-fn validate_implication_sorts(
-    antecedent: &KorePattern,
-    consequent: &KorePattern,
-) -> Result<(), RpcFault> {
-    let Some(antecedent_sort) = syntactic_pattern_sort(antecedent) else {
-        return Ok(());
-    };
-    let Some(consequent_sort) = syntactic_pattern_sort(consequent) else {
-        return Ok(());
-    };
-    if antecedent_sort == consequent_sort {
-        return Ok(());
-    }
-    Err(RpcFault::implication(
-        "Antecedent and consequent must have the same sort.",
-        vec![
-            format!("LHS sort: {antecedent_sort}"),
-            format!("RHS sort: {consequent_sort}"),
-        ],
-    ))
-}
-
 fn implication_backend_fault(
     error: ImplicationError,
     antecedent: &KorePattern,
@@ -1460,32 +1421,6 @@ fn implication_pattern_context(
         format!("RHS: {consequent}"),
         format!("existentials: [{}]", existentials.join(", ")),
     ]
-}
-
-fn syntactic_pattern_sort(pattern: &KorePattern) -> Option<&KoreSort> {
-    match pattern {
-        KorePattern::Variable(variable) => Some(&variable.sort),
-        KorePattern::Top { sort }
-        | KorePattern::Bottom { sort }
-        | KorePattern::And { sort, .. }
-        | KorePattern::Or { sort, .. }
-        | KorePattern::Not { sort, .. }
-        | KorePattern::Next { sort, .. }
-        | KorePattern::Implies { sort, .. }
-        | KorePattern::Iff { sort, .. }
-        | KorePattern::Rewrites { sort, .. }
-        | KorePattern::Exists { sort, .. }
-        | KorePattern::Forall { sort, .. }
-        | KorePattern::DomainValue { sort, .. } => Some(sort),
-        KorePattern::Ceil { result_sort, .. }
-        | KorePattern::Floor { result_sort, .. }
-        | KorePattern::Equals { result_sort, .. }
-        | KorePattern::In { result_sort, .. } => Some(result_sort),
-        KorePattern::Mu { variable, .. } | KorePattern::Nu { variable, .. } => Some(&variable.sort),
-        KorePattern::String(_)
-        | KorePattern::Application { .. }
-        | KorePattern::AssociativeApplication { .. } => None,
-    }
 }
 
 fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
