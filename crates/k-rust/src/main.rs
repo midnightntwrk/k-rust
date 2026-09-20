@@ -1,3 +1,5 @@
+//! The `krust` command line: option parsing, file and stream I/O, printing, timings, and process status. Every backend operation goes through `k_rust::backend::Backend`; the kompile pipeline belongs to `k_rust::kompile`.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     env,
@@ -2303,6 +2305,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         .transpose()?;
     let mut seen_config_vars = BTreeSet::new();
     let mut config_vars = Vec::new();
+    // Invariant: seen names are exactly the bindings already assigned; parser and injector maps share their key set.
     for assignment in &options.config_vars {
         let (name, source) = assignment.split_once('=').ok_or_else(|| {
             format!("invalid configuration variable `{assignment}`; expected NAME=VALUE")
@@ -3568,6 +3571,7 @@ fn exit_code_of(
         return Ok(0);
     };
     let mut results = BTreeSet::new();
+    // Invariant: results contains the distinct satisfiable exit values of leaves already visited.
     for leaf in finals {
         let simplified = simplify_pattern_with_solver(
             backend,
@@ -4115,6 +4119,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     let mut output = io::stdout().lock();
     let mut all_proven = true;
+    // Invariant: proven_ids contains every uniquely identified claim proven before this index.
     for (index, claim) in kept.iter().enumerate() {
         let name = claim
             .attributes
@@ -5129,7 +5134,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_accepts_surface_pattern_without_search() {
+    fn krun_accepts_surface_pattern_without_search() {
         let options = parse_krun_pattern_options(&["--pattern", "<k> X => Y </k>"]).unwrap();
 
         assert_eq!(options.surface_pattern.as_deref(), Some("<k> X => Y </k>"));
@@ -5137,7 +5142,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_accepts_surface_pattern_with_each_search_mode() {
+    fn krun_accepts_surface_pattern_with_each_search_mode() {
         for (flag, expected) in [
             ("--search-final", SearchType::Final),
             ("--search-all", SearchType::Star),
@@ -5152,7 +5157,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_rejects_surface_and_kore_file_targets_together() {
+    fn krun_rejects_surface_and_kore_file_targets_together() {
         let error = parse_krun_pattern_options(&[
             "--search-final",
             "--pattern",
@@ -5180,7 +5185,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_rejects_repeated_surface_pattern() {
+    fn krun_rejects_repeated_surface_pattern() {
         let error =
             parse_krun_pattern_options(&["--pattern", "<k> X </k>", "--pattern", "<k> Y </k>"])
                 .unwrap_err();
@@ -5189,7 +5194,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_accepts_hyphen_leading_surface_text_as_one_value() {
+    fn krun_accepts_hyphen_leading_surface_text_as_one_value() {
         let options = parse_krun_pattern_options(&["--pattern", "-1 => X"]).unwrap();
 
         assert_eq!(options.surface_pattern.as_deref(), Some("-1 => X"));
@@ -5205,7 +5210,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_selects_all_target_source_rows() {
+    fn match_target_selects_all_source_rows() {
         assert!(select_match_target_source(None, None).is_none());
         assert!(matches!(
             select_match_target_source(None, Some(compiled_pattern_for_selection())),
@@ -5245,7 +5250,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_maps_element_identity_to_actual_sorted_backend_variable() {
+    fn generated_identity_mapping_uses_the_actual_sorted_element_variable() {
         let variable = Variable::new("VarGenerated", BackendSort::simple("SortInt"));
         let target = backend_pattern_with_candidates(variable.clone(), Vec::new());
         let identities = BTreeSet::from([k_rust::kompile::KoreVariableIdentity::element(
@@ -5259,7 +5264,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_maps_set_identity_without_colliding_with_element_identity() {
+    fn generated_identity_mapping_keeps_set_and_element_variables_distinct() {
         let element = Variable::new("@VarGenerated", BackendSort::simple("SortInt"));
         let set = Variable {
             kind: k_rust_backend::term::VariableKind::Set,
@@ -5280,7 +5285,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_does_not_map_user_gen0_lookalike() {
+    fn generated_identity_mapping_rejects_authored_gen_lookalikes() {
         let authored = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let generated = Variable::new("Var'Unds'Gen1", BackendSort::simple("SortInt"));
         let target = backend_pattern_with_candidates(
@@ -5298,7 +5303,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_rejects_missing_generated_identity() {
+    fn generated_identity_mapping_rejects_a_missing_identity() {
         let target = backend_pattern_with_candidates(
             Variable::new("VarPresent", BackendSort::simple("SortInt")),
             Vec::new(),
@@ -5314,7 +5319,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_rejects_ambiguous_kind_and_name_with_distinct_sorts() {
+    fn generated_identity_mapping_rejects_ambiguous_sorts() {
         let first = Variable::new("VarGenerated", BackendSort::simple("SortInt"));
         let second = Variable::new("VarGenerated", BackendSort::simple("SortBool"));
         let target = backend_pattern_with_candidates(
@@ -5335,7 +5340,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_maps_empty_and_bound_only_identity_sets() {
+    fn generated_identity_mapping_accepts_empty_and_bound_only_sets() {
         let binder = Variable::new("VarBound", BackendSort::simple("SortInt"));
         let target = backend_pattern_with_candidates(
             Variable::new("VarTerm", BackendSort::simple("SortInt")),
@@ -5357,7 +5362,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_command_line_metadata_covers_exact_multiline_contents() {
+    fn command_line_match_metadata_covers_exact_multiline_contents() {
         let attributes = command_line_pattern_attributes("a\nbc");
 
         assert_eq!(attributes.source(), Some("<command line>"));
@@ -5432,7 +5437,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_one_use_generated_variable_equality() {
+    fn hidden_bindings_drop_a_one_use_generated_equality() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let value = Term::domain_value(BackendSort::simple("SortInt"), "1");
         let output = pattern01d_condition_output(
@@ -5445,7 +5450,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_retains_named_and_authored_gen_lookalike_equalities() {
+    fn hidden_bindings_keep_named_and_authored_lookalikes() {
         for variable in [
             Variable::new("VarNamed", BackendSort::simple("SortInt")),
             Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt")),
@@ -5463,7 +5468,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_counts_occurrences_across_the_whole_conjunction() {
+    fn hidden_bindings_count_the_whole_conjunction() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortGeneratedTopCell"));
         let output = pattern01d_condition_output(
             Substitution::from([(
@@ -5478,7 +5483,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_only_eligible_function_equalities() {
+    fn hidden_bindings_drop_only_eligible_function_equalities() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let variable = Variable::new("Var'Unds'Gen0", sort.clone());
         let value = Term::domain_value(sort.clone(), "value");
@@ -5533,7 +5538,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_nested_conjunctions_but_not_other_connectives() {
+    fn hidden_bindings_flatten_only_selected_conjunctions() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let equality = Predicate::Equals(
             Term::variable(variable.clone()),
@@ -5558,7 +5563,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_counts_binder_declarations_and_bodies_syntactically() {
+    fn hidden_bindings_count_binders_and_bodies() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let output = pattern01d_condition_output(
             Substitution::from([(
@@ -5576,7 +5581,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_after_boolean_equality_orientation() {
+    fn hidden_bindings_filter_after_boolean_orientation() {
         let sort = BackendSort::simple("SortBool");
         let variable = Variable::new("Var'Unds'Gen0", sort.clone());
         let mut attributes = SymbolAttributes::constructor();
@@ -5608,7 +5613,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_element_and_set_identities_independently() {
+    fn hidden_bindings_distinguish_element_and_set_variables() {
         let set = Variable {
             kind: BackendVariableKind::Set,
             sort: BackendSort::simple("SortInt"),
@@ -5627,7 +5632,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_collects_only_exact_function_markers() {
+    fn hidden_bindings_use_exact_function_markers() {
         let definition = parse_kore_definition(
             r#"[]
             module M
@@ -5647,7 +5652,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_deduplicates_filtered_disjuncts() {
+    fn hidden_bindings_deduplicate_filtered_disjuncts() {
         let sort = kore_sort("SortGeneratedTopCell");
         let duplicate = KorePattern::Top { sort: sort.clone() };
 
@@ -5658,7 +5663,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_deduplicates_after_anonymous_filtering() {
+    fn hidden_bindings_deduplicate_after_filtering() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let first = Variable::new("Var'Unds'Gen0", sort.clone());
         let second = Variable::new("Var'Unds'Gen1", sort.clone());
@@ -5685,7 +5690,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_flattens_and_deduplicates_disjuncts_across_matches() {
+    fn hidden_bindings_flatten_and_deduplicate_disjuncts_across_matches() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let variable = Variable::new("VarX", sort.clone());
         let generated = Variable::new("Var'Unds'Gen0", sort.clone());

@@ -1,4 +1,4 @@
-//! Stateful KORE JSON-RPC 2.0 dispatch and raw TCP transport.
+//! The KORE JSON-RPC 2.0 server: JSON framing, the FIFO of in-flight requests, fault and log vocabularies, and Booster-compatible response shaping. Every backend operation goes through `Backend`.
 
 use std::{
     collections::{BTreeSet, VecDeque},

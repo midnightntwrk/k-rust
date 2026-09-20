@@ -1,4 +1,4 @@
-//! Versioned JSON wire contracts for persistent search and observation.
+//! Versioned JSON wire contracts v1 for the JavaScript hosts (S25); converters only.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

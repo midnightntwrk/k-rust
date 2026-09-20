@@ -1,8 +1,4 @@
-//! Reusable, stateful access to the in-process KORE backend.
-//!
-//! This is the host-independent orchestration layer used by the JavaScript bindings. It keeps
-//! parsed definitions and added modules alive across calls; native builds additionally cache the
-//! Z3 prelude for every selected module.
+//! One orchestration path for the CLI, RPC server, and JavaScript hosts: a session, one solver per module, and execution, search, simplification, implication, and proving operations. `wire` contains the JavaScript JSON contracts.
 
 use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
 
