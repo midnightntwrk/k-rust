@@ -19,15 +19,14 @@ use k_rust::backend::proving::{
 };
 #[cfg(test)]
 use k_rust::kore::binary as kore_binary;
-use k_rust::names::{BuiltinSort, KoreAttribute, WellKnownSymbol};
+use k_rust::names::{BuiltinSort, KoreAttribute};
 use k_rust::{
     backend::{
         Backend, BackendError, BackendOptions,
         proving::{ClaimFilter, SavedProofs, filter_claims},
     },
     definition::{
-        AttributeKey, Attributes, CheckMode, Sentence, checks::check_definition,
-        json as definition_json,
+        AttributeKey, Attributes, CheckMode, checks::check_definition, json as definition_json,
     },
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, definition_with_named_projections, parse_program_for_presentation},
@@ -39,13 +38,16 @@ use k_rust::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
         KoreVariableIdentity, SortInjector, compile_loaded_definition,
         compile_loaded_definition_timed, compile_search_pattern, encode_kore_sort,
-        expand_macros_in_term_with_scope, term_to_kore_from_resolved_with_token_module,
+        expand_macros_in_term_with_scope,
+        initial_configuration::{
+            missing_variables, parser_modules, stream_defaults, top_cell_initializer,
+        },
+        term_to_kore_from_resolved_with_token_module,
     },
     kore::{
         ast::{
-            Definition as KoreDefinition, KoreString, Module as KoreModule, Pattern as KorePattern,
-            Sentence as KoreSentence, Sort as KoreSort, Symbol as KoreSymbol,
-            VariableKind as KoreVariableKind,
+            Definition as KoreDefinition, Module as KoreModule, Pattern as KorePattern,
+            Sentence as KoreSentence, Sort as KoreSort, VariableKind as KoreVariableKind,
         },
         codec as kore_codec, json as kore_json,
         parser::{
@@ -63,6 +65,11 @@ use k_rust::{
         prepared_module_declarations, resolve_syntax_module,
     },
     timings::{PhaseTiming, PhaseTimings},
+};
+#[cfg(test)]
+use k_rust::{
+    kompile::initial_configuration::{kore_application, kore_sort},
+    kore::ast::Symbol as KoreSymbol,
 };
 use k_rust_backend::{
     builtin::BuiltinEffect,
@@ -2297,8 +2304,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let program_parse_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
     let program_uses_stdin = program_uses_stdin && program.is_some();
-    let config_parser_modules =
-        configuration_variable_parser_modules(&program_resolved, &compiled.main_module)?;
+    let config_parser_modules = parser_modules(&program_resolved, &compiled.main_module)?;
     let mut config_parsers = BTreeMap::new();
     let config_injector = (!options.config_vars.is_empty())
         .then(|| SortInjector::new(&program_resolved, &compiled.main_module))
@@ -2388,36 +2394,21 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         )?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
-    let string_sort = KastSort::builtin(BuiltinSort::String);
-    if available_config_vars.get("IO") == Some(&string_sort) && !seen_config_vars.contains("IO") {
-        config_vars.push((
-            "$IO".into(),
-            string_domain_value(if io { "on" } else { "off" }),
-            kore_sort(BuiltinSort::String.kore_name()),
-        ));
-        seen_config_vars.insert("IO".into());
-    }
-    if available_config_vars.get("STDIN") == Some(&string_sort)
-        && !seen_config_vars.contains("STDIN")
-    {
-        let input = if io || program_uses_stdin {
-            Vec::new()
-        } else {
+    config_vars.extend(stream_defaults(
+        &available_config_vars,
+        &mut seen_config_vars,
+        io,
+        program_uses_stdin,
+        || {
             if std::io::stdin().is_terminal() {
                 eprintln!(
                     "note: reading standard input into $STDIN until end of file (--io off); \
                      redirect from /dev/null or end the input with Ctrl-D"
                 );
             }
-            buffered_stdin_bytes(read_stdin_for_stream()?)
-        };
-        config_vars.push((
-            "$STDIN".into(),
-            string_domain_value(input),
-            kore_sort(BuiltinSort::String.kore_name()),
-        ));
-        seen_config_vars.insert("STDIN".into());
-    }
+            read_stdin_for_stream().map(buffered_stdin_bytes)
+        },
+    )?);
     let execution_input = if io {
         if std::io::stdin().is_terminal() {
             eprintln!(
@@ -2429,11 +2420,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     } else {
         None
     };
-    let missing_config_vars = available_config_vars
-        .keys()
-        .filter(|name| name.as_str() != "PGM" && !seen_config_vars.contains(*name))
-        .map(|name| format!("${name}"))
-        .collect::<Vec<_>>();
+    let missing_config_vars = missing_variables(&available_config_vars, &seen_config_vars);
     if !missing_config_vars.is_empty() {
         return Err(format!(
             "missing required configuration variable{} {}; pass {}",
@@ -4247,118 +4234,6 @@ fn read_program_source(
     })
 }
 
-fn configuration_variable_parser_modules(
-    definition: &k_rust::definition::ResolvedDefinition,
-    module: &str,
-) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
-    let module = definition
-        .module_id(module)
-        .ok_or_else(|| format!("definition has no module `{module}`"))?;
-    let mut modules = BTreeMap::new();
-    for sentence in definition.sentences(module) {
-        let Sentence::Production { attributes, .. } = sentence else {
-            continue;
-        };
-        if !attributes.has(AttributeKey::Cell) {
-            continue;
-        }
-        let Some(parser) = attributes.string(AttributeKey::Parser) else {
-            continue;
-        };
-        for entry in parser.split(';') {
-            let fields = entry.split(',').map(str::trim).collect::<Vec<_>>();
-            let [name, parser_module] = fields.as_slice() else {
-                return Err(format!("Invalid value for parser attribute: {parser}").into());
-            };
-            if name.is_empty() || parser_module.is_empty() {
-                return Err(format!("Invalid value for parser attribute: {parser}").into());
-            }
-            modules.insert(
-                name.strip_prefix('$').unwrap_or(name).to_string(),
-                (*parser_module).to_string(),
-            );
-        }
-    }
-    Ok(modules)
-}
-
-/// Build the `initGeneratedTopCell` application the way `llvm-krun` does from krun's `-c`
-/// list: one `_|->_` entry per supplied variable, `$PGM` first when a program was parsed.
-/// A definition whose configuration mentions no variable declares the initializer without
-/// the `Map` parameter (`GenerateSentencesFromConfigDecl`), so no entries means a nullary
-/// application.
-fn top_cell_initializer(
-    program: Option<(KorePattern, KoreSort)>,
-    config_vars: Vec<(String, KorePattern, KoreSort)>,
-) -> KorePattern {
-    let mut entries = Vec::with_capacity(config_vars.len() + 1);
-    if let Some((program, program_sort)) = program {
-        entries.push(("$PGM".to_owned(), program, program_sort));
-    }
-    entries.extend(config_vars);
-    let mut entries = entries
-        .into_iter()
-        .map(|(name, value, value_sort)| configuration_map_entry(&name, value, value_sort));
-    let arguments = match entries.next() {
-        Some(first) => vec![entries.fold(first, |left, right| {
-            kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right])
-        })],
-        None => Vec::new(),
-    };
-    kore_application("LblinitGeneratedTopCell", Vec::new(), arguments)
-}
-
-fn configuration_map_entry(name: &str, value: KorePattern, value_sort: KoreSort) -> KorePattern {
-    let config_var_sort = kore_sort(BuiltinSort::KConfigVar.kore_name());
-    let item_sort = kore_sort(BuiltinSort::KItem.kore_name());
-    let key = kore_application(
-        WellKnownSymbol::Inj.as_str(),
-        vec![config_var_sort.clone(), item_sort.clone()],
-        vec![KorePattern::DomainValue {
-            sort: config_var_sort,
-            value: name.into(),
-        }],
-    );
-    let value = if value_sort == item_sort {
-        value
-    } else {
-        kore_application(
-            WellKnownSymbol::Inj.as_str(),
-            vec![value_sort, item_sort],
-            vec![value],
-        )
-    };
-    kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, value])
-}
-
-fn kore_application(
-    name: &str,
-    sort_parameters: Vec<KoreSort>,
-    arguments: Vec<KorePattern>,
-) -> KorePattern {
-    KorePattern::Application {
-        symbol: KoreSymbol {
-            name: name.into(),
-            sort_parameters,
-        },
-        arguments,
-    }
-}
-
-fn kore_sort(name: &str) -> KoreSort {
-    KoreSort::Application {
-        name: name.into(),
-        arguments: Vec::new(),
-    }
-}
-
-fn string_domain_value(value: impl Into<KoreString>) -> KorePattern {
-    KorePattern::DomainValue {
-        sort: kore_sort(BuiltinSort::String.kore_name()),
-        value: value.into(),
-    }
-}
-
 fn read_stdin() -> io::Result<String> {
     let mut source = String::new();
     io::stdin().read_to_string(&mut source)?;
@@ -4487,41 +4362,6 @@ mod tests {
         };
 
         assert_eq!(variable.name.as_ref(), "VarResult");
-    }
-
-    #[test]
-    fn top_initializer_combines_program_and_configuration_bindings() {
-        let initial = top_cell_initializer(
-            Some((
-                KorePattern::DomainValue {
-                    sort: kore_sort("SortExp"),
-                    value: "program".into(),
-                },
-                kore_sort("SortExp"),
-            )),
-            vec![(
-                "$ENV".into(),
-                kore_application("Lbl'Dot'Map", Vec::new(), Vec::new()),
-                kore_sort("SortMap"),
-            )],
-        );
-        let rendered = KorePrinter::compact().print_pattern(&initial);
-
-        assert!(rendered.contains("Lbl'Unds'Map'Unds'"), "{rendered}");
-        assert!(rendered.contains("$PGM"), "{rendered}");
-        assert!(rendered.contains("$ENV"), "{rendered}");
-        assert!(
-            rendered.contains("inj{SortMap{}, SortKItem{}}"),
-            "{rendered}"
-        );
-    }
-
-    #[test]
-    fn top_initializer_without_any_binding_is_nullary() {
-        let initial = top_cell_initializer(None, Vec::new());
-        let rendered = KorePrinter::compact().print_pattern(&initial);
-
-        assert_eq!(rendered, "LblinitGeneratedTopCell{}()");
     }
 
     fn deeply_nested_kore_pattern(depth: usize) -> KorePattern {

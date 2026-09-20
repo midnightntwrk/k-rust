@@ -2,6 +2,7 @@
 
 mod compile;
 mod fresh_names;
+pub mod initial_configuration;
 mod module_to_kore;
 mod passes;
 mod search_pattern;
