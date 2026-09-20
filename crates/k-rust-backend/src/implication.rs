@@ -127,7 +127,7 @@ pub fn validate_request(
     Ok(())
 }
 
-/// Return one of the three implication results decided entirely by the KORE syntax.
+/// Return an implication result decided entirely by the KORE syntax.
 pub fn special_case(
     antecedent: &kore::Pattern,
     consequent: &kore::Pattern,
@@ -160,6 +160,13 @@ pub fn special_case(
             status: ImplicationStatus::Invalid,
             condition: condition(vec![Predicate::False]),
             failure: Some(ImplicationFailure::ConsequentCondition),
+            vacuous: false,
+        })
+    } else if matches!(consequent, kore::Pattern::Not { .. }) {
+        Some(ImplicationResult {
+            status: ImplicationStatus::Invalid,
+            condition: None,
+            failure: None,
             vacuous: false,
         })
     } else {

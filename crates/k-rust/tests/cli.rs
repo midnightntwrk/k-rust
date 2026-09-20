@@ -4394,6 +4394,44 @@ endmodule []
 }
 
 #[test]
+fn kore_implies_rejects_a_syntactic_sort_mismatch_before_internalization() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let antecedent = root.join("antecedent.kore");
+    let consequent = root.join("consequent.kore");
+    fs::write(
+        &definition,
+        "[]\nmodule MAIN\n  sort SortA{} []\n  sort SortB{} []\nendmodule []\n",
+    )
+    .unwrap();
+    fs::write(&antecedent, r#"\bottom{SortA{}}()"#).unwrap();
+    fs::write(&consequent, r#"\top{SortB{}}()"#).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-implies",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--antecedent",
+            antecedent.to_str().unwrap(),
+            "--consequent",
+            consequent.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("antecedent and consequent sorts differ: SortA{} and SortB{}"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kore_match_disjunction_matches_each_configuration_and_writes_its_result() {
     let (root, _) = fixture();
     let definition = root.join("definition.kore");

@@ -418,6 +418,19 @@ impl From<MalformedAttribute> for DefinitionError {
 }
 
 impl BackendDefinition {
+    /// Names of symbols classified as backend functions in the visible catalog.
+    pub fn function_symbol_names(&self) -> BTreeSet<String> {
+        self.symbols
+            .iter()
+            .filter_map(|(name, symbol)| {
+                symbol
+                    .attributes
+                    .declared_function
+                    .then(|| name.to_string())
+            })
+            .collect()
+    }
+
     pub fn internalize(
         definition: &kore::Definition,
         main_module: &str,

@@ -9,6 +9,7 @@ Live differential tests are supplementary evidence; they are not required for ev
 | Contract | Test home | Expected answer |
 |---|---|---|
 | Internal algorithm, invariant, or algebraic property | The owning module's tests | A stated invariant, independent calculation, or property |
+| Backend orchestration (`k_rust::backend::*`) | The module's inline tests, or CLI/RPC tests when rendering contributes | One host-independent operation plus the surface-specific rendering contract |
 | Public subsystem behavior across modules | The subsystem's integration test under `crates/k-rust/tests` | A concrete contract, optionally backed by a committed reference artifact |
 | CLI options, process status, RPC schema, or host binding behavior | CLI, RPC, Node, or WASM surface tests | The public surface contract |
 | Compatibility requiring a running reference | The applicable `scripts/reference-*.sh` gate and `scripts/reference-differential.toml` | Output from the pinned reference toolchain |

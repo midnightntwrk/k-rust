@@ -1,3 +1,5 @@
+//! The `krust` command line: option parsing, file and stream I/O, printing, timings, and process status. Every backend operation goes through `k_rust::backend::Backend`; the kompile pipeline belongs to `k_rust::kompile`.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     env,
@@ -11,13 +13,17 @@ use std::{
 };
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
-#[cfg(test)]
-use k_rust::kore::binary as kore_binary;
-use k_rust::names::{BuiltinSort, KoreAttribute, WellKnownSymbol};
+use k_rust::backend::search::*;
+use k_rust::names::BuiltinSort;
 use k_rust::{
+    backend::{
+        Backend, BackendError, BackendOptions,
+        execution::{BackendRunOptions, SearchRunOptions},
+        proving::{ClaimFilter, SavedProofs, filter_claims},
+        simplification::model_substitution,
+    },
     definition::{
-        AttributeKey, Attributes, CheckMode, Sentence, checks::check_definition,
-        json as definition_json,
+        AttributeKey, Attributes, CheckMode, checks::check_definition, json as definition_json,
     },
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
     inner::{ProgramParser, definition_with_named_projections, parse_program_for_presentation},
@@ -27,16 +33,15 @@ use k_rust::{
     },
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-        KoreVariableIdentity, SortInjector, compile_loaded_definition,
-        compile_loaded_definition_timed, compile_search_pattern, encode_kore_sort,
-        expand_macros_in_term_with_scope, term_to_kore_from_resolved_with_token_module,
+        SortInjector, compile_loaded_definition, compile_loaded_definition_timed,
+        compile_search_pattern, encode_kore_sort, expand_macros_in_term_with_scope,
+        initial_configuration::{
+            missing_variables, parser_modules, stream_defaults, top_cell_initializer,
+        },
+        term_to_kore_from_resolved_with_token_module,
     },
     kore::{
-        ast::{
-            Attributes as KoreAttributes, Definition as KoreDefinition, KoreString,
-            Module as KoreModule, Pattern as KorePattern, Sentence as KoreSentence,
-            Sort as KoreSort, Symbol as KoreSymbol, VariableKind as KoreVariableKind,
-        },
+        ast::{Definition as KoreDefinition, Pattern as KorePattern},
         codec as kore_codec, json as kore_json,
         parser::{
             parse_definition as parse_kore_definition, parse_module as parse_kore_module,
@@ -55,41 +60,15 @@ use k_rust::{
     timings::{PhaseTiming, PhaseTimings},
 };
 use k_rust_backend::{
-    builtin::BuiltinEffect,
-    claim::ReachabilityClaim,
-    definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
     externalize,
-    implication::{
-        ImplicationCondition, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        check_implication_with_existentials_complete, special_case, validate_request,
-    },
-    proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
-    rewrite::{
-        ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
-        execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status,
-        execute_disjunction_with_solver_and_observer_with_initial_status,
-    },
-    rule::Predicate,
-    search::{
-        IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
-        SearchType, match_disjunction, match_disjunction_with_solver,
-        search_pattern_disjunction_with_solver,
-    },
-    session::BackendSession,
-    simplify::{
-        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
-    },
-    smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
-    substitution::Substitution,
-    term::{
-        Name as BackendName, Sort as BackendSort, Term, TermKind, Variable,
-        VariableKind as BackendVariableKind,
-    },
-    transition::{DescriptorTranscriptEntry, ExecutionIoState},
+    proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
+    rewrite::{ExecutionMode, Pattern},
+    search::SearchType,
+    simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+    smt::{ModelResult, Z3Options},
+    term::Sort as BackendSort,
+    transition::DescriptorTranscriptEntry,
 };
-use num_bigint::BigInt;
-use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 mod rpc;
@@ -146,7 +125,7 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
         Command::KoreImplies(options) => kore_implies(options).map(|()| ExitCode::SUCCESS),
         Command::KoreRpc(options) => kore_rpc(options).map(|()| ExitCode::SUCCESS),
         Command::KoreMatchDisjunction(options) => {
-            kore_match_disjunction(options).map(|()| ExitCode::SUCCESS)
+            kore_match_disjunction_command(options).map(|()| ExitCode::SUCCESS)
         }
         Command::Kprove(options) => kprove(options.into()).map(|()| ExitCode::SUCCESS),
     }
@@ -1024,18 +1003,11 @@ struct KrunOptions {
     cut_point_rules: BTreeSet<String>,
     terminal_rules: BTreeSet<String>,
     strategy: ExecutionMode,
-    search: Option<KrunSearchOptions>,
+    search: Option<SearchRunOptions>,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
     smt: Z3Options,
     timings: Option<PathBuf>,
-}
-
-#[derive(Debug)]
-struct KrunSearchOptions {
-    search_type: SearchType,
-    pattern: Option<PathBuf>,
-    bound: Option<usize>,
 }
 
 struct KrunCompiledInput {
@@ -1050,69 +1022,10 @@ struct KrunCompiledInput {
 }
 
 #[derive(Debug)]
-struct BackendRunOptions {
-    depth: u64,
-    max_simplification_iterations: usize,
-    breadth_limit: Option<usize>,
-    execute_to_branch: bool,
-    cut_point_rules: BTreeSet<String>,
-    terminal_rules: BTreeSet<String>,
-    strategy: ExecutionMode,
-    search: Option<KrunSearchOptions>,
-    match_target: Option<BackendMatchTarget>,
-    function_symbols: BTreeSet<String>,
-    stop_leaves: Option<PathBuf>,
-    step_timeout: Option<Duration>,
-    moving_average_timeout: bool,
-    smt: Z3Options,
-    capture_stdout: bool,
-    execution_input: Option<Vec<u8>>,
-}
-
-#[derive(Debug)]
 enum MatchTargetSource {
     KoreFile(PathBuf),
     Surface(CompiledSearchPattern),
 }
-
-#[derive(Debug)]
-struct BackendMatchTarget {
-    pattern: Pattern,
-    generated_anonymous_variables: BTreeSet<Variable>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum GeneratedIdentityMappingError {
-    Missing {
-        identity: KoreVariableIdentity,
-    },
-    Ambiguous {
-        identity: KoreVariableIdentity,
-        candidates: BTreeSet<Variable>,
-    },
-}
-
-impl fmt::Display for GeneratedIdentityMappingError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Missing { identity } => write!(
-                formatter,
-                "generated {:?} KORE variable {:?} is missing from the internalized match target",
-                identity.kind, identity.name
-            ),
-            Self::Ambiguous {
-                identity,
-                candidates,
-            } => write!(
-                formatter,
-                "generated {:?} KORE variable {:?} maps to multiple sorted backend variables: {candidates:?}",
-                identity.kind, identity.name
-            ),
-        }
-    }
-}
-
-impl Error for GeneratedIdentityMappingError {}
 
 #[derive(Debug)]
 struct KproveOptions {
@@ -1240,13 +1153,6 @@ struct PreparedDefinitionManifest {
     modules: Vec<PreparedModuleDeclaration>,
 }
 
-#[derive(Debug, Default)]
-struct ClaimFilter {
-    selected: Vec<String>,
-    excluded: Vec<String>,
-    trusted: Vec<String>,
-}
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 enum GraphSearchArg {
     #[default]
@@ -1292,7 +1198,7 @@ impl WarningArgs {
 }
 
 impl SearchArgs {
-    fn into_options(self) -> Option<KrunSearchOptions> {
+    fn into_options(self) -> Option<SearchRunOptions> {
         let search_type = if self.search_final {
             Some(SearchType::Final)
         } else if self.search_all {
@@ -1304,7 +1210,7 @@ impl SearchArgs {
         } else {
             None
         };
-        search_type.map(|search_type| KrunSearchOptions {
+        search_type.map(|search_type| SearchRunOptions {
             search_type,
             pattern: self.search_pattern,
             bound: self.search_bound,
@@ -1451,7 +1357,7 @@ impl From<KrunArgs> for KrunOptions {
 }
 
 fn select_match_target_source(
-    search: Option<&KrunSearchOptions>,
+    search: Option<&SearchRunOptions>,
     surface: Option<CompiledSearchPattern>,
 ) -> Option<MatchTargetSource> {
     if let Some(surface) = surface {
@@ -1487,110 +1393,6 @@ fn command_line_pattern_attributes(contents: &str) -> Attributes {
     attributes.set(AttributeKey::ContentStartLine, serde_json::json!(1));
     attributes.set(AttributeKey::ContentStartColumn, serde_json::json!(1));
     attributes
-}
-
-fn kore_variable_identity(variable: &k_rust::kore::ast::Variable) -> KoreVariableIdentity {
-    KoreVariableIdentity {
-        kind: variable.kind,
-        name: variable.name.clone(),
-    }
-}
-
-fn collect_predicate_variables(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
-    match predicate {
-        Predicate::True | Predicate::False => {}
-        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
-            variables.extend(term.attributes().variables.iter().cloned());
-        }
-        Predicate::Equals(left, right) | Predicate::In(left, right) => {
-            variables.extend(left.attributes().variables.iter().cloned());
-            variables.extend(right.attributes().variables.iter().cloned());
-        }
-        Predicate::Not(inner) => collect_predicate_variables(inner, variables),
-        Predicate::And(inner) | Predicate::Or(inner) => {
-            for predicate in inner {
-                collect_predicate_variables(predicate, variables);
-            }
-        }
-        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
-            collect_predicate_variables(left, variables);
-            collect_predicate_variables(right, variables);
-        }
-        Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
-            variables.insert(variable.clone());
-            collect_predicate_variables(inner, variables);
-        }
-    }
-}
-
-fn map_generated_anonymous_variables(
-    target: &Pattern,
-    identities: &BTreeSet<KoreVariableIdentity>,
-) -> Result<BTreeSet<Variable>, GeneratedIdentityMappingError> {
-    let mut variables = target.term.attributes().variables.clone();
-    for constraint in &target.constraints {
-        collect_predicate_variables(constraint, &mut variables);
-    }
-    let mut mapped = BTreeSet::new();
-    for identity in identities {
-        let kind = match identity.kind {
-            KoreVariableKind::Element => BackendVariableKind::Element,
-            KoreVariableKind::Set => BackendVariableKind::Set,
-        };
-        let candidates = variables
-            .iter()
-            .filter(|variable| variable.kind == kind && variable.name.as_ref() == identity.name)
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        match candidates.len() {
-            0 => {
-                return Err(GeneratedIdentityMappingError::Missing {
-                    identity: identity.clone(),
-                });
-            }
-            1 => {
-                mapped.extend(candidates);
-            }
-            _ => {
-                return Err(GeneratedIdentityMappingError::Ambiguous {
-                    identity: identity.clone(),
-                    candidates,
-                });
-            }
-        }
-    }
-    Ok(mapped)
-}
-
-fn prepare_backend_match_target(
-    backend: &BackendDefinition,
-    compiled: CompiledSearchPattern,
-) -> Result<BackendMatchTarget, Box<dyn Error>> {
-    backend.verify_standalone_pattern(&compiled.pattern)?;
-    let occurring = compiled
-        .pattern
-        .variables()
-        .iter()
-        .map(kore_variable_identity)
-        .collect::<BTreeSet<_>>();
-    if let Some(identity) = compiled
-        .generated_anonymous_variables
-        .iter()
-        .find(|identity| !occurring.contains(*identity))
-    {
-        return Err(io::Error::other(format!(
-            "generated {:?} KORE variable {:?} does not occur in the compiled match target",
-            identity.kind, identity.name
-        ))
-        .into());
-    }
-    let pattern = backend.internalize_pattern(&compiled.pattern, &[])?;
-    let generated_anonymous_variables =
-        map_generated_anonymous_variables(&pattern, &compiled.generated_anonymous_variables)?;
-    Ok(BackendMatchTarget {
-        pattern,
-        generated_anonymous_variables,
-    })
 }
 
 impl From<KproveArgs> for KproveOptions {
@@ -2295,14 +2097,14 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let program_parse_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
     let program_uses_stdin = program_uses_stdin && program.is_some();
-    let config_parser_modules =
-        configuration_variable_parser_modules(&program_resolved, &compiled.main_module)?;
+    let config_parser_modules = parser_modules(&program_resolved, &compiled.main_module)?;
     let mut config_parsers = BTreeMap::new();
     let config_injector = (!options.config_vars.is_empty())
         .then(|| SortInjector::new(&program_resolved, &compiled.main_module))
         .transpose()?;
     let mut seen_config_vars = BTreeSet::new();
     let mut config_vars = Vec::new();
+    // Invariant: seen names are exactly the bindings already assigned; parser and injector maps share their key set.
     for assignment in &options.config_vars {
         let (name, source) = assignment.split_once('=').ok_or_else(|| {
             format!("invalid configuration variable `{assignment}`; expected NAME=VALUE")
@@ -2385,36 +2187,21 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         )?;
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
-    let string_sort = KastSort::builtin(BuiltinSort::String);
-    if available_config_vars.get("IO") == Some(&string_sort) && !seen_config_vars.contains("IO") {
-        config_vars.push((
-            "$IO".into(),
-            string_domain_value(if io { "on" } else { "off" }),
-            kore_sort(BuiltinSort::String.kore_name()),
-        ));
-        seen_config_vars.insert("IO".into());
-    }
-    if available_config_vars.get("STDIN") == Some(&string_sort)
-        && !seen_config_vars.contains("STDIN")
-    {
-        let input = if io || program_uses_stdin {
-            Vec::new()
-        } else {
+    config_vars.extend(stream_defaults(
+        &available_config_vars,
+        &mut seen_config_vars,
+        io,
+        program_uses_stdin,
+        || {
             if std::io::stdin().is_terminal() {
                 eprintln!(
                     "note: reading standard input into $STDIN until end of file (--io off); \
                      redirect from /dev/null or end the input with Ctrl-D"
                 );
             }
-            buffered_stdin_bytes(read_stdin_for_stream()?)
-        };
-        config_vars.push((
-            "$STDIN".into(),
-            string_domain_value(input),
-            kore_sort(BuiltinSort::String.kore_name()),
-        ));
-        seen_config_vars.insert("STDIN".into());
-    }
+            read_stdin_for_stream().map(buffered_stdin_bytes)
+        },
+    )?);
     let execution_input = if io {
         if std::io::stdin().is_terminal() {
             eprintln!(
@@ -2426,11 +2213,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     } else {
         None
     };
-    let missing_config_vars = available_config_vars
-        .keys()
-        .filter(|name| name.as_str() != "PGM" && !seen_config_vars.contains(*name))
-        .map(|name| format!("${name}"))
-        .collect::<Vec<_>>();
+    let missing_config_vars = missing_variables(&available_config_vars, &seen_config_vars);
     if !missing_config_vars.is_empty() {
         return Err(format!(
             "missing required configuration variable{} {}; pass {}",
@@ -2453,13 +2236,13 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
 
     let started = Instant::now();
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
-    let function_symbols = kore_function_symbols(&syntax);
 
-    let backend = BackendDefinition::internalize_for_source_execution(
+    let backend = Backend::internalize_source_definition(
         &syntax,
         &compiled.main_module,
         &compiled.execution_rewrite_order,
     )?;
+    let function_symbols = backend.function_symbol_names();
     backend.validate_executable_pattern(&initial)?;
     let initial = backend.internalize_frontend_term(&initial, &[])?;
     let match_target = match match_target_source {
@@ -2480,8 +2263,15 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     let internalize_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
-    let output = run_backend(
-        &backend,
+    let mut backend = Backend::from_internalized(
+        backend,
+        BackendOptions {
+            smt_timeout_ms: options.smt.timeout_ms,
+            smt_retry_limit: options.smt.retry_limit,
+        },
+    )?;
+    let output = backend.run_cli(
+        None,
         vec![Pattern {
             term: initial,
             constraints: Vec::new(),
@@ -2500,7 +2290,6 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             stop_leaves: None,
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
-            smt: options.smt,
             capture_stdout: options.output == KrunOutputArg::Captured,
             execution_input,
         },
@@ -2561,11 +2350,21 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             ),
         )
     })?;
-    let mut function_symbols = kore_function_symbols(&definition);
-    let mut session = BackendSession::new(definition, &options.module);
+    let construction_module = definition
+        .modules
+        .iter()
+        .any(|module| module.name == options.module)
+        .then(|| options.module.clone())
+        .or_else(|| definition.modules.last().map(|module| module.name.clone()))
+        .ok_or_else(|| io::Error::other("KORE definition has no modules"))?;
+    let backend_options = BackendOptions {
+        smt_timeout_ms: options.smt.options().timeout_ms,
+        smt_retry_limit: options.smt.options().retry_limit,
+    };
+    let mut backend = Backend::from_definition(definition, construction_module, backend_options)?;
     for path in &options.added_modules {
         let source = fs::read_to_string(path)?;
-        let module = parse_kore_module(&source).map_err(|error| {
+        parse_kore_module(&source).map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
@@ -2574,13 +2373,14 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
                 ),
             )
         })?;
-        function_symbols.extend(kore_module_function_symbols(&module));
-        session.add_module(&source, module, true)?;
+        backend.add_module(&source, true)?;
     }
-    let backend = session.definition(None)?;
-    let initial = load_backend_patterns(&backend, &options.pattern, "initial")?;
-    let output = run_backend(
-        &backend,
+    let function_symbols = backend
+        .select_definition(Some(&options.module))?
+        .function_symbol_names();
+    let initial = backend.load_patterns(Some(&options.module), &options.pattern, "initial")?;
+    let output = backend.run_cli(
+        Some(&options.module),
         initial,
         BackendRunOptions {
             depth: options.depth.unwrap_or(u64::MAX),
@@ -2598,7 +2398,6 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             stop_leaves: options.stop_leaves,
             step_timeout: options.timeout.timeout(),
             moving_average_timeout: options.timeout.moving_average,
-            smt: options.smt.options(),
             capture_stdout: false,
             execution_input: None,
         },
@@ -2623,11 +2422,15 @@ fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    rpc::serve(
-        BackendSession::new(definition, options.module),
-        (options.host.as_str(), options.port),
-        options.smt.options(),
-    )
+    let backend = Backend::from_definition(
+        definition,
+        options.module,
+        BackendOptions {
+            smt_timeout_ms: options.smt.timeout.get(),
+            smt_retry_limit: options.smt.retry_limit,
+        },
+    )?;
+    rpc::serve(backend, (options.host.as_str(), options.port))
 }
 
 fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
@@ -2641,9 +2444,16 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut backend = Backend::from_definition(
+        definition,
+        &options.module,
+        BackendOptions {
+            smt_timeout_ms: options.smt.options().timeout_ms,
+            smt_retry_limit: options.smt.options().retry_limit,
+        },
+    )?;
     let syntax = load_kore_syntax(&options.pattern, "simplification")?;
-    let output = simplify_kore_pattern_with_options(&backend, &syntax, options.smt.options())?;
+    let output = backend.simplify_kore(None, &syntax)?;
     let output = KorePrinter::pretty(100).print_pattern(&output);
     if let Some(path) = options.output {
         fs::write(path, output)?;
@@ -2651,50 +2461,6 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
         println!("{output}");
     }
     Ok(())
-}
-
-#[cfg(test)]
-fn simplify_kore_pattern(
-    definition: &BackendDefinition,
-    syntax: &KorePattern,
-) -> Result<KorePattern, Box<dyn Error>> {
-    simplify_kore_pattern_with_options(definition, syntax, Z3Options::default())
-}
-
-fn simplify_kore_pattern_with_options(
-    definition: &BackendDefinition,
-    syntax: &KorePattern,
-    options: Z3Options,
-) -> Result<KorePattern, Box<dyn Error>> {
-    let solver = Z3Solver::with_options(definition, options)
-        .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-    match definition.internalize_pattern_or_predicate(syntax, &[])? {
-        PatternOrPredicate::Term(pattern) => {
-            let simplified = simplify_pattern_with_solver(
-                definition,
-                &pattern,
-                SimplificationOptions::unbounded(),
-                &solver,
-            )
-            .map_err(|error| {
-                io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
-            })?;
-            return Ok(externalize::constrained_pattern(&simplified));
-        }
-        PatternOrPredicate::Predicate(predicate, result_sort) => {
-            let simplified = simplify_and_decide_predicate_with_solver(
-                definition,
-                &predicate,
-                &[],
-                SimplificationOptions::unbounded(),
-                &solver,
-            )
-            .map_err(|error| {
-                io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
-            })?;
-            return Ok(externalize::ml_pattern(&simplified, &result_sort));
-        }
-    }
 }
 
 fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
@@ -2708,19 +2474,16 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut backend = Backend::from_definition(
+        definition,
+        &options.module,
+        BackendOptions {
+            smt_timeout_ms: options.smt.options().timeout_ms,
+            smt_retry_limit: options.smt.options().retry_limit,
+        },
+    )?;
     let syntax = load_kore_syntax(&options.pattern, "model")?;
-    let model = match backend.internalize_model_predicate(&syntax, &[])? {
-        None => (ModelResult::Unknown("no predicate".into()), None),
-        Some((predicate, result_sort)) => {
-            let solver = Z3Solver::with_options(&backend, options.smt.options())
-                .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-            let result = solver
-                .get_model(&[predicate], &Substitution::new())
-                .map_err(|error| io::Error::other(format!("could not obtain model: {error:?}")))?;
-            (result, Some(result_sort))
-        }
-    };
+    let model = backend.model_for(None, &syntax)?;
     let output = model_output(model.0, model.1.as_ref())?;
     if let Some(path) = options.output {
         fs::write(path, output)?;
@@ -2749,18 +2512,6 @@ fn model_output(
     Ok(serde_json::to_string_pretty(&output)?)
 }
 
-fn model_substitution(
-    substitution: &Substitution,
-    result_sort: &BackendSort,
-) -> Option<KorePattern> {
-    externalize::substitution_pattern(
-        substitution,
-        result_sort,
-        externalize::BindingOrder::Natural,
-        externalize::ConjunctionShape::Flat,
-    )
-}
-
 fn kore_implies(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
     // Real compiled configurations can contain patterns hundreds of nodes deep. Keep the entire
     // decode/verify/drop lifecycle on a suitably sized stack instead of overflowing the platform's
@@ -2787,106 +2538,24 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut backend = Backend::from_definition(
+        definition,
+        &options.module,
+        BackendOptions {
+            smt_timeout_ms: options.smt.options().timeout_ms,
+            smt_retry_limit: options.smt.options().retry_limit,
+        },
+    )?;
     let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
     let consequent_syntax = load_kore_syntax(&options.consequent, "consequent")?;
-    if let Err(request_error) = validate_request(&backend, &antecedent_syntax, &consequent_syntax) {
-        let message = match request_error {
-            ImplicationRequestError::MacroOrAlias { side, name } => format!(
-                "invalid implication {}: {}",
-                match side {
-                    Side::Antecedent => "antecedent",
-                    Side::Consequent => "consequent",
-                },
-                DefinitionError::MacroOrAliasInImplication(name)
-            ),
-            ImplicationRequestError::NonFunctionLikeAntecedent => {
-                "implication antecedent must be function-like".into()
-            }
-            ImplicationRequestError::NonSingletonConsequent => {
-                "implication consequent must contain exactly one pattern".into()
-            }
-            ImplicationRequestError::ExistentialCapture { captured, .. } => format!(
-                "consequent existentials capture antecedent variables: {}",
-                captured.join(", ")
-            ),
-            // CQ-09's approved contract commit makes this syntactic check a CLI boundary.
-            // Until then, retain the existing internalized-sort check and its rendered text.
-            ImplicationRequestError::SortMismatch { .. } => String::new(),
-        };
-        if !message.is_empty() {
-            return Err(io::Error::other(message).into());
-        }
-    }
-
-    let sort_variables = antecedent_syntax
-        .sort_variables()
-        .into_iter()
-        .chain(consequent_syntax.sort_variables())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .map(BackendName::from)
-        .collect::<Vec<_>>();
-    let special_result = special_case(&antecedent_syntax, &consequent_syntax);
-    let antecedent = if matches!(antecedent_syntax.strip_exists(), KorePattern::Bottom { .. }) {
-        None
-    } else {
-        Some(
-            backend
-                .internalize_implication_pattern(&antecedent_syntax, &sort_variables)
-                .map_err(|error| {
-                    io::Error::other(format!("invalid implication antecedent: {error}"))
-                })?,
-        )
-    };
-    let result_sort = match &antecedent {
-        Some((antecedent, _)) => antecedent.term.sort(),
-        None => {
-            backend
-                .internalize_predicate(&antecedent_syntax, &sort_variables)
-                .map_err(|error| {
-                    io::Error::other(format!("invalid implication antecedent: {error}"))
-                })?
-                .1
-        }
-    };
-    let result = if let Some(result) = special_result {
-        result
-    } else if matches!(consequent_syntax.strip_exists(), KorePattern::Not { .. }) {
-        ImplicationResult {
-            status: ImplicationStatus::Invalid,
-            condition: None,
-            failure: None,
-            vacuous: false,
-        }
-    } else {
-        let (antecedent, antecedent_existentials) =
-            antecedent.expect("only a bottom antecedent bypasses implication internalization");
-        let (consequent, consequent_existentials) = backend
-            .internalize_implication_pattern(&consequent_syntax, &sort_variables)
-            .map_err(|error| {
-                io::Error::other(format!("invalid implication consequent: {error}"))
-            })?;
-        if antecedent.term.sort() != consequent.term.sort() {
-            return Err(io::Error::other(format!(
-                "antecedent and consequent sorts differ: {:?} and {:?}",
-                antecedent.term.sort(),
-                consequent.term.sort()
-            ))
-            .into());
-        }
-        let solver = Z3Solver::with_options(&backend, options.smt.options())
-            .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-        check_implication_with_existentials_complete(
-            &backend,
-            &antecedent,
-            &antecedent_existentials,
-            &consequent,
-            &consequent_existentials,
-            &solver,
-        )?
-    };
-    let output = implication_output(&antecedent_syntax, &consequent_syntax, &result_sort, result)?;
+    let (result, result_sort) =
+        backend.implies_kore(None, &antecedent_syntax, &consequent_syntax)?;
+    let output = k_rust::backend::implication::cli_output(
+        &antecedent_syntax,
+        &consequent_syntax,
+        &result_sort,
+        result,
+    )?;
     if let Some(path) = options.output {
         fs::write(path, output)?;
     } else {
@@ -2895,120 +2564,7 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn implication_output(
-    antecedent: &KorePattern,
-    consequent: &KorePattern,
-    result_sort: &BackendSort,
-    result: ImplicationResult,
-) -> Result<String, Box<dyn Error>> {
-    let status = match result.status {
-        ImplicationStatus::Valid => "valid",
-        ImplicationStatus::Invalid => "invalid",
-        ImplicationStatus::Indeterminate => "unknown",
-    };
-    let implication = KorePattern::Implies {
-        sort: externalize::sort(result_sort),
-        left: Box::new(antecedent.clone()),
-        right: Box::new(consequent.clone()),
-    };
-    let mut output = serde_json::json!({
-        "status": status,
-        "implication": kore_json_value(&implication)?,
-    });
-    if let Some(condition) = result.condition {
-        let antecedent_variable = match antecedent.strip_exists() {
-            KorePattern::Variable(variable) => Some(variable.name.as_str()),
-            _ => None,
-        };
-        output["condition"] =
-            implication_condition_output(&condition, result_sort, antecedent_variable)?;
-    }
-    Ok(serde_json::to_string_pretty(&output)?)
-}
-
-fn implication_condition_output(
-    condition: &ImplicationCondition,
-    result_sort: &BackendSort,
-    antecedent_variable: Option<&str>,
-) -> Result<serde_json::Value, Box<dyn Error>> {
-    let substitution =
-        implication_substitution(&condition.substitution, result_sort, antecedent_variable)
-            .unwrap_or_else(|| KorePattern::Top {
-                sort: externalize::sort(result_sort),
-            });
-    let predicate = externalize::predicates_pattern(
-        &condition.predicates,
-        result_sort,
-        |predicate| externalize::predicate_pattern(predicate, result_sort),
-        externalize::ConjunctionShape::Flat,
-    )
-    .unwrap_or_else(|| KorePattern::Top {
-        sort: externalize::sort(result_sort),
-    });
-    let witnesses =
-        implication_substitution(&condition.witnesses, result_sort, antecedent_variable)
-            .unwrap_or_else(|| KorePattern::Top {
-                sort: externalize::sort(result_sort),
-            });
-    Ok(serde_json::json!({
-        "substitution": kore_json_value(&substitution)?,
-        "predicate": kore_json_value(&predicate)?,
-        "witnesses": kore_json_value(&witnesses)?,
-    }))
-}
-
-fn implication_substitution(
-    substitution: &Substitution,
-    result_sort: &BackendSort,
-    antecedent_variable: Option<&str>,
-) -> Option<KorePattern> {
-    let mut bindings = substitution.iter().collect::<Vec<_>>();
-    bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
-    let bindings = bindings.into_iter().map(|(variable, value)| {
-        let mut output_variable = variable.clone();
-        let consequent_existential = variable
-            .name
-            .as_ref()
-            .rsplit_once("!exists")
-            .filter(|(_, suffix)| suffix.chars().all(|character| character.is_ascii_digit()));
-        if let Some((name, _)) = consequent_existential {
-            output_variable.name = BackendName::from(name);
-        }
-        let prefer_antecedent = consequent_existential.is_some()
-            && matches!(
-                value.kind(),
-                TermKind::Variable(value) if antecedent_variable == Some(value.name.as_ref())
-            );
-        let (left, right) = if prefer_antecedent {
-            (
-                externalize::term(value),
-                externalize::term(&Term::variable(output_variable)),
-            )
-        } else {
-            (
-                externalize::term(&Term::variable(output_variable)),
-                externalize::term(value),
-            )
-        };
-        KorePattern::Equals {
-            operand_sort: externalize::sort(&variable.sort),
-            result_sort: externalize::sort(result_sort),
-            left: Box::new(left),
-            right: Box::new(right),
-        }
-    });
-    externalize::conjunction(
-        &externalize::sort(result_sort),
-        bindings.collect(),
-        externalize::ConjunctionShape::LeftNested,
-    )
-}
-
-fn kore_json_value(pattern: &KorePattern) -> Result<serde_json::Value, Box<dyn Error>> {
-    Ok(kore_json::to_value(pattern)?)
-}
-
-fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<dyn Error>> {
+fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(), Box<dyn Error>> {
     let definition_source = fs::read_to_string(&options.definition)?;
     let definition = parse_kore_definition(&definition_source).map_err(|error| {
         io::Error::new(
@@ -3019,8 +2575,9 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
             ),
         )
     })?;
-    let function_symbols = kore_function_symbols(&definition);
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut backend =
+        Backend::from_definition(definition, &options.module, BackendOptions::default())?;
+    let function_symbols = backend.select_definition(None)?.function_symbol_names();
 
     let target_source = fs::read_to_string(&options.pattern)?;
     let target = parse_kore_pattern(&target_source).map_err(|error| {
@@ -3032,7 +2589,12 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
             ),
         )
     })?;
-    let target = backend.internalize_pattern(&target, &[])?;
+    let target = backend.with_solver(None, |definition, _| {
+        definition
+            .verify_standalone_pattern(&target)
+            .and_then(|()| definition.internalize_pattern(&target, &[]))
+            .map_err(|error| BackendError(error.to_string()))
+    })?;
 
     let disjunction_source = fs::read_to_string(&options.disjunction)?;
     let disjunction = parse_kore_pattern(&disjunction_source).map_err(|error| {
@@ -3044,9 +2606,12 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
             ),
         )
     })?;
-    let alternatives = backend.internalize_disjunction(&disjunction, &[])?;
-    let matches =
-        match_disjunction(&backend, &target, &alternatives).map_err(pattern_match_error)?;
+    let alternatives = backend.with_solver(None, |definition, _| {
+        definition
+            .internalize_disjunction(&disjunction, &[])
+            .map_err(|error| BackendError(error.to_string()))
+    })?;
+    let matches = backend.match_patterns(None, &target, &alternatives)?;
     let output_sort = externalize::sort(&target.term.sort());
     let output = pattern_matches_output(
         &matches,
@@ -3062,17 +2627,6 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
         println!("{output}");
     }
     Ok(())
-}
-
-fn pattern_match_error(error: PatternMatchError) -> io::Error {
-    io::Error::other(format!("KORE pattern match was indeterminate: {error:?}"))
-}
-
-struct BackendRunOutput {
-    pattern: KorePattern,
-    exit_code: u8,
-    captured_stdout: Option<Vec<u8>>,
-    live_transcript: Option<Vec<DescriptorTranscriptEntry>>,
 }
 
 fn deliver_console_transcript(transcript: &[DescriptorTranscriptEntry]) -> io::Result<()> {
@@ -3100,558 +2654,6 @@ fn deliver_console_transcript(transcript: &[DescriptorTranscriptEntry]) -> io::R
     Ok(())
 }
 
-fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<Vec<u8>, io::Error> {
-    let details = finals
-        .iter()
-        .map(|leaf| {
-            let term = externalize::term(&leaf.pattern.term);
-            (leaf.pattern.constraints.len(), stdout_stream_buffers(&term))
-        })
-        .collect::<Vec<_>>();
-    let valid_shape =
-        finals.len() == 1 && finals[0].pattern.constraints.is_empty() && details[0].1.len() == 1;
-    if !valid_shape {
-        let summary = details
-            .iter()
-            .map(|(constraints, buffers)| {
-                format!(
-                    "constraints={constraints}, stdout stream buffers={}",
-                    buffers.len()
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        return Err(io::Error::other(format!(
-            "captured output requires exactly one execution leaf, unconstrained and with exactly one stdout stream buffer; found {} {}{}{}",
-            finals.len(),
-            if finals.len() == 1 { "leaf" } else { "leaves" },
-            if summary.is_empty() { "" } else { ": " },
-            summary,
-        )));
-    }
-    let leaf = finals[0];
-    if !matches!(
-        leaf.halt_reason,
-        HaltReason::Stuck | HaltReason::TerminalRule { .. }
-    ) {
-        return Err(io::Error::other(format!(
-            "captured output requires one complete terminal execution leaf; leaf halted at depth {} with {:?}",
-            leaf.depth, leaf.halt_reason
-        )));
-    }
-    Ok(details[0].1[0].clone())
-}
-
-fn stdout_stream_buffers(pattern: &KorePattern) -> Vec<Vec<u8>> {
-    fn visit(pattern: &KorePattern, buffers: &mut Vec<Vec<u8>>) {
-        if let KorePattern::Application { symbol, arguments } = pattern {
-            if symbol.name.starts_with("Lbl'-LT-'")
-                && symbol.name.contains("'-GT-'")
-                && arguments.len() == 1
-                && let Some(items) = stream_list_items(&arguments[0])
-                && let [descriptor, mode, buffer] = items.as_slice()
-                && is_stream_descriptor(descriptor, "Lbl'Hash'ostream", "SortInt", "1")
-                && domain_value(unwrap_injections(mode), "SortString") == Some("off")
-                && let Some(value) = stream_buffer(buffer)
-            {
-                buffers.push(value.to_vec());
-            }
-            for argument in arguments {
-                visit(argument, buffers);
-            }
-        }
-    }
-
-    let mut buffers = Vec::new();
-    visit(pattern, &mut buffers);
-    buffers
-}
-
-fn stream_list_items(pattern: &KorePattern) -> Option<Vec<&KorePattern>> {
-    fn append<'a>(pattern: &'a KorePattern, items: &mut Vec<&'a KorePattern>) -> bool {
-        let pattern = unwrap_injections(pattern);
-        let KorePattern::Application { symbol, arguments } = pattern else {
-            return false;
-        };
-        if symbol.name == "Lbl'Unds'List'Unds'" && arguments.len() == 2 {
-            append(&arguments[0], items) && append(&arguments[1], items)
-        } else if symbol.name == "LblListItem" && arguments.len() == 1 {
-            items.push(&arguments[0]);
-            true
-        } else {
-            false
-        }
-    }
-
-    let mut items = Vec::new();
-    append(pattern, &mut items).then_some(items)
-}
-
-fn unwrap_injections(mut pattern: &KorePattern) -> &KorePattern {
-    while let KorePattern::Application { symbol, arguments } = pattern
-        && symbol.name == "inj"
-        && arguments.len() == 1
-    {
-        pattern = &arguments[0];
-    }
-    pattern
-}
-
-fn domain_value<'a>(pattern: &'a KorePattern, sort_name: &str) -> Option<&'a str> {
-    let KorePattern::DomainValue { sort, value } = pattern else {
-        return None;
-    };
-    matches!(sort, KoreSort::Application { name, arguments }
-        if name == sort_name && arguments.is_empty())
-    .then(|| value.as_utf8().ok())
-    .flatten()
-}
-
-fn is_stream_descriptor(
-    pattern: &KorePattern,
-    symbol_prefix: &str,
-    sort_name: &str,
-    value: &str,
-) -> bool {
-    let KorePattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
-        return false;
-    };
-    symbol.name.starts_with(symbol_prefix)
-        && arguments.len() == 1
-        && domain_value(unwrap_injections(&arguments[0]), sort_name) == Some(value)
-}
-
-fn stream_buffer(pattern: &KorePattern) -> Option<&[u8]> {
-    let KorePattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
-        return None;
-    };
-    if !symbol.name.starts_with("Lbl'Hash'buffer") || arguments.len() != 1 {
-        return None;
-    }
-    let KorePattern::Application {
-        symbol: sequence,
-        arguments: sequence_arguments,
-    } = unwrap_injections(&arguments[0])
-    else {
-        return None;
-    };
-    if sequence.name != "kseq" || sequence_arguments.len() != 2 {
-        return None;
-    }
-    let KorePattern::Application {
-        symbol: terminator,
-        arguments: terminator_arguments,
-    } = &sequence_arguments[1]
-    else {
-        return None;
-    };
-    if terminator.name != "dotk" || !terminator_arguments.is_empty() {
-        return None;
-    }
-    domain_value_bytes(unwrap_injections(&sequence_arguments[0]), "SortString")
-}
-
-fn domain_value_bytes<'a>(pattern: &'a KorePattern, sort_name: &str) -> Option<&'a [u8]> {
-    let KorePattern::DomainValue { sort, value } = pattern else {
-        return None;
-    };
-    matches!(sort, KoreSort::Application { name, arguments }
-        if name == sort_name && arguments.is_empty())
-    .then(|| value.as_bytes())
-}
-
-fn run_backend(
-    backend: &BackendDefinition,
-    initial: Vec<Pattern>,
-    options: BackendRunOptions,
-) -> Result<BackendRunOutput, Box<dyn Error>> {
-    let Some(first_initial) = initial.first() else {
-        return Err(io::Error::other("initial pattern has no live disjuncts").into());
-    };
-    let output_sort = externalize::sort(&first_initial.term.sort());
-    let solver = Z3Solver::with_options(backend, options.smt)
-        .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-    let mut match_target = options.match_target;
-    if let Some(search) = options.search {
-        if options.stop_leaves.is_some() {
-            return Err(io::Error::other("--stop-leaves is only supported for execution").into());
-        }
-        let target = match match_target.take() {
-            Some(target) => target,
-            None => BackendMatchTarget {
-                pattern: match search.pattern {
-                    Some(path) => load_backend_pattern(backend, &path, "search")?,
-                    None => default_search_pattern(first_initial),
-                },
-                generated_anonymous_variables: BTreeSet::new(),
-            },
-        };
-        let result = search_pattern_disjunction_with_solver(
-            backend,
-            initial,
-            &target.pattern,
-            SearchOptions {
-                search_type: search.search_type,
-                max_depth: options.depth,
-                max_breadth: options.breadth_limit,
-                max_results: search.bound,
-                max_simplification_iterations: options.max_simplification_iterations,
-            },
-            &solver,
-        );
-        for effect in &result.effects {
-            match effect {
-                BuiltinEffect::UserLog(message) => eprintln!("{message}"),
-            }
-        }
-        // Depth and result bounds are limits the user asked for, not engine failures: the
-        // states found are still valid answers, so report the truncation and succeed.
-        if result.incomplete.contains(&IncompleteSearch::ResultBound) {
-            eprintln!("search stopped at the requested result bound; further results may exist");
-        }
-        if let Some(incomplete) = result.incomplete.iter().find(|incomplete| {
-            !matches!(
-                incomplete,
-                IncompleteSearch::DepthBound(_) | IncompleteSearch::ResultBound
-            )
-        }) {
-            return Err(io::Error::other(format!(
-                "in-process backend search was incomplete: {incomplete:?}"
-            ))
-            .into());
-        }
-        return Ok(BackendRunOutput {
-            pattern: search_output(
-                &result,
-                &output_sort,
-                &target.generated_anonymous_variables,
-                &options.function_symbols,
-            ),
-            exit_code: 0,
-            captured_stdout: None,
-            live_transcript: None,
-        });
-    }
-    let execution_options = ExecutionOptions {
-        max_depth: options.depth,
-        max_breadth: options.breadth_limit,
-        max_simplification_iterations: options.max_simplification_iterations,
-        mode: options.strategy,
-        branch_mode: if options.execute_to_branch {
-            ExecutionBranchMode::StopAtBranch
-        } else {
-            ExecutionBranchMode::ExploreAll
-        },
-        cut_point_rules: options.cut_point_rules,
-        terminal_rules: options.terminal_rules,
-        step_timeout: options.step_timeout,
-        moving_average_timeout: options.moving_average_timeout,
-        ..ExecutionOptions::default()
-    };
-    let live_io = options.execution_input.is_some();
-    let (execution, initial_simplification) = if let Some(input) = options.execution_input {
-        execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status(
-            backend,
-            initial,
-            execution_options,
-            &solver,
-            ExecutionIoState::new(input),
-            |effect| match effect {
-                BuiltinEffect::UserLog(message) => eprintln!("{message}"),
-            },
-        )
-    } else {
-        execute_disjunction_with_solver_and_observer_with_initial_status(
-            backend,
-            initial,
-            execution_options,
-            &solver,
-            |effect| match effect {
-                BuiltinEffect::UserLog(message) => eprintln!("{message}"),
-            },
-        )
-    };
-    if let Some(leaf) = execution.leaves.iter().find(|leaf| {
-        matches!(
-            leaf.halt_reason,
-            HaltReason::Cancelled | HaltReason::Indeterminate(_) | HaltReason::Simplification(_)
-        )
-    }) {
-        let reason = match &leaf.halt_reason {
-            HaltReason::Simplification(
-                error @ SimplificationError::UnsupportedHook { term, .. },
-            ) => {
-                let application = KorePrinter::pretty(100).print_pattern(&externalize::term(term));
-                format!("{error}\n{application}")
-            }
-            reason => format!("{reason:?}"),
-        };
-        return Err(io::Error::other(format!(
-            "in-process backend halted at depth {}: {reason}",
-            leaf.depth
-        ))
-        .into());
-    }
-    if let Some(path) = options.stop_leaves {
-        let depth_bounded = execution
-            .leaves
-            .iter()
-            .filter(|leaf| matches!(leaf.halt_reason, HaltReason::DepthBound))
-            .collect::<Vec<_>>();
-        let sort = depth_bounded
-            .first()
-            .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
-            .unwrap_or_else(|| output_sort.clone());
-        let marker = KorePattern::Or {
-            sort,
-            arguments: depth_bounded
-                .into_iter()
-                .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
-                .collect(),
-        };
-        fs::write(path, KorePrinter::pretty(100).print_pattern(&marker))?;
-    }
-    let final_sort = execution
-        .leaves
-        .first()
-        .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
-        .unwrap_or_else(|| output_sort.clone());
-    let initial_is_bottom = initial_simplification.simplified_to_bottom();
-    let finals = execution
-        .leaves
-        .iter()
-        .filter(|leaf| {
-            !matches!(
-                leaf.halt_reason,
-                HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
-            )
-        })
-        .collect::<Vec<_>>();
-    let captured_stdout = options
-        .capture_stdout
-        .then(|| captured_stdout_buffer(&finals))
-        .transpose()?;
-    let live_transcript = if live_io {
-        match execution.leaves.as_slice() {
-            [leaf] => Some(leaf.io.transcript().to_vec()),
-            leaves if leaves.iter().all(|leaf| leaf.io.transcript().is_empty()) => Some(Vec::new()),
-            leaves => {
-                return Err(io::Error::other(format!(
-                    "--io on cannot select console output from {} retained execution traces",
-                    leaves.len()
-                ))
-                .into());
-            }
-        }
-    } else {
-        None
-    };
-    let exit_code = exit_code_of(
-        backend,
-        &solver,
-        &finals,
-        options.max_simplification_iterations,
-    )?;
-    if initial_is_bottom {
-        eprintln!(
-            "warning: the initial configuration simplified to \\bottom before any rewrite step; check the configuration variables"
-        );
-    } else if finals.is_empty()
-        && execution.leaves.iter().all(|leaf| {
-            matches!(
-                leaf.halt_reason,
-                HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
-            )
-        })
-    {
-        for leaf in &execution.leaves {
-            let result_sort = leaf.pattern.term.sort();
-            match &leaf.halt_reason {
-                HaltReason::Trivial {
-                    depth,
-                    rule_id,
-                    label,
-                    obligation,
-                } => {
-                    let obligation = KorePrinter::compact()
-                        .print_pattern(&externalize::ml_pattern(obligation, &result_sort));
-                    if let Some(rule) = label.as_ref().or(rule_id.as_ref()) {
-                        eprintln!(
-                            "warning: execution ended with no successor at depth {depth}: rule {rule} applied with an undefined result; refuted obligation {obligation}"
-                        );
-                    } else {
-                        eprintln!(
-                            "warning: execution ended with no successor at depth {depth}: the result simplified to bottom; refuted obligation {obligation}"
-                        );
-                    }
-                }
-                HaltReason::Vacuous {
-                    depth,
-                    rule_id,
-                    label,
-                    constraint,
-                } => {
-                    let constraint = KorePrinter::compact()
-                        .print_pattern(&externalize::ml_pattern(constraint, &result_sort));
-                    if let Some(rule) = label.as_ref().or(rule_id.as_ref()) {
-                        eprintln!(
-                            "warning: execution ended with no successor at depth {depth}: rule {rule} applied with a false path constraint; refuted obligation {constraint}"
-                        );
-                    } else {
-                        eprintln!(
-                            "warning: execution ended with no successor at depth {depth}: the path constraint is false; refuted obligation {constraint}"
-                        );
-                    }
-                }
-                _ => unreachable!("all dropped leaves were checked above"),
-            }
-        }
-    }
-    if let Some(target) = match_target {
-        let subjects = finals
-            .iter()
-            .map(|leaf| leaf.pattern.clone())
-            .collect::<Vec<_>>();
-        let matches = match_disjunction_with_solver(
-            backend,
-            &target.pattern,
-            &subjects,
-            SimplificationOptions {
-                max_iterations: options.max_simplification_iterations,
-                ..SimplificationOptions::default()
-            },
-            &solver,
-        )
-        .map_err(pattern_match_error)?;
-        return Ok(BackendRunOutput {
-            pattern: pattern_matches_output(
-                &matches,
-                &output_sort,
-                &target.pattern.term.sort(),
-                &target.generated_anonymous_variables,
-                &options.function_symbols,
-            ),
-            exit_code,
-            captured_stdout,
-            live_transcript,
-        });
-    }
-    let states = finals
-        .iter()
-        .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
-        .collect::<Vec<_>>();
-    let mut states = order_disjuncts(states);
-    let pattern = match states.len() {
-        0 => KorePattern::Bottom { sort: output_sort },
-        1 => states.pop().unwrap(),
-        _ => KorePattern::Or {
-            sort: final_sort,
-            arguments: states,
-        },
-    };
-    Ok(BackendRunOutput {
-        pattern,
-        exit_code,
-        captured_stdout,
-        live_transcript,
-    })
-}
-
-/// Match `Kore.Exec.getExitCode` over the merged, non-bottom final configurations.
-fn exit_code_of(
-    backend: &BackendDefinition,
-    solver: &dyn SmtSolver,
-    finals: &[&ExecutionLeaf],
-    max_iterations: usize,
-) -> Result<u8, Box<dyn Error>> {
-    let Some(symbol) = backend.symbols.get("LblgetExitCode") else {
-        return Ok(0);
-    };
-    let mut results = BTreeSet::new();
-    for leaf in finals {
-        let simplified = simplify_pattern_with_solver(
-            backend,
-            &Pattern {
-                term: Term::application(
-                    symbol.clone(),
-                    Vec::new(),
-                    vec![leaf.pattern.term.clone()],
-                ),
-                constraints: leaf.pattern.constraints.clone(),
-            },
-            SimplificationOptions {
-                max_iterations,
-                ..SimplificationOptions::default()
-            },
-            solver,
-        )
-        .map_err(|error| {
-            io::Error::other(format!(
-                "could not evaluate getExitCode on a final configuration: {error}"
-            ))
-        })?;
-        if !simplified
-            .constraints
-            .iter()
-            .any(|predicate| matches!(predicate, Predicate::False))
-        {
-            results.insert(simplified.term);
-        }
-    }
-
-    let mut distinct = results.into_iter();
-    let Some(term) = distinct.next() else {
-        return Ok(111);
-    };
-    if distinct.next().is_some() {
-        return Ok(111);
-    }
-    Ok(term_exit_code(&term).unwrap_or(111))
-}
-
-fn term_exit_code(term: &Term) -> Option<u8> {
-    let TermKind::DomainValue { sort, value } = term.kind() else {
-        return None;
-    };
-    if !sort.is_builtin(BuiltinSort::Int) {
-        return None;
-    }
-    let value = value.as_utf8().ok()?.parse::<BigInt>().ok()?;
-    let modulus = BigInt::from(256_u16);
-    (((value % &modulus) + &modulus) % modulus).to_u8()
-}
-
-fn default_search_pattern(initial: &Pattern) -> Pattern {
-    Pattern {
-        // This is already a KORE variable, so use reference krun's mangled K-level spelling.
-        term: Term::variable(Variable::new("VarResult", initial.term.sort())),
-        constraints: Vec::new(),
-    }
-}
-
-fn load_backend_pattern(
-    definition: &BackendDefinition,
-    path: &Path,
-    purpose: &str,
-) -> Result<Pattern, Box<dyn Error>> {
-    let input = fs::read(path)?;
-    decode_backend_pattern(definition, path, purpose, &input)
-}
-
-fn load_backend_patterns(
-    definition: &BackendDefinition,
-    path: &Path,
-    purpose: &str,
-) -> Result<Vec<Pattern>, Box<dyn Error>> {
-    let input = fs::read(path)?;
-    let syntax = decode_kore_syntax(path, purpose, &input)?;
-    definition.verify_standalone_pattern(&syntax)?;
-    definition.validate_executable_pattern(&syntax)?;
-    definition
-        .internalize_disjunction(&syntax, &[])
-        .map_err(Into::into)
-}
-
 fn load_kore_syntax(path: &Path, purpose: &str) -> Result<KorePattern, Box<dyn Error>> {
     let input = fs::read(path)?;
     decode_kore_syntax(path, purpose, &input)
@@ -3664,20 +2666,6 @@ fn decode_kore_syntax(
 ) -> Result<KorePattern, Box<dyn Error>> {
     kore_codec::decode_bytes(input)
         .map_err(|error| invalid_kore_pattern(path, purpose, error.encoding, error.cause))
-}
-
-fn decode_backend_pattern(
-    definition: &BackendDefinition,
-    path: &Path,
-    purpose: &str,
-    input: &[u8],
-) -> Result<Pattern, Box<dyn Error>> {
-    let syntax = kore_codec::decode_bytes(input)
-        .map_err(|error| invalid_kore_pattern(path, purpose, error.encoding, error.cause))?;
-    definition.verify_standalone_pattern(&syntax)?;
-    definition
-        .internalize_pattern(&syntax, &[])
-        .map_err(Into::into)
 }
 
 fn invalid_kore_pattern(
@@ -3694,232 +2682,6 @@ fn invalid_kore_pattern(
         ),
     )
     .into()
-}
-
-fn search_output(
-    result: &PatternSearchResult,
-    result_sort: &KoreSort,
-    generated_anonymous_variables: &BTreeSet<Variable>,
-    function_symbols: &BTreeSet<String>,
-) -> KorePattern {
-    let solutions = result
-        .matches
-        .iter()
-        .map(|found| {
-            raw_match_condition_output(
-                &found.substitution,
-                &found.constraints,
-                result_sort,
-                &found.state.pattern.term.sort(),
-            )
-        })
-        .collect::<Vec<_>>();
-    filter_match_condition(
-        externalize::disjunction(
-            result_sort,
-            solutions,
-            externalize::ConjunctionShape::LeftNested,
-        )
-        .unwrap_or_else(|| KorePattern::Bottom {
-            sort: result_sort.clone(),
-        }),
-        result_sort,
-        generated_anonymous_variables,
-        function_symbols,
-    )
-}
-
-fn pattern_matches_output(
-    matches: &[PatternMatch],
-    result_sort: &KoreSort,
-    predicate_sort: &BackendSort,
-    generated_anonymous_variables: &BTreeSet<Variable>,
-    function_symbols: &BTreeSet<String>,
-) -> KorePattern {
-    let solutions = matches
-        .iter()
-        .map(|found| {
-            raw_match_condition_output(
-                &found.substitution,
-                &found.constraints,
-                result_sort,
-                predicate_sort,
-            )
-        })
-        .collect::<Vec<_>>();
-    filter_match_condition(
-        externalize::disjunction(
-            result_sort,
-            solutions,
-            externalize::ConjunctionShape::LeftNested,
-        )
-        .unwrap_or_else(|| KorePattern::Bottom {
-            sort: result_sort.clone(),
-        }),
-        result_sort,
-        generated_anonymous_variables,
-        function_symbols,
-    )
-}
-
-fn raw_match_condition_output(
-    substitution: &Substitution,
-    constraints: &[Predicate],
-    result_sort: &KoreSort,
-    predicate_sort: &BackendSort,
-) -> KorePattern {
-    let predicate_sort_kore = externalize::sort(predicate_sort);
-    let mut predicates = externalize::substitution_pattern(
-        substitution,
-        predicate_sort,
-        externalize::BindingOrder::NameThenSort,
-        externalize::ConjunctionShape::LeftNested,
-    )
-    .map(|pattern| {
-        pattern
-            .conjuncts_at(&predicate_sort_kore)
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    })
-    .unwrap_or_default();
-    predicates.extend(
-        constraints
-            .iter()
-            .map(|predicate| externalize::predicate_pattern(predicate, predicate_sort)),
-    );
-    externalize::conjunction(
-        result_sort,
-        predicates,
-        externalize::ConjunctionShape::LeftNested,
-    )
-    .unwrap_or_else(|| KorePattern::Top {
-        sort: result_sort.clone(),
-    })
-}
-
-fn generated_kore_identities(variables: &BTreeSet<Variable>) -> BTreeSet<KoreVariableIdentity> {
-    variables
-        .iter()
-        .map(|variable| KoreVariableIdentity {
-            kind: match variable.kind {
-                BackendVariableKind::Element => KoreVariableKind::Element,
-                BackendVariableKind::Set => KoreVariableKind::Set,
-            },
-            name: externalize::external_variable_name(&variable.name),
-        })
-        .collect()
-}
-
-fn is_filterable_generated_equality(
-    pattern: &KorePattern,
-    generated_anonymous_variables: &BTreeSet<KoreVariableIdentity>,
-    function_symbols: &BTreeSet<String>,
-    occurrences: &BTreeMap<KoreVariableIdentity, usize>,
-) -> bool {
-    let KorePattern::Equals { left, .. } = pattern else {
-        return false;
-    };
-    let eligible_left = match left.as_ref() {
-        KorePattern::Variable(_) => true,
-        KorePattern::Application { symbol, .. } => function_symbols.contains(&symbol.name),
-        _ => false,
-    };
-    if !eligible_left {
-        return false;
-    }
-    let left_variables = left
-        .variables()
-        .iter()
-        .map(kore_variable_identity)
-        .collect::<BTreeSet<_>>();
-    left_variables.iter().all(|identity| {
-        generated_anonymous_variables.contains(identity) && occurrences.get(identity) == Some(&1)
-    })
-}
-
-fn filter_match_condition(
-    condition: KorePattern,
-    result_sort: &KoreSort,
-    generated_anonymous_variables: &BTreeSet<Variable>,
-    function_symbols: &BTreeSet<String>,
-) -> KorePattern {
-    let disjuncts = condition
-        .disjuncts_at(result_sort)
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    let disjuncts = disjuncts
-        .into_iter()
-        .map(|condition| {
-            filter_match_conjunction(
-                condition,
-                result_sort,
-                generated_anonymous_variables,
-                function_symbols,
-            )
-        })
-        .collect();
-    externalize::disjunction(
-        result_sort,
-        order_distinct_match_outputs(disjuncts),
-        externalize::ConjunctionShape::LeftNested,
-    )
-    .unwrap_or_else(|| KorePattern::Bottom {
-        sort: result_sort.clone(),
-    })
-}
-
-fn filter_match_conjunction(
-    condition: KorePattern,
-    result_sort: &KoreSort,
-    generated_anonymous_variables: &BTreeSet<Variable>,
-    function_symbols: &BTreeSet<String>,
-) -> KorePattern {
-    let occurrences = condition
-        .variable_occurrences()
-        .into_iter()
-        .map(|((kind, name), count)| (KoreVariableIdentity { kind, name }, count))
-        .collect::<BTreeMap<_, _>>();
-    let generated_anonymous_variables = generated_kore_identities(generated_anonymous_variables);
-    let conjuncts = condition
-        .conjuncts_at(result_sort)
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    let conjuncts = conjuncts
-        .into_iter()
-        .filter(|pattern| {
-            !is_filterable_generated_equality(
-                pattern,
-                &generated_anonymous_variables,
-                function_symbols,
-                &occurrences,
-            )
-        })
-        .collect();
-    externalize::conjunction(
-        result_sort,
-        conjuncts,
-        externalize::ConjunctionShape::LeftNested,
-    )
-    .unwrap_or_else(|| KorePattern::Top {
-        sort: result_sort.clone(),
-    })
-}
-
-fn order_distinct_match_outputs(mut solutions: Vec<KorePattern>) -> Vec<KorePattern> {
-    solutions.sort();
-    solutions.dedup();
-    solutions
-}
-
-/// Print disjuncts in the structural order of their externalized KORE, never in
-/// traversal order. Kore's internal term ordering is intentionally not reproduced; gates compare
-/// result multisets (docs/compatibility.md#search-results).
-fn order_disjuncts(mut solutions: Vec<KorePattern>) -> Vec<KorePattern> {
-    solutions.sort();
-    solutions
 }
 
 fn compile_proof_source(
@@ -4046,35 +2808,20 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         ..ProofTimings::default()
     };
     let started = Instant::now();
-    let backend = BackendDefinition::internalize(&syntax, &options.module)?;
+    let definition = Backend::internalize_definition(&syntax, &options.module)?;
     timings.internalize_seconds = started.elapsed().as_secs_f64();
     if options.load_only {
         return timings.write(options.timings.as_deref());
     }
     let setup_started = Instant::now();
-    let saved_claims = options
-        .save_proofs
-        .as_deref()
-        .map(load_saved_claims)
-        .transpose()?
-        .unwrap_or_default();
+    let saved_proofs = SavedProofs::load(options.save_proofs.as_deref())?;
     let spec_module = syntax
         .modules
         .iter()
         .find(|module| module.name == options.module)
         .ok_or_else(|| format!("compiled KORE has no module `{}`", options.module))?;
-    let mut proven_ids = spec_module
-        .sentences
-        .iter()
-        .filter_map(|sentence| {
-            let id = claim_unique_id(sentence)?;
-            saved_claims
-                .iter()
-                .any(|saved| same_claim(sentence, saved))
-                .then_some(id)
-        })
-        .collect::<BTreeSet<_>>();
-    if backend.reachability_claims.is_empty() {
+    let mut proven_ids = saved_proofs.proven_ids(spec_module);
+    if definition.reachability_claims.is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
     let smt_prelude = options
@@ -4089,17 +2836,8 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             })
         })
         .transpose()?;
-    let solver = Z3Solver::with_options_and_prelude(&backend, options.smt, smt_prelude.as_deref())
-        .map_err(|error| {
-            io::Error::other(match error {
-                SmtError::InconsistentPrelude => {
-                    "the definitions sent to the solver are inconsistent".to_owned()
-                }
-                error => format!("could not initialize Z3: {error:?}"),
-            })
-        })?;
     let kept = filter_claims(
-        &backend.reachability_claims,
+        &definition.reachability_claims,
         &ClaimFilter {
             selected: options.claims,
             excluded: options.excluded_claims,
@@ -4111,10 +2849,28 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         return Err("the selected module contains no modal reachability claims".into());
     }
     let circularities = kept.iter().collect::<Vec<_>>();
+    let mut backend = Backend::from_internalized_with_prelude(
+        definition,
+        BackendOptions {
+            smt_timeout_ms: options.smt.timeout_ms,
+            smt_retry_limit: options.smt.retry_limit,
+        },
+        smt_prelude,
+    )
+    .map_err(|error| {
+        io::Error::other(
+            if error.0 == "could not initialize Z3: InconsistentPrelude" {
+                "the definitions sent to the solver are inconsistent".to_owned()
+            } else {
+                error.to_string()
+            },
+        )
+    })?;
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     let mut output = io::stdout().lock();
     let mut all_proven = true;
+    // Invariant: proven_ids contains every uniquely identified claim proven before this index.
     for (index, claim) in kept.iter().enumerate() {
         let name = claim
             .attributes
@@ -4140,24 +2896,28 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             continue;
         }
         let started = Instant::now();
-        let result = prove_claim(
-            &backend,
-            claim,
-            &circularities,
-            ProofOptions {
-                max_depth: options.depth,
-                min_depth: options.min_depth,
-                breadth_limit: options.breadth_limit,
-                max_counterexamples: options.max_counterexamples,
-                max_simplification_iterations: options.max_simplification_iterations,
-                allow_vacuous: options.allow_vacuous,
-                search_order: options.graph_search,
-                stuck_check: options.stuck_check,
-                step_timeout: options.step_timeout,
-                moving_average_timeout: options.moving_average_timeout,
-            },
-            &solver,
-        )?;
+        let proof_options = ProofOptions {
+            max_depth: options.depth,
+            min_depth: options.min_depth,
+            breadth_limit: options.breadth_limit,
+            max_counterexamples: options.max_counterexamples,
+            max_simplification_iterations: options.max_simplification_iterations,
+            allow_vacuous: options.allow_vacuous,
+            search_order: options.graph_search,
+            stuck_check: options.stuck_check,
+            step_timeout: options.step_timeout,
+            moving_average_timeout: options.moving_average_timeout,
+        };
+        let result = backend.with_solver(None, |definition, solver| {
+            k_rust::backend::proving::run_claim(
+                definition,
+                claim,
+                &circularities,
+                proof_options,
+                solver,
+            )
+            .map_err(|error| BackendError(format!("could not prove claim: {error:?}")))
+        })?;
         let seconds = started.elapsed().as_secs_f64();
         timings.proof_seconds += seconds;
         timings.claims.push(ClaimTiming {
@@ -4201,9 +2961,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    if let Some(path) = &options.save_proofs {
-        save_proven_claims(path, spec_module, &proven_ids)?;
-    }
+    saved_proofs.save(spec_module, &proven_ids)?;
     timings.write(options.timings.as_deref())?;
     if !all_proven {
         return Err("one or more reachability claims were not proven".into());
@@ -4238,202 +2996,6 @@ fn load_compiled_definition(path: &Path) -> Result<KoreDefinition, Box<dyn Error
     })
 }
 
-/// Apply K's proof-module filter while retaining this CLI's suffix label resolution.
-fn filter_claims(
-    claims: &[ReachabilityClaim],
-    filter: &ClaimFilter,
-) -> Result<Vec<ReachabilityClaim>, Box<dyn Error>> {
-    let labels = claims
-        .iter()
-        .filter_map(|claim| claim.attributes.label.clone())
-        .collect::<Vec<_>>();
-    let selected = resolve_claim_labels(&labels, &filter.selected)?;
-    let excluded = resolve_claim_labels(&labels, &filter.excluded)?;
-    let trusted = resolve_claim_labels(&labels, &filter.trusted)?;
-    if let Some(label) = selected.intersection(&excluded).next() {
-        return Err(format!("label `{label}` used for both --claim and --exclude").into());
-    }
-
-    Ok(claims
-        .iter()
-        .filter_map(|claim| {
-            let Some(label) = &claim.attributes.label else {
-                return Some(claim.clone());
-            };
-            if excluded.contains(label) || (!selected.is_empty() && !selected.contains(label)) {
-                return None;
-            }
-            let mut claim = claim.clone();
-            if trusted.contains(label) {
-                claim.attributes.trusted = true;
-            }
-            Some(claim)
-        })
-        .collect())
-}
-
-fn resolve_claim_labels(
-    labels: &[String],
-    requested: &[String],
-) -> Result<BTreeSet<String>, Box<dyn Error>> {
-    let mut selected = BTreeSet::new();
-    for requested in requested {
-        if labels.iter().any(|label| label == requested) {
-            selected.insert(requested.clone());
-            continue;
-        }
-        let suffix = format!(".{requested}");
-        let matches = labels
-            .iter()
-            .filter(|label| label.ends_with(&suffix))
-            .collect::<Vec<_>>();
-        match matches.as_slice() {
-            [] => {
-                return Err(format!("no modal reachability claim has label `{requested}`").into());
-            }
-            [label] => {
-                selected.insert((**label).clone());
-            }
-            _ => {
-                return Err(format!(
-                    "claim label `{requested}` is ambiguous; matches {}",
-                    matches
-                        .iter()
-                        .map(|label| format!("`{label}`"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-                .into());
-            }
-        }
-    }
-    Ok(selected)
-}
-
-const SAVED_PROOFS_MODULE: &str =
-    "haskell-backend-saved-claims-43943e50-f723-47cd-99fd-07104d664c6d";
-
-fn load_saved_claims(path: &Path) -> Result<Vec<KoreSentence>, Box<dyn Error>> {
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let definition = parse_kore_definition(&fs::read_to_string(path)?)?;
-    let module = definition
-        .modules
-        .iter()
-        .find(|module| module.name == SAVED_PROOFS_MODULE)
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("saved proof file has no `{SAVED_PROOFS_MODULE}` module"),
-            )
-        })?;
-    Ok(module
-        .sentences
-        .iter()
-        .filter(|sentence| matches!(sentence, KoreSentence::Claim { .. }))
-        .cloned()
-        .collect())
-}
-
-fn save_proven_claims(
-    path: &Path,
-    spec_module: &KoreModule,
-    proven_ids: &BTreeSet<String>,
-) -> Result<(), Box<dyn Error>> {
-    let definition = saved_proof_definition(spec_module, proven_ids);
-    let rendered = KorePrinter::pretty(100).print_definition(&definition);
-    fs::write(path, rendered)?;
-    Ok(())
-}
-
-fn saved_proof_definition(
-    spec_module: &KoreModule,
-    proven_ids: &BTreeSet<String>,
-) -> KoreDefinition {
-    let declarations = spec_module
-        .sentences
-        .iter()
-        .filter(|sentence| {
-            !matches!(
-                sentence,
-                KoreSentence::Axiom { .. } | KoreSentence::Claim { .. }
-            )
-        })
-        .cloned();
-    let claims = spec_module
-        .sentences
-        .iter()
-        .filter(|sentence| claim_unique_id(sentence).is_some_and(|id| proven_ids.contains(&id)))
-        .cloned();
-    KoreDefinition {
-        attributes: KoreAttributes::default(),
-        modules: vec![KoreModule {
-            name: SAVED_PROOFS_MODULE.into(),
-            sentences: declarations.chain(claims).collect(),
-            attributes: KoreAttributes::default(),
-        }],
-    }
-}
-
-fn claim_unique_id(sentence: &KoreSentence) -> Option<String> {
-    let KoreSentence::Claim { attributes, .. } = sentence else {
-        return None;
-    };
-    attributes
-        .string(KoreAttribute::UniqueId)
-        .ok()
-        .flatten()
-        .or_else(|| attributes.string(KoreAttribute::Label).ok().flatten())
-        .map(str::to_owned)
-}
-
-fn same_claim(left: &KoreSentence, right: &KoreSentence) -> bool {
-    let (
-        KoreSentence::Claim {
-            parameters: left_parameters,
-            pattern: left_pattern,
-            ..
-        },
-        KoreSentence::Claim {
-            parameters: right_parameters,
-            pattern: right_pattern,
-            ..
-        },
-    ) = (left, right)
-    else {
-        return false;
-    };
-
-    left_parameters == right_parameters && left_pattern == right_pattern
-}
-
-fn kore_module_function_symbols(module: &KoreModule) -> BTreeSet<String> {
-    module
-        .sentences
-        .iter()
-        .filter_map(|sentence| {
-            let KoreSentence::SymbolDeclaration {
-                symbol, attributes, ..
-            } = sentence
-            else {
-                return None;
-            };
-            attributes
-                .has(KoreAttribute::Function)
-                .then(|| symbol.name.clone())
-        })
-        .collect()
-}
-
-fn kore_function_symbols(definition: &KoreDefinition) -> BTreeSet<String> {
-    definition
-        .modules
-        .iter()
-        .flat_map(kore_module_function_symbols)
-        .collect()
-}
-
 fn proof_status(status: ProofStatus) -> &'static str {
     match status {
         ProofStatus::Proven => "proven",
@@ -4455,118 +3017,6 @@ fn read_program_source(
         (None, None) => read_stdin()?,
         (Some(_), Some(_)) => unreachable!(),
     })
-}
-
-fn configuration_variable_parser_modules(
-    definition: &k_rust::definition::ResolvedDefinition,
-    module: &str,
-) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
-    let module = definition
-        .module_id(module)
-        .ok_or_else(|| format!("definition has no module `{module}`"))?;
-    let mut modules = BTreeMap::new();
-    for sentence in definition.sentences(module) {
-        let Sentence::Production { attributes, .. } = sentence else {
-            continue;
-        };
-        if !attributes.has(AttributeKey::Cell) {
-            continue;
-        }
-        let Some(parser) = attributes.string(AttributeKey::Parser) else {
-            continue;
-        };
-        for entry in parser.split(';') {
-            let fields = entry.split(',').map(str::trim).collect::<Vec<_>>();
-            let [name, parser_module] = fields.as_slice() else {
-                return Err(format!("Invalid value for parser attribute: {parser}").into());
-            };
-            if name.is_empty() || parser_module.is_empty() {
-                return Err(format!("Invalid value for parser attribute: {parser}").into());
-            }
-            modules.insert(
-                name.strip_prefix('$').unwrap_or(name).to_string(),
-                (*parser_module).to_string(),
-            );
-        }
-    }
-    Ok(modules)
-}
-
-/// Build the `initGeneratedTopCell` application the way `llvm-krun` does from krun's `-c`
-/// list: one `_|->_` entry per supplied variable, `$PGM` first when a program was parsed.
-/// A definition whose configuration mentions no variable declares the initializer without
-/// the `Map` parameter (`GenerateSentencesFromConfigDecl`), so no entries means a nullary
-/// application.
-fn top_cell_initializer(
-    program: Option<(KorePattern, KoreSort)>,
-    config_vars: Vec<(String, KorePattern, KoreSort)>,
-) -> KorePattern {
-    let mut entries = Vec::with_capacity(config_vars.len() + 1);
-    if let Some((program, program_sort)) = program {
-        entries.push(("$PGM".to_owned(), program, program_sort));
-    }
-    entries.extend(config_vars);
-    let mut entries = entries
-        .into_iter()
-        .map(|(name, value, value_sort)| configuration_map_entry(&name, value, value_sort));
-    let arguments = match entries.next() {
-        Some(first) => vec![entries.fold(first, |left, right| {
-            kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right])
-        })],
-        None => Vec::new(),
-    };
-    kore_application("LblinitGeneratedTopCell", Vec::new(), arguments)
-}
-
-fn configuration_map_entry(name: &str, value: KorePattern, value_sort: KoreSort) -> KorePattern {
-    let config_var_sort = kore_sort(BuiltinSort::KConfigVar.kore_name());
-    let item_sort = kore_sort(BuiltinSort::KItem.kore_name());
-    let key = kore_application(
-        WellKnownSymbol::Inj.as_str(),
-        vec![config_var_sort.clone(), item_sort.clone()],
-        vec![KorePattern::DomainValue {
-            sort: config_var_sort,
-            value: name.into(),
-        }],
-    );
-    let value = if value_sort == item_sort {
-        value
-    } else {
-        kore_application(
-            WellKnownSymbol::Inj.as_str(),
-            vec![value_sort, item_sort],
-            vec![value],
-        )
-    };
-    kore_application("Lbl'UndsPipe'-'-GT-Unds'", Vec::new(), vec![key, value])
-}
-
-fn kore_application(
-    name: &str,
-    sort_parameters: Vec<KoreSort>,
-    arguments: Vec<KorePattern>,
-) -> KorePattern {
-    KorePattern::Application {
-        symbol: KoreSymbol {
-            name: name.into(),
-            sort_parameters,
-        },
-        arguments,
-    }
-}
-
-fn kore_sort(name: &str) -> KoreSort {
-    KoreSort::Application {
-        name: name.into(),
-        arguments: Vec::new(),
-    }
-}
-
-fn string_domain_value(value: impl Into<KoreString>) -> KorePattern {
-    KorePattern::DomainValue {
-        sort: kore_sort(BuiltinSort::String.kore_name()),
-        value: value.into(),
-    }
 }
 
 fn read_stdin() -> io::Result<String> {
@@ -4616,7 +3066,111 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k_rust_backend::term::{FunctionType, Symbol, SymbolAttributes, SymbolType};
+    use k_rust::{
+        backend::{
+            execution::{default_search_pattern, term_exit_code},
+            proving::{
+                SAVED_PROOFS_MODULE, claim_unique_id, resolve_claim_labels, saved_proof_definition,
+            },
+        },
+        kompile::initial_configuration::{kore_application, kore_sort},
+        kore::{
+            ast::{Sentence as KoreSentence, Sort as KoreSort, Symbol as KoreSymbol},
+            binary as kore_binary,
+        },
+    };
+    use k_rust_backend::{
+        definition::{BackendDefinition, PatternOrPredicate},
+        implication::ImplicationCondition,
+        rule::Predicate,
+        search::PatternMatch,
+        simplify::{
+            SimplificationOptions, simplify_and_decide_predicate_with_solver,
+            simplify_pattern_with_solver,
+        },
+        smt::Z3Solver,
+        substitution::Substitution,
+        term::{
+            FunctionType, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable,
+            VariableKind as BackendVariableKind,
+        },
+    };
+
+    #[cfg(test)]
+    fn simplify_kore_pattern(
+        definition: &BackendDefinition,
+        syntax: &KorePattern,
+    ) -> Result<KorePattern, Box<dyn Error>> {
+        simplify_kore_pattern_with_options(definition, syntax, Z3Options::default())
+    }
+
+    #[cfg(test)]
+    fn simplify_kore_pattern_with_options(
+        definition: &BackendDefinition,
+        syntax: &KorePattern,
+        options: Z3Options,
+    ) -> Result<KorePattern, Box<dyn Error>> {
+        let solver = Z3Solver::with_options(definition, options)
+            .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
+        match definition.internalize_pattern_or_predicate(syntax, &[])? {
+            PatternOrPredicate::Term(pattern) => {
+                let simplified = simplify_pattern_with_solver(
+                    definition,
+                    &pattern,
+                    SimplificationOptions::unbounded(),
+                    &solver,
+                )
+                .map_err(|error| {
+                    io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
+                })?;
+                return Ok(externalize::constrained_pattern(&simplified));
+            }
+            PatternOrPredicate::Predicate(predicate, result_sort) => {
+                let simplified = simplify_and_decide_predicate_with_solver(
+                    definition,
+                    &predicate,
+                    &[],
+                    SimplificationOptions::unbounded(),
+                    &solver,
+                )
+                .map_err(|error| {
+                    io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
+                })?;
+                return Ok(externalize::ml_pattern(&simplified, &result_sort));
+            }
+        }
+    }
+    #[cfg(test)]
+    fn implication_condition_output(
+        condition: &ImplicationCondition,
+        result_sort: &BackendSort,
+        antecedent_variable: Option<&str>,
+    ) -> Result<serde_json::Value, Box<dyn Error>> {
+        k_rust::backend::implication::cli_condition_output(
+            condition,
+            result_sort,
+            antecedent_variable,
+        )
+    }
+
+    #[cfg(test)]
+    fn kore_json_value(pattern: &KorePattern) -> Result<serde_json::Value, Box<dyn Error>> {
+        Ok(kore_json::to_value(pattern)?)
+    }
+    #[cfg(test)]
+    fn decode_backend_pattern(
+        definition: &BackendDefinition,
+        path: &Path,
+        purpose: &str,
+        input: &[u8],
+    ) -> Result<Pattern, Box<dyn Error>> {
+        let syntax = kore_codec::decode_bytes(input)
+            .map_err(|error| invalid_kore_pattern(path, purpose, error.encoding, error.cause))?;
+        definition.verify_standalone_pattern(&syntax)?;
+        definition
+            .internalize_pattern(&syntax, &[])
+            .map_err(Into::into)
+    }
 
     #[test]
     fn buffered_stdin_ends_in_exactly_one_newline() {
@@ -4697,41 +3251,6 @@ mod tests {
         };
 
         assert_eq!(variable.name.as_ref(), "VarResult");
-    }
-
-    #[test]
-    fn top_initializer_combines_program_and_configuration_bindings() {
-        let initial = top_cell_initializer(
-            Some((
-                KorePattern::DomainValue {
-                    sort: kore_sort("SortExp"),
-                    value: "program".into(),
-                },
-                kore_sort("SortExp"),
-            )),
-            vec![(
-                "$ENV".into(),
-                kore_application("Lbl'Dot'Map", Vec::new(), Vec::new()),
-                kore_sort("SortMap"),
-            )],
-        );
-        let rendered = KorePrinter::compact().print_pattern(&initial);
-
-        assert!(rendered.contains("Lbl'Unds'Map'Unds'"), "{rendered}");
-        assert!(rendered.contains("$PGM"), "{rendered}");
-        assert!(rendered.contains("$ENV"), "{rendered}");
-        assert!(
-            rendered.contains("inj{SortMap{}, SortKItem{}}"),
-            "{rendered}"
-        );
-    }
-
-    #[test]
-    fn top_initializer_without_any_binding_is_nullary() {
-        let initial = top_cell_initializer(None, Vec::new());
-        let rendered = KorePrinter::compact().print_pattern(&initial);
-
-        assert_eq!(rendered, "LblinitGeneratedTopCell{}()");
     }
 
     fn deeply_nested_kore_pattern(depth: usize) -> KorePattern {
@@ -5129,7 +3648,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_accepts_surface_pattern_without_search() {
+    fn krun_accepts_surface_pattern_without_search() {
         let options = parse_krun_pattern_options(&["--pattern", "<k> X => Y </k>"]).unwrap();
 
         assert_eq!(options.surface_pattern.as_deref(), Some("<k> X => Y </k>"));
@@ -5137,7 +3656,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_accepts_surface_pattern_with_each_search_mode() {
+    fn krun_accepts_surface_pattern_with_each_search_mode() {
         for (flag, expected) in [
             ("--search-final", SearchType::Final),
             ("--search-all", SearchType::Star),
@@ -5152,7 +3671,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_rejects_surface_and_kore_file_targets_together() {
+    fn krun_rejects_surface_and_kore_file_targets_together() {
         let error = parse_krun_pattern_options(&[
             "--search-final",
             "--pattern",
@@ -5180,7 +3699,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_rejects_repeated_surface_pattern() {
+    fn krun_rejects_repeated_surface_pattern() {
         let error =
             parse_krun_pattern_options(&["--pattern", "<k> X </k>", "--pattern", "<k> Y </k>"])
                 .unwrap_err();
@@ -5189,7 +3708,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_cli_accepts_hyphen_leading_surface_text_as_one_value() {
+    fn krun_accepts_hyphen_leading_surface_text_as_one_value() {
         let options = parse_krun_pattern_options(&["--pattern", "-1 => X"]).unwrap();
 
         assert_eq!(options.surface_pattern.as_deref(), Some("-1 => X"));
@@ -5205,21 +3724,21 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_selects_all_target_source_rows() {
+    fn match_target_selects_all_source_rows() {
         assert!(select_match_target_source(None, None).is_none());
         assert!(matches!(
             select_match_target_source(None, Some(compiled_pattern_for_selection())),
             Some(MatchTargetSource::Surface(_))
         ));
 
-        let default_search = KrunSearchOptions {
+        let default_search = SearchRunOptions {
             search_type: SearchType::Final,
             pattern: None,
             bound: None,
         };
         assert!(select_match_target_source(Some(&default_search), None).is_none());
 
-        let file_search = KrunSearchOptions {
+        let file_search = SearchRunOptions {
             search_type: SearchType::Final,
             pattern: Some("target.kore".into()),
             bound: None,
@@ -5245,7 +3764,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_maps_element_identity_to_actual_sorted_backend_variable() {
+    fn generated_identity_mapping_uses_the_actual_sorted_element_variable() {
         let variable = Variable::new("VarGenerated", BackendSort::simple("SortInt"));
         let target = backend_pattern_with_candidates(variable.clone(), Vec::new());
         let identities = BTreeSet::from([k_rust::kompile::KoreVariableIdentity::element(
@@ -5259,7 +3778,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_maps_set_identity_without_colliding_with_element_identity() {
+    fn generated_identity_mapping_keeps_set_and_element_variables_distinct() {
         let element = Variable::new("@VarGenerated", BackendSort::simple("SortInt"));
         let set = Variable {
             kind: k_rust_backend::term::VariableKind::Set,
@@ -5280,7 +3799,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_does_not_map_user_gen0_lookalike() {
+    fn generated_identity_mapping_rejects_authored_gen_lookalikes() {
         let authored = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let generated = Variable::new("Var'Unds'Gen1", BackendSort::simple("SortInt"));
         let target = backend_pattern_with_candidates(
@@ -5298,7 +3817,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_rejects_missing_generated_identity() {
+    fn generated_identity_mapping_rejects_a_missing_identity() {
         let target = backend_pattern_with_candidates(
             Variable::new("VarPresent", BackendSort::simple("SortInt")),
             Vec::new(),
@@ -5314,7 +3833,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_rejects_ambiguous_kind_and_name_with_distinct_sorts() {
+    fn generated_identity_mapping_rejects_ambiguous_sorts() {
         let first = Variable::new("VarGenerated", BackendSort::simple("SortInt"));
         let second = Variable::new("VarGenerated", BackendSort::simple("SortBool"));
         let target = backend_pattern_with_candidates(
@@ -5335,7 +3854,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_maps_empty_and_bound_only_identity_sets() {
+    fn generated_identity_mapping_accepts_empty_and_bound_only_sets() {
         let binder = Variable::new("VarBound", BackendSort::simple("SortInt"));
         let target = backend_pattern_with_candidates(
             Variable::new("VarTerm", BackendSort::simple("SortInt")),
@@ -5357,7 +3876,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01c_command_line_metadata_covers_exact_multiline_contents() {
+    fn command_line_match_metadata_covers_exact_multiline_contents() {
         let attributes = command_line_pattern_attributes("a\nbc");
 
         assert_eq!(attributes.source(), Some("<command line>"));
@@ -5432,7 +3951,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_one_use_generated_variable_equality() {
+    fn hidden_bindings_drop_a_one_use_generated_equality() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let value = Term::domain_value(BackendSort::simple("SortInt"), "1");
         let output = pattern01d_condition_output(
@@ -5445,7 +3964,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_retains_named_and_authored_gen_lookalike_equalities() {
+    fn hidden_bindings_keep_named_and_authored_lookalikes() {
         for variable in [
             Variable::new("VarNamed", BackendSort::simple("SortInt")),
             Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt")),
@@ -5463,7 +3982,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_counts_occurrences_across_the_whole_conjunction() {
+    fn hidden_bindings_count_the_whole_conjunction() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortGeneratedTopCell"));
         let output = pattern01d_condition_output(
             Substitution::from([(
@@ -5478,7 +3997,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_only_eligible_function_equalities() {
+    fn hidden_bindings_drop_only_eligible_function_equalities() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let variable = Variable::new("Var'Unds'Gen0", sort.clone());
         let value = Term::domain_value(sort.clone(), "value");
@@ -5533,7 +4052,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_nested_conjunctions_but_not_other_connectives() {
+    fn hidden_bindings_flatten_only_selected_conjunctions() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let equality = Predicate::Equals(
             Term::variable(variable.clone()),
@@ -5558,7 +4077,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_counts_binder_declarations_and_bodies_syntactically() {
+    fn hidden_bindings_count_binders_and_bodies() {
         let variable = Variable::new("Var'Unds'Gen0", BackendSort::simple("SortInt"));
         let output = pattern01d_condition_output(
             Substitution::from([(
@@ -5576,7 +4095,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_after_boolean_equality_orientation() {
+    fn hidden_bindings_filter_after_boolean_orientation() {
         let sort = BackendSort::simple("SortBool");
         let variable = Variable::new("Var'Unds'Gen0", sort.clone());
         let mut attributes = SymbolAttributes::constructor();
@@ -5608,7 +4127,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_filters_element_and_set_identities_independently() {
+    fn hidden_bindings_distinguish_element_and_set_variables() {
         let set = Variable {
             kind: BackendVariableKind::Set,
             sort: BackendSort::simple("SortInt"),
@@ -5627,7 +4146,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_collects_only_exact_function_markers() {
+    fn hidden_bindings_use_exact_function_markers() {
         let definition = parse_kore_definition(
             r#"[]
             module M
@@ -5640,14 +4159,15 @@ mod tests {
         )
         .unwrap();
 
+        let backend = BackendDefinition::internalize(&definition, "M").unwrap();
         assert_eq!(
-            kore_function_symbols(&definition),
+            backend.function_symbol_names(),
             BTreeSet::from(["exact".to_owned()])
         );
     }
 
     #[test]
-    fn pattern01d_deduplicates_filtered_disjuncts() {
+    fn hidden_bindings_deduplicate_filtered_disjuncts() {
         let sort = kore_sort("SortGeneratedTopCell");
         let duplicate = KorePattern::Top { sort: sort.clone() };
 
@@ -5658,7 +4178,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_deduplicates_after_anonymous_filtering() {
+    fn hidden_bindings_deduplicate_after_filtering() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let first = Variable::new("Var'Unds'Gen0", sort.clone());
         let second = Variable::new("Var'Unds'Gen1", sort.clone());
@@ -5685,7 +4205,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern01d_flattens_and_deduplicates_disjuncts_across_matches() {
+    fn hidden_bindings_flatten_and_deduplicate_disjuncts_across_matches() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let variable = Variable::new("VarX", sort.clone());
         let generated = Variable::new("Var'Unds'Gen0", sort.clone());

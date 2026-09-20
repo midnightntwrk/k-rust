@@ -1,8 +1,4 @@
-//! Reusable, stateful access to the in-process KORE backend.
-//!
-//! This is the host-independent orchestration layer used by the JavaScript bindings. It keeps
-//! parsed definitions and added modules alive across calls; native builds additionally cache the
-//! Z3 prelude for every selected module.
+//! One orchestration path for the CLI, RPC server, and JavaScript hosts: a session, one solver per module, and execution, search, simplification, implication, and proving operations. `wire` contains the JavaScript JSON contracts.
 
 use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
 
@@ -10,14 +6,13 @@ use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
 use k_rust_backend::smt::NoSolver;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::smt::{ModelResult, Z3Options, Z3Solver};
+#[cfg(feature = "z3-inference")]
+use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
-    definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
+    definition::BackendDefinition,
     externalize,
-    implication::{
-        ImplicationRequestError, ImplicationStatus, Side,
-        check_implication_with_existentials_complete, special_case, validate_request,
-    },
-    proof::{ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
+    implication::ImplicationStatus,
+    proof::{ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
         execute_observed_with_solver, execute_with_solver,
@@ -28,14 +23,10 @@ use k_rust_backend::{
         search_pattern_observed_with_solver, search_pattern_paths_observed_with_solver,
         search_pattern_paths_with_solver, search_pattern_with_solver,
     },
-    session::BackendSession,
-    simplify::{
-        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
-    },
+    session::{BackendSession, SessionError},
+    simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
     smt::SmtSolver,
-    substitution::Substitution,
-    term::{Name, Sort},
+    term::Sort,
     transition::ObservationOptions,
 };
 use serde::{Deserialize, Serialize};
@@ -50,6 +41,11 @@ use crate::kore::{
     parser::{parse_definition, parse_module},
 };
 
+pub mod execution;
+pub mod implication;
+pub mod proving;
+pub mod search;
+pub mod simplification;
 mod wire;
 pub use wire::*;
 
@@ -296,6 +292,8 @@ pub struct Backend {
     options: BackendOptions,
     #[cfg(feature = "z3-inference")]
     solvers: std::collections::BTreeMap<String, Z3Solver>,
+    #[cfg(feature = "z3-inference")]
+    smt_prelude: Option<String>,
 }
 
 impl Backend {
@@ -306,13 +304,85 @@ impl Backend {
     ) -> Result<Self, BackendError> {
         let syntax =
             parse_definition(definition_kore).map_err(error("could not parse KORE definition"))?;
+        Self::from_definition(syntax, module_name, options)
+    }
+
+    pub fn from_definition(
+        syntax: k_rust_kore::kore::ast::Definition,
+        module_name: impl Into<String>,
+        options: BackendOptions,
+    ) -> Result<Self, BackendError> {
+        Self::from_session(BackendSession::new(syntax, module_name), options, None)
+    }
+
+    /// Internalize one selected module without constructing a solver yet.
+    pub fn internalize_definition(
+        syntax: &k_rust_kore::kore::ast::Definition,
+        module_name: &str,
+    ) -> Result<BackendDefinition, BackendError> {
+        BackendDefinition::internalize(syntax, module_name)
+            .map_err(error("could not internalize KORE definition"))
+    }
+
+    /// Internalize a source-compiled definition with the compiler's rewrite order.
+    pub fn internalize_source_definition(
+        syntax: &k_rust_kore::kore::ast::Definition,
+        module_name: &str,
+        execution_rewrite_order: &[String],
+    ) -> Result<BackendDefinition, BackendError> {
+        BackendDefinition::internalize_for_source_execution(
+            syntax,
+            module_name,
+            execution_rewrite_order,
+        )
+        .map_err(error("could not internalize source execution definition"))
+    }
+
+    pub fn from_definition_with_prelude(
+        syntax: k_rust_kore::kore::ast::Definition,
+        module_name: impl Into<String>,
+        options: BackendOptions,
+        smt_prelude: String,
+    ) -> Result<Self, BackendError> {
+        Self::from_session(
+            BackendSession::new(syntax, module_name),
+            options,
+            Some(smt_prelude),
+        )
+    }
+
+    pub fn from_internalized(
+        definition: BackendDefinition,
+        options: BackendOptions,
+    ) -> Result<Self, BackendError> {
+        Self::from_session(BackendSession::with_definition(definition), options, None)
+    }
+
+    pub fn from_internalized_with_prelude(
+        definition: BackendDefinition,
+        options: BackendOptions,
+        smt_prelude: Option<String>,
+    ) -> Result<Self, BackendError> {
+        Self::from_session(
+            BackendSession::with_definition(definition),
+            options,
+            smt_prelude,
+        )
+    }
+
+    pub fn from_session(
+        session: BackendSession,
+        options: BackendOptions,
+        _smt_prelude: Option<String>,
+    ) -> Result<Self, BackendError> {
         let mut backend = Self {
-            session: BackendSession::new(syntax, module_name),
+            session,
             options,
             #[cfg(feature = "z3-inference")]
             solvers: Default::default(),
+            #[cfg(feature = "z3-inference")]
+            smt_prelude: _smt_prelude,
         };
-        // Fail at construction time if the selected module or its native SMT prelude is invalid.
         backend.with_solver(None, |_, _| Ok(()))?;
         Ok(backend)
     }
@@ -332,11 +402,30 @@ impl Backend {
         }
     }
 
+    pub fn default_module(&self) -> &str {
+        self.session.default_module()
+    }
+
+    pub fn select_definition(
+        &mut self,
+        module: Option<&str>,
+    ) -> Result<Arc<BackendDefinition>, SessionError> {
+        self.session.definition(module)
+    }
+
     pub fn add_module(&mut self, source: &str, name_as_id: bool) -> Result<String, BackendError> {
         let module = parse_module(source).map_err(error("could not parse KORE module"))?;
-        self.session
-            .add_module(source, module, name_as_id)
+        self.add_parsed_module(source, module, name_as_id)
             .map_err(error("could not add KORE module"))
+    }
+
+    pub fn add_parsed_module(
+        &mut self,
+        source: &str,
+        module: k_rust_kore::kore::ast::Module,
+        name_as_id: bool,
+    ) -> Result<String, SessionError> {
+        self.session.add_module(source, module, name_as_id)
     }
 
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
@@ -601,37 +690,8 @@ impl Backend {
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         let syntax = decode_pattern(request.state)?;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
-            let output = match definition.internalize_pattern_or_predicate(&syntax, &[]) {
-                Ok(PatternOrPredicate::Term(pattern)) => {
-                    let simplified = simplify_pattern_with_solver(
-                        definition,
-                        &pattern,
-                        SimplificationOptions::unbounded(),
-                        solver,
-                    )
-                    .map_err(error("could not simplify KORE pattern"))?;
-                    externalize::constrained_pattern(&simplified)
-                }
-                Ok(PatternOrPredicate::Predicate(predicate, result_sort)) => {
-                    let simplified = simplify_and_decide_predicate_with_solver(
-                        definition,
-                        &predicate,
-                        &[],
-                        SimplificationOptions::unbounded(),
-                        solver,
-                    )
-                    .map_err(error("could not simplify KORE predicate"))?;
-                    externalize::ml_pattern(&simplified, &result_sort)
-                }
-                Err(cause) => {
-                    return Err(BackendError(format!(
-                        "could not internalize KORE pattern: {cause}"
-                    )));
-                }
-            };
-            encode_pattern(&output)
-        })
+        let output = self.simplify_kore(request.module_name.as_deref(), &syntax)?;
+        encode_pattern(&output)
     }
 
     pub fn implies(
@@ -641,96 +701,22 @@ impl Backend {
         validate_backend_schema_version(request.schema_version)?;
         let antecedent = decode_pattern(request.antecedent)?;
         let consequent = decode_pattern(request.consequent)?;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
-            validate_request(definition, &antecedent, &consequent).map_err(|request_error| {
-                BackendError(match request_error {
-                    ImplicationRequestError::MacroOrAlias { side, name } => format!(
-                        "invalid implication {}: {}",
-                        match side {
-                            Side::Antecedent => "antecedent",
-                            Side::Consequent => "consequent",
-                        },
-                        DefinitionError::MacroOrAliasInImplication(name)
-                    ),
-                    ImplicationRequestError::NonFunctionLikeAntecedent => {
-                        "implication antecedent must be function-like".into()
-                    }
-                    ImplicationRequestError::NonSingletonConsequent => {
-                        "implication consequent must contain exactly one pattern".into()
-                    }
-                    ImplicationRequestError::ExistentialCapture { captured, .. } => format!(
-                        "consequent existentials capture antecedent variables: {}",
-                        captured.join(", ")
-                    ),
-                    ImplicationRequestError::SortMismatch {
-                        antecedent,
-                        consequent,
-                    } => format!(
-                        "antecedent and consequent sorts differ: {antecedent} and {consequent}"
-                    ),
-                })
-            })?;
-            let sort_variables = antecedent
-                .sort_variables()
-                .into_iter()
-                .chain(consequent.sort_variables())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .map(Name::from)
-                .collect::<Vec<_>>();
-            let special_result = special_case(&antecedent, &consequent);
-            let antecedent_pattern =
-                if matches!(antecedent.strip_exists(), KorePattern::Bottom { .. }) {
-                    None
-                } else {
-                    Some(
-                        definition
-                            .internalize_implication_pattern(&antecedent, &sort_variables)
-                            .map_err(error("could not internalize implication antecedent"))?,
-                    )
-                };
-            let result_sort = match &antecedent_pattern {
-                Some((pattern, _)) => pattern.term.sort(),
-                None => {
-                    definition
-                        .internalize_predicate(&antecedent, &sort_variables)
-                        .map_err(error("could not internalize implication antecedent"))?
-                        .1
-                }
-            };
-            let result = if let Some(result) = special_result {
-                result
-            } else {
-                let (antecedent_pattern, antecedent_existentials) = antecedent_pattern
-                    .expect("only a bottom antecedent bypasses implication internalization");
-                let (consequent_pattern, consequent_existentials) = definition
-                    .internalize_implication_pattern(&consequent, &sort_variables)
-                    .map_err(error("could not internalize implication consequent"))?;
-                check_implication_with_existentials_complete(
-                    definition,
-                    &antecedent_pattern,
-                    &antecedent_existentials,
-                    &consequent_pattern,
-                    &consequent_existentials,
-                    solver,
-                )
-                .map_err(error("could not check implication"))?
-            };
-            Ok(ImplicationResult {
-                schema_version: IMPLICATION_SCHEMA_VERSION,
-                status: match result.status {
-                    ImplicationStatus::Valid => "valid",
-                    ImplicationStatus::Invalid => "invalid",
-                    ImplicationStatus::Indeterminate => "unknown",
-                }
-                .into(),
-                condition: result
-                    .condition
-                    .as_ref()
-                    .map(|condition| condition_pattern(condition, &result_sort))
-                    .transpose()?,
-                failure: result.failure.map(|failure| format!("{failure:?}")),
-            })
+        let (result, result_sort) =
+            self.implies_kore(request.module_name.as_deref(), &antecedent, &consequent)?;
+        Ok(ImplicationResult {
+            schema_version: IMPLICATION_SCHEMA_VERSION,
+            status: match result.status {
+                ImplicationStatus::Valid => "valid",
+                ImplicationStatus::Invalid => "invalid",
+                ImplicationStatus::Indeterminate => "unknown",
+            }
+            .into(),
+            condition: result
+                .condition
+                .as_ref()
+                .map(|condition| condition_pattern(condition, &result_sort))
+                .transpose()?,
+            failure: result.failure.map(|failure| format!("{failure:?}")),
         })
     }
 
@@ -743,48 +729,39 @@ impl Backend {
         {
             let _ = request;
             Err(BackendError(
-                "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3"
-                    .into(),
+                "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3".into(),
             ))
         }
         #[cfg(feature = "z3-inference")]
         {
             let syntax = decode_pattern(request.state)?;
-            self.with_solver(request.module_name.as_deref(), |definition, solver| {
-                let Some((predicate, result_sort)) = definition
-                    .internalize_model_predicate(&syntax, &[])
-                    .map_err(error("could not internalize model predicate"))?
-                else {
-                    return Ok(ModelResultOutput {
-                        satisfiable: "unknown".into(),
-                        substitution: None,
-                        reason: Some("the pattern contains no model predicate".into()),
-                    });
-                };
-                match solver
-                    .get_model(&[predicate], &Substitution::new())
-                    .map_err(error("could not obtain model"))?
-                {
-                    ModelResult::Sat(substitution) => Ok(ModelResultOutput {
-                        satisfiable: "sat".into(),
-                        substitution: model_substitution(&substitution, &result_sort)
-                            .as_ref()
-                            .map(encode_pattern)
-                            .transpose()?,
-                        reason: None,
+            let (result, result_sort) = self.model_for(request.module_name.as_deref(), &syntax)?;
+            match result {
+                ModelResult::Sat(substitution) => Ok(ModelResultOutput {
+                    satisfiable: "sat".into(),
+                    substitution: result_sort
+                        .as_ref()
+                        .and_then(|sort| model_substitution(&substitution, sort))
+                        .as_ref()
+                        .map(encode_pattern)
+                        .transpose()?,
+                    reason: None,
+                }),
+                ModelResult::Unsat => Ok(ModelResultOutput {
+                    satisfiable: "unsat".into(),
+                    substitution: None,
+                    reason: None,
+                }),
+                ModelResult::Unknown(reason) => Ok(ModelResultOutput {
+                    satisfiable: "unknown".into(),
+                    substitution: None,
+                    reason: Some(if result_sort.is_none() {
+                        "the pattern contains no model predicate".into()
+                    } else {
+                        reason
                     }),
-                    ModelResult::Unsat => Ok(ModelResultOutput {
-                        satisfiable: "unsat".into(),
-                        substitution: None,
-                        reason: None,
-                    }),
-                    ModelResult::Unknown(reason) => Ok(ModelResultOutput {
-                        satisfiable: "unknown".into(),
-                        substitution: None,
-                        reason: Some(reason),
-                    }),
-                }
-            })
+                }),
+            }
         }
     }
 
@@ -798,12 +775,12 @@ impl Backend {
             ));
         }
         self.with_solver(request.module_name.as_deref(), |definition, solver| {
-            let (claim_index, claim) = select_claim(definition, request.claim.as_deref())?;
+            let (claim_index, claim) = proving::select_claim(definition, request.claim.as_deref())?;
             let mut seen = BTreeSet::new();
             let circularities = if let Some(selectors) = &request.circularities {
                 let mut circularities = Vec::new();
                 for selector in selectors {
-                    let (_, candidate) = select_claim(definition, Some(selector))?;
+                    let (_, candidate) = proving::select_claim(definition, Some(selector))?;
                     if seen.insert(candidate.attributes.unique_id.clone()) {
                         circularities.push(candidate);
                     }
@@ -819,7 +796,7 @@ impl Backend {
                     })
                     .collect()
             };
-            let result = prove_claim(
+            let result = proving::run_claim(
                 definition,
                 claim,
                 &circularities,
@@ -868,34 +845,44 @@ impl Backend {
         })
     }
 
-    fn with_solver<T>(
+    pub fn with_solver<T, E>(
         &mut self,
         module: Option<&str>,
-        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, BackendError>,
-    ) -> Result<T, BackendError> {
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError>,
+    {
         let definition = self
             .session
             .definition(module)
-            .map_err(error("could not select backend module"))?;
+            .map_err(error("could not select backend module"))
+            .map_err(E::from)?;
         self.run_with_solver(definition, operation)
     }
 
     #[cfg(feature = "z3-inference")]
-    fn run_with_solver<T>(
+    fn run_with_solver<T, E>(
         &mut self,
         definition: Arc<BackendDefinition>,
-        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, BackendError>,
-    ) -> Result<T, BackendError> {
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError>,
+    {
         let module = definition.main_module.to_string();
         if !self.solvers.contains_key(&module) {
-            let solver = Z3Solver::with_options(
-                &definition,
-                Z3Options {
-                    timeout_ms: self.options.smt_timeout_ms,
-                    retry_limit: self.options.smt_retry_limit,
-                },
-            )
-            .map_err(error("could not initialize Z3"))?;
+            let options = Z3Options {
+                timeout_ms: self.options.smt_timeout_ms,
+                retry_limit: self.options.smt_retry_limit,
+            };
+            let solver = if let Some(prelude) = self.smt_prelude.as_deref() {
+                Z3Solver::with_options_and_prelude(&definition, options, Some(prelude))
+            } else {
+                Z3Solver::with_options(&definition, options)
+            }
+            .map_err(error("could not initialize Z3"))
+            .map_err(E::from)?;
             self.solvers.insert(module.clone(), solver);
         }
         operation(
@@ -905,11 +892,14 @@ impl Backend {
     }
 
     #[cfg(not(feature = "z3-inference"))]
-    fn run_with_solver<T>(
+    fn run_with_solver<T, E>(
         &mut self,
         definition: Arc<BackendDefinition>,
-        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, BackendError>,
-    ) -> Result<T, BackendError> {
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError>,
+    {
         let _ = self.options;
         operation(&definition, &NoSolver)
     }
@@ -1050,43 +1040,6 @@ fn model_substitution(substitution: &Substitution, result_sort: &Sort) -> Option
     )
 }
 
-fn select_claim<'a>(
-    definition: &'a BackendDefinition,
-    selector: Option<&str>,
-) -> Result<(usize, &'a k_rust_backend::claim::ReachabilityClaim), BackendError> {
-    if let Some(selector) = selector {
-        if let Some(index) = selector
-            .strip_prefix('#')
-            .and_then(|value| value.parse().ok())
-        {
-            return definition
-                .reachability_claims
-                .get(index)
-                .map(|claim| (index, claim))
-                .ok_or_else(|| BackendError(format!("no reachability claim at index {index}")));
-        }
-        return definition
-            .reachability_claims
-            .iter()
-            .enumerate()
-            .find(|(_, claim)| {
-                claim.attributes.label.as_deref() == Some(selector)
-                    || claim.attributes.unique_id == selector
-            })
-            .ok_or_else(|| BackendError(format!("no reachability claim named {selector:?}")));
-    }
-    match definition.reachability_claims.as_slice() {
-        [claim] => Ok((0, claim)),
-        [] => Err(BackendError(
-            "the selected module contains no reachability claims".into(),
-        )),
-        claims => Err(BackendError(format!(
-            "the selected module contains {} reachability claims; select one by label or #index",
-            claims.len()
-        ))),
-    }
-}
-
 fn proof_status(status: ProofStatus) -> &'static str {
     match status {
         ProofStatus::Proven => "proven",
@@ -1109,9 +1062,11 @@ mod tests {
     const DEFINITION: &str = r#"[]
         module MAIN
             sort SortS{} []
+            sort SortT{} []
             symbol a{}() : SortS{} [constructor{}()]
             symbol b{}() : SortS{} [constructor{}()]
             symbol c{}() : SortS{} [constructor{}()]
+            symbol t{}() : SortT{} [constructor{}()]
             symbol macroValue{}() : SortS{} [constructor{}(), macro{}()]
             alias weakExistsFinally{S}(S) : S
                 where weakExistsFinally{S}(@X:S) := @X:S []
@@ -1503,6 +1458,38 @@ mod tests {
                 .expect_err("a top antecedent must be rejected");
             assert!(error.to_string().contains("function-like"), "{error}");
         }
+    }
+
+    #[test]
+    fn persistent_backend_short_circuits_a_not_consequent() {
+        let result = backend()
+            .implies(ImplicationRequest {
+                antecedent: json("a{}()"),
+                consequent: json(r#"\not{SortS{}}(a{}())"#),
+                module_name: None,
+                schema_version: BACKEND_SCHEMA_VERSION,
+            })
+            .unwrap();
+        assert_eq!(result.status, "invalid");
+        assert!(result.condition.is_none());
+    }
+
+    #[test]
+    fn implies_rejects_internalized_sort_mismatch() {
+        let error = backend()
+            .implies(ImplicationRequest {
+                antecedent: json("a{}()"),
+                consequent: json("t{}()"),
+                module_name: None,
+                schema_version: BACKEND_SCHEMA_VERSION,
+            })
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("sorts differ after internalization"),
+            "{error}"
+        );
     }
 
     #[test]
