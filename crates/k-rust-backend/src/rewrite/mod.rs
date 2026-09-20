@@ -34,9 +34,9 @@ use recover::{
     recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
 };
 pub(crate) use recover::{collection_unification_definedness, recover_indeterminate_match};
-use step::{
-    LowerPriorityGroups, RemainderPolicy, cascade_remainder, rewrite_step_all, rewrite_step_any,
-};
+#[cfg(test)]
+pub(crate) use step::rewrite_step_all_first_group_for_tests;
+use step::{rewrite_step_all, rewrite_step_any};
 
 use std::{collections::BTreeSet, hash::Hash, time::Duration};
 
@@ -141,8 +141,18 @@ pub struct AppliedRule {
     /// path constraints. RPC diagnostics use this provenance to report `rule-predicate` exactly.
     pub rule_predicates: Vec<Predicate>,
     pub effects: Vec<BuiltinEffect>,
+    /// Simplifications of a higher-priority remainder that precede this lower-priority rewrite.
+    pub(crate) remainder_simplifications: Vec<RemainderSimplification>,
     /// Console state tentatively produced while evaluating this candidate's right-hand side.
     pub(crate) io: Option<ExecutionIoState>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemainderSimplification {
+    pub before: Pattern,
+    pub after: Pattern,
+    pub applied_rules: Vec<String>,
+    pub effects: Vec<BuiltinEffect>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -151,6 +161,11 @@ pub struct RemainderBranch {
     pub rule_ids: Vec<String>,
     /// Effects pending on this remainder candidate.
     pub effects: Vec<BuiltinEffect>,
+    /// Simplifications performed while folding this remainder through lower priority groups.
+    pub simplifications: Vec<RemainderSimplification>,
+    /// A lower priority group that could not be decided. Earlier branches remain valid, while
+    /// this remainder alone is reported as indeterminate.
+    pub indeterminate: Option<IndeterminateReason>,
 }
 
 /// A rule that unified but whose rewritten result is bottom. Kore retains its unifier in the
@@ -644,9 +659,7 @@ pub(crate) fn rewrite_step_with_mode(
         mode,
         assume_initial_defined,
         None,
-        RemainderPolicy::Return,
     )
-    .0
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -659,22 +672,15 @@ fn rewrite_step_with_optional_execution(
     mode: ExecutionMode,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
-    policy: RemainderPolicy,
-) -> (RewriteResult, LowerPriorityGroups) {
+) -> RewriteResult {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
-        return (
-            RewriteResult::Indeterminate {
-                pattern: pattern.clone(),
-                reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
-            },
-            LowerPriorityGroups::default(),
-        );
+        return RewriteResult::Indeterminate {
+            pattern: pattern.clone(),
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+        };
     }
     if predicates_truth(&pattern.constraints) == Truth::False {
-        return (
-            RewriteResult::Vacuous(pattern.clone()),
-            LowerPriorityGroups::default(),
-        );
+        return RewriteResult::Vacuous(pattern.clone());
     }
     match mode {
         ExecutionMode::All => rewrite_step_all(
@@ -685,72 +691,14 @@ fn rewrite_step_with_optional_execution(
             solver,
             assume_initial_defined,
             io,
-            policy,
         ),
-        // Any already threads its remainder through every rule of every group; the policy has
-        // nothing to select.
-        ExecutionMode::Any => (
-            rewrite_step_any(
-                definition,
-                pattern,
-                fresh_counter,
-                simplification_options,
-                solver,
-                io,
-            ),
-            LowerPriorityGroups::default(),
-        ),
-    }
-}
-
-/// Test-only view of one All-mode step followed by the stopped-branch remainder cascade.
-#[cfg(test)]
-pub(crate) fn cascade_step_for_tests(
-    definition: &BackendDefinition,
-    pattern: &Pattern,
-    fresh_counter: &mut u64,
-    simplification_options: SimplificationOptions,
-    solver: &dyn SmtSolver,
-    assume_initial_defined: bool,
-) -> (
-    RewriteResult,
-    Vec<AppliedRule>,
-    Option<RemainderBranch>,
-    Result<(), SimplificationError>,
-) {
-    let (result, lower_groups) = rewrite_step_with_optional_execution(
-        definition,
-        pattern,
-        fresh_counter,
-        simplification_options,
-        solver,
-        ExecutionMode::All,
-        assume_initial_defined,
-        None,
-        RemainderPolicy::Cascade,
-    );
-    let (mut branches, mut remainder) = match &result {
-        RewriteResult::Branch {
-            branches,
-            remainder,
-            ..
-        } => (branches.clone(), remainder.clone()),
-        RewriteResult::Finished(applied) => (vec![applied.clone()], None),
-        _ => (Vec::new(), None),
-    };
-    let cascaded = if matches!(result, RewriteResult::Branch { .. }) {
-        cascade_remainder(
+        ExecutionMode::Any => rewrite_step_any(
             definition,
-            &mut branches,
-            &mut remainder,
-            lower_groups,
+            pattern,
             fresh_counter,
             simplification_options,
             solver,
-            assume_initial_defined,
-        )
-    } else {
-        Ok(())
-    };
-    (result, branches, remainder, cascaded)
+            io,
+        ),
+    }
 }

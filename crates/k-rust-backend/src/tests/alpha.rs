@@ -6,7 +6,7 @@ use crate::{
     builtin::UnsupportedHookReason,
     rewrite::{
         AppliedRule, ExecutionLeaf, ExecutionResult, HaltReason, IndeterminateReason, Pattern,
-        RemainderBranch, TrivialApplication,
+        RemainderBranch, RemainderSimplification, TrivialApplication,
     },
     rule::Predicate,
     simplify::SimplificationError,
@@ -816,6 +816,8 @@ impl AlphaComparable for AppliedRule {
         {
             return Err("non-pattern applied-rule fields differ".into());
         }
+        self.remainder_simplifications
+            .collect_alpha(&other.remainder_simplifications, context)?;
         Ok(())
     }
 
@@ -829,6 +831,7 @@ impl AlphaComparable for AppliedRule {
             rule_substitution: rename_substitution(&self.rule_substitution, context),
             rule_predicates: rename_predicates(&self.rule_predicates, context),
             effects: self.effects.clone(),
+            remainder_simplifications: self.remainder_simplifications.rename_alpha(context)?,
             io: self.io.clone(),
         })
     }
@@ -840,6 +843,10 @@ impl AlphaComparable for RemainderBranch {
         if self.rule_ids != other.rule_ids || self.effects != other.effects {
             return Err("non-pattern remainder fields differ".into());
         }
+        self.simplifications
+            .collect_alpha(&other.simplifications, context)?;
+        self.indeterminate
+            .collect_alpha(&other.indeterminate, context)?;
         Ok(())
     }
 
@@ -847,6 +854,28 @@ impl AlphaComparable for RemainderBranch {
         Ok(Self {
             pattern: self.pattern.rename_alpha(context)?,
             rule_ids: self.rule_ids.clone(),
+            effects: self.effects.clone(),
+            simplifications: self.simplifications.rename_alpha(context)?,
+            indeterminate: self.indeterminate.rename_alpha(context)?,
+        })
+    }
+}
+
+impl AlphaComparable for RemainderSimplification {
+    fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String> {
+        self.before.collect_alpha(&other.before, context)?;
+        self.after.collect_alpha(&other.after, context)?;
+        if self.applied_rules != other.applied_rules || self.effects != other.effects {
+            return Err("non-pattern remainder simplification fields differ".into());
+        }
+        Ok(())
+    }
+
+    fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String> {
+        Ok(Self {
+            before: self.before.rename_alpha(context)?,
+            after: self.after.rename_alpha(context)?,
+            applied_rules: self.applied_rules.clone(),
             effects: self.effects.clone(),
         })
     }
@@ -1374,6 +1403,8 @@ fn alpha_equality_accepts_identity() {
         pattern: pattern("X!0"),
         rule_ids: vec!["rule".into()],
         effects: Vec::new(),
+        simplifications: Vec::new(),
+        indeterminate: None,
     }];
     assert_alpha_equal(&value, &value, "identity");
 }
@@ -1387,6 +1418,8 @@ fn alpha_equality_accepts_one_global_injective_renaming() {
         },
         rule_ids: vec![],
         effects: vec![],
+        simplifications: vec![],
+        indeterminate: None,
     }];
     let right = vec![RemainderBranch {
         pattern: Pattern {
@@ -1395,6 +1428,8 @@ fn alpha_equality_accepts_one_global_injective_renaming() {
         },
         rule_ids: vec![],
         effects: vec![],
+        simplifications: vec![],
+        indeterminate: None,
     }];
     assert_alpha_equal(&left, &right, "non-identity renaming");
     assert_eq!(

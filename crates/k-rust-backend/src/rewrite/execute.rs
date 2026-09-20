@@ -32,12 +32,11 @@ use crate::{
 };
 
 use super::{
-    AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions,
-    ExecutionResult, HaltReason, IndeterminateReason, InitialSimplificationStatus,
-    LowerPriorityGroups, Pattern, RemainderBranch, RemainderPolicy, RewriteResult, TraceEntry,
-    TraceKind, TrivialApplication, Truth, applied_trivial_halt, cascade_remainder,
+    AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
+    IndeterminateReason, InitialSimplificationStatus, Pattern, RemainderBranch, RewriteResult,
+    TraceEntry, TraceKind, TrivialApplication, Truth, applied_trivial_halt,
     normalize_pattern_substitution, predicates_truth, retain_substitution_predicates,
-    rewrite_step_with_mode, rewrite_step_with_optional_execution, trivial_halt, vacuous_halt,
+    rewrite_step_with_optional_execution, trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -121,6 +120,7 @@ impl<'a> Execution<'a> {
                     pattern,
                     depth: 0,
                     trace: Vec::new(),
+                    kind: ExecutionStateKind::Rewritable,
                     observation: None,
                     effects: EffectJournal::default(),
                     io: initial_io.clone(),
@@ -216,7 +216,14 @@ impl<'a> Execution<'a> {
         }
         let (state, deferred_initial_vacuity) = self.normalise_constraints(state, step_timer)?;
         let state = self.simplify_term(state, step_timer, deferred_initial_vacuity.is_some())?;
-        let (rewritten, lower_groups) = self.step(&state);
+        let rewritten = match &state.kind {
+            ExecutionStateKind::Rewritable => self.step(&state),
+            ExecutionStateKind::Remaining(None) => RewriteResult::Stuck(state.pattern.clone()),
+            ExecutionStateKind::Remaining(Some(reason)) => RewriteResult::Indeterminate {
+                pattern: state.pattern.clone(),
+                reason: reason.clone(),
+            },
+        };
         let state = self.check_interrupted(state, step_timer)?;
         match rewritten {
             RewriteResult::Stuck(_)
@@ -231,15 +238,7 @@ impl<'a> Execution<'a> {
                 branches,
                 remainder,
                 trivial,
-            } => self.branch(
-                state,
-                original,
-                branches,
-                remainder,
-                trivial,
-                lower_groups,
-                step_timer,
-            ),
+            } => self.branch(state, original, branches, remainder, trivial, step_timer),
         }
     }
 
@@ -442,14 +441,7 @@ impl<'a> Execution<'a> {
     }
 
     /// E4: one priority-grouped rewrite step (row B10) under the option's mode.
-    fn step(&mut self, state: &ExecutionState) -> (RewriteResult, LowerPriorityGroups) {
-        let policy = if self.options.mode == ExecutionMode::All
-            && self.options.branch_mode == ExecutionBranchMode::StopAtBranch
-        {
-            RemainderPolicy::Cascade
-        } else {
-            RemainderPolicy::Return
-        };
+    fn step(&mut self, state: &ExecutionState) -> RewriteResult {
         rewrite_step_with_optional_execution(
             self.definition,
             &state.pattern,
@@ -459,7 +451,6 @@ impl<'a> Execution<'a> {
             self.options.mode,
             self.options.assume_initial_defined,
             state.io_enabled.then_some(&state.io),
-            policy,
         )
     }
 
@@ -540,6 +531,30 @@ impl<'a> Execution<'a> {
     ) -> Phase<Expansion> {
         if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
+            for simplification in &applied.remainder_simplifications {
+                state.observation = self.observation_log.append_simplification(
+                    state.observation,
+                    self.definition,
+                    simplification.before.clone(),
+                    &simplification.after,
+                    &simplification.applied_rules,
+                    &simplification.effects,
+                    self.observation,
+                );
+                state.effects.commit(simplification.effects.iter().cloned());
+                state.trace.extend(
+                    simplification
+                        .applied_rules
+                        .iter()
+                        .cloned()
+                        .map(|unique_id| TraceEntry {
+                            depth: state.depth,
+                            kind: TraceKind::Simplification,
+                            label: None,
+                            unique_id,
+                        }),
+                );
+            }
             state.effects.commit(applied.effects.iter().cloned());
             state.observation =
                 self.observation_log
@@ -585,7 +600,13 @@ impl<'a> Execution<'a> {
             ));
         }
         let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
-        let mut next = next_state(state, applied, &mut self.observation_log, self.observation);
+        let mut next = next_state(
+            self.definition,
+            state,
+            applied,
+            &mut self.observation_log,
+            self.observation,
+        );
         if let Some(rule) = terminal_rule {
             next.pattern = match simplify_result_pattern(
                 self.definition,
@@ -619,14 +640,9 @@ impl<'a> Execution<'a> {
         Ok(self.breadth_checked())
     }
 
-    /// E7: several rules applied, or one with a remainder. Under `StopAtBranch` the remainder is
-    /// cascaded through the priority groups the step did not visit (`All`: `cascade_remainder`,
-    /// Kore `transitionAllRewrite`, one attempt per candidate rule; `Any`: re-stepped to a fixed
-    /// point), the original and every branch are simplified (a failing branch is reported at the
-    /// parent), and the outcome is classified as `Stuck`, one successor, one remainder, or a
-    /// `Branch` leaf; otherwise every branch and the remainder become successors, branches first
-    /// and the remainder last (the order N27 leaves unspecified).
-    #[allow(clippy::too_many_arguments)]
+    /// E7: several rules applied, or one with a complete remainder. Under `StopAtBranch`, the
+    /// original and every child are simplified and reported together. Under `ExploreAll`, applied
+    /// branches and the remainder become queued successors.
     fn branch(
         &mut self,
         mut state: ExecutionState,
@@ -634,35 +650,10 @@ impl<'a> Execution<'a> {
         mut branches: Vec<AppliedRule>,
         mut remainder: Option<RemainderBranch>,
         trivial: Vec<TrivialApplication>,
-        lower_groups: LowerPriorityGroups,
         step_timer: &mut StepTimer<'_>,
     ) -> Phase<Expansion> {
         record_trivial_candidates(&mut self.discarded, &trivial, &original, self.observation);
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
-            let cascaded = match self.options.mode {
-                ExecutionMode::All => cascade_remainder(
-                    self.definition,
-                    &mut branches,
-                    &mut remainder,
-                    lower_groups,
-                    &mut self.fresh_counter,
-                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                    self.solver,
-                    self.options.assume_initial_defined,
-                ),
-                ExecutionMode::Any => replay_any_remainder(
-                    self.definition,
-                    &mut branches,
-                    &mut remainder,
-                    &mut self.fresh_counter,
-                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                    self.solver,
-                    self.options.assume_initial_defined,
-                ),
-            };
-            if let Err(error) = cascaded {
-                return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
-            }
             let original = match simplify_result_pattern(
                 self.definition,
                 &original,
@@ -785,6 +776,7 @@ impl<'a> Execution<'a> {
                     enqueue_execution_states(
                         &mut self.pending,
                         vec![next_state(
+                            self.definition,
                             state,
                             applied,
                             &mut self.observation_log,
@@ -795,16 +787,15 @@ impl<'a> Execution<'a> {
                 (0, true) => {
                     let remainder = remainder.take().expect("one remainder remains");
                     let before = state.pattern.clone();
-                    enqueue_execution_states(
-                        &mut self.pending,
-                        vec![remaining_state(
-                            state,
-                            before,
-                            remainder,
-                            &mut self.observation_log,
-                            self.observation,
-                        )],
+                    let remaining = remaining_state(
+                        self.definition,
+                        state,
+                        before,
+                        remainder,
+                        &mut self.observation_log,
+                        self.observation,
                     );
+                    enqueue_execution_states(&mut self.pending, vec![remaining]);
                 }
                 _ => {
                     return Err(state.leaf_with_pattern(
@@ -817,11 +808,12 @@ impl<'a> Execution<'a> {
                     ));
                 }
             }
-            return Ok(Expansion::Queued);
+            return Ok(self.breadth_checked());
         }
         let mut next = Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
         for applied in branches {
             next.push(next_state(
+                self.definition,
                 state.clone(),
                 applied,
                 &mut self.observation_log,
@@ -830,13 +822,15 @@ impl<'a> Execution<'a> {
         }
         if let Some(remainder) = remainder {
             let before = state.pattern.clone();
-            next.push(remaining_state(
+            let remaining = remaining_state(
+                self.definition,
                 state,
                 before,
                 remainder,
                 &mut self.observation_log,
                 self.observation,
-            ));
+            );
+            next.push(remaining);
         }
         enqueue_execution_states(&mut self.pending, next);
         Ok(self.breadth_checked())
@@ -979,53 +973,6 @@ fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
             }
         })
         .collect()
-}
-
-fn replay_any_remainder(
-    definition: &BackendDefinition,
-    branches: &mut Vec<AppliedRule>,
-    remainder: &mut Option<RemainderBranch>,
-    fresh_counter: &mut u64,
-    simplification_options: SimplificationOptions,
-    solver: &dyn SmtSolver,
-    assume_initial_defined: bool,
-) -> Result<(), SimplificationError> {
-    // Any mode re-steps the remainder to a fixed point: each generation re-attempts every rule on
-    // the remainder and terminates when a generation applies nothing or the solver refutes the
-    // accumulated negations (follow-up D4 moves Any onto the cascade).
-    // Invariant: `remainder` is the part of the parent pattern that `branches` does not yet cover.
-    while let Some(current) = remainder.take() {
-        match rewrite_step_with_mode(
-            definition,
-            &current.pattern,
-            fresh_counter,
-            simplification_options,
-            solver,
-            ExecutionMode::Any,
-            assume_initial_defined,
-        ) {
-            RewriteResult::Finished(applied) => branches.insert(0, applied),
-            RewriteResult::Branch {
-                branches: mut lower_branches,
-                remainder: lower_remainder,
-                ..
-            } => {
-                lower_branches.append(branches);
-                *branches = lower_branches;
-                *remainder = lower_remainder;
-            }
-            RewriteResult::Indeterminate {
-                reason: IndeterminateReason::Simplification { error, .. },
-                ..
-            } => return Err(error),
-            RewriteResult::Stuck(_) | RewriteResult::Indeterminate { .. } => {
-                *remainder = Some(current);
-                break;
-            }
-            RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => break,
-        }
-    }
-    Ok(())
 }
 
 fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
@@ -1227,11 +1174,36 @@ fn externalise_leaf(
 }
 
 fn next_state(
+    definition: &BackendDefinition,
     mut state: ExecutionState,
     applied: AppliedRule,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
+    for simplification in &applied.remainder_simplifications {
+        state.observation = observation_log.append_simplification(
+            state.observation,
+            definition,
+            simplification.before.clone(),
+            &simplification.after,
+            &simplification.applied_rules,
+            &simplification.effects,
+            observation_options,
+        );
+        state.trace.extend(
+            simplification
+                .applied_rules
+                .iter()
+                .cloned()
+                .map(|unique_id| TraceEntry {
+                    depth: state.depth,
+                    kind: TraceKind::Simplification,
+                    label: None,
+                    unique_id,
+                }),
+        );
+        state.effects.commit(simplification.effects.iter().cloned());
+    }
     state.observation =
         observation_log.append_applied(state.observation, &applied, observation_options);
     state.effects.commit(applied.effects.iter().cloned());
@@ -1251,16 +1223,25 @@ fn next_state(
 }
 
 fn remaining_state(
+    definition: &BackendDefinition,
     mut state: ExecutionState,
     before: Pattern,
     remainder: RemainderBranch,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
+    let transition_pattern = remainder
+        .simplifications
+        .first()
+        .map_or_else(|| remainder.pattern.clone(), |record| record.before.clone());
+    let transition_remainder = RemainderBranch {
+        pattern: transition_pattern,
+        ..remainder.clone()
+    };
     state.observation = observation_log.append_remainder(
         state.observation,
         before,
-        &remainder,
+        &transition_remainder,
         observation_options,
     );
     state.trace.push(TraceEntry {
@@ -1269,10 +1250,40 @@ fn remaining_state(
         label: None,
         unique_id: remainder.rule_ids.join(","),
     });
+    for simplification in &remainder.simplifications {
+        state.observation = observation_log.append_simplification(
+            state.observation,
+            definition,
+            simplification.before.clone(),
+            &simplification.after,
+            &simplification.applied_rules,
+            &simplification.effects,
+            observation_options,
+        );
+        state.trace.extend(
+            simplification
+                .applied_rules
+                .iter()
+                .cloned()
+                .map(|unique_id| TraceEntry {
+                    depth: state.depth,
+                    kind: TraceKind::Simplification,
+                    label: None,
+                    unique_id,
+                }),
+        );
+    }
     state.effects.commit(remainder.effects);
     state.pattern = remainder.pattern;
+    state.kind = ExecutionStateKind::Remaining(remainder.indeterminate);
     state.is_initial_input = false;
     state
+}
+
+#[derive(Clone)]
+enum ExecutionStateKind {
+    Rewritable,
+    Remaining(Option<IndeterminateReason>),
 }
 
 #[derive(Clone)]
@@ -1280,6 +1291,7 @@ struct ExecutionState {
     pattern: Pattern,
     depth: u64,
     trace: Vec<TraceEntry>,
+    kind: ExecutionStateKind,
     observation: ObservationHead,
     effects: EffectJournal,
     io: ExecutionIoState,

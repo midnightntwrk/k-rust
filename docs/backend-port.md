@@ -56,12 +56,12 @@ section 4.1 (row ids B1 to B21), one home per row.
 | `rewrite/mod.rs` | B9-B11, B21 | shared types, entry points, and re-exports of the rewrite homes | see the homes |
 | `rewrite/apply.rs` | B9 | one-rule conditional rewriting step: the thirteen phases of `apply_rule_with_match` | `RewriteRuleAttempts`, `RewriteMatchFailures` |
 | `rewrite/recover.rs` | B9 | the indeterminate-match recovery ladder: simplification, six splits, overload and general unification, functional witnesses | `RewriteIndeterminateRecoveries` |
-| `rewrite/step.rs` | B10 | priority-grouped rewrite step with remainder: `All` applies the first productive group and `cascade_remainder` continues Kore's `transitionAllRewrite` through each lower group once under `StopAtBranch`, so each candidate is attempted at most once per step; `Any` threads the remainder sequentially and retains replay under `StopAtBranch` | `RewriteRulesApplied` |
-| `rewrite/execute.rs` | B11 | depth-first exploration of the rewrite tree with got-stuck-over-depth-bound leaf selection and equal-leaf merge | `RewriteSteps` |
+| `rewrite/step.rs` | B10 | priority-grouped rewrite step with a complete remainder: `All` folds and simplifies the remainder between priority groups as in Kore's `transitionAllRewrite`; `Any` threads it through every rule as in `applyRewriteRulesSequence` | `RewriteRulesApplied` |
+| `rewrite/execute.rs` | B11 | depth-first exploration of the rewrite tree; queued complete remainders pass through the ordinary pre-step pipeline and become stuck without another rule attempt; got-stuck-over-depth-bound leaf selection and equal-leaf merge | `RewriteSteps` |
 | `rewrite/predicates.rs` | B21 | predicate truth, alpha equivalence, unique extension, constructor-domain coverage, concreteness | none |
 | `fresh.rs` | B20 | counter-suffixed fresh variable naming with collision retry; Booster's existential renaming | none |
-| `search.rs` | B12, B6b | breadth-first search with `(depth, pattern)` deduplication; simple-path enumeration; output-restricted substitution extraction | `SearchStatesDeduplicated` |
-| `proof.rs` | B13 | reachability-logic proof search with subsumption, circularities, and a same-iteration remainder | `ProofStatesExplored`, `ProofImplicationChecks` |
+| `search.rs` | B12, B6b | breadth-first search with `(depth, pattern, state kind)` deduplication; queued remainders participate in every search strategy's ordinary result selection; simple-path enumeration; output-restricted substitution extraction | `SearchStatesDeduplicated` |
+| `proof.rs` | B13 | reachability-logic proof search with subsumption and circularities; queued rewrite remainders receive the ordinary implication check before becoming stuck | `ProofStatesExplored`, `ProofImplicationChecks` |
 | `implication.rs` | B14 | subsumption by Implies-mode matching, witness elimination, and SMT validity to an antecedent fixed point | `SmtQueries` |
 | `definition.rs` | B17, B4 | KORE internalization: import DFS with cycle detection, preorder axiom order, subsort and overload closures | none (the `internalize` timing phase) |
 | `alias.rs` | B18 | capture-avoiding alias unfolding with a cycle stack | none |

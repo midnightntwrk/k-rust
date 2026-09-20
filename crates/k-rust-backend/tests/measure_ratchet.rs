@@ -221,7 +221,7 @@ fn be08_measure_s1() -> BackendDefinition {
 }
 
 #[cfg(feature = "z3")]
-fn be08_measure_any_replay() -> BackendDefinition {
+fn be08_measure_any() -> BackendDefinition {
     be08_measure_definition(
         r#"
         axiom{} \rewrites{SortInt{}}(
@@ -273,15 +273,13 @@ fn assert_be08_snapshot(name: &str, actual: Snapshot, expected: [u64; Counter::C
     }
 }
 
-/// T3 / I9 and T15 / D4. Replay baseline captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d;
-/// S2-P2 S0/S1 cascade counters captured at 538f2a79bd1e81f45fad1dbc72d386052021e493.
-/// T15's Any replay snapshot remains the baseline capture.
+/// All and Any complete each remainder in one step and attempt every candidate at most once.
 #[cfg(feature = "z3")]
 #[test]
-fn stopped_branch_cascade_attempts_each_candidate_rule_once() {
+fn complete_steps_attempt_each_candidate_rule_once() {
     let s0 = be08_measure_stopped(&be08_measure_s0(), ExecutionMode::All);
     let s1 = be08_measure_stopped(&be08_measure_s1(), ExecutionMode::All);
-    let any_replay = be08_measure_stopped(&be08_measure_any_replay(), ExecutionMode::Any);
+    let any = be08_measure_stopped(&be08_measure_any(), ExecutionMode::Any);
 
     assert_eq!(s0.get(Counter::RewriteRuleAttempts), 4);
     assert_eq!(s0.get(Counter::RewriteRulesApplied), 4);
@@ -291,16 +289,16 @@ fn stopped_branch_cascade_attempts_each_candidate_rule_once() {
     assert_eq!(s1.get(Counter::RewriteRulesApplied), 10);
     assert_eq!(s1.get(Counter::RewriteMatchFailures), 0);
     assert_eq!(s1.get(Counter::RewriteSteps), 1);
-    assert_eq!(any_replay.get(Counter::RewriteRuleAttempts), 2);
-    assert_eq!(any_replay.get(Counter::RewriteRulesApplied), 1);
-    assert_eq!(any_replay.get(Counter::RewriteMatchFailures), 0);
-    assert_eq!(any_replay.get(Counter::RewriteSteps), 1);
+    assert_eq!(any.get(Counter::RewriteRuleAttempts), 1);
+    assert_eq!(any.get(Counter::RewriteRulesApplied), 1);
+    assert_eq!(any.get(Counter::RewriteMatchFailures), 0);
+    assert_eq!(any.get(Counter::RewriteSteps), 1);
     assert_be08_snapshot(
         "T3 S0 All",
         s0,
         [
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 4, 0, 4, 0, 4, 8,
-            0, 0, 20, 30, 32, 0, 0, 17, 9, 0, 0, 0, 28,
+            0, 0, 21, 31, 33, 0, 0, 17, 9, 0, 0, 0, 29,
         ],
     );
     assert_be08_snapshot(
@@ -308,17 +306,37 @@ fn stopped_branch_cascade_attempts_each_candidate_rule_once() {
         s1,
         [
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 10, 0, 10, 0, 10,
-            20, 0, 0, 96, 73, 172, 0, 0, 128, 108, 0, 0, 0, 162,
+            20, 0, 0, 104, 81, 180, 0, 0, 128, 108, 0, 0, 0, 170,
         ],
     );
     assert_be08_snapshot(
-        "T15 Any replay",
-        any_replay,
+        "T15 Any",
+        any,
         [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 1, 0, 2, 4,
-            0, 0, 12, 16, 18, 0, 0, 7, 5, 0, 0, 0, 17,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 2,
+            0, 0, 10, 13, 15, 0, 0, 7, 5, 0, 0, 0, 14,
         ],
     );
+}
+
+/// ExploreAll queues the complete remainder through its normal pipeline without retrying rules.
+#[cfg(feature = "z3")]
+#[test]
+fn queued_complete_remainder_does_not_reattempt_rules() {
+    let definition = be08_measure_any();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let (result, delta) = measured(|| {
+        execute_with_solver(
+            &definition,
+            pattern(&definition, "wrap{}(X:SortInt{})"),
+            ExecutionOptions::default(),
+            &solver,
+        )
+    });
+
+    assert_eq!(result.leaves.len(), 2);
+    assert_eq!(delta.get(Counter::RewriteRuleAttempts), 1);
+    assert_eq!(delta.get(Counter::RewriteSteps), 3);
 }
 
 fn execute_counting(definition: &BackendDefinition, depth: u64) -> Snapshot {

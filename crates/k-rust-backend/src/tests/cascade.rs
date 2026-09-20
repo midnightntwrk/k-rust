@@ -13,7 +13,8 @@ use crate::{
     definition::BackendDefinition,
     rewrite::{
         AppliedRule, ExecutionMode, IndeterminateReason, Pattern, RemainderBranch, RewriteResult,
-        cascade_step_for_tests, conjunctively_contains_alpha_equivalent, rewrite_step_with_mode,
+        conjunctively_contains_alpha_equivalent, rewrite_step_all_first_group_for_tests,
+        rewrite_step_with_mode,
     },
     rule::Predicate,
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
@@ -176,13 +177,12 @@ fn replay_oracle(
     // space) or ends it as stuck, indeterminate, trivial, or vacuous.
     // Invariant: `remainder` is the part of the parent pattern that `branches` does not yet cover.
     while let Some(current) = remainder.take() {
-        match rewrite_step_with_mode(
+        match rewrite_step_all_first_group_for_tests(
             definition,
             &current.pattern,
             fresh_counter,
             simplification_options,
             solver,
-            ExecutionMode::All,
             assume_initial_defined,
         ) {
             RewriteResult::Finished(applied) => branches.insert(0, applied),
@@ -220,28 +220,25 @@ fn compare_with_solvers(
 ) -> Result<(), String> {
     let mut cascade_fresh = 0;
     let mut oracle_fresh = 0;
-    let (cascade_step, cascade_branches, cascade_remainder, cascade_error) = cascade_step_for_tests(
+    let cascade_step = rewrite_step_with_mode(
         definition,
         initial,
         &mut cascade_fresh,
         options,
         cascade_solver,
+        ExecutionMode::All,
         false,
     );
-    let oracle_step = rewrite_step_with_mode(
+    let (cascade_branches, cascade_remainder) = step_parts(&cascade_step);
+    let cascade_error = Ok::<(), SimplificationError>(());
+    let oracle_step = rewrite_step_all_first_group_for_tests(
         definition,
         initial,
         &mut oracle_fresh,
         options,
         oracle_solver,
-        ExecutionMode::All,
         false,
     );
-    if cascade_step != oracle_step {
-        return Err(format!(
-            "initial step differs before cascade\ncascade: {cascade_step:#?}\noracle: {oracle_step:#?}"
-        ));
-    }
     let (mut oracle_branches, mut oracle_remainder) = step_parts(&oracle_step);
     let oracle_error = replay_oracle(
         definition,
@@ -959,21 +956,23 @@ fn replay_oracle_smoke_uses_one_global_alpha_gate() {
     let oracle_solver = Z3Solver::new(&definition).unwrap();
     let mut cascade_fresh = 0;
     let mut oracle_fresh = 0;
-    let (_, branches, remainder, error) = cascade_step_for_tests(
+    let cascade = rewrite_step_with_mode(
         &definition,
         &subject(&definition, false),
         &mut cascade_fresh,
         options,
         &cascade_solver,
+        ExecutionMode::All,
         false,
     );
-    let initial = rewrite_step_with_mode(
+    let (branches, remainder) = step_parts(&cascade);
+    let error = Ok::<(), SimplificationError>(());
+    let initial = rewrite_step_all_first_group_for_tests(
         &definition,
         &subject(&definition, false),
         &mut oracle_fresh,
         options,
         &oracle_solver,
-        ExecutionMode::All,
         false,
     );
     let (mut replayed, mut replay_remainder) = step_parts(&initial);

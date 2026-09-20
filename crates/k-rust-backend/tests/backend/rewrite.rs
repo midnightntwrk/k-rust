@@ -695,12 +695,16 @@ fn concrete_instantiation_coverage_is_checked_after_requires() {
             let RewriteResult::Branch { branches, .. } = result else {
                 panic!("requires must complete the substitution: {result:?}");
             };
+            let heated = branches
+                .iter()
+                .find(|branch| branch.unique_id == "heat")
+                .expect("the covered high-priority branch remains visible");
             assert_eq!(
-                branches[0].pattern.term,
+                heated.pattern.term,
                 internal_term(&definition, "heated{}(id{}())")
             );
             assert_eq!(
-                branches[0].pattern.constraints,
+                heated.pattern.constraints,
                 vec![Predicate::Equals(
                     internal_term(&definition, "ordinaryFunction{}(id{}())"),
                     internal_term(&definition, "id{}()"),
@@ -819,11 +823,15 @@ fn symbolic_anywhere_matching_retains_fresh_arguments_and_complement() {
     else {
         panic!("symbolic anywhere matching must narrow");
     };
-    assert_eq!(branches[0].unique_id, "heat");
+    assert!(branches.iter().any(|branch| branch.unique_id == "heat"));
     assert_eq!(fresh, 1);
     assert!(
-        matches!(remainder.pattern.constraints.as_slice(), [Predicate::Not(inner)]
-            if matches!(inner.as_ref(), Predicate::Exists(..)))
+        remainder
+            .pattern
+            .constraints
+            .iter()
+            .any(|predicate| matches!(predicate, Predicate::Not(inner)
+            if matches!(inner.as_ref(), Predicate::Exists(..))))
     );
 }
 
@@ -1280,14 +1288,16 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
 
     let RewriteResult::Branch {
         branches,
-        remainder: Some(remainder),
+        remainder,
         trivial,
         ..
     } = rewrite_step_with_solver(&definition, &initial, &mut fresh, &solver)
     else {
-        panic!("a conditional bottom result should leave its complement");
+        panic!("the step should retain both the trivial sub-case and lower fallback");
     };
-    assert!(branches.is_empty());
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0].unique_id, "fallback");
+    assert!(remainder.is_none());
     let [trivial] = trivial.as_slice() else {
         panic!("expected one visible trivial sub-case");
     };
@@ -1298,8 +1308,6 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
         trivial.remainder,
         Predicate::Not(Box::new(trivial.applicability.clone()))
     );
-    assert_eq!(remainder.rule_ids, ["trivial"]);
-    assert!(remainder.pattern.constraints.contains(&trivial.remainder));
 
     let execution = execute_with_solver(&definition, initial, ExecutionOptions::default(), &solver);
     let [leaf] = execution.leaves.as_slice() else {
@@ -2749,7 +2757,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "16489ce6915cf96a3ac3f09082b42b4bde8ff0e10fe5727913cd6b9598018d0c",
+        "2093ab4e7adbe3e807918b56ea6968ab90b9c7e2885a554e6c13122633991297",
     );
 }
 
@@ -2790,7 +2798,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "51c20c8649e74f481d9b02b19b7c721a008b6adf7eb8b497a4fb0c649271a22c",
+        "23253d6467047edf56729b634fa00ebb2b12d3621c717518ed8bb2ea9eb858e6",
     );
 }
 
@@ -2847,14 +2855,14 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "31872f3b25fc8443fe4fb0b9d3a61a730ca395016fd950b3e83a716ebc945a1c",
+        "3a58fd83c8ff7928c1e6a8e1b6debbdfa8e6d43d8eb4600792a444422bb18ae9",
     );
 }
 
-/// T15 / D4. The Any replay capture is from 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+/// Any mode returns its complete remainder without a second rewrite round.
 #[cfg(feature = "z3")]
 #[test]
-fn any_mode_stopped_branch_still_resteps_its_remainder() {
+fn any_mode_stopped_branch_uses_the_steps_remainder() {
     let definition = symbolic_remainder_definition(
         r#"
             axiom{} \rewrites{SortInt{}}(
@@ -2902,19 +2910,19 @@ fn any_mode_stopped_branch_still_resteps_its_remainder() {
         ..
     } = &result.leaves[0].halt_reason
     else {
-        panic!("expected the replay to retain the satisfiable remainder: {result:#?}");
+        panic!("expected the step to retain the satisfiable remainder: {result:#?}");
     };
     assert_eq!(remainder.rule_ids, ["conditional"]);
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "7af9a21507a648ab5e56a64229216e7410d3722e9e291161c0dd33b4248777d1",
+        "131065be963416fe625338a1e71029effd555d50fe4f6a17de4f8f26bc47e3ac",
     );
 }
 
-/// T8 / I5, I7. Error leaf and discarded candidate captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+/// A lower-group failure is confined to the remainder so higher-priority branches survive.
 #[test]
-fn later_group_simplification_error_keeps_the_first_groups_discarded_trivial_candidates() {
+fn later_group_simplification_error_is_reported_on_the_remainder() {
     let definition = be08_portable_definition(
         r#"
         axiom{} \rewrites{SortK{}}(
@@ -2949,7 +2957,7 @@ fn later_group_simplification_error_keeps_the_first_groups_discarded_trivial_can
         ) [label{}("lower-error"), priority{}("50")]
         "#,
     );
-    let solver = be08_indeterminate_solver(1, 2);
+    let solver = be08_indeterminate_solver(1, 5);
     let initial = be08_portable_subject(&definition);
     let result = execute_observed_with_solver(
         &definition,
@@ -2961,27 +2969,33 @@ fn later_group_simplification_error_keeps_the_first_groups_discarded_trivial_can
     let transcript = solver.transcript.borrow().clone();
 
     let [leaf] = result.leaves.as_slice() else {
-        panic!("expected one simplification-error leaf: {result:#?}");
+        panic!("expected one stopped branch leaf: {result:#?}");
     };
     assert_eq!(leaf.pattern, initial);
-    assert!(matches!(leaf.halt_reason, HaltReason::Simplification(_)));
+    let HaltReason::Branch {
+        branches,
+        remainder: Some(remainder),
+    } = &leaf.halt_reason
+    else {
+        panic!("expected a branch with an indeterminate remainder: {result:#?}");
+    };
+    assert_eq!(branches.len(), 1, "{result:#?}");
+    assert_eq!(branches[0].label.as_deref(), Some("first"));
+    assert!(matches!(
+        remainder.indeterminate,
+        Some(IndeterminateReason::Simplification { .. })
+    ));
     assert_eq!(result.discarded.len(), 1, "{result:#?}");
-    assert_eq!(result.discarded[0].id.rule, "trivial");
-    assert_eq!(result.discarded[0].reason, UncommittedReason::RolledBack);
-    assert_eq!(
-        result.discarded[0].effects,
-        [BuiltinEffect::UserLog("trivial".into())]
-    );
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "bcc1e72e03e922b96f521c824deb4ca605defb1f6cc3831942898001fdf81a03",
+        "76b070ada77b380e6b5330f18563b53a924581d40e3075fba8197c4a282c7184",
     );
 }
 
-/// T9 / I9. Cancellation point and complete result captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+/// Cancellation during the complete step is observed at the execution boundary.
 #[test]
-fn cancellation_during_lower_group_work_is_observed_after_result_simplification() {
+fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     let definition = be08_portable_definition(
         r#"
         axiom{} \rewrites{SortK{}}(
@@ -3045,14 +3059,10 @@ fn cancellation_during_lower_group_work_is_observed_after_result_simplification(
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "bbc58cabe7b2b9fd42297ba68517af92b79825063686ac9d3bafa1cead15cc29",
+        "4fdbdc0bd31c16505c0af31adf337ecacfae23d108c4d9239df36d08b5c36b45",
     );
-    assert_eq!(
-        leaf.halt_reason,
-        HaltReason::Simplification(SimplificationError::Cancelled)
-    );
-    assert_eq!(result.discarded.len(), 1, "{result:#?}");
-    assert_eq!(result.discarded[0].id.rule, "trivial");
+    assert_eq!(leaf.halt_reason, HaltReason::Cancelled);
+    assert!(result.discarded.is_empty(), "{result:#?}");
 }
 
 /// T10 / D2. The S2-P2 cascade skips the replay's indeterminate re-attempt and reaches the
@@ -3184,13 +3194,13 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "5631077bae4adc325d73df2fe0aabffc1c073718284ec528cd3d8b664517fcc4",
+        "cf93265e8aa90cdb32ab71570a872d8df74979ab12e8286fb2faa6ea15e0ac7d",
     );
 }
 
-/// T13 / I7. Effects and discarded order captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+/// Trivial sub-cases from every productive group remain visible to the driver.
 #[test]
-fn cascade_effects_are_classified_as_today_under_full_observation() {
+fn complete_step_classifies_effects_from_every_group() {
     let definition = be08_portable_definition(
         r#"
         axiom{} \rewrites{SortK{}}(
@@ -3236,13 +3246,19 @@ fn cascade_effects_are_classified_as_today_under_full_observation() {
     assert!(solver.validity.borrow().is_empty());
 
     assert_eq!(result.leaves.len(), 1, "{result:#?}");
-    assert_eq!(result.discarded.len(), 1, "{result:#?}");
-    assert_eq!(result.discarded[0].id.rule, "trivial");
-    assert_eq!(result.discarded[0].reason, UncommittedReason::RolledBack);
+    assert_eq!(result.discarded.len(), 2, "{result:#?}");
+    assert_eq!(result.discarded[0].id.rule, "lower-dead");
+    assert_eq!(result.discarded[1].id.rule, "trivial");
+    assert!(
+        result
+            .discarded
+            .iter()
+            .all(|candidate| candidate.reason == UncommittedReason::RolledBack)
+    );
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "e2dacd81ca4efbccf99259d296432fe5a6e3257ad3823af85ff01ddd1af99b22",
+        "3542d52e960776776fac832693c777496e35aef813ae0a24d20f199af2aab8d1",
     );
 }
 
@@ -3426,10 +3442,10 @@ fn carries_a_symbolic_remainder_to_lower_priority_rules() {
         .collect::<Vec<_>>();
     values.sort();
     assert_eq!(values, ["-1", "20"]);
-    assert!(result.leaves.iter().any(|leaf| {
+    assert!(result.leaves.iter().all(|leaf| {
         leaf.trace
             .iter()
-            .any(|entry| entry.kind == TraceKind::Remainder)
+            .all(|entry| entry.kind != TraceKind::Remainder)
     }));
 }
 
