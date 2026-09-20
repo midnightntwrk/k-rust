@@ -19,7 +19,7 @@ use k_rust::backend::proving::{
 };
 #[cfg(test)]
 use k_rust::kore::binary as kore_binary;
-use k_rust::names::{BuiltinSort, KoreAttribute};
+use k_rust::names::BuiltinSort;
 use k_rust::{
     backend::{
         Backend, BackendError, BackendOptions,
@@ -46,8 +46,8 @@ use k_rust::{
     },
     kore::{
         ast::{
-            Definition as KoreDefinition, Module as KoreModule, Pattern as KorePattern,
-            Sentence as KoreSentence, Sort as KoreSort, VariableKind as KoreVariableKind,
+            Definition as KoreDefinition, Pattern as KorePattern, Sort as KoreSort,
+            VariableKind as KoreVariableKind,
         },
         codec as kore_codec, json as kore_json,
         parser::{
@@ -69,7 +69,7 @@ use k_rust::{
 #[cfg(test)]
 use k_rust::{
     kompile::initial_configuration::{kore_application, kore_sort},
-    kore::ast::Symbol as KoreSymbol,
+    kore::ast::{Sentence as KoreSentence, Symbol as KoreSymbol},
 };
 use k_rust_backend::{
     builtin::BuiltinEffect,
@@ -2442,13 +2442,13 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
 
     let started = Instant::now();
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
-    let function_symbols = kore_function_symbols(&syntax);
 
     let backend = BackendDefinition::internalize_for_source_execution(
         &syntax,
         &compiled.main_module,
         &compiled.execution_rewrite_order,
     )?;
+    let function_symbols = backend.function_symbol_names();
     backend.validate_executable_pattern(&initial)?;
     let initial = backend.internalize_frontend_term(&initial, &[])?;
     let match_target = match match_target_source {
@@ -2557,7 +2557,6 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             ),
         )
     })?;
-    let mut function_symbols = kore_function_symbols(&definition);
     let construction_module = definition
         .modules
         .iter()
@@ -2572,7 +2571,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
     let mut backend = Backend::from_definition(definition, construction_module, backend_options)?;
     for path in &options.added_modules {
         let source = fs::read_to_string(path)?;
-        let module = parse_kore_module(&source).map_err(|error| {
+        parse_kore_module(&source).map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
@@ -2581,9 +2580,11 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
                 ),
             )
         })?;
-        function_symbols.extend(kore_module_function_symbols(&module));
         backend.add_module(&source, true)?;
     }
+    let function_symbols = backend
+        .select_definition(Some(&options.module))?
+        .function_symbol_names();
     let initial = backend.with_solver(Some(&options.module), |definition, _| {
         load_backend_patterns(definition, &options.pattern, "initial")
             .map_err(|error| BackendError(error.to_string()))
@@ -2950,9 +2951,9 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
             ),
         )
     })?;
-    let function_symbols = kore_function_symbols(&definition);
     let mut backend =
         Backend::from_definition(definition, &options.module, BackendOptions::default())?;
+    let function_symbols = backend.select_definition(None)?.function_symbol_names();
 
     let target_source = fs::read_to_string(&options.pattern)?;
     let target = parse_kore_pattern(&target_source).map_err(|error| {
@@ -4188,32 +4189,6 @@ fn load_compiled_definition(path: &Path) -> Result<KoreDefinition, Box<dyn Error
     })
 }
 
-fn kore_module_function_symbols(module: &KoreModule) -> BTreeSet<String> {
-    module
-        .sentences
-        .iter()
-        .filter_map(|sentence| {
-            let KoreSentence::SymbolDeclaration {
-                symbol, attributes, ..
-            } = sentence
-            else {
-                return None;
-            };
-            attributes
-                .has(KoreAttribute::Function)
-                .then(|| symbol.name.clone())
-        })
-        .collect()
-}
-
-fn kore_function_symbols(definition: &KoreDefinition) -> BTreeSet<String> {
-    definition
-        .modules
-        .iter()
-        .flat_map(kore_module_function_symbols)
-        .collect()
-}
-
 fn proof_status(status: ProofStatus) -> &'static str {
     match status {
         ProofStatus::Proven => "proven",
@@ -5273,8 +5248,9 @@ mod tests {
         )
         .unwrap();
 
+        let backend = BackendDefinition::internalize(&definition, "M").unwrap();
         assert_eq!(
-            kore_function_symbols(&definition),
+            backend.function_symbol_names(),
             BTreeSet::from(["exact".to_owned()])
         );
     }

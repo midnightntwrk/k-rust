@@ -1616,11 +1616,8 @@ fn split_constraints(
 }
 
 fn is_rewrite_existential(variable: &Variable) -> bool {
-    // Handwritten KORE may preserve `?X` directly, while compiled definitions use the Java
-    // variable prefix and either decoded or KORE-encoded punctuation.
-    variable.name.starts_with('?')
-        || variable.name.starts_with("Var?")
-        || variable.name.starts_with("Var'Ques'")
+    let (_, decoded) = k_rust::kast::identifier::decode_variable(&variable.name);
+    decoded.is_ok_and(|name| name.starts_with('?'))
 }
 
 fn implication_result(
@@ -3191,6 +3188,18 @@ mod tests {
             "{fault:#}"
         );
         assert!(fault["error"]["data"].get("term").is_none(), "{fault:#}");
+    }
+
+    #[test]
+    fn rewrite_existential_names_use_the_shared_identifier_decoder() {
+        let sort = BackendSort::simple("SortS");
+        for name in ["?X", "Var?X", "Var'Ques'X"] {
+            assert!(
+                is_rewrite_existential(&Variable::new(name, sort.clone())),
+                "{name}"
+            );
+        }
+        assert!(!is_rewrite_existential(&Variable::new("VarX", sort)));
     }
 
     #[test]
