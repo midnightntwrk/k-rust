@@ -149,6 +149,54 @@ fn apply_priority_group(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn first_productive_group(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    groups: &mut impl Iterator<Item = Vec<Arc<RewriteRule>>>,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
+    io: Option<&ExecutionIoState>,
+) -> PriorityGroupOutcome {
+    for rules in groups.by_ref() {
+        match apply_priority_group(
+            definition,
+            pattern,
+            &rules,
+            fresh_counter,
+            simplification_options,
+            solver,
+            assume_initial_defined,
+            io,
+        ) {
+            PriorityGroupOutcome::NotProductive => {}
+            outcome @ PriorityGroupOutcome::Indeterminate(_) => return outcome,
+            outcome @ PriorityGroupOutcome::Productive { .. } => return outcome,
+        }
+    }
+    PriorityGroupOutcome::NotProductive
+}
+
+fn classify_first_group(
+    pattern: &Pattern,
+    mut branches: Vec<AppliedRule>,
+    trivial: Vec<TrivialApplication>,
+    remainder: Option<RemainderBranch>,
+) -> RewriteResult {
+    match (branches.len(), trivial.is_empty(), remainder) {
+        (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
+        (1, true, None) => RewriteResult::Finished(branches.pop().unwrap()),
+        (_, _, remainder) => RewriteResult::Branch {
+            original: pattern.clone(),
+            branches,
+            remainder,
+            trivial,
+        },
+    }
+}
+
 pub(super) fn rewrite_step_all(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -163,43 +211,28 @@ pub(super) fn rewrite_step_all(
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
-    for rules in priority_groups.values() {
-        match apply_priority_group(
-            definition,
-            pattern,
-            rules,
-            fresh_counter,
-            simplification_options,
-            solver,
-            assume_initial_defined,
-            io,
-        ) {
-            PriorityGroupOutcome::NotProductive => {}
-            PriorityGroupOutcome::Indeterminate(reason) => {
-                return RewriteResult::Indeterminate {
-                    pattern: pattern.clone(),
-                    reason,
-                };
-            }
-            PriorityGroupOutcome::Productive {
-                mut branches,
-                trivial,
-                remainder,
-            } => {
-                return match (branches.len(), trivial.is_empty(), remainder) {
-                    (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
-                    (1, true, None) => RewriteResult::Finished(branches.pop().unwrap()),
-                    (_, _, remainder) => RewriteResult::Branch {
-                        original: pattern.clone(),
-                        branches,
-                        remainder,
-                        trivial,
-                    },
-                };
-            }
-        }
+    let mut groups = priority_groups.into_values();
+    match first_productive_group(
+        definition,
+        pattern,
+        &mut groups,
+        fresh_counter,
+        simplification_options,
+        solver,
+        assume_initial_defined,
+        io,
+    ) {
+        PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
+        PriorityGroupOutcome::Indeterminate(reason) => RewriteResult::Indeterminate {
+            pattern: pattern.clone(),
+            reason,
+        },
+        PriorityGroupOutcome::Productive {
+            branches,
+            trivial,
+            remainder,
+        } => classify_first_group(pattern, branches, trivial, remainder),
     }
-    RewriteResult::Stuck(pattern.clone())
 }
 
 pub(super) fn rewrite_step_any(
