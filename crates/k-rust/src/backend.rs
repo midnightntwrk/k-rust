@@ -22,7 +22,6 @@ use k_rust_backend::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
         execute_observed_with_solver, execute_with_solver,
     },
-    rule::Predicate,
     search::{
         SearchOptions, SearchType, search_graph_observed_with_solver, search_graph_with_solver,
         search_paths_observed_with_solver, search_paths_with_solver,
@@ -36,11 +35,14 @@ use k_rust_backend::{
     },
     smt::SmtSolver,
     substitution::Substitution,
-    term::{Name, Sort, Term},
+    term::{Name, Sort},
     transition::ObservationOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+#[cfg(test)]
+use k_rust_backend::rule::Predicate;
 
 use crate::kore::{
     ast::{Pattern as KorePattern, Sort as KoreSort, Variable as KoreVariable},
@@ -1001,39 +1003,35 @@ fn condition_pattern(
     condition: &k_rust_backend::implication::ImplicationCondition,
     result_sort: &Sort,
 ) -> Result<Value, BackendError> {
-    Ok(serde_json::json!({
-        "predicate": encode_predicates(&condition.predicates, result_sort)?,
-        "substitution": encode_substitution(&condition.substitution, result_sort)?,
-        "witnesses": encode_substitution(&condition.witnesses, result_sort)?,
-    }))
-}
-
-fn encode_predicates(predicates: &[Predicate], result_sort: &Sort) -> Result<Value, BackendError> {
-    let pattern = match predicates {
-        [] => KorePattern::Top {
-            sort: externalize::sort(result_sort),
-        },
-        [predicate] => externalize::predicate_pattern(predicate, result_sort),
-        predicates => KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: predicates
-                .iter()
-                .map(|predicate| externalize::predicate_pattern(predicate, result_sort))
-                .collect(),
-        },
+    let top = || KorePattern::Top {
+        sort: externalize::sort(result_sort),
     };
-    encode_pattern(&pattern)
-}
-
-fn encode_substitution(
-    substitution: &Substitution,
-    result_sort: &Sort,
-) -> Result<Value, BackendError> {
-    let predicates = substitution
-        .iter()
-        .map(|(variable, value)| Predicate::Equals(Term::variable(variable.clone()), value.clone()))
-        .collect::<Vec<_>>();
-    encode_predicates(&predicates, result_sort)
+    let predicate = externalize::predicates_pattern(
+        &condition.predicates,
+        result_sort,
+        |predicate| externalize::predicate_pattern(predicate, result_sort),
+        externalize::ConjunctionShape::Flat,
+    )
+    .unwrap_or_else(top);
+    let substitution = externalize::substitution_pattern(
+        &condition.substitution,
+        result_sort,
+        externalize::BindingOrder::Container,
+        externalize::ConjunctionShape::Flat,
+    )
+    .unwrap_or_else(top);
+    let witnesses = externalize::substitution_pattern(
+        &condition.witnesses,
+        result_sort,
+        externalize::BindingOrder::Container,
+        externalize::ConjunctionShape::Flat,
+    )
+    .unwrap_or_else(top);
+    Ok(serde_json::json!({
+        "predicate": encode_pattern(&predicate)?,
+        "substitution": encode_pattern(&substitution)?,
+        "witnesses": encode_pattern(&witnesses)?,
+    }))
 }
 
 pub fn strip_exists(mut pattern: &KorePattern) -> &KorePattern {
@@ -1200,23 +1198,12 @@ fn collect_pattern_sort_variables(pattern: &KorePattern, output: &mut BTreeSet<S
 
 #[cfg(feature = "z3-inference")]
 fn model_substitution(substitution: &Substitution, result_sort: &Sort) -> Option<KorePattern> {
-    let bindings = substitution
-        .iter()
-        .map(|(variable, value)| {
-            externalize::predicate_pattern(
-                &Predicate::Equals(Term::variable(variable.clone()), value.clone()),
-                result_sort,
-            )
-        })
-        .collect::<Vec<_>>();
-    match bindings.as_slice() {
-        [] => None,
-        [binding] => Some(binding.clone()),
-        _ => Some(KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: bindings,
-        }),
-    }
+    externalize::substitution_pattern(
+        substitution,
+        result_sort,
+        externalize::BindingOrder::Container,
+        externalize::ConjunctionShape::Flat,
+    )
 }
 
 fn select_claim<'a>(

@@ -1223,22 +1223,6 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
         }
     }
 
-    fn balanced_and(sort: &KoreSort, patterns: &[KorePattern]) -> KorePattern {
-        match patterns {
-            [pattern] => pattern.clone(),
-            _ => {
-                let middle = patterns.len() / 2;
-                KorePattern::And {
-                    sort: sort.clone(),
-                    arguments: vec![
-                        balanced_and(sort, &patterns[..middle]),
-                        balanced_and(sort, &patterns[middle..]),
-                    ],
-                }
-            }
-        }
-    }
-
     fn normalize_body(original: &KorePattern, pattern: &Pattern) -> KorePattern {
         let result_sort = pattern.term.sort();
         let Some(term) = take_term_leaves(original) else {
@@ -1254,7 +1238,9 @@ fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> K
             return term;
         }
         let sort = externalize::sort(&result_sort);
-        let predicate = balanced_and(&sort, &constraints);
+        let predicate =
+            externalize::conjunction(&sort, constraints, externalize::ConjunctionShape::Balanced)
+                .expect("the empty constraint case returned above");
         KorePattern::And {
             sort,
             arguments: vec![term, predicate],
@@ -1613,9 +1599,25 @@ fn execute_state(
     let term = substitute(&pattern.term, &substitution);
     state.insert("term".into(), encode_kore(&externalize::term(&term))?);
     let predicates = substitute_predicates(&predicates, &substitution);
-    if let Some(predicate) =
-        execution_constraints_pattern(definition, &predicates, &pattern.term.sort())
-    {
+    let mut ordered_predicates = predicates
+        .iter()
+        .filter(|predicate| !matches!(predicate, Predicate::True))
+        .collect::<Vec<_>>();
+    ordered_predicates.sort_by(|left, right| {
+        left.free_variables()
+            .cmp(&right.free_variables())
+            .then_with(|| left.cmp(right))
+    });
+    if let Some(predicate) = externalize::conjunction(
+        &externalize::sort(&pattern.term.sort()),
+        ordered_predicates
+            .into_iter()
+            .map(|predicate| {
+                externalize::booster_predicate_pattern(definition, predicate, &pattern.term.sort())
+            })
+            .collect(),
+        externalize::ConjunctionShape::Flat,
+    ) {
         state.insert("predicate".into(), encode_kore(&predicate)?);
     }
     if let Some(substitution) = super::model_substitution(&substitution, &pattern.term.sort()) {
@@ -1634,10 +1636,17 @@ fn execute_applied_state(
         .as_object_mut()
         .expect("execute_state always returns an object");
     object.insert("rule-id".into(), Value::String(applied.unique_id.clone()));
-    if let Some(rule_predicate) = rule_constraints_pattern(
-        definition,
+    if let Some(rule_predicate) = externalize::predicates_pattern(
         &applied.rule_predicates,
         &applied.pattern.term.sort(),
+        |predicate| {
+            externalize::booster_rule_predicate_pattern_in_definition(
+                definition,
+                predicate,
+                &applied.pattern.term.sort(),
+            )
+        },
+        externalize::ConjunctionShape::LeftNested,
     ) {
         object.insert("rule-predicate".into(), encode_kore(&rule_predicate)?);
     }
@@ -1667,37 +1676,17 @@ fn externalize_rule_substitution(
         .iter()
         .map(|(variable, value)| (variable.clone(), substitute(value, state_substitution)))
         .collect();
-    super::model_substitution(&substitution, result_sort).map(left_associate_conjunction)
-}
-
-fn left_associate_conjunction(mut pattern: KorePattern) -> KorePattern {
-    let (sort, arguments) = match &mut pattern {
-        KorePattern::And { sort, arguments } => (
-            std::mem::replace(sort, KoreSort::Variable(String::new())),
-            std::mem::take(arguments),
-        ),
-        _ => return pattern,
-    };
-    let mut arguments = arguments.into_iter();
-    let Some(first) = arguments.next() else {
-        return KorePattern::And {
-            sort,
-            arguments: Vec::new(),
+    super::model_substitution(&substitution, result_sort).map(|pattern| {
+        let KorePattern::And { sort, .. } = &pattern else {
+            return pattern;
         };
-    };
-    let Some(second) = arguments.next() else {
-        return first;
-    };
-    arguments.fold(
-        KorePattern::And {
-            sort: sort.clone(),
-            arguments: vec![first, second],
-        },
-        |left, right| KorePattern::And {
-            sort: sort.clone(),
-            arguments: vec![left, right],
-        },
-    )
+        externalize::conjunction(
+            sort,
+            pattern.conjuncts_at(sort).into_iter().cloned().collect(),
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap_or(pattern)
+    })
 }
 
 fn pattern_variables(pattern: &Pattern) -> BTreeSet<Variable> {
@@ -1741,72 +1730,6 @@ fn is_rewrite_existential(variable: &Variable) -> bool {
         || variable.name.starts_with("Var'Ques'")
 }
 
-fn constraints_pattern(
-    constraints: &[Predicate],
-    result_sort: &BackendSort,
-) -> Option<KorePattern> {
-    let mut predicates = constraints
-        .iter()
-        .filter(|predicate| !matches!(predicate, Predicate::True))
-        .map(|predicate| externalize::predicate_pattern(predicate, result_sort));
-    let first = predicates.next()?;
-    Some(predicates.fold(first, |left, right| KorePattern::And {
-        sort: externalize::sort(result_sort),
-        arguments: vec![left, right],
-    }))
-}
-
-fn execution_constraints_pattern(
-    definition: &BackendDefinition,
-    constraints: &[Predicate],
-    result_sort: &BackendSort,
-) -> Option<KorePattern> {
-    let mut constraints = constraints
-        .iter()
-        .filter(|predicate| !matches!(predicate, Predicate::True))
-        .collect::<Vec<_>>();
-    constraints.sort_by(|left, right| {
-        left.free_variables()
-            .cmp(&right.free_variables())
-            .then_with(|| left.cmp(right))
-    });
-    let mut predicates = constraints.into_iter().map(|predicate| {
-        externalize::booster_predicate_pattern(definition, predicate, result_sort)
-    });
-    let first = predicates.next()?;
-    let remaining = predicates.collect::<Vec<_>>();
-    if remaining.is_empty() {
-        Some(first)
-    } else {
-        Some(KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: std::iter::once(first).chain(remaining).collect(),
-        })
-    }
-}
-
-fn rule_constraints_pattern(
-    definition: &BackendDefinition,
-    constraints: &[Predicate],
-    result_sort: &BackendSort,
-) -> Option<KorePattern> {
-    let mut predicates = constraints
-        .iter()
-        .filter(|predicate| !matches!(predicate, Predicate::True))
-        .map(|predicate| {
-            externalize::booster_rule_predicate_pattern_in_definition(
-                definition,
-                predicate,
-                result_sort,
-            )
-        });
-    let first = predicates.next()?;
-    Some(predicates.fold(first, |left, right| KorePattern::And {
-        sort: externalize::sort(result_sort),
-        arguments: vec![left, right],
-    }))
-}
-
 fn implication_result(
     antecedent: &KorePattern,
     consequent: &KorePattern,
@@ -1840,12 +1763,15 @@ fn implication_result(
         .unwrap_or_else(|| KorePattern::Top {
             sort: externalize::sort(result_sort),
         });
-        let predicate =
-            constraints_pattern(&condition.predicates, result_sort).unwrap_or_else(|| {
-                KorePattern::Top {
-                    sort: externalize::sort(result_sort),
-                }
-            });
+        let predicate = externalize::predicates_pattern(
+            &condition.predicates,
+            result_sort,
+            |predicate| externalize::predicate_pattern(predicate, result_sort),
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap_or_else(|| KorePattern::Top {
+            sort: externalize::sort(result_sort),
+        });
         output["condition"] = json!({
             "substitution": encode_kore(&substitution)?,
             "predicate": encode_kore(&predicate)?,

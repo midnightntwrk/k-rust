@@ -2792,60 +2792,12 @@ fn model_substitution(
     substitution: &Substitution,
     result_sort: &BackendSort,
 ) -> Option<KorePattern> {
-    let mut bindings = substitution.iter().collect::<Vec<_>>();
-    bindings.sort_by(|(left, _), (right, _)| {
-        compare_natural_names(&left.name, &right.name).then_with(|| left.sort.cmp(&right.sort))
-    });
-    let bindings = bindings
-        .into_iter()
-        .map(|(variable, value)| {
-            externalize::predicate_pattern(
-                &Predicate::Equals(Term::variable(variable.clone()), value.clone()),
-                result_sort,
-            )
-        })
-        .collect::<Vec<_>>();
-    match bindings.as_slice() {
-        [] => None,
-        [binding] => Some(binding.clone()),
-        _ => Some(KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: bindings,
-        }),
-    }
-}
-
-fn compare_natural_names(left: &str, right: &str) -> std::cmp::Ordering {
-    let (left_prefix, left_number) = trailing_number(left);
-    let (right_prefix, right_number) = trailing_number(right);
-    if left_prefix == right_prefix && !left_number.is_empty() && !right_number.is_empty() {
-        let left_value = left_number.trim_start_matches('0');
-        let right_value = right_number.trim_start_matches('0');
-        let left_value = if left_value.is_empty() {
-            "0"
-        } else {
-            left_value
-        };
-        let right_value = if right_value.is_empty() {
-            "0"
-        } else {
-            right_value
-        };
-        return left_value
-            .len()
-            .cmp(&right_value.len())
-            .then_with(|| left_value.cmp(right_value))
-            .then_with(|| left_number.len().cmp(&right_number.len()))
-            .then_with(|| left.cmp(right));
-    }
-    left.cmp(right)
-}
-
-fn trailing_number(name: &str) -> (&str, &str) {
-    let prefix_length = name
-        .trim_end_matches(|character: char| character.is_ascii_digit())
-        .len();
-    (&name[..prefix_length], &name[prefix_length..])
+    externalize::substitution_pattern(
+        substitution,
+        result_sort,
+        externalize::BindingOrder::Natural,
+        externalize::ConjunctionShape::Flat,
+    )
 }
 
 fn kore_implies(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
@@ -3016,19 +2968,15 @@ fn implication_condition_output(
             .unwrap_or_else(|| KorePattern::Top {
                 sort: externalize::sort(result_sort),
             });
-    let predicate = match condition.predicates.as_slice() {
-        [] => KorePattern::Top {
-            sort: externalize::sort(result_sort),
-        },
-        [predicate] => externalize::predicate_pattern(predicate, result_sort),
-        predicates => KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: predicates
-                .iter()
-                .map(|predicate| externalize::predicate_pattern(predicate, result_sort))
-                .collect(),
-        },
-    };
+    let predicate = externalize::predicates_pattern(
+        &condition.predicates,
+        result_sort,
+        |predicate| externalize::predicate_pattern(predicate, result_sort),
+        externalize::ConjunctionShape::Flat,
+    )
+    .unwrap_or_else(|| KorePattern::Top {
+        sort: externalize::sort(result_sort),
+    });
     let witnesses =
         implication_substitution(&condition.witnesses, result_sort, antecedent_variable)
             .unwrap_or_else(|| KorePattern::Top {
@@ -3048,7 +2996,7 @@ fn implication_substitution(
 ) -> Option<KorePattern> {
     let mut bindings = substitution.iter().collect::<Vec<_>>();
     bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
-    let mut bindings = bindings.into_iter().map(|(variable, value)| {
+    let bindings = bindings.into_iter().map(|(variable, value)| {
         let mut output_variable = variable.clone();
         let consequent_existential = variable
             .name
@@ -3081,14 +3029,11 @@ fn implication_substitution(
             right: Box::new(right),
         }
     });
-    let mut result = bindings.next()?;
-    for binding in bindings {
-        result = KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: vec![result, binding],
-        };
-    }
-    Some(result)
+    externalize::conjunction(
+        &externalize::sort(result_sort),
+        bindings.collect(),
+        externalize::ConjunctionShape::LeftNested,
+    )
 }
 
 fn kore_json_value(pattern: &KorePattern) -> Result<serde_json::Value, Box<dyn Error>> {
@@ -3825,7 +3770,14 @@ fn search_output(
         })
         .collect::<Vec<_>>();
     filter_match_condition(
-        disjoin_outputs(solutions, result_sort),
+        externalize::disjunction(
+            result_sort,
+            solutions,
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap_or_else(|| KorePattern::Bottom {
+            sort: result_sort.clone(),
+        }),
         result_sort,
         generated_anonymous_variables,
         function_symbols,
@@ -3851,7 +3803,14 @@ fn pattern_matches_output(
         })
         .collect::<Vec<_>>();
     filter_match_condition(
-        disjoin_outputs(solutions, result_sort),
+        externalize::disjunction(
+            result_sort,
+            solutions,
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap_or_else(|| KorePattern::Bottom {
+            sort: result_sort.clone(),
+        }),
         result_sort,
         generated_anonymous_variables,
         function_symbols,
@@ -3864,35 +3823,34 @@ fn raw_match_condition_output(
     result_sort: &KoreSort,
     predicate_sort: &BackendSort,
 ) -> KorePattern {
-    let mut bindings = substitution.iter().collect::<Vec<_>>();
-    bindings.sort_by(|(left, _), (right, _)| {
-        left.name
-            .cmp(&right.name)
-            .then_with(|| left.sort.cmp(&right.sort))
-    });
-    let predicates = bindings
-        .into_iter()
-        .map(|(variable, value)| Predicate::Equals(Term::variable(variable.clone()), value.clone()))
-        .chain(constraints.iter().cloned())
-        .map(|predicate| externalize::predicate_pattern(&predicate, predicate_sort))
-        .collect::<Vec<_>>();
-    conjoin_outputs(predicates, result_sort)
-}
-
-fn conjoin_outputs(patterns: Vec<KorePattern>, result_sort: &KoreSort) -> KorePattern {
-    let mut patterns = patterns.into_iter();
-    let Some(mut result) = patterns.next() else {
-        return KorePattern::Top {
-            sort: result_sort.clone(),
-        };
-    };
-    for pattern in patterns {
-        result = KorePattern::And {
-            sort: result_sort.clone(),
-            arguments: vec![result, pattern],
-        };
-    }
-    result
+    let predicate_sort_kore = externalize::sort(predicate_sort);
+    let mut predicates = externalize::substitution_pattern(
+        substitution,
+        predicate_sort,
+        externalize::BindingOrder::NameThenSort,
+        externalize::ConjunctionShape::LeftNested,
+    )
+    .map(|pattern| {
+        pattern
+            .conjuncts_at(&predicate_sort_kore)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+    predicates.extend(
+        constraints
+            .iter()
+            .map(|predicate| externalize::predicate_pattern(predicate, predicate_sort)),
+    );
+    externalize::conjunction(
+        result_sort,
+        predicates,
+        externalize::ConjunctionShape::LeftNested,
+    )
+    .unwrap_or_else(|| KorePattern::Top {
+        sort: result_sort.clone(),
+    })
 }
 
 fn count_kore_variable_occurrences(
@@ -4011,7 +3969,14 @@ fn filter_match_condition(
             )
         })
         .collect();
-    disjoin_outputs(order_distinct_match_outputs(disjuncts), result_sort)
+    externalize::disjunction(
+        result_sort,
+        order_distinct_match_outputs(disjuncts),
+        externalize::ConjunctionShape::LeftNested,
+    )
+    .unwrap_or_else(|| KorePattern::Bottom {
+        sort: result_sort.clone(),
+    })
 }
 
 fn flatten_kore_disjunction(
@@ -4052,29 +4017,20 @@ fn filter_match_conjunction(
             )
         })
         .collect();
-    conjoin_outputs(conjuncts, result_sort)
+    externalize::conjunction(
+        result_sort,
+        conjuncts,
+        externalize::ConjunctionShape::LeftNested,
+    )
+    .unwrap_or_else(|| KorePattern::Top {
+        sort: result_sort.clone(),
+    })
 }
 
 fn order_distinct_match_outputs(mut solutions: Vec<KorePattern>) -> Vec<KorePattern> {
     solutions.sort();
     solutions.dedup();
     solutions
-}
-
-fn disjoin_outputs(solutions: Vec<KorePattern>, result_sort: &KoreSort) -> KorePattern {
-    let mut solutions = solutions.into_iter();
-    let Some(mut result) = solutions.next() else {
-        return KorePattern::Bottom {
-            sort: result_sort.clone(),
-        };
-    };
-    for solution in solutions {
-        result = KorePattern::Or {
-            sort: result_sort.clone(),
-            arguments: vec![result, solution],
-        };
-    }
-    result
 }
 
 /// Print disjuncts in the structural order of their externalized KORE, never in
@@ -6323,15 +6279,15 @@ mod tests {
     #[test]
     fn generated_variable_names_use_natural_numeric_order() {
         assert_eq!(
-            compare_natural_names("RuleVar_Gen2", "RuleVar_Gen10"),
+            externalize::natural_name_order("RuleVar_Gen2", "RuleVar_Gen10"),
             std::cmp::Ordering::Less
         );
         assert_eq!(
-            compare_natural_names("RuleVar_Gen02", "RuleVar_Gen2"),
+            externalize::natural_name_order("RuleVar_Gen02", "RuleVar_Gen2"),
             std::cmp::Ordering::Greater
         );
         assert_eq!(
-            compare_natural_names("RuleVar_A", "RuleVar_B"),
+            externalize::natural_name_order("RuleVar_A", "RuleVar_B"),
             std::cmp::Ordering::Less
         );
     }
