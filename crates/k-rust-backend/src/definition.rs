@@ -54,6 +54,12 @@ pub(crate) enum SubsortValidation {
     Ignore,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PatternOrPredicate {
+    Term(Pattern),
+    Predicate(crate::rule::Predicate, Sort),
+}
+
 /// Transitive strict ordering between overloaded KORE symbols.
 ///
 /// A relation `(greater, lesser)` records that `greater` overloads `lesser`. Symbols which share
@@ -786,6 +792,22 @@ impl BackendDefinition {
         let (term, constraints) =
             internalize_rule_pattern(self, &pattern, sort_variables, SubsortValidation::Check)?;
         Ok(Pattern { term, constraints })
+    }
+
+    /// Internalize KORE as a constrained term, or as a predicate when it has no term leaf.
+    pub fn internalize_pattern_or_predicate(
+        &self,
+        pattern: &kore::Pattern,
+        sort_variables: &[Name],
+    ) -> Result<PatternOrPredicate, DefinitionError> {
+        match self.internalize_pattern(pattern, sort_variables) {
+            Ok(pattern) => Ok(PatternOrPredicate::Term(pattern)),
+            Err(DefinitionError::RulePattern(RulePatternError::MissingTerm)) => {
+                let (predicate, sort) = self.internalize_predicate(pattern, sort_variables)?;
+                Ok(PatternOrPredicate::Predicate(predicate, sort))
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Verify a standalone KORE pattern before internalizing a file boundary.

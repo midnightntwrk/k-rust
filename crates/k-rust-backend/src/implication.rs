@@ -6,6 +6,8 @@
 
 use std::{collections::BTreeSet, error::Error, fmt};
 
+use k_rust_kore::kore::ast as kore;
+
 use crate::{
     definition::BackendDefinition,
     fresh::fresh_name,
@@ -38,6 +40,131 @@ pub enum ImplicationFailure {
     TermMismatch,
     PartialCoverage,
     ConsequentCondition,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Side {
+    Antecedent,
+    Consequent,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ImplicationRequestError {
+    MacroOrAlias {
+        side: Side,
+        name: String,
+    },
+    NonFunctionLikeAntecedent,
+    NonSingletonConsequent,
+    ExistentialCapture {
+        captured: Vec<String>,
+        existentials: Vec<String>,
+    },
+    SortMismatch {
+        antecedent: kore::Sort,
+        consequent: kore::Sort,
+    },
+}
+
+/// Validate the syntactic request ladder before either side is internalized.
+pub fn validate_request(
+    definition: &BackendDefinition,
+    antecedent: &kore::Pattern,
+    consequent: &kore::Pattern,
+) -> Result<(), ImplicationRequestError> {
+    for (side, pattern) in [
+        (Side::Antecedent, antecedent),
+        (Side::Consequent, consequent),
+    ] {
+        if let Err(crate::definition::DefinitionError::MacroOrAliasInImplication(name)) =
+            definition.validate_implication_pattern(pattern)
+        {
+            return Err(ImplicationRequestError::MacroOrAlias { side, name });
+        }
+    }
+
+    let antecedent_body = antecedent.strip_exists();
+    if matches!(antecedent_body, kore::Pattern::Or { arguments, .. } if arguments.len() != 1)
+        || matches!(
+            antecedent_body,
+            kore::Pattern::Top { .. } | kore::Pattern::Mu { .. } | kore::Pattern::Nu { .. }
+        )
+    {
+        return Err(ImplicationRequestError::NonFunctionLikeAntecedent);
+    }
+
+    let consequent_body = consequent.strip_exists();
+    if matches!(consequent_body, kore::Pattern::Or { arguments, .. } if arguments.len() != 1) {
+        return Err(ImplicationRequestError::NonSingletonConsequent);
+    }
+
+    let antecedent_free = antecedent.free_variables();
+    let (_, existentials) = consequent.leading_existentials();
+    let captured = existentials
+        .iter()
+        .filter(|variable| antecedent_free.contains(*variable))
+        .map(|variable| variable.name.clone())
+        .collect::<Vec<_>>();
+    if !captured.is_empty() {
+        return Err(ImplicationRequestError::ExistentialCapture {
+            captured,
+            existentials: existentials
+                .into_iter()
+                .map(|variable| variable.name.clone())
+                .collect(),
+        });
+    }
+
+    if let (Some(antecedent_sort), Some(consequent_sort)) =
+        (antecedent.syntactic_sort(), consequent.syntactic_sort())
+        && antecedent_sort != consequent_sort
+    {
+        return Err(ImplicationRequestError::SortMismatch {
+            antecedent: antecedent_sort.clone(),
+            consequent: consequent_sort.clone(),
+        });
+    }
+    Ok(())
+}
+
+/// Return one of the three implication results decided entirely by the KORE syntax.
+pub fn special_case(
+    antecedent: &kore::Pattern,
+    consequent: &kore::Pattern,
+) -> Option<ImplicationResult> {
+    let antecedent = antecedent.strip_exists();
+    let consequent = consequent.strip_exists();
+    let condition = |predicates| {
+        Some(ImplicationCondition {
+            predicates,
+            substitution: Substitution::new(),
+            witnesses: Substitution::new(),
+        })
+    };
+    if matches!(antecedent, kore::Pattern::Bottom { .. }) {
+        Some(ImplicationResult {
+            status: ImplicationStatus::Valid,
+            condition: condition(vec![Predicate::False]),
+            failure: None,
+            vacuous: false,
+        })
+    } else if matches!(consequent, kore::Pattern::Top { .. }) {
+        Some(ImplicationResult {
+            status: ImplicationStatus::Valid,
+            condition: condition(Vec::new()),
+            failure: None,
+            vacuous: false,
+        })
+    } else if matches!(consequent, kore::Pattern::Bottom { .. }) {
+        Some(ImplicationResult {
+            status: ImplicationStatus::Invalid,
+            condition: condition(vec![Predicate::False]),
+            failure: Some(ImplicationFailure::ConsequentCondition),
+            vacuous: false,
+        })
+    } else {
+        None
+    }
 }
 
 /// The condition under which an implication was established.

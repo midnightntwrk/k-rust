@@ -11,12 +11,10 @@ use std::{
 };
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
+#[cfg(test)]
+use k_rust::kore::binary as kore_binary;
 use k_rust::names::{BuiltinSort, KoreAttribute, WellKnownSymbol};
 use k_rust::{
-    backend::{
-        collect_free_kore_variables, implication_sort_variables, special_implication_result,
-        strip_exists,
-    },
     definition::{
         AttributeKey, Attributes, CheckMode, Sentence, checks::check_definition,
         json as definition_json,
@@ -39,7 +37,7 @@ use k_rust::{
             Module as KoreModule, Pattern as KorePattern, Sentence as KoreSentence,
             Sort as KoreSort, Symbol as KoreSymbol, VariableKind as KoreVariableKind,
         },
-        binary as kore_binary, json as kore_json,
+        codec as kore_codec, json as kore_json,
         parser::{
             parse_definition as parse_kore_definition, parse_module as parse_kore_module,
             parse_pattern as parse_kore_pattern,
@@ -59,11 +57,11 @@ use k_rust::{
 use k_rust_backend::{
     builtin::BuiltinEffect,
     claim::ReachabilityClaim,
-    definition::{BackendDefinition, DefinitionError},
+    definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
     externalize,
     implication::{
-        ImplicationCondition, ImplicationResult, ImplicationStatus,
-        check_implication_with_existentials_complete,
+        ImplicationCondition, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
+        check_implication_with_existentials_complete, special_case, validate_request,
     },
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
     rewrite::{
@@ -71,7 +69,7 @@ use k_rust_backend::{
         execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status,
         execute_disjunction_with_solver_and_observer_with_initial_status,
     },
-    rule::{Predicate, RulePatternError},
+    rule::Predicate,
     search::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
         SearchType, match_disjunction, match_disjunction_with_solver,
@@ -1498,50 +1496,6 @@ fn kore_variable_identity(variable: &k_rust::kore::ast::Variable) -> KoreVariabl
     }
 }
 
-fn collect_kore_variable_identities(
-    pattern: &KorePattern,
-    all: &mut BTreeSet<KoreVariableIdentity>,
-) {
-    match pattern {
-        KorePattern::Variable(variable) => {
-            all.insert(kore_variable_identity(variable));
-        }
-        KorePattern::Application { arguments, .. }
-        | KorePattern::And { arguments, .. }
-        | KorePattern::Or { arguments, .. }
-        | KorePattern::AssociativeApplication { arguments, .. } => {
-            for argument in arguments {
-                collect_kore_variable_identities(argument, all);
-            }
-        }
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => {
-            collect_kore_variable_identities(argument, all);
-        }
-        KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            collect_kore_variable_identities(left, all);
-            collect_kore_variable_identities(right, all);
-        }
-        KorePattern::Exists { variable, body, .. }
-        | KorePattern::Forall { variable, body, .. }
-        | KorePattern::Mu { variable, body }
-        | KorePattern::Nu { variable, body } => {
-            all.insert(kore_variable_identity(variable));
-            collect_kore_variable_identities(body, all);
-        }
-        KorePattern::String(_)
-        | KorePattern::Top { .. }
-        | KorePattern::Bottom { .. }
-        | KorePattern::DomainValue { .. } => {}
-    }
-}
-
 fn collect_predicate_variables(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
     match predicate {
         Predicate::True | Predicate::False => {}
@@ -1613,8 +1567,12 @@ fn prepare_backend_match_target(
     compiled: CompiledSearchPattern,
 ) -> Result<BackendMatchTarget, Box<dyn Error>> {
     backend.verify_standalone_pattern(&compiled.pattern)?;
-    let mut occurring = BTreeSet::new();
-    collect_kore_variable_identities(&compiled.pattern, &mut occurring);
+    let occurring = compiled
+        .pattern
+        .variables()
+        .iter()
+        .map(kore_variable_identity)
+        .collect::<BTreeSet<_>>();
     if let Some(identity) = compiled
         .generated_anonymous_variables
         .iter()
@@ -2710,8 +2668,8 @@ fn simplify_kore_pattern_with_options(
 ) -> Result<KorePattern, Box<dyn Error>> {
     let solver = Z3Solver::with_options(definition, options)
         .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-    match definition.internalize_pattern(syntax, &[]) {
-        Ok(pattern) => {
+    match definition.internalize_pattern_or_predicate(syntax, &[])? {
+        PatternOrPredicate::Term(pattern) => {
             let simplified = simplify_pattern_with_solver(
                 definition,
                 &pattern,
@@ -2723,19 +2681,20 @@ fn simplify_kore_pattern_with_options(
             })?;
             return Ok(externalize::constrained_pattern(&simplified));
         }
-        Err(DefinitionError::RulePattern(RulePatternError::MissingTerm)) => {}
-        Err(error) => return Err(error.into()),
+        PatternOrPredicate::Predicate(predicate, result_sort) => {
+            let simplified = simplify_and_decide_predicate_with_solver(
+                definition,
+                &predicate,
+                &[],
+                SimplificationOptions::unbounded(),
+                &solver,
+            )
+            .map_err(|error| {
+                io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
+            })?;
+            return Ok(externalize::ml_pattern(&simplified, &result_sort));
+        }
     }
-    let (predicate, result_sort) = definition.internalize_predicate(syntax, &[])?;
-    let simplified = simplify_and_decide_predicate_with_solver(
-        definition,
-        &predicate,
-        &[],
-        SimplificationOptions::unbounded(),
-        &solver,
-    )
-    .map_err(|error| io::Error::other(format!("could not simplify KORE pattern: {error:?}")))?;
-    Ok(externalize::ml_pattern(&simplified, &result_sort))
 }
 
 fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
@@ -2794,60 +2753,12 @@ fn model_substitution(
     substitution: &Substitution,
     result_sort: &BackendSort,
 ) -> Option<KorePattern> {
-    let mut bindings = substitution.iter().collect::<Vec<_>>();
-    bindings.sort_by(|(left, _), (right, _)| {
-        compare_natural_names(&left.name, &right.name).then_with(|| left.sort.cmp(&right.sort))
-    });
-    let bindings = bindings
-        .into_iter()
-        .map(|(variable, value)| {
-            externalize::predicate_pattern(
-                &Predicate::Equals(Term::variable(variable.clone()), value.clone()),
-                result_sort,
-            )
-        })
-        .collect::<Vec<_>>();
-    match bindings.as_slice() {
-        [] => None,
-        [binding] => Some(binding.clone()),
-        _ => Some(KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: bindings,
-        }),
-    }
-}
-
-fn compare_natural_names(left: &str, right: &str) -> std::cmp::Ordering {
-    let (left_prefix, left_number) = trailing_number(left);
-    let (right_prefix, right_number) = trailing_number(right);
-    if left_prefix == right_prefix && !left_number.is_empty() && !right_number.is_empty() {
-        let left_value = left_number.trim_start_matches('0');
-        let right_value = right_number.trim_start_matches('0');
-        let left_value = if left_value.is_empty() {
-            "0"
-        } else {
-            left_value
-        };
-        let right_value = if right_value.is_empty() {
-            "0"
-        } else {
-            right_value
-        };
-        return left_value
-            .len()
-            .cmp(&right_value.len())
-            .then_with(|| left_value.cmp(right_value))
-            .then_with(|| left_number.len().cmp(&right_number.len()))
-            .then_with(|| left.cmp(right));
-    }
-    left.cmp(right)
-}
-
-fn trailing_number(name: &str) -> (&str, &str) {
-    let prefix_length = name
-        .trim_end_matches(|character: char| character.is_ascii_digit())
-        .len();
-    (&name[..prefix_length], &name[prefix_length..])
+    externalize::substitution_pattern(
+        substitution,
+        result_sort,
+        externalize::BindingOrder::Natural,
+        externalize::ConjunctionShape::Flat,
+    )
 }
 
 fn kore_implies(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
@@ -2879,19 +2790,45 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
     let backend = BackendDefinition::internalize(&definition, &options.module)?;
     let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
     let consequent_syntax = load_kore_syntax(&options.consequent, "consequent")?;
-    backend
-        .validate_implication_pattern(&antecedent_syntax)
-        .map_err(|error| io::Error::other(format!("invalid implication antecedent: {error}")))?;
-    backend
-        .validate_implication_pattern(&consequent_syntax)
-        .map_err(|error| io::Error::other(format!("invalid implication consequent: {error}")))?;
-    reject_non_singleton_implication_pattern(&antecedent_syntax, "antecedent")?;
-    reject_non_singleton_implication_pattern(&consequent_syntax, "consequent")?;
-    reject_implication_variable_capture(&antecedent_syntax, &consequent_syntax)?;
+    if let Err(request_error) = validate_request(&backend, &antecedent_syntax, &consequent_syntax) {
+        let message = match request_error {
+            ImplicationRequestError::MacroOrAlias { side, name } => format!(
+                "invalid implication {}: {}",
+                match side {
+                    Side::Antecedent => "antecedent",
+                    Side::Consequent => "consequent",
+                },
+                DefinitionError::MacroOrAliasInImplication(name)
+            ),
+            ImplicationRequestError::NonFunctionLikeAntecedent => {
+                "implication antecedent must be function-like".into()
+            }
+            ImplicationRequestError::NonSingletonConsequent => {
+                "implication consequent must contain exactly one pattern".into()
+            }
+            ImplicationRequestError::ExistentialCapture { captured, .. } => format!(
+                "consequent existentials capture antecedent variables: {}",
+                captured.join(", ")
+            ),
+            // CQ-09's approved contract commit makes this syntactic check a CLI boundary.
+            // Until then, retain the existing internalized-sort check and its rendered text.
+            ImplicationRequestError::SortMismatch { .. } => String::new(),
+        };
+        if !message.is_empty() {
+            return Err(io::Error::other(message).into());
+        }
+    }
 
-    let sort_variables = implication_sort_variables(&antecedent_syntax, &consequent_syntax);
-    let special_result = special_implication_result(&antecedent_syntax, &consequent_syntax);
-    let antecedent = if matches!(strip_exists(&antecedent_syntax), KorePattern::Bottom { .. }) {
+    let sort_variables = antecedent_syntax
+        .sort_variables()
+        .into_iter()
+        .chain(consequent_syntax.sort_variables())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(BackendName::from)
+        .collect::<Vec<_>>();
+    let special_result = special_case(&antecedent_syntax, &consequent_syntax);
+    let antecedent = if matches!(antecedent_syntax.strip_exists(), KorePattern::Bottom { .. }) {
         None
     } else {
         Some(
@@ -2915,7 +2852,7 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
     };
     let result = if let Some(result) = special_result {
         result
-    } else if matches!(strip_exists(&consequent_syntax), KorePattern::Not { .. }) {
+    } else if matches!(consequent_syntax.strip_exists(), KorePattern::Not { .. }) {
         ImplicationResult {
             status: ImplicationStatus::Invalid,
             condition: None,
@@ -2979,7 +2916,7 @@ fn implication_output(
         "implication": kore_json_value(&implication)?,
     });
     if let Some(condition) = result.condition {
-        let antecedent_variable = match strip_exists(antecedent) {
+        let antecedent_variable = match antecedent.strip_exists() {
             KorePattern::Variable(variable) => Some(variable.name.as_str()),
             _ => None,
         };
@@ -2999,19 +2936,15 @@ fn implication_condition_output(
             .unwrap_or_else(|| KorePattern::Top {
                 sort: externalize::sort(result_sort),
             });
-    let predicate = match condition.predicates.as_slice() {
-        [] => KorePattern::Top {
-            sort: externalize::sort(result_sort),
-        },
-        [predicate] => externalize::predicate_pattern(predicate, result_sort),
-        predicates => KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: predicates
-                .iter()
-                .map(|predicate| externalize::predicate_pattern(predicate, result_sort))
-                .collect(),
-        },
-    };
+    let predicate = externalize::predicates_pattern(
+        &condition.predicates,
+        result_sort,
+        |predicate| externalize::predicate_pattern(predicate, result_sort),
+        externalize::ConjunctionShape::Flat,
+    )
+    .unwrap_or_else(|| KorePattern::Top {
+        sort: externalize::sort(result_sort),
+    });
     let witnesses =
         implication_substitution(&condition.witnesses, result_sort, antecedent_variable)
             .unwrap_or_else(|| KorePattern::Top {
@@ -3031,7 +2964,7 @@ fn implication_substitution(
 ) -> Option<KorePattern> {
     let mut bindings = substitution.iter().collect::<Vec<_>>();
     bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
-    let mut bindings = bindings.into_iter().map(|(variable, value)| {
+    let bindings = bindings.into_iter().map(|(variable, value)| {
         let mut output_variable = variable.clone();
         let consequent_existential = variable
             .name
@@ -3064,66 +2997,15 @@ fn implication_substitution(
             right: Box::new(right),
         }
     });
-    let mut result = bindings.next()?;
-    for binding in bindings {
-        result = KorePattern::And {
-            sort: externalize::sort(result_sort),
-            arguments: vec![result, binding],
-        };
-    }
-    Some(result)
+    externalize::conjunction(
+        &externalize::sort(result_sort),
+        bindings.collect(),
+        externalize::ConjunctionShape::LeftNested,
+    )
 }
 
 fn kore_json_value(pattern: &KorePattern) -> Result<serde_json::Value, Box<dyn Error>> {
     Ok(kore_json::to_value(pattern)?)
-}
-
-fn reject_non_singleton_implication_pattern(
-    pattern: &KorePattern,
-    side: &str,
-) -> Result<(), Box<dyn Error>> {
-    match strip_exists(pattern) {
-        KorePattern::Or { arguments, .. } if arguments.len() != 1 => Err(io::Error::other(
-            format!("implication {side} must contain exactly one pattern"),
-        )
-        .into()),
-        KorePattern::Top { .. } | KorePattern::Mu { .. } | KorePattern::Nu { .. }
-            if side == "antecedent" =>
-        {
-            Err(io::Error::other("implication antecedent must be function-like").into())
-        }
-        _ => Ok(()),
-    }
-}
-
-fn reject_implication_variable_capture(
-    antecedent: &KorePattern,
-    consequent: &KorePattern,
-) -> Result<(), Box<dyn Error>> {
-    let mut antecedent_free = BTreeSet::new();
-    collect_free_kore_variables(antecedent, &mut BTreeSet::new(), &mut antecedent_free);
-    let mut captured = Vec::new();
-    let mut body = consequent;
-    while let KorePattern::Exists {
-        variable,
-        body: next,
-        ..
-    } = body
-    {
-        if antecedent_free.contains(variable) {
-            captured.push(variable.name.clone());
-        }
-        body = next;
-    }
-    if captured.is_empty() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "consequent existentials capture antecedent variables: {}",
-            captured.join(", ")
-        ))
-        .into())
-    }
 }
 
 fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<dyn Error>> {
@@ -3780,19 +3662,8 @@ fn decode_kore_syntax(
     purpose: &str,
     input: &[u8],
 ) -> Result<KorePattern, Box<dyn Error>> {
-    if input.starts_with(b"\x7fKORE") {
-        return kore_binary::decode_term(input)
-            .map_err(|error| invalid_kore_pattern(path, purpose, "binary", error));
-    }
-    let source = std::str::from_utf8(input)
-        .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
-    if source.trim_start().starts_with('{') {
-        kore_json::from_str(source)
-            .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))
-    } else {
-        parse_kore_pattern(source)
-            .map_err(|error| invalid_kore_pattern(path, purpose, "text", error))
-    }
+    kore_codec::decode_bytes(input)
+        .map_err(|error| invalid_kore_pattern(path, purpose, error.encoding, error.cause))
 }
 
 fn decode_backend_pattern(
@@ -3801,20 +3672,8 @@ fn decode_backend_pattern(
     purpose: &str,
     input: &[u8],
 ) -> Result<Pattern, Box<dyn Error>> {
-    let syntax = if input.starts_with(b"\x7fKORE") {
-        kore_binary::decode_term(input)
-            .map_err(|error| invalid_kore_pattern(path, purpose, "binary", error))?
-    } else {
-        let source = std::str::from_utf8(input)
-            .map_err(|error| invalid_kore_pattern(path, purpose, "UTF-8", error))?;
-        if source.trim_start().starts_with('{') {
-            kore_json::from_str(source)
-                .map_err(|error| invalid_kore_pattern(path, purpose, "JSON", error))?
-        } else {
-            parse_kore_pattern(source)
-                .map_err(|error| invalid_kore_pattern(path, purpose, "text", error))?
-        }
-    };
+    let syntax = kore_codec::decode_bytes(input)
+        .map_err(|error| invalid_kore_pattern(path, purpose, error.encoding, error.cause))?;
     definition.verify_standalone_pattern(&syntax)?;
     definition
         .internalize_pattern(&syntax, &[])
@@ -3824,7 +3683,7 @@ fn decode_backend_pattern(
 fn invalid_kore_pattern(
     path: &Path,
     purpose: &str,
-    encoding: &str,
+    encoding: impl fmt::Display,
     error: impl fmt::Display,
 ) -> Box<dyn Error> {
     io::Error::new(
@@ -3856,7 +3715,14 @@ fn search_output(
         })
         .collect::<Vec<_>>();
     filter_match_condition(
-        disjoin_outputs(solutions, result_sort),
+        externalize::disjunction(
+            result_sort,
+            solutions,
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap_or_else(|| KorePattern::Bottom {
+            sort: result_sort.clone(),
+        }),
         result_sort,
         generated_anonymous_variables,
         function_symbols,
@@ -3882,7 +3748,14 @@ fn pattern_matches_output(
         })
         .collect::<Vec<_>>();
     filter_match_condition(
-        disjoin_outputs(solutions, result_sort),
+        externalize::disjunction(
+            result_sort,
+            solutions,
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap_or_else(|| KorePattern::Bottom {
+            sort: result_sort.clone(),
+        }),
         result_sort,
         generated_anonymous_variables,
         function_symbols,
@@ -3895,95 +3768,34 @@ fn raw_match_condition_output(
     result_sort: &KoreSort,
     predicate_sort: &BackendSort,
 ) -> KorePattern {
-    let mut bindings = substitution.iter().collect::<Vec<_>>();
-    bindings.sort_by(|(left, _), (right, _)| {
-        left.name
-            .cmp(&right.name)
-            .then_with(|| left.sort.cmp(&right.sort))
-    });
-    let predicates = bindings
-        .into_iter()
-        .map(|(variable, value)| Predicate::Equals(Term::variable(variable.clone()), value.clone()))
-        .chain(constraints.iter().cloned())
-        .map(|predicate| externalize::predicate_pattern(&predicate, predicate_sort))
-        .collect::<Vec<_>>();
-    conjoin_outputs(predicates, result_sort)
-}
-
-fn conjoin_outputs(patterns: Vec<KorePattern>, result_sort: &KoreSort) -> KorePattern {
-    let mut patterns = patterns.into_iter();
-    let Some(mut result) = patterns.next() else {
-        return KorePattern::Top {
-            sort: result_sort.clone(),
-        };
-    };
-    for pattern in patterns {
-        result = KorePattern::And {
-            sort: result_sort.clone(),
-            arguments: vec![result, pattern],
-        };
-    }
-    result
-}
-
-fn count_kore_variable_occurrences(
-    pattern: &KorePattern,
-    counts: &mut BTreeMap<KoreVariableIdentity, usize>,
-) {
-    match pattern {
-        KorePattern::Variable(variable) => {
-            *counts.entry(kore_variable_identity(variable)).or_default() += 1;
-        }
-        KorePattern::Application { arguments, .. }
-        | KorePattern::And { arguments, .. }
-        | KorePattern::Or { arguments, .. }
-        | KorePattern::AssociativeApplication { arguments, .. } => {
-            for argument in arguments {
-                count_kore_variable_occurrences(argument, counts);
-            }
-        }
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => {
-            count_kore_variable_occurrences(argument, counts);
-        }
-        KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            count_kore_variable_occurrences(left, counts);
-            count_kore_variable_occurrences(right, counts);
-        }
-        KorePattern::Exists { variable, body, .. }
-        | KorePattern::Forall { variable, body, .. }
-        | KorePattern::Mu { variable, body }
-        | KorePattern::Nu { variable, body } => {
-            *counts.entry(kore_variable_identity(variable)).or_default() += 1;
-            count_kore_variable_occurrences(body, counts);
-        }
-        KorePattern::String(_)
-        | KorePattern::Top { .. }
-        | KorePattern::Bottom { .. }
-        | KorePattern::DomainValue { .. } => {}
-    }
-}
-
-fn flatten_kore_conjunction(
-    pattern: KorePattern,
-    result_sort: &KoreSort,
-    output: &mut Vec<KorePattern>,
-) {
-    match &pattern {
-        KorePattern::And { sort, arguments } if sort == result_sort => {
-            for argument in arguments {
-                flatten_kore_conjunction(argument.clone(), result_sort, output);
-            }
-        }
-        KorePattern::Top { sort } if sort == result_sort => {}
-        _ => output.push(pattern),
-    }
+    let predicate_sort_kore = externalize::sort(predicate_sort);
+    let mut predicates = externalize::substitution_pattern(
+        substitution,
+        predicate_sort,
+        externalize::BindingOrder::NameThenSort,
+        externalize::ConjunctionShape::LeftNested,
+    )
+    .map(|pattern| {
+        pattern
+            .conjuncts_at(&predicate_sort_kore)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+    predicates.extend(
+        constraints
+            .iter()
+            .map(|predicate| externalize::predicate_pattern(predicate, predicate_sort)),
+    );
+    externalize::conjunction(
+        result_sort,
+        predicates,
+        externalize::ConjunctionShape::LeftNested,
+    )
+    .unwrap_or_else(|| KorePattern::Top {
+        sort: result_sort.clone(),
+    })
 }
 
 fn generated_kore_identities(variables: &BTreeSet<Variable>) -> BTreeSet<KoreVariableIdentity> {
@@ -4016,8 +3828,11 @@ fn is_filterable_generated_equality(
     if !eligible_left {
         return false;
     }
-    let mut left_variables = BTreeSet::new();
-    collect_kore_variable_identities(left, &mut left_variables);
+    let left_variables = left
+        .variables()
+        .iter()
+        .map(kore_variable_identity)
+        .collect::<BTreeSet<_>>();
     left_variables.iter().all(|identity| {
         generated_anonymous_variables.contains(identity) && occurrences.get(identity) == Some(&1)
     })
@@ -4029,8 +3844,11 @@ fn filter_match_condition(
     generated_anonymous_variables: &BTreeSet<Variable>,
     function_symbols: &BTreeSet<String>,
 ) -> KorePattern {
-    let mut disjuncts = Vec::new();
-    flatten_kore_disjunction(condition, result_sort, &mut disjuncts);
+    let disjuncts = condition
+        .disjuncts_at(result_sort)
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
     let disjuncts = disjuncts
         .into_iter()
         .map(|condition| {
@@ -4042,23 +3860,14 @@ fn filter_match_condition(
             )
         })
         .collect();
-    disjoin_outputs(order_distinct_match_outputs(disjuncts), result_sort)
-}
-
-fn flatten_kore_disjunction(
-    pattern: KorePattern,
-    result_sort: &KoreSort,
-    output: &mut Vec<KorePattern>,
-) {
-    match &pattern {
-        KorePattern::Or { sort, arguments } if sort == result_sort => {
-            for argument in arguments {
-                flatten_kore_disjunction(argument.clone(), result_sort, output);
-            }
-        }
-        KorePattern::Bottom { sort } if sort == result_sort => {}
-        _ => output.push(pattern),
-    }
+    externalize::disjunction(
+        result_sort,
+        order_distinct_match_outputs(disjuncts),
+        externalize::ConjunctionShape::LeftNested,
+    )
+    .unwrap_or_else(|| KorePattern::Bottom {
+        sort: result_sort.clone(),
+    })
 }
 
 fn filter_match_conjunction(
@@ -4067,11 +3876,17 @@ fn filter_match_conjunction(
     generated_anonymous_variables: &BTreeSet<Variable>,
     function_symbols: &BTreeSet<String>,
 ) -> KorePattern {
-    let mut occurrences = BTreeMap::new();
-    count_kore_variable_occurrences(&condition, &mut occurrences);
+    let occurrences = condition
+        .variable_occurrences()
+        .into_iter()
+        .map(|((kind, name), count)| (KoreVariableIdentity { kind, name }, count))
+        .collect::<BTreeMap<_, _>>();
     let generated_anonymous_variables = generated_kore_identities(generated_anonymous_variables);
-    let mut conjuncts = Vec::new();
-    flatten_kore_conjunction(condition, result_sort, &mut conjuncts);
+    let conjuncts = condition
+        .conjuncts_at(result_sort)
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
     let conjuncts = conjuncts
         .into_iter()
         .filter(|pattern| {
@@ -4083,29 +3898,20 @@ fn filter_match_conjunction(
             )
         })
         .collect();
-    conjoin_outputs(conjuncts, result_sort)
+    externalize::conjunction(
+        result_sort,
+        conjuncts,
+        externalize::ConjunctionShape::LeftNested,
+    )
+    .unwrap_or_else(|| KorePattern::Top {
+        sort: result_sort.clone(),
+    })
 }
 
 fn order_distinct_match_outputs(mut solutions: Vec<KorePattern>) -> Vec<KorePattern> {
     solutions.sort();
     solutions.dedup();
     solutions
-}
-
-fn disjoin_outputs(solutions: Vec<KorePattern>, result_sort: &KoreSort) -> KorePattern {
-    let mut solutions = solutions.into_iter();
-    let Some(mut result) = solutions.next() else {
-        return KorePattern::Bottom {
-            sort: result_sort.clone(),
-        };
-    };
-    for solution in solutions {
-        result = KorePattern::Or {
-            sort: result_sort.clone(),
-            arguments: vec![result, solution],
-        };
-    }
-    result
 }
 
 /// Print disjuncts in the structural order of their externalized KORE, never in
@@ -5913,8 +5719,7 @@ mod tests {
             &BTreeSet::new(),
         );
 
-        let mut disjuncts = Vec::new();
-        flatten_kore_disjunction(output, &result_sort, &mut disjuncts);
+        let disjuncts = output.disjuncts_at(&result_sort);
         assert_eq!(disjuncts.len(), 2, "{disjuncts:?}");
         assert!(
             disjuncts
@@ -6354,15 +6159,15 @@ mod tests {
     #[test]
     fn generated_variable_names_use_natural_numeric_order() {
         assert_eq!(
-            compare_natural_names("RuleVar_Gen2", "RuleVar_Gen10"),
+            externalize::natural_name_order("RuleVar_Gen2", "RuleVar_Gen10"),
             std::cmp::Ordering::Less
         );
         assert_eq!(
-            compare_natural_names("RuleVar_Gen02", "RuleVar_Gen2"),
+            externalize::natural_name_order("RuleVar_Gen02", "RuleVar_Gen2"),
             std::cmp::Ordering::Greater
         );
         assert_eq!(
-            compare_natural_names("RuleVar_A", "RuleVar_B"),
+            externalize::natural_name_order("RuleVar_A", "RuleVar_B"),
             std::cmp::Ordering::Less
         );
     }

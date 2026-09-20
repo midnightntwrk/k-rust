@@ -20,8 +20,9 @@ fallback is not completion.
 
 The intended workspace structure is:
 
-- `k-rust-kore`: host-independent KORE syntax, parser, printer, and serialization shared across
-  the frontend and backend, the measurement counters (`k_rust_kore::measure`) every crate
+- `k-rust-kore`: host-independent KORE syntax, parser, printer, serialization, pattern traversal,
+  and encoding sniff shared across the frontend and backend, the measurement counters
+  (`k_rust_kore::measure`) every crate
   increments, and the well-known KORE identities (`k_rust_kore::names`: the `inj`, `kseq`,
   `dotk`, `append`, `rawTerm` symbols and the builtin sorts both halves test for). A spelling
   that crosses the KORE boundary lives there once; the frontend and the backend compare

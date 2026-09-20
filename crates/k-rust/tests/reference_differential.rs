@@ -2298,10 +2298,14 @@ impl GeneratedNames {
 
     /// Every variable that is not free in `initial` is generated.
     fn fixing(initial: &Pattern) -> Self {
-        let mut free = BTreeSet::new();
-        k_rust::backend::collect_free_kore_variables(initial, &mut BTreeSet::new(), &mut free);
         Self {
-            fixed: Some(free.into_iter().map(|variable| variable.name).collect()),
+            fixed: Some(
+                initial
+                    .free_variables()
+                    .into_iter()
+                    .map(|variable| variable.name)
+                    .collect(),
+            ),
         }
     }
 
@@ -2531,11 +2535,7 @@ fn canonicalize_remainder_existentials(pattern: &mut Pattern, names: &GeneratedN
         Pattern::And { arguments, .. } => arguments.iter().collect(),
         single => vec![single],
     };
-    let free_of = |pattern: &Pattern| {
-        let mut free = BTreeSet::new();
-        k_rust::backend::collect_free_kore_variables(pattern, &mut BTreeSet::new(), &mut free);
-        free
-    };
+    let free_of = Pattern::free_variables;
     let free_per_conjunct = conjuncts
         .iter()
         .map(|conjunct| free_of(conjunct))

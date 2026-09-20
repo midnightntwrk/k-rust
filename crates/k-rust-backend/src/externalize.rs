@@ -1,5 +1,9 @@
 //! Conversion of internal backend terms and constrained patterns back to KORE: one structural
-//! pass per pattern; a responsibility, not an algorithm; no counter, no worklist.
+//! pass per pattern; a responsibility, not an algorithm; no counter, no worklist. Conjunction,
+//! disjunction, and substitution builders take the caller's binding order and shape because
+//! printed KORE and RPC JSON are contracts.
+
+use std::cmp::Ordering;
 
 use k_rust_kore::kore::ast as kore;
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
@@ -8,11 +12,169 @@ use crate::{
     definition::BackendDefinition,
     rewrite::{Pattern, Truth, predicates_truth},
     rule::Predicate,
+    substitution::Substitution,
     term::{
         CollectionSymbols, Sort, Term, TermKind, Variable,
         names::{HookName, HookNamespace, VariableProvenance, split_fresh_counter, split_marker},
     },
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConjunctionShape {
+    LeftNested,
+    Flat,
+    Balanced,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BindingOrder {
+    Container,
+    NameThenSort,
+    Natural,
+}
+
+pub fn natural_name_order(left: &str, right: &str) -> Ordering {
+    fn trailing_number(name: &str) -> (&str, &str) {
+        let prefix_length = name
+            .trim_end_matches(|character: char| character.is_ascii_digit())
+            .len();
+        (&name[..prefix_length], &name[prefix_length..])
+    }
+
+    fn normalized(number: &str) -> &str {
+        let number = number.trim_start_matches('0');
+        if number.is_empty() { "0" } else { number }
+    }
+
+    let (left_prefix, left_number) = trailing_number(left);
+    let (right_prefix, right_number) = trailing_number(right);
+    if left_prefix == right_prefix && !left_number.is_empty() && !right_number.is_empty() {
+        let left_value = normalized(left_number);
+        let right_value = normalized(right_number);
+        return left_value
+            .len()
+            .cmp(&right_value.len())
+            .then_with(|| left_value.cmp(right_value))
+            .then_with(|| left_number.len().cmp(&right_number.len()))
+            .then_with(|| left.cmp(right));
+    }
+    left.cmp(right)
+}
+
+pub fn conjunction(
+    sort: &kore::Sort,
+    patterns: Vec<kore::Pattern>,
+    shape: ConjunctionShape,
+) -> Option<kore::Pattern> {
+    connective(sort, patterns, shape, true)
+}
+
+pub fn disjunction(
+    sort: &kore::Sort,
+    patterns: Vec<kore::Pattern>,
+    shape: ConjunctionShape,
+) -> Option<kore::Pattern> {
+    connective(sort, patterns, shape, false)
+}
+
+fn connective(
+    sort: &kore::Sort,
+    mut patterns: Vec<kore::Pattern>,
+    shape: ConjunctionShape,
+    and: bool,
+) -> Option<kore::Pattern> {
+    let node = |arguments| {
+        if and {
+            kore::Pattern::And {
+                sort: sort.clone(),
+                arguments,
+            }
+        } else {
+            kore::Pattern::Or {
+                sort: sort.clone(),
+                arguments,
+            }
+        }
+    };
+    match patterns.len() {
+        0 => None,
+        1 => patterns.pop(),
+        _ => Some(match shape {
+            ConjunctionShape::Flat => node(patterns),
+            ConjunctionShape::LeftNested => {
+                let mut patterns = patterns.into_iter();
+                let mut result = patterns.next().expect("the length was checked");
+                for pattern in patterns {
+                    result = node(vec![result, pattern]);
+                }
+                result
+            }
+            ConjunctionShape::Balanced => {
+                fn balanced(
+                    patterns: &[kore::Pattern],
+                    node: &impl Fn(Vec<kore::Pattern>) -> kore::Pattern,
+                ) -> kore::Pattern {
+                    if let [pattern] = patterns {
+                        return pattern.clone();
+                    }
+                    let middle = patterns.len() / 2;
+                    node(vec![
+                        balanced(&patterns[..middle], node),
+                        balanced(&patterns[middle..], node),
+                    ])
+                }
+                balanced(&patterns, &node)
+            }
+        }),
+    }
+}
+
+pub fn substitution_pattern(
+    substitution: &Substitution,
+    result_sort: &Sort,
+    order: BindingOrder,
+    shape: ConjunctionShape,
+) -> Option<kore::Pattern> {
+    let mut bindings = substitution.iter().collect::<Vec<_>>();
+    match order {
+        BindingOrder::Container => {}
+        BindingOrder::NameThenSort => bindings.sort_by(|(left, _), (right, _)| {
+            left.name
+                .cmp(&right.name)
+                .then_with(|| left.sort.cmp(&right.sort))
+        }),
+        BindingOrder::Natural => bindings.sort_by(|(left, _), (right, _)| {
+            natural_name_order(&left.name, &right.name).then_with(|| left.sort.cmp(&right.sort))
+        }),
+    }
+    let patterns = bindings
+        .into_iter()
+        .map(|(variable, value)| {
+            predicate_pattern(
+                &Predicate::Equals(Term::variable(variable.clone()), value.clone()),
+                result_sort,
+            )
+        })
+        .collect();
+    conjunction(&sort(result_sort), patterns, shape)
+}
+
+pub fn predicates_pattern(
+    predicates: &[Predicate],
+    result_sort: &Sort,
+    render: impl Fn(&Predicate) -> kore::Pattern,
+    shape: ConjunctionShape,
+) -> Option<kore::Pattern> {
+    conjunction(
+        &sort(result_sort),
+        predicates
+            .iter()
+            .filter(|predicate| !matches!(predicate, Predicate::True))
+            .map(render)
+            .collect(),
+        shape,
+    )
+}
 
 pub fn term(term: &Term) -> kore::Pattern {
     match term.kind() {

@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod binary;
+pub mod codec;
 pub mod json;
 pub mod lexer;
 pub mod lexical;
@@ -9,7 +10,7 @@ pub mod normalize;
 pub mod parser;
 pub mod printer;
 pub mod string;
-mod walk;
+pub mod walk;
 
 #[cfg(test)]
 mod deep;
