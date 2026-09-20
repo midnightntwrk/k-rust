@@ -45,8 +45,8 @@ use serde_json::Value;
 use k_rust_backend::rule::Predicate;
 
 use crate::kore::{
-    ast::{Pattern as KorePattern, Sort as KoreSort, Variable as KoreVariable},
-    json as kore_json,
+    ast::Pattern as KorePattern,
+    codec as kore_codec,
     parser::{parse_definition, parse_module},
 };
 
@@ -670,10 +670,17 @@ impl Backend {
                     ),
                 })
             })?;
-            let sort_variables = implication_sort_variables(&antecedent, &consequent);
+            let sort_variables = antecedent
+                .sort_variables()
+                .into_iter()
+                .chain(consequent.sort_variables())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .map(Name::from)
+                .collect::<Vec<_>>();
             let special_result = special_case(&antecedent, &consequent);
             let antecedent_pattern =
-                if matches!(strip_exists(&antecedent), KorePattern::Bottom { .. }) {
+                if matches!(antecedent.strip_exists(), KorePattern::Bottom { .. }) {
                     None
                 } else {
                     Some(
@@ -956,12 +963,11 @@ fn observation_options(
 }
 
 fn decode_pattern(value: Value) -> Result<KorePattern, BackendError> {
-    kore_json::from_str(&serde_json::to_string(&value).map_err(error("invalid KORE JSON"))?)
-        .map_err(error("invalid KORE JSON"))
+    kore_codec::from_value(&value).map_err(error("invalid KORE JSON"))
 }
 
 fn encode_pattern(pattern: &KorePattern) -> Result<Value, BackendError> {
-    kore_json::to_value(pattern).map_err(error("could not encode KORE JSON"))
+    kore_codec::to_value(pattern).map_err(error("could not encode KORE JSON"))
 }
 
 fn trace_entry(entry: k_rust_backend::rewrite::TraceEntry) -> TraceEntry {
@@ -1032,168 +1038,6 @@ fn condition_pattern(
         "substitution": encode_pattern(&substitution)?,
         "witnesses": encode_pattern(&witnesses)?,
     }))
-}
-
-pub fn strip_exists(mut pattern: &KorePattern) -> &KorePattern {
-    while let KorePattern::Exists { body, .. } = pattern {
-        pattern = body;
-    }
-    pattern
-}
-
-pub fn collect_free_kore_variables(
-    pattern: &KorePattern,
-    bound: &mut BTreeSet<KoreVariable>,
-    output: &mut BTreeSet<KoreVariable>,
-) {
-    match pattern {
-        KorePattern::Variable(variable) => {
-            if !bound.contains(variable) {
-                output.insert(variable.clone());
-            }
-        }
-        KorePattern::Application { arguments, .. }
-        | KorePattern::AssociativeApplication { arguments, .. }
-        | KorePattern::And { arguments, .. }
-        | KorePattern::Or { arguments, .. } => {
-            for argument in arguments {
-                collect_free_kore_variables(argument, bound, output);
-            }
-        }
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => {
-            collect_free_kore_variables(argument, bound, output);
-        }
-        KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            collect_free_kore_variables(left, bound, output);
-            collect_free_kore_variables(right, bound, output);
-        }
-        KorePattern::Exists { variable, body, .. }
-        | KorePattern::Forall { variable, body, .. }
-        | KorePattern::Mu { variable, body }
-        | KorePattern::Nu { variable, body } => {
-            let inserted = bound.insert(variable.clone());
-            collect_free_kore_variables(body, bound, output);
-            if inserted {
-                bound.remove(variable);
-            }
-        }
-        KorePattern::String(_)
-        | KorePattern::Top { .. }
-        | KorePattern::Bottom { .. }
-        | KorePattern::DomainValue { .. } => {}
-    }
-}
-
-pub fn implication_sort_variables(antecedent: &KorePattern, consequent: &KorePattern) -> Vec<Name> {
-    let mut variables = BTreeSet::new();
-    collect_pattern_sort_variables(antecedent, &mut variables);
-    collect_pattern_sort_variables(consequent, &mut variables);
-    variables.into_iter().map(Name::from).collect()
-}
-
-fn collect_sort_variables(sort: &KoreSort, output: &mut BTreeSet<String>) {
-    match sort {
-        KoreSort::Variable(name) => {
-            output.insert(name.clone());
-        }
-        KoreSort::Application { arguments, .. } => {
-            for argument in arguments {
-                collect_sort_variables(argument, output);
-            }
-        }
-    }
-}
-
-fn collect_pattern_sort_variables(pattern: &KorePattern, output: &mut BTreeSet<String>) {
-    let recurse =
-        |pattern, output: &mut BTreeSet<String>| collect_pattern_sort_variables(pattern, output);
-    match pattern {
-        KorePattern::String(_) => {}
-        KorePattern::Variable(variable) => collect_sort_variables(&variable.sort, output),
-        KorePattern::Application { symbol, arguments }
-        | KorePattern::AssociativeApplication {
-            symbol, arguments, ..
-        } => {
-            for sort in &symbol.sort_parameters {
-                collect_sort_variables(sort, output);
-            }
-            for argument in arguments {
-                recurse(argument, output);
-            }
-        }
-        KorePattern::Top { sort }
-        | KorePattern::Bottom { sort }
-        | KorePattern::Not { sort, .. }
-        | KorePattern::Next { sort, .. }
-        | KorePattern::And { sort, .. }
-        | KorePattern::Or { sort, .. }
-        | KorePattern::Rewrites { sort, .. }
-        | KorePattern::Implies { sort, .. }
-        | KorePattern::Iff { sort, .. }
-        | KorePattern::Exists { sort, .. }
-        | KorePattern::Forall { sort, .. } => collect_sort_variables(sort, output),
-        KorePattern::Mu { variable, .. } | KorePattern::Nu { variable, .. } => {
-            collect_sort_variables(&variable.sort, output);
-        }
-        KorePattern::Ceil {
-            operand_sort,
-            result_sort,
-            ..
-        }
-        | KorePattern::Floor {
-            operand_sort,
-            result_sort,
-            ..
-        }
-        | KorePattern::Equals {
-            operand_sort,
-            result_sort,
-            ..
-        }
-        | KorePattern::In {
-            operand_sort,
-            result_sort,
-            ..
-        } => {
-            collect_sort_variables(operand_sort, output);
-            collect_sort_variables(result_sort, output);
-        }
-        KorePattern::DomainValue { sort, .. } => collect_sort_variables(sort, output),
-    }
-    match pattern {
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => recurse(argument, output),
-        KorePattern::And { arguments, .. } | KorePattern::Or { arguments, .. } => {
-            for argument in arguments {
-                recurse(argument, output);
-            }
-        }
-        KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            recurse(left, output);
-            recurse(right, output);
-        }
-        KorePattern::Exists { variable, body, .. }
-        | KorePattern::Forall { variable, body, .. }
-        | KorePattern::Mu { variable, body }
-        | KorePattern::Nu { variable, body } => {
-            collect_sort_variables(&variable.sort, output);
-            recurse(body, output);
-        }
-        _ => {}
-    }
 }
 
 #[cfg(feature = "z3-inference")]

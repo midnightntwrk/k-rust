@@ -15,9 +15,7 @@ use std::{
 };
 
 use k_rust::kore::{
-    ast::{Pattern as KorePattern, Sort as KoreSort, Variable as KoreVariable},
-    json as kore_json,
-    parser::parse_module,
+    ast::Pattern as KorePattern, codec as kore_codec, json as kore_json, parser::parse_module,
 };
 use k_rust::names::WellKnownSymbol;
 use k_rust_backend::{
@@ -779,16 +777,23 @@ impl RpcService {
                 ),
             });
         }
-        let sort_variables = super::implication_sort_variables(&antecedent, &consequent);
+        let sort_variables = antecedent
+            .sort_variables()
+            .into_iter()
+            .chain(consequent.sort_variables())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(super::BackendName::from)
+            .collect::<Vec<_>>();
         let mut special_result = special_case(&antecedent, &consequent);
-        if matches!(super::strip_exists(&antecedent), KorePattern::Bottom { .. })
+        if matches!(antecedent.strip_exists(), KorePattern::Bottom { .. })
             && let Some(result) = special_result.take()
         {
             let (_, result_sort) = definition
                 .internalize_predicate(&antecedent, &sort_variables)
                 .map_err(|error| pattern_fault(error, &antecedent))?;
             let consequent = if matches!(
-                super::strip_exists(&consequent),
+                consequent.strip_exists(),
                 KorePattern::Top { .. } | KorePattern::Bottom { .. }
             ) {
                 consequent
@@ -820,7 +825,7 @@ impl RpcService {
             )?;
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
-        if matches!(super::strip_exists(&consequent), KorePattern::Not { .. }) {
+        if matches!(consequent.strip_exists(), KorePattern::Not { .. }) {
             let result = ImplicationResult {
                 status: ImplicationStatus::Invalid,
                 condition: None,
@@ -914,38 +919,9 @@ fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcF
 }
 
 fn contains_integer_power_application(pattern: &KorePattern) -> bool {
-    match pattern {
-        KorePattern::Application { symbol, arguments }
-        | KorePattern::AssociativeApplication {
-            symbol, arguments, ..
-        } => {
-            symbol.name == "Lbl'UndsXor-'Int'Unds'"
-                || arguments.iter().any(contains_integer_power_application)
-        }
-        KorePattern::And { arguments, .. } | KorePattern::Or { arguments, .. } => {
-            arguments.iter().any(contains_integer_power_application)
-        }
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => contains_integer_power_application(argument),
-        KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            contains_integer_power_application(left) || contains_integer_power_application(right)
-        }
-        KorePattern::Exists { body, .. }
-        | KorePattern::Forall { body, .. }
-        | KorePattern::Mu { body, .. }
-        | KorePattern::Nu { body, .. } => contains_integer_power_application(body),
-        KorePattern::String(_)
-        | KorePattern::Variable(_)
-        | KorePattern::Top { .. }
-        | KorePattern::Bottom { .. }
-        | KorePattern::DomainValue { .. } => false,
-    }
+    pattern
+        .find_application(|symbol, _| symbol.name == "Lbl'UndsXor-'Int'Unds'")
+        .is_some()
 }
 
 fn implication_pattern_fault(error: DefinitionError, pattern: &KorePattern) -> RpcFault {
@@ -967,7 +943,7 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
     let (message, term) = match error {
         DefinitionError::UnknownSymbol(symbol) => (
             format!("Unknown symbol '{symbol}'"),
-            find_application(pattern, symbol, None, None, None).map(|(term, _)| term),
+            locate_application(pattern, symbol, None, None, None).map(|(term, _)| term),
         ),
         DefinitionError::WrongSymbolArity {
             symbol,
@@ -977,7 +953,7 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
             format!(
                 "Inconsistent pattern. Symbol '{symbol}' expected {expected} arguments but got {actual}"
             ),
-            find_application(pattern, symbol, Some(*actual), None, None).map(|(term, _)| term),
+            locate_application(pattern, symbol, Some(*actual), None, None).map(|(term, _)| term),
         ),
         DefinitionError::IncorrectArgumentSort {
             symbol,
@@ -986,7 +962,7 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
             actual,
         } => {
             let actual_sort = externalize::sort(actual).to_string();
-            let term = find_application(
+            let term = locate_application(
                 pattern,
                 symbol,
                 None,
@@ -1007,7 +983,7 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
             let target = externalize::sort(target).to_string();
             (
                 format!("{source} is not a subsort of {target}"),
-                find_application(
+                locate_application(
                     pattern,
                     WellKnownSymbol::Inj.as_str(),
                     Some(1),
@@ -1053,7 +1029,7 @@ fn module_verification_detail(
             ErrorDetail {
                 error: format!("Unknown symbol '{symbol}'"),
                 context: None,
-                term: find_application(pattern, symbol, None, None, None)
+                term: locate_application(pattern, symbol, None, None, None)
                     .and_then(|(term, _)| encode_kore(term).ok()),
             }
         }
@@ -1062,129 +1038,41 @@ fn module_verification_detail(
     }
 }
 
-fn find_application<'a>(
+fn locate_application<'a>(
     pattern: &'a KorePattern,
     symbol_name: &str,
     actual_arity: Option<usize>,
     argument_sort: Option<(usize, &str)>,
     sort_parameters: Option<(&str, &str)>,
 ) -> Option<(&'a KorePattern, &'a [KorePattern])> {
-    let nested = match pattern {
-        KorePattern::Application { arguments, .. }
-        | KorePattern::AssociativeApplication { arguments, .. }
-        | KorePattern::And { arguments, .. }
-        | KorePattern::Or { arguments, .. } => arguments.iter().find_map(|argument| {
-            find_application(
-                argument,
-                symbol_name,
-                actual_arity,
-                argument_sort,
-                sort_parameters,
+    let pattern = pattern.find_application(|symbol, arguments| {
+        if symbol.name != symbol_name || actual_arity.is_some_and(|arity| arguments.len() != arity)
+        {
+            return false;
+        }
+        if let Some((source, target)) = sort_parameters
+            && !matches!(
+                symbol.sort_parameters.as_slice(),
+                [actual_source, actual_target]
+                    if actual_source.to_string() == source && actual_target.to_string() == target
             )
-        }),
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => find_application(
-            argument,
-            symbol_name,
-            actual_arity,
-            argument_sort,
-            sort_parameters,
-        ),
-        KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => find_application(
-            left,
-            symbol_name,
-            actual_arity,
-            argument_sort,
-            sort_parameters,
-        )
-        .or_else(|| {
-            find_application(
-                right,
-                symbol_name,
-                actual_arity,
-                argument_sort,
-                sort_parameters,
-            )
-        }),
-        KorePattern::Exists { body, .. }
-        | KorePattern::Forall { body, .. }
-        | KorePattern::Mu { body, .. }
-        | KorePattern::Nu { body, .. } => find_application(
-            body,
-            symbol_name,
-            actual_arity,
-            argument_sort,
-            sort_parameters,
-        ),
-        KorePattern::String(_)
-        | KorePattern::Variable(_)
-        | KorePattern::Top { .. }
-        | KorePattern::Bottom { .. }
-        | KorePattern::DomainValue { .. } => None,
+        {
+            return false;
+        }
+        if let Some((index, expected_sort)) = argument_sort
+            && arguments
+                .get(index)
+                .and_then(KorePattern::syntactic_sort)
+                .is_some_and(|sort| sort.to_string() != expected_sort)
+        {
+            return false;
+        }
+        true
+    })?;
+    let KorePattern::Application { arguments, .. } = pattern else {
+        unreachable!("find_application only returns application patterns");
     };
-    if nested.is_some() {
-        return nested;
-    }
-    let (symbol, arguments) = match pattern {
-        KorePattern::Application { symbol, arguments }
-        | KorePattern::AssociativeApplication {
-            symbol, arguments, ..
-        } => (symbol, arguments.as_slice()),
-        _ => return None,
-    };
-    if symbol.name != symbol_name || actual_arity.is_some_and(|arity| arguments.len() != arity) {
-        return None;
-    }
-    if let Some((source, target)) = sort_parameters
-        && !matches!(
-            symbol.sort_parameters.as_slice(),
-            [actual_source, actual_target]
-                if actual_source.to_string() == source && actual_target.to_string() == target
-        )
-    {
-        return None;
-    }
-    if let Some((index, expected_sort)) = argument_sort
-        && arguments
-            .get(index)
-            .and_then(explicit_pattern_sort)
-            .is_some_and(|sort| sort.to_string() != expected_sort)
-    {
-        return None;
-    }
     Some((pattern, arguments))
-}
-
-fn explicit_pattern_sort(pattern: &KorePattern) -> Option<&KoreSort> {
-    match pattern {
-        KorePattern::Variable(variable) => Some(&variable.sort),
-        KorePattern::DomainValue { sort, .. }
-        | KorePattern::Top { sort }
-        | KorePattern::Bottom { sort }
-        | KorePattern::Not { sort, .. }
-        | KorePattern::Next { sort, .. }
-        | KorePattern::And { sort, .. }
-        | KorePattern::Or { sort, .. }
-        | KorePattern::Rewrites { sort, .. }
-        | KorePattern::Implies { sort, .. }
-        | KorePattern::Iff { sort, .. }
-        | KorePattern::Exists { sort, .. }
-        | KorePattern::Forall { sort, .. } => Some(sort),
-        KorePattern::Ceil { result_sort, .. }
-        | KorePattern::Floor { result_sort, .. }
-        | KorePattern::Equals { result_sort, .. }
-        | KorePattern::In { result_sort, .. } => Some(result_sort),
-        KorePattern::Mu { variable, .. } | KorePattern::Nu { variable, .. } => Some(&variable.sort),
-        KorePattern::Application { .. }
-        | KorePattern::AssociativeApplication { .. }
-        | KorePattern::String(_) => None,
-    }
 }
 
 fn normalized_implication_syntax(original: &KorePattern, pattern: &Pattern) -> KorePattern {
@@ -1348,7 +1236,7 @@ fn implication_backend_fault(
 ) -> RpcFault {
     match error {
         ImplicationError::ConsequentFreeVariables(variables) => {
-            let (consequent_body, syntax_existentials) = leading_existentials(consequent);
+            let (consequent_body, syntax_existentials) = consequent.leading_existentials();
             let names = variables
                 .iter()
                 .map(|variable| variable.name.to_string())
@@ -1382,28 +1270,13 @@ fn implication_backend_fault(
     }
 }
 
-fn leading_existentials(pattern: &KorePattern) -> (&KorePattern, Vec<&KoreVariable>) {
-    let mut body = pattern;
-    let mut variables = Vec::new();
-    while let KorePattern::Exists {
-        variable,
-        body: next,
-        ..
-    } = body
-    {
-        variables.push(variable);
-        body = next;
-    }
-    (body, variables)
-}
-
 fn implication_pattern_context(
     antecedent: &KorePattern,
     consequent: &KorePattern,
     existentials: &[String],
 ) -> Vec<String> {
     vec![
-        format!("LHS: {}", super::strip_exists(antecedent)),
+        format!("LHS: {}", antecedent.strip_exists()),
         format!("RHS: {consequent}"),
         format!("existentials: [{}]", existentials.join(", ")),
     ]
@@ -1574,9 +1447,7 @@ fn parse_json_value(source: &str) -> serde_json::Result<Value> {
 }
 
 fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
-    let source = kore_json::to_string(pattern)
-        .map_err(|error| RpcFault::runtime(format!("could not encode KORE JSON: {error}"), None))?;
-    parse_json_value(&source)
+    kore_codec::to_value(pattern)
         .map_err(|error| RpcFault::runtime(format!("could not encode KORE JSON: {error}"), None))
 }
 
@@ -1751,7 +1622,7 @@ fn implication_result(
         "status": status,
     });
     if let Some(condition) = result.condition {
-        let antecedent_variable = match super::strip_exists(antecedent) {
+        let antecedent_variable = match antecedent.strip_exists() {
             KorePattern::Variable(variable) => Some(variable.name.as_str()),
             _ => None,
         };
