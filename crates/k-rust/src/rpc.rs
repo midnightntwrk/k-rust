@@ -42,7 +42,7 @@ use k_rust_backend::{
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{ModelResult, SmtError, SmtSolver},
     substitution::{Substitution, extract_substitution, substitute},
-    term::{Sort as BackendSort, Term, Variable},
+    term::{Name as BackendName, Sort as BackendSort, Term, Variable},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json, value::RawValue};
@@ -740,7 +740,7 @@ impl RpcService {
                     ModelResult::Sat(substitution) => {
                         let mut result = json!({ "satisfiable": "Sat" });
                         if let Some(substitution) =
-                            super::model_substitution(&substitution, &result_sort)
+                            backend_simplification::model_substitution(&substitution, &result_sort)
                         {
                             result["substitution"] = encode_kore(&substitution)?;
                         }
@@ -814,7 +814,7 @@ impl RpcService {
             .chain(consequent.sort_variables())
             .collect::<BTreeSet<_>>()
             .into_iter()
-            .map(super::BackendName::from)
+            .map(BackendName::from)
             .collect::<Vec<_>>();
         let mut special_result = special_case(&antecedent, &consequent);
         if matches!(antecedent.strip_exists(), KorePattern::Bottom { .. })
@@ -1222,7 +1222,7 @@ fn simplified_implication_response_syntax(
 fn simplified_not_consequent_response_syntax(
     definition: &BackendDefinition,
     original: &KorePattern,
-    sort_variables: &[super::BackendName],
+    sort_variables: &[BackendName],
     solver: &dyn SmtSolver,
 ) -> Result<KorePattern, RpcFault> {
     Ok(match original {
@@ -1513,7 +1513,9 @@ fn execute_state(
     ) {
         state.insert("predicate".into(), encode_kore(&predicate)?);
     }
-    if let Some(substitution) = super::model_substitution(&substitution, &pattern.term.sort()) {
+    if let Some(substitution) =
+        backend_simplification::model_substitution(&substitution, &pattern.term.sort())
+    {
         state.insert("substitution".into(), encode_kore(&substitution)?);
     }
     Ok(Value::Object(state))
@@ -1569,7 +1571,7 @@ fn externalize_rule_substitution(
         .iter()
         .map(|(variable, value)| (variable.clone(), substitute(value, state_substitution)))
         .collect();
-    super::model_substitution(&substitution, result_sort).map(|pattern| {
+    backend_simplification::model_substitution(&substitution, result_sort).map(|pattern| {
         let KorePattern::And { sort, .. } = &pattern else {
             return pattern;
         };
@@ -1645,7 +1647,7 @@ fn implication_result(
             KorePattern::Variable(variable) => Some(variable.name.as_str()),
             _ => None,
         };
-        let substitution = super::implication_substitution(
+        let substitution = backend_implication::condition_substitution(
             &condition.substitution,
             result_sort,
             antecedent_variable,
@@ -2854,7 +2856,7 @@ mod tests {
         let value = Term::domain_value(sort.clone(), "value");
         let substitution = Substitution::from([(variable, value)]);
 
-        let output = crate::implication_substitution(&substitution, &sort, None)
+        let output = backend_implication::condition_substitution(&substitution, &sort, None)
             .expect("the binding should externalize");
         let output = encode_kore(&output).unwrap();
 

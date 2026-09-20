@@ -1,16 +1,21 @@
 //! Shared implication validation, checking, and condition results (S8 and S9).
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, error::Error};
 
 use k_rust_backend::{
     definition::DefinitionError,
+    externalize,
     implication::{
-        ImplicationRequestError, ImplicationResult, Side,
+        ImplicationCondition, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
         check_implication_with_existentials_complete, special_case, validate_request,
     },
-    term::{Name, Sort},
+    substitution::Substitution,
+    term::{Name, Sort, Term, TermKind},
 };
-use k_rust_kore::kore::ast::{Pattern as KorePattern, Pattern};
+use k_rust_kore::kore::{
+    ast::{Pattern as KorePattern, Pattern},
+    json as kore_json,
+};
 
 use super::{Backend, BackendError, error};
 
@@ -125,4 +130,112 @@ impl Backend {
             Ok((result, result_sort))
         })
     }
+}
+
+/// Render the CLI implication contract while the surface retains only file and stdout handling.
+pub fn cli_output(
+    antecedent: &KorePattern,
+    consequent: &KorePattern,
+    result_sort: &Sort,
+    result: ImplicationResult,
+) -> Result<String, Box<dyn Error>> {
+    let status = match result.status {
+        ImplicationStatus::Valid => "valid",
+        ImplicationStatus::Invalid => "invalid",
+        ImplicationStatus::Indeterminate => "unknown",
+    };
+    let implication = KorePattern::Implies {
+        sort: externalize::sort(result_sort),
+        left: Box::new(antecedent.clone()),
+        right: Box::new(consequent.clone()),
+    };
+    let mut output = serde_json::json!({
+        "status": status,
+        "implication": kore_json::to_value(&implication)?,
+    });
+    if let Some(condition) = result.condition {
+        let antecedent_variable = match antecedent.strip_exists() {
+            KorePattern::Variable(variable) => Some(variable.name.as_str()),
+            _ => None,
+        };
+        output["condition"] = cli_condition_output(&condition, result_sort, antecedent_variable)?;
+    }
+    Ok(serde_json::to_string_pretty(&output)?)
+}
+
+pub fn cli_condition_output(
+    condition: &ImplicationCondition,
+    result_sort: &Sort,
+    antecedent_variable: Option<&str>,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    let substitution =
+        condition_substitution(&condition.substitution, result_sort, antecedent_variable)
+            .unwrap_or_else(|| KorePattern::Top {
+                sort: externalize::sort(result_sort),
+            });
+    let predicate = externalize::predicates_pattern(
+        &condition.predicates,
+        result_sort,
+        |predicate| externalize::predicate_pattern(predicate, result_sort),
+        externalize::ConjunctionShape::Flat,
+    )
+    .unwrap_or_else(|| KorePattern::Top {
+        sort: externalize::sort(result_sort),
+    });
+    let witnesses = condition_substitution(&condition.witnesses, result_sort, antecedent_variable)
+        .unwrap_or_else(|| KorePattern::Top {
+            sort: externalize::sort(result_sort),
+        });
+    Ok(serde_json::json!({
+        "substitution": kore_json::to_value(&substitution)?,
+        "predicate": kore_json::to_value(&predicate)?,
+        "witnesses": kore_json::to_value(&witnesses)?,
+    }))
+}
+
+pub fn condition_substitution(
+    substitution: &Substitution,
+    result_sort: &Sort,
+    antecedent_variable: Option<&str>,
+) -> Option<KorePattern> {
+    let mut bindings = substitution.iter().collect::<Vec<_>>();
+    bindings.sort_by_key(|(variable, _)| (variable.name.clone(), variable.sort.clone()));
+    let bindings = bindings.into_iter().map(|(variable, value)| {
+        let mut output_variable = variable.clone();
+        let consequent_existential = variable
+            .name
+            .as_ref()
+            .rsplit_once("!exists")
+            .filter(|(_, suffix)| suffix.chars().all(|character| character.is_ascii_digit()));
+        if let Some((name, _)) = consequent_existential {
+            output_variable.name = Name::from(name);
+        }
+        let prefer_antecedent = consequent_existential.is_some()
+            && matches!(
+                value.kind(),
+                TermKind::Variable(value) if antecedent_variable == Some(value.name.as_ref())
+            );
+        let (left, right) = if prefer_antecedent {
+            (
+                externalize::term(value),
+                externalize::term(&Term::variable(output_variable)),
+            )
+        } else {
+            (
+                externalize::term(&Term::variable(output_variable)),
+                externalize::term(value),
+            )
+        };
+        KorePattern::Equals {
+            operand_sort: externalize::sort(&variable.sort),
+            result_sort: externalize::sort(result_sort),
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    });
+    externalize::conjunction(
+        &externalize::sort(result_sort),
+        bindings.collect(),
+        externalize::ConjunctionShape::LeftNested,
+    )
 }

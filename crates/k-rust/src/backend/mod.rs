@@ -6,6 +6,8 @@ use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
 use k_rust_backend::smt::NoSolver;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::smt::{ModelResult, Z3Options, Z3Solver};
+#[cfg(feature = "z3-inference")]
+use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
     definition::BackendDefinition,
     externalize,
@@ -24,7 +26,6 @@ use k_rust_backend::{
     session::{BackendSession, SessionError},
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
     smt::SmtSolver,
-    substitution::Substitution,
     term::Sort,
     transition::ObservationOptions,
 };
@@ -312,6 +313,29 @@ impl Backend {
         options: BackendOptions,
     ) -> Result<Self, BackendError> {
         Self::from_session(BackendSession::new(syntax, module_name), options, None)
+    }
+
+    /// Internalize one selected module without constructing a solver yet.
+    pub fn internalize_definition(
+        syntax: &k_rust_kore::kore::ast::Definition,
+        module_name: &str,
+    ) -> Result<BackendDefinition, BackendError> {
+        BackendDefinition::internalize(syntax, module_name)
+            .map_err(error("could not internalize KORE definition"))
+    }
+
+    /// Internalize a source-compiled definition with the compiler's rewrite order.
+    pub fn internalize_source_definition(
+        syntax: &k_rust_kore::kore::ast::Definition,
+        module_name: &str,
+        execution_rewrite_order: &[String],
+    ) -> Result<BackendDefinition, BackendError> {
+        BackendDefinition::internalize_for_source_execution(
+            syntax,
+            module_name,
+            execution_rewrite_order,
+        )
+        .map_err(error("could not internalize source execution definition"))
     }
 
     pub fn from_definition_with_prelude(

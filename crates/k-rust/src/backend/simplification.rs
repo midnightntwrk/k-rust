@@ -1,5 +1,7 @@
 //! Shared standalone simplification and model-generation orchestration (S4 and S5).
 
+#[cfg(feature = "z3-inference")]
+use k_rust_backend::smt::ModelResult;
 use k_rust_backend::{
     definition::BackendDefinition,
     definition::PatternOrPredicate,
@@ -8,7 +10,7 @@ use k_rust_backend::{
         SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
         simplify_pattern_with_solver,
     },
-    smt::{ModelResult, SmtSolver},
+    smt::SmtSolver,
     substitution::Substitution,
     term::Sort,
 };
@@ -33,6 +35,16 @@ pub fn simplify_predicate(
     solver: &dyn SmtSolver,
 ) -> Result<Predicate, SimplificationError> {
     simplify_and_decide_predicate_with_solver(definition, predicate, &[], options, solver)
+}
+
+/// Externalize model bindings in the natural variable order shared by CLI and RPC surfaces.
+pub fn model_substitution(substitution: &Substitution, result_sort: &Sort) -> Option<KorePattern> {
+    externalize::substitution_pattern(
+        substitution,
+        result_sort,
+        externalize::BindingOrder::Natural,
+        externalize::ConjunctionShape::Flat,
+    )
 }
 
 impl Backend {
