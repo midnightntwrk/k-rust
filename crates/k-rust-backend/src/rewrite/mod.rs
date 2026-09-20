@@ -702,3 +702,55 @@ fn rewrite_step_with_optional_execution(
         ),
     }
 }
+
+/// Test-only view of one All-mode step followed by the stopped-branch remainder cascade.
+#[cfg(test)]
+pub(crate) fn cascade_step_for_tests(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
+) -> (
+    RewriteResult,
+    Vec<AppliedRule>,
+    Option<RemainderBranch>,
+    Result<(), SimplificationError>,
+) {
+    let (result, lower_groups) = rewrite_step_with_optional_execution(
+        definition,
+        pattern,
+        fresh_counter,
+        simplification_options,
+        solver,
+        ExecutionMode::All,
+        assume_initial_defined,
+        None,
+        RemainderPolicy::Cascade,
+    );
+    let (mut branches, mut remainder) = match &result {
+        RewriteResult::Branch {
+            branches,
+            remainder,
+            ..
+        } => (branches.clone(), remainder.clone()),
+        RewriteResult::Finished(applied) => (vec![applied.clone()], None),
+        _ => (Vec::new(), None),
+    };
+    let cascaded = if matches!(result, RewriteResult::Branch { .. }) {
+        cascade_remainder(
+            definition,
+            &mut branches,
+            &mut remainder,
+            lower_groups,
+            fresh_counter,
+            simplification_options,
+            solver,
+            assume_initial_defined,
+        )
+    } else {
+        Ok(())
+    };
+    (result, branches, remainder, cascaded)
+}
