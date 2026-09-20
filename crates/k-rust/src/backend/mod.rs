@@ -21,7 +21,7 @@ use k_rust_backend::{
         search_pattern_observed_with_solver, search_pattern_paths_observed_with_solver,
         search_pattern_paths_with_solver, search_pattern_with_solver,
     },
-    session::BackendSession,
+    session::{BackendSession, SessionError},
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
     smt::SmtSolver,
     substitution::Substitution,
@@ -346,7 +346,7 @@ impl Backend {
         )
     }
 
-    fn from_session(
+    pub fn from_session(
         session: BackendSession,
         options: BackendOptions,
         _smt_prelude: Option<String>,
@@ -378,11 +378,30 @@ impl Backend {
         }
     }
 
+    pub fn default_module(&self) -> &str {
+        self.session.default_module()
+    }
+
+    pub fn select_definition(
+        &mut self,
+        module: Option<&str>,
+    ) -> Result<Arc<BackendDefinition>, SessionError> {
+        self.session.definition(module)
+    }
+
     pub fn add_module(&mut self, source: &str, name_as_id: bool) -> Result<String, BackendError> {
         let module = parse_module(source).map_err(error("could not parse KORE module"))?;
-        self.session
-            .add_module(source, module, name_as_id)
+        self.add_parsed_module(source, module, name_as_id)
             .map_err(error("could not add KORE module"))
+    }
+
+    pub fn add_parsed_module(
+        &mut self,
+        source: &str,
+        module: k_rust_kore::kore::ast::Module,
+        name_as_id: bool,
+    ) -> Result<String, SessionError> {
+        self.session.add_module(source, module, name_as_id)
     }
 
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
@@ -802,24 +821,31 @@ impl Backend {
         })
     }
 
-    pub fn with_solver<T>(
+    pub fn with_solver<T, E>(
         &mut self,
         module: Option<&str>,
-        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, BackendError>,
-    ) -> Result<T, BackendError> {
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError>,
+    {
         let definition = self
             .session
             .definition(module)
-            .map_err(error("could not select backend module"))?;
+            .map_err(error("could not select backend module"))
+            .map_err(E::from)?;
         self.run_with_solver(definition, operation)
     }
 
     #[cfg(feature = "z3-inference")]
-    fn run_with_solver<T>(
+    fn run_with_solver<T, E>(
         &mut self,
         definition: Arc<BackendDefinition>,
-        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, BackendError>,
-    ) -> Result<T, BackendError> {
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError>,
+    {
         let module = definition.main_module.to_string();
         if !self.solvers.contains_key(&module) {
             let options = Z3Options {
@@ -831,7 +857,8 @@ impl Backend {
             } else {
                 Z3Solver::with_options(&definition, options)
             }
-            .map_err(error("could not initialize Z3"))?;
+            .map_err(error("could not initialize Z3"))
+            .map_err(E::from)?;
             self.solvers.insert(module.clone(), solver);
         }
         operation(
@@ -841,11 +868,14 @@ impl Backend {
     }
 
     #[cfg(not(feature = "z3-inference"))]
-    fn run_with_solver<T>(
+    fn run_with_solver<T, E>(
         &mut self,
         definition: Arc<BackendDefinition>,
-        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, BackendError>,
-    ) -> Result<T, BackendError> {
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError>,
+    {
         let _ = self.options;
         operation(&definition, &NoSolver)
     }

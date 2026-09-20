@@ -87,7 +87,6 @@ use k_rust_backend::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
         SearchType, match_disjunction_with_solver, search_pattern_disjunction_with_solver,
     },
-    session::BackendSession,
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
         simplify_pattern_with_solver,
@@ -2633,11 +2632,15 @@ fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    rpc::serve(
-        BackendSession::new(definition, options.module),
-        (options.host.as_str(), options.port),
-        options.smt.options(),
-    )
+    let backend = Backend::from_definition(
+        definition,
+        options.module,
+        BackendOptions {
+            smt_timeout_ms: options.smt.timeout.get(),
+            smt_retry_limit: options.smt.retry_limit,
+        },
+    )?;
+    rpc::serve(backend, (options.host.as_str(), options.port))
 }
 
 fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {

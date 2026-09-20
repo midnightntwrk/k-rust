@@ -14,6 +14,12 @@ use std::{
     time::Duration,
 };
 
+#[cfg(test)]
+use k_rust::backend::BackendOptions;
+use k_rust::backend::{
+    Backend, BackendError, execution as backend_execution, implication as backend_implication,
+    simplification as backend_simplification,
+};
 use k_rust::kore::{
     ast::Pattern as KorePattern, codec as kore_codec, json as kore_json, parser::parse_module,
 };
@@ -24,25 +30,25 @@ use k_rust_backend::{
     externalize,
     implication::{
         ImplicationError, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        check_implication_with_existentials_complete, special_case, validate_request,
+        special_case, validate_request,
     },
     matching::SortGraph,
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
-        TraceKind, execute_with_solver, substitute_predicates,
+        TraceKind, substitute_predicates,
     },
     rule::Predicate,
-    session::{BackendSession, SessionError},
-    simplify::{
-        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
-    },
-    smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
+    session::SessionError,
+    simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
+    smt::{ModelResult, SmtError, SmtSolver},
     substitution::{Substitution, extract_substitution, substitute},
     term::{Sort as BackendSort, Term, Variable},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json, value::RawValue};
+
+#[cfg(test)]
+use k_rust_backend::session::BackendSession;
 
 const JSON_RPC_VERSION: &str = "2.0";
 const CONNECTION_STACK_SIZE: usize = 64 * 1024 * 1024;
@@ -95,8 +101,7 @@ impl RequestControl {
 }
 
 pub(super) struct RpcService {
-    session: BackendSession,
-    smt_options: Z3Options,
+    backend: Backend,
 }
 
 #[derive(Debug)]
@@ -360,17 +365,31 @@ impl RpcFault {
     }
 }
 
+impl From<BackendError> for RpcFault {
+    fn from(error: BackendError) -> Self {
+        Self::runtime(error.to_string(), None)
+    }
+}
+
 impl RpcService {
     #[cfg(test)]
     pub(super) fn new(session: BackendSession) -> Self {
-        Self::with_smt_options(session, Z3Options::default())
+        Self {
+            backend: Backend::from_session(session, BackendOptions::default(), None)
+                .expect("test backend should initialize"),
+        }
     }
 
-    pub(super) fn with_smt_options(session: BackendSession, smt_options: Z3Options) -> Self {
-        Self {
-            session,
-            smt_options,
-        }
+    pub(super) fn with_backend(backend: Backend) -> Self {
+        Self { backend }
+    }
+
+    fn ensure_module(&mut self, module: Option<&str>) -> Result<(), RpcFault> {
+        let requested = module.unwrap_or(self.backend.default_module()).to_owned();
+        self.backend
+            .select_definition(module)
+            .map(|_| ())
+            .map_err(|error| RpcFault::module(&requested, error))
     }
 
     /// Handle one complete JSON-RPC message. Notifications intentionally produce no response.
@@ -468,13 +487,6 @@ impl RpcService {
         }
     }
 
-    fn definition(&mut self, module: Option<&str>) -> Result<Arc<BackendDefinition>, RpcFault> {
-        let requested = module.unwrap_or(self.session.default_module()).to_owned();
-        self.session
-            .definition(module)
-            .map_err(|error| RpcFault::module(&requested, error))
-    }
-
     fn execute(&mut self, params: ExecuteParams) -> Result<Value, RpcFault> {
         let ExecuteParams {
             state,
@@ -492,170 +504,183 @@ impl RpcService {
             haskell_logging,
         } = params;
         let _booster_only = booster_only;
-        let definition = self.definition(module.as_deref())?;
-        let syntax = state.0;
-        definition
-            .validate_executable_pattern(&syntax)
-            .map_err(|error| pattern_fault(error, &syntax))?;
-        let initial = definition
-            .internalize_pattern(&syntax, &[])
-            .map_err(|error| pattern_fault(error, &syntax))?;
-        let configuration_variables = pattern_variables(&initial);
-        let solver = solver(&definition, self.smt_options)?;
-        // RPC deliberately has no execution IO state. Console hooks stay unsupported until a
-        // protocol owns branch-local input and structured transcripts.
-        let result = execute_with_solver(
-            &definition,
-            initial,
-            ExecutionOptions {
-                max_depth: max_depth.unwrap_or(u64::MAX),
-                max_simplification_iterations: max_simplification_iterations
-                    .unwrap_or(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
-                mode: ExecutionMode::All,
-                branch_mode: ExecutionBranchMode::StopAtBranch,
-                cut_point_rules: cut_point_rules.into_iter().collect(),
-                terminal_rules: terminal_rules.into_iter().collect(),
-                step_timeout: step_timeout.map(Duration::from_millis),
-                moving_average_timeout: moving_average_step_timeout,
-                assume_initial_defined: assume_state_defined,
-                ..ExecutionOptions::default()
-            },
-            &solver,
-        );
-        let leaf = result
-            .leaves
-            .into_iter()
-            .next()
-            .ok_or_else(|| RpcFault::runtime("execution produced no result", None))?;
-        let mut output = Map::new();
-        let (reason, next_states, rule) = match &leaf.halt_reason {
-            HaltReason::Cancelled => return Err(RpcFault::cancelled()),
-            HaltReason::Stuck => ("stuck", None, None),
-            HaltReason::Trivial { .. } | HaltReason::Vacuous { .. } => ("vacuous", None, None),
-            HaltReason::DepthBound => ("depth-bound", None, None),
-            HaltReason::BreadthBound => ("aborted", None, None),
-            HaltReason::Timeout(_) => ("timeout", None, None),
-            HaltReason::Simplification(
-                error @ SimplificationError::UnsupportedHook { term, .. },
-            ) => return Err(RpcFault::runtime(error.to_string(), Some(term))),
-            HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => ("aborted", None, None),
-            HaltReason::Branch {
-                branches,
-                remainder,
-            } => {
-                let mut next_states = branches
-                    .iter()
-                    .map(|applied| {
-                        execute_applied_state(&definition, applied, &configuration_variables)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                if let Some(remainder) = remainder {
-                    next_states.push(execute_state(
-                        &definition,
-                        &remainder.pattern,
-                        &configuration_variables,
-                    )?);
+        self.ensure_module(module.as_deref())?;
+        self.backend
+            .with_solver(module.as_deref(), |definition, solver| {
+                let syntax = state.0;
+                definition
+                    .validate_executable_pattern(&syntax)
+                    .map_err(|error| pattern_fault(error, &syntax))?;
+                let initial = definition
+                    .internalize_pattern(&syntax, &[])
+                    .map_err(|error| pattern_fault(error, &syntax))?;
+                let configuration_variables = pattern_variables(&initial);
+                // RPC deliberately has no execution IO state. Console hooks stay unsupported until a
+                // protocol owns branch-local input and structured transcripts.
+                let result = backend_execution::run(
+                    definition,
+                    initial,
+                    ExecutionOptions {
+                        max_depth: max_depth.unwrap_or(u64::MAX),
+                        max_simplification_iterations: max_simplification_iterations
+                            .unwrap_or(DEFAULT_MAX_SIMPLIFICATION_ITERATIONS),
+                        mode: ExecutionMode::All,
+                        branch_mode: ExecutionBranchMode::StopAtBranch,
+                        cut_point_rules: cut_point_rules.into_iter().collect(),
+                        terminal_rules: terminal_rules.into_iter().collect(),
+                        step_timeout: step_timeout.map(Duration::from_millis),
+                        moving_average_timeout: moving_average_step_timeout,
+                        assume_initial_defined: assume_state_defined,
+                        ..ExecutionOptions::default()
+                    },
+                    solver,
+                );
+                let leaf = result
+                    .leaves
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| RpcFault::runtime("execution produced no result", None))?;
+                let mut output = Map::new();
+                let (reason, next_states, rule) = match &leaf.halt_reason {
+                    HaltReason::Cancelled => return Err(RpcFault::cancelled()),
+                    HaltReason::Stuck => ("stuck", None, None),
+                    HaltReason::Trivial { .. } | HaltReason::Vacuous { .. } => {
+                        ("vacuous", None, None)
+                    }
+                    HaltReason::DepthBound => ("depth-bound", None, None),
+                    HaltReason::BreadthBound => ("aborted", None, None),
+                    HaltReason::Timeout(_) => ("timeout", None, None),
+                    HaltReason::Simplification(
+                        error @ SimplificationError::UnsupportedHook { term, .. },
+                    ) => return Err(RpcFault::runtime(error.to_string(), Some(term))),
+                    HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => {
+                        ("aborted", None, None)
+                    }
+                    HaltReason::Branch {
+                        branches,
+                        remainder,
+                    } => {
+                        let mut next_states = branches
+                            .iter()
+                            .map(|applied| {
+                                execute_applied_state(definition, applied, &configuration_variables)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        if let Some(remainder) = remainder {
+                            next_states.push(execute_state(
+                                definition,
+                                &remainder.pattern,
+                                &configuration_variables,
+                            )?);
+                        }
+                        ("branching", Some(next_states), None)
+                    }
+                    HaltReason::CutPointRule { rule, next_states } => (
+                        "cut-point-rule",
+                        Some(
+                            next_states
+                                .iter()
+                                .map(|applied| {
+                                    execute_state(
+                                        definition,
+                                        &applied.pattern,
+                                        &configuration_variables,
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()?,
+                        ),
+                        Some(rule.clone()),
+                    ),
+                    HaltReason::TerminalRule { rule } => {
+                        ("terminal-rule", None, Some(rule.clone()))
+                    }
+                };
+                output.insert("reason".into(), Value::String(reason.into()));
+                output.insert("depth".into(), Value::from(leaf.depth));
+                if let Some(rule) = rule {
+                    output.insert("rule".into(), Value::String(rule));
                 }
-                ("branching", Some(next_states), None)
-            }
-            HaltReason::CutPointRule { rule, next_states } => (
-                "cut-point-rule",
-                Some(
-                    next_states
+                output.insert(
+                    "state".into(),
+                    execute_state(definition, &leaf.pattern, &configuration_variables)?,
+                );
+                if let Some(next_states) = next_states {
+                    output.insert("next-states".into(), Value::Array(next_states));
+                }
+                if log_successful_rewrites || log_failed_rewrites {
+                    let mut logs = leaf
+                        .trace
                         .iter()
-                        .map(|applied| {
-                            execute_state(&definition, &applied.pattern, &configuration_variables)
+                        .filter(|entry| entry.kind == TraceKind::Rewrite)
+                        .map(|entry| {
+                            json!({
+                                "tag": "rewrite",
+                                "origin": "booster",
+                                "result": {
+                                    "tag": "success",
+                                    "rule-id": entry.unique_id,
+                                },
+                            })
                         })
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
-                Some(rule.clone()),
-            ),
-            HaltReason::TerminalRule { rule } => ("terminal-rule", None, Some(rule.clone())),
-        };
-        output.insert("reason".into(), Value::String(reason.into()));
-        output.insert("depth".into(), Value::from(leaf.depth));
-        if let Some(rule) = rule {
-            output.insert("rule".into(), Value::String(rule));
-        }
-        output.insert(
-            "state".into(),
-            execute_state(&definition, &leaf.pattern, &configuration_variables)?,
-        );
-        if let Some(next_states) = next_states {
-            output.insert("next-states".into(), Value::Array(next_states));
-        }
-        if log_successful_rewrites || log_failed_rewrites {
-            let mut logs = leaf
-                .trace
-                .iter()
-                .filter(|entry| entry.kind == TraceKind::Rewrite)
-                .map(|entry| {
-                    json!({
-                        "tag": "rewrite",
-                        "origin": "booster",
-                        "result": {
-                            "tag": "success",
-                            "rule-id": entry.unique_id,
-                        },
-                    })
-                })
-                .collect::<Vec<_>>();
-            if log_failed_rewrites {
-                logs.extend(execute_failed_rewrite_logs(&leaf.halt_reason));
-            }
-            if !logs.is_empty() {
-                output.insert("logs".into(), Value::Array(logs));
-            }
-        }
-        if !haskell_logging.is_empty() {
-            output.insert(
-                "haskell-log-entries".into(),
-                Value::Array(legacy_execution_log_entries(
-                    &haskell_logging,
-                    &leaf.trace,
-                    &leaf.halt_reason,
-                )),
-            );
-        }
-        Ok(Value::Object(output))
+                        .collect::<Vec<_>>();
+                    if log_failed_rewrites {
+                        logs.extend(execute_failed_rewrite_logs(&leaf.halt_reason));
+                    }
+                    if !logs.is_empty() {
+                        output.insert("logs".into(), Value::Array(logs));
+                    }
+                }
+                if !haskell_logging.is_empty() {
+                    output.insert(
+                        "haskell-log-entries".into(),
+                        Value::Array(legacy_execution_log_entries(
+                            &haskell_logging,
+                            &leaf.trace,
+                            &leaf.halt_reason,
+                        )),
+                    );
+                }
+                Ok(Value::Object(output))
+            })
     }
 
     fn simplify(&mut self, params: SimplifyParams) -> Result<Value, RpcFault> {
         let _booster_only = params.booster_only;
         let _haskell_logging = params.haskell_logging;
-        let definition = self.definition(params.module.as_deref())?;
+        self.ensure_module(params.module.as_deref())?;
         let syntax = params.state.0;
-        let solver = solver(&definition, self.smt_options)?;
-        match definition
-            .internalize_pattern_or_predicate(&syntax, &[])
-            .map_err(|error| pattern_fault(error, &syntax))?
-        {
-            PatternOrPredicate::Term(pattern) => {
-                let simplified = simplify_pattern_with_solver(
-                    &definition,
-                    &pattern,
-                    SimplificationOptions::unbounded(),
-                    &solver,
-                )
-                .map_err(|error| simplify_fault(error, &pattern.term.sort()))?;
-                return Ok(json!({
-                    "state": encode_kore(&externalize::constrained_pattern(&simplified))?
-                }));
-            }
-            PatternOrPredicate::Predicate(predicate, result_sort) => {
-                let simplified = simplify_and_decide_predicate_with_solver(
-                    &definition,
-                    &predicate,
-                    &[],
-                    SimplificationOptions::unbounded(),
-                    &solver,
-                )
-                .map_err(|error| simplify_fault(error, &result_sort))?;
-                return Ok(json!({
-                    "state": encode_kore(&externalize::ml_pattern(&simplified, &result_sort))?
-                }));
-            }
-        }
+        self.backend.with_solver(
+            params.module.as_deref(),
+            |definition, solver| match definition
+                .internalize_pattern_or_predicate(&syntax, &[])
+                .map_err(|error| pattern_fault(error, &syntax))?
+            {
+                PatternOrPredicate::Term(pattern) => {
+                    let simplified = backend_simplification::simplify_pattern(
+                        definition,
+                        &pattern,
+                        SimplificationOptions::unbounded(),
+                        solver,
+                    )
+                    .map_err(|error| simplify_fault(error, &pattern.term.sort()))?;
+                    Ok(json!({
+                        "state": encode_kore(&externalize::constrained_pattern(&simplified))?
+                    }))
+                }
+                PatternOrPredicate::Predicate(predicate, result_sort) => {
+                    let simplified = backend_simplification::simplify_predicate(
+                        definition,
+                        &predicate,
+                        SimplificationOptions::unbounded(),
+                        solver,
+                    )
+                    .map_err(|error| simplify_fault(error, &result_sort))?;
+                    Ok(json!({
+                        "state": encode_kore(&externalize::ml_pattern(&simplified, &result_sort))?
+                    }))
+                }
+            },
+        )
     }
 
     fn add_module(&mut self, params: AddModuleParams) -> Result<Value, RpcFault> {
@@ -664,8 +689,8 @@ impl RpcService {
             .map_err(|error| RpcFault::invalid_module(ErrorDetail::message(error.to_string())))?;
         let error_module = module.clone();
         let id = self
-            .session
-            .add_module(&params.module, module, params.name_as_id)
+            .backend
+            .add_parsed_module(&params.module, module, params.name_as_id)
             .map_err(|error| match error {
                 SessionError::Definition(DefinitionError::NoSuchModule(module)) => {
                     RpcFault::invalid_module(ErrorDetail::message(format!(
@@ -697,30 +722,34 @@ impl RpcService {
     fn get_model(&mut self, params: GetModelParams) -> Result<Value, RpcFault> {
         let _booster_only = params.booster_only;
         let _haskell_logging = params.haskell_logging;
-        let definition = self.definition(params.module.as_deref())?;
+        self.ensure_module(params.module.as_deref())?;
         let syntax = params.state.0;
-        let Some((predicate, result_sort)) = definition
-            .internalize_model_predicate(&syntax, &[])
-            .map_err(|error| pattern_fault(error, &syntax))?
-        else {
-            return Ok(json!({ "satisfiable": "Unknown" }));
-        };
-        let solver = solver(&definition, self.smt_options)?;
-        match solver
-            .get_model(&[predicate], &Substitution::new())
-            .map_err(|error| {
-                RpcFault::runtime(format!("could not obtain model: {error:?}"), None)
-            })? {
-            ModelResult::Sat(substitution) => {
-                let mut result = json!({ "satisfiable": "Sat" });
-                if let Some(substitution) = super::model_substitution(&substitution, &result_sort) {
-                    result["substitution"] = encode_kore(&substitution)?;
+        self.backend
+            .with_solver(params.module.as_deref(), |definition, solver| {
+                let Some((predicate, result_sort)) = definition
+                    .internalize_model_predicate(&syntax, &[])
+                    .map_err(|error| pattern_fault(error, &syntax))?
+                else {
+                    return Ok(json!({ "satisfiable": "Unknown" }));
+                };
+                match solver
+                    .get_model(&[predicate], &Substitution::new())
+                    .map_err(|error| {
+                        RpcFault::runtime(format!("could not obtain model: {error:?}"), None)
+                    })? {
+                    ModelResult::Sat(substitution) => {
+                        let mut result = json!({ "satisfiable": "Sat" });
+                        if let Some(substitution) =
+                            super::model_substitution(&substitution, &result_sort)
+                        {
+                            result["substitution"] = encode_kore(&substitution)?;
+                        }
+                        Ok(result)
+                    }
+                    ModelResult::Unsat => Ok(json!({ "satisfiable": "Unsat" })),
+                    ModelResult::Unknown(_) => Ok(json!({ "satisfiable": "Unknown" })),
                 }
-                Ok(result)
-            }
-            ModelResult::Unsat => Ok(json!({ "satisfiable": "Unsat" })),
-            ModelResult::Unknown(_) => Ok(json!({ "satisfiable": "Unknown" })),
-        }
+            })
     }
 
     fn implies(&mut self, params: ImpliesParams) -> Result<Value, RpcFault> {
@@ -729,10 +758,12 @@ impl RpcService {
         // backend already runs the in-process implication path it selects.
         let _assume_defined = params.assume_defined;
         let _haskell_logging = params.haskell_logging;
-        let definition = self.definition(params.module.as_deref())?;
+        self.ensure_module(params.module.as_deref())?;
         let antecedent = params.antecedent.0;
         let consequent = params.consequent.0;
-        if let Err(request_error) = validate_request(&definition, &antecedent, &consequent) {
+        self.backend
+            .with_solver(params.module.as_deref(), |definition, solver| {
+        if let Err(request_error) = validate_request(definition, &antecedent, &consequent) {
             return Err(match request_error {
                 ImplicationRequestError::MacroOrAlias { side, name } => {
                     let pattern = match side {
@@ -801,12 +832,11 @@ impl RpcService {
                 let (consequent_pattern, _) = definition
                     .internalize_implication_pattern(&consequent, &sort_variables)
                     .map_err(|error| pattern_fault(error, &consequent))?;
-                let solver = solver(&definition, self.smt_options)?;
                 simplified_implication_response_syntax(
-                    &definition,
+                    definition,
                     &consequent,
                     &consequent_pattern,
-                    &solver,
+                    solver,
                 )?
             };
             return implication_result(&antecedent, &consequent, &result_sort, result);
@@ -815,34 +845,30 @@ impl RpcService {
             .internalize_implication_pattern(&antecedent, &sort_variables)
             .map_err(|error| pattern_fault(error, &antecedent))?;
         let result_sort = antecedent_pattern.term.sort();
-        let solver = solver(&definition, self.smt_options)?;
-        if let Some(result) = special_result {
+        if matches!(consequent.strip_exists(), KorePattern::Not { .. }) {
+            let result = special_result
+                .take()
+                .expect("not consequents are a shared implication special case");
             let antecedent = simplified_implication_response_syntax(
-                &definition,
+                definition,
                 &antecedent,
                 &antecedent_pattern,
-                &solver,
+                solver,
+            )?;
+            let consequent = simplified_not_consequent_response_syntax(
+                definition,
+                &consequent,
+                &sort_variables,
+                solver,
             )?;
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
-        if matches!(consequent.strip_exists(), KorePattern::Not { .. }) {
-            let result = ImplicationResult {
-                status: ImplicationStatus::Invalid,
-                condition: None,
-                failure: None,
-                vacuous: false,
-            };
+        if let Some(result) = special_result {
             let antecedent = simplified_implication_response_syntax(
-                &definition,
+                definition,
                 &antecedent,
                 &antecedent_pattern,
-                &solver,
-            )?;
-            let consequent = simplified_not_consequent_response_syntax(
-                &definition,
-                &consequent,
-                &sort_variables,
-                &solver,
+                solver,
             )?;
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
@@ -854,13 +880,13 @@ impl RpcService {
                 "antecedent and consequent sorts differ",
             )]));
         }
-        let result = check_implication_with_existentials_complete(
-            &definition,
+        let result = backend_implication::check(
+            definition,
             &antecedent_pattern,
             &antecedent_existentials,
             &consequent_pattern,
             &consequent_existentials,
-            &solver,
+            solver,
         )
         .map_err(|error| {
             implication_backend_fault(error, &antecedent, &consequent, &consequent_existentials)
@@ -875,20 +901,21 @@ impl RpcService {
         } else {
             (
                 simplified_implication_response_syntax(
-                    &definition,
+                    definition,
                     &antecedent,
                     &antecedent_pattern,
-                    &solver,
+                    solver,
                 )?,
                 simplified_implication_response_syntax(
-                    &definition,
+                    definition,
                     &consequent,
                     &consequent_pattern,
-                    &solver,
+                    solver,
                 )?,
             )
         };
         implication_result(&antecedent, &consequent, &result_sort, result)
+            })
     }
 }
 
@@ -1159,7 +1186,7 @@ fn simplified_implication_response_syntax(
     // method exposes, so its failures are reported through the same fault instead of
     // echoing an unsimplified pattern next to a verdict that was computed from the
     // simplified one.
-    let simplified = simplify_pattern_with_solver(
+    let simplified = backend_simplification::simplify_pattern(
         definition,
         unsimplified,
         SimplificationOptions::default(),
@@ -1451,11 +1478,6 @@ fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
         .map_err(|error| RpcFault::runtime(format!("could not encode KORE JSON: {error}"), None))
 }
 
-fn solver(definition: &BackendDefinition, options: Z3Options) -> Result<Z3Solver, RpcFault> {
-    Z3Solver::with_options(definition, options)
-        .map_err(|error| RpcFault::runtime(format!("could not initialize Z3: {error:?}"), None))
-}
-
 fn execute_state(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -1651,17 +1673,10 @@ fn implication_result(
     Ok(output)
 }
 
-pub(super) fn serve(
-    session: BackendSession,
-    address: impl ToSocketAddrs,
-    smt_options: Z3Options,
-) -> Result<(), Box<dyn Error>> {
+pub(super) fn serve(backend: Backend, address: impl ToSocketAddrs) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(address)?;
     eprintln!("KORE JSON-RPC listening on {}", listener.local_addr()?);
-    let service = Arc::new(Mutex::new(RpcService::with_smt_options(
-        session,
-        smt_options,
-    )));
+    let service = Arc::new(Mutex::new(RpcService::with_backend(backend)));
     for connection in listener.incoming() {
         let stream = connection?;
         let service = Arc::clone(&service);
@@ -3162,10 +3177,10 @@ mod tests {
             endmodule []"#,
         )
         .unwrap();
-        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
-        let fault = solver(&definition, Z3Options::default())
-            .expect_err("contradictory SMT lemmas must reject the solver")
-            .into_value(json!(1));
+        let error = Backend::from_definition(syntax, "MAIN", BackendOptions::default())
+            .err()
+            .expect("contradictory SMT lemmas must reject the solver");
+        let fault = RpcFault::from(error).into_value(json!(1));
 
         assert_eq!(fault["error"]["code"], -32002, "{fault:#}");
         assert_eq!(fault["error"]["message"], "Runtime error", "{fault:#}");
@@ -3320,7 +3335,7 @@ mod tests {
         assert!(id.starts_with('m'));
         assert_eq!(id.len(), 65);
 
-        let definition = service.definition(Some("EXTRA")).unwrap();
+        let definition = service.backend.select_definition(Some("EXTRA")).unwrap();
         assert_eq!(definition.main_module.as_ref(), id);
     }
 

@@ -14,6 +14,24 @@ use k_rust_kore::kore::ast::{Pattern as KorePattern, Pattern};
 
 use super::{Backend, BackendError, error};
 
+pub fn check(
+    definition: &k_rust_backend::definition::BackendDefinition,
+    antecedent: &k_rust_backend::rewrite::Pattern,
+    antecedent_existentials: &BTreeSet<k_rust_backend::term::Variable>,
+    consequent: &k_rust_backend::rewrite::Pattern,
+    consequent_existentials: &BTreeSet<k_rust_backend::term::Variable>,
+    solver: &dyn k_rust_backend::smt::SmtSolver,
+) -> Result<ImplicationResult, k_rust_backend::implication::ImplicationError> {
+    check_implication_with_existentials_complete(
+        definition,
+        antecedent,
+        antecedent_existentials,
+        consequent,
+        consequent_existentials,
+        solver,
+    )
+}
+
 impl Backend {
     /// Validate, internalize, and check one implication through the selected module's cached solver.
     pub fn implies_kore(

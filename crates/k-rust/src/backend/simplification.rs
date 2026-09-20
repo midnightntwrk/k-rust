@@ -1,19 +1,39 @@
 //! Shared standalone simplification and model-generation orchestration (S4 and S5).
 
 use k_rust_backend::{
+    definition::BackendDefinition,
     definition::PatternOrPredicate,
     externalize,
     simplify::{
-        SimplificationOptions, simplify_and_decide_predicate_with_solver,
+        SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
         simplify_pattern_with_solver,
     },
-    smt::ModelResult,
+    smt::{ModelResult, SmtSolver},
     substitution::Substitution,
     term::Sort,
 };
+use k_rust_backend::{rewrite::Pattern, rule::Predicate};
 use k_rust_kore::kore::ast::Pattern as KorePattern;
 
 use super::{Backend, BackendError, error};
+
+pub fn simplify_pattern(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Pattern, SimplificationError> {
+    simplify_pattern_with_solver(definition, pattern, options, solver)
+}
+
+pub fn simplify_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Predicate, SimplificationError> {
+    simplify_and_decide_predicate_with_solver(definition, predicate, &[], options, solver)
+}
 
 impl Backend {
     pub fn simplify_kore(
