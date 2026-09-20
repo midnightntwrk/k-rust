@@ -4,11 +4,13 @@
 //! for the c candidates of `rule::applicable_groups` plus one SAT check per step (`All`) or per
 //! applied rule (`Any`); `Counter::RewriteRulesApplied` (row B10).
 
+use std::sync::Arc;
+
 use k_rust_kore::measure::{self, Counter};
 
 use crate::{
     definition::BackendDefinition,
-    rule::{applicable_groups, term_index},
+    rule::{RewriteRule, applicable_groups, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver},
     smt::{Satisfiability, SmtSolver},
     substitution::Substitution,
@@ -16,9 +18,136 @@ use crate::{
 };
 
 use super::{
-    IndeterminateReason, Pattern, RemainderBranch, RewriteResult, RuleAttempt, Truth, apply_rule,
-    extend_unique, predicates_truth, violates_finite_constructor_domain,
+    AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, RuleAttempt,
+    TrivialApplication, Truth, apply_rule, extend_unique, predicates_truth,
+    violates_finite_constructor_domain,
 };
+
+enum PriorityGroupOutcome {
+    NotProductive,
+    Productive {
+        branches: Vec<AppliedRule>,
+        trivial: Vec<TrivialApplication>,
+        remainder: Option<RemainderBranch>,
+    },
+    Indeterminate(IndeterminateReason),
+}
+
+fn apply_priority_group(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    rules: &[Arc<RewriteRule>],
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
+    io: Option<&ExecutionIoState>,
+) -> PriorityGroupOutcome {
+    let mut applied = Vec::new();
+    let mut trivial = Vec::new();
+    for rule in rules {
+        match apply_rule(
+            definition,
+            rule,
+            pattern,
+            fresh_counter,
+            simplification_options,
+            solver,
+            assume_initial_defined,
+            io,
+        ) {
+            RuleAttempt::NotApplicable => {}
+            RuleAttempt::Unified { groups } => {
+                measure::bump(Counter::RewriteRulesApplied);
+                for group in groups {
+                    applied.extend(group.applied);
+                    trivial.extend(group.trivial);
+                }
+            }
+            RuleAttempt::Indeterminate(reason) => {
+                return PriorityGroupOutcome::Indeterminate(reason);
+            }
+        }
+    }
+    if applied.is_empty() && trivial.is_empty() {
+        return PriorityGroupOutcome::NotProductive;
+    }
+    let rule_ids = applied
+        .iter()
+        .map(|application| application.applied.unique_id.clone())
+        .chain(
+            trivial
+                .iter()
+                .map(|application| application.rule_id.clone()),
+        )
+        .collect::<Vec<_>>();
+    let raw_remainder = applied
+        .iter()
+        .map(|application| application.remainder.clone())
+        .chain(
+            trivial
+                .iter()
+                .map(|application| application.remainder.clone()),
+        )
+        .collect::<Vec<_>>();
+    let remainder = match simplify_predicates_with_solver(
+        definition,
+        &raw_remainder,
+        &pattern.constraints,
+        simplification_options,
+        solver,
+    ) {
+        Ok(remainder) => remainder,
+        Err(error) => {
+            return PriorityGroupOutcome::Indeterminate(IndeterminateReason::simplification(
+                None, error,
+            ));
+        }
+    };
+    let remainder_result = if predicates_truth(&remainder) == Truth::False {
+        Ok(Satisfiability::Unsat)
+    } else {
+        let mut predicates = pattern.constraints.clone();
+        predicates.extend(remainder.iter().cloned());
+        if violates_finite_constructor_domain(definition, &predicates) {
+            Ok(Satisfiability::Unsat)
+        } else {
+            solver.is_sat(&predicates, &Substitution::new())
+        }
+    };
+    if !matches!(
+        remainder_result,
+        Ok(Satisfiability::Unsat | Satisfiability::Sat)
+    ) {
+        return PriorityGroupOutcome::Indeterminate(IndeterminateReason::Remainder {
+            rule_ids,
+            predicates: remainder,
+            satisfiability: remainder_result,
+        });
+    }
+    let remainder = if matches!(remainder_result, Ok(Satisfiability::Sat)) {
+        let mut remainder_pattern = pattern.clone();
+        extend_unique(
+            &mut remainder_pattern.constraints,
+            remainder.iter().cloned(),
+        );
+        Some(RemainderBranch {
+            pattern: remainder_pattern,
+            rule_ids,
+            effects: Vec::new(),
+        })
+    } else {
+        None
+    };
+    PriorityGroupOutcome::Productive {
+        branches: applied
+            .into_iter()
+            .map(|application| application.applied)
+            .collect(),
+        trivial,
+        remainder,
+    }
+}
 
 pub(super) fn rewrite_step_all(
     definition: &BackendDefinition,
@@ -35,122 +164,40 @@ pub(super) fn rewrite_step_all(
         return RewriteResult::Stuck(pattern.clone());
     }
     for rules in priority_groups.values() {
-        let mut applied = Vec::new();
-        let mut trivial = Vec::new();
-        for rule in rules {
-            match apply_rule(
-                definition,
-                rule,
-                pattern,
-                fresh_counter,
-                simplification_options,
-                solver,
-                assume_initial_defined,
-                io,
-            ) {
-                RuleAttempt::NotApplicable => {}
-                RuleAttempt::Unified { groups } => {
-                    measure::bump(Counter::RewriteRulesApplied);
-                    for group in groups {
-                        applied.extend(group.applied);
-                        trivial.extend(group.trivial);
-                    }
-                }
-                RuleAttempt::Indeterminate(reason) => {
-                    return RewriteResult::Indeterminate {
-                        pattern: pattern.clone(),
-                        reason,
-                    };
-                }
-            }
-        }
-        if applied.is_empty() && trivial.is_empty() {
-            continue;
-        }
-        let rule_ids = applied
-            .iter()
-            .map(|application| application.applied.unique_id.clone())
-            .chain(
-                trivial
-                    .iter()
-                    .map(|application| application.rule_id.clone()),
-            )
-            .collect::<Vec<_>>();
-        let raw_remainder = applied
-            .iter()
-            .map(|application| application.remainder.clone())
-            .chain(
-                trivial
-                    .iter()
-                    .map(|application| application.remainder.clone()),
-            )
-            .collect::<Vec<_>>();
-        let remainder = match simplify_predicates_with_solver(
+        match apply_priority_group(
             definition,
-            &raw_remainder,
-            &pattern.constraints,
+            pattern,
+            rules,
+            fresh_counter,
             simplification_options,
             solver,
+            assume_initial_defined,
+            io,
         ) {
-            Ok(remainder) => remainder,
-            Err(error) => {
+            PriorityGroupOutcome::NotProductive => {}
+            PriorityGroupOutcome::Indeterminate(reason) => {
                 return RewriteResult::Indeterminate {
                     pattern: pattern.clone(),
-                    reason: IndeterminateReason::simplification(None, error),
+                    reason,
                 };
             }
-        };
-        let remainder_result = if predicates_truth(&remainder) == Truth::False {
-            Ok(Satisfiability::Unsat)
-        } else {
-            let mut predicates = pattern.constraints.clone();
-            predicates.extend(remainder.iter().cloned());
-            if violates_finite_constructor_domain(definition, &predicates) {
-                Ok(Satisfiability::Unsat)
-            } else {
-                solver.is_sat(&predicates, &Substitution::new())
-            }
-        };
-        if !matches!(
-            remainder_result,
-            Ok(Satisfiability::Unsat | Satisfiability::Sat)
-        ) {
-            return RewriteResult::Indeterminate {
-                pattern: pattern.clone(),
-                reason: IndeterminateReason::Remainder {
-                    rule_ids,
-                    predicates: remainder,
-                    satisfiability: remainder_result,
-                },
-            };
-        }
-        let remainder = if matches!(remainder_result, Ok(Satisfiability::Sat)) {
-            let mut remainder_pattern = pattern.clone();
-            extend_unique(
-                &mut remainder_pattern.constraints,
-                remainder.iter().cloned(),
-            );
-            Some(RemainderBranch {
-                pattern: remainder_pattern,
-                rule_ids,
-                effects: Vec::new(),
-            })
-        } else {
-            None
-        };
-        return match (applied.len(), trivial.is_empty(), remainder) {
-            (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
-            (1, true, None) => RewriteResult::Finished(applied.pop().unwrap().applied),
-            (_, _, remainder) => RewriteResult::Branch {
-                original: pattern.clone(),
-                branches: applied
-                    .into_iter()
-                    .map(|application| application.applied)
-                    .collect(),
-                remainder,
+            PriorityGroupOutcome::Productive {
+                mut branches,
                 trivial,
-            },
-        };
+                remainder,
+            } => {
+                return match (branches.len(), trivial.is_empty(), remainder) {
+                    (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
+                    (1, true, None) => RewriteResult::Finished(branches.pop().unwrap()),
+                    (_, _, remainder) => RewriteResult::Branch {
+                        original: pattern.clone(),
+                        branches,
+                        remainder,
+                        trivial,
+                    },
+                };
+            }
+        }
     }
     RewriteResult::Stuck(pattern.clone())
 }
