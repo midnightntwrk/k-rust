@@ -218,6 +218,7 @@ for name in "${selected[@]}"; do
         "${configuration_args[@]}" \
         --depth "$execution_depth" \
         --strategy all \
+        --io off \
         --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin" \
         >"$work/$name-$program_name.rust.kore"
     )

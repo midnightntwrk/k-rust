@@ -413,6 +413,10 @@ fn execution_gate_asks_krust_for_the_haskell_backend_branching_strategy() {
         );
     }
     assert!(
+        programs.contains("--io off"),
+        "ordinary all-strategy execution must buffer I/O instead of selecting live output from alternatives:\n{programs}"
+    );
+    assert!(
         !any_runs.contains("--strategy"),
         "an [[execution.any]] run keeps krust's krun default:\n{any_runs}"
     );
