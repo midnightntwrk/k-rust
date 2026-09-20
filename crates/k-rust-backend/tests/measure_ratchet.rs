@@ -12,7 +12,10 @@ const _: () = assert!(cfg!(feature = "measure"));
 use k_rust_backend::{
     definition::BackendDefinition,
     proof::{ProofOptions, ProofStatus, prove_claim},
-    rewrite::{ExecutionOptions, Pattern, execute},
+    rewrite::{
+        ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern, execute,
+        execute_with_solver,
+    },
     search::{SearchOptions, SearchType, search_graph},
     smt::NoSolver,
     substitution::Substitution,
@@ -126,6 +129,194 @@ fn measured<T>(work: impl FnOnce() -> T) -> (T, Snapshot) {
     let before = snapshot();
     let result = work();
     (result, snapshot().delta(&before))
+}
+
+#[cfg(feature = "z3")]
+fn be08_measure_definition(rules: &str) -> BackendDefinition {
+    definition(
+        &r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            symbol wrap{}(SortInt{}) : SortInt{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), smt-hook{}("<")]
+            $RULES
+        endmodule []"#
+            .replace("$RULES", rules),
+    )
+}
+
+#[cfg(feature = "z3")]
+fn be08_measure_s0() -> BackendDefinition {
+    be08_measure_definition(
+        r#"
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(
+                wrap{}(X:SortInt{}),
+                \equals{SortBool{}, SortInt{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            \dv{SortInt{}}("-1")
+        ) [label{}("negative"), priority{}("10")]
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(
+                wrap{}(X:SortInt{}),
+                \equals{SortBool{}, SortInt{}}(
+                    lt{}(\dv{SortInt{}}("0"), X:SortInt{}),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            \dv{SortInt{}}("1")
+        ) [label{}("positive"), priority{}("10")]
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+            \dv{SortInt{}}("2")
+        ) [label{}("zero-a"), priority{}("50")]
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+            \dv{SortInt{}}("3")
+        ) [label{}("zero-b"), priority{}("50")]
+        "#,
+    )
+}
+
+#[cfg(feature = "z3")]
+fn be08_measure_s1() -> BackendDefinition {
+    let mut rules = String::new();
+    for index in 0..8 {
+        rules.push_str(&format!(
+            r#"
+            axiom{{}} \rewrites{{SortInt{{}}}}(
+                \and{{SortInt{{}}}}(
+                    wrap{{}}(X:SortInt{{}}),
+                    \equals{{SortBool{{}}, SortInt{{}}}}(
+                        lt{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")),
+                        \dv{{SortBool{{}}}}("true")
+                    )
+                ),
+                \dv{{SortInt{{}}}}("{}")
+            ) [label{{}}("be08-symbolic-{index}"), priority{{}}("{}")]
+            "#,
+            100 + index,
+            10 + index * 10,
+        ));
+    }
+    rules.push_str(
+        r#"
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+            \dv{SortInt{}}("200")
+        ) [label{}("be08-fallback-a"), priority{}("90")]
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+            \dv{SortInt{}}("201")
+        ) [label{}("be08-fallback-b"), priority{}("90")]
+        "#,
+    );
+    be08_measure_definition(&rules)
+}
+
+#[cfg(feature = "z3")]
+fn be08_measure_any_replay() -> BackendDefinition {
+    be08_measure_definition(
+        r#"
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(
+                wrap{}(X:SortInt{}),
+                \equals{SortBool{}, SortInt{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("10")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            \dv{SortInt{}}("100")
+        ) [label{}("conditional"), priority{}("10")]
+        "#,
+    )
+}
+
+#[cfg(feature = "z3")]
+fn be08_measure_stopped(definition: &BackendDefinition, mode: ExecutionMode) -> Snapshot {
+    let initial = pattern(definition, "wrap{}(X:SortInt{})");
+    let solver = k_rust_backend::smt::Z3Solver::new(definition).unwrap();
+    let (result, delta) = measured(|| {
+        execute_with_solver(
+            definition,
+            initial,
+            ExecutionOptions {
+                mode,
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        )
+    });
+    assert!(matches!(
+        result.leaves.as_slice(),
+        [k_rust_backend::rewrite::ExecutionLeaf {
+            halt_reason: HaltReason::Branch { .. },
+            ..
+        }]
+    ));
+    delta
+}
+
+#[cfg(feature = "z3")]
+fn assert_be08_snapshot(name: &str, actual: Snapshot, expected: [u64; Counter::COUNT]) {
+    if std::env::var_os("KRUST_BE08_CAPTURE").is_some() {
+        eprintln!("BE08 capture {name}: {:?}", actual.0);
+    } else {
+        assert_eq!(actual, Snapshot(expected), "BE08 counter capture {name}");
+    }
+}
+
+/// T3 / I9 and T15 / D4. Captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[cfg(feature = "z3")]
+#[test]
+fn stopped_branch_cascade_attempts_each_candidate_rule_once() {
+    let s0 = be08_measure_stopped(&be08_measure_s0(), ExecutionMode::All);
+    let s1 = be08_measure_stopped(&be08_measure_s1(), ExecutionMode::All);
+    let any_replay = be08_measure_stopped(&be08_measure_any_replay(), ExecutionMode::Any);
+
+    assert_eq!(s0.get(Counter::RewriteRuleAttempts), 6);
+    assert_eq!(s0.get(Counter::RewriteRulesApplied), 4);
+    assert_eq!(s0.get(Counter::RewriteMatchFailures), 0);
+    assert_eq!(s0.get(Counter::RewriteSteps), 1);
+    assert_eq!(s1.get(Counter::RewriteRuleAttempts), 46);
+    assert_eq!(s1.get(Counter::RewriteRulesApplied), 10);
+    assert_eq!(s1.get(Counter::RewriteMatchFailures), 0);
+    assert_eq!(s1.get(Counter::RewriteSteps), 1);
+    assert_eq!(any_replay.get(Counter::RewriteRuleAttempts), 2);
+    assert_eq!(any_replay.get(Counter::RewriteRulesApplied), 1);
+    assert_eq!(any_replay.get(Counter::RewriteMatchFailures), 0);
+    assert_eq!(any_replay.get(Counter::RewriteSteps), 1);
+    assert_be08_snapshot(
+        "T3 S0 All",
+        s0,
+        [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 6, 0, 4, 0, 6, 12,
+            0, 0, 24, 36, 38, 0, 0, 17, 9, 0, 0, 0, 34,
+        ],
+    );
+    assert_be08_snapshot(
+        "T3 S1 All",
+        s1,
+        [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 46, 0, 10, 0, 46,
+            92, 0, 0, 168, 181, 280, 0, 0, 128, 108, 0, 0, 0, 270,
+        ],
+    );
+    assert_be08_snapshot(
+        "T15 Any replay",
+        any_replay,
+        [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 1, 0, 2, 4,
+            0, 0, 12, 16, 18, 0, 0, 7, 5, 0, 0, 0, 17,
+        ],
+    );
 }
 
 fn execute_counting(definition: &BackendDefinition, depth: u64) -> Snapshot {

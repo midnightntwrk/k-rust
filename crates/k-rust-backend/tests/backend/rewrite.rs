@@ -1,6 +1,10 @@
 //! Public contracts of `k_rust_backend::rewrite`.
 
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::BTreeSet,
+    fmt::{Debug, Write},
+    time::Duration,
+};
 
 use k_rust_backend::{
     builtin::BuiltinEffect,
@@ -29,8 +33,25 @@ use k_rust_kore::{
     measure::{Counter, snapshot},
     names::BuiltinSort,
 };
+use sha2::{Digest, Sha256};
 
-use crate::support::{ground_cell_set_definition, ground_overload_definition, internal_term};
+use crate::support::{
+    ScriptedQuery, ScriptedSolver, ground_cell_set_definition, ground_overload_definition,
+    internal_term,
+};
+
+fn assert_be08_capture(name: &str, value: &impl Debug, expected_sha256: &str) {
+    let rendered = format!("{value:#?}");
+    let mut actual = String::with_capacity(64);
+    for byte in Sha256::digest(rendered.as_bytes()) {
+        write!(actual, "{byte:02x}").unwrap();
+    }
+    if std::env::var_os("KRUST_BE08_CAPTURE").is_some() {
+        eprintln!("BE08 capture {name}: sha256={actual}\n{rendered}");
+    } else {
+        assert_eq!(actual, expected_sha256, "BE08 capture {name}:\n{rendered}");
+    }
+}
 
 #[derive(Clone, Debug)]
 struct FixedSolver {
@@ -1531,6 +1552,144 @@ fn symbolic_subject(definition: &BackendDefinition) -> Pattern {
     }
 }
 
+fn be08_s0_definition() -> BackendDefinition {
+    symbolic_remainder_definition(
+        r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("-1")
+            ) [label{}("negative"), priority{}("10")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(\dv{SortInt{}}("0"), X:SortInt{}),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("1")
+            ) [label{}("positive"), priority{}("10")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+                \dv{SortInt{}}("2")
+            ) [label{}("zero-a"), priority{}("50")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+                \dv{SortInt{}}("3")
+            ) [label{}("zero-b"), priority{}("50")]
+            "#,
+    )
+}
+
+fn be08_s1_definition() -> BackendDefinition {
+    let mut rules = String::new();
+    for index in 0..8 {
+        rules.push_str(&format!(
+            r#"
+            axiom{{}} \rewrites{{SortInt{{}}}}(
+                \and{{SortInt{{}}}}(
+                    wrap{{}}(X:SortInt{{}}),
+                    \equals{{SortBool{{}}, SortInt{{}}}}(
+                        lt{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{index}")),
+                        \dv{{SortBool{{}}}}("true")
+                    )
+                ),
+                \dv{{SortInt{{}}}}("{}")
+            ) [label{{}}("be08-symbolic-{index}"), priority{{}}("{}")]
+            "#,
+            100 + index,
+            10 + index * 10,
+        ));
+    }
+    rules.push_str(
+        r#"
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+            \dv{SortInt{}}("200")
+        ) [label{}("be08-fallback-a"), priority{}("90")]
+        axiom{} \rewrites{SortInt{}}(
+            \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+            \dv{SortInt{}}("201")
+        ) [label{}("be08-fallback-b"), priority{}("90")]
+        "#,
+    );
+    symbolic_remainder_definition(&rules)
+}
+
+fn be08_portable_definition(rules: &str) -> BackendDefinition {
+    let source = r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            sort SortString{} [hasDomainValues{}()]
+            sort SortIOError{} []
+            sort SortIOInt{} []
+            sort SortK{} []
+            symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+            symbol Lbl'Hash'EOF{}() : SortIOError{} [constructor{}(), total{}()]
+            symbol state{}(SortInt{}) : SortK{} [constructor{}(), total{}(), injective{}()]
+            symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+            symbol done{}() : SortK{} [constructor{}(), total{}()]
+            symbol tag{}(SortInt{}) : SortK{} [constructor{}(), total{}(), injective{}()]
+            symbol dead{}(SortK{}) : SortK{} [function{}(), total{}()]
+            symbol expand{}(SortK{}) : SortK{} [function{}(), total{}()]
+            symbol opaque{}() : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+            symbol isIOInt{}(SortIOInt{}) : SortBool{}
+                [function{}(), total{}(), no-evaluators{}()]
+            symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), smt-hook{}("<")]
+            hooked-symbol getc{}(SortInt{}) : SortIOInt{}
+                [function{}(), total{}(), hook{}("IO.getc")]
+            hooked-symbol log{}(SortString{}) : SortK{}
+                [function{}(), hook{}("IO.logString")]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortK{}, R}(
+                    dead{}(X:SortK{}),
+                    \and{SortK{}}(X:SortK{}, \bottom{SortK{}}())
+                )
+            ) [label{}("dead"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortK{}, R}(
+                    expand{}(X:SortK{}),
+                    \and{SortK{}}(expand{}(expand{}(X:SortK{})), \top{SortK{}}())
+                )
+            ) [label{}("expand"), simplification{}()]
+            $RULES
+        endmodule []"#
+        .replace("$RULES", rules);
+    let syntax = parse_definition(&source).expect("BE08 portable definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("BE08 portable definition should internalize")
+}
+
+fn be08_portable_subject(definition: &BackendDefinition) -> Pattern {
+    definition
+        .internalize_pattern(&parse_pattern("state{}(X:SortInt{})").unwrap(), &[])
+        .unwrap()
+}
+
+fn be08_stopped_options() -> ExecutionOptions {
+    ExecutionOptions {
+        branch_mode: ExecutionBranchMode::StopAtBranch,
+        ..ExecutionOptions::default()
+    }
+}
+
+fn be08_indeterminate_solver(sat_answers: usize, validity_answers: usize) -> ScriptedSolver {
+    ScriptedSolver::new(
+        (0..sat_answers).map(|_| Ok(Satisfiability::Sat)),
+        (0..validity_answers).map(|_| Ok(Validity::Indeterminate)),
+    )
+}
+
 fn rewritten_value(result: RewriteResult) -> String {
     let RewriteResult::Finished(applied) = result else {
         panic!("expected finished rewrite, found {result:?}");
@@ -2540,6 +2699,676 @@ fn stopping_at_a_branch_expands_remainders_through_lower_priorities() {
         .collect::<Vec<_>>();
     labels.sort_unstable();
     assert_eq!(labels, ["negative", "positive", "zero-a", "zero-b"]);
+}
+
+/// T1 / I1, I3. Complete result and branch constraints captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[cfg(feature = "z3")]
+#[test]
+fn cascades_a_remainder_through_every_lower_priority_group() {
+    let definition = be08_s1_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let result = execute_with_solver(
+        &definition,
+        symbolic_subject(&definition),
+        be08_stopped_options(),
+        &solver,
+    );
+
+    let [
+        ExecutionLeaf {
+            halt_reason:
+                HaltReason::Branch {
+                    branches,
+                    remainder: None,
+                },
+            ..
+        },
+    ] = result.leaves.as_slice()
+    else {
+        panic!("expected ten complete branches and no remainder: {result:#?}");
+    };
+    assert_eq!(
+        branches
+            .iter()
+            .map(|branch| branch.label.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "be08-fallback-a",
+            "be08-fallback-b",
+            "be08-symbolic-7",
+            "be08-symbolic-6",
+            "be08-symbolic-5",
+            "be08-symbolic-4",
+            "be08-symbolic-3",
+            "be08-symbolic-2",
+            "be08-symbolic-1",
+            "be08-symbolic-0",
+        ]
+    );
+    assert!(result.discarded.is_empty());
+    assert_be08_capture(
+        "T1 complete ExecutionResult",
+        &result,
+        "16489ce6915cf96a3ac3f09082b42b4bde8ff0e10fe5727913cd6b9598018d0c",
+    );
+}
+
+/// T2 / I3, I4. Complete constraints captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[cfg(feature = "z3")]
+#[test]
+fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
+    let definition = be08_s0_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let result = execute_with_solver(
+        &definition,
+        symbolic_subject(&definition),
+        be08_stopped_options(),
+        &solver,
+    );
+
+    let [
+        ExecutionLeaf {
+            halt_reason:
+                HaltReason::Branch {
+                    branches,
+                    remainder: None,
+                },
+            ..
+        },
+    ] = result.leaves.as_slice()
+    else {
+        panic!("expected four complete branches and no remainder: {result:#?}");
+    };
+    assert_eq!(
+        branches
+            .iter()
+            .map(|branch| branch.label.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        ["zero-a", "zero-b", "negative", "positive"]
+    );
+    assert!(result.discarded.is_empty());
+    assert_be08_capture(
+        "T2 complete ExecutionResult",
+        &result,
+        "51c20c8649e74f481d9b02b19b7c721a008b6adf7eb8b497a4fb0c649271a22c",
+    );
+}
+
+/// T7 / I4. Complete remainder captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[cfg(feature = "z3")]
+#[test]
+fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
+    let definition = symbolic_remainder_definition(
+        r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("-1")
+            ) [label{}("negative"), priority{}("10")]
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(wrap{}(X:SortInt{}), \bottom{SortInt{}}()),
+                \dv{SortInt{}}("50")
+            ) [label{}("lower-stuck"), priority{}("50")]
+            "#,
+    );
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let result = execute_with_solver(
+        &definition,
+        symbolic_subject(&definition),
+        be08_stopped_options(),
+        &solver,
+    );
+
+    let [
+        ExecutionLeaf {
+            halt_reason:
+                HaltReason::Branch {
+                    branches,
+                    remainder: Some(remainder),
+                },
+            ..
+        },
+    ] = result.leaves.as_slice()
+    else {
+        panic!("expected one branch and a retained remainder: {result:#?}");
+    };
+    assert_eq!(branches.len(), 1);
+    assert_eq!(remainder.rule_ids, ["negative"]);
+    assert!(matches!(
+        remainder.pattern.constraints.as_slice(),
+        [Predicate::Not(_)]
+    ));
+    assert!(result.discarded.is_empty());
+    assert_be08_capture(
+        "T7 complete ExecutionResult",
+        &result,
+        "31872f3b25fc8443fe4fb0b9d3a61a730ca395016fd950b3e83a716ebc945a1c",
+    );
+}
+
+/// T15 / D4. The Any replay capture is from 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[cfg(feature = "z3")]
+#[test]
+fn any_mode_stopped_branch_still_resteps_its_remainder() {
+    let definition = symbolic_remainder_definition(
+        r#"
+            axiom{} \rewrites{SortInt{}}(
+                \and{SortInt{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortBool{}, SortInt{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("10")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \dv{SortInt{}}("100")
+            ) [label{}("conditional"), priority{}("10")]
+            "#,
+    );
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let result = execute_with_solver(
+        &definition,
+        symbolic_subject(&definition),
+        ExecutionOptions {
+            mode: ExecutionMode::Any,
+            branch_mode: ExecutionBranchMode::StopAtBranch,
+            ..ExecutionOptions::default()
+        },
+        &solver,
+    );
+
+    let [
+        ExecutionLeaf {
+            halt_reason: HaltReason::Branch { branches, .. },
+            ..
+        },
+    ] = result.leaves.as_slice()
+    else {
+        panic!("expected the Any-mode stopped branch: {result:#?}");
+    };
+    assert_eq!(
+        branches
+            .iter()
+            .map(|branch| branch.label.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        ["conditional"]
+    );
+    let HaltReason::Branch {
+        remainder: Some(remainder),
+        ..
+    } = &result.leaves[0].halt_reason
+    else {
+        panic!("expected the replay to retain the satisfiable remainder: {result:#?}");
+    };
+    assert_eq!(remainder.rule_ids, ["conditional"]);
+    assert_be08_capture(
+        "T15 complete ExecutionResult",
+        &result,
+        "7af9a21507a648ab5e56a64229216e7410d3722e9e291161c0dd33b4248777d1",
+    );
+}
+
+/// T8 / I5, I7. Error leaf and discarded candidate captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[test]
+fn later_group_simplification_error_keeps_the_first_groups_discarded_trivial_candidates() {
+    let definition = be08_portable_definition(
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            log{}(\dv{SortString{}}("first"))
+        ) [label{}("first"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            dead{}(log{}(\dv{SortString{}}("trivial")))
+        ) [label{}("trivial"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    isIOInt{}(getc{}(\dv{SortInt{}}("0"))),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            done{}()
+        ) [label{}("lower-error"), priority{}("50")]
+        "#,
+    );
+    let solver = be08_indeterminate_solver(1, 2);
+    let initial = be08_portable_subject(&definition);
+    let result = execute_observed_with_solver(
+        &definition,
+        initial.clone(),
+        be08_stopped_options(),
+        &solver,
+        &ObservationOptions::all(),
+    );
+    let transcript = solver.transcript.borrow().clone();
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one simplification-error leaf: {result:#?}");
+    };
+    assert_eq!(leaf.pattern, initial);
+    assert!(matches!(leaf.halt_reason, HaltReason::Simplification(_)));
+    assert_eq!(result.discarded.len(), 1, "{result:#?}");
+    assert_eq!(result.discarded[0].id.rule, "trivial");
+    assert_eq!(result.discarded[0].reason, UncommittedReason::RolledBack);
+    assert_eq!(
+        result.discarded[0].effects,
+        [BuiltinEffect::UserLog("trivial".into())]
+    );
+    assert_be08_capture(
+        "T8 result and solver transcript",
+        &(&result, &transcript),
+        "bcc1e72e03e922b96f521c824deb4ca605defb1f6cc3831942898001fdf81a03",
+    );
+}
+
+/// T9 / I9. Cancellation point and complete result captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[test]
+fn cancellation_during_lower_group_work_is_observed_after_result_simplification() {
+    let definition = be08_portable_definition(
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            log{}(\dv{SortString{}}("first"))
+        ) [label{}("first"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            dead{}(log{}(\dv{SortString{}}("trivial")))
+        ) [label{}("trivial"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(\dv{SortInt{}}("0"), X:SortInt{}),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            log{}(\dv{SortString{}}("lower"))
+        ) [label{}("lower"), priority{}("50")]
+        "#,
+    );
+    let token = CancellationToken::new();
+    // Query four is the lower group's remainder SAT query in the 40b5d6d transcript.
+    let solver = ScriptedSolver::new(
+        [Ok(Satisfiability::Sat), Ok(Satisfiability::Unsat)],
+        (0..3).map(|_| Ok(Validity::Indeterminate)),
+    )
+    .cancelling_at(4, token.clone());
+    let result = token.scope(|| {
+        execute_observed_with_solver(
+            &definition,
+            be08_portable_subject(&definition),
+            be08_stopped_options(),
+            &solver,
+            &ObservationOptions::all(),
+        )
+    });
+    let transcript = solver.transcript.borrow().clone();
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one cancelled leaf: {result:#?}");
+    };
+    assert_eq!(transcript.len(), 5, "{transcript:#?}");
+    assert!(matches!(
+        transcript.get(4),
+        Some(ScriptedQuery::IsSat { .. })
+    ));
+    assert_be08_capture(
+        "T9 result and solver transcript",
+        &(&result, &transcript),
+        "bbc58cabe7b2b9fd42297ba68517af92b79825063686ac9d3bafa1cead15cc29",
+    );
+    assert_eq!(
+        leaf.halt_reason,
+        HaltReason::Simplification(SimplificationError::Cancelled)
+    );
+    assert_eq!(result.discarded.len(), 1, "{result:#?}");
+    assert_eq!(result.discarded[0].id.rule, "trivial");
+}
+
+/// T10 / D2. Replay outcome and transcript captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[test]
+fn cascade_continues_where_a_reattempt_would_have_been_indeterminate() {
+    let definition = be08_portable_definition(
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \and{SortK{}}(
+                    \equals{SortBool{}, SortK{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("5")),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \equals{SortBool{}, SortK{}}(
+                        lt{}(\dv{SortInt{}}("-5"), X:SortInt{}),
+                        \dv{SortBool{}}("true")
+                    )
+                )
+            ),
+            tag{}(\dv{SortInt{}}("10"))
+        ) [label{}("conditional"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            tag{}(\dv{SortInt{}}("50"))
+        ) [label{}("fallback"), priority{}("50")]
+        "#,
+    );
+    let solver = ScriptedSolver::new(
+        [Ok(Satisfiability::Sat)],
+        [
+            Ok(Validity::Indeterminate),
+            Ok(Validity::Unknown("BE08 scripted unknown".into())),
+            Ok(Validity::Indeterminate),
+            Ok(Validity::Indeterminate),
+            Ok(Validity::Indeterminate),
+        ],
+    );
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        be08_stopped_options(),
+        &solver,
+    );
+    let transcript = solver.transcript.borrow().clone();
+    assert!(solver.answers.borrow().is_empty());
+    assert!(solver.validity.borrow().is_empty());
+    assert_be08_capture(
+        "T10 result and solver transcript",
+        &(&result, &transcript),
+        "97244da3a93d53d202a4ea1e5511b8b7e7ffed437781c6010135ed5c0fd9ae46",
+    );
+
+    let [
+        ExecutionLeaf {
+            halt_reason:
+                HaltReason::Branch {
+                    branches,
+                    remainder: Some(_),
+                },
+            ..
+        },
+    ] = result.leaves.as_slice()
+    else {
+        panic!("expected replay to stop with its first branch and remainder: {result:#?}");
+    };
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0].label.as_deref(), Some("conditional"));
+    assert!(matches!(
+        transcript.last(),
+        Some(ScriptedQuery::CheckPredicates { .. })
+    ));
+}
+
+/// T12 / I10. Complete leaf and diagnostics captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[test]
+fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_collection() {
+    let definition = be08_portable_definition(
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            tag{}(\dv{SortInt{}}("10"))
+        ) [label{}("first"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            expand{}(tag{}(\dv{SortInt{}}("50")))
+        ) [label{}("lower-budget"), priority{}("50")]
+        "#,
+    );
+    let solver = be08_indeterminate_solver(1, 3);
+    let (result, diagnostics) = diagnostic::collect(|| {
+        execute_with_solver(
+            &definition,
+            be08_portable_subject(&definition),
+            ExecutionOptions {
+                branch_mode: ExecutionBranchMode::StopAtBranch,
+                max_simplification_iterations: 1,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        )
+    });
+    let transcript = solver.transcript.borrow().clone();
+    assert!(solver.answers.borrow().is_empty());
+    assert!(solver.validity.borrow().is_empty());
+
+    assert_eq!(result.leaves.len(), 1, "{result:#?}");
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::SimplificationBudgetExhausted {
+            limit: 1,
+            subject: BudgetSubject::Term,
+        }]
+    );
+    assert_be08_capture(
+        "T12 result, diagnostics, and solver transcript",
+        &(&result, &diagnostics, &transcript),
+        "5631077bae4adc325d73df2fe0aabffc1c073718284ec528cd3d8b664517fcc4",
+    );
+}
+
+/// T13 / I7. Effects and discarded order captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[test]
+fn cascade_effects_are_classified_as_today_under_full_observation() {
+    let definition = be08_portable_definition(
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            log{}(\dv{SortString{}}("first"))
+        ) [label{}("first"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            dead{}(log{}(\dv{SortString{}}("trivial")))
+        ) [label{}("trivial"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            dead{}(log{}(\dv{SortString{}}("lower-dead")))
+        ) [label{}("lower-dead"), priority{}("50")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            log{}(\dv{SortString{}}("lower-live"))
+        ) [label{}("lower-live"), priority{}("50")]
+        "#,
+    );
+    let solver = be08_indeterminate_solver(1, 4);
+    let result = execute_observed_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        be08_stopped_options(),
+        &solver,
+        &ObservationOptions::all(),
+    );
+    let transcript = solver.transcript.borrow().clone();
+    assert!(solver.answers.borrow().is_empty());
+    assert!(solver.validity.borrow().is_empty());
+
+    assert_eq!(result.leaves.len(), 1, "{result:#?}");
+    assert_eq!(result.discarded.len(), 1, "{result:#?}");
+    assert_eq!(result.discarded[0].id.rule, "trivial");
+    assert_eq!(result.discarded[0].reason, UncommittedReason::RolledBack);
+    assert_be08_capture(
+        "T13 result and solver transcript",
+        &(&result, &transcript),
+        "e2dacd81ca4efbccf99259d296432fe5a6e3257ad3823af85ff01ddd1af99b22",
+    );
+}
+
+/// T14 / I6. Cursor, transcript, and result captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[test]
+fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across_a_cascade() {
+    let definition = console_io_definition(
+        r#"
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        symbol opaque{}() : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                initial{}(),
+                \equals{SortBool{}, SortK{}}(
+                    opaque{}(),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            dotk{}()
+        ) [label{}("first"), priority{}("10")]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortK{}, R}(
+                deadInt{}(X:SortIOInt{}),
+                \and{SortK{}}(dotk{}(), \bottom{SortK{}}())
+            )
+        ) [label{}("dead-int"), simplification{}()]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(initial{}(), \top{SortK{}}()),
+            deadInt{}(getc{}(\dv{SortInt{}}("0")))
+        ) [label{}("lower-dead"), priority{}("50")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(initial{}(), \top{SortK{}}()),
+            keepInt{}(getc{}(\dv{SortInt{}}("0")))
+        ) [label{}("lower-live"), priority{}("50")]
+        "#,
+    );
+    let solver = be08_indeterminate_solver(1, 1);
+    let (result, _) = execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status(
+        &definition,
+        vec![console_pattern(&definition, "initial{}()")],
+        be08_stopped_options(),
+        &solver,
+        ExecutionIoState::new(Vec::from(&b"Z"[..])),
+        |_| {},
+    );
+    let transcript = solver.transcript.borrow().clone();
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one lower-group IO error leaf: {result:#?}");
+    };
+    assert_eq!(leaf.io.cursor(), 0);
+    assert!(leaf.io.transcript().is_empty());
+    assert!(matches!(
+        leaf.halt_reason,
+        HaltReason::Simplification(SimplificationError::UnsupportedHook { ref hook, .. })
+            if hook == "IO.getc"
+    ));
+    assert_be08_capture(
+        "T14 result and solver transcript",
+        &(&result, &transcript),
+        "59d2f8f35b4e4a0cf85db4abc4e9935e0588f650c3cefcb359f4e9d473b3c00b",
+    );
+}
+
+/// T16 / cut_terminal. Both complete results captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+#[test]
+fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
+    let definition = be08_portable_definition(
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            dead{}(tag{}(\dv{SortInt{}}("10")))
+        ) [label{}("first-dead"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            tag{}(\dv{SortInt{}}("50"))
+        ) [label{}("stop"), priority{}("50")]
+        "#,
+    );
+    let cut_solver = be08_indeterminate_solver(1, 3);
+    let cut = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        ExecutionOptions {
+            branch_mode: ExecutionBranchMode::StopAtBranch,
+            cut_point_rules: BTreeSet::from(["stop".into()]),
+            ..ExecutionOptions::default()
+        },
+        &cut_solver,
+    );
+    let terminal_solver = be08_indeterminate_solver(1, 3);
+    let terminal = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        ExecutionOptions {
+            branch_mode: ExecutionBranchMode::StopAtBranch,
+            terminal_rules: BTreeSet::from(["stop".into()]),
+            ..ExecutionOptions::default()
+        },
+        &terminal_solver,
+    );
+    assert_be08_capture(
+        "T16 cut-point and terminal results",
+        &(
+            &cut,
+            &*cut_solver.transcript.borrow(),
+            &terminal,
+            &*terminal_solver.transcript.borrow(),
+        ),
+        "8c2c7905f0a1da87224c2676b33965bc4c365af673954499707045c9ae2c7b41",
+    );
+    assert!(cut_solver.answers.borrow().is_empty());
+    assert!(cut_solver.validity.borrow().is_empty());
+    assert!(terminal_solver.answers.borrow().is_empty());
+    assert!(terminal_solver.validity.borrow().is_empty());
+
+    let [cut_leaf] = cut.leaves.as_slice() else {
+        panic!("expected one cut-point leaf: {cut:#?}");
+    };
+    assert_eq!(cut_leaf.depth, 1);
+    assert_eq!(cut_leaf.halt_reason, HaltReason::Stuck);
+    let [terminal_leaf] = terminal.leaves.as_slice() else {
+        panic!("expected one terminal leaf: {terminal:#?}");
+    };
+    assert_eq!(terminal_leaf.depth, 1);
+    assert_eq!(terminal_leaf.halt_reason, HaltReason::Stuck);
 }
 
 #[cfg(feature = "z3")]
