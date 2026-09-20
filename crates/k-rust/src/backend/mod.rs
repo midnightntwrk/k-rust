@@ -7,7 +7,7 @@ use k_rust_backend::smt::NoSolver;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::smt::{ModelResult, Z3Options, Z3Solver};
 use k_rust_backend::{
-    definition::{BackendDefinition, PatternOrPredicate},
+    definition::BackendDefinition,
     externalize,
     implication::ImplicationStatus,
     proof::{ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
@@ -22,10 +22,7 @@ use k_rust_backend::{
         search_pattern_paths_with_solver, search_pattern_with_solver,
     },
     session::BackendSession,
-    simplify::{
-        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
-    },
+    simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
     smt::SmtSolver,
     substitution::Substitution,
     term::Sort,
@@ -638,37 +635,8 @@ impl Backend {
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         let syntax = decode_pattern(request.state)?;
-        self.with_solver(request.module_name.as_deref(), |definition, solver| {
-            let output = match definition.internalize_pattern_or_predicate(&syntax, &[]) {
-                Ok(PatternOrPredicate::Term(pattern)) => {
-                    let simplified = simplify_pattern_with_solver(
-                        definition,
-                        &pattern,
-                        SimplificationOptions::unbounded(),
-                        solver,
-                    )
-                    .map_err(error("could not simplify KORE pattern"))?;
-                    externalize::constrained_pattern(&simplified)
-                }
-                Ok(PatternOrPredicate::Predicate(predicate, result_sort)) => {
-                    let simplified = simplify_and_decide_predicate_with_solver(
-                        definition,
-                        &predicate,
-                        &[],
-                        SimplificationOptions::unbounded(),
-                        solver,
-                    )
-                    .map_err(error("could not simplify KORE predicate"))?;
-                    externalize::ml_pattern(&simplified, &result_sort)
-                }
-                Err(cause) => {
-                    return Err(BackendError(format!(
-                        "could not internalize KORE pattern: {cause}"
-                    )));
-                }
-            };
-            encode_pattern(&output)
-        })
+        let output = self.simplify_kore(request.module_name.as_deref(), &syntax)?;
+        encode_pattern(&output)
     }
 
     pub fn implies(
@@ -706,48 +674,39 @@ impl Backend {
         {
             let _ = request;
             Err(BackendError(
-                "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3"
-                    .into(),
+                "model generation requires an SMT-enabled native build; this WebAssembly build has no Z3".into(),
             ))
         }
         #[cfg(feature = "z3-inference")]
         {
             let syntax = decode_pattern(request.state)?;
-            self.with_solver(request.module_name.as_deref(), |definition, solver| {
-                let Some((predicate, result_sort)) = definition
-                    .internalize_model_predicate(&syntax, &[])
-                    .map_err(error("could not internalize model predicate"))?
-                else {
-                    return Ok(ModelResultOutput {
-                        satisfiable: "unknown".into(),
-                        substitution: None,
-                        reason: Some("the pattern contains no model predicate".into()),
-                    });
-                };
-                match solver
-                    .get_model(&[predicate], &Substitution::new())
-                    .map_err(error("could not obtain model"))?
-                {
-                    ModelResult::Sat(substitution) => Ok(ModelResultOutput {
-                        satisfiable: "sat".into(),
-                        substitution: model_substitution(&substitution, &result_sort)
-                            .as_ref()
-                            .map(encode_pattern)
-                            .transpose()?,
-                        reason: None,
+            let (result, result_sort) = self.model_for(request.module_name.as_deref(), &syntax)?;
+            match result {
+                ModelResult::Sat(substitution) => Ok(ModelResultOutput {
+                    satisfiable: "sat".into(),
+                    substitution: result_sort
+                        .as_ref()
+                        .and_then(|sort| model_substitution(&substitution, sort))
+                        .as_ref()
+                        .map(encode_pattern)
+                        .transpose()?,
+                    reason: None,
+                }),
+                ModelResult::Unsat => Ok(ModelResultOutput {
+                    satisfiable: "unsat".into(),
+                    substitution: None,
+                    reason: None,
+                }),
+                ModelResult::Unknown(reason) => Ok(ModelResultOutput {
+                    satisfiable: "unknown".into(),
+                    substitution: None,
+                    reason: Some(if result_sort.is_none() {
+                        "the pattern contains no model predicate".into()
+                    } else {
+                        reason
                     }),
-                    ModelResult::Unsat => Ok(ModelResultOutput {
-                        satisfiable: "unsat".into(),
-                        substitution: None,
-                        reason: None,
-                    }),
-                    ModelResult::Unknown(reason) => Ok(ModelResultOutput {
-                        satisfiable: "unknown".into(),
-                        substitution: None,
-                        reason: Some(reason),
-                    }),
-                }
-            })
+                }),
+            }
         }
     }
 

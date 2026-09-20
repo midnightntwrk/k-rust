@@ -60,7 +60,7 @@ use k_rust::{
 use k_rust_backend::{
     builtin::BuiltinEffect,
     claim::ReachabilityClaim,
-    definition::{BackendDefinition, PatternOrPredicate},
+    definition::BackendDefinition,
     externalize,
     implication::{ImplicationCondition, ImplicationResult, ImplicationStatus},
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus, prove_claim},
@@ -72,13 +72,12 @@ use k_rust_backend::{
     rule::Predicate,
     search::{
         IncompleteSearch, PatternMatch, PatternMatchError, PatternSearchResult, SearchOptions,
-        SearchType, match_disjunction, match_disjunction_with_solver,
-        search_pattern_disjunction_with_solver,
+        SearchType, match_disjunction_with_solver, search_pattern_disjunction_with_solver,
     },
     session::BackendSession,
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
+        simplify_pattern_with_solver,
     },
     smt::{ModelResult, SmtError, SmtSolver, Z3Options, Z3Solver},
     substitution::Substitution,
@@ -87,6 +86,10 @@ use k_rust_backend::{
         VariableKind as BackendVariableKind,
     },
     transition::{DescriptorTranscriptEntry, ExecutionIoState},
+};
+#[cfg(test)]
+use k_rust_backend::{
+    definition::PatternOrPredicate, simplify::simplify_and_decide_predicate_with_solver,
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -2661,9 +2664,16 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut backend = Backend::from_definition(
+        definition,
+        &options.module,
+        BackendOptions {
+            smt_timeout_ms: options.smt.options().timeout_ms,
+            smt_retry_limit: options.smt.options().retry_limit,
+        },
+    )?;
     let syntax = load_kore_syntax(&options.pattern, "simplification")?;
-    let output = simplify_kore_pattern_with_options(&backend, &syntax, options.smt.options())?;
+    let output = backend.simplify_kore(None, &syntax)?;
     let output = KorePrinter::pretty(100).print_pattern(&output);
     if let Some(path) = options.output {
         fs::write(path, output)?;
@@ -2681,6 +2691,7 @@ fn simplify_kore_pattern(
     simplify_kore_pattern_with_options(definition, syntax, Z3Options::default())
 }
 
+#[cfg(test)]
 fn simplify_kore_pattern_with_options(
     definition: &BackendDefinition,
     syntax: &KorePattern,
@@ -2728,19 +2739,16 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
             ),
         )
     })?;
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut backend = Backend::from_definition(
+        definition,
+        &options.module,
+        BackendOptions {
+            smt_timeout_ms: options.smt.options().timeout_ms,
+            smt_retry_limit: options.smt.options().retry_limit,
+        },
+    )?;
     let syntax = load_kore_syntax(&options.pattern, "model")?;
-    let model = match backend.internalize_model_predicate(&syntax, &[])? {
-        None => (ModelResult::Unknown("no predicate".into()), None),
-        Some((predicate, result_sort)) => {
-            let solver = Z3Solver::with_options(&backend, options.smt.options())
-                .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-            let result = solver
-                .get_model(&[predicate], &Substitution::new())
-                .map_err(|error| io::Error::other(format!("could not obtain model: {error:?}")))?;
-            (result, Some(result_sort))
-        }
-    };
+    let model = backend.model_for(None, &syntax)?;
     let output = model_output(model.0, model.1.as_ref())?;
     if let Some(path) = options.output {
         fs::write(path, output)?;
@@ -2953,7 +2961,8 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
         )
     })?;
     let function_symbols = kore_function_symbols(&definition);
-    let backend = BackendDefinition::internalize(&definition, &options.module)?;
+    let mut backend =
+        Backend::from_definition(definition, &options.module, BackendOptions::default())?;
 
     let target_source = fs::read_to_string(&options.pattern)?;
     let target = parse_kore_pattern(&target_source).map_err(|error| {
@@ -2965,7 +2974,12 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
             ),
         )
     })?;
-    let target = backend.internalize_pattern(&target, &[])?;
+    let target = backend.with_solver(None, |definition, _| {
+        definition
+            .verify_standalone_pattern(&target)
+            .and_then(|()| definition.internalize_pattern(&target, &[]))
+            .map_err(|error| BackendError(error.to_string()))
+    })?;
 
     let disjunction_source = fs::read_to_string(&options.disjunction)?;
     let disjunction = parse_kore_pattern(&disjunction_source).map_err(|error| {
@@ -2977,9 +2991,12 @@ fn kore_match_disjunction(options: KoreMatchDisjunctionArgs) -> Result<(), Box<d
             ),
         )
     })?;
-    let alternatives = backend.internalize_disjunction(&disjunction, &[])?;
-    let matches =
-        match_disjunction(&backend, &target, &alternatives).map_err(pattern_match_error)?;
+    let alternatives = backend.with_solver(None, |definition, _| {
+        definition
+            .internalize_disjunction(&disjunction, &[])
+            .map_err(|error| BackendError(error.to_string()))
+    })?;
+    let matches = backend.match_disjunction(None, &target, &alternatives)?;
     let output_sort = externalize::sort(&target.term.sort());
     let output = pattern_matches_output(
         &matches,
