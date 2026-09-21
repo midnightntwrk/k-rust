@@ -11,8 +11,8 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 use crate::definition::AttributeKey;
 use crate::{
     definition::{
-        Definition, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition, Sentence,
-        SortCatalog, SortHead,
+        Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition,
+        Sentence, SortCatalog, SortHead,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
@@ -57,13 +57,14 @@ fn constant_fold_inner(definition: &Definition) -> Result<Definition, ConstantFo
                 location: None,
             }],
         })?;
+    let views = resolved.views();
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let folder = Folder::new(&resolved, module_id);
+        let folder = Folder::new(&views, module_id);
         for sentence in &mut module.local_sentences {
             let Sentence::Rule {
                 body,
@@ -105,16 +106,16 @@ enum Position {
     Right,
 }
 
-struct Folder<'a> {
-    productions: ProductionCatalog<'a>,
-    sorts: SortCatalog<'a>,
+struct Folder<'view, 'definition> {
+    productions: &'view ProductionCatalog<'definition>,
+    sorts: &'view SortCatalog<'definition>,
 }
 
-impl<'a> Folder<'a> {
-    fn new(definition: &'a ResolvedDefinition, module: ModuleId) -> Self {
+impl<'view, 'definition> Folder<'view, 'definition> {
+    fn new(views: &'view DefinitionViews<'definition>, module: ModuleId) -> Self {
         Self {
-            productions: definition.production_catalog(module),
-            sorts: definition.sort_catalog(module),
+            productions: views.production_catalog(module),
+            sorts: views.sort_catalog(module),
         }
     }
 

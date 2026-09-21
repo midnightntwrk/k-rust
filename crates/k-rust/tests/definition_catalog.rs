@@ -6,7 +6,10 @@ use k_rust::definition::{
     sentence_equivalent,
 };
 use k_rust::kast::{Label, Sort};
+use proptest::prelude::*;
 use serde_json::Value;
+
+use k_rust_kore::measure::{self, Counter};
 
 fn attrs(keys: &[&str]) -> Attributes {
     Attributes::new(
@@ -400,4 +403,115 @@ fn fresh_generators_reject_missing_and_multiple_labels() {
                 .collect(),
         }
     );
+}
+
+proptest! {
+    #[test]
+    fn indexed_local_ids_match_the_linear_visible_by_local_oracle(
+        imported in prop::collection::vec(0_u8..12, 0..20),
+        local in prop::collection::vec(0_u8..12, 0..20),
+    ) {
+        let productions = |specs: Vec<u8>| {
+            specs
+                .into_iter()
+                .map(|spec| production(
+                    Some(Label::new(format!("label{spec}"))),
+                    Vec::new(),
+                    Sort::new(format!("Sort{spec}")),
+                    vec![Sort::new(format!("Argument{spec}"))],
+                    Attributes::default(),
+                ))
+                .collect::<Vec<_>>()
+        };
+        let base = FlatModule {
+            name: "BASE".into(),
+            imports: Vec::new(),
+            local_sentences: productions(imported),
+            attributes: Attributes::default(),
+        };
+        let main = FlatModule {
+            name: "MAIN".into(),
+            imports: vec![FlatImport {
+                name: "BASE".into(),
+                public: true,
+            }],
+            local_sentences: productions(local),
+            attributes: Attributes::default(),
+        };
+        let resolved = ResolvedDefinition::resolve(&Definition {
+            main_module: "MAIN".into(),
+            modules: vec![main, base],
+            attributes: Attributes::default(),
+        }).unwrap();
+        let module = resolved.main_module_id();
+        let catalog = resolved.production_catalog(module);
+        let expected = catalog
+            .productions()
+            .filter(|(_, production)| {
+                resolved.module(module).local_sentences.iter()
+                    .any(|local| sentence_equivalent(production, local))
+            })
+            .map(|(id, _)| id)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        prop_assert_eq!(catalog.local_ids(), &expected);
+    }
+}
+
+#[test]
+fn definition_views_build_a_production_catalog_once_per_module() {
+    let resolved = fixture();
+    let module = resolved.main_module_id();
+    let views = resolved.views();
+    let before = measure::snapshot();
+
+    let first = views.production_catalog(module);
+    let second = views.production_catalog(module);
+    let delta = measure::snapshot().delta(&before);
+
+    assert!(std::ptr::eq(first, second));
+    assert_eq!(delta.get(Counter::KompileProductionCatalogsBuilt), 1);
+}
+
+#[test]
+fn definition_views_build_a_subsort_order_once_per_module() {
+    let resolved = fixture();
+    let module = resolved.main_module_id();
+    let views = resolved.views();
+    let before = measure::snapshot();
+
+    let first = views.subsorts(module).unwrap();
+    let second = views.subsorts(module).unwrap();
+    let delta = measure::snapshot().delta(&before);
+
+    assert!(std::ptr::eq(first, second));
+    assert_eq!(delta.get(Counter::KompilePartialOrdersBuilt), 1);
+}
+
+#[test]
+fn definition_views_memoise_every_remaining_view_kind() {
+    let resolved = fixture();
+    let module = resolved.main_module_id();
+    let views = resolved.views();
+
+    assert!(std::ptr::eq(
+        views.sort_catalog(module),
+        views.sort_catalog(module)
+    ));
+    assert!(std::ptr::eq(
+        views.syntactic_subsorts(module).unwrap_err(),
+        views.syntactic_subsorts(module).unwrap_err()
+    ));
+    assert!(std::ptr::eq(
+        views.overloads(module).unwrap(),
+        views.overloads(module).unwrap()
+    ));
+    assert!(std::ptr::eq(
+        views.priorities(module).unwrap(),
+        views.priorities(module).unwrap()
+    ));
+    assert!(std::ptr::eq(
+        views.associativities(module),
+        views.associativities(module)
+    ));
 }

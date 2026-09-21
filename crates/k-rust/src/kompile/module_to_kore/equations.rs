@@ -7,8 +7,8 @@ use k_rust_kore::measure::{self, Counter};
 pub(super) struct RuleEmissionContext<'a, 'definition> {
     pub valued: &'a BTreeSet<String>,
     pub productions: &'a ProductionCatalog<'definition>,
-    pub injector: &'a SortInjector<'definition>,
-    pub converter: &'a TermConverter<'definition>,
+    pub injector: &'a SortInjector<'definition, 'definition>,
+    pub converter: &'a TermConverter<'definition, 'definition>,
     pub module_rules: &'a [Sentence],
     pub default_reachability: Option<ReachabilityMode>,
 }
@@ -167,8 +167,8 @@ fn emit_macro_axiom(
     right: &Term,
     attributes: &KAttributes,
     valued: &BTreeSet<String>,
-    injector: &SortInjector<'_>,
-    converter: &TermConverter<'_>,
+    injector: &SortInjector<'_, '_>,
+    converter: &TermConverter<'_, '_>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let parameters = equation_parameters(attributes);
     let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
@@ -344,9 +344,9 @@ fn emit_equation(
     attributes: &KAttributes,
     claim: bool,
     valued: &BTreeSet<String>,
-    converter: &TermConverter<'_>,
+    converter: &TermConverter<'_, '_>,
     productions: &ProductionCatalog<'_>,
-    injector: &SortInjector<'_>,
+    injector: &SortInjector<'_, '_>,
     module_rules: &[Sentence],
     owise_injections: &mut Vec<Option<Sentence>>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
@@ -467,9 +467,9 @@ fn emit_owise_equation(
     requires: Pattern,
     attributes: &KAttributes,
     valued: &BTreeSet<String>,
-    converter: &TermConverter<'_>,
+    converter: &TermConverter<'_, '_>,
     productions: &ProductionCatalog<'_>,
-    injector: &SortInjector<'_>,
+    injector: &SortInjector<'_, '_>,
     module_rules: &[Sentence],
     owise_injections: &mut Vec<Option<Sentence>>,
     parameters: Vec<String>,
@@ -641,7 +641,10 @@ fn ignore_owise_competitor(sentence: &Sentence) -> bool {
     ])
 }
 
-fn equation_variables(equation: &EquationInfo<'_>, converter: &TermConverter<'_>) -> Vec<Variable> {
+fn equation_variables(
+    equation: &EquationInfo<'_>,
+    converter: &TermConverter<'_, '_>,
+) -> Vec<Variable> {
     equation
         .argument_sorts
         .iter()
@@ -659,7 +662,7 @@ fn equation_matches(
     children: &[Term],
     sorts: &[Sort],
     predicate_sort: &KoreSort,
-    converter: &TermConverter<'_>,
+    converter: &TermConverter<'_, '_>,
 ) -> Result<Pattern, TermConversionError> {
     let mut matches = Pattern::Top {
         sort: predicate_sort.clone(),
@@ -914,7 +917,7 @@ pub(super) fn substitute_equation_sort(sort: &Sort, substitution: &BTreeMap<Sort
 fn side_condition(
     condition: &Term,
     result_sort: &KoreSort,
-    converter: &TermConverter<'_>,
+    converter: &TermConverter<'_, '_>,
 ) -> Result<Pattern, TermConversionError> {
     if is_true(condition) {
         return Ok(Pattern::Top {
@@ -957,7 +960,7 @@ fn take_kore_variable(mut pattern: Pattern) -> Option<Variable> {
 fn existential_variables(
     right: &Term,
     ensures: &Term,
-    converter: &TermConverter<'_>,
+    converter: &TermConverter<'_, '_>,
 ) -> Result<Vec<Variable>, TermConversionError> {
     let mut terms = BTreeMap::<String, Term>::new();
     // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.

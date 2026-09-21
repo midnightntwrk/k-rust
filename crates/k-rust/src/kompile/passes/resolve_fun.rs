@@ -101,7 +101,7 @@ fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunEr
 }
 
 struct Resolver<'a, 'definition> {
-    injector: SortInjector<'definition>,
+    injector: SortInjector<'definition, 'definition>,
     labels: &'a mut BTreeSet<String>,
     productions: Vec<Sentence>,
     rules: Vec<Sentence>,

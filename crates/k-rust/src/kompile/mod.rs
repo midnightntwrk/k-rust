@@ -14,6 +14,7 @@ mod rebase;
 mod search_pattern;
 mod sort_injections;
 mod term_to_kore;
+mod view;
 
 pub use compile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,

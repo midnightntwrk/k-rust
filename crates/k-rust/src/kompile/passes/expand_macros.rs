@@ -14,8 +14,8 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition,
-        Sentence, SortCatalog,
+        Attributes, Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog,
+        ResolvedDefinition, Sentence, SortCatalog,
         checks::{check_functions, check_smt_lemmas},
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
@@ -65,11 +65,12 @@ fn expand_macros_inner(definition: &Definition) -> Result<Definition, ExpandMacr
     })?;
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
+    let views = resolved.views();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let mut expander = match Expander::new(&resolved, module_id, module_id) {
+        let mut expander = match Expander::new(&views, module_id, module_id) {
             Ok(expander) => expander,
             Err(message) => {
                 diagnostics.push(plain_error(message));
@@ -91,12 +92,12 @@ fn expand_macros_inner(definition: &Definition) -> Result<Definition, ExpandMacr
                         *sentence = expanded;
                         diagnostics.extend(check_functions(
                             &[sentence],
-                            &expander.productions,
-                            &expander.sorts,
+                            expander.productions,
+                            expander.sorts,
                         ));
-                        diagnostics.extend(check_smt_lemmas(&[sentence], &expander.productions));
+                        diagnostics.extend(check_smt_lemmas(&[sentence], expander.productions));
                         if matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
-                            && contains_macro_symbol(sentence, &expander.productions)
+                            && contains_macro_symbol(sentence, expander.productions)
                         {
                             diagnostics.push(Diagnostic::error(
                                 DiagnosticCode::InvalidMacroExpansion,
@@ -162,17 +163,18 @@ pub fn expand_macros_in_term_with_scope(
     let macro_module_id = resolved
         .module_id(macro_module)
         .ok_or_else(|| format!("unknown module {macro_module}"))?;
+    let views = resolved.views();
     let term = if term_module_id == macro_module_id {
         term
     } else {
         super::rebase_term_to_visible_catalog(
             term,
-            &resolved.production_catalog(term_module_id),
-            &resolved.production_catalog(macro_module_id),
+            views.production_catalog(term_module_id),
+            views.production_catalog(macro_module_id),
         )?
     };
-    let mut expanded = expand_macros_in_terms_from_resolved_with_scope(
-        &resolved,
+    let mut expanded = expand_macros_in_terms_from_views_with_scope(
+        &views,
         macro_module,
         macro_module,
         vec![term],
@@ -195,22 +197,24 @@ pub(crate) fn expand_macros_in_terms_from_resolved(
     module: &str,
     terms: Vec<Term>,
 ) -> Result<ExpandedMacroTerms, String> {
-    expand_macros_in_terms_from_resolved_with_scope(definition, module, module, terms)
+    let views = definition.views();
+    expand_macros_in_terms_from_views_with_scope(&views, module, module, terms)
 }
 
-fn expand_macros_in_terms_from_resolved_with_scope(
-    definition: &ResolvedDefinition,
+fn expand_macros_in_terms_from_views_with_scope(
+    views: &DefinitionViews<'_>,
     term_module: &str,
     macro_module: &str,
     terms: Vec<Term>,
 ) -> Result<ExpandedMacroTerms, String> {
+    let definition = views.definition();
     let term_module = definition
         .module_id(term_module)
         .ok_or_else(|| format!("unknown module {term_module}"))?;
     let macro_module = definition
         .module_id(macro_module)
         .ok_or_else(|| format!("unknown module {macro_module}"))?;
-    let mut expander = Expander::new(definition, term_module, macro_module)?;
+    let mut expander = Expander::new(views, term_module, macro_module)?;
     expander.fresh = FreshNames::for_terms(terms.iter());
     let terms = terms
         .into_iter()
@@ -222,32 +226,33 @@ fn expand_macros_in_terms_from_resolved_with_scope(
     })
 }
 
-struct Expander<'a> {
-    productions: ProductionCatalog<'a>,
-    sorts: SortCatalog<'a>,
-    injector: SortInjector<'a>,
-    subsorts: crate::definition::PartialOrder<Sort>,
-    overloads: crate::definition::OverloadOrder<'a>,
+struct Expander<'view, 'definition> {
+    productions: &'view ProductionCatalog<'definition>,
+    sorts: &'view SortCatalog<'definition>,
+    injector: SortInjector<'view, 'definition>,
+    subsorts: &'view crate::definition::PartialOrder<Sort>,
+    overloads: &'view crate::definition::OverloadOrder<'definition>,
     macros: BTreeMap<Label, Vec<MacroRule>>,
     token_macros: BTreeMap<Sort, Vec<MacroRule>>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
 }
 
-impl<'a> Expander<'a> {
+impl<'view, 'definition> Expander<'view, 'definition> {
     fn new(
-        definition: &'a ResolvedDefinition,
+        views: &'view DefinitionViews<'definition>,
         term_module: ModuleId,
         macro_module: ModuleId,
     ) -> Result<Self, String> {
-        let productions = definition.production_catalog(term_module);
-        let sorts = definition.sort_catalog(term_module);
-        let injector = SortInjector::new(definition, &definition.module(term_module).name)
-            .map_err(|error| error.to_string())?;
-        let subsorts = definition
+        let definition = views.definition();
+        let productions = views.production_catalog(term_module);
+        let sorts = views.sort_catalog(term_module);
+        let injector =
+            SortInjector::with_views(views, term_module).map_err(|error| error.to_string())?;
+        let subsorts = views
             .subsorts(term_module)
             .map_err(|error| error.to_string())?;
-        let overloads = definition
+        let overloads = views
             .overloads(term_module)
             .map_err(|error| error.to_string())?;
         let owners = definition
@@ -259,6 +264,7 @@ impl<'a> Expander<'a> {
                     .map(move |sentence| (std::ptr::from_ref(sentence), owner))
             })
             .collect::<BTreeMap<_, _>>();
+        let mut rebasers = BTreeMap::new();
         // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let all = definition
             .sentences(macro_module)
@@ -273,9 +279,12 @@ impl<'a> Expander<'a> {
                     // Project away the rule-body rewrite before rebasing. Its metadata describes
                     // no executable production. Template applications remain strict, while a
                     // private lexical token can discard its self-describing production index.
-                    let source = definition.production_catalog(owner);
-                    let mut rebaser =
-                        super::super::rebase::ExactRebaser::new(&source, &productions);
+                    let rebaser = rebasers.entry(owner).or_insert_with(|| {
+                        super::super::rebase::ExactRebaser::new(
+                            views.production_catalog(owner),
+                            productions,
+                        )
+                    });
                     rule.left = rebaser.rebase_term_discarding_tokens(rule.left)?;
                     rule.right = rebaser.rebase_term_discarding_tokens(rule.right)?;
                     let Sentence::Rule {

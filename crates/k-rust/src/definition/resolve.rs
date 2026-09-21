@@ -55,7 +55,7 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ModuleId(NodeIndex);
+pub struct ModuleId(pub(crate) NodeIndex);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ImportRef {

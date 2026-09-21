@@ -7,9 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::Sentence;
 use crate::definition::AttributeKey;
 use crate::definition::{
-    LabelHead, ModuleId, ProductionCatalog, ProductionId, ProductionItem, ResolvedDefinition,
-    SortCatalog, SortHead, StructuralCheckOptions, compute_disambiguation_subsorts,
-    compute_overloads, match_rule_label,
+    DefinitionViews, LabelHead, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
+    ResolvedDefinition, SortCatalog, SortHead, StructuralCheckOptions,
+    compute_disambiguation_subsorts, compute_overloads, match_rule_label,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term};
@@ -130,6 +130,15 @@ pub fn check_unused_symbols(
     definition: &ResolvedDefinition,
     options: &StructuralCheckOptions,
 ) -> Vec<Diagnostic> {
+    let views = definition.views();
+    check_unused_symbols_with_views(&views, options)
+}
+
+pub(super) fn check_unused_symbols_with_views(
+    views: &DefinitionViews<'_>,
+    options: &StructuralCheckOptions,
+) -> Vec<Diagnostic> {
+    let definition = views.definition();
     let visible_modules = main_module_closure(definition);
     let mut defined = BTreeMap::<String, (ModuleId, &Sentence)>::new();
     let mut co_located = BTreeMap::<(String, String), BTreeSet<String>>::new();
@@ -200,7 +209,7 @@ pub fn check_unused_symbols(
                 && !attributes.has(AttributeKey::Maincell)
                 && !attributes.has(AttributeKey::Unused)
                 && label != GeneratedCell::Top.label()
-                && !cell_collection_production(definition, *module, production)
+                && !cell_collection_production(views, *module, production)
                 && attributes.string(AttributeKey::Source).is_some_and(|source| {
                     !options
                         .builtin_source_prefixes
@@ -221,7 +230,13 @@ pub fn check_unused_symbols(
 }
 
 pub fn check_duplicate_overloads(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
-    let Ok(overloads) = definition.overloads(definition.main_module_id()) else {
+    let views = definition.views();
+    check_duplicate_overloads_with_views(&views)
+}
+
+pub(super) fn check_duplicate_overloads_with_views(views: &DefinitionViews<'_>) -> Vec<Diagnostic> {
+    let definition = views.definition();
+    let Ok(overloads) = views.overloads(definition.main_module_id()) else {
         return Vec::new();
     };
     let mut groups = BTreeMap::<String, BTreeSet<ProductionId>>::new();
@@ -298,7 +313,7 @@ pub fn check_singleton_overloads(definition: &ResolvedDefinition) -> Vec<Diagnos
 }
 
 fn cell_collection_production(
-    definition: &ResolvedDefinition,
+    views: &DefinitionViews<'_>,
     module: ModuleId,
     production: &Sentence,
 ) -> bool {
@@ -314,7 +329,7 @@ fn cell_collection_production(
             let ProductionItem::NonTerminal { sort, .. } = item else {
                 return false;
             };
-            definition
+            views
                 .sort_catalog(module)
                 .attributes_for(&SortHead::from(sort))
                 .is_some_and(|attributes| attributes.has(AttributeKey::CellCollection))
@@ -336,8 +351,16 @@ fn location_key(production: &Sentence) -> (u32, u32, u32, u32) {
 }
 
 pub fn check_function_rule_attributes(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
+    let views = definition.views();
+    check_function_rule_attributes_with_views(&views)
+}
+
+pub(super) fn check_function_rule_attributes_with_views(
+    views: &DefinitionViews<'_>,
+) -> Vec<Diagnostic> {
+    let definition = views.definition();
     let module = definition.main_module_id();
-    let productions = definition.production_catalog(module);
+    let productions = views.production_catalog(module);
     let rules = definition.rule_catalog(module);
     let mut diagnostics = Vec::new();
 

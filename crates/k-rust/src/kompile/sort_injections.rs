@@ -11,12 +11,15 @@ use k_rust_kore::measure::{self, Counter};
 use serde_json::json;
 
 use crate::definition::{
-    AttributeKey, Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
-    ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
+    AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
+    ProductionCatalog, ProductionId, ResolveError, ResolvedDefinition, Sentence, SortCatalog,
+    SortHead,
 };
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::{GeneratingPass, record_generated_origins};
+
+use super::view::View;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SortInjectionError {
@@ -167,17 +170,17 @@ impl std::error::Error for SortInjectionError {}
 /// sort metadata produced by semantic-cast resolution requests a runtime projection only when the
 /// metadata sort is a strict subsort of the selected production's natural result sort.
 #[derive(Clone, Debug)]
-pub struct SortInjector<'a> {
-    productions: ProductionCatalog<'a>,
-    sorts: SortCatalog<'a>,
-    subsorts: PartialOrder<Sort>,
+pub struct SortInjector<'view, 'definition> {
+    productions: View<'view, ProductionCatalog<'definition>>,
+    sorts: View<'view, SortCatalog<'definition>>,
+    subsorts: View<'view, PartialOrder<Sort>>,
     next_sort_parameter: Cell<usize>,
     used_sort_parameters: RefCell<BTreeSet<String>>,
 }
 
-impl<'a> SortInjector<'a> {
+impl<'definition> SortInjector<'definition, 'definition> {
     pub fn new(
-        definition: &'a ResolvedDefinition,
+        definition: &'definition ResolvedDefinition,
         module: &str,
     ) -> Result<Self, SortInjectionError> {
         let module = definition
@@ -187,9 +190,27 @@ impl<'a> SortInjector<'a> {
             .subsorts(module)
             .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path))?;
         Ok(Self {
-            productions: definition.production_catalog(module),
-            sorts: definition.sort_catalog(module),
-            subsorts,
+            productions: View::Owned(definition.production_catalog(module)),
+            sorts: View::Owned(definition.sort_catalog(module)),
+            subsorts: View::Owned(subsorts),
+            next_sort_parameter: Cell::new(0),
+            used_sort_parameters: RefCell::new(BTreeSet::new()),
+        })
+    }
+}
+
+impl<'view, 'definition> SortInjector<'view, 'definition> {
+    pub(crate) fn with_views(
+        views: &'view DefinitionViews<'definition>,
+        module: ModuleId,
+    ) -> Result<Self, SortInjectionError> {
+        let subsorts = views
+            .subsorts(module)
+            .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path.clone()))?;
+        Ok(Self {
+            productions: View::Borrowed(views.production_catalog(module)),
+            sorts: View::Borrowed(views.sort_catalog(module)),
+            subsorts: View::Borrowed(subsorts),
             next_sort_parameter: Cell::new(0),
             used_sort_parameters: RefCell::new(BTreeSet::new()),
         })
@@ -970,7 +991,11 @@ impl<'a> SortInjector<'a> {
         }
     }
 
-    fn production(&self, term: &Term, label: &Label) -> Result<&'a Sentence, SortInjectionError> {
+    fn production(
+        &self,
+        term: &Term,
+        label: &Label,
+    ) -> Result<&'definition Sentence, SortInjectionError> {
         let mut invalid_resolved = None;
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
             if resolved.0 >= self.productions.len() {
@@ -1149,7 +1174,8 @@ fn add_sort_injections_to_definition_inner(
         .into_iter()
         .chain(std::iter::once(target))
         .collect::<BTreeSet<_>>();
-    let target_injector = SortInjector::new(&resolved, definition.main_module.as_str())?;
+    let views = resolved.views();
+    let target_injector = SortInjector::with_views(&views, target)?;
     let mut output = definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
@@ -1158,12 +1184,12 @@ fn add_sort_injections_to_definition_inner(
         if !target_modules.contains(&module_id) {
             continue;
         }
-        let source_catalog = resolved.production_catalog(module_id);
+        let source_catalog = views.production_catalog(module_id);
         let mut import_rebaser = (module_id != target).then(|| {
-            super::rebase::ExactRebaser::new(&source_catalog, &target_injector.productions)
+            super::rebase::ExactRebaser::new(source_catalog, &target_injector.productions)
         });
         let mut localization_rebaser = (module_id != target).then(|| {
-            super::rebase::ExactRebaser::new(&target_injector.productions, &source_catalog)
+            super::rebase::ExactRebaser::new(&target_injector.productions, source_catalog)
         });
         for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
             let mut input = sentence.clone();

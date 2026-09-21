@@ -12,8 +12,8 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ProductionId,
-        ProductionItem, ResolvedDefinition, Sentence,
+        Attributes, Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog,
+        ProductionId, ProductionItem, ResolvedDefinition, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term},
@@ -65,10 +65,11 @@ pub fn concretize_cells_in_sentence(
     } else {
         module_id
     };
-    let model = CellModel::new(definition, model_module)
+    let views = definition.views();
+    let model = CellModel::new(&views, model_module)
         .map_err(|message| sentence_error(message, &original))?;
-    let productions = definition.production_catalog(module_id);
-    let mut concretizer = Concretizer::new(&model, &productions);
+    let productions = views.production_catalog(module_id);
+    let mut concretizer = Concretizer::new(&model, productions);
     let transformed = concretizer
         .sentence(sentence)
         .map_err(|message| sentence_error(message, &original))?;
@@ -87,19 +88,19 @@ fn concretize_cells_inner(definition: &Definition) -> Result<Definition, Concret
             diagnostics: vec![plain_error(error.to_string())],
         })?;
     let main_id = resolved.main_module_id();
+    let views = resolved.views();
     let main_modules = resolved
         .transitive_imports(main_id)
         .into_iter()
         .chain(std::iter::once(main_id))
         .collect::<BTreeSet<_>>();
-    let main_model =
-        CellModel::new(&resolved, main_id).map_err(|message| ConcretizeCellsError {
-            diagnostics: vec![plain_error(message)],
-        })?;
+    let main_model = CellModel::new(&views, main_id).map_err(|message| ConcretizeCellsError {
+        diagnostics: vec![plain_error(message)],
+    })?;
     if main_model.cells.is_empty()
         && resolved.modules().all(|(module_id, _)| {
             main_modules.contains(&module_id)
-                || CellModel::new(&resolved, module_id).is_ok_and(|model| model.cells.is_empty())
+                || CellModel::new(&views, module_id).is_ok_and(|model| model.cells.is_empty())
         })
     {
         return Ok(definition.clone());
@@ -111,20 +112,20 @@ fn concretize_cells_inner(definition: &Definition) -> Result<Definition, Concret
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let productions = resolved.production_catalog(module_id);
+        let productions = views.production_catalog(module_id);
         let local_model;
         let model = if main_modules.contains(&module_id) {
             &main_model
         } else {
             local_model =
-                CellModel::new(&resolved, module_id).map_err(|message| ConcretizeCellsError {
+                CellModel::new(&views, module_id).map_err(|message| ConcretizeCellsError {
                     diagnostics: vec![plain_error(message)],
                 })?;
             &local_model
         };
         for sentence in &mut module.local_sentences {
             let original = sentence.clone();
-            match Concretizer::new(model, &productions).sentence(original) {
+            match Concretizer::new(model, productions).sentence(original) {
                 Ok(transformed) => *sentence = transformed,
                 Err(message) => diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidCellConcretization,
@@ -182,11 +183,9 @@ struct CellModel {
 }
 
 impl CellModel {
-    fn new(definition: &ResolvedDefinition, module: ModuleId) -> Result<Self, String> {
-        let productions = definition.production_catalog(module);
-        let subsorts = definition
-            .subsorts(module)
-            .map_err(|error| error.to_string())?;
+    fn new(views: &DefinitionViews<'_>, module: ModuleId) -> Result<Self, String> {
+        let productions = views.production_catalog(module);
+        let subsorts = views.subsorts(module).map_err(|error| error.to_string())?;
         let raw_cells = productions
             .productions()
             .filter_map(|(_, production)| match production {
@@ -526,9 +525,9 @@ impl CellModel {
     }
 }
 
-struct Concretizer<'a> {
-    model: &'a CellModel,
-    productions: &'a ProductionCatalog<'a>,
+struct Concretizer<'use_, 'definition> {
+    model: &'use_ CellModel,
+    productions: &'use_ ProductionCatalog<'definition>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
     fragments: BTreeMap<String, FragmentInfo>,
@@ -541,8 +540,8 @@ struct FragmentInfo {
     split: BTreeMap<Sort, Term>,
 }
 
-impl<'a> Concretizer<'a> {
-    fn new(model: &'a CellModel, productions: &'a ProductionCatalog<'a>) -> Self {
+impl<'use_, 'definition> Concretizer<'use_, 'definition> {
+    fn new(model: &'use_ CellModel, productions: &'use_ ProductionCatalog<'definition>) -> Self {
         Self {
             model,
             productions,

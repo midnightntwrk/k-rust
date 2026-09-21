@@ -51,14 +51,15 @@ fn resolve_heat_cool_attributes_inner(
                 location: None,
             }],
         })?;
+    let views = resolved.views();
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let productions = resolved.production_catalog(module_id);
-        let sorts = resolved.sort_catalog(module_id);
+        let productions = views.production_catalog(module_id);
+        let sorts = views.sort_catalog(module_id);
         for sentence in &mut module.local_sentences {
             let attributes = sentence.attributes();
             let heat = attributes.has(AttributeKey::Heat);

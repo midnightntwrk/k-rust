@@ -10,6 +10,7 @@ use super::ast::{ProductionItem, Sentence};
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
+use super::views::DefinitionViews;
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
@@ -32,9 +33,14 @@ pub use functions::check_functions;
 pub use kompile_checks::{
     check_claims_in_definition, check_is_sort_predicates, check_proof_module,
 };
+use kompile_checks::{check_is_sort_predicates_with_views, check_proof_module_with_views};
 pub use labels::{
     check_duplicate_klabels, check_duplicate_overloads, check_function_rule_attributes,
     check_klabels, check_singleton_overloads, check_unused_symbols,
+};
+use labels::{
+    check_duplicate_overloads_with_views, check_function_rule_attributes_with_views,
+    check_unused_symbols_with_views,
 };
 pub use production_shapes::{check_configuration_cells, check_holes, check_streams};
 pub use regexes::check_regexes;
@@ -82,40 +88,42 @@ pub fn check_module_with_options(
     module: ModuleId,
     options: StructuralCheckOptions,
 ) -> Result<Vec<Diagnostic>, Error> {
-    let sort_catalog = definition.sort_catalog(module);
-    check_module_with_options_and_catalog(definition, module, options, &sort_catalog)
+    let views = definition.views();
+    let sort_catalog = views.sort_catalog(module);
+    check_module_with_options_and_catalog(&views, module, options, sort_catalog)
 }
 
 fn check_module_with_options_and_catalog(
-    definition: &ResolvedDefinition,
+    views: &DefinitionViews<'_>,
     module: ModuleId,
     options: StructuralCheckOptions,
     sort_catalog: &SortCatalog<'_>,
 ) -> Result<Vec<Diagnostic>, Error> {
+    let definition = views.definition();
     let sentences = definition
         .module(module)
         .local_sentences
         .iter()
         .collect::<Vec<_>>();
-    let subsorts = definition
+    let subsorts = views
         .subsorts(module)
-        .map_err(Error::CircularSubsort)?;
-    let priorities = definition
+        .map_err(|error| Error::CircularSubsort(error.clone()))?;
+    let priorities = views
         .priorities(module)
-        .map_err(Error::CircularPriority)?;
-    let production_catalog = definition.production_catalog(module);
-    let overloads = definition.overloads(module).ok();
+        .map_err(|error| Error::CircularPriority(error.clone()))?;
+    let production_catalog = views.production_catalog(module);
+    let overloads = views.overloads(module).ok();
     let rule_catalog = definition.rule_catalog(module);
-    let macro_labels = rule_catalog.all_macro_labels(&production_catalog);
+    let macro_labels = rule_catalog.all_macro_labels(production_catalog);
     let mut diagnostics = check_attributes(definition.module(module))
         .into_iter()
         .chain(check_duplicate_labels(&sentences))
-        .chain(check_syntax_groups(&sentences, &priorities))
-        .chain(check_associativity(&sentences, &subsorts))
-        .chain(check_sort_top_uniqueness(&sentences, &subsorts))
+        .chain(check_syntax_groups(&sentences, priorities))
+        .chain(check_associativity(&sentences, subsorts))
+        .chain(check_sort_top_uniqueness(&sentences, subsorts))
         .chain(check_holes(&sentences))
-        .chain(check_streams(&sentences, &subsorts))
-        .chain(check_configuration_cells(&sentences, &production_catalog))
+        .chain(check_streams(&sentences, subsorts))
+        .chain(check_configuration_cells(&sentences, production_catalog))
         .chain(check_tokens(
             &sentences,
             sort_catalog.token_sorts(),
@@ -127,20 +135,17 @@ fn check_module_with_options_and_catalog(
         .chain(check_rhs_variables(&sentences, options.clone()))
         .chain(check_functions(
             &sentences,
-            &production_catalog,
+            production_catalog,
             sort_catalog,
         ))
-        .chain(check_klabels(&sentences, &production_catalog, sort_catalog))
+        .chain(check_klabels(&sentences, production_catalog, sort_catalog))
         .chain(attributes::check_attribute_semantics_with_overloads(
             &sentences,
-            &production_catalog,
+            production_catalog,
             sort_catalog,
-            overloads.as_ref(),
+            overloads,
         ))
-        .chain(check_deprecated_productions(
-            &sentences,
-            &production_catalog,
-        ))
+        .chain(check_deprecated_productions(&sentences, production_catalog))
         // Java validates SMT lemmas from `ExpandMacros`, after aliases and macros have been
         // removed from rule bodies. Checking here rejects valid lemmas that still contain an
         // alias whose expansion uses only SMT-backed symbols.
@@ -159,26 +164,27 @@ pub fn check_definition_with_options(
     definition: &ResolvedDefinition,
     options: StructuralCheckOptions,
 ) -> Result<Vec<Diagnostic>, Error> {
+    let views = definition.views();
     let mut diagnostics = Vec::new();
     diagnostics.extend(check_claims_in_definition(definition, &options));
-    diagnostics.extend(check_proof_module(definition, &options));
-    diagnostics.extend(check_is_sort_predicates(definition, &options));
+    diagnostics.extend(check_proof_module_with_views(&views, &options));
+    diagnostics.extend(check_is_sort_predicates_with_views(&views, &options));
     for (module_id, module) in definition.modules() {
         let visible = definition.sentences(module_id);
-        let sort_catalog = definition.sort_catalog(module_id);
-        diagnostics.extend(check_sorts(module, &sort_catalog));
+        let sort_catalog = views.sort_catalog(module_id);
+        diagnostics.extend(check_sorts(module, sort_catalog));
         diagnostics.extend(check_user_lists(module, &visible));
         diagnostics.extend(check_module_with_options_and_catalog(
-            definition,
+            &views,
             module_id,
             options.clone(),
-            &sort_catalog,
+            sort_catalog,
         )?);
     }
     diagnostics.extend(check_duplicate_klabels(definition));
-    diagnostics.extend(check_unused_symbols(definition, &options));
-    diagnostics.extend(check_duplicate_overloads(definition));
-    diagnostics.extend(check_function_rule_attributes(definition));
+    diagnostics.extend(check_unused_symbols_with_views(&views, &options));
+    diagnostics.extend(check_duplicate_overloads_with_views(&views));
+    diagnostics.extend(check_function_rule_attributes_with_views(&views));
     diagnostics.sort();
     Ok(diagnostics)
 }

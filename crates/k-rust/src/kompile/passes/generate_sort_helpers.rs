@@ -129,14 +129,15 @@ pub fn regenerate_sort_predicate_syntax(definition: &Definition) -> Result<Defin
 pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, String> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
     let main_id = resolved.main_module_id();
-    let main_productions = resolved.production_catalog(main_id);
+    let views = resolved.views();
+    let main_productions = views.production_catalog(main_id);
     let mut output = definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let productions = resolved.production_catalog(module_id);
-        let sorts = resolved.sort_catalog(module_id);
+        let productions = views.production_catalog(module_id);
+        let sorts = views.sort_catalog(module_id);
         let defined_labels = productions
             .defined_labels()
             .cloned()
@@ -165,8 +166,8 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
         for production in &local_productions {
             generated.extend(named_projections(
                 production,
-                &productions,
-                &main_productions,
+                productions,
+                main_productions,
                 &defined_labels,
             ));
         }
