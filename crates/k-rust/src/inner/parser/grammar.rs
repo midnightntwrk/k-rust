@@ -11,7 +11,7 @@ use k_rust_kore::measure::{self, Counter};
 use crate::definition::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionId, ProductionItem,
     Regex as KRegex, Sentence, compute_associativities, compute_disambiguation_subsorts,
-    compute_overloads, compute_priorities, compute_subsorts, parse_regex, sentence_equivalent,
+    compute_overloads, compute_priorities, compute_subsorts, parse_regex,
 };
 use crate::kast::{FrontendSort, Label, Sort};
 
@@ -723,9 +723,7 @@ pub(super) fn catalog_production(
     {
         return None;
     }
-    catalog
-        .productions()
-        .find_map(|(id, candidate)| sentence_equivalent(candidate, sentence).then_some(id))
+    catalog.find_equivalent(sentence)
 }
 
 pub(super) fn render_production(sentence: &Sentence) -> Option<String> {

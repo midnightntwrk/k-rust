@@ -8,52 +8,15 @@ use std::collections::BTreeMap;
 
 use k_rust_kore::measure::{self, Counter};
 
-use crate::definition::resolve::SentenceKey;
 use crate::definition::{
-    Definition, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence, sentence_equivalent,
+    Definition, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
 };
 use crate::kast::{ResolvedProductionId, Term};
-
-/// Target productions grouped by the structural key shared with resolved-sentence deduplication.
-pub(crate) struct ProductionIndex<'catalog, 'definition> {
-    target: &'catalog ProductionCatalog<'definition>,
-    by_key: BTreeMap<SentenceKey<'definition>, Vec<ProductionId>>,
-}
-
-impl<'catalog, 'definition> ProductionIndex<'catalog, 'definition> {
-    pub(crate) fn new(target: &'catalog ProductionCatalog<'definition>) -> Self {
-        let mut by_key = BTreeMap::<_, Vec<_>>::new();
-        for (id, production) in target.productions() {
-            by_key
-                .entry(SentenceKey::of(production))
-                .or_default()
-                .push(id);
-        }
-        Self { target, by_key }
-    }
-
-    /// Find the smallest target ID structurally equivalent to `source`.
-    pub(crate) fn find_equivalent(&self, source: &Sentence) -> Option<ProductionId> {
-        self.by_key
-            .get(&SentenceKey::of(source))?
-            .iter()
-            .copied()
-            .find(|id| sentence_equivalent(source, self.target.production(*id)))
-    }
-}
-
-/// Find the first target production structurally equivalent to `source`.
-pub(crate) fn find_equivalent(
-    source: &Sentence,
-    target: &ProductionIndex<'_, '_>,
-) -> Option<ProductionId> {
-    target.find_equivalent(source)
-}
 
 /// One exact source-to-target rebase with a target index and source-ID memo.
 pub(crate) struct ExactRebaser<'source_catalog, 'source, 'target_catalog, 'target> {
     source: &'source_catalog ProductionCatalog<'source>,
-    target: ProductionIndex<'target_catalog, 'target>,
+    target: &'target_catalog ProductionCatalog<'target>,
     memo: BTreeMap<ProductionId, Option<ProductionId>>,
 }
 
@@ -66,7 +29,7 @@ impl<'source_catalog, 'source, 'target_catalog, 'target>
     ) -> Self {
         Self {
             source,
-            target: ProductionIndex::new(target),
+            target,
             memo: BTreeMap::new(),
         }
     }
@@ -399,7 +362,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::definition::{Attributes, ProductionItem};
+    use crate::definition::resolve::SentenceKey;
+    use crate::definition::{Attributes, ProductionItem, sentence_equivalent};
     use crate::kast::{Label, Sort};
 
     type ProductionSpec = (u8, u8, u8, u8);
@@ -453,7 +417,7 @@ mod tests {
             let expected = target
                 .productions()
                 .find_map(|(id, candidate)| sentence_equivalent(&source, candidate).then_some(id));
-            let actual = ProductionIndex::new(&target).find_equivalent(&source);
+            let actual = target.find_equivalent(&source);
 
             prop_assert_eq!(actual, expected);
         }

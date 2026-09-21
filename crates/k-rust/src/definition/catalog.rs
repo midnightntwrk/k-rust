@@ -4,6 +4,7 @@
 //! Deterministic indexes over the productions visible from a resolved module.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use k_rust_kore::measure::{self, Counter};
 
@@ -104,6 +105,56 @@ pub struct ProductionSignature {
     pub result: Sort,
 }
 
+/// Owned projection of the production variant of `SentenceKey`.
+///
+/// Equivalent productions always have equal keys. Non-equivalent productions may share a key
+/// and are distinguished by `sentence_equivalent` inside the bucket.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ProductionKey {
+    label: Option<Label>,
+    parameters: Vec<Sort>,
+    sort: Sort,
+    items: usize,
+    first: Option<FirstProductionItem>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum FirstProductionItem {
+    NonTerminal(Sort, Option<String>),
+    Regex(String),
+    Terminal(String),
+}
+
+impl ProductionKey {
+    fn of(sentence: &Sentence) -> Self {
+        let Sentence::Production {
+            label,
+            parameters,
+            sort,
+            items,
+            ..
+        } = sentence
+        else {
+            unreachable!("production catalogs contain only productions")
+        };
+        Self {
+            label: label.clone(),
+            parameters: parameters.clone(),
+            sort: sort.clone(),
+            items: items.len(),
+            first: items.first().map(|item| match item {
+                ProductionItem::NonTerminal { sort, name } => {
+                    FirstProductionItem::NonTerminal(sort.clone(), name.clone())
+                }
+                ProductionItem::RegexTerminal { regex, .. } => {
+                    FirstProductionItem::Regex(regex.clone())
+                }
+                ProductionItem::Terminal(text) => FirstProductionItem::Terminal(text.clone()),
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FreshGeneratorError {
     MissingLabel {
@@ -156,6 +207,7 @@ pub struct ProductionCatalog<'a> {
     attributes_by_label: BTreeMap<LabelHead, Attributes>,
     result_sort_by_label: BTreeMap<LabelHead, Sort>,
     macro_labels: BTreeSet<Label>,
+    by_key: OnceLock<BTreeMap<ProductionKey, Vec<ProductionId>>>,
 }
 
 impl<'a> ProductionCatalog<'a> {
@@ -196,6 +248,7 @@ impl<'a> ProductionCatalog<'a> {
             attributes_by_label: BTreeMap::new(),
             result_sort_by_label: BTreeMap::new(),
             macro_labels: BTreeSet::new(),
+            by_key: OnceLock::new(),
         };
         catalog.build_indexes();
         measure::bump(Counter::KompileProductionCatalogsBuilt);
@@ -220,6 +273,25 @@ impl<'a> ProductionCatalog<'a> {
 
     pub fn production(&self, id: ProductionId) -> &'a Sentence {
         self.productions[id.0]
+    }
+
+    /// Find the smallest ID structurally equivalent to `source`.
+    pub(crate) fn find_equivalent(&self, source: &Sentence) -> Option<ProductionId> {
+        self.by_key
+            .get_or_init(|| {
+                let mut by_key = BTreeMap::<_, Vec<_>>::new();
+                for (id, production) in self.productions() {
+                    by_key
+                        .entry(ProductionKey::of(production))
+                        .or_default()
+                        .push(id);
+                }
+                by_key
+            })
+            .get(&ProductionKey::of(source))?
+            .iter()
+            .copied()
+            .find(|id| sentence_equivalent(source, self.production(*id)))
     }
 
     pub fn productions(&self) -> impl ExactSizeIterator<Item = (ProductionId, &'a Sentence)> + '_ {
