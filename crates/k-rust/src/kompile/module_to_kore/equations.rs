@@ -223,13 +223,13 @@ fn equation_info<'a>(
         }
         let [from, to] = label.parameters.as_slice() else {
             return Err(ModuleToKoreError::InvalidEquationProduction {
-                production: 0,
+                production: "synthetic".into(),
                 message: "sort injection labels must carry source and destination sorts".into(),
             });
         };
         if arguments.len() != 1 {
             return Err(ModuleToKoreError::InvalidEquationProduction {
-                production: 0,
+                production: "synthetic".into(),
                 message: format!(
                     "sort injections take one argument but the equation has {}",
                     arguments.len()
@@ -277,7 +277,7 @@ fn equation_info<'a>(
             production: application
                 .metadata()
                 .and_then(|metadata| metadata.production)
-                .map_or(0, |id| id.0),
+                .map_or_else(|| "unknown".into(), |id| id.to_hex()),
             message: format!(
                 "expected {} arguments but the equation has {}",
                 argument_sorts.len(),
@@ -299,23 +299,23 @@ pub(super) fn resolve_equation_production<'a>(
     label: &Label,
     productions: &ProductionCatalog<'a>,
 ) -> Result<&'a Sentence, ModuleToKoreError> {
-    if let Some(ResolvedProductionId(index)) = application
+    if let Some(identity) = application
         .metadata()
         .and_then(|metadata| metadata.production)
     {
-        if index >= productions.len() {
+        let Some(production_id) = productions.lookup(&identity) else {
             return Err(ModuleToKoreError::InvalidEquationProduction {
-                production: index,
-                message: "the resolved production is outside this module's catalog".into(),
+                production: identity.to_hex(),
+                message: "the resolved production is absent from this module's catalog".into(),
             });
-        }
-        let production = productions.production(ProductionId(index));
+        };
+        let production = productions.production(production_id);
         if !matches!(
             production,
             Sentence::Production { label: Some(candidate), .. } if candidate.name == label.name
         ) {
             return Err(ModuleToKoreError::InvalidEquationProduction {
-                production: index,
+                production: identity.to_hex(),
                 message: format!("its label does not match {:?}", label.name),
             });
         }
@@ -1028,8 +1028,11 @@ mod tests {
         let candidates = catalog.productions_for(&LabelHead::from(&label));
         assert_eq!(candidates.len(), 2);
         for &selected in candidates {
-            let application =
-                annotated_application(label.clone(), vec![argument.clone()], selected);
+            let application = annotated_application(
+                label.clone(),
+                vec![argument.clone()],
+                catalog.identity(selected),
+            );
             assert_eq!(
                 resolve_equation_production(&application, &label, &catalog).unwrap(),
                 catalog.production(selected),
@@ -1042,7 +1045,10 @@ mod tests {
             resolve_equation_production(&unique, &Label::new("other"), &catalog).unwrap(),
             catalog.production(other)
         );
-        for stale in [other, ProductionId(catalog.len())] {
+        for stale in [
+            catalog.identity(other),
+            crate::kast::ProductionIdentity::from_hex(&"ff".repeat(16)).unwrap(),
+        ] {
             let application = annotated_application(label.clone(), vec![argument.clone()], stale);
             assert!(matches!(
                 resolve_equation_production(&application, &label, &catalog),

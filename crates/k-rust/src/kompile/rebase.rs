@@ -9,15 +9,15 @@ use std::collections::BTreeMap;
 use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::{
-    Definition, DefinitionViews, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
+    Definition, DefinitionViews, ProductionCatalog, ResolvedDefinition, Sentence,
 };
-use crate::kast::{ResolvedProductionId, Term};
+use crate::kast::{ProductionIdentity, Term};
 
 /// One exact source-to-target rebase with a target index and source-ID memo.
 pub(crate) struct ExactRebaser<'source_catalog, 'source, 'target_catalog, 'target> {
     source: &'source_catalog ProductionCatalog<'source>,
     target: &'target_catalog ProductionCatalog<'target>,
-    memo: BTreeMap<ProductionId, Option<ProductionId>>,
+    memo: BTreeMap<ProductionIdentity, Option<ProductionIdentity>>,
 }
 
 impl<'source_catalog, 'source, 'target_catalog, 'target>
@@ -49,11 +49,15 @@ impl<'source_catalog, 'source, 'target_catalog, 'target>
             .expect("lossy production metadata rebasing cannot fail")
     }
 
-    fn equivalent(&mut self, source: ProductionId) -> Option<ProductionId> {
+    fn equivalent(&mut self, source: ProductionIdentity) -> Option<ProductionIdentity> {
         if let Some(cached) = self.memo.get(&source) {
             return *cached;
         }
-        let equivalent = self.target.find_equivalent(self.source.production(source));
+        let equivalent = self
+            .source
+            .lookup(&source)
+            .and_then(|source| self.target.find_equivalent(self.source.production(source)))
+            .map(|target| self.target.identity(target));
         self.memo.insert(source, equivalent);
         equivalent
     }
@@ -67,30 +71,29 @@ impl<'source_catalog, 'source, 'target_catalog, 'target>
     ) -> Result<Term, String> {
         let token = matches!(term.unannotated(), Term::Token { .. });
         let mut metadata = term.metadata().cloned().unwrap_or_default();
-        if let Some(ResolvedProductionId(index)) = metadata.production {
-            if index >= self.source.len() {
+        if let Some(identity) = metadata.production {
+            if self.source.lookup(&identity).is_none() {
                 if matches!(missing, MissingProductionMetadata::DiscardAny) {
                     metadata.production = None;
                 } else {
                     return Err(format!(
-                        "production metadata #{index} exceeds source catalog length {}",
-                        self.source.len()
+                        "production metadata #{identity} is absent from the source catalog"
                     ));
                 }
             } else {
-                let rebased = self.equivalent(ProductionId(index));
+                let rebased = self.equivalent(identity);
                 metadata.production = match (rebased, missing) {
-                    (Some(rebased), _) => Some(ResolvedProductionId(rebased.0)),
+                    (Some(rebased), _) => Some(rebased),
                     (None, MissingProductionMetadata::DiscardToken) if token => None,
                     (None, MissingProductionMetadata::DiscardAny) => None,
                     (None, MissingProductionMetadata::Error) => {
                         return Err(format!(
-                            "source production metadata #{index} has no equivalent in the transformed catalog"
+                            "source production metadata #{identity} has no equivalent in the transformed catalog"
                         ));
                     }
                     (None, MissingProductionMetadata::DiscardToken) => {
                         return Err(format!(
-                            "source production metadata #{index} on an application has no equivalent in the target catalog"
+                            "source production metadata #{identity} on an application has no equivalent in the target catalog"
                         ));
                     }
                 };
@@ -273,29 +276,28 @@ fn rebase_term_by(
 ) -> Result<Term, String> {
     let token = matches!(term.unannotated(), Term::Token { .. });
     let mut metadata = term.metadata().cloned().unwrap_or_default();
-    if let Some(ResolvedProductionId(index)) = metadata.production {
-        if index >= source.len() {
+    if let Some(identity) = metadata.production {
+        if source.lookup(&identity).is_none() {
             return Err(format!(
-                "production metadata #{index} exceeds source catalog length {}",
-                source.len()
+                "production metadata #{identity} is absent from the source catalog"
             ));
         }
-        let production = source.production(ProductionId(index));
+        let production = source.production(source.lookup(&identity).expect("checked above"));
         let rebased = target
             .productions()
             .find_map(|(id, candidate)| production_matches(production, candidate).then_some(id));
         metadata.production = match (rebased, missing) {
-            (Some(rebased), _) => Some(ResolvedProductionId(rebased.0)),
+            (Some(rebased), _) => Some(target.identity(rebased)),
             (None, MissingProductionMetadata::DiscardToken) if token => None,
             (None, MissingProductionMetadata::DiscardAny) => None,
             (None, MissingProductionMetadata::Error) => {
                 return Err(format!(
-                    "source production metadata #{index} has no equivalent in the transformed catalog"
+                    "source production metadata #{identity} has no equivalent in the transformed catalog"
                 ));
             }
             (None, MissingProductionMetadata::DiscardToken) => {
                 return Err(format!(
-                    "source production metadata #{index} on an application has no equivalent in the target catalog"
+                    "source production metadata #{identity} on an application has no equivalent in the target catalog"
                 ));
             }
         };

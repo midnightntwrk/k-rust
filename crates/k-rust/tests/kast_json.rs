@@ -1,4 +1,4 @@
-use k_rust::kast::{ResolvedProductionId, Sort, Term, TermMetadata, TermSpan, json};
+use k_rust::kast::{ProductionIdentity, Sort, Term, TermMetadata, TermSpan, json};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -43,7 +43,7 @@ fn encoding_ignores_compiler_metadata() {
             start: 0,
             end: 4,
         }),
-        production: Some(ResolvedProductionId(3)),
+        production: Some(ProductionIdentity::from_hex(&format!("{:032x}", 3)).unwrap()),
         sort: Some(Sort::new("Exp")),
         origin: None,
     });

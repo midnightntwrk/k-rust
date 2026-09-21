@@ -24,8 +24,7 @@ use crate::definition::{
     SortCatalog, SortHead, match_rule_label,
 };
 use crate::kast::{
-    FrontendSort, InternalLabel, Label, ResolvedProductionId, Sort, Term, WellKnownModule,
-    identifier,
+    FrontendSort, InternalLabel, Label, ProductionIdentity, Sort, Term, WellKnownModule, identifier,
 };
 use crate::kore::ast::{
     Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
@@ -230,7 +229,7 @@ pub enum ModuleToKoreError {
         productions: usize,
     },
     InvalidEquationProduction {
-        production: usize,
+        production: String,
         message: String,
     },
     InvalidAlgebraicProduction {
@@ -255,7 +254,7 @@ pub enum ModuleToKoreError {
     },
     InvalidImportedProductionMetadata {
         module: String,
-        production: usize,
+        production: String,
         message: String,
     },
     InvalidGeneratedMapAxiom {
@@ -694,7 +693,8 @@ pub fn module_to_kore_from_resolved_with_options(
         reachability_mode(&definition.module(module_id).attributes).or(options
             .default_claims_to_all_path
             .then_some(ReachabilityMode::AllPath));
-    let mut production_rebases = BTreeMap::<ModuleId, Vec<ProductionId>>::new();
+    let mut production_rebases =
+        BTreeMap::<ModuleId, BTreeMap<ProductionIdentity, ProductionIdentity>>::new();
     let mut module_rules = Vec::with_capacity(rules.rules().len());
     for (_, rule) in rules.rules() {
         let owner = sentence_owner(definition, rule).unwrap_or(module_id);
@@ -927,8 +927,16 @@ fn generate_map_ceil_rules(
                         },
                     ],
                 });
-        let element = annotated_application(element_label, arguments.clone(), element_id);
-        let concat = annotated_application(concat_label, vec![element, rest.clone()], concat_id);
+        let element = annotated_application(
+            element_label,
+            arguments.clone(),
+            productions.identity(element_id),
+        );
+        let concat = annotated_application(
+            concat_label,
+            vec![element, rest.clone()],
+            productions.identity(concat_id),
+        );
         let left = Term::Apply {
             label: Label::with_parameters(
                 InternalLabel::Ceil.as_str(),
@@ -939,7 +947,7 @@ fn generate_map_ceil_rules(
         let in_keys = annotated_application(
             in_keys_label.clone(),
             vec![arguments[0].clone(), rest],
-            in_keys_id,
+            productions.identity(in_keys_id),
         );
         let equals = Term::Apply {
             label: Label::with_parameters(
@@ -1021,9 +1029,13 @@ fn typed_variable(name: impl Into<String>, sort: Sort) -> Term {
     }
 }
 
-fn annotated_application(label: Label, arguments: Vec<Term>, production: ProductionId) -> Term {
+fn annotated_application(
+    label: Label,
+    arguments: Vec<Term>,
+    production: ProductionIdentity,
+) -> Term {
     Term::Apply { label, arguments }.with_metadata(crate::kast::TermMetadata {
-        production: Some(ResolvedProductionId(production.0)),
+        production: Some(production),
         ..crate::kast::TermMetadata::default()
     })
 }
@@ -1048,7 +1060,7 @@ fn sentence_owner(definition: &ResolvedDefinition, sentence: &Sentence) -> Optio
 
 fn rebase_sentence_metadata(
     source_module: &str,
-    production_rebase: &[ProductionId],
+    production_rebase: &BTreeMap<ProductionIdentity, ProductionIdentity>,
     sentence: Sentence,
 ) -> Result<Sentence, ModuleToKoreError> {
     let rebase = |term| rebase_term_metadata(term, source_module, production_rebase);
@@ -1082,21 +1094,21 @@ fn rebase_sentence_metadata(
 fn rebase_term_metadata(
     term: Term,
     source_module: &str,
-    production_rebase: &[ProductionId],
+    production_rebase: &BTreeMap<ProductionIdentity, ProductionIdentity>,
 ) -> Result<Term, ModuleToKoreError> {
     let mut metadata = term.metadata().cloned().unwrap_or_default();
-    if let Some(ResolvedProductionId(index)) = metadata.production {
-        let Some(target_id) = production_rebase.get(index) else {
+    if let Some(identity) = metadata.production {
+        let Some(target_id) = production_rebase.get(&identity) else {
             return Err(ModuleToKoreError::InvalidImportedProductionMetadata {
                 module: source_module.to_owned(),
-                production: index,
+                production: identity.to_hex(),
                 message: format!(
-                    "the source catalog contains only {} productions",
+                    "the source production identity is absent from the imported catalog map ({} entries)",
                     production_rebase.len()
                 ),
             });
         };
-        metadata.production = Some(ResolvedProductionId(target_id.0));
+        metadata.production = Some(*target_id);
     }
 
     let rebuilt = match term.into_unannotated() {
@@ -1147,7 +1159,7 @@ fn production_rebase(
     definition: &ResolvedDefinition,
     source_module: ModuleId,
     target: &ProductionCatalog<'_>,
-) -> Result<Vec<ProductionId>, ModuleToKoreError> {
+) -> Result<BTreeMap<ProductionIdentity, ProductionIdentity>, ModuleToKoreError> {
     let source = definition.production_catalog(source_module);
     let target_by_pointer = target
         .productions()
@@ -1160,13 +1172,14 @@ fn production_rebase(
                 .get(&(std::ptr::from_ref(production) as usize))
                 .copied()
                 .or_else(|| target.find_equivalent(production))
+                .map(|target_id| (source.identity(source_id), target.identity(target_id)))
                 .ok_or_else(|| ModuleToKoreError::InvalidImportedProductionMetadata {
                     module: definition.module(source_module).name.clone(),
-                    production: source_id.0,
+                    production: source.identity(source_id).to_hex(),
                     message: "the production is not visible from the target module".into(),
                 })
         })
-        .collect()
+        .collect::<Result<BTreeMap<_, _>, _>>()
 }
 
 fn reachability_mode(attributes: &KAttributes) -> Option<ReachabilityMode> {

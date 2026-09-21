@@ -18,7 +18,7 @@ use super::ast::{
 use crate::definition::AttributeKey;
 use crate::kast::json::{self as term_json, JsonLabel, JsonSort, JsonTerm};
 use crate::{
-    kast::{Label, ResolvedProductionId, Term, TermMetadata, TermSpan},
+    kast::{Label, ProductionIdentity, Term, TermMetadata, TermSpan},
     provenance::{
         DestinationAnchor, GeneratingPass, LogicalSourceId, OriginRecord, ProvenanceLink, SourceId,
         SourceOffsetMap, SourceOffsetSegment, SourceTable,
@@ -32,7 +32,7 @@ pub(crate) fn label_json(label: &Label) -> Value {
 /// Wire-format discriminator for definitions that retain compiler provenance.
 pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 /// Current [`PROVENANCE_FORMAT`] schema version.
-pub const PROVENANCE_VERSION: u32 = 1;
+pub const PROVENANCE_VERSION: u32 = 2;
 
 #[derive(Debug)]
 pub enum Error {
@@ -205,7 +205,7 @@ struct JsonTermMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     span: Option<JsonTermSpan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    production: Option<usize>,
+    production: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sort: Option<JsonSort>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -624,7 +624,7 @@ fn encode_term_metadata(
             .span
             .map(|span| encode_span(span, source_table))
             .transpose()?,
-        production: metadata.production.map(|production| production.0),
+        production: metadata.production.map(ProductionIdentity::to_hex),
         sort: metadata.sort.as_ref().map(Into::into),
         origin: metadata
             .origin
@@ -643,7 +643,16 @@ fn decode_term_metadata(
             .span
             .map(|span| decode_span(span, source_table))
             .transpose()?,
-        production: metadata.production.map(ResolvedProductionId),
+        production: metadata
+            .production
+            .map(|production| {
+                ProductionIdentity::from_hex(&production).ok_or_else(|| {
+                    Error::InvalidProvenance(format!(
+                        "invalid production identity {production:?}; expected 32 lowercase hexadecimal characters"
+                    ))
+                })
+            })
+            .transpose()?,
         sort: metadata.sort.map(Into::into),
         origin: metadata
             .origin

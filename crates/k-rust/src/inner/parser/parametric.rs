@@ -248,7 +248,7 @@ impl Grammar {
         &mut self,
         instance: ParametricInstance,
         lexical: &BTreeMap<String, KRegex>,
-        source_production: Option<crate::definition::ProductionId>,
+        source_production: Option<crate::kast::ProductionIdentity>,
         term_production: usize,
     ) -> Result<(), ParseError> {
         let Sentence::Production {

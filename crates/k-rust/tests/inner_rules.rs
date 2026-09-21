@@ -29,7 +29,7 @@ struct MetadataSummary<'a> {
     source: Option<&'a str>,
     logical_source: Option<&'a str>,
     span: Option<TermSpan>,
-    production: Option<usize>,
+    production: Option<String>,
 }
 
 #[cfg(feature = "z3-inference")]
@@ -93,7 +93,7 @@ fn metadata_summary<'a>(
         span,
         production: metadata
             .and_then(|metadata| metadata.production)
-            .map(|production| production.0),
+            .map(|production| production.to_hex()),
     });
     match term.unannotated() {
         Term::Rewrite { left, right } => {

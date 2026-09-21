@@ -99,7 +99,10 @@ fn generated_configuration_projection_does_not_trust_stale_metadata() {
     arguments[2] = arguments[2]
         .clone()
         .with_metadata(k_rust::kast::TermMetadata {
-            production: Some(k_rust::kast::ResolvedProductionId(usize::MAX)),
+            production: Some(
+                k_rust::kast::ProductionIdentity::from_hex(&format!("{:032x}", usize::MAX))
+                    .unwrap(),
+            ),
             ..Default::default()
         });
     *body = Term::Apply { label, arguments };

@@ -81,10 +81,6 @@ pub struct TermSpan {
     pub end: usize,
 }
 
-/// The catalog-scoped production index selected while parsing a term.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct ResolvedProductionId(pub usize);
-
 /// A collision-resistant content identity for a production.
 ///
 /// The identity is the first 128 bits of SHA-256 over the canonical production payload. Equal
@@ -122,6 +118,17 @@ impl ProductionIdentity {
         }
         Some(Self(digest))
     }
+
+    /// Return the digest bytes used by deterministic compiler fingerprints.
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
+impl Display for ProductionIdentity {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.to_hex())
+    }
 }
 
 fn decode_lower_hex(byte: u8) -> Option<u8> {
@@ -139,7 +146,7 @@ fn decode_lower_hex(byte: u8) -> Option<u8> {
 #[derive(Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TermMetadata {
     pub span: Option<TermSpan>,
-    pub production: Option<ResolvedProductionId>,
+    pub production: Option<ProductionIdentity>,
     /// An explicit compiler sort attached by transformations such as semantic-cast resolution.
     /// Sort injection consumes a strict subsort of an application's natural result as runtime
     /// projection metadata; equal, wider, and unrelated sorts do not authorize a projection.

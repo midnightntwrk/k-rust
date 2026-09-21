@@ -9,7 +9,5 @@ pub mod parser;
 pub mod printer;
 pub(crate) mod string;
 
-pub use ast::{
-    Label, ProductionIdentity, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan,
-};
+pub use ast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan};
 pub use names::{FrontendSort, GeneratedCell, GeneratedLabel, InternalLabel, WellKnownModule};

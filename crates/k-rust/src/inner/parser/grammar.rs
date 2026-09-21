@@ -9,11 +9,11 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::{
-    AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionId, ProductionItem,
-    Regex as KRegex, Sentence, compute_associativities, compute_disambiguation_subsorts,
-    compute_overloads, compute_priorities, compute_subsorts, parse_regex,
+    AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionItem, Regex as KRegex,
+    Sentence, compute_associativities, compute_disambiguation_subsorts, compute_overloads,
+    compute_priorities, compute_subsorts, parse_regex,
 };
-use crate::kast::{FrontendSort, Label, Sort};
+use crate::kast::{FrontendSort, Label, ProductionIdentity, Sort};
 
 use super::disambiguation::parse_apply_priority;
 use super::scanner::{Item, Layout, Scanner, compile_item};
@@ -152,31 +152,44 @@ impl Grammar {
             ParserRole::Rule => compute_disambiguation_subsorts(&sentences),
         }
         .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
-        let overloads = compute_overloads(sentences.iter().copied(), &semantic_subsorts)
-            .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?;
+        let overloads =
+            compute_overloads(sentences.iter().copied(), &semantic_subsorts).map_err(|cycle| {
+                ParseError::CircularOverloads {
+                    path: cycle.path.into_iter().map(|id| id.to_string()).collect(),
+                }
+            })?;
         let external = source_links.is_some();
         let source_links =
             source_links.unwrap_or_else(|| SourceLinks::catalog(overloads.catalog()));
         let source_production_texts = source_links
             .catalog
             .productions()
-            .filter_map(|(id, sentence)| render_production(sentence).map(|text| (id, text)))
+            .filter_map(|(id, sentence)| {
+                render_production(sentence).map(|text| (source_links.catalog.identity(id), text))
+            })
             .collect();
-        let overload_order = if external {
+        let overload_order = {
             let relations = overloads
                 .order()
                 .direct_relations()
                 .iter()
                 .filter_map(|(lesser, greater)| {
-                    let lesser = source_links.resolve(overloads.catalog().production(*lesser))?;
-                    let greater = source_links.resolve(overloads.catalog().production(*greater))?;
+                    let lesser = if external {
+                        source_links.resolve(overloads.catalog().production(*lesser))?
+                    } else {
+                        overloads.catalog().identity(*lesser)
+                    };
+                    let greater = if external {
+                        source_links.resolve(overloads.catalog().production(*greater))?
+                    } else {
+                        overloads.catalog().identity(*greater)
+                    };
                     (lesser != greater).then_some((lesser, greater))
                 })
                 .collect::<BTreeSet<_>>();
-            PartialOrder::new(relations)
-                .map_err(|cycle| ParseError::CircularOverloads { path: cycle.path })?
-        } else {
-            overloads.order().clone()
+            PartialOrder::new(relations).map_err(|cycle| ParseError::CircularOverloads {
+                path: cycle.path.into_iter().map(|id| id.to_string()).collect(),
+            })?
         };
         let mut grammar = Self {
             scanner: scanner_seed.cloned().unwrap_or_default(),
@@ -617,7 +630,7 @@ struct SourceLinks<'c, 'a> {
     catalog: &'c ProductionCatalog<'a>,
     /// Sentences rewritten by the program grammar, paired with the source
     /// production they were derived from.
-    erased: Vec<(Sentence, ProductionId)>,
+    erased: Vec<(Sentence, ProductionIdentity)>,
 }
 
 impl<'c, 'a> SourceLinks<'c, 'a> {
@@ -628,7 +641,7 @@ impl<'c, 'a> SourceLinks<'c, 'a> {
         }
     }
 
-    fn resolve(&self, sentence: &Sentence) -> Option<ProductionId> {
+    fn resolve(&self, sentence: &Sentence) -> Option<ProductionIdentity> {
         self.erased
             .iter()
             .find_map(|(erased, source)| (erased == sentence).then_some(*source))
@@ -718,12 +731,14 @@ pub(in crate::inner) fn named_projection_productions<'a>(
 pub(super) fn catalog_production(
     catalog: &ProductionCatalog<'_>,
     sentence: &Sentence,
-) -> Option<ProductionId> {
+) -> Option<ProductionIdentity> {
     if matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::GeneratedRuleSyntax))
     {
         return None;
     }
-    catalog.find_equivalent(sentence)
+    catalog
+        .find_equivalent(sentence)
+        .map(|production| catalog.identity(production))
 }
 
 pub(super) fn render_production(sentence: &Sentence) -> Option<String> {
@@ -981,11 +996,11 @@ mod tests {
                 })
                 .unwrap()
         };
-        let small = source_id("Small");
-        let big = source_id("Big");
+        let small = source_catalog.identity(source_id("Small"));
+        let big = source_catalog.identity(source_id("Big"));
 
         assert!(grammar.overloads.less_than(&small, &big));
-        assert!(!grammar.overloads.contains(&ProductionId(0)));
+        assert!(!grammar.overloads.contains(&small));
 
         let parsed = |source| {
             let production = grammar

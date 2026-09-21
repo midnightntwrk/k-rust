@@ -4,7 +4,7 @@
 
 use super::{Sentence, checked_terms};
 use crate::definition::AttributeKey;
-use crate::definition::{LabelHead, ProductionCatalog, ProductionId};
+use crate::definition::{LabelHead, ProductionCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::Term;
 
@@ -32,9 +32,9 @@ pub fn check_deprecated_productions(
 
 fn uses_deprecated_production(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
     if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production)
-        && resolved.0 < productions.len()
+        && let Some(production_id) = productions.lookup(&resolved)
     {
-        let production = productions.production(ProductionId(resolved.0));
+        let production = productions.production(production_id);
         let metadata_matches = match (term.unannotated(), production) {
             (
                 Term::Apply { label, .. },

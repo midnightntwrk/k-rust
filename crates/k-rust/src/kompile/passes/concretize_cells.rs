@@ -13,7 +13,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog,
-        ProductionId, ProductionItem, ResolvedDefinition, Sentence,
+        ProductionItem, ResolvedDefinition, Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term},
@@ -750,8 +750,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         let resolved = term
             .metadata()
             .and_then(|metadata| metadata.production)
-            .filter(|resolved| resolved.0 < self.productions.len())
-            .map(|resolved| self.productions.production(ProductionId(resolved.0)))
+            .and_then(|resolved| self.productions.lookup(&resolved))
+            .map(|resolved| self.productions.production(resolved))
             .filter(|production| {
                 matches!(
                     production,
