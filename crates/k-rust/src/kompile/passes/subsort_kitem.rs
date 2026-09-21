@@ -7,7 +7,9 @@ use std::fmt;
 
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
+    definition::{
+        Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence, retain_new_sentences,
+    },
     kast::{FrontendSort, Sort},
     provenance::{GeneratingPass, record_generated_origins},
 };
@@ -36,6 +38,7 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
             .expect("resolved definition contains every source module");
         let sorts = resolved.sort_catalog(module_id);
         let visible = resolved.sentences(module_id);
+        let mut generated = Vec::new();
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sort in sorts.all_sorts() {
             if is_parser_sort(sort) {
@@ -51,11 +54,13 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
                 }],
                 attributes: Attributes::default(),
             };
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-            if !visible.contains(&&production) && !module.local_sentences.contains(&production) {
-                module.local_sentences.push(production);
-            }
+            generated.push(production);
         }
+        let generated = retain_new_sentences(
+            visible.iter().copied().chain(module.local_sentences.iter()),
+            generated,
+        );
+        module.local_sentences.extend(generated);
     }
     let output = rebase_local_metadata(definition, output).map_err(SubsortKItemError)?;
     Ok(record_generated_origins(

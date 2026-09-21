@@ -12,6 +12,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, ResolvedDefinition, Sentence,
+        retain_new_sentences,
     },
     kast::{Sort, Term, WellKnownModule},
     provenance::{GeneratingPass, record_generated_origins},
@@ -153,12 +154,8 @@ pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
                 ));
             }
         }
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
-        for sentence in generated {
-            if !module.local_sentences.contains(&sentence) {
-                module.local_sentences.push(sentence);
-            }
-        }
+        let generated = retain_new_sentences(module.local_sentences.iter(), generated);
+        module.local_sentences.extend(generated);
     }
     record_generated_origins(
         definition,

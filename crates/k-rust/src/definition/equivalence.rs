@@ -274,6 +274,55 @@ pub(crate) fn push_if_inequivalent<'a>(
     sentences.push(sentence)
 }
 
+/// Retain candidates absent by exact structural equality from `existing` and earlier candidates.
+pub(crate) fn retain_new_sentences<'a>(
+    existing: impl IntoIterator<Item = &'a Sentence>,
+    candidates: Vec<Sentence>,
+) -> Vec<Sentence> {
+    let mut existing_by_key = BTreeMap::<SentenceKey<'a>, Vec<&'a Sentence>>::new();
+    for sentence in existing {
+        existing_by_key
+            .entry(SentenceKey::of(sentence))
+            .or_default()
+            .push(sentence);
+    }
+
+    let mut accepted_by_key = BTreeMap::<SentenceKey<'_>, Vec<usize>>::new();
+    let mut accepted = Vec::new();
+    for (index, sentence) in candidates.iter().enumerate() {
+        let absent_from_existing = existing_by_key
+            .get(&SentenceKey::of(sentence))
+            .is_none_or(|bucket| !bucket.iter().any(|existing| *existing == sentence));
+        let absent_from_accepted =
+            accepted_by_key
+                .get(&SentenceKey::of(sentence))
+                .is_none_or(|bucket| {
+                    !bucket
+                        .iter()
+                        .any(|&accepted_index| candidates[accepted_index] == *sentence)
+                });
+        if absent_from_existing && absent_from_accepted {
+            accepted_by_key
+                .entry(SentenceKey::of(sentence))
+                .or_default()
+                .push(index);
+            accepted.push(index);
+        }
+    }
+
+    let mut accepted = accepted.into_iter().peekable();
+    candidates
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, sentence)| {
+            (accepted.peek() == Some(&index)).then(|| {
+                accepted.next();
+                sentence
+            })
+        })
+        .collect()
+}
+
 fn tag_set(tags: &[String]) -> BTreeSet<&str> {
     tags.iter().map(String::as_str).collect()
 }
@@ -416,6 +465,30 @@ mod tests {
             }
 
             let actual = dedup_by_equivalence(&sentences);
+            prop_assert_eq!(actual, expected);
+        }
+
+        #[test]
+        fn indexed_exact_membership_matches_vec_contains(
+            existing_specs in prop::collection::vec(
+                (any::<u8>(), any::<u8>(), any::<u8>(), any::<u8>()),
+                0..40,
+            ),
+            candidate_specs in prop::collection::vec(
+                (any::<u8>(), any::<u8>(), any::<u8>(), any::<u8>()),
+                0..40,
+            ),
+        ) {
+            let existing = existing_specs.into_iter().map(production).collect::<Vec<_>>();
+            let candidates = candidate_specs.into_iter().map(production).collect::<Vec<_>>();
+            let mut expected = Vec::new();
+            for sentence in &candidates {
+                if !existing.contains(sentence) && !expected.contains(sentence) {
+                    expected.push(sentence.clone());
+                }
+            }
+
+            let actual = retain_new_sentences(existing.iter(), candidates);
             prop_assert_eq!(actual, expected);
         }
     }
