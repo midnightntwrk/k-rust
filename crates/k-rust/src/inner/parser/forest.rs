@@ -11,9 +11,10 @@ use k_rust_kore::measure::{self, Counter};
 
 use crate::kast::{FrontendSort, Sort, Term, TermMetadata};
 
-use super::{Derivations, ParseProvenance, Production, mint_literal_sort, term_metadata};
+use super::chart::Derivations;
 #[cfg(test)]
 use super::{PACKED_STRUCTURAL_COMPARISONS, UNPACKED_NODES};
+use super::{ParseProvenance, Production, mint_literal_sort, term_metadata};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum ParsedTerm {
