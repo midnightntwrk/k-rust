@@ -394,10 +394,10 @@ const REBASE_CALLS_REWRITE: u64 = 12;
 const RULE_BUBBLES_REWRITE: u64 = 198;
 /// `examples/rewrite.k`: 2091 sentences after transformation.
 const SENTENCES_REWRITE: u64 = 2300;
-/// `examples/rewrite.k`: 4,453,951 structural sentence-equivalence checks after key indexing.
-const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 4_900_000;
-/// `examples/rewrite.k`: 3,787 production catalogs built.
-const PRODUCTION_CATALOGS_REWRITE: u64 = 4_166;
+/// `examples/rewrite.k`: 1,100,936 structural sentence-equivalence checks with catalog indexes and views.
+const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 1_211_030;
+/// `examples/rewrite.k`: 3,360 production catalogs built with per-resolution views.
+const PRODUCTION_CATALOGS_REWRITE: u64 = 3_696;
 /// `examples/rewrite.k`: 69,079 order-preserving provenance-link dedup probes.
 const LINK_DEDUP_PROBES_REWRITE: u64 = 76_000;
 /// Casted rule chain of 15 operands: 1553 completion candidates.
