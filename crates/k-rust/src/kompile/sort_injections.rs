@@ -1198,7 +1198,7 @@ fn localize_sentence_metadata(
 ) {
     let localize = |term: &mut Term| {
         let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
-        *term = localize_term_metadata(taken, source, target);
+        *term = super::rebase::rebase_term_lossy(taken, source, target);
     };
     match sentence {
         Sentence::Rule {
@@ -1228,50 +1228,6 @@ fn localize_sentence_metadata(
         }
         _ => {}
     }
-}
-
-fn localize_term_metadata(
-    term: Term,
-    source: &ProductionCatalog<'_>,
-    target: &ProductionCatalog<'_>,
-) -> Term {
-    let mut metadata = term.metadata().cloned().unwrap_or_default();
-    if let Some(resolved) = metadata.production {
-        metadata.production = (resolved.0 < source.len())
-            .then(|| {
-                target.productions().find_map(|(id, candidate)| {
-                    sentence_equivalent(source.production(ProductionId(resolved.0)), candidate)
-                        .then_some(crate::kast::ResolvedProductionId(id.0))
-                })
-            })
-            .flatten();
-    }
-    let rebuilt = match term.into_unannotated() {
-        Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(localize_term_metadata(*left, source, target)),
-            right: Box::new(localize_term_metadata(*right, source, target)),
-        },
-        Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(localize_term_metadata(*pattern, source, target)),
-            alias: Box::new(localize_term_metadata(*alias, source, target)),
-        },
-        Term::Sequence(items) => Term::Sequence(
-            items
-                .into_iter()
-                .map(|item| localize_term_metadata(item, source, target))
-                .collect(),
-        ),
-        Term::Apply { label, arguments } => Term::Apply {
-            label,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| localize_term_metadata(argument, source, target))
-                .collect(),
-        },
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-        Term::Annotated { .. } => unreachable!(),
-    };
-    rebuilt.with_metadata(metadata)
 }
 
 pub fn add_sort_injections_from_resolved(

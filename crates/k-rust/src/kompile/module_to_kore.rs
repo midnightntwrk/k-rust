@@ -12,7 +12,7 @@ use crate::definition::{
     AssociativityRelations, AttributeKey, Attributes as KAttributes, Definition as KDefinition,
     LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog, ProductionId,
     ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
-    SortCatalog, SortHead, match_rule_label, sentence_equivalent,
+    SortCatalog, SortHead, match_rule_label,
 };
 use crate::kast::{
     FrontendSort, InternalLabel, Label, ResolvedProductionId, Sort, Term, WellKnownModule,
@@ -30,6 +30,7 @@ use crate::provenance::{
 use super::fresh_names::FreshNames;
 use super::label_graph::LabelDependencyGraph;
 use super::passes::number_sentence;
+use super::rebase::find_equivalent;
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
 
@@ -1158,11 +1159,7 @@ fn production_rebase(
             target_by_pointer
                 .get(&(std::ptr::from_ref(production) as usize))
                 .copied()
-                .or_else(|| {
-                    target.productions().find_map(|(id, candidate)| {
-                        sentence_equivalent(production, candidate).then_some(id)
-                    })
-                })
+                .or_else(|| find_equivalent(production, target))
                 .ok_or_else(|| ModuleToKoreError::InvalidImportedProductionMetadata {
                     module: definition.module(source_module).name.clone(),
                     production: source_id.0,
