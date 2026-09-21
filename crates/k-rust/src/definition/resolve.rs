@@ -18,7 +18,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
-use super::equivalence::sentence_equivalent;
+use super::equivalence::{dedup_by_equivalence, push_if_inequivalent};
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
 
@@ -465,11 +465,7 @@ impl ResolvedDefinition {
             })
         {
             let sentences = buckets.entry(SentenceBucket::new(sentence)).or_default();
-            if !sentences
-                .iter()
-                .any(|existing| sentence_equivalent(existing, sentence))
-            {
-                sentences.push(sentence);
+            if push_if_inequivalent(sentences, sentence) {
                 locations.push((owner, index));
             }
         }
@@ -498,30 +494,13 @@ impl ResolvedDefinition {
             }
         }
 
-        let mut sentences: Vec<&Sentence> = Vec::new();
-        for module in self
+        let sentences = self
             .dependency_order
             .iter()
             .filter(|module| exported_modules.contains(module))
-        {
-            for sentence in self.public_sentences(*module) {
-                if !sentences
-                    .iter()
-                    .any(|existing| sentence_equivalent(existing, sentence))
-                {
-                    sentences.push(sentence);
-                }
-            }
-        }
-        for sentence in &self.module(module).local_sentences {
-            if !sentences
-                .iter()
-                .any(|existing| sentence_equivalent(existing, sentence))
-            {
-                sentences.push(sentence);
-            }
-        }
-        sentences
+            .flat_map(|module| self.public_sentences(*module))
+            .chain(&self.module(module).local_sentences);
+        dedup_by_equivalence(sentences)
     }
 
     /// Scala's `publicSentences`: the local sentences exported by a module signature.
@@ -615,14 +594,8 @@ impl From<&FlatModule> for ResolvedModule {
 }
 
 fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Sentence> {
-    let mut unique = Vec::new();
-    for sentence in sentences {
-        if !unique
-            .iter()
-            .any(|existing| sentence_equivalent(existing, sentence))
-        {
-            unique.push(sentence.clone());
-        }
-    }
-    unique
+    dedup_by_equivalence(sentences)
+        .into_iter()
+        .cloned()
+        .collect()
 }

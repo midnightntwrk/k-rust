@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::ast::Sentence;
 use super::attribute_keys::AttributeKey;
 use super::catalog::ProductionCatalog;
-use super::equivalence::sentence_equivalent;
+use super::equivalence::{dedup_by_equivalence, sentence_equivalent};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{InternalLabel, Label, Term};
 
@@ -224,17 +224,12 @@ fn collect_unique<'a>(
     sentences: &[&'a Sentence],
     predicate: impl Fn(&Sentence) -> bool,
 ) -> Vec<&'a Sentence> {
-    let mut collected: Vec<&'a Sentence> = Vec::new();
-    for &sentence in sentences {
-        if predicate(sentence)
-            && !collected
-                .iter()
-                .any(|existing| sentence_equivalent(existing, sentence))
-        {
-            collected.push(sentence);
-        }
-    }
-    collected
+    dedup_by_equivalence(
+        sentences
+            .iter()
+            .copied()
+            .filter(|sentence| predicate(sentence)),
+    )
 }
 
 fn local_ids<Id: Ord>(

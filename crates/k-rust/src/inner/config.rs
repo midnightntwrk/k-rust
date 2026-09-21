@@ -9,7 +9,7 @@ use std::fmt;
 use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
-    Sentence, sentence_equivalent,
+    Sentence, push_if_inequivalent,
 };
 use crate::kast::{InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
@@ -300,12 +300,7 @@ pub(super) fn add_implicit_ml_syntax<'a>(
         return;
     };
     for sentence in resolved.signature_sentences(module) {
-        if !visible
-            .iter()
-            .any(|existing| sentence_equivalent(existing, sentence))
-        {
-            visible.push(sentence);
-        }
+        push_if_inequivalent(visible, sentence);
     }
 }
 

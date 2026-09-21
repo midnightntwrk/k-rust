@@ -12,7 +12,7 @@ use super::{
     Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolveError,
     ResolvedDefinition, Sentence,
     attribute_keys::{KeyParameter, builtin_key},
-    sentence_equivalent,
+    dedup_by_equivalence, push_if_inequivalent,
 };
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -315,15 +315,7 @@ impl Generator<'_, '_> {
             } => label.name == init_label,
             _ => false,
         }));
-        let mut unique: Vec<&Sentence> = Vec::new();
-        for production in productions {
-            if !unique
-                .iter()
-                .any(|existing| sentence_equivalent(existing, production))
-            {
-                unique.push(production);
-            }
-        }
+        let unique = dedup_by_equivalence(productions);
         let (initializer, initializer_takes_map) = match unique.as_slice() {
             [Sentence::Production { items, .. }] if items.len() == 1 => {
                 (Some(Term::apply(init_label, vec![])), false)
@@ -838,11 +830,8 @@ impl Generator<'_, '_> {
     }
 
     fn push(&mut self, sentence: Sentence) {
-        if !self
-            .generated
-            .iter()
-            .any(|existing| sentence_equivalent(existing, &sentence))
-        {
+        let mut generated = self.generated.iter().collect::<Vec<_>>();
+        if push_if_inequivalent(&mut generated, &sentence) {
             self.generated.push(sentence);
         }
     }

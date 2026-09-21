@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::ast::{Attributes, ProductionItem, Sentence};
 use super::attribute_keys::AttributeKey;
-use super::equivalence::sentence_equivalent;
+use super::equivalence::{dedup_by_equivalence, sentence_equivalent};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, Sort};
 
@@ -161,16 +161,11 @@ impl<'a> ProductionCatalog<'a> {
         visible_sentences: impl IntoIterator<Item = &'a Sentence>,
         local_sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Self {
-        let mut productions: Vec<&'a Sentence> = Vec::new();
-        for sentence in visible_sentences {
-            if matches!(sentence, Sentence::Production { .. })
-                && !productions
-                    .iter()
-                    .any(|existing| sentence_equivalent(existing, sentence))
-            {
-                productions.push(sentence);
-            }
-        }
+        let productions = dedup_by_equivalence(
+            visible_sentences
+                .into_iter()
+                .filter(|sentence| matches!(sentence, Sentence::Production { .. })),
+        );
 
         let local_sentences = local_sentences
             .into_iter()

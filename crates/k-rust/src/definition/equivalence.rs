@@ -209,6 +209,33 @@ pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {
     }
 }
 
+/// Retain the first sentence from each structural-equivalence class.
+pub(crate) fn dedup_by_equivalence<'a>(
+    sentences: impl IntoIterator<Item = &'a Sentence>,
+) -> Vec<&'a Sentence> {
+    let mut unique = Vec::new();
+    for sentence in sentences {
+        push_if_inequivalent(&mut unique, sentence);
+    }
+    unique
+}
+
+/// Append `sentence` when no retained sentence is structurally equivalent.
+pub(crate) fn push_if_inequivalent<'a>(
+    sentences: &mut Vec<&'a Sentence>,
+    sentence: &'a Sentence,
+) -> bool {
+    if sentences
+        .iter()
+        .any(|existing| sentence_equivalent(existing, sentence))
+    {
+        false
+    } else {
+        sentences.push(sentence);
+        true
+    }
+}
+
 fn tag_set(tags: &[String]) -> BTreeSet<&str> {
     tags.iter().map(String::as_str).collect()
 }
