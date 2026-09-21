@@ -141,7 +141,7 @@ impl<'definition> TermConverter<'definition, 'definition> {
             .subsorts(module)
             .map_err(|cycle| TermConversionError::CircularSubsort(cycle.path))?;
         Ok(Self {
-            productions: View::Shared(definition.production_catalog(module)),
+            productions: View::Owned(definition.production_catalog(module)),
             sorts: View::Owned(definition.sort_catalog(module)),
             token_sorts: None,
             subsorts: View::Owned(subsorts),

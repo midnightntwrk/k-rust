@@ -665,7 +665,7 @@ fn run_stages_seeded_current(
             #[cfg(debug_assertions)]
             assert_no_dangling_application_identities(&output);
             let next_resolved = match current.resolved.get() {
-                Some(Ok(previous)) => Some(previous.update(&current.definition, &output)),
+                Some(Ok(previous)) => Some(previous.update(&output)),
                 Some(Err(error)) => Some(Err(error.clone())),
                 None => None,
             };

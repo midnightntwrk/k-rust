@@ -557,13 +557,13 @@ impl<'a> ProductionCatalog<'a> {
 }
 
 impl ResolvedDefinition {
-    pub fn production_catalog(&self, module: ModuleId) -> Arc<ProductionCatalog<'static>> {
+    pub fn production_catalog(&self, module: ModuleId) -> ProductionCatalog<'_> {
         self.production_catalogs[module.0.index()]
             .get_or_init(|| {
-                Arc::new(ProductionCatalog::from_deduplicated_arcs(
+                ProductionCatalog::from_deduplicated_arcs(
                     self.sentence_arcs(module),
                     self.local_sentence_arcs(module),
-                ))
+                )
             })
             .clone()
     }

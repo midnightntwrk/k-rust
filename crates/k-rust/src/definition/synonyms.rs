@@ -35,7 +35,7 @@ pub(crate) fn apply_sort_synonyms_with_resolved(
         }
     }
 
-    let resolved = resolved.update(definition, &transformed)?;
+    let resolved = resolved.update(&transformed)?;
     Ok((transformed, resolved))
 }
 

@@ -1,6 +1,6 @@
 //! Memoised derived definition views scoped to one immutable resolution.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use super::partial_order::{Cycle, PartialOrder};
 use super::relations::{self, AssociativityRelations, OverloadOrder};
@@ -10,7 +10,7 @@ use crate::kast::Sort;
 /// Lazily computed catalogs and relations for one [`ResolvedDefinition`].
 pub struct DefinitionViews<'a> {
     definition: &'a ResolvedDefinition,
-    production_catalogs: Vec<OnceLock<Arc<ProductionCatalog<'static>>>>,
+    production_catalogs: Vec<OnceLock<ProductionCatalog<'a>>>,
     sort_catalogs: Vec<OnceLock<SortCatalog<'a>>>,
     subsorts: Vec<OnceLock<Result<PartialOrder<Sort>, Cycle<Sort>>>>,
     syntactic_subsorts: Vec<OnceLock<Result<PartialOrder<Sort>, Cycle<Sort>>>>,
