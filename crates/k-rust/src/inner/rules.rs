@@ -150,15 +150,20 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
     resolved: &ResolvedDefinition,
     timings: Option<&mut PhaseTimings>,
 ) -> Result<(Definition, ResolvedDefinition), RuleError> {
-    let grammar_started = timings.as_ref().map(|_| Instant::now());
+    let mut grammar_seconds = 0.0;
+    let mut parse_seconds = 0.0;
     let mut transformed = definition.clone();
     let main = resolved.main_module_id();
-    let global = global_rule_grammar(resolved)?;
+    let global_started = timings.as_ref().map(|_| Instant::now());
+    let global = global_rule_grammar(resolved);
+    if let Some(started) = global_started {
+        grammar_seconds += started.elapsed().as_secs_f64();
+    }
+    let global = global?;
     let reachable = resolved
         .transitive_imports(main)
         .into_iter()
         .collect::<BTreeSet<_>>();
-    let parse_started = timings.as_ref().map(|_| Instant::now());
 
     for module in &mut transformed.modules {
         if !module.local_sentences.iter().any(is_rule_bubble) {
@@ -167,6 +172,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
         let module_id = resolved
             .module_id(&module.name)
             .expect("every flat module was added to the resolved definition");
+        let grammar_started = timings.as_ref().map(|_| Instant::now());
         let grammar = module_rule_grammar(
             resolved,
             module_id,
@@ -174,7 +180,11 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
             &reachable,
             "rule-like sentence",
             &module.attributes,
-        )?;
+        );
+        if let Some(started) = grammar_started {
+            grammar_seconds += started.elapsed().as_secs_f64();
+        }
+        let grammar = grammar?;
 
         for sentence in &mut module.local_sentences {
             let Sentence::Bubble {
@@ -189,6 +199,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
                 continue;
             }
             measure::bump(Counter::KompileRuleBubblesParsed);
+            let parse_started = timings.as_ref().map(|_| Instant::now());
             let parsed = parse_rule_like_sentence(
                 &grammar,
                 &module.name,
@@ -196,6 +207,9 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
                 contents,
                 attributes.clone(),
             );
+            if let Some(started) = parse_started {
+                parse_seconds += started.elapsed().as_secs_f64();
+            }
             *sentence = parsed?;
         }
     }
@@ -203,17 +217,11 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
     if let Some(timings) = timings {
         timings.phases.push(crate::timings::PhaseTiming {
             name: "resolve rule bubbles / grammars",
-            seconds: grammar_started
-                .expect("grammar timing start exists when timings are requested")
-                .elapsed()
-                .as_secs_f64(),
+            seconds: grammar_seconds,
         });
         timings.phases.push(crate::timings::PhaseTiming {
             name: "resolve rule bubbles / parse",
-            seconds: parse_started
-                .expect("parse timing start exists when timings are requested")
-                .elapsed()
-                .as_secs_f64(),
+            seconds: parse_seconds,
         });
     }
 
