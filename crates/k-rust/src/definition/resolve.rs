@@ -473,9 +473,10 @@ impl ResolvedDefinition {
             .enumerate()
             .map(|(index, previous)| {
                 let lock = OnceLock::new();
-                if !invalidated[index]
-                    && let Some(catalog) = previous.get()
-                {
+                let module = ModuleId(NodeIndex::new(index));
+                let syntax_unchanged = self.visible_syntax_digest(module)
+                    == definition_visible_syntax_digest(definition, &self.module(module).name);
+                if syntax_unchanged && let Some(catalog) = previous.get() {
                     let _ = lock.set(catalog.clone());
                 }
                 lock
@@ -494,6 +495,22 @@ impl ResolvedDefinition {
 
     pub fn module_id(&self, name: &str) -> Option<ModuleId> {
         self.modules_by_name.get(name).copied()
+    }
+
+    pub(crate) fn visible_syntax_digest(&self, module: ModuleId) -> [u8; 32] {
+        let mut digest = Sha256::new();
+        let mut modules = self.transitive_imports(module);
+        modules.push(module);
+        modules.sort_by_key(|id| self.module(*id).name.as_str());
+        for id in modules {
+            digest.update(self.module(id).name.as_bytes());
+            for sentence in &self.module(id).local_sentences {
+                if is_syntax_sentence(sentence) {
+                    digest.update(format!("{sentence:?}").as_bytes());
+                }
+            }
+        }
+        digest.finalize().into()
     }
 
     pub fn module(&self, id: ModuleId) -> &ResolvedModule {
@@ -742,6 +759,49 @@ fn resolved_module_digest(module: &ResolvedModule) -> [u8; 32] {
     let mut digest = Sha256::new();
     digest.update(module.name.as_bytes());
     digest.update(format!("{:?}{:?}", module.attributes, module.local_sentences).as_bytes());
+    digest.finalize().into()
+}
+
+fn is_syntax_sentence(sentence: &Sentence) -> bool {
+    matches!(
+        sentence,
+        Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+    )
+}
+
+fn definition_visible_syntax_digest(definition: &Definition, module_name: &str) -> [u8; 32] {
+    let modules = definition
+        .modules
+        .iter()
+        .map(|module| (module.name.as_str(), module))
+        .collect::<BTreeMap<_, _>>();
+    let mut visited = BTreeSet::new();
+    let mut pending = vec![module_name];
+    while let Some(name) = pending.pop() {
+        if !visited.insert(name) {
+            continue;
+        }
+        if let Some(module) = modules.get(name) {
+            pending.extend(module.imports.iter().map(|import| import.name.as_str()));
+        }
+    }
+    let mut names = visited.into_iter().collect::<Vec<_>>();
+    names.sort_unstable();
+    let mut digest = Sha256::new();
+    for name in names {
+        let module = modules[name];
+        digest.update(name.as_bytes());
+        for sentence in &module.local_sentences {
+            if is_syntax_sentence(sentence) {
+                digest.update(format!("{sentence:?}").as_bytes());
+            }
+        }
+    }
     digest.finalize().into()
 }
 
