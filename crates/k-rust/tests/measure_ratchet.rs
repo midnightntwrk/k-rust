@@ -91,10 +91,6 @@ fn rewrite_example_compile_stays_within_the_pinned_kompile_work() {
         delta.get(Counter::KompileSentenceEquivalenceChecks) <= SENTENCE_EQUIVALENCE_CHECKS_REWRITE
     );
     assert!(delta.get(Counter::KompileProductionCatalogsBuilt) <= PRODUCTION_CATALOGS_REWRITE);
-    assert_eq!(
-        delta.get(Counter::KompileCatalogSentenceClones),
-        CATALOG_SENTENCE_CLONES_REWRITE
-    );
     assert!(delta.get(Counter::ProvenanceLinkDedupProbes) <= LINK_DEDUP_PROBES_REWRITE);
     // Prediction analyses are built per grammar, never per bubble.
     assert!(
@@ -410,8 +406,6 @@ const RESOLVE_UPDATE_SENTENCE_VISITS_REWRITE: u64 = 50_000;
 const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 1_211_030;
 /// `examples/rewrite.k`: 3,360 production catalogs built with per-resolution views.
 const PRODUCTION_CATALOGS_REWRITE: u64 = 655;
-/// `examples/rewrite.k`: production catalogs are built from shared sentence arcs.
-const CATALOG_SENTENCE_CLONES_REWRITE: u64 = 0;
 /// `examples/rewrite.k`: 69,079 order-preserving provenance-link dedup probes.
 const LINK_DEDUP_PROBES_REWRITE: u64 = 76_000;
 /// Casted rule chain of 15 operands: 1553 completion candidates.

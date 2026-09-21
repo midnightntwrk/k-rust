@@ -216,9 +216,6 @@ impl<'a> SortCatalog<'a> {
 }
 
 impl ResolvedDefinition {
-    /// Compute the sort catalog for a module.
-    ///
-    /// This accessor recomputes on every call; use `DefinitionViews` inside a loop.
     pub fn sort_catalog(&self, module: ModuleId) -> SortCatalog<'_> {
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let imported_sorts = self

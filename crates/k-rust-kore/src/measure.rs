@@ -19,7 +19,7 @@
 //! rename is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 9;
+pub const COUNTER_SCHEMA_VERSION: u64 = 8;
 
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -42,8 +42,6 @@ pub enum Counter {
     KompileSentenceEquivalenceChecks,
     /// Production catalogs constructed from visible sentence sets.
     KompileProductionCatalogsBuilt,
-    /// Sentences cloned while constructing a production catalog from borrowed inputs.
-    KompileCatalogSentenceClones,
     /// Finite partial orders constructed.
     KompilePartialOrdersBuilt,
     /// Explicit sort-injection terms inserted.
@@ -146,7 +144,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 57;
+    pub const COUNT: usize = 56;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -158,7 +156,6 @@ impl Counter {
         Counter::KompileSentencesTransformed,
         Counter::KompileSentenceEquivalenceChecks,
         Counter::KompileProductionCatalogsBuilt,
-        Counter::KompileCatalogSentenceClones,
         Counter::KompilePartialOrdersBuilt,
         Counter::KompileInjectionsInserted,
         Counter::KompileMacroApplications,
@@ -220,7 +217,6 @@ impl Counter {
             Counter::KompileSentencesTransformed => "kompile.sentences_transformed",
             Counter::KompileSentenceEquivalenceChecks => "kompile.sentence_equivalence_checks",
             Counter::KompileProductionCatalogsBuilt => "kompile.production_catalogs_built",
-            Counter::KompileCatalogSentenceClones => "kompile.catalog_sentence_clones",
             Counter::KompilePartialOrdersBuilt => "kompile.partial_orders_built",
             Counter::KompileInjectionsInserted => "kompile.injections_inserted",
             Counter::KompileMacroApplications => "kompile.macro_applications",

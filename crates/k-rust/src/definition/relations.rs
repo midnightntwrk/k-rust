@@ -280,39 +280,25 @@ fn add_overload_group(
 }
 
 impl ResolvedDefinition {
-    /// Compute the semantic subsort relation.
-    ///
-    /// This accessor recomputes on every call; use `DefinitionViews` inside a loop.
     pub fn subsorts(&self, module: ModuleId) -> Result<PartialOrder<Sort>, Cycle<Sort>> {
         compute_subsorts(self.sentences(module), false)
     }
 
-    /// Compute the syntactic subsort relation.
-    ///
-    /// This accessor recomputes on every call; use `DefinitionViews` inside a loop.
     pub fn syntactic_subsorts(&self, module: ModuleId) -> Result<PartialOrder<Sort>, Cycle<Sort>> {
         compute_subsorts(self.sentences(module), true)
     }
 
-    /// Compute the overload relation from the memoised production catalog.
     pub fn overloads(&self, module: ModuleId) -> Result<OverloadOrder<'_>, Error> {
         let sentences = self.sentences(module);
         let subsorts =
             compute_subsorts(sentences.iter().copied(), false).map_err(Error::CircularSubsort)?;
-        compute_overloads_with_catalog(&self.production_catalog(module), &subsorts)
-            .map_err(Error::CircularOverload)
+        compute_overloads(sentences, &subsorts).map_err(Error::CircularOverload)
     }
 
-    /// Compute the syntax priority relation.
-    ///
-    /// This accessor recomputes on every call; use `DefinitionViews` inside a loop.
     pub fn priorities(&self, module: ModuleId) -> Result<PartialOrder<String>, Cycle<String>> {
         compute_priorities(self.sentences(module))
     }
 
-    /// Compute syntax associativity relations.
-    ///
-    /// This accessor recomputes on every call; use `DefinitionViews` inside a loop.
     pub fn associativities(&self, module: ModuleId) -> AssociativityRelations {
         compute_associativities(self.sentences(module))
     }
