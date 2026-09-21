@@ -1,3 +1,6 @@
+//! Five relation builders scan one module's productions and return deterministic partial orders.
+//! Each view is rebuilt per call; its cost is the production scan plus partial-order construction.
+//!
 //! Derived subsort, overload, priority, and associativity relations.
 
 use std::collections::{BTreeMap, BTreeSet};

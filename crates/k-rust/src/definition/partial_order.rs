@@ -1,3 +1,6 @@
+//! Finite partial orders use Kahn topological sorting, reverse-order transitive closure, and set-intersection bounds.
+//! Construction is O(V + E + closure); `Counter::KompilePartialOrdersBuilt` measures builds after CQ-12's counter commit.
+//!
 //! A deterministic, `petgraph`-backed finite partial order.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -85,6 +88,8 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .map(|node| (graph[node].clone(), node))
             .collect::<BTreeSet<_>>();
         let mut order = Vec::with_capacity(graph.node_count());
+        // Invariant: `ready` contains exactly the unprocessed zero-indegree nodes and `order` is
+        // a prefix of a linear extension; each pop permanently appends one node.
         while let Some((element, node)) = ready.pop_first() {
             order.push(node);
             let mut successors = graph.neighbors_directed(node, Outgoing).collect::<Vec<_>>();
@@ -103,6 +108,8 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .cloned()
             .map(|element| (element, BTreeSet::new()))
             .collect::<BTreeMap<_, _>>();
+        // Invariant: successors of each node visited in reverse topological order already have
+        // complete strict-successor closures.
         for &node in order.iter().rev() {
             let mut successors = graph.neighbors_directed(node, Outgoing).collect::<Vec<_>>();
             successors.sort_by(|left, right| graph[*left].cmp(&graph[*right]));
@@ -242,9 +249,12 @@ impl<T: Clone + Ord> PartialOrder<T> {
     pub fn connected_components(&self) -> Vec<BTreeSet<T>> {
         let mut unseen = self.elements().cloned().collect::<BTreeSet<_>>();
         let mut components = Vec::new();
+        // Invariant: `unseen` contains exactly the elements not assigned to a completed component.
         while let Some(start) = unseen.pop_first() {
             let mut component = BTreeSet::new();
             let mut pending = vec![start];
+            // Invariant: `pending` is the unexpanded frontier of the current component and every
+            // element in `component` has been removed from `unseen`.
             while let Some(element) = pending.pop() {
                 if !component.insert(element.clone()) {
                     continue;

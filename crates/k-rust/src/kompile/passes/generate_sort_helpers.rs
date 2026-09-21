@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Generate sort predicates and projection functions consumed by later backend passes.
 
 use serde_json::{Value, json};

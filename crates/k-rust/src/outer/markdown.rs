@@ -1,3 +1,6 @@
+//! Markdown extraction is a fence-state machine that emits K code blocks in source order.
+//! It is linear in input lines; no dedicated counter.
+//!
 //! Literate K extraction from Markdown fenced code blocks.
 
 use std::{collections::BTreeSet, fmt};

@@ -1,3 +1,6 @@
+//! The host-independent pass driver applies 39 named stages and preserves two checked-definition checkpoints.
+//! `tests/phase_timings.rs` pins stage names and `tests/provenance_manifest.rs` pins the transformation source; `KompileSentencesTransformed` measures output volume.
+//!
 //! Host-independent orchestration of the ordered K frontend compilation pipeline.
 
 use std::{
@@ -658,6 +661,7 @@ fn transform_loaded_definition(
         ));
     }
 
+    // Checkpoint: every later transformation receives a resolved, structurally checked definition.
     let definition = diagnostic_stage!(
         options.diagnostics,
         timings,
@@ -786,6 +790,8 @@ fn transform_loaded_definition(
         generate_sort_predicate_rules(&definition)
     });
     let definition = timings.time("number sentences (final)", || number_sentences(&definition));
+    // Checkpoint: search-pattern compilation and the sentence counter observe this execution
+    // definition; injection, unit removal, and construction minimization apply only to emission.
     let execution_definition = definition;
     let definition = stage(timings, "add sort injections", || {
         add_sort_injections_to_definition(&execution_definition)

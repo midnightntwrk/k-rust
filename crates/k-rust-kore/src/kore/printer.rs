@@ -1,3 +1,6 @@
+//! KORE pretty printing computes flat widths once, then chooses compact or broken layouts in a linear document traversal.
+//! The former quadratic `fits` note is stale after the flat-width cache; no dedicated counter.
+//!
 //! Compact and width-aware textual KORE printing.
 
 mod document;

@@ -1,3 +1,6 @@
+//! Outer lowering maps tag-indexed syntax nodes into the flat definition model.
+//! It visits each syntax node once; no dedicated counter.
+//!
 use std::collections::BTreeMap;
 
 use serde_json::{Value, json};

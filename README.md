@@ -84,9 +84,8 @@ Implemented end to end:
 - Native Z3-backed ambiguous and parametric inference by default, with a portable non-Z3 subset.
 - KAST text and JSON v4; KORE text, JSON v1, binary KORE 1.0–1.2, ASTs, compact and pretty
   printers, and explicit syntax/KAST normalization.
-- Definition catalogs, import resolution, structural checks, configuration expansion, the ordered
-  backend lowering pipeline, sort injections, and `ModuleToKORE`.
-- KORE generation for ordinary rules, claims, equations, functions, `owise`, macros, aliases,
+- Definition catalogs, import resolution (import DAG on petgraph), structural checks, configuration expansion, the ordered 39-stage backend lowering pipeline, and sort injections; catalogs use linear grouping after equivalence dedup.
+- KORE generation through declarations, generated axioms, and per-rule emission with the `owise` priority predicate for ordinary rules, claims, equations, functions, `owise`, macros, aliases,
   reachability claims, subsorts, overloads, algebraic axioms, no-confusion, and no-junk.
 - In-process concrete and symbolic execution, `ONE`/`FINAL`/`STAR`/`PLUS` reachability search,
   simplification, implication and reachability checks, builtin collections, Z3

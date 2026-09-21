@@ -1,3 +1,7 @@
+//! Import-DAG resolution uses petgraph topological order and a colouring DFS for cycle reports.
+//! A resolve costs O(M log M + E + sum n_m^2 * eq); visible sentences use bucketed equivalence dedup and signatures use O(S^2 * eq) dedup.
+//! `Counter::KompileResolveCalls` counts invocations.
+//!
 //! Resolution of flat, name-based modules into an import graph.
 
 use std::{
@@ -418,6 +422,8 @@ impl ResolvedDefinition {
             .into_iter()
             .map(|import| import.module)
             .collect::<Vec<_>>();
+        // Invariant: `found` contains expanded imports and `pending` contains discovered imports
+        // not yet expanded; a module is expanded only after its first insertion into `found`.
         while let Some(import) = pending.pop() {
             if found.insert(import) {
                 pending.extend(
@@ -479,6 +485,8 @@ impl ResolvedDefinition {
             .into_iter()
             .map(|import| import.module)
             .collect::<Vec<_>>();
+        // Invariant: `exported_modules` contains expanded imports and `pending` contains the
+        // public-import frontier; each module is expanded at most once.
         while let Some(import) = pending.pop() {
             if exported_modules.insert(import) {
                 pending.extend(

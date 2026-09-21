@@ -1,3 +1,6 @@
+//! Outer syntax owns the AST, recursive-descent parser, Markdown fence machine, source loader, checks, and lowering.
+//! Each algorithm is measured by whole load time; no dedicated counter.
+//!
 //! The unlowered AST and parser for user-authored `.k` files.
 
 mod ast;

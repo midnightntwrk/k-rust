@@ -1,3 +1,5 @@
+//! Outer checks validate module and sentence declarations by linear scans with no worklist and no dedicated counter.
+//!
 use std::sync::LazyLock;
 
 use regex::Regex;

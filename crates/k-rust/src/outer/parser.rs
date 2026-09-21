@@ -1,3 +1,6 @@
+//! Outer syntax uses recursive descent with save-and-restore lookahead over a finite token stream.
+//! Parsing is linear in consumed tokens apart from bounded alternatives; no dedicated counter.
+//!
 use std::{error::Error, fmt, rc::Rc, sync::LazyLock};
 
 use regex::Regex;

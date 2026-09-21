@@ -1,3 +1,6 @@
+//! Fresh-name generation reserves existing names and retries monotonically increasing suffixes.
+//! Each mint takes at most O(reserved names + 1) attempts; no dedicated counter.
+//!
 //! Sentence-local fresh variable names.
 //!
 //! Java's fresh-name passes restart their counters at the pass/sentence boundary and compare
@@ -101,6 +104,8 @@ impl FreshNames {
 
     /// Mint the first unused `{prefix}{n}`, advancing past rejected candidates like Java.
     pub(crate) fn mint(&mut self, prefix: &str) -> String {
+        // Invariant: every smaller suffix considered by this call was already reserved and the
+        // counter increases once per attempt, so an unused name appears within |used| + 1 tries.
         loop {
             let candidate = format!("{prefix}{}", self.counter);
             self.counter += 1;

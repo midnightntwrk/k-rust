@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Expand compile-time macro and alias rules by structural matching.
 
 use std::{

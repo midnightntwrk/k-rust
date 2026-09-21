@@ -1,3 +1,6 @@
+//! Term conversion recursively lowers K terms to typed KORE and resolves overloads against production catalogs.
+//! Work is O(term nodes times overload candidates); no dedicated counter.
+//!
 //! Conversion from user-facing K terms to backend-facing KORE patterns.
 
 use std::collections::{BTreeMap, BTreeSet};

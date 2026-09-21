@@ -1,3 +1,6 @@
+//! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
+//! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
+//!
 //! Every well-known K attribute key, declared once with the facts K keeps per key.
 //!
 //! The definition model's `Attributes` map stays `String`-keyed: unrecognized user keys are

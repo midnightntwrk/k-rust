@@ -1,3 +1,6 @@
+//! Sort injection computes expected sorts, least upper bounds, and explicit KORE injections, with strict rebase-in and lossy localization-out metadata policies.
+//! Work is O(term nodes times production and subsort queries); `KompileRebaseCalls` and `KompileInjectionsInserted` measure its variable work after CQ-12.
+//!
 //! Production-aware insertion of explicit KORE subsort injections.
 
 use std::cell::{Cell, RefCell};

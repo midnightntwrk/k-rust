@@ -1,3 +1,6 @@
+//! Structural definition checking composes Java-compatible per-module checks over resolved catalogs.
+//! Checks are linear in visited sentences and terms unless a submodule states another bound; no dedicated counter.
+//!
 //! Dependency-light structural checks ported from the Java frontend.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};

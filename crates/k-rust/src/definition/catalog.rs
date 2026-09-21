@@ -1,3 +1,6 @@
+//! Production catalogs group visible productions and build label, sort, hook, and identity indexes in declaration order.
+//! Construction costs O(n^2 * eq + n log n) before indexed equivalence; `Counter::KompileProductionCatalogsBuilt` measures builds after CQ-12's counter commit.
+//!
 //! Deterministic indexes over the productions visible from a resolved module.
 
 use std::collections::{BTreeMap, BTreeSet};

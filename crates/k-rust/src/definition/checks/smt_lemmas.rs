@@ -1,3 +1,5 @@
+//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//!
 //! SMT-lemma symbol validation ported from Java `CheckSmtLemmas`.
 
 use super::Sentence;

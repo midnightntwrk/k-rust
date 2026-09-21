@@ -1,3 +1,7 @@
+//! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions.
+//! Annotation is linear in visited nodes plus origin-union probes; `ProvenanceLinkDedupProbes` measures those probes after CQ-12.
+//! The former linear `push_unique` union was the largest KEVM self frame at the audit base and is replaced by CQ-12b.
+//!
 //! Stable source identities and provenance shared by the semantic frontend.
 
 use std::{
@@ -536,6 +540,8 @@ fn sentence_origins(
 fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
     let mut counterparts = vec![None; after.len()];
     let mut used = vec![false; before.len()];
+    // Invariant: counterparts already assigned by a stronger key remain fixed and each `before`
+    // index marked in `used` is paired exactly once.
     for key in [AttributeKey::UniqueId, AttributeKey::Label] {
         for (after_index, sentence) in after.iter().enumerate() {
             if counterparts[after_index].is_some() {
@@ -728,6 +734,8 @@ fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> V
 }
 
 fn collect_source_links(term: &Term, links: &mut Vec<ProvenanceLink>) {
+    // Invariant: `links` contains distinct source links for the term prefix already traversed in
+    // first-encounter order; recursive calls visit proper subterms.
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
         push_unique(links, ProvenanceLink::Source { span });
     }
@@ -754,6 +762,7 @@ fn collect_source_links(term: &Term, links: &mut Vec<ProvenanceLink>) {
 }
 
 fn push_unique(links: &mut Vec<ProvenanceLink>, link: ProvenanceLink) {
+    // Invariant: `links` contains distinct entries in first-encounter order.
     if !links.contains(&link) {
         links.push(link);
     }
@@ -1003,6 +1012,8 @@ fn term_origin_links(
     let before_metadata = before.and_then(Term::metadata);
     let after_metadata = after.metadata();
     let mut links = Vec::new();
+    // Invariant: `links` contains the distinct prior and current origin links already scanned in
+    // first-encounter order.
     for link in before_metadata
         .and_then(|metadata| metadata.origin.as_deref())
         .into_iter()
@@ -1017,6 +1028,7 @@ fn term_origin_links(
     {
         push_unique(&mut links, link);
     }
+    // Invariant: source spans are appended once after inherited origin records.
     for span in [
         before_metadata.and_then(|metadata| metadata.span),
         after_metadata.and_then(|metadata| metadata.span),
@@ -1029,6 +1041,7 @@ fn term_origin_links(
     if links.is_empty() {
         return Arc::clone(inherited);
     }
+    // Invariant: inherited links not already present are appended in inherited order.
     for link in inherited.iter() {
         push_unique(&mut links, link.clone());
     }

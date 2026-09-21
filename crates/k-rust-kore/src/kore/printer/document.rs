@@ -1,3 +1,6 @@
+//! Wadler-style documents precompute flat widths and render with a bounded stack in O(document nodes).
+//! No dedicated counter measures printing.
+//!
 #[derive(Clone, Debug)]
 pub(super) struct Doc {
     ops: Vec<Op>,

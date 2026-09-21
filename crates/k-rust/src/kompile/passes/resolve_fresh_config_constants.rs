@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Allocate compile-time integer constants for fresh configuration variables.
 
 use std::{collections::BTreeMap, fmt};

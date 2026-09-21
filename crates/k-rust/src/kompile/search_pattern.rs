@@ -1,3 +1,6 @@
+//! Search-pattern compilation applies sort injection and term-to-KORE conversion to one pattern.
+//! It adds no worklist of its own; the enclosed algorithms determine its cost.
+//!
 //! Compilation of one surface K search pattern into a verified-shape KORE target.
 
 use std::collections::BTreeSet;

@@ -1,3 +1,6 @@
+//! KORE emission builds declarations and generated axioms, then emits rules and equations with an owise competitor predicate.
+//! Catalog products and per-rule scans dominate; `KompileOwiseCompetitorScans` measures the competitor loop after CQ-12, and label dependency closure has a shared home.
+//!
 //! The declaration-producing prefix of Java's `ModuleToKORE`.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -2633,6 +2636,7 @@ fn emit_owise_equation(
     parameters: Vec<String>,
     avoid_variables: &BTreeSet<String>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
+    // O1: bind one fresh KORE variable per argument and match the equation's own children.
     let predicate_sort = KoreSort::Variable("R".into());
     let result_sort = converter.convert_sort(&equation.result_sort);
     let variables = equation_variables(&equation, converter);
@@ -2644,6 +2648,7 @@ fn emit_owise_equation(
         converter,
     )?;
 
+    // O2: reserve caller variables and allocate the per-module injection cache lazily.
     let mut fresh = FreshNames::default();
     for name in avoid_variables {
         fresh.reserve(name.clone());
@@ -2652,7 +2657,10 @@ fn emit_owise_equation(
         // Initialize lazily so modules without owise equations pay no cache allocation.
         owise_injections.resize_with(module_rules.len(), || None);
     }
+    // O3: collect each executable same-signature competitor once in rule-catalog order.
     let mut competitors = Vec::new();
+    // Invariant: `competitors` contains exactly the accepted rules before `index`, each with
+    // refreshed variables and at most one cached injection in `owise_injections`.
     for (index, sentence) in module_rules.iter().enumerate() {
         if owise_injections[index].is_none() {
             owise_injections[index] = Some(injector.inject_sentence(sentence)?);
@@ -2732,6 +2740,7 @@ fn emit_owise_equation(
         competitors.push(candidate);
     }
 
+    // O4: preserve competitor order in a right-associated disjunction ending in bottom.
     competitors.push(Pattern::Bottom {
         sort: predicate_sort.clone(),
     });
@@ -2739,12 +2748,14 @@ fn emit_owise_equation(
     let mut any_competitor = competitors
         .next()
         .expect("the competitor disjunction always ends in bottom");
+    // Invariant: `any_competitor` is the disjunction of the already folded suffix.
     for competitor in competitors {
         any_competitor = Pattern::Or {
             sort: predicate_sort.clone(),
             arguments: vec![competitor, any_competitor],
         };
     }
+    // O5: guard the equation with the negated competitor predicate and its own side conditions.
     let negative_match = Pattern::Not {
         sort: predicate_sort.clone(),
         argument: Box::new(any_competitor),

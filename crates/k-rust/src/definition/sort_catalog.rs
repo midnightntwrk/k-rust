@@ -1,3 +1,6 @@
+//! Sort catalogs group visible declarations and instantiated sort heads in declaration order.
+//! Construction is O(n log n) in visible sort declarations; no dedicated counter.
+//!
 //! Deterministic indexes over the sorts visible from a resolved module.
 
 use std::collections::{BTreeMap, BTreeSet};

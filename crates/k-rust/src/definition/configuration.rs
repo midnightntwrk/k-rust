@@ -1,3 +1,6 @@
+//! Configuration expansion recursively generates cells, initializers, and top-cell syntax while resolving newly generated views.
+//! Work is proportional to visited configuration terms plus generated-sentence dedup; enclosing resolve and sentence counters measure it.
+//!
 //! Expansion of parsed configuration declarations into generated sentences.
 
 use std::collections::BTreeSet;

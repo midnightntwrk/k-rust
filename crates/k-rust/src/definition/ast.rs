@@ -1,3 +1,6 @@
+//! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
+//! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
+//!
 //! The flat, serializable K definition model.
 
 use std::{

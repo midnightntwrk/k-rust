@@ -1,3 +1,5 @@
+//! Outer-syntax AST storage has no worklist; parser and lowering algorithms own traversal costs.
+//!
 use crate::{kast::Sort, provenance::SourceId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

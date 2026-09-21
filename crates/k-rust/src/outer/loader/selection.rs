@@ -1,3 +1,6 @@
+//! Module selection traverses imports and configuration reachability before backend exclusion.
+//! Work is O(modules + imports); no dedicated counter.
+//!
 //! Module selection for fresh compilation, before backend exclusion and inner parsing.
 
 use std::collections::BTreeSet;

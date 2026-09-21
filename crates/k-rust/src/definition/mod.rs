@@ -1,3 +1,7 @@
+//! Definition algorithms are layered from syntax and equivalence through import resolution and derived catalogs.
+//! Derived views are rebuilt per call; the resolved visible-sentence list is the only memo.
+//! `KompileResolveCalls`, `KompileRebaseCalls`, `KompileRuleBubblesParsed`, and `KompileSentencesTransformed` measure the enclosing compilation work.
+//!
 //! K definition syntax and KAST JSON interchange.
 
 pub mod ast;

@@ -1,3 +1,6 @@
+//! Structural sentence and term equivalence powers declaration-order deduplication.
+//! The shared accumulator costs O(n^2 * eq); `Counter::KompileSentenceEquivalenceChecks` measures equivalence calls after CQ-12's counter commit.
+//!
 //! K sentence equality for deduplication, including `Production`'s custom equality override.
 
 use std::collections::BTreeSet;

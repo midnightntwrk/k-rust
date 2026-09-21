@@ -1,3 +1,5 @@
+//! Virtual paths are normalized lexically in O(path components) with no worklist and no dedicated counter.
+//!
 //! Lexical path handling for host-provided virtual source graphs.
 
 use std::path::{Component, Path};
