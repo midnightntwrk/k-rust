@@ -12,6 +12,7 @@ use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan
 use k_rust::provenance::{
     GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord, ProvenanceLink, SourceTable,
 };
+use proptest::prelude::*;
 use serde_json::{Value, json};
 
 fn attrs(entries: &[(&str, &str)]) -> Attributes {
@@ -1003,4 +1004,80 @@ fn sentence_buckets_match_quadratic_selection_for_remaining_syntax_and_attribute
     }
     combined.extend(combined.clone());
     assert_bucket_sequence(combined, &[0, 1, 2, 3]);
+}
+
+proptest::proptest! {
+    #[test]
+    fn incremental_update_matches_full_resolution_over_small_acyclic_edits(
+        edge_bits in proptest::collection::vec(any::<bool>(), 6),
+        edit in 0usize..4,
+    ) {
+        let names = ["A", "B", "C", "D"];
+        let edge_pairs = [(0usize, 1usize), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+        let mut imports = vec![Vec::new(); names.len()];
+        for ((from, to), enabled) in edge_pairs.into_iter().zip(edge_bits) {
+            if enabled {
+                imports[from].push(FlatImport { name: names[to].into(), public: from % 2 == 0 });
+            }
+        }
+        let modules = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| FlatModule {
+                name: (*name).into(),
+                imports: imports[index].clone(),
+                local_sentences: vec![marker(name)],
+                attributes: Attributes::default(),
+            })
+            .collect::<Vec<_>>();
+        let previous = Definition {
+            main_module: "A".into(),
+            modules,
+            attributes: Attributes::default(),
+        };
+        let mut next = previous.clone();
+        let target = edit;
+        match edit {
+            0 => next.modules[target].local_sentences[0] = marker("edited"),
+            1 => next.modules[target].local_sentences.push(marker("added")),
+            2 => next.modules[target].local_sentences.clear(),
+            3 => {
+                if !next.modules[0].imports.iter().any(|import| import.name == "D") {
+                    next.modules[0].imports.push(FlatImport { name: "D".into(), public: true });
+                }
+            }
+            _ => unreachable!(),
+        }
+
+        let base = ResolvedDefinition::resolve(&previous).unwrap();
+        let updated = base.update(&previous, &next).unwrap();
+        let resolved = ResolvedDefinition::resolve(&next).unwrap();
+        prop_assert_eq!(updated.dependency_order(), resolved.dependency_order());
+        for id in resolved.dependency_order().iter().copied() {
+            let name = &resolved.module(id).name;
+            let updated_id = updated.module_id(name).unwrap();
+            prop_assert_eq!(updated.sentences(updated_id), resolved.sentences(id));
+            let updated_catalog = updated.production_catalog(updated_id);
+            let updated_productions = updated_catalog
+                .productions()
+                .map(|(_, sentence)| sentence)
+                .collect::<Vec<_>>();
+            let resolved_catalog = resolved.production_catalog(id);
+            let resolved_productions = resolved_catalog
+                .productions()
+                .map(|(_, sentence)| sentence)
+                .collect::<Vec<_>>();
+            prop_assert_eq!(updated_productions, resolved_productions);
+        }
+        if edit != 3 {
+            let untouched = (target + 1) % names.len();
+            let name = names[untouched];
+            let old_id = base.module_id(name).unwrap();
+            let new_id = updated.module_id(name).unwrap();
+            prop_assert!(Arc::ptr_eq(
+                &base.module(old_id).local_sentences[0],
+                &updated.module(new_id).local_sentences[0],
+            ));
+        }
+    }
 }
