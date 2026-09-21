@@ -200,7 +200,7 @@ impl std::error::Error for FreshGeneratorError {}
 /// productions are collapsed before IDs are assigned.
 #[derive(Clone, Debug)]
 pub struct ProductionCatalog<'a> {
-    productions: Vec<Arc<Sentence>>,
+    productions: Vec<CatalogSentence<'a>>,
     identities: Vec<ProductionIdentity>,
     by_identity: BTreeMap<ProductionIdentity, ProductionId>,
     local: BTreeSet<ProductionId>,
@@ -214,6 +214,34 @@ pub struct ProductionCatalog<'a> {
     macro_labels: BTreeSet<Label>,
     by_key: OnceLock<BTreeMap<ProductionKey, Vec<ProductionId>>>,
     marker: PhantomData<&'a Sentence>,
+}
+
+#[derive(Clone, Debug)]
+enum CatalogSentence<'a> {
+    Borrowed(&'a Sentence),
+    Shared(Arc<Sentence>),
+}
+
+impl CatalogSentence<'_> {
+    fn as_ref(&self) -> &Sentence {
+        match self {
+            Self::Borrowed(sentence) => sentence,
+            Self::Shared(sentence) => sentence,
+        }
+    }
+}
+
+struct CatalogIndexes {
+    identities: Vec<ProductionIdentity>,
+    by_identity: BTreeMap<ProductionIdentity, ProductionId>,
+    by_label: BTreeMap<LabelHead, Vec<ProductionId>>,
+    by_sort: BTreeMap<SortHead, Vec<ProductionId>>,
+    token_by_sort: BTreeMap<Sort, Vec<ProductionId>>,
+    function_labels: BTreeSet<LabelHead>,
+    signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
+    attributes_by_label: BTreeMap<LabelHead, Attributes>,
+    result_sort_by_label: BTreeMap<LabelHead, Sort>,
+    macro_labels: BTreeSet<Label>,
 }
 
 impl<'a> ProductionCatalog<'a> {
@@ -263,16 +291,37 @@ impl<'a> ProductionCatalog<'a> {
         productions: Vec<&'a Sentence>,
         local_sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Self {
-        Self::from_arc_productions(
-            productions
+        let local_sentences = local_sentences
+            .into_iter()
+            .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
+            .collect::<Vec<_>>();
+        let mut catalog = Self {
+            productions: productions
                 .into_iter()
-                .map(|sentence| Arc::new(sentence.clone()))
+                .map(CatalogSentence::Borrowed)
                 .collect(),
-            local_sentences
-                .into_iter()
-                .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
-                .map(|sentence| Arc::new(sentence.clone())),
-        )
+            identities: Vec::new(),
+            by_identity: BTreeMap::new(),
+            local: BTreeSet::new(),
+            by_label: BTreeMap::new(),
+            by_sort: BTreeMap::new(),
+            token_by_sort: BTreeMap::new(),
+            function_labels: BTreeSet::new(),
+            signatures: BTreeMap::new(),
+            attributes_by_label: BTreeMap::new(),
+            result_sort_by_label: BTreeMap::new(),
+            macro_labels: BTreeSet::new(),
+            by_key: OnceLock::new(),
+            marker: PhantomData,
+        };
+        catalog.local = local_sentences
+            .into_iter()
+            .filter_map(|local| catalog.find_equivalent(local))
+            .collect();
+        let indexes = build_indexes(&catalog.productions);
+        catalog.apply_indexes(indexes);
+        measure::bump(Counter::KompileProductionCatalogsBuilt);
+        catalog
     }
 
     fn from_arc_productions(
@@ -285,7 +334,10 @@ impl<'a> ProductionCatalog<'a> {
             .collect::<Vec<_>>();
 
         let mut catalog = Self {
-            productions,
+            productions: productions
+                .into_iter()
+                .map(CatalogSentence::Shared)
+                .collect(),
             identities: Vec::new(),
             by_identity: BTreeMap::new(),
             local: BTreeSet::new(),
@@ -304,9 +356,23 @@ impl<'a> ProductionCatalog<'a> {
             .into_iter()
             .filter_map(|local| catalog.find_equivalent(local.as_ref()))
             .collect();
-        catalog.build_indexes();
+        let indexes = build_indexes(&catalog.productions);
+        catalog.apply_indexes(indexes);
         measure::bump(Counter::KompileProductionCatalogsBuilt);
         catalog
+    }
+
+    fn apply_indexes(&mut self, indexes: CatalogIndexes) {
+        self.identities = indexes.identities;
+        self.by_identity = indexes.by_identity;
+        self.by_label = indexes.by_label;
+        self.by_sort = indexes.by_sort;
+        self.token_by_sort = indexes.token_by_sort;
+        self.function_labels = indexes.function_labels;
+        self.signatures = indexes.signatures;
+        self.attributes_by_label = indexes.attributes_by_label;
+        self.result_sort_by_label = indexes.result_sort_by_label;
+        self.macro_labels = indexes.macro_labels;
     }
 
     pub fn from_visible(sentences: impl IntoIterator<Item = &'a Sentence>) -> Self {
@@ -326,7 +392,7 @@ impl<'a> ProductionCatalog<'a> {
     }
 
     pub fn production(&self, id: ProductionId) -> &Sentence {
-        &self.productions[id.0]
+        self.productions[id.0].as_ref()
     }
 
     /// Return the content identity aligned with `id`.
@@ -483,77 +549,101 @@ impl<'a> ProductionCatalog<'a> {
             })
             .collect()
     }
+}
 
-    fn build_indexes(&mut self) {
-        for id in self.ids().collect::<Vec<_>>() {
-            let identity = production_identity(self.production(id))
-                .expect("production catalogs contain only productions");
-            self.identities.push(identity);
-            let previous = self.by_identity.insert(identity, id);
-            debug_assert!(
-                previous.is_none(),
-                "distinct catalog productions have the same ProductionIdentity"
-            );
-            let sentence = self.production(id).clone();
-            let Sentence::Production {
-                label,
-                parameters,
-                sort,
-                items,
-                attributes,
-            } = &sentence
-            else {
-                unreachable!()
-            };
-            self.by_sort
-                .entry(SortHead::from(sort))
+fn build_indexes(productions: &[CatalogSentence<'_>]) -> CatalogIndexes {
+    let mut indexes = CatalogIndexes {
+        identities: Vec::new(),
+        by_identity: BTreeMap::new(),
+        by_label: BTreeMap::new(),
+        by_sort: BTreeMap::new(),
+        token_by_sort: BTreeMap::new(),
+        function_labels: BTreeSet::new(),
+        signatures: BTreeMap::new(),
+        attributes_by_label: BTreeMap::new(),
+        result_sort_by_label: BTreeMap::new(),
+        macro_labels: BTreeSet::new(),
+    };
+    for (index, sentence) in productions.iter().enumerate() {
+        let id = ProductionId(index);
+        let sentence = sentence.as_ref();
+        let identity =
+            production_identity(sentence).expect("production catalogs contain only productions");
+        indexes.identities.push(identity);
+        let previous = indexes.by_identity.insert(identity, id);
+        debug_assert!(
+            previous.is_none(),
+            "distinct catalog productions have the same ProductionIdentity"
+        );
+        let Sentence::Production {
+            label,
+            parameters,
+            sort,
+            items,
+            attributes,
+        } = sentence
+        else {
+            unreachable!()
+        };
+        indexes
+            .by_sort
+            .entry(SortHead::from(sort))
+            .or_default()
+            .push(id);
+        if attributes.has(AttributeKey::Token) {
+            indexes
+                .token_by_sort
+                .entry(sort.clone())
                 .or_default()
                 .push(id);
-            if attributes.has(AttributeKey::Token) {
-                self.token_by_sort.entry(sort.clone()).or_default().push(id);
-            }
-            if attributes.has_any(&AttributeKey::MACRO_LIKE) {
-                self.macro_labels
-                    .insert(label.clone().unwrap_or_else(|| Label::new("")));
-            }
-            let Some(label) = label else {
-                continue;
-            };
-            let head = LabelHead::from(label);
-            self.by_label.entry(head.clone()).or_default().push(id);
-            if attributes.has(AttributeKey::Function) {
-                self.function_labels.insert(head.clone());
-            }
-            if parameters.is_empty() {
-                self.signatures
-                    .entry(head)
-                    .or_default()
-                    .insert(ProductionSignature {
-                        arguments: items
-                            .iter()
-                            .filter_map(|item| match item {
-                                ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
-                                ProductionItem::RegexTerminal { .. }
-                                | ProductionItem::Terminal(_) => None,
-                            })
-                            .collect(),
-                        result: sort.clone(),
-                    });
-            }
         }
-
-        for (head, ids) in &self.by_label {
-            self.attributes_by_label.insert(
-                head.clone(),
-                Attributes::merge(ids.iter().map(|id| self.production(*id).attributes()))
-                    .unwrap_or_else(|error| error.merged),
-            );
-            let Sentence::Production { sort, .. } = self.production(ids[0]) else {
-                unreachable!()
-            };
-            self.result_sort_by_label.insert(head.clone(), sort.clone());
+        if attributes.has_any(&AttributeKey::MACRO_LIKE) {
+            indexes
+                .macro_labels
+                .insert(label.clone().unwrap_or_else(|| Label::new("")));
+        }
+        let Some(label) = label else {
+            continue;
+        };
+        let head = LabelHead::from(label);
+        indexes.by_label.entry(head.clone()).or_default().push(id);
+        if attributes.has(AttributeKey::Function) {
+            indexes.function_labels.insert(head.clone());
+        }
+        if parameters.is_empty() {
+            indexes
+                .signatures
+                .entry(head)
+                .or_default()
+                .insert(ProductionSignature {
+                    arguments: items
+                        .iter()
+                        .filter_map(|item| match item {
+                            ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => {
+                                None
+                            }
+                        })
+                        .collect(),
+                    result: sort.clone(),
+                });
         }
     }
+
+    for (head, ids) in &indexes.by_label {
+        indexes.attributes_by_label.insert(
+            head.clone(),
+            Attributes::merge(ids.iter().map(|id| productions[id.0].as_ref().attributes()))
+                .unwrap_or_else(|error| error.merged),
+        );
+        let Sentence::Production { sort, .. } = productions[ids[0].0].as_ref() else {
+            unreachable!()
+        };
+        indexes
+            .result_sort_by_label
+            .insert(head.clone(), sort.clone());
+    }
+    indexes
 }
 
 impl ResolvedDefinition {
