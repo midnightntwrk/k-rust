@@ -38,6 +38,23 @@ impl PhaseTimings {
         value
     }
 
+    /// Run a phase that records a fixed set of child phases.
+    pub fn time_nested<T>(
+        &mut self,
+        name: &'static str,
+        run: impl FnOnce(&mut PhaseTimings) -> T,
+    ) -> T {
+        let started = Instant::now();
+        let mut children = PhaseTimings::default();
+        let value = run(&mut children);
+        self.phases.push(PhaseTiming {
+            name,
+            seconds: started.elapsed().as_secs_f64(),
+        });
+        self.phases.extend(children.phases);
+        value
+    }
+
     /// Append every phase of `other` after the phases already recorded.
     pub fn extend(&mut self, other: PhaseTimings) {
         self.phases.extend(other.phases);

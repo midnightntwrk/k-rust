@@ -701,8 +701,9 @@ fn finish_load(
         ));
     }
 
-    let (definition, resolved) = timings.time("resolve rule bubbles", || {
-        resolve_rule_bubbles_with_resolved(&definition, &resolved).map_err(LoadError::RuleParsing)
+    let (definition, resolved) = timings.time_nested("resolve rule bubbles", |nested| {
+        resolve_rule_bubbles_with_resolved(&definition, &resolved, Some(nested))
+            .map_err(LoadError::RuleParsing)
     })?;
     let resolved = timings.time("resolve loaded definition", || Ok::<_, LoadError>(resolved))?;
     let diagnostics = options.diagnostics.apply(diagnostics);

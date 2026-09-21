@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use k_rust_kore::measure::{self, Counter};
+use web_time::Instant;
 
 use crate::definition::AttributeKey;
 use crate::definition::{
@@ -16,6 +17,7 @@ use crate::definition::{
 };
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
+use crate::timings::PhaseTimings;
 
 use super::config::{
     BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort,
@@ -138,14 +140,17 @@ pub fn parse_rule_content(
 /// inputs that remain genuinely ambiguous are reported explicitly.
 pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(RuleError::Definition)?;
-    resolve_rule_bubbles_with_resolved(definition, &resolved).map(|(transformed, _)| transformed)
+    resolve_rule_bubbles_with_resolved(definition, &resolved, None)
+        .map(|(transformed, _)| transformed)
 }
 
 /// Resolve rule bubbles using a graph already built for the same module structure.
 pub(crate) fn resolve_rule_bubbles_with_resolved(
     definition: &Definition,
     resolved: &ResolvedDefinition,
+    timings: Option<&mut PhaseTimings>,
 ) -> Result<(Definition, ResolvedDefinition), RuleError> {
+    let grammar_started = timings.as_ref().map(|_| Instant::now());
     let mut transformed = definition.clone();
     let main = resolved.main_module_id();
     let global = global_rule_grammar(resolved)?;
@@ -153,6 +158,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
         .transitive_imports(main)
         .into_iter()
         .collect::<BTreeSet<_>>();
+    let parse_started = timings.as_ref().map(|_| Instant::now());
 
     for module in &mut transformed.modules {
         if !module.local_sentences.iter().any(is_rule_bubble) {
@@ -183,14 +189,32 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
                 continue;
             }
             measure::bump(Counter::KompileRuleBubblesParsed);
-            *sentence = parse_rule_like_sentence(
+            let parsed = parse_rule_like_sentence(
                 &grammar,
                 &module.name,
                 sentence_type,
                 contents,
                 attributes.clone(),
-            )?;
+            );
+            *sentence = parsed?;
         }
+    }
+
+    if let Some(timings) = timings {
+        timings.phases.push(crate::timings::PhaseTiming {
+            name: "resolve rule bubbles / grammars",
+            seconds: grammar_started
+                .expect("grammar timing start exists when timings are requested")
+                .elapsed()
+                .as_secs_f64(),
+        });
+        timings.phases.push(crate::timings::PhaseTiming {
+            name: "resolve rule bubbles / parse",
+            seconds: parse_started
+                .expect("parse timing start exists when timings are requested")
+                .elapsed()
+                .as_secs_f64(),
+        });
     }
 
     let resolved = resolved

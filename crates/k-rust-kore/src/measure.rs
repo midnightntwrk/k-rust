@@ -19,7 +19,7 @@
 //! rename is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 6;
+pub const COUNTER_SCHEMA_VERSION: u64 = 7;
 
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -89,6 +89,8 @@ pub enum Counter {
     ParserZ3Checks,
     /// Complete parser grammars constructed from visible sentences.
     ParserGrammarBuilds,
+    /// Rule grammars served from the phase-local memo (zero when no signature is reused).
+    ParserGrammarReuses,
     /// Scanner winner computations after a per-position cache miss.
     ParserScannerWinnerComputations,
     /// Portable sort-inference attempts.
@@ -140,7 +142,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 54;
+    pub const COUNT: usize = 55;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -175,6 +177,7 @@ impl Counter {
         Counter::ParserCompletedNodesMisses,
         Counter::ParserZ3Checks,
         Counter::ParserGrammarBuilds,
+        Counter::ParserGrammarReuses,
         Counter::ParserScannerWinnerComputations,
         Counter::ParserPortableInferences,
         Counter::ParserZ3EncodingBuilds,
@@ -236,6 +239,7 @@ impl Counter {
             Counter::ParserCompletedNodesMisses => "parser.completed_nodes_misses",
             Counter::ParserZ3Checks => "parser.z3_checks",
             Counter::ParserGrammarBuilds => "parser.grammar_builds",
+            Counter::ParserGrammarReuses => "parser.grammar_reuses",
             Counter::ParserScannerWinnerComputations => "parser.scanner_winner_computations",
             Counter::ParserPortableInferences => "parser.portable_inferences",
             Counter::ParserZ3EncodingBuilds => "parser.z3_encoding_builds",
