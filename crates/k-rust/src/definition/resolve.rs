@@ -80,7 +80,10 @@ type SentenceLocation = (ModuleId, usize);
 // These keys may collide, but equivalent sentences must always have equal keys.
 // Attributes and other omitted fields are checked by sentence_equivalent inside each bucket.
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
-enum SentenceBucket<'a> {
+pub(crate) struct SentenceKey<'a>(SentenceKeyKind<'a>);
+
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum SentenceKeyKind<'a> {
     SyntaxSort(&'a [Sort], &'a Sort),
     SortSynonym(&'a Sort, &'a Sort),
     SyntaxLexical(&'a str, &'a str),
@@ -101,23 +104,25 @@ enum SentenceBucket<'a> {
     Bubble(&'a str, &'a str),
 }
 
-impl<'a> SentenceBucket<'a> {
-    fn new(sentence: &'a Sentence) -> Self {
-        match sentence {
+impl<'a> SentenceKey<'a> {
+    pub(crate) fn of(sentence: &'a Sentence) -> Self {
+        Self(match sentence {
             Sentence::SyntaxSort {
                 parameters, sort, ..
-            } => Self::SyntaxSort(parameters, sort),
+            } => SentenceKeyKind::SyntaxSort(parameters, sort),
             Sentence::SortSynonym {
                 new_sort, old_sort, ..
-            } => Self::SortSynonym(new_sort, old_sort),
-            Sentence::SyntaxLexical { name, regex, .. } => Self::SyntaxLexical(name, regex),
+            } => SentenceKeyKind::SortSynonym(new_sort, old_sort),
+            Sentence::SyntaxLexical { name, regex, .. } => {
+                SentenceKeyKind::SyntaxLexical(name, regex)
+            }
             Sentence::Production {
                 label,
                 parameters,
                 sort,
                 items,
                 ..
-            } => Self::Production(
+            } => SentenceKeyKind::Production(
                 label.as_ref(),
                 parameters,
                 sort,
@@ -131,25 +136,31 @@ impl<'a> SentenceBucket<'a> {
                 }),
             ),
             Sentence::SyntaxAssociativity { associativity, .. } => {
-                Self::SyntaxAssociativity(match associativity {
+                SentenceKeyKind::SyntaxAssociativity(match associativity {
                     Associativity::Left => 0,
                     Associativity::Right => 1,
                     Associativity::NonAssoc => 2,
                     Associativity::Unspecified => 3,
                 })
             }
-            Sentence::SyntaxPriority { priorities, .. } => Self::SyntaxPriority(priorities.len()),
-            Sentence::ContextAlias { body, .. } => Self::ContextAlias(SentenceBody(body)),
-            Sentence::Context { body, .. } => Self::Context(SentenceBody(body)),
-            Sentence::Rule { body, .. } => Self::Rule(SentenceBody(body)),
-            Sentence::Claim { body, .. } => Self::Claim(SentenceBody(body)),
-            Sentence::Configuration { body, .. } => Self::Configuration(SentenceBody(body)),
+            Sentence::SyntaxPriority { priorities, .. } => {
+                SentenceKeyKind::SyntaxPriority(priorities.len())
+            }
+            Sentence::ContextAlias { body, .. } => {
+                SentenceKeyKind::ContextAlias(SentenceBody(body))
+            }
+            Sentence::Context { body, .. } => SentenceKeyKind::Context(SentenceBody(body)),
+            Sentence::Rule { body, .. } => SentenceKeyKind::Rule(SentenceBody(body)),
+            Sentence::Claim { body, .. } => SentenceKeyKind::Claim(SentenceBody(body)),
+            Sentence::Configuration { body, .. } => {
+                SentenceKeyKind::Configuration(SentenceBody(body))
+            }
             Sentence::Bubble {
                 sentence_type,
                 contents,
                 ..
-            } => Self::Bubble(sentence_type, contents),
-        }
+            } => SentenceKeyKind::Bubble(sentence_type, contents),
+        })
     }
 }
 
@@ -456,7 +467,7 @@ impl ResolvedDefinition {
         let mut visible = self.transitive_imports(module);
         visible.push(module);
         let visible = visible.into_iter().collect::<BTreeSet<_>>();
-        let mut buckets: BTreeMap<SentenceBucket<'_>, Vec<&Sentence>> = BTreeMap::new();
+        let mut buckets: BTreeMap<SentenceKey<'_>, Vec<&Sentence>> = BTreeMap::new();
         let mut locations = Vec::new();
         for (owner, index, sentence) in self
             .dependency_order
@@ -470,7 +481,7 @@ impl ResolvedDefinition {
                     .map(move |(index, sentence)| (id, index, sentence))
             })
         {
-            let sentences = buckets.entry(SentenceBucket::new(sentence)).or_default();
+            let sentences = buckets.entry(SentenceKey::of(sentence)).or_default();
             if push_if_inequivalent(sentences, sentence) {
                 locations.push((owner, index));
             }
