@@ -148,7 +148,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
 ) -> Result<(Definition, ResolvedDefinition), RuleError> {
     let mut transformed = definition.clone();
     let main = resolved.main_module_id();
-    let global = global_rule_grammar(&resolved)?;
+    let global = global_rule_grammar(resolved)?;
     let reachable = resolved
         .transitive_imports(main)
         .into_iter()
@@ -162,7 +162,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
             .module_id(&module.name)
             .expect("every flat module was added to the resolved definition");
         let grammar = module_rule_grammar(
-            &resolved,
+            resolved,
             module_id,
             &global,
             &reachable,
