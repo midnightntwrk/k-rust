@@ -548,6 +548,8 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
     // Invariant: counterparts already assigned by a stronger key remain fixed and each `before`
     // index marked in `used` is paired exactly once.
     for key in [AttributeKey::UniqueId, AttributeKey::Label] {
+        let after_by_value = sentences_by_attribute(after, key);
+        let before_by_value = sentences_by_attribute(before, key);
         for (after_index, sentence) in after.iter().enumerate() {
             if counterparts[after_index].is_some() {
                 continue;
@@ -555,23 +557,13 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             let Some(value) = sentence.attributes().string(key) else {
                 continue;
             };
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
-            if after
-                .iter()
-                .filter(|candidate| candidate.attributes().string(key) == Some(value))
-                .count()
-                != 1
+            if after_by_value
+                .get(value)
+                .is_none_or(|indices| indices.len() != 1)
             {
                 continue;
             }
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
-            let matching_before = before
-                .iter()
-                .enumerate()
-                .filter(|(_, candidate)| candidate.attributes().string(key) == Some(value))
-                .map(|(index, _)| index)
-                .collect::<Vec<_>>();
-            if let [before_index] = matching_before.as_slice()
+            if let Some([before_index]) = before_by_value.get(value).map(Vec::as_slice)
                 && !used[*before_index]
             {
                 counterparts[after_index] = Some(*before_index);
@@ -590,6 +582,16 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
         }
     }
     counterparts
+}
+
+fn sentences_by_attribute(sentences: &[Sentence], key: AttributeKey) -> BTreeMap<&str, Vec<usize>> {
+    let mut by_value = BTreeMap::new();
+    for (index, sentence) in sentences.iter().enumerate() {
+        if let Some(value) = sentence.attributes().string(key) {
+            by_value.entry(value).or_insert_with(Vec::new).push(index);
+        }
+    }
+    by_value
 }
 
 fn sentence_name(sentence: &Sentence, index: usize) -> String {
@@ -1157,6 +1159,93 @@ mod tests {
         }
     }
 
+    fn counterpart_sentence(
+        (unique_id, label, is_claim): (Option<u8>, Option<u8>, bool),
+    ) -> Sentence {
+        let attributes = Attributes::from_pairs(
+            unique_id
+                .map(|value| {
+                    (
+                        AttributeKey::UniqueId,
+                        Value::String(format!("id{}", value % 4)),
+                    )
+                })
+                .into_iter()
+                .chain(label.map(|value| {
+                    (
+                        AttributeKey::Label,
+                        Value::String(format!("label{}", value % 4)),
+                    )
+                })),
+        );
+        let body = Term::apply("body", Vec::new());
+        let truth = Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        };
+        if is_claim {
+            Sentence::Claim {
+                body,
+                requires: truth.clone(),
+                ensures: truth,
+                attributes,
+            }
+        } else {
+            Sentence::Rule {
+                body,
+                requires: truth.clone(),
+                ensures: truth,
+                attributes,
+            }
+        }
+    }
+
+    fn linear_sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
+        let mut counterparts = vec![None; after.len()];
+        let mut used = vec![false; before.len()];
+        for key in [AttributeKey::UniqueId, AttributeKey::Label] {
+            for (after_index, sentence) in after.iter().enumerate() {
+                if counterparts[after_index].is_some() {
+                    continue;
+                }
+                let Some(value) = sentence.attributes().string(key) else {
+                    continue;
+                };
+                if after
+                    .iter()
+                    .filter(|candidate| candidate.attributes().string(key) == Some(value))
+                    .count()
+                    != 1
+                {
+                    continue;
+                }
+                let matching_before = before
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| candidate.attributes().string(key) == Some(value))
+                    .map(|(index, _)| index)
+                    .collect::<Vec<_>>();
+                if let [before_index] = matching_before.as_slice()
+                    && !used[*before_index]
+                {
+                    counterparts[after_index] = Some(*before_index);
+                    used[*before_index] = true;
+                }
+            }
+        }
+        for (index, sentence) in after.iter().enumerate() {
+            if counterparts[index].is_none()
+                && before.get(index).is_some_and(|candidate| {
+                    !used[index] && sentence_kind(candidate) == sentence_kind(sentence)
+                })
+            {
+                counterparts[index] = Some(index);
+                used[index] = true;
+            }
+        }
+        counterparts
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
@@ -1235,6 +1324,25 @@ mod tests {
             }
             let actual = term_origin_links(Some(&before), &after, &inherited);
             prop_assert_eq!(actual.as_ref(), expected.as_slice());
+        }
+
+        #[test]
+        fn indexed_sentence_counterparts_match_the_linear_oracle(
+            before_specs in prop::collection::vec(
+                (prop::option::of(any::<u8>()), prop::option::of(any::<u8>()), any::<bool>()),
+                0..24,
+            ),
+            after_specs in prop::collection::vec(
+                (prop::option::of(any::<u8>()), prop::option::of(any::<u8>()), any::<bool>()),
+                0..24,
+            ),
+        ) {
+            let before = before_specs.into_iter().map(counterpart_sentence).collect::<Vec<_>>();
+            let after = after_specs.into_iter().map(counterpart_sentence).collect::<Vec<_>>();
+            prop_assert_eq!(
+                sentence_counterparts(&before, &after),
+                linear_sentence_counterparts(&before, &after),
+            );
         }
     }
 
