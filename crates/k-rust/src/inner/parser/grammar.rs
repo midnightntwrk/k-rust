@@ -298,7 +298,7 @@ impl Grammar {
         item: ProductionItem,
         precedence: &str,
     ) -> Result<(), ParseError> {
-        self.prediction_analysis.take();
+        self.invalidate_prediction_analysis();
         if self.has_equivalent_production(&result, std::slice::from_ref(&item), true) {
             let compiled = compile_item(&item, &BTreeMap::new())?;
             self.scanner.register(
@@ -516,7 +516,7 @@ impl Grammar {
         lexical: &BTreeMap<String, KRegex>,
     ) -> Result<(), ParseError> {
         // Registration of an earlier item can survive a later compile/attribute failure.
-        self.prediction_analysis.take();
+        self.invalidate_prediction_analysis();
         let declared_items = items
             .iter()
             .filter(|item| !matches!(item, ProductionItem::Terminal(value) if value.is_empty()))

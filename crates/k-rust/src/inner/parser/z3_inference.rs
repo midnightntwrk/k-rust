@@ -1,11 +1,14 @@
 //! Z3-backed maximal-model sort inference for ambiguous and parametric parse forests.
 //!
 //! Each check is counted by `Counter::ParserZ3Checks`; model enumeration is proportional to
-//! the number of maximal typings times solver checks. Grammar-determined encoding construction
-//! is counted by `ParserZ3EncodingBuilds`. The unpacked path remains a checked oracle.
+//! the number of maximal typings times solver checks. Grammar-determined encoding construction is
+//! O(heads + ground sorts squared) once per grammar generation and top sort on each thread; each
+//! attempt then constructs O(term nodes) constraints. `ParserZ3EncodingBuilds` counts base builds.
+//! The unpacked path remains a checked oracle.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ops::Deref;
 use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Counter};
@@ -35,8 +38,7 @@ enum CastContext {
     Parser,
 }
 
-struct Encoding<'a> {
-    grammar: &'a Grammar,
+struct EncodingBase {
     datatype: DatatypeSort,
     heads: Vec<SortHead>,
     head_indexes: BTreeMap<SortHead, usize>,
@@ -46,6 +48,20 @@ struct Encoding<'a> {
     ground_values: RefCell<BTreeMap<Sort, Datatype>>,
     semantic_relation: Vec<(Datatype, Datatype)>,
     syntactic_relation: Vec<(Datatype, Datatype)>,
+    /// Numeric sort names declared by the grammar as parameters of an instantiated parametric
+    /// sort (`Module.definedSorts` keeps the Nat heads of `definedInstantiations`).
+    declared_nat_sorts: BTreeSet<String>,
+}
+
+#[derive(Default)]
+struct TermSorts {
+    heads: BTreeSet<SortHead>,
+    ground: BTreeSet<Sort>,
+}
+
+struct Encoding<'a> {
+    grammar: &'a Grammar,
+    base: Rc<EncodingBase>,
     variables: BTreeMap<String, Datatype>,
     parameters: BTreeSet<String>,
     /// Soft per-ambiguity preferences for the overload-minimal function-LHS branches.
@@ -54,9 +70,6 @@ struct Encoding<'a> {
     anywhere: bool,
     top_rewrite_paths: HashSet<String>,
     top_rewrite_ids: HashSet<*const PackedTerm>,
-    /// Numeric sort names declared by the grammar as parameters of an instantiated parametric
-    /// sort (`Module.definedSorts` keeps the Nat heads of `definedInstantiations`).
-    declared_nat_sorts: BTreeSet<String>,
     /// Whether a token leaf was constrained against a ground sort it cannot satisfy, so a term
     /// without variables must still be solved and rejected.
     ill_sorted_ground: bool,
@@ -65,6 +78,27 @@ struct Encoding<'a> {
     incremental: bool,
     replay: Vec<ReplayConstraint>,
 }
+
+impl Deref for Encoding<'_> {
+    type Target = EncodingBase;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+type EncodingBaseKey = (u64, Sort);
+type EncodingBaseCache = Vec<(EncodingBaseKey, Rc<EncodingBase>)>;
+
+thread_local! {
+    static ENCODING_BASES: RefCell<EncodingBaseCache> = const {
+        RefCell::new(Vec::new())
+    };
+    #[cfg(test)]
+    static FORCE_UNCACHED_BASE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+const ENCODING_BASE_CACHE_CAPACITY: usize = 8;
 
 const UNSAT_MESSAGE: &str = "no well-sorted parse or variable assignment exists";
 
@@ -370,37 +404,11 @@ impl Grammar {
     }
 }
 
-impl<'a> Encoding<'a> {
-    fn new(
-        grammar: &'a Grammar,
-        term: &ParsedTerm,
+impl EncodingBase {
+    fn build(
+        grammar: &Grammar,
         top_sort: &Sort,
-        anywhere: bool,
-    ) -> Result<Self, ParseError> {
-        Self::new_with_term_sorts(grammar, top_sort, anywhere, |heads, ground| {
-            collect_term_sorts(term, heads, ground);
-        })
-    }
-
-    fn new_packed(
-        grammar: &'a Grammar,
-        term: &Rc<PackedTerm>,
-        top_sort: &Sort,
-        anywhere: bool,
-    ) -> Result<Self, ParseError> {
-        let mut encoding =
-            Self::new_with_term_sorts(grammar, top_sort, anywhere, |heads, ground| {
-                collect_packed_term_sorts(term, heads, ground);
-            })?;
-        encoding.packed_ids = packed_term_ids(term);
-        Ok(encoding)
-    }
-
-    fn new_with_term_sorts(
-        grammar: &'a Grammar,
-        top_sort: &Sort,
-        anywhere: bool,
-        collect_terms: impl FnOnce(&mut BTreeSet<SortHead>, &mut BTreeSet<Sort>),
+        term_sorts: &TermSorts,
     ) -> Result<Self, ParseError> {
         measure::bump(Counter::ParserZ3EncodingBuilds);
         let semantic = PartialOrder::new(grammar.subsort_relations.iter().cloned())
@@ -432,7 +440,6 @@ impl<'a> Encoding<'a> {
                 }
             }
         }
-        // Only the grammar declares sorts; a `MInt{32}` token must not declare its own width.
         let mut declared_nat_sorts = BTreeSet::new();
         for production in &grammar.productions {
             collect_declared_nats(&production.result, &[], &mut declared_nat_sorts);
@@ -448,7 +455,8 @@ impl<'a> Encoding<'a> {
                 }
             }
         }
-        collect_terms(&mut heads, &mut ground_sorts);
+        heads.extend(term_sorts.heads.iter().cloned());
+        ground_sorts.extend(term_sorts.ground.iter().cloned());
         if heads.is_empty() {
             heads.insert(SortHead::nullary("K"));
             ground_sorts.insert(Sort::new("K"));
@@ -476,10 +484,8 @@ impl<'a> Encoding<'a> {
                 .collect();
             builder = builder.variant(&format!("KSort{index}"), fields);
         }
-        let datatype = builder.finish();
-        let mut encoding = Self {
-            grammar,
-            datatype,
+        let mut base = Self {
+            datatype: builder.finish(),
             heads,
             head_indexes,
             ground_sorts,
@@ -488,6 +494,220 @@ impl<'a> Encoding<'a> {
             ground_values: RefCell::new(BTreeMap::new()),
             semantic_relation: Vec::new(),
             syntactic_relation: Vec::new(),
+            declared_nat_sorts,
+        };
+        for sort in &base.ground_sorts {
+            base.sort_value(sort, &BTreeMap::new())?;
+        }
+        base.semantic_relation = base.order_relation(false)?;
+        base.syntactic_relation = base.order_relation(true)?;
+        Ok(base)
+    }
+
+    fn sort_value(
+        &self,
+        sort: &Sort,
+        parameters: &BTreeMap<Sort, Datatype>,
+    ) -> Result<Datatype, ParseError> {
+        if let Some(value) = parameters.get(sort) {
+            return Ok(value.clone());
+        }
+        let cacheable = parameters.is_empty() && self.ground_sorts.contains(sort);
+        if cacheable && let Some(value) = self.ground_values.borrow().get(sort) {
+            return Ok(value.clone());
+        }
+        let head = SortHead::from(sort);
+        let index =
+            self.head_indexes.get(&head).copied().ok_or_else(|| {
+                z3_error(format!("sort head {head} is missing from the Z3 datatype"))
+            })?;
+        let arguments = sort
+            .parameters
+            .iter()
+            .map(|parameter| self.sort_value(parameter, parameters))
+            .collect::<Result<Vec<_>, _>>()?;
+        let references = arguments
+            .iter()
+            .map(|argument| argument as &dyn Ast)
+            .collect::<Vec<_>>();
+        let value = self.datatype.variants[index]
+            .constructor
+            .apply(&references)
+            .as_datatype()
+            .ok_or_else(|| z3_error(format!("failed to construct Z3 value for sort {sort}")))?;
+        if cacheable {
+            self.ground_values
+                .borrow_mut()
+                .insert(sort.clone(), value.clone());
+        }
+        Ok(value)
+    }
+
+    fn order_relation(&self, syntactic: bool) -> Result<Vec<(Datatype, Datatype)>, ParseError> {
+        let order = if syntactic {
+            &self.syntactic
+        } else {
+            &self.semantic
+        };
+        let mut relation = Vec::new();
+        for left in &self.ground_sorts {
+            if !is_real_ground_sort(left) {
+                continue;
+            }
+            let left_value = self.sort_value(left, &BTreeMap::new())?;
+            for right in &self.ground_sorts {
+                if !is_real_ground_sort(right) {
+                    continue;
+                }
+                if left == right || order.less_than_eq(left, right) {
+                    let right_value = self.sort_value(right, &BTreeMap::new())?;
+                    relation.push((left_value.clone(), right_value));
+                }
+            }
+        }
+        Ok(relation)
+    }
+
+    fn decode_sort(&self, value: &Datatype) -> Result<Sort, ParseError> {
+        let constructor = value.decl().name();
+        let index = constructor
+            .strip_prefix("KSort")
+            .and_then(|index| index.parse::<usize>().ok())
+            .filter(|index| *index < self.heads.len())
+            .ok_or_else(|| z3_error(format!("unexpected Z3 sort constructor {constructor:?}")))?;
+        let parameters = value
+            .children()
+            .into_iter()
+            .map(|child| {
+                child
+                    .as_datatype()
+                    .ok_or_else(|| z3_error("Z3 sort constructor had a non-sort child"))
+                    .and_then(|child| self.decode_sort(&child))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let head = &self.heads[index];
+        if parameters.len() != head.parameters() {
+            return Err(z3_error(format!(
+                "Z3 constructor for {head} returned {} parameters",
+                parameters.len()
+            )));
+        }
+        Ok(Sort::with_parameters(head.as_str(), parameters))
+    }
+
+    fn covers(&self, term_sorts: &TermSorts) -> bool {
+        term_sorts
+            .heads
+            .iter()
+            .all(|head| self.head_indexes.contains_key(head))
+            && term_sorts.ground.is_subset(&self.ground_sorts)
+    }
+}
+
+fn encoding_base(
+    grammar: &Grammar,
+    top_sort: &Sort,
+    term_sorts: &TermSorts,
+) -> Result<Rc<EncodingBase>, ParseError> {
+    #[cfg(test)]
+    if FORCE_UNCACHED_BASE.with(std::cell::Cell::get) {
+        return encoding_base_uncached(grammar, top_sort, term_sorts);
+    }
+
+    let key = (grammar.generation, top_sort.clone());
+    let cached = ENCODING_BASES.with(|bases| {
+        let mut bases = bases.borrow_mut();
+        let position = bases.iter().position(|(candidate, _)| candidate == &key)?;
+        let entry = bases.remove(position);
+        let base = Rc::clone(&entry.1);
+        bases.push(entry);
+        Some(base)
+    });
+    if let Some(base) = cached {
+        return if base.covers(term_sorts) {
+            Ok(base)
+        } else {
+            encoding_base_uncached_impl(grammar, top_sort, term_sorts)
+        };
+    }
+
+    let base = encoding_base_uncached_impl(grammar, top_sort, &TermSorts::default())?;
+    ENCODING_BASES.with(|bases| {
+        let mut bases = bases.borrow_mut();
+        bases.retain(|(candidate, _)| candidate != &key);
+        bases.push((key, Rc::clone(&base)));
+        if bases.len() > ENCODING_BASE_CACHE_CAPACITY {
+            bases.remove(0);
+        }
+    });
+    if base.covers(term_sorts) {
+        Ok(base)
+    } else {
+        encoding_base_uncached_impl(grammar, top_sort, term_sorts)
+    }
+}
+
+fn encoding_base_uncached_impl(
+    grammar: &Grammar,
+    top_sort: &Sort,
+    term_sorts: &TermSorts,
+) -> Result<Rc<EncodingBase>, ParseError> {
+    EncodingBase::build(grammar, top_sort, term_sorts).map(Rc::new)
+}
+
+#[cfg(test)]
+fn encoding_base_uncached(
+    grammar: &Grammar,
+    top_sort: &Sort,
+    term_sorts: &TermSorts,
+) -> Result<Rc<EncodingBase>, ParseError> {
+    encoding_base_uncached_impl(grammar, top_sort, term_sorts)
+}
+
+#[cfg(test)]
+fn with_uncached_encoding_base<T>(f: impl FnOnce() -> T) -> T {
+    FORCE_UNCACHED_BASE.with(|force| {
+        let previous = force.replace(true);
+        let result = f();
+        force.set(previous);
+        result
+    })
+}
+
+impl<'a> Encoding<'a> {
+    fn new(
+        grammar: &'a Grammar,
+        term: &ParsedTerm,
+        top_sort: &Sort,
+        anywhere: bool,
+    ) -> Result<Self, ParseError> {
+        let mut term_sorts = TermSorts::default();
+        collect_term_sorts(term, &mut term_sorts.heads, &mut term_sorts.ground);
+        Self::new_with_term_sorts(grammar, top_sort, anywhere, &term_sorts)
+    }
+
+    fn new_packed(
+        grammar: &'a Grammar,
+        term: &Rc<PackedTerm>,
+        top_sort: &Sort,
+        anywhere: bool,
+    ) -> Result<Self, ParseError> {
+        let mut term_sorts = TermSorts::default();
+        collect_packed_term_sorts(term, &mut term_sorts.heads, &mut term_sorts.ground);
+        let mut encoding = Self::new_with_term_sorts(grammar, top_sort, anywhere, &term_sorts)?;
+        encoding.packed_ids = packed_term_ids(term);
+        Ok(encoding)
+    }
+
+    fn new_with_term_sorts(
+        grammar: &'a Grammar,
+        top_sort: &Sort,
+        anywhere: bool,
+        term_sorts: &TermSorts,
+    ) -> Result<Self, ParseError> {
+        Ok(Self {
+            grammar,
+            base: encoding_base(grammar, top_sort, term_sorts)?,
             variables: BTreeMap::new(),
             parameters: BTreeSet::new(),
             packed_overload_preferences: Vec::new(),
@@ -495,17 +715,10 @@ impl<'a> Encoding<'a> {
             anywhere,
             top_rewrite_paths: HashSet::new(),
             top_rewrite_ids: HashSet::new(),
-            declared_nat_sorts,
             ill_sorted_ground: false,
             incremental: false,
             replay: Vec::new(),
-        };
-        for sort in encoding.ground_sorts.iter() {
-            encoding.sort_value(sort, &BTreeMap::new())?;
-        }
-        encoding.semantic_relation = encoding.order_relation(false)?;
-        encoding.syntactic_relation = encoding.order_relation(true)?;
-        Ok(encoding)
+        })
     }
 
     fn constraint(
@@ -872,7 +1085,7 @@ impl<'a> Encoding<'a> {
                 let value = self
                     .variables
                     .entry(name.clone())
-                    .or_insert_with(|| Datatype::new_const(name.clone(), &self.datatype.sort))
+                    .or_insert_with(|| Datatype::new_const(name.clone(), &self.base.datatype.sort))
                     .clone();
                 self.parameters.insert(name);
                 (parameter.clone(), value)
@@ -889,7 +1102,7 @@ impl<'a> Encoding<'a> {
         let key = packed_inference_variable_key(term, name, self.packed_id(identity));
         self.variables
             .entry(key.clone())
-            .or_insert_with(|| Datatype::new_const(key, &self.datatype.sort))
+            .or_insert_with(|| Datatype::new_const(key, &self.base.datatype.sort))
             .clone()
     }
 
@@ -945,7 +1158,7 @@ impl<'a> Encoding<'a> {
                 let value = self
                     .variables
                     .entry(name.clone())
-                    .or_insert_with(|| Datatype::new_const(name.clone(), &self.datatype.sort))
+                    .or_insert_with(|| Datatype::new_const(name.clone(), &self.base.datatype.sort))
                     .clone();
                 self.parameters.insert(name);
                 (parameter.clone(), value)
@@ -957,7 +1170,7 @@ impl<'a> Encoding<'a> {
         let key = inference_variable_key(term, name, path);
         self.variables
             .entry(key.clone())
-            .or_insert_with(|| Datatype::new_const(key, &self.datatype.sort))
+            .or_insert_with(|| Datatype::new_const(key, &self.base.datatype.sort))
             .clone()
     }
 
@@ -1226,45 +1439,6 @@ impl<'a> Encoding<'a> {
         self.decode_sort(&value)
     }
 
-    fn sort_value(
-        &self,
-        sort: &Sort,
-        parameters: &BTreeMap<Sort, Datatype>,
-    ) -> Result<Datatype, ParseError> {
-        if let Some(value) = parameters.get(sort) {
-            return Ok(value.clone());
-        }
-        let cacheable = parameters.is_empty() && self.ground_sorts.contains(sort);
-        if cacheable && let Some(value) = self.ground_values.borrow().get(sort) {
-            return Ok(value.clone());
-        }
-        let head = SortHead::from(sort);
-        let index =
-            self.head_indexes.get(&head).copied().ok_or_else(|| {
-                z3_error(format!("sort head {head} is missing from the Z3 datatype"))
-            })?;
-        let arguments = sort
-            .parameters
-            .iter()
-            .map(|parameter| self.sort_value(parameter, parameters))
-            .collect::<Result<Vec<_>, _>>()?;
-        let references = arguments
-            .iter()
-            .map(|argument| argument as &dyn Ast)
-            .collect::<Vec<_>>();
-        let value = self.datatype.variants[index]
-            .constructor
-            .apply(&references)
-            .as_datatype()
-            .ok_or_else(|| z3_error(format!("failed to construct Z3 value for sort {sort}")))?;
-        if cacheable {
-            self.ground_values
-                .borrow_mut()
-                .insert(sort.clone(), value.clone());
-        }
-        Ok(value)
-    }
-
     fn less_than_eq(
         &self,
         lesser: &Datatype,
@@ -1282,31 +1456,6 @@ impl<'a> Encoding<'a> {
             .collect::<Vec<_>>();
         cases.push(lesser.eq(greater));
         Ok(or_all(&cases))
-    }
-
-    fn order_relation(&self, syntactic: bool) -> Result<Vec<(Datatype, Datatype)>, ParseError> {
-        let order = if syntactic {
-            &self.syntactic
-        } else {
-            &self.semantic
-        };
-        let mut relation = Vec::new();
-        for left in &self.ground_sorts {
-            if !is_real_ground_sort(left) {
-                continue;
-            }
-            let left_value = self.sort_value(left, &BTreeMap::new())?;
-            for right in &self.ground_sorts {
-                if !is_real_ground_sort(right) {
-                    continue;
-                }
-                if left == right || order.less_than_eq(left, right) {
-                    let right_value = self.sort_value(right, &BTreeMap::new())?;
-                    relation.push((left_value.clone(), right_value));
-                }
-            }
-        }
-        Ok(relation)
     }
 
     /// `TypeInferencer` declares its Z3 `Sort` datatype from the module's sorts filtered by
@@ -1634,33 +1783,6 @@ impl<'a> Encoding<'a> {
                 self.decode_sort(&value).map(|sort| (name.clone(), sort))
             })
             .collect()
-    }
-
-    fn decode_sort(&self, value: &Datatype) -> Result<Sort, ParseError> {
-        let constructor = value.decl().name();
-        let index = constructor
-            .strip_prefix("KSort")
-            .and_then(|index| index.parse::<usize>().ok())
-            .filter(|index| *index < self.heads.len())
-            .ok_or_else(|| z3_error(format!("unexpected Z3 sort constructor {constructor:?}")))?;
-        let parameters = value
-            .children()
-            .into_iter()
-            .map(|child| {
-                child
-                    .as_datatype()
-                    .ok_or_else(|| z3_error("Z3 sort constructor had a non-sort child"))
-                    .and_then(|child| self.decode_sort(&child))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let head = &self.heads[index];
-        if parameters.len() != head.parameters() {
-            return Err(z3_error(format!(
-                "Z3 constructor for {head} returned {} parameters",
-                parameters.len()
-            )));
-        }
-        Ok(Sort::with_parameters(head.as_str(), parameters))
     }
 
     fn apply_model_packed(
@@ -2726,12 +2848,169 @@ mod tests {
     use super::*;
     use crate::definition::ProductionItem;
     use crate::kast::Label;
+    use proptest::prelude::*;
 
     fn nonterminal(name: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
             sort: Sort::new(name),
             name: None,
         }
+    }
+
+    fn cached_encoding_fixture(sort_count: usize) -> (Grammar, Rc<PackedTerm>, Sort) {
+        let mut grammar = Grammar::default();
+        for index in 0..sort_count {
+            grammar
+                .add(
+                    Sort::new(format!("S{index}")),
+                    vec![ProductionItem::Terminal(format!("s{index}"))],
+                    Some(Label::new(format!("s{index}"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+            if index > 0 {
+                grammar.subsort_relations.insert((
+                    Sort::new(format!("S{}", index - 1)),
+                    Sort::new(format!("S{index}")),
+                ));
+            }
+        }
+        let top_sort =
+            Sort::with_parameters("Box", vec![Sort::new(format!("S{}", sort_count - 1))]);
+        let production = grammar.productions.len();
+        grammar
+            .add(
+                top_sort.clone(),
+                vec![ProductionItem::Terminal("box".into())],
+                Some(Label::new("box")),
+                false,
+                false,
+            )
+            .unwrap();
+        (
+            grammar,
+            PackedTerm::production(production, vec![], Default::default()),
+            top_sort,
+        )
+    }
+
+    fn decoded_relation(
+        base: &EncodingBase,
+        relation: &[(Datatype, Datatype)],
+    ) -> Result<Vec<(Sort, Sort)>, ParseError> {
+        relation
+            .iter()
+            .map(|(left, right)| Ok((base.decode_sort(left)?, base.decode_sort(right)?)))
+            .collect()
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        #[test]
+        fn cached_encoding_base_matches_uncached(sort_count in 2usize..6) {
+            let (grammar, term, top_sort) = cached_encoding_fixture(sort_count);
+            let mut term_sorts = TermSorts::default();
+            collect_packed_term_sorts(&term, &mut term_sorts.heads, &mut term_sorts.ground);
+            let cached = encoding_base(&grammar, &top_sort, &term_sorts).unwrap();
+            let uncached = encoding_base_uncached(&grammar, &top_sort, &term_sorts).unwrap();
+            prop_assert_eq!(&cached.heads, &uncached.heads);
+            prop_assert_eq!(&cached.head_indexes, &uncached.head_indexes);
+            prop_assert_eq!(&cached.ground_sorts, &uncached.ground_sorts);
+            prop_assert_eq!(&cached.declared_nat_sorts, &uncached.declared_nat_sorts);
+            let cached_variants = cached.datatype.variants.iter()
+                .map(|variant| variant.constructor.name().to_string())
+                .collect::<Vec<_>>();
+            let uncached_variants = uncached.datatype.variants.iter()
+                .map(|variant| variant.constructor.name().to_string())
+                .collect::<Vec<_>>();
+            prop_assert_eq!(cached_variants, uncached_variants);
+            prop_assert_eq!(
+                decoded_relation(&cached, &cached.semantic_relation).unwrap(),
+                decoded_relation(&uncached, &uncached.semantic_relation).unwrap()
+            );
+            prop_assert_eq!(
+                decoded_relation(&cached, &cached.syntactic_relation).unwrap(),
+                decoded_relation(&uncached, &uncached.syntactic_relation).unwrap()
+            );
+        }
+
+        #[test]
+        fn cached_and_uncached_inference_agree(
+            first_sort_count in 2usize..5,
+            second_sort_count in 2usize..5,
+            repetitions in 1usize..4,
+        ) {
+            let first = cached_encoding_fixture(first_sort_count);
+            let second = cached_encoding_fixture(second_sort_count);
+            for (grammar, term, top_sort) in [&first, &second].into_iter().cycle().take(2 * repetitions) {
+                let before = measure::snapshot();
+                let cached = grammar.infer_packed_sorts_z3(Rc::clone(term), top_sort, false);
+                let cached_checks = measure::snapshot()
+                    .delta(&before)
+                    .get(Counter::ParserZ3Checks);
+                let before = measure::snapshot();
+                let uncached = with_uncached_encoding_base(|| {
+                    grammar.infer_packed_sorts_z3(Rc::clone(term), top_sort, false)
+                });
+                let uncached_checks = measure::snapshot()
+                    .delta(&before)
+                    .get(Counter::ParserZ3Checks);
+                prop_assert_eq!(cached, uncached);
+                prop_assert_eq!(cached_checks, uncached_checks);
+            }
+        }
+
+        #[test]
+        fn cached_sort_values_round_trip(sort_count in 2usize..6, repetitions in 1usize..4) {
+            let (grammar, term, top_sort) = cached_encoding_fixture(sort_count);
+            for _ in 0..repetitions {
+                grammar
+                    .infer_packed_sorts_z3(Rc::clone(&term), &top_sort, false)
+                    .unwrap();
+            }
+            let mut term_sorts = TermSorts::default();
+            collect_packed_term_sorts(&term, &mut term_sorts.heads, &mut term_sorts.ground);
+            let base = encoding_base(&grammar, &top_sort, &term_sorts).unwrap();
+            for sort in &base.ground_sorts {
+                let value = base.sort_value(sort, &BTreeMap::new()).unwrap();
+                prop_assert_eq!(base.decode_sort(&value).unwrap(), sort.clone());
+            }
+        }
+    }
+
+    #[test]
+    fn encoding_base_covers_its_grammar_sorts() {
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                Sort::new("S"),
+                vec![ProductionItem::Terminal("s".into())],
+                Some(Label::new("s")),
+                false,
+                false,
+            )
+            .unwrap();
+        let base = EncodingBase::build(&grammar, &Sort::new("S"), &TermSorts::default()).unwrap();
+        let grammar_sorts = TermSorts {
+            heads: base.heads.iter().cloned().collect(),
+            ground: base.ground_sorts.clone(),
+        };
+        assert!(base.covers(&grammar_sorts));
+    }
+
+    #[test]
+    fn encoding_base_does_not_cover_an_undeclared_mint_width() {
+        let grammar = Grammar::default();
+        let base = EncodingBase::build(&grammar, &Sort::new("K"), &TermSorts::default()).unwrap();
+        let mut term_sorts = TermSorts::default();
+        collect_sort(
+            &Sort::with_parameters("MInt", vec![Sort::new("37")]),
+            &mut term_sorts.heads,
+            &mut term_sorts.ground,
+        );
+        assert!(!base.covers(&term_sorts));
     }
 
     #[test]

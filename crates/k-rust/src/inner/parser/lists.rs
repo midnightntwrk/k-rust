@@ -26,7 +26,7 @@ impl Grammar {
     /// Recognize each lowered `userList` pair and add the temporary
     /// `ListSort ::= ElementSort` injection used by K's rule grammar.
     pub(super) fn initialize_user_lists(&mut self) -> Result<(), ParseError> {
-        self.prediction_analysis.take();
+        self.invalidate_prediction_analysis();
         let mut grouped = BTreeMap::<Sort, Vec<usize>>::new();
         for (index, production) in self.productions.iter().enumerate() {
             if production.user_list {
@@ -151,7 +151,7 @@ impl Grammar {
 
     /// Replace a program-grammar list with a visible separator by K's non-empty split.
     fn split_program_list(&mut self, sort: &Sort, list: &UserList) -> Result<(), ParseError> {
-        self.prediction_analysis.take();
+        self.invalidate_prediction_analysis();
         let nonempty = Sort::with_parameters(format!("Ne#{}", sort.name), sort.parameters.clone());
         let terminator_sort =
             Sort::with_parameters(format!("{}#Terminator", sort.name), sort.parameters.clone());

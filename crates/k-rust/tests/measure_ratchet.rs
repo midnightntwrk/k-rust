@@ -360,6 +360,7 @@ fn z3_checks_are_paid_once_per_bubble() {
         four.get(Counter::ParserPredictionAnalysisBuilds),
         one.get(Counter::ParserPredictionAnalysisBuilds)
     );
+    assert!(four.get(Counter::ParserZ3EncodingBuilds) <= 1);
 }
 
 // ---------- pinned values ----------
