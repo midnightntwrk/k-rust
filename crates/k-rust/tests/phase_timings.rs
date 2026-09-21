@@ -123,8 +123,32 @@ fn load_and_compile_phases_follow_the_pinned_pipeline_order() {
             .copied()
             .eq(LOAD_PHASES.iter().copied())
     );
-    assert!(load_names.contains(&"resolve rule bubbles / grammars"));
-    assert!(load_names.contains(&"resolve rule bubbles / parse"));
+    let rule_bubbles = load_names
+        .iter()
+        .position(|name| *name == "resolve rule bubbles")
+        .expect("rule-bubble parent phase should be recorded");
+    assert_eq!(
+        &load_names[rule_bubbles..rule_bubbles + 3],
+        &[
+            "resolve rule bubbles",
+            "resolve rule bubbles / grammars",
+            "resolve rule bubbles / parse",
+        ]
+    );
+    assert_eq!(
+        load_names
+            .iter()
+            .filter(|name| **name == "resolve rule bubbles / grammars")
+            .count(),
+        1
+    );
+    assert_eq!(
+        load_names
+            .iter()
+            .filter(|name| **name == "resolve rule bubbles / parse")
+            .count(),
+        1
+    );
     let compile_names = compile_timings
         .phases
         .iter()
@@ -145,6 +169,25 @@ fn phase_timings_are_non_negative_and_sum_by_prefix() {
         .map(|phase| phase.seconds)
         .sum::<f64>();
     let load_total = timings.total_seconds();
+    let rule_parent = timings
+        .phases
+        .iter()
+        .find(|phase| phase.name == "resolve rule bubbles")
+        .expect("rule-bubble parent phase should be recorded")
+        .seconds;
+    let rule_children = timings
+        .phases
+        .iter()
+        .filter(|phase| {
+            phase.name == "resolve rule bubbles / grammars"
+                || phase.name == "resolve rule bubbles / parse"
+        })
+        .map(|phase| phase.seconds)
+        .sum::<f64>();
+    assert!(
+        rule_children <= rule_parent + 1e-9,
+        "rule-bubble child phases must be contained by parent: {rule_children} > {rule_parent}"
+    );
     timings.extend(compile_timings);
     assert!(timings.phases.len() >= LOAD_PHASES.len() + COMPILE_PHASES.len());
     assert!(
