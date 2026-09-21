@@ -9,6 +9,8 @@ use k_rust::kast::{Label, Sort};
 use proptest::prelude::*;
 use serde_json::Value;
 
+use k_rust_kore::measure::{self, Counter};
+
 fn attrs(keys: &[&str]) -> Attributes {
     Attributes::new(
         keys.iter()
@@ -454,4 +456,62 @@ proptest! {
 
         prop_assert_eq!(catalog.local_ids(), &expected);
     }
+}
+
+#[test]
+fn definition_views_build_a_production_catalog_once_per_module() {
+    let resolved = fixture();
+    let module = resolved.main_module_id();
+    let views = resolved.views();
+    let before = measure::snapshot();
+
+    let first = views.production_catalog(module);
+    let second = views.production_catalog(module);
+    let delta = measure::snapshot().delta(&before);
+
+    assert!(std::ptr::eq(first, second));
+    assert_eq!(delta.get(Counter::KompileProductionCatalogsBuilt), 1);
+}
+
+#[test]
+fn definition_views_build_a_subsort_order_once_per_module() {
+    let resolved = fixture();
+    let module = resolved.main_module_id();
+    let views = resolved.views();
+    let before = measure::snapshot();
+
+    let first = views.subsorts(module).unwrap();
+    let second = views.subsorts(module).unwrap();
+    let delta = measure::snapshot().delta(&before);
+
+    assert!(std::ptr::eq(first, second));
+    assert_eq!(delta.get(Counter::KompilePartialOrdersBuilt), 1);
+}
+
+#[test]
+fn definition_views_memoise_every_remaining_view_kind() {
+    let resolved = fixture();
+    let module = resolved.main_module_id();
+    let views = resolved.views();
+
+    assert!(std::ptr::eq(
+        views.sort_catalog(module),
+        views.sort_catalog(module)
+    ));
+    assert!(std::ptr::eq(
+        views.syntactic_subsorts(module).unwrap_err(),
+        views.syntactic_subsorts(module).unwrap_err()
+    ));
+    assert!(std::ptr::eq(
+        views.overloads(module).unwrap(),
+        views.overloads(module).unwrap()
+    ));
+    assert!(std::ptr::eq(
+        views.priorities(module).unwrap(),
+        views.priorities(module).unwrap()
+    ));
+    assert!(std::ptr::eq(
+        views.associativities(module),
+        views.associativities(module)
+    ));
 }

@@ -1,5 +1,6 @@
 //! Definition algorithms are layered from syntax and equivalence through import resolution and derived catalogs (D1-D9).
-//! Derived views are rebuilt per call; the resolved visible-sentence list is the only memo.
+//! `DefinitionViews` memoises derived catalogs and relations for one resolution; one-shot public
+//! helpers remain available for callers that need a single view.
 //! `KompileResolveCalls`, `KompileRebaseCalls`, `KompileRuleBubblesParsed`, and `KompileSentencesTransformed` measure the enclosing compilation work.
 //!
 //! K definition syntax and KAST JSON interchange.
@@ -18,6 +19,7 @@ pub mod resolve;
 pub mod rule_catalog;
 pub mod sort_catalog;
 pub mod synonyms;
+pub mod views;
 
 pub use ast::{
     Associativity, AttributeConflict, AttributeMergeError, Attributes, Definition, FlatImport,
@@ -55,9 +57,11 @@ pub use regex::{
 };
 pub use relations::{
     AssociativityRelations, Error as RelationError, OverloadOrder, compute_associativities,
-    compute_disambiguation_subsorts, compute_overloads, compute_priorities, compute_subsorts,
+    compute_disambiguation_subsorts, compute_overloads, compute_overloads_with_catalog,
+    compute_priorities, compute_subsorts,
 };
 pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition, ResolvedModule};
 pub use rule_catalog::{ClaimId, ContextId, RuleCatalog, RuleId, match_rule_label};
 pub use sort_catalog::SortCatalog;
 pub use synonyms::apply_sort_synonyms;
+pub use views::DefinitionViews;

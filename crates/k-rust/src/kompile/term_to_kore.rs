@@ -7,8 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::definition::{
-    AttributeKey, Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
-    ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
+    AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
+    ProductionCatalog, ProductionId, ResolveError, ResolvedDefinition, Sentence, SortCatalog,
+    SortHead,
 };
 use crate::kast::{self, FrontendSort, InternalLabel, Label, Sort, Term, identifier};
 use crate::kore::ast::{KoreString, Pattern, Symbol, Variable, VariableKind};
@@ -16,6 +17,7 @@ use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use super::module_to_kore::encode_kore_label;
+use super::view::View;
 
 /// A failure to recover information required by KORE from the compact public KAST.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -120,10 +122,10 @@ impl std::error::Error for TermConversionError {}
 /// Converts terms using the productions, sort hooks, and subsorts visible from a module.
 #[derive(Clone, Debug)]
 pub struct TermConverter<'a> {
-    productions: ProductionCatalog<'a>,
-    sorts: SortCatalog<'a>,
-    token_sorts: Option<SortCatalog<'a>>,
-    subsorts: PartialOrder<Sort>,
+    productions: View<'a, ProductionCatalog<'a>>,
+    sorts: View<'a, SortCatalog<'a>>,
+    token_sorts: Option<View<'a, SortCatalog<'a>>>,
+    subsorts: View<'a, PartialOrder<Sort>>,
     sort_variables: BTreeSet<String>,
     generated_anonymous: Option<BTreeSet<GeneratedVariableIdentity>>,
 }
@@ -140,10 +142,28 @@ impl<'a> TermConverter<'a> {
             .subsorts(module)
             .map_err(|cycle| TermConversionError::CircularSubsort(cycle.path))?;
         Ok(Self {
-            productions: definition.production_catalog(module),
-            sorts: definition.sort_catalog(module),
+            productions: View::Owned(definition.production_catalog(module)),
+            sorts: View::Owned(definition.sort_catalog(module)),
             token_sorts: None,
-            subsorts,
+            subsorts: View::Owned(subsorts),
+            sort_variables: BTreeSet::new(),
+            generated_anonymous: None,
+        })
+    }
+
+    #[allow(dead_code)] // Wired into the pass callers in the next CQ-14a commit.
+    pub(crate) fn with_views(
+        views: &'a DefinitionViews<'a>,
+        module: ModuleId,
+    ) -> Result<Self, TermConversionError> {
+        let subsorts = views
+            .subsorts(module)
+            .map_err(|cycle| TermConversionError::CircularSubsort(cycle.path.clone()))?;
+        Ok(Self {
+            productions: View::Borrowed(views.production_catalog(module)),
+            sorts: View::Borrowed(views.sort_catalog(module)),
+            token_sorts: None,
+            subsorts: View::Borrowed(subsorts),
             sort_variables: BTreeSet::new(),
             generated_anonymous: None,
         })
@@ -163,7 +183,7 @@ impl<'a> TermConverter<'a> {
             .module_id(token_module)
             .ok_or_else(|| TermConversionError::MissingModule(token_module.to_owned()))?;
         let mut converter = Self::new(definition, module)?;
-        converter.token_sorts = Some(definition.sort_catalog(token_module));
+        converter.token_sorts = Some(View::Owned(definition.sort_catalog(token_module)));
         Ok(converter)
     }
 

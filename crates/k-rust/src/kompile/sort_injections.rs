@@ -11,12 +11,15 @@ use k_rust_kore::measure::{self, Counter};
 use serde_json::json;
 
 use crate::definition::{
-    AttributeKey, Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
-    ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
+    AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
+    ProductionCatalog, ProductionId, ResolveError, ResolvedDefinition, Sentence, SortCatalog,
+    SortHead,
 };
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::{GeneratingPass, record_generated_origins};
+
+use super::view::View;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SortInjectionError {
@@ -168,9 +171,9 @@ impl std::error::Error for SortInjectionError {}
 /// metadata sort is a strict subsort of the selected production's natural result sort.
 #[derive(Clone, Debug)]
 pub struct SortInjector<'a> {
-    productions: ProductionCatalog<'a>,
-    sorts: SortCatalog<'a>,
-    subsorts: PartialOrder<Sort>,
+    productions: View<'a, ProductionCatalog<'a>>,
+    sorts: View<'a, SortCatalog<'a>>,
+    subsorts: View<'a, PartialOrder<Sort>>,
     next_sort_parameter: Cell<usize>,
     used_sort_parameters: RefCell<BTreeSet<String>>,
 }
@@ -187,9 +190,26 @@ impl<'a> SortInjector<'a> {
             .subsorts(module)
             .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path))?;
         Ok(Self {
-            productions: definition.production_catalog(module),
-            sorts: definition.sort_catalog(module),
-            subsorts,
+            productions: View::Owned(definition.production_catalog(module)),
+            sorts: View::Owned(definition.sort_catalog(module)),
+            subsorts: View::Owned(subsorts),
+            next_sort_parameter: Cell::new(0),
+            used_sort_parameters: RefCell::new(BTreeSet::new()),
+        })
+    }
+
+    #[allow(dead_code)] // Wired into the pass callers in the next CQ-14a commit.
+    pub(crate) fn with_views(
+        views: &'a DefinitionViews<'a>,
+        module: ModuleId,
+    ) -> Result<Self, SortInjectionError> {
+        let subsorts = views
+            .subsorts(module)
+            .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path.clone()))?;
+        Ok(Self {
+            productions: View::Borrowed(views.production_catalog(module)),
+            sorts: View::Borrowed(views.sort_catalog(module)),
+            subsorts: View::Borrowed(subsorts),
             next_sort_parameter: Cell::new(0),
             used_sort_parameters: RefCell::new(BTreeSet::new()),
         })

@@ -1,6 +1,6 @@
 //! Five relation builders scan one module's productions and return deterministic partial orders (D7).
 //! Complexity: O(P² + closure) over production pairs and partial-order construction.
-//! Each view is rebuilt per call; its cost is the production scan plus partial-order construction.
+//! One-shot helpers rebuild per call; `DefinitionViews` memoises each result by module.
 //!
 //! Derived subsort, overload, priority, and associativity relations.
 
@@ -208,7 +208,21 @@ pub fn compute_overloads<'a>(
     subsorts: &PartialOrder<Sort>,
 ) -> Result<OverloadOrder<'a>, Cycle<ProductionId>> {
     let catalog = ProductionCatalog::from_visible(sentences);
+    compute_overloads_from_catalog(catalog, subsorts)
+}
 
+/// Compute overloads from an existing production catalog without rebuilding its indexes.
+pub fn compute_overloads_with_catalog<'a>(
+    catalog: &ProductionCatalog<'a>,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<OverloadOrder<'a>, Cycle<ProductionId>> {
+    compute_overloads_from_catalog(catalog.clone(), subsorts)
+}
+
+fn compute_overloads_from_catalog<'a>(
+    catalog: ProductionCatalog<'a>,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<OverloadOrder<'a>, Cycle<ProductionId>> {
     let mut explicit = BTreeMap::<String, Vec<ProductionId>>::new();
     let mut legacy = BTreeMap::<String, Vec<ProductionId>>::new();
     for (id, production) in catalog.productions() {
