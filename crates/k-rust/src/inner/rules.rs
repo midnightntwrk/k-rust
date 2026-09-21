@@ -228,7 +228,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
     }
 
     let resolved = resolved
-        .update(&transformed)
+        .update(definition, &transformed)
         .map_err(RuleError::Definition)?;
     Ok((transformed, resolved))
 }
