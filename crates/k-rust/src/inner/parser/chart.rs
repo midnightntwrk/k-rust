@@ -15,6 +15,7 @@ use k_rust_kore::measure::{self, Counter};
 use crate::kast::{Sort, TermSpan};
 use crate::provenance::SourceId;
 
+use super::disambiguation::PackedPriorityMemos;
 use super::forest::{
     Derivation, PackedNode, PackedTerm, build_packed_term, cmp_packed_structurally,
     pack_alternatives,
@@ -464,6 +465,7 @@ pub(super) fn completed_nodes(
     end: usize,
     input: &str,
     provenance: ParseProvenance,
+    priority_memos: &RefCell<PackedPriorityMemos>,
 ) -> (BTreeSet<Rc<PackedTerm>>, Option<ParseError>) {
     // Invariant: on a cache miss, every completed state for this exact boundary contributes each
     // derivation once; the memo is populated only with the complete packed result and first error.
@@ -508,7 +510,7 @@ pub(super) fn completed_nodes(
                 end,
                 provenance,
             );
-            match grammar.filter_or_defer_packed_priority(Rc::clone(&term)) {
+            match grammar.filter_or_defer_packed_priority(Rc::clone(&term), priority_memos) {
                 Ok(term) => {
                     nodes.insert(term);
                 }
@@ -675,7 +677,7 @@ mod tests {
             },
         );
         let parent = grammar
-            .filter_or_defer_packed_priority(parent)
+            .filter_or_defer_packed_priority(parent, &RefCell::new(PackedPriorityMemos::default()))
             .expect("packed parent satisfies priority");
         let PackedNode::Production { children, .. } = &parent.node else {
             panic!("expected packed production");
@@ -713,8 +715,29 @@ mod tests {
             base_offset: 0,
         };
 
-        let mut first = completed_nodes(&chart, &grammar, &Sort::new("S"), 0, 0, "", provenance).0;
-        let mut second = completed_nodes(&chart, &grammar, &Sort::new("S"), 0, 0, "", provenance).0;
+        let memos = RefCell::new(PackedPriorityMemos::default());
+        let mut first = completed_nodes(
+            &chart,
+            &grammar,
+            &Sort::new("S"),
+            0,
+            0,
+            "",
+            provenance,
+            &memos,
+        )
+        .0;
+        let mut second = completed_nodes(
+            &chart,
+            &grammar,
+            &Sort::new("S"),
+            0,
+            0,
+            "",
+            provenance,
+            &memos,
+        )
+        .0;
         let first = first.pop_first().expect("first completed node exists");
         let second = second.pop_first().expect("second completed node exists");
 

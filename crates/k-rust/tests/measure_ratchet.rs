@@ -275,6 +275,18 @@ fn casted_rule_chain_parse_stays_within_the_pinned_chart_work() {
 }
 
 #[test]
+fn casted_rule_chain_priority_work_is_bounded_by_completion_candidates() {
+    let delta = parse_casted_chain(15);
+    assert!(
+        delta.get(Counter::ParserPackedPriorityComputations)
+            <= 2 * delta.get(Counter::ParserChartCompletionCandidates),
+        "{} priority computations for {} completion candidates",
+        delta.get(Counter::ParserPackedPriorityComputations),
+        delta.get(Counter::ParserChartCompletionCandidates)
+    );
+}
+
+#[test]
 fn casted_rule_chain_parse_work_grows_at_most_cubically() {
     let at_15 = parse_casted_chain(15);
     let at_30 = parse_casted_chain(30);
