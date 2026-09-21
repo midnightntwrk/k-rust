@@ -6,12 +6,13 @@
 //! Stable source identities and provenance shared by the semantic frontend.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
 };
 
+use indexmap::IndexSet;
 use k_rust_kore::measure::{self, Counter};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -49,7 +50,7 @@ impl LogicalSourceId {
 }
 
 /// Definition-local index into a [`SourceTable`].
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SourceId(pub usize);
 
 /// One contiguous run of semantic-source bytes retained from a raw source.
@@ -327,7 +328,7 @@ impl GeneratingPass {
 }
 
 /// Stable input edge for one generated node.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ProvenanceLink {
     Source { span: TermSpan },
     Sentence { unique_id: String },
@@ -618,9 +619,9 @@ fn sentence_kind(sentence: &Sentence) -> &'static str {
 }
 
 pub(crate) fn sentence_source_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
-    let mut links = Vec::new();
+    let mut links = IndexSet::new();
     for_each_term(sentence, &mut |term| collect_source_links(term, &mut links));
-    links
+    links.into_iter().collect()
 }
 
 pub(crate) fn sentence_origin_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
@@ -722,11 +723,6 @@ pub(crate) fn seed_generated_sentence_origin(
 }
 
 fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> Vec<ProvenanceLink> {
-    // Keep encounter order in the output; the set is only a membership index.
-    fn unique_links(links: impl Iterator<Item = ProvenanceLink>) -> Vec<ProvenanceLink> {
-        let mut seen = BTreeSet::new();
-        links.filter(|link| seen.insert(link.clone())).collect()
-    }
     let configuration_sources = unique_links(
         before_sentences
             .iter()
@@ -739,11 +735,19 @@ fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> V
     unique_links(before_sentences.iter().flat_map(sentence_origin_links))
 }
 
-fn collect_source_links(term: &Term, links: &mut Vec<ProvenanceLink>) {
+fn unique_links(links: impl IntoIterator<Item = ProvenanceLink>) -> Vec<ProvenanceLink> {
+    links
+        .into_iter()
+        .collect::<IndexSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn collect_source_links(term: &Term, links: &mut IndexSet<ProvenanceLink>) {
     // Invariant: `links` contains distinct source links for the term prefix already traversed in
     // first-encounter order; recursive calls visit proper subterms.
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
-        push_unique(links, ProvenanceLink::Source { span });
+        insert_link(links, ProvenanceLink::Source { span });
     }
     match term {
         Term::Annotated { term, .. } => collect_source_links(term, links),
@@ -767,12 +771,9 @@ fn collect_source_links(term: &Term, links: &mut Vec<ProvenanceLink>) {
     }
 }
 
-fn push_unique(links: &mut Vec<ProvenanceLink>, link: ProvenanceLink) {
+fn insert_link(links: &mut IndexSet<ProvenanceLink>, link: ProvenanceLink) {
     measure::bump(Counter::ProvenanceLinkDedupProbes);
-    // Invariant: `links` contains distinct entries in first-encounter order.
-    if !links.contains(&link) {
-        links.push(link);
-    }
+    links.insert(link);
 }
 
 fn for_each_term(sentence: &Sentence, visitor: &mut impl FnMut(&Term)) {
@@ -1018,7 +1019,7 @@ fn term_origin_links(
 ) -> Arc<[ProvenanceLink]> {
     let before_metadata = before.and_then(Term::metadata);
     let after_metadata = after.metadata();
-    let mut links = Vec::new();
+    let mut links = IndexSet::new();
     // Invariant: `links` contains the distinct prior and current origin links already scanned in
     // first-encounter order.
     for link in before_metadata
@@ -1033,7 +1034,7 @@ fn term_origin_links(
         )
         .cloned()
     {
-        push_unique(&mut links, link);
+        insert_link(&mut links, link);
     }
     // Invariant: source spans are appended once after inherited origin records.
     for span in [
@@ -1043,19 +1044,19 @@ fn term_origin_links(
     .into_iter()
     .flatten()
     {
-        push_unique(&mut links, ProvenanceLink::Source { span });
+        insert_link(&mut links, ProvenanceLink::Source { span });
     }
     if links.is_empty() {
         return Arc::clone(inherited);
     }
     // Invariant: inherited links not already present are appended in inherited order.
     for link in inherited.iter() {
-        push_unique(&mut links, link.clone());
+        insert_link(&mut links, link.clone());
     }
-    if links == inherited.as_ref() {
+    if links.iter().eq(inherited.iter()) {
         Arc::clone(inherited)
     } else {
-        links.into()
+        links.into_iter().collect::<Vec<_>>().into()
     }
 }
 
@@ -1169,9 +1170,9 @@ mod tests {
                     unique_id: format!("s{}", value % 8),
                 })
                 .collect::<Vec<_>>();
-            let mut actual = Vec::new();
+            let mut actual = IndexSet::new();
             for link in links.iter().cloned() {
-                push_unique(&mut actual, link);
+                insert_link(&mut actual, link);
             }
             let mut oracle = Vec::new();
             for link in links.iter().cloned() {
@@ -1179,12 +1180,61 @@ mod tests {
                     oracle.push(link);
                 }
             }
-            prop_assert_eq!(&actual, &oracle);
+            prop_assert!(actual.iter().eq(oracle.iter()));
 
             for link in links {
-                push_unique(&mut actual, link);
+                insert_link(&mut actual, link);
             }
-            prop_assert_eq!(actual, oracle);
+            prop_assert!(actual.iter().eq(oracle.iter()));
+        }
+
+        #[test]
+        fn term_origin_union_matches_the_linear_receipt_oracle(
+            before_values in prop::collection::vec(0_u8..16, 0..32),
+            after_values in prop::collection::vec(0_u8..16, 0..32),
+            inherited_values in prop::collection::vec(0_u8..16, 0..32),
+        ) {
+            let links = |values: Vec<u8>| {
+                values
+                    .into_iter()
+                    .map(|value| ProvenanceLink::Sentence {
+                        unique_id: format!("s{}", value % 8),
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let term = |origins: Vec<ProvenanceLink>| {
+                Term::apply("node", Vec::new()).with_metadata(TermMetadata {
+                    origin: Some(Arc::new(OriginRecord {
+                        pass: GeneratingPass::MacroExpansion,
+                        origins: origins.into(),
+                        destination: None,
+                    })),
+                    ..TermMetadata::default()
+                })
+            };
+            let before_links = links(before_values);
+            let after_links = links(after_values);
+            let inherited: Arc<[ProvenanceLink]> = links(inherited_values).into();
+            let before = term(before_links.clone());
+            let after = term(after_links.clone());
+
+            let mut expected = Vec::new();
+            for link in before_links.into_iter().chain(after_links) {
+                if !expected.contains(&link) {
+                    expected.push(link);
+                }
+            }
+            if expected.is_empty() {
+                expected.extend(inherited.iter().cloned());
+            } else {
+                for link in inherited.iter().cloned() {
+                    if !expected.contains(&link) {
+                        expected.push(link);
+                    }
+                }
+            }
+            let actual = term_origin_links(Some(&before), &after, &inherited);
+            prop_assert_eq!(actual.as_ref(), expected.as_slice());
         }
     }
 

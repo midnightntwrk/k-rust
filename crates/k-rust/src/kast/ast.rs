@@ -74,7 +74,7 @@ impl Label {
 }
 
 /// An absolute byte range in one logical source's semantic text.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TermSpan {
     pub source: SourceId,
     pub start: usize,
