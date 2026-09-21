@@ -7,6 +7,7 @@
 mod compile;
 mod fresh_names;
 pub mod initial_configuration;
+mod label_graph;
 mod module_to_kore;
 mod passes;
 mod search_pattern;

@@ -6,8 +6,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use petgraph::Direction::Incoming;
-use petgraph::graph::{DiGraph, NodeIndex};
 use serde_json::Value;
 
 use crate::definition::{
@@ -30,6 +28,7 @@ use crate::provenance::{
 };
 
 use super::fresh_names::FreshNames;
+use super::label_graph::LabelDependencyGraph;
 use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
@@ -3152,51 +3151,8 @@ fn transitive_impure_labels(
     productions: &ProductionCatalog<'_>,
 ) -> BTreeSet<String> {
     let rules = definition.rule_catalog(module);
-    let function_labels = productions.function_labels();
-    let anywhere_labels = rules
-        .rules()
-        .filter(|(_, rule)| !is_macro_rule(rule))
-        .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
-        .filter_map(|(_, rule)| anywhere_lhs_label(rule))
-        .collect::<BTreeSet<_>>();
-
-    let mut graph = DiGraph::<LabelHead, ()>::new();
-    let mut nodes = BTreeMap::<LabelHead, NodeIndex>::new();
-    let node = |label: LabelHead,
-                graph: &mut DiGraph<LabelHead, ()>,
-                nodes: &mut BTreeMap<LabelHead, NodeIndex>| {
-        *nodes
-            .entry(label.clone())
-            .or_insert_with(|| graph.add_node(label))
-    };
-
-    for (_, rule) in rules.rules() {
-        let current = LabelHead::from(&match_rule_label(rule));
-        if !function_labels.contains(&current) {
-            continue;
-        }
-        let current_node = node(current, &mut graph, &mut nodes);
-        let Sentence::Rule { body, requires, .. } = rule else {
-            unreachable!("rule catalogs contain rules")
-        };
-        for root in [body, requires] {
-            root.visit_preorder(&mut |term| {
-                let Term::Apply { label, .. } = term.unannotated() else {
-                    return;
-                };
-                if label.is(WellKnownSymbol::Inj) {
-                    return;
-                }
-                let dependency = LabelHead::from(label);
-                if function_labels.contains(&dependency) || anywhere_labels.contains(&dependency) {
-                    let dependency_node = node(dependency, &mut graph, &mut nodes);
-                    graph.add_edge(current_node, dependency_node, ());
-                }
-            });
-        }
-    }
-
-    let mut impure = productions
+    let graph = LabelDependencyGraph::build(productions, &rules, is_macro_rule);
+    let impure = productions
         .productions()
         .filter_map(|(_, production)| match production {
             Sentence::Production {
@@ -3207,40 +3163,11 @@ fn transitive_impure_labels(
             _ => None,
         })
         .collect::<BTreeSet<_>>();
-    let mut pending = impure.iter().cloned().collect::<Vec<_>>();
-    while let Some(label) = pending.pop() {
-        let label_node = node(label, &mut graph, &mut nodes);
-        for predecessor in graph.neighbors_directed(label_node, Incoming) {
-            let predecessor = graph[predecessor].clone();
-            if impure.insert(predecessor.clone()) {
-                pending.push(predecessor);
-            }
-        }
-    }
-    impure
+    graph
+        .backward_closure(impure)
         .into_iter()
         .map(|label| label.as_str().to_owned())
         .collect()
-}
-
-fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
-    let Sentence::Rule { body, .. } = rule else {
-        return None;
-    };
-    let left = match body.unannotated() {
-        Term::Rewrite { left, .. } => left.as_ref(),
-        _ => body,
-    };
-    let Term::Apply { label, arguments } = left.unannotated() else {
-        return None;
-    };
-    if !label.is(WellKnownSymbol::Inj) {
-        return Some(LabelHead::from(label));
-    }
-    let Term::Apply { label, .. } = arguments.first()?.unannotated() else {
-        return None;
-    };
-    Some(LabelHead::from(label))
 }
 
 fn sort_declarations(
