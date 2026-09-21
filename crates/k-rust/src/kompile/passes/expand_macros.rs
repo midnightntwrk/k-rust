@@ -1,9 +1,14 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Expand compile-time macro and alias rules by structural matching.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
 };
+
+use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -256,6 +261,7 @@ impl<'a> Expander<'a> {
                     .map(move |sentence| (std::ptr::from_ref(sentence), owner))
             })
             .collect::<BTreeMap<_, _>>();
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let all = definition
             .sentences(macro_module)
             .into_iter()
@@ -458,6 +464,7 @@ impl<'a> Expander<'a> {
         let Some(rules) = rules else {
             return Ok(subject);
         };
+        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         for rule in rules {
             let Sentence::Rule { requires, .. } = &rule.sentence else {
                 unreachable!()
@@ -468,6 +475,7 @@ impl<'a> Expander<'a> {
             let mut substitution = BTreeMap::new();
             let matched = self.matches(&mut substitution, &rule.left, &subject)?;
             if matched && (rule.recursive || !applied.contains(&rule.id)) {
+                measure::bump(Counter::KompileMacroApplications);
                 let mut next_applied = applied.clone();
                 next_applied.insert(rule.id);
                 let substituted = self.substitute(rule.right.clone(), &mut substitution);

@@ -277,16 +277,43 @@ fn visible_rule_count(imported: Term, local: Term) -> usize {
     resolved.sentences(resolved.main_module_id()).len()
 }
 
+fn visible_sentence_count(first: Sentence, second: Sentence) -> usize {
+    let resolved = ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![first, second],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    resolved.sentences(resolved.main_module_id()).len()
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     #[test]
-    fn equivalence_is_reflexive_and_symmetric(left in sentence(), right in sentence()) {
+    fn equivalence_is_reflexive_symmetric_and_transitive(
+        left in sentence(),
+        middle in sentence(),
+        right in sentence(),
+    ) {
         prop_assert!(sentence_equivalent(&left, &left));
         prop_assert_eq!(
-            sentence_equivalent(&left, &right),
-            sentence_equivalent(&right, &left),
+            sentence_equivalent(&left, &middle),
+            sentence_equivalent(&middle, &left),
         );
+        if sentence_equivalent(&left, &middle) && sentence_equivalent(&middle, &right) {
+            prop_assert!(sentence_equivalent(&left, &right));
+        }
+
+        // Resolution's structural bucket may collide, but it must never separate equivalent
+        // sentences before the exact predicate selects the retained representative.
+        let equivalent = sentence_equivalent(&left, &middle);
+        prop_assert_eq!(visible_sentence_count(left, middle), if equivalent { 1 } else { 2 });
     }
 
     #[test]

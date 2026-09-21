@@ -1,9 +1,13 @@
+//! Sort injection computes expected sorts, least upper bounds, and explicit KORE injections, with strict rebase-in and lossy localization-out metadata policies.
+//! Work is O(term nodes times production and subsort queries); `KompileRebaseCalls` and `KompileInjectionsInserted` measure its variable work after CQ-12.
+//!
 //! Production-aware insertion of explicit KORE subsort injections.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use k_rust_kore::measure::{self, Counter};
 use serde_json::json;
 
 use crate::definition::{
@@ -318,6 +322,7 @@ impl<'a> SortInjector<'a> {
         self.term_sort_with_arity(term, expected, true)
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn term_sort_with_arity(
         &self,
         term: &Term,
@@ -454,6 +459,7 @@ impl<'a> SortInjector<'a> {
         }
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn inject_with_position(
         &self,
         term: &Term,
@@ -579,6 +585,7 @@ impl<'a> SortInjector<'a> {
                 } if parameters.is_empty()
                     && sort == expected
                     && attributes.has(AttributeKey::UserList)
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     && !items.iter().any(|item| {
                         matches!(item, crate::definition::ProductionItem::NonTerminal { .. })
                     }) =>
@@ -638,6 +645,7 @@ impl<'a> SortInjector<'a> {
                 .productions
                 .productions_for(&LabelHead::new(wrapped_label))
                 .iter()
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 .any(|id| {
                     matches!(
                         self.productions.production(*id),
@@ -860,6 +868,7 @@ impl<'a> SortInjector<'a> {
                 )?;
                 self.match_sort(parameters, declared, &actual, &mut matches);
             }
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             let result_only_parameter = parameters.iter().any(|parameter| {
                 contains_sort(sort, parameter)
                     && !argument_sorts
@@ -922,6 +931,7 @@ impl<'a> SortInjector<'a> {
         )
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn match_sort(
         &self,
         formal_parameters: &[Sort],
@@ -938,6 +948,7 @@ impl<'a> SortInjector<'a> {
         }
 
         self.match_sort_parameters(formal_parameters, declared, actual, matches);
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for candidate in self.sorts.sorted_all_sorts() {
             if candidate != actual && self.subsorts.less_than_eq(candidate, actual) {
                 self.match_sort_parameters(formal_parameters, declared, candidate, matches);
@@ -1078,6 +1089,7 @@ impl<'a> SortInjector<'a> {
             .iter()
             .filter(|sort| !sort.parameters.is_empty())
             .collect::<Vec<_>>();
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         bounds.retain(|bound| {
             parametric.iter().all(|sort| {
                 self.sorts
@@ -1147,6 +1159,7 @@ fn add_sort_injections_to_definition_inner(
             continue;
         }
         let source_catalog = resolved.production_catalog(module_id);
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
             let mut input = sentence.clone();
             if module_id != target && target_modules.contains(&module_id) {
@@ -1195,7 +1208,7 @@ fn localize_sentence_metadata(
 ) {
     let localize = |term: &mut Term| {
         let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
-        *term = localize_term_metadata(taken, source, target);
+        *term = super::rebase::rebase_term_lossy(taken, source, target);
     };
     match sentence {
         Sentence::Rule {
@@ -1227,50 +1240,6 @@ fn localize_sentence_metadata(
     }
 }
 
-fn localize_term_metadata(
-    term: Term,
-    source: &ProductionCatalog<'_>,
-    target: &ProductionCatalog<'_>,
-) -> Term {
-    let mut metadata = term.metadata().cloned().unwrap_or_default();
-    if let Some(resolved) = metadata.production {
-        metadata.production = (resolved.0 < source.len())
-            .then(|| {
-                target.productions().find_map(|(id, candidate)| {
-                    sentence_equivalent(source.production(ProductionId(resolved.0)), candidate)
-                        .then_some(crate::kast::ResolvedProductionId(id.0))
-                })
-            })
-            .flatten();
-    }
-    let rebuilt = match term.into_unannotated() {
-        Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(localize_term_metadata(*left, source, target)),
-            right: Box::new(localize_term_metadata(*right, source, target)),
-        },
-        Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(localize_term_metadata(*pattern, source, target)),
-            alias: Box::new(localize_term_metadata(*alias, source, target)),
-        },
-        Term::Sequence(items) => Term::Sequence(
-            items
-                .into_iter()
-                .map(|item| localize_term_metadata(item, source, target))
-                .collect(),
-        ),
-        Term::Apply { label, arguments } => Term::Apply {
-            label,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| localize_term_metadata(argument, source, target))
-                .collect(),
-        },
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-        Term::Annotated { .. } => unreachable!(),
-    };
-    rebuilt.with_metadata(metadata)
-}
-
 pub fn add_sort_injections_from_resolved(
     definition: &ResolvedDefinition,
     module: &str,
@@ -1280,6 +1249,7 @@ pub fn add_sort_injections_from_resolved(
 }
 
 fn injection(from: Sort, to: Sort, term: Term) -> Term {
+    measure::bump(Counter::KompileInjectionsInserted);
     Term::Apply {
         label: Label::with_parameters(WellKnownSymbol::Inj.as_str(), vec![from, to]),
         arguments: vec![term],
@@ -1322,6 +1292,7 @@ fn has_rewrite(term: &Term) -> bool {
     found
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 pub(crate) fn rewrite_projection(term: &Term, right: bool) -> Term {
     match term.unannotated() {
         Term::Rewrite {

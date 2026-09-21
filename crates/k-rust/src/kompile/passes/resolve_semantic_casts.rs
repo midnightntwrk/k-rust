@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Remove semantic-cast applications while retaining their inferred sorts.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -61,6 +64,7 @@ fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence, add_predicate
 
     let mut casts = BTreeSet::new();
     let mut typed_variables = BTreeMap::<String, Sort>::new();
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for root in &roots {
         root.visit_preorder(&mut |term| {
             let Term::Apply { label, arguments } = term.unannotated() else {
@@ -140,6 +144,7 @@ fn is_true(term: &Term) -> bool {
     )
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<String, Sort>) -> Term {
     let source_metadata = term.metadata().cloned();
     if casts.contains(term.unannotated()) {

@@ -1,6 +1,11 @@
+//! Structural sentence and term equivalence powers declaration-order deduplication.
+//! The shared accumulator costs O(n^2 * eq); `Counter::KompileSentenceEquivalenceChecks` measures equivalence calls after CQ-12's counter commit.
+//!
 //! K sentence equality for deduplication, including `Production`'s custom equality override.
 
 use std::collections::BTreeSet;
+
+use k_rust_kore::measure::{self, Counter};
 
 use super::ast::{Attributes, ProductionItem, Sentence};
 use crate::definition::AttributeKey;
@@ -8,6 +13,7 @@ use crate::kast::Term;
 
 /// Scala sentence equality, including `Production`'s custom equality override.
 pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {
+    measure::bump(Counter::KompileSentenceEquivalenceChecks);
     match (left, right) {
         (
             Sentence::SyntaxSort {
@@ -206,6 +212,37 @@ pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {
     }
 }
 
+/// Retain the first sentence from each structural-equivalence class.
+pub(crate) fn dedup_by_equivalence<'a>(
+    sentences: impl IntoIterator<Item = &'a Sentence>,
+) -> Vec<&'a Sentence> {
+    let mut unique = Vec::new();
+    // Invariant: `unique` holds the first representative of every equivalence class in the
+    // processed prefix; the input iterator shrinks by one each iteration.
+    for sentence in sentences {
+        push_if_inequivalent(&mut unique, sentence);
+    }
+    unique
+}
+
+/// Append `sentence` when no retained sentence is structurally equivalent.
+pub(crate) fn push_if_inequivalent<'a>(
+    sentences: &mut Vec<&'a Sentence>,
+    sentence: &'a Sentence,
+) -> bool {
+    // Invariant: every earlier representative is inequivalent to `sentence`; the remaining
+    // representative iterator shrinks by one until a match is found or the scan ends.
+    if sentences
+        .iter()
+        .any(|existing| sentence_equivalent(existing, sentence))
+    {
+        false
+    } else {
+        sentences.push(sentence);
+        true
+    }
+}
+
 fn tag_set(tags: &[String]) -> BTreeSet<&str> {
     tags.iter().map(String::as_str).collect()
 }
@@ -256,6 +293,7 @@ fn production_items_equivalent(left: &[ProductionItem], right: &[ProductionItem]
 ///
 /// K compares rule bodies as `K` terms, whose variable equality ignores the sort and
 /// which never carry the parser's metadata annotations.
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 pub fn term_equivalent(left: &Term, right: &Term) -> bool {
     match (left.unannotated(), right.unannotated()) {
         (Term::InjectedLabel(left), Term::InjectedLabel(right)) => left == right,

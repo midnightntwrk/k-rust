@@ -19,7 +19,7 @@
 //! rename is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 4;
+pub const COUNTER_SCHEMA_VERSION: u64 = 5;
 
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -34,6 +34,20 @@ pub enum Counter {
     KompileRuleBubblesParsed,
     /// Sentence count of the transformed definition, written once per compile.
     KompileSentencesTransformed,
+    /// Structural sentence-equivalence predicate calls.
+    KompileSentenceEquivalenceChecks,
+    /// Production catalogs constructed from visible sentence sets.
+    KompileProductionCatalogsBuilt,
+    /// Finite partial orders constructed.
+    KompilePartialOrdersBuilt,
+    /// Explicit sort-injection terms inserted.
+    KompileInjectionsInserted,
+    /// Macro rules that matched and were applied.
+    KompileMacroApplications,
+    /// Candidate rules scanned while building owise guards.
+    KompileOwiseCompetitorScans,
+    /// Membership probes used to deduplicate provenance links.
+    ProvenanceLinkDedupProbes,
     // parser (frontend)
     /// Earley parse entries; the filtered/unfiltered prediction retry doubles it.
     ParserParseAttempts,
@@ -124,7 +138,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 46;
+    pub const COUNT: usize = 53;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -132,6 +146,13 @@ impl Counter {
         Counter::KompileRebaseCalls,
         Counter::KompileRuleBubblesParsed,
         Counter::KompileSentencesTransformed,
+        Counter::KompileSentenceEquivalenceChecks,
+        Counter::KompileProductionCatalogsBuilt,
+        Counter::KompilePartialOrdersBuilt,
+        Counter::KompileInjectionsInserted,
+        Counter::KompileMacroApplications,
+        Counter::KompileOwiseCompetitorScans,
+        Counter::ProvenanceLinkDedupProbes,
         Counter::ParserParseAttempts,
         Counter::ParserPredictionAnalysisBuilds,
         Counter::ParserChartPredictionAttempts,
@@ -183,6 +204,13 @@ impl Counter {
             Counter::KompileRebaseCalls => "kompile.rebase_calls",
             Counter::KompileRuleBubblesParsed => "kompile.rule_bubbles_parsed",
             Counter::KompileSentencesTransformed => "kompile.sentences_transformed",
+            Counter::KompileSentenceEquivalenceChecks => "kompile.sentence_equivalence_checks",
+            Counter::KompileProductionCatalogsBuilt => "kompile.production_catalogs_built",
+            Counter::KompilePartialOrdersBuilt => "kompile.partial_orders_built",
+            Counter::KompileInjectionsInserted => "kompile.injections_inserted",
+            Counter::KompileMacroApplications => "kompile.macro_applications",
+            Counter::KompileOwiseCompetitorScans => "kompile.owise_competitor_scans",
+            Counter::ProvenanceLinkDedupProbes => "provenance.link_dedup_probes",
             Counter::ParserParseAttempts => "parser.parse_attempts",
             Counter::ParserPredictionAnalysisBuilds => "parser.prediction_analysis_builds",
             Counter::ParserChartPredictionAttempts => "parser.chart_prediction_attempts",
@@ -362,7 +390,10 @@ mod tests {
             *value = index as u64 * 3;
         }
         let snapshot = Snapshot(values);
-        assert_eq!(snapshot.get(Counter::TermConstructed), 41 * 3);
+        assert_eq!(
+            snapshot.get(Counter::TermConstructed),
+            (Counter::COUNT as u64 - 1) * 3
+        );
         let names = snapshot.iter().map(|(name, _)| name).collect::<Vec<_>>();
         let expected = Counter::ALL.map(Counter::name);
         assert_eq!(names, expected);

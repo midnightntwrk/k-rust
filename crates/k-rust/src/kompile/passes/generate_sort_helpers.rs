@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Generate sort predicates and projection functions consumed by later backend passes.
 
 use serde_json::{Value, json};
@@ -41,6 +44,7 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
                 attributes,
             });
         }
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sort in sorts.local_sorts() {
             let label = Label::sort_predicate(sort);
             let production = Sentence::Production {
@@ -62,6 +66,7 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
                     (AttributeKey::Predicate, sort_json(sort)),
                 ]),
             };
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             if !visible.contains(&&production) && !module.local_sentences.contains(&production) {
                 generated.push(production);
             }
@@ -140,6 +145,7 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
             .map(|(_, production)| production.clone())
             .collect::<Vec<_>>();
         let mut generated = Vec::new();
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sort in sorts.all_sorts() {
             if is_parser_sort(sort)
                 && sort.name != BuiltinSort::K.k_name()
@@ -153,6 +159,7 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
             }
             generated.extend(sort_projection(sort, label));
         }
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for production in &local_productions {
             generated.extend(named_projections(
                 production,
@@ -161,6 +168,7 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
                 &defined_labels,
             ));
         }
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for sentence in generated {
             if !module.local_sentences.contains(&sentence) {
                 module.local_sentences.push(sentence);
@@ -255,6 +263,7 @@ fn named_projections(
     {
         return Vec::new();
     }
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     let total = main_productions
         .productions_for_sort(&SortHead::from(sort))
         .iter()
@@ -276,6 +285,7 @@ fn named_projections(
         })
         .collect::<Vec<_>>();
     let mut generated = Vec::new();
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for (index, (field_sort, field_name)) in nonterminals.iter().enumerate() {
         let Some(field_name) = field_name else {
             continue;

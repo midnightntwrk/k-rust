@@ -1,3 +1,5 @@
+//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded (D9).
+//!
 //! Warnings for terms parsed through deprecated productions.
 
 use super::{Sentence, checked_terms};
@@ -56,6 +58,7 @@ fn uses_deprecated_production(term: &Term, productions: &ProductionCatalog<'_>) 
         if productions.production(*production).attributes().has(AttributeKey::Deprecated))
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn visit_with_metadata(term: &Term, visitor: &mut impl FnMut(&Term)) {
     visitor(term);
     match term.unannotated() {

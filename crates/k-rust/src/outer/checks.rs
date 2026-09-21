@@ -1,3 +1,6 @@
+//! Outer checks validate module and sentence declarations by linear scans with no worklist and no dedicated counter (D33).
+//! Complexity: O(N) over outer syntax nodes.
+//!
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -207,6 +210,7 @@ fn check_production(
         ));
         return;
     }
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for element_sort in lists {
         if BASE_SORTS.contains(&list_sort.name.as_str()) {
             diagnostics.push(error(

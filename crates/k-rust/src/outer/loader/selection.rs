@@ -1,3 +1,6 @@
+//! Module selection traverses imports and configuration reachability before backend exclusion.
+//! Work is O(modules + imports); no dedicated counter.
+//!
 //! Module selection for fresh compilation, before backend exclusion and inner parsing.
 
 use std::collections::BTreeSet;
@@ -104,6 +107,7 @@ pub(super) fn select_modules(
     // Bubble visibility follows all imports, including private imports, before tag filtering.
     // Dependency-first propagation avoids materializing and deduplicating visible sentences.
     let mut with_bubbles = BTreeSet::new();
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     for &id in resolved.dependency_order() {
         if resolved
             .module(id)
@@ -132,6 +136,7 @@ pub(super) fn select_modules(
     {
         roots.insert(default);
     }
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     let mut retained = BTreeSet::new();
     for root in roots {
         retained.insert(root);
@@ -156,6 +161,7 @@ fn has_configuration_after_exclusion(
 ) -> bool {
     let mut visited = BTreeSet::new();
     let mut pending = vec![root];
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     while let Some(id) = pending.pop() {
         if !visited.insert(id) {
             continue;

@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Lower evaluation contexts into heat/cool rules and freezer productions.
 
 use std::{collections::BTreeMap, collections::BTreeSet, fmt};
@@ -85,6 +88,7 @@ fn resolve_contexts_inner(definition: &Definition) -> Result<Definition, Resolve
         .collect::<BTreeMap<_, _>>();
     let mut generated = Vec::new();
     let mut diagnostics = Vec::new();
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for context in contexts {
         match resolve_context(context, &productions, &sentence_labels, &mut labels) {
             Ok(sentences) => extend_unique(&mut generated, sentences),
@@ -117,6 +121,7 @@ fn resolve_contexts_inner(definition: &Definition) -> Result<Definition, Resolve
         );
         extend_unique(&mut main.local_sentences, generated);
     }
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     rebase_local_metadata(definition, output).map_err(|message| ResolveContextsError {
         diagnostics: vec![plain_error(message)],
     })
@@ -245,6 +250,7 @@ struct HeatScan<'a, 'definition> {
 }
 
 impl HeatScan<'_, '_> {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn visit(&mut self, term: &Term) {
         match term.unannotated() {
             Term::Rewrite { left, right } => {
@@ -293,6 +299,7 @@ impl HeatScan<'_, '_> {
 fn validate_context(body: &Term, attributes: &Attributes) -> Result<(), Vec<Diagnostic>> {
     let mut holes = BTreeSet::new();
     let mut rewrites = Vec::new();
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     body.visit_preorder(&mut |term| match term.unannotated() {
         Term::Variable { name, .. } if name == "HOLE" => {
             holes.insert(term.clone());
@@ -361,6 +368,7 @@ fn is_main_cell(label: &Label, productions: &ProductionCatalog<'_>) -> bool {
 }
 
 fn find_cooled(term: &Term, productions: &ProductionCatalog<'_>) -> Option<Term> {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn visit(term: &Term, productions: &ProductionCatalog<'_>, cooled: &mut Option<Term>) {
         match term.unannotated() {
             Term::Apply { label, arguments } => {
@@ -419,6 +427,7 @@ fn freezer_hint(cooled: &Term, hole_position: usize) -> String {
 
 fn unique_freezer_label(labels: &mut BTreeSet<Label>, hint: &str) -> Label {
     let mut attempt = 0usize;
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     loop {
         let suffix = if attempt == 0 {
             String::new()
@@ -454,6 +463,7 @@ fn insert(term: Term, rewrite: Term, productions: &ProductionCatalog<'_>) -> (Te
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>) -> (Term, bool) {
     match term {
         Term::Annotated { term, metadata } => {
@@ -572,6 +582,7 @@ fn bool_token(value: bool) -> Term {
 }
 
 fn extend_unique(target: &mut Vec<Sentence>, additions: impl IntoIterator<Item = Sentence>) {
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for sentence in additions {
         if !target.contains(&sentence) {
             target.push(sentence);

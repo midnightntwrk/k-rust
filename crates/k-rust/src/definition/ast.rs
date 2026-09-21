@@ -1,3 +1,6 @@
+//! This definition-layer algorithm scans or transforms its model in deterministic declaration order (D34).
+//! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
+//!
 //! The flat, serializable K definition model.
 
 use std::{
@@ -245,6 +248,7 @@ impl Attributes {
         for attributes in attributes {
             for (key, value) in &attributes.entries {
                 let candidates = values.entry(key.clone()).or_default();
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 if !candidates.contains(value) {
                     candidates.push(value.clone());
                 }

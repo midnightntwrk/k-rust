@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Lower local `#fun`, `#let`, and K-matching expressions into generated functions.
 
 use std::{collections::BTreeSet, fmt};
@@ -60,6 +63,7 @@ fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunEr
         })
         .collect::<BTreeSet<_>>();
 
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for module in &mut output.modules {
         let injector = match SortInjector::new(&resolved, &module.name) {
             Ok(injector) => injector,
@@ -76,6 +80,7 @@ fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunEr
             diagnostics: &mut diagnostics,
         };
         let mut sentences = Vec::with_capacity(module.local_sentences.len());
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sentence in &module.local_sentences {
             sentences.push(resolver.transform_sentence(sentence.clone()));
         }
@@ -357,6 +362,7 @@ impl Resolver<'_, '_> {
 
     fn unique_lambda(&mut self, hint1: &str, hint2: &str) -> Label {
         let mut attempt = 0usize;
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         loop {
             let suffix = if attempt == 0 {
                 String::new()
@@ -430,6 +436,7 @@ fn closure_variables(term: &Term) -> Vec<ClosureVariable> {
     result
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn collect_lhs_variables(term: &Term, in_lhs: bool, bound: &mut BTreeSet<String>) {
     match term.unannotated() {
         Term::Variable { name, .. } if in_lhs && !is_anonymous(name) => {
@@ -532,6 +539,7 @@ impl Position {
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn collect_rhs_variables(
     term: &Term,
     context: Option<&Sort>,
@@ -771,6 +779,7 @@ fn is_anonymous(name: &str) -> bool {
 }
 
 fn extend_unique(sentences: &mut Vec<Sentence>, additions: Vec<Sentence>) {
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for sentence in additions {
         if !sentences.contains(&sentence) {
             sentences.push(sentence);

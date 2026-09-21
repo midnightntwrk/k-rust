@@ -1,10 +1,15 @@
+//! Production catalogs group visible productions and build label, sort, hook, and identity indexes in declaration order.
+//! Construction costs O(n^2 * eq + n log n) before indexed equivalence; `Counter::KompileProductionCatalogsBuilt` measures builds after CQ-12's counter commit.
+//!
 //! Deterministic indexes over the productions visible from a resolved module.
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use k_rust_kore::measure::{self, Counter};
+
 use super::ast::{Attributes, ProductionItem, Sentence};
 use super::attribute_keys::AttributeKey;
-use super::equivalence::sentence_equivalent;
+use super::equivalence::{dedup_by_equivalence, sentence_equivalent};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{Label, Sort};
 
@@ -158,16 +163,11 @@ impl<'a> ProductionCatalog<'a> {
         visible_sentences: impl IntoIterator<Item = &'a Sentence>,
         local_sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Self {
-        let mut productions: Vec<&'a Sentence> = Vec::new();
-        for sentence in visible_sentences {
-            if matches!(sentence, Sentence::Production { .. })
-                && !productions
-                    .iter()
-                    .any(|existing| sentence_equivalent(existing, sentence))
-            {
-                productions.push(sentence);
-            }
-        }
+        let productions = dedup_by_equivalence(
+            visible_sentences
+                .into_iter()
+                .filter(|sentence| matches!(sentence, Sentence::Production { .. })),
+        );
 
         let local_sentences = local_sentences
             .into_iter()
@@ -179,6 +179,7 @@ impl<'a> ProductionCatalog<'a> {
             .filter(|(_, production)| {
                 local_sentences
                     .iter()
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     .any(|local| sentence_equivalent(production, local))
             })
             .map(|(index, _)| ProductionId(index))
@@ -197,6 +198,7 @@ impl<'a> ProductionCatalog<'a> {
             macro_labels: BTreeSet::new(),
         };
         catalog.build_indexes();
+        measure::bump(Counter::KompileProductionCatalogsBuilt);
         catalog
     }
 

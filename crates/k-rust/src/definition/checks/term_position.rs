@@ -1,3 +1,5 @@
+//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded (D9).
+//!
 //! Shared traversal rules for K's LHS/RHS-sensitive terms.
 
 use crate::kast::{InternalLabel, Term};

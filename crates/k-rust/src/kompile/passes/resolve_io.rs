@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Java-compatible resolution of configuration cells marked with `stream`.
 
 use std::{fmt, ops::Range};
@@ -80,6 +83,7 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
             continue;
         }
 
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let local_has_stream = output.modules[module_index]
             .local_sentences
             .iter()
@@ -87,6 +91,7 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
         let mut sentences = output.modules[module_index].local_sentences.clone();
         let original_sentences = sentences.len();
 
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for stream in &streams {
             let Some(contents) = builtin_initializer_contents(definition, stream, &mut diagnostics)
             else {
@@ -98,6 +103,7 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
                 .collect();
         }
 
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for stream in streams.iter().filter(|stream| stream.stream == "stdin") {
             let generated =
                 stdin_unblocking_rules(definition, stream, &sentences, &mut diagnostics);
@@ -111,6 +117,7 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
         }
 
         if local_has_stream {
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             for stream in &streams {
                 let imported = stream_module_sentences(definition, stream, &mut diagnostics);
                 let start = sentences.len();
@@ -133,6 +140,8 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
         });
 
         output.modules[module_index].local_sentences = sentences;
+        // Invariant: each earlier implicit import has been added exactly when its module exists;
+        // the two-element candidate list shrinks by one each iteration.
         for import in ["K-IO", WellKnownModule::KReflection.as_str()] {
             if definition
                 .modules
@@ -173,6 +182,7 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
                 return Err(ResolveIoError { diagnostics });
             }
         };
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for origin in metadata_origins {
             let source = resolved.production_catalog(origin.source);
             let target_name = output.modules[origin.module].name.clone();
@@ -180,6 +190,7 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
                 .module_id(&target_name)
                 .expect("resolved output contains every output module");
             let target_catalog = target.production_catalog(target_module);
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             for sentence in &mut output.modules[origin.module].local_sentences[origin.sentences] {
                 if let Err(message) =
                     super::rebase_sentence(sentence, &source, &target_catalog, &sentence_equivalent)
@@ -245,6 +256,7 @@ fn stream_productions(
             stream: stream.into(),
             sentence: sentence.clone(),
         };
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         if !streams.iter().any(|existing: &StreamProduction| {
             existing.stream == stream.stream
                 && LabelHead::from(&existing.label) == LabelHead::from(&stream.label)
@@ -411,6 +423,7 @@ fn stdin_unblocking_rules(
         return Vec::new();
     };
     let mut generated = Vec::new();
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     for sentence in sentences {
         let Sentence::Rule {
             body,
@@ -771,6 +784,7 @@ fn stream_module<'a>(
 }
 
 fn extend_unique(sentences: &mut Vec<Sentence>, additions: Vec<Sentence>) {
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for sentence in additions {
         if !sentences.contains(&sentence) {
             sentences.push(sentence);

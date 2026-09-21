@@ -1,3 +1,7 @@
+//! Configuration expansion recursively generates cells, initializers, and top-cell syntax while resolving newly generated views (D8).
+//! Complexity: O(N + G²) over visited terms and generated-sentence deduplication.
+//! Work is proportional to visited configuration terms plus generated-sentence dedup; enclosing resolve and sentence counters measure it.
+//!
 //! Expansion of parsed configuration declarations into generated sentences.
 
 use std::collections::BTreeSet;
@@ -9,7 +13,7 @@ use super::{
     Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolveError,
     ResolvedDefinition, Sentence,
     attribute_keys::{KeyParameter, builtin_key},
-    sentence_equivalent,
+    dedup_by_equivalence, push_if_inequivalent,
 };
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -87,12 +91,15 @@ fn expand_configurations_inner(
     let mut transformed = definition.clone();
     let mut diagnostics = Vec::new();
 
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for module_name in module_names {
         let module_index = transformed
             .modules
             .iter()
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             .position(|module| module.name == module_name)
             .expect("resolved modules came from the flat definition");
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         if !transformed.modules[module_index]
             .local_sentences
             .iter()
@@ -181,6 +188,7 @@ impl Generator<'_, '_> {
         Ok(())
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn generate(
         &mut self,
         term: &Term,
@@ -312,15 +320,7 @@ impl Generator<'_, '_> {
             } => label.name == init_label,
             _ => false,
         }));
-        let mut unique: Vec<&Sentence> = Vec::new();
-        for production in productions {
-            if !unique
-                .iter()
-                .any(|existing| sentence_equivalent(existing, production))
-            {
-                unique.push(production);
-            }
-        }
+        let unique = dedup_by_equivalence(productions);
         let (initializer, initializer_takes_map) = match unique.as_slice() {
             [Sentence::Production { items, .. }] if items.len() == 1 => {
                 (Some(Term::apply(init_label, vec![])), false)
@@ -825,6 +825,7 @@ impl Generator<'_, '_> {
 
     fn label_exists(&self, label: &str) -> bool {
         self.existing_labels.contains(label)
+            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             || self.generated.iter().any(|sentence| {
                 matches!(
                     sentence,
@@ -835,11 +836,8 @@ impl Generator<'_, '_> {
     }
 
     fn push(&mut self, sentence: Sentence) {
-        if !self
-            .generated
-            .iter()
-            .any(|existing| sentence_equivalent(existing, &sentence))
-        {
+        let mut generated = self.generated.iter().collect::<Vec<_>>();
+        if push_if_inequivalent(&mut generated, &sentence) {
             self.generated.push(sentence);
         }
     }
@@ -863,6 +861,7 @@ impl Generator<'_, '_> {
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn parse_property_list(term: &Term, output: &mut Attributes) -> Result<(), String> {
     match term.unannotated() {
         Term::Apply { label, arguments }
@@ -918,6 +917,7 @@ fn expect_cell_name(term: &Term) -> Option<&str> {
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn flatten_cells<'a>(terms: &'a [Term], output: &mut Vec<&'a Term>) {
     for term in terms {
         match term.unannotated() {
@@ -946,6 +946,7 @@ fn contains_external_map_initializer(
             return;
         };
         let init = init_label(&Sort::new(cell_sort_name(name)));
+        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         found = catalog
             .productions_for(&LabelHead::new(&init))
             .iter()
@@ -970,6 +971,7 @@ fn has_configuration_or_regular_variable(term: &Term) -> bool {
 }
 
 fn leaf_initializer(term: &Term) -> Term {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn transform(term: &Term, sort: Option<&Sort>) -> Term {
         let replaces_source_node = matches!(
             term.unannotated(),

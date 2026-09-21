@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Give matching-logic disjunctions explicit aliases.
 
 use crate::{
@@ -40,6 +43,7 @@ pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> 
     ))
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform(
     term: Term,
     injector: &SortInjector<'_>,

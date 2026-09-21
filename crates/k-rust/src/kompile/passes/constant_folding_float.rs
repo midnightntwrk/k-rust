@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! MPFR-backed implementation of K's `FLOAT` constant-folding hooks.
 
 use std::{
@@ -476,6 +479,7 @@ fn validate_mpfr_format(format: &str) -> Result<(), String> {
     let bytes = format.as_bytes();
     let mut index = 0;
     let mut conversions = 0;
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     while index < bytes.len() {
         if bytes[index] != b'%' {
             index += 1;
@@ -488,6 +492,7 @@ fn validate_mpfr_format(format: &str) -> Result<(), String> {
         }
         let mut is_mpfr = false;
         let mut completed = false;
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         while let Some(&byte) = bytes.get(index) {
             if byte == b'*' || byte == b'$' {
                 return Err("MPFR Float formats cannot use dynamic or positional arguments".into());

@@ -1,3 +1,6 @@
+//! Sort catalogs group visible declarations and instantiated sort heads in declaration order.
+//! Construction is O(n log n) in visible sort declarations; no dedicated counter.
+//!
 //! Deterministic indexes over the sorts visible from a resolved module.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -214,6 +217,7 @@ impl<'a> SortCatalog<'a> {
 
 impl ResolvedDefinition {
     pub fn sort_catalog(&self, module: ModuleId) -> SortCatalog<'_> {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let imported_sorts = self
             .direct_imports(module)
             .into_iter()
@@ -243,6 +247,7 @@ fn compute_instantiations(
         if !sort.parameters.is_empty() {
             let head = SortHead::from(sort);
             heads.insert(head.clone());
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             if !parameters.contains(sort)
                 && sort
                     .parameters
@@ -290,6 +295,7 @@ fn compute_defined_heads(
         else {
             continue;
         };
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         if !parameters.contains(sort) {
             defined.insert(SortHead::from(sort));
         }

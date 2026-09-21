@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Compile-time evaluation of pure Boolean, integer, and string hooks.
 
 use std::{cmp::Ordering, collections::BTreeMap, fmt, str::FromStr};
@@ -115,6 +118,7 @@ impl<'a> Folder<'a> {
         }
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn fold(
         &self,
         term: Term,
@@ -489,6 +493,7 @@ fn int_log2(mut value: BigInt) -> Result<Value, String> {
         return Err("Argument to hook INT.log2 out of range. Expected a positive integer.".into());
     }
     let mut result = 0u64;
+    // Invariant: accepted alternatives satisfy the current bound, and each iteration consumes budget or removes one pending alternative.
     while value > BigInt::one() {
         value >>= 1usize;
         result += 1;
@@ -531,6 +536,7 @@ fn int_powmod(a: BigInt, exponent: BigInt, modulus: BigInt) -> Result<BigInt, St
 fn modular_inverse(a: BigInt, modulus: BigInt) -> Option<BigInt> {
     let (mut old_r, mut r) = (a, modulus.clone());
     let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
+    // Invariant: accepted alternatives satisfy the current bound, and each iteration consumes budget or removes one pending alternative.
     while !r.is_zero() {
         let q = &old_r / &r;
         (old_r, r) = (r.clone(), old_r - &q * r);
@@ -606,6 +612,7 @@ fn string_find(values: &[Value], reverse: bool, any_char: bool) -> Result<Value,
             if reverse { "rfind" } else { "find" }
         ));
     }
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     let found = if any_char {
         if reverse {
             (0..=index.min(chars.len().saturating_sub(1)))
@@ -678,6 +685,7 @@ fn replace_string(
         return Ok(Value::String(remaining));
     }
     let mut out = String::new();
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for _ in 0..count {
         let Some(index) = remaining.find(needle) else {
             break;

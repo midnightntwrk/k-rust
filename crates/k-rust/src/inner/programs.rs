@@ -10,7 +10,7 @@ use std::fmt;
 use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
-    ResolveError, ResolvedDefinition, Sentence, SortCatalog, sentence_equivalent,
+    ResolveError, ResolvedDefinition, Sentence, SortCatalog, push_if_inequivalent,
 };
 use crate::kast::names::PROGRAM_PARSING_POSTFIX;
 use crate::kast::{Sort, Term};
@@ -369,14 +369,13 @@ fn append_unique<'a>(
     sentences: &mut Vec<Sentence>,
     incoming: impl IntoIterator<Item = &'a Sentence>,
 ) {
-    for sentence in incoming {
-        if !sentences
-            .iter()
-            .any(|existing| sentence_equivalent(existing, sentence))
-        {
-            sentences.push(sentence.clone());
-        }
-    }
+    let mut seen = sentences.iter().collect::<Vec<_>>();
+    let accepted = incoming
+        .into_iter()
+        .filter(|sentence| push_if_inequivalent(&mut seen, sentence))
+        .cloned()
+        .collect::<Vec<_>>();
+    sentences.extend(accepted);
 }
 
 /// Match the reference `kast` presentation boundary without weakening the typed term used by

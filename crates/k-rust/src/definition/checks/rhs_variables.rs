@@ -1,3 +1,5 @@
+//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded (D9).
+//!
 //! Variable-binding checks and position-aware KAST traversal.
 
 use std::collections::BTreeSet;
@@ -202,6 +204,7 @@ fn check_context_variables(
     );
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn check_pattern_value(
     term: &Term,
     position: TermPosition,
@@ -226,6 +229,7 @@ fn check_pattern_value(
 }
 
 #[allow(clippy::too_many_arguments)]
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn gather_variables(
     term: &Term,
     position: TermPosition,
@@ -342,6 +346,7 @@ fn report_unbound(
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn compute_unbound(
     term: &Term,
     position: TermPosition,

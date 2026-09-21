@@ -1,3 +1,7 @@
+//! KORE pretty printing computes flat widths once, then chooses compact or broken layouts in a linear document traversal (D20).
+//! Complexity: O(N) over document nodes.
+//! The former quadratic `fits` note is stale after the flat-width cache; no dedicated counter.
+//!
 //! Compact and width-aware textual KORE printing.
 
 mod document;
@@ -368,6 +372,7 @@ fn syntax_doc(root: SyntaxTask<'_>, indent: usize) -> Doc {
 
     let mut stack = vec![root];
     let mut ops = Vec::new();
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     while let Some(task) = stack.pop() {
         match task {
             SyntaxTask::Text(text) => ops.push(Op::Text(text)),

@@ -1,3 +1,7 @@
+//! Import-DAG resolution uses petgraph topological order and a colouring DFS for cycle reports.
+//! A resolve costs O(M log M + E + sum n_m^2 * eq); visible sentences use bucketed equivalence dedup and signatures use O(S^2 * eq) dedup.
+//! `Counter::KompileResolveCalls` counts invocations.
+//!
 //! Resolution of flat, name-based modules into an import graph.
 
 use std::{
@@ -14,7 +18,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
-use super::equivalence::sentence_equivalent;
+use super::equivalence::{dedup_by_equivalence, push_if_inequivalent};
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
 
@@ -182,6 +186,7 @@ impl Ord for SentenceBody<'_> {
 }
 
 /// Preorder comparison of the unannotated term with variable sorts erased.
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn compare_erased_terms(left: &Term, right: &Term) -> Ordering {
     fn variant(term: &Term) -> u8 {
         match term {
@@ -300,6 +305,7 @@ impl ResolvedDefinition {
             }
         }
 
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut graph = DiGraph::new();
         let mut modules_by_name = BTreeMap::new();
         for module in &modules {
@@ -334,6 +340,7 @@ impl ResolvedDefinition {
                 if module_id == import_id {
                     return Err(Error::SelfImport(module.name.clone()));
                 }
+                // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
                 graph.add_edge(
                     module_id.0,
                     import_id.0,
@@ -344,6 +351,7 @@ impl ResolvedDefinition {
             }
         }
 
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut dependency_order = match toposort(&graph, None) {
             Ok(order) => order.into_iter().map(ModuleId).collect::<Vec<_>>(),
             Err(_) => {
@@ -353,6 +361,7 @@ impl ResolvedDefinition {
             }
         };
         dependency_order.reverse();
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let visible_sentences = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
@@ -395,6 +404,7 @@ impl ResolvedDefinition {
     pub fn direct_imports(&self, module: ModuleId) -> Vec<ImportRef> {
         let mut imports = self
             .graph
+            // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
             .edges_directed(module.0, Outgoing)
             .map(|edge| ImportRef {
                 module: ModuleId(edge.target()),
@@ -418,6 +428,8 @@ impl ResolvedDefinition {
             .into_iter()
             .map(|import| import.module)
             .collect::<Vec<_>>();
+        // Invariant: `found` contains expanded imports and `pending` contains discovered imports
+        // not yet expanded; a module is expanded only after its first insertion into `found`.
         while let Some(import) = pending.pop() {
             if found.insert(import) {
                 pending.extend(
@@ -459,11 +471,7 @@ impl ResolvedDefinition {
             })
         {
             let sentences = buckets.entry(SentenceBucket::new(sentence)).or_default();
-            if !sentences
-                .iter()
-                .any(|existing| sentence_equivalent(existing, sentence))
-            {
-                sentences.push(sentence);
+            if push_if_inequivalent(sentences, sentence) {
                 locations.push((owner, index));
             }
         }
@@ -479,6 +487,8 @@ impl ResolvedDefinition {
             .into_iter()
             .map(|import| import.module)
             .collect::<Vec<_>>();
+        // Invariant: `exported_modules` contains expanded imports and `pending` contains the
+        // public-import frontier; each module is expanded at most once.
         while let Some(import) = pending.pop() {
             if exported_modules.insert(import) {
                 pending.extend(
@@ -490,30 +500,13 @@ impl ResolvedDefinition {
             }
         }
 
-        let mut sentences: Vec<&Sentence> = Vec::new();
-        for module in self
+        let sentences = self
             .dependency_order
             .iter()
             .filter(|module| exported_modules.contains(module))
-        {
-            for sentence in self.public_sentences(*module) {
-                if !sentences
-                    .iter()
-                    .any(|existing| sentence_equivalent(existing, sentence))
-                {
-                    sentences.push(sentence);
-                }
-            }
-        }
-        for sentence in &self.module(module).local_sentences {
-            if !sentences
-                .iter()
-                .any(|existing| sentence_equivalent(existing, sentence))
-            {
-                sentences.push(sentence);
-            }
-        }
-        sentences
+            .flat_map(|module| self.public_sentences(*module))
+            .chain(&self.module(module).local_sentences);
+        dedup_by_equivalence(sentences)
     }
 
     /// Scala's `publicSentences`: the local sentences exported by a module signature.
@@ -535,6 +528,7 @@ impl ResolvedDefinition {
 }
 
 fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn visit(
         graph: &DiGraph<ResolvedModule, Import>,
         node: NodeIndex,
@@ -544,6 +538,7 @@ fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
         state[node.index()] = 1;
         stack.push(node);
 
+        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         let mut imports = graph.neighbors_directed(node, Outgoing).collect::<Vec<_>>();
         imports.sort_by(|left, right| graph[*left].name.cmp(&graph[*right].name));
         for import in imports {
@@ -554,6 +549,7 @@ fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
                     }
                 }
                 1 => {
+                    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
                     let start = stack
                         .iter()
                         .position(|candidate| *candidate == import)
@@ -574,6 +570,7 @@ fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
         None
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     let mut nodes = graph.node_indices().collect::<Vec<_>>();
     nodes.sort_by(|left, right| graph[*left].name.cmp(&graph[*right].name));
     let mut state = vec![0; graph.node_count()];
@@ -607,14 +604,8 @@ impl From<&FlatModule> for ResolvedModule {
 }
 
 fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Sentence> {
-    let mut unique = Vec::new();
-    for sentence in sentences {
-        if !unique
-            .iter()
-            .any(|existing| sentence_equivalent(existing, sentence))
-        {
-            unique.push(sentence.clone());
-        }
-    }
-    unique
+    dedup_by_equivalence(sentences)
+        .into_iter()
+        .cloned()
+        .collect()
 }

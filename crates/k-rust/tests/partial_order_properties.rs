@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::PartialOrder;
+use petgraph::algo::has_path_connecting;
+use petgraph::graph::DiGraph;
 use proptest::prelude::*;
 
 proptest! {
@@ -21,6 +23,11 @@ proptest! {
         }
 
         let order = PartialOrder::new(edges.iter().copied()).unwrap();
+        let mut graph = DiGraph::<usize, ()>::new();
+        let nodes = (0..N).map(|node| graph.add_node(node)).collect::<Vec<_>>();
+        for &(lesser, greater) in &edges {
+            graph.add_edge(nodes[lesser], nodes[greater], ());
+        }
         let mut reachable = [[false; N]; N];
         for &(lesser, greater) in &edges {
             reachable[lesser][greater] = true;
@@ -37,6 +44,11 @@ proptest! {
         for (lesser, row) in reachable.iter().enumerate() {
             for (greater, expected) in row.iter().enumerate() {
                 prop_assert_eq!(order.less_than(&lesser, &greater), *expected);
+                prop_assert_eq!(
+                    order.less_than(&lesser, &greater),
+                    lesser != greater
+                        && has_path_connecting(&graph, nodes[lesser], nodes[greater], None),
+                );
             }
         }
 

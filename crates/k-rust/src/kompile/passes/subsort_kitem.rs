@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Add backend subsort declarations from every user sort to `KItem`.
 
 use std::fmt;
@@ -33,6 +36,7 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
             .expect("resolved definition contains every source module");
         let sorts = resolved.sort_catalog(module_id);
         let visible = resolved.sentences(module_id);
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sort in sorts.all_sorts() {
             if is_parser_sort(sort) {
                 continue;
@@ -47,6 +51,7 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
                 }],
                 attributes: Attributes::default(),
             };
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             if !visible.contains(&&production) && !module.local_sentences.contains(&production) {
                 module.local_sentences.push(production);
             }

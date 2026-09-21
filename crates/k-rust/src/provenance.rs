@@ -1,3 +1,8 @@
+//! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions (D13, D35).
+//! Complexity: O(A(A + B) + N k²) before CQ-12b.
+//! Annotation is linear in visited nodes plus origin-union probes; `ProvenanceLinkDedupProbes` measures those probes after CQ-12.
+//! The former linear `push_unique` union was the largest KEVM self frame at the audit base and is replaced by CQ-12b.
+//!
 //! Stable source identities and provenance shared by the semantic frontend.
 
 use std::{
@@ -7,6 +12,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use k_rust_kore::measure::{self, Counter};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -172,6 +178,7 @@ pub struct SourceTable {
 
 impl SourceTable {
     pub fn intern(&mut self, source: LogicalSourceId) -> SourceId {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         if let Some(index) = self
             .sources
             .iter()
@@ -460,6 +467,7 @@ pub fn record_generated_origins(
     pass: GeneratingPass,
 ) -> Definition {
     for module in &mut after.modules {
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let before_sentences = before
             .modules
             .iter()
@@ -536,6 +544,8 @@ fn sentence_origins(
 fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
     let mut counterparts = vec![None; after.len()];
     let mut used = vec![false; before.len()];
+    // Invariant: counterparts already assigned by a stronger key remain fixed and each `before`
+    // index marked in `used` is paired exactly once.
     for key in [AttributeKey::UniqueId, AttributeKey::Label] {
         for (after_index, sentence) in after.iter().enumerate() {
             if counterparts[after_index].is_some() {
@@ -544,6 +554,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             let Some(value) = sentence.attributes().string(key) else {
                 continue;
             };
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             if after
                 .iter()
                 .filter(|candidate| candidate.attributes().string(key) == Some(value))
@@ -552,6 +563,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             {
                 continue;
             }
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             let matching_before = before
                 .iter()
                 .enumerate()
@@ -728,6 +740,8 @@ fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> V
 }
 
 fn collect_source_links(term: &Term, links: &mut Vec<ProvenanceLink>) {
+    // Invariant: `links` contains distinct source links for the term prefix already traversed in
+    // first-encounter order; recursive calls visit proper subterms.
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
         push_unique(links, ProvenanceLink::Source { span });
     }
@@ -754,6 +768,8 @@ fn collect_source_links(term: &Term, links: &mut Vec<ProvenanceLink>) {
 }
 
 fn push_unique(links: &mut Vec<ProvenanceLink>, link: ProvenanceLink) {
+    measure::bump(Counter::ProvenanceLinkDedupProbes);
+    // Invariant: `links` contains distinct entries in first-encounter order.
     if !links.contains(&link) {
         links.push(link);
     }
@@ -1003,6 +1019,8 @@ fn term_origin_links(
     let before_metadata = before.and_then(Term::metadata);
     let after_metadata = after.metadata();
     let mut links = Vec::new();
+    // Invariant: `links` contains the distinct prior and current origin links already scanned in
+    // first-encounter order.
     for link in before_metadata
         .and_then(|metadata| metadata.origin.as_deref())
         .into_iter()
@@ -1017,6 +1035,7 @@ fn term_origin_links(
     {
         push_unique(&mut links, link);
     }
+    // Invariant: source spans are appended once after inherited origin records.
     for span in [
         before_metadata.and_then(|metadata| metadata.span),
         after_metadata.and_then(|metadata| metadata.span),
@@ -1029,6 +1048,7 @@ fn term_origin_links(
     if links.is_empty() {
         return Arc::clone(inherited);
     }
+    // Invariant: inherited links not already present are appended in inherited order.
     for link in inherited.iter() {
         push_unique(&mut links, link.clone());
     }
@@ -1089,6 +1109,8 @@ pub fn declared_origin_free(term: &Term) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
     use crate::{
         definition::{Attributes, FlatModule},
@@ -1131,6 +1153,38 @@ mod tests {
                 attributes: Attributes::default(),
             }],
             attributes: Attributes::default(),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn provenance_union_preserves_first_encounter_order_and_is_idempotent(
+            values in prop::collection::vec(0_u8..16, 0..64),
+        ) {
+            let links = values
+                .into_iter()
+                .map(|value| ProvenanceLink::Sentence {
+                    unique_id: format!("s{}", value % 8),
+                })
+                .collect::<Vec<_>>();
+            let mut actual = Vec::new();
+            for link in links.iter().cloned() {
+                push_unique(&mut actual, link);
+            }
+            let mut oracle = Vec::new();
+            for link in links.iter().cloned() {
+                if !oracle.contains(&link) {
+                    oracle.push(link);
+                }
+            }
+            prop_assert_eq!(&actual, &oracle);
+
+            for link in links {
+                push_unique(&mut actual, link);
+            }
+            prop_assert_eq!(actual, oracle);
         }
     }
 

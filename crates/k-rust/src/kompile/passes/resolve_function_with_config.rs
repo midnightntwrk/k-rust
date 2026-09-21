@@ -1,21 +1,23 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Thread the generated top-cell configuration through functions that inspect configuration.
 
-use std::{collections::BTreeMap, collections::BTreeSet, fmt};
-
-use petgraph::{Direction::Incoming, graph::DiGraph, graph::NodeIndex};
+use std::{collections::BTreeSet, fmt};
 
 use crate::definition::AttributeKey;
-use crate::names::{BuiltinSort, WellKnownSymbol};
+use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence, SortHead, match_rule_label, sentence_equivalent,
+        Sentence, SortHead, sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
 };
 
+use super::super::label_graph::LabelDependencyGraph;
 use super::rebase_local_metadata_by;
 
 const CONFIGURATION_VARIABLE: &str = "#Configuration";
@@ -171,6 +173,7 @@ fn resolve_function_with_config_inner(
                 }
                 _ => sentence.clone(),
             };
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             if !sentences.contains(&transformed) {
                 sentences.push(transformed);
             }
@@ -191,6 +194,7 @@ fn resolve_function_with_config_inner(
         return Err(ResolveFunctionWithConfigError { diagnostics });
     }
 
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     rebase_local_metadata_by(definition, output, |source, target| {
         sentence_equivalent(source, target)
             || function_production_equivalent(source, target, &with_config)
@@ -258,73 +262,18 @@ fn compute_with_config_functions(
 ) -> BTreeSet<LabelHead> {
     let productions = definition.production_catalog(module);
     let rules = definition.rule_catalog(module);
+    let graph = LabelDependencyGraph::build(&productions, &rules, |rule| {
+        rule.attributes().has_any(&AttributeKey::MACRO_LIKE)
+    });
     let functions = productions.function_labels();
-    let anywhere = rules
-        .rules()
-        .filter(|(_, rule)| !rule.attributes().has_any(&AttributeKey::MACRO_LIKE))
-        .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
-        .filter_map(|(_, rule)| anywhere_lhs_label(rule))
-        .collect::<BTreeSet<_>>();
-
-    let mut graph = DiGraph::<LabelHead, ()>::new();
-    let mut nodes = BTreeMap::<LabelHead, NodeIndex>::new();
-    for function in functions {
-        node(function.clone(), &mut graph, &mut nodes);
-    }
-    for (_, rule) in rules.rules() {
-        let current = LabelHead::from(&match_rule_label(rule));
-        if !functions.contains(&current) {
-            continue;
-        }
-        let current_node = node(current, &mut graph, &mut nodes);
-        let Sentence::Rule { body, requires, .. } = rule else {
-            unreachable!("rule catalogs contain only rules")
-        };
-        for root in [body, requires] {
-            root.visit_preorder(&mut |term| {
-                let Term::Apply { label, .. } = term.unannotated() else {
-                    return;
-                };
-                if label.is(WellKnownSymbol::Inj) {
-                    return;
-                }
-                let dependency = LabelHead::from(label);
-                if functions.contains(&dependency) || anywhere.contains(&dependency) {
-                    let dependency_node = node(dependency, &mut graph, &mut nodes);
-                    graph.add_edge(current_node, dependency_node, ());
-                }
-            });
-        }
-    }
-
-    let mut result = rules
+    let seeds = rules
         .rules()
         .filter_map(|(_, rule)| {
-            let label = LabelHead::from(&match_rule_label(rule));
+            let label = LabelHead::from(&crate::definition::match_rule_label(rule));
             (functions.contains(&label) && rule_needs_config(rule)).then_some(label)
         })
-        .collect::<BTreeSet<_>>();
-    let mut pending = result.iter().cloned().collect::<Vec<_>>();
-    while let Some(label) = pending.pop() {
-        let label_node = node(label, &mut graph, &mut nodes);
-        for predecessor in graph.neighbors_directed(label_node, Incoming) {
-            let predecessor = graph[predecessor].clone();
-            if result.insert(predecessor.clone()) {
-                pending.push(predecessor);
-            }
-        }
-    }
-    result
-}
-
-fn node(
-    label: LabelHead,
-    graph: &mut DiGraph<LabelHead, ()>,
-    nodes: &mut BTreeMap<LabelHead, NodeIndex>,
-) -> NodeIndex {
-    *nodes
-        .entry(label.clone())
-        .or_insert_with(|| graph.add_node(label))
+        .collect();
+    graph.backward_closure(seeds)
 }
 
 fn rule_needs_config(rule: &Sentence) -> bool {
@@ -469,6 +418,7 @@ fn resolve_with_config_body(
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform_term(term: Term, with_config: &BTreeSet<LabelHead>) -> Term {
     match term {
         Term::Annotated { term, metadata } => {
@@ -561,27 +511,6 @@ fn function_production_equivalent(
             Some(ProductionItem::NonTerminal { sort, name: None })
                 if sort.is_builtin(BuiltinSort::GeneratedTopCell)
         )
-}
-
-fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
-    let Sentence::Rule { body, .. } = rule else {
-        return None;
-    };
-    let left = match body.unannotated() {
-        Term::Rewrite { left, .. } => left.as_ref(),
-        _ => body,
-    };
-    let Term::Apply { label, arguments } = left.unannotated() else {
-        return None;
-    };
-    if !label.is(WellKnownSymbol::Inj) {
-        return Some(LabelHead::from(label));
-    }
-    let inner = arguments.first()?;
-    let Term::Apply { label, .. } = inner.unannotated() else {
-        return None;
-    };
-    Some(LabelHead::from(label))
 }
 
 fn contains_rewrite(term: &Term) -> bool {

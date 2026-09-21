@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, ResolvedDefinition, Sentence,
@@ -64,6 +64,25 @@ proptest! {
                 let imported = &resolved.module(import.module).name;
                 prop_assert!(positions[imported] < positions[&module.name]);
             }
+
+            let mut expected = BTreeSet::new();
+            let mut pending = resolved
+                .direct_imports(id)
+                .into_iter()
+                .map(|import| import.module)
+                .collect::<Vec<_>>();
+            while let Some(import) = pending.pop() {
+                if expected.insert(import) {
+                    pending.extend(
+                        resolved
+                            .direct_imports(import)
+                            .into_iter()
+                            .map(|next| next.module),
+                    );
+                }
+            }
+            let actual = resolved.transitive_imports(id).into_iter().collect::<BTreeSet<_>>();
+            prop_assert_eq!(actual, expected);
         }
     }
 }

@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Final definition-wide transformations before KORE emission.
 
 use std::collections::BTreeSet;
@@ -41,6 +44,7 @@ pub fn add_semantics_module(definition: &Definition) -> Result<Definition, Strin
     .into_iter()
     .flatten()
     .filter(|name| available.contains(name))
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     .fold(Vec::<FlatImport>::new(), |mut imports, name| {
         if !imports.iter().any(|import| import.name == name) {
             imports.push(FlatImport {
@@ -116,6 +120,7 @@ pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
             })
             .collect::<BTreeSet<_>>();
         let mut generated = Vec::new();
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for (predicate, sort) in predicates {
             if sort.is_builtin(BuiltinSort::K) {
                 generated.push(predicate_rule(
@@ -148,6 +153,7 @@ pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
                 ));
             }
         }
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for sentence in generated {
             if !module.local_sentences.contains(&sentence) {
                 module.local_sentences.push(sentence);
@@ -177,6 +183,7 @@ fn sort_from_json(value: &Value) -> Option<Sort> {
     ))
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn contains_cool_like(term: &Term, productions: &crate::definition::ProductionCatalog<'_>) -> bool {
     match term.unannotated() {
         Term::Apply { label, arguments } => {

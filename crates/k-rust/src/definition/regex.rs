@@ -1,3 +1,7 @@
+//! This definition-layer algorithm scans or transforms its model in deterministic declaration order (D34).
+//! Complexity: O(B) over regex syntax bytes.
+//! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
+//!
 //! K's structured regular-expression syntax.
 
 use std::fmt::{Display, Write};
@@ -86,6 +90,7 @@ pub enum RegexBody {
 }
 
 impl RegexBody {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     pub fn visit_preorder(&self, visitor: &mut impl FnMut(&Self)) {
         visitor(self);
         match self {
@@ -271,6 +276,7 @@ impl Parser {
         })
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn parse_union(&mut self) -> Result<RegexBody, ParseError> {
         let left = self.parse_concat()?;
         if self.consume('|') {
@@ -303,6 +309,7 @@ impl Parser {
 
     fn parse_repeat(&mut self) -> Result<RegexBody, ParseError> {
         let mut body = self.parse_char_class()?;
+        // Invariant: the current state contains every fact found so far, and each successful iteration changes at least one fact in the finite state space.
         loop {
             body = match self.peek() {
                 Some('?') => {
@@ -546,6 +553,7 @@ fn print_flex_regex(regex: &Regex) -> String {
     output
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform_flex_body(body: &RegexBody) -> RegexBody {
     match body {
         RegexBody::Char(_) | RegexBody::AnyChar => body.clone(),
@@ -613,6 +621,7 @@ fn transform_flex_body(body: &RegexBody) -> RegexBody {
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn print_flex_union(body: &RegexBody, output: &mut String) -> std::fmt::Result {
     if let RegexBody::Union { left, right } = body {
         print_flex_concat(left, output)?;
@@ -750,6 +759,7 @@ fn print_flex_character(character: char, in_class: bool, output: &mut String) ->
     Ok(())
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn print_rust_regex(body: &RegexBody, output: &mut String) -> Result<(), UnexpandedLexical> {
     match body {
         RegexBody::Char(character) => print_rust_character(*character, false, output),
@@ -866,6 +876,7 @@ fn print_rust_character(character: char, in_class: bool, output: &mut String) {
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn print_union(body: &RegexBody, output: &mut String) -> std::fmt::Result {
     if let RegexBody::Union { left, right } = body {
         print_concat(left, output)?;

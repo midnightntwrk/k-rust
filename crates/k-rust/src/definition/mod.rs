@@ -1,3 +1,7 @@
+//! Definition algorithms are layered from syntax and equivalence through import resolution and derived catalogs (D1-D9).
+//! Derived views are rebuilt per call; the resolved visible-sentence list is the only memo.
+//! `KompileResolveCalls`, `KompileRebaseCalls`, `KompileRuleBubblesParsed`, and `KompileSentencesTransformed` measure the enclosing compilation work.
+//!
 //! K definition syntax and KAST JSON interchange.
 
 pub mod ast;
@@ -40,6 +44,7 @@ pub(crate) use configuration::expand_configurations_allowing_reserved_cells;
 pub use configuration::{
     ConfigurationError, expand_configurations, expand_configurations_with_diagnostics,
 };
+pub(crate) use equivalence::{dedup_by_equivalence, push_if_inequivalent};
 pub use equivalence::{sentence_equivalent, term_equivalent};
 pub use partial_order::{Cycle as PartialOrderCycle, PartialOrder};
 pub use regex::{

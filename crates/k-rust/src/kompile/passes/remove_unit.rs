@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Remove unit applications from associative collection terms before KORE emission.
 
 use crate::definition::AttributeKey;
@@ -39,6 +42,7 @@ fn remove_unit_inner(definition: &Definition) -> Result<Definition, String> {
     Ok(output)
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform(
     term: &Term,
     productions: &crate::definition::ProductionCatalog<'_>,
@@ -111,6 +115,7 @@ fn transform(
     }))
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn flatten(label: &crate::kast::Label, unit: &str, terms: &[Term], output: &mut Vec<Term>) {
     for term in terms {
         match term.unannotated() {

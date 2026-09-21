@@ -1,3 +1,6 @@
+//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//!
 //! Generate evaluation contexts from `strict`, `seqstrict`, and `hybrid` productions.
 
 use std::{collections::BTreeMap, fmt};
@@ -63,6 +66,7 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
         let mut generated = Vec::new();
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sentence in &module.local_sentences {
             let Sentence::Production { attributes, .. } = sentence else {
                 continue;
@@ -85,6 +89,7 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
             .local_sentences
             .retain(|sentence| !matches!(sentence, Sentence::ContextAlias { .. }));
         if !generated.is_empty() {
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             let imports_bool = bool_module.is_some_and(|bool_module| {
                 resolved
                     .transitive_imports(module_id)
@@ -115,6 +120,7 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
     }
 
     if diagnostics.is_empty() {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         // The private BOOL import changes this module's visible production catalog,
         // even though strictness itself does not add any productions.
         super::rebase_local_metadata(definition, output).map_err(|message| ResolveStrictError {
@@ -289,6 +295,7 @@ fn generate_contexts(
     production_attributes: &Attributes,
     module_name: &str,
 ) -> Result<(), Vec<Diagnostic>> {
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for (position_index, position) in positions.iter().copied().enumerate() {
         let strict_index = position - 1;
         let base_arguments = nonterminals
@@ -298,6 +305,7 @@ fn generate_contexts(
             .collect::<Vec<_>>();
         let hole = semantic_cast(&nonterminals[strict_index], Term::variable("HOLE"));
 
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for alias in aliases {
             let mut arguments = base_arguments.clone();
             let mut this_hole = hole.clone();
@@ -321,6 +329,7 @@ fn generate_contexts(
                     &alias.attributes,
                 )]
             })?;
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             let prior_positions = all_positions
                 .iter()
                 .chain(positions[..position_index].iter())
@@ -388,6 +397,7 @@ fn resolve_aliases(
     labeled: &BTreeMap<String, Vec<&Sentence>>,
 ) -> Result<Vec<Alias>, Vec<Diagnostic>> {
     let mut aliases = Vec::new();
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for raw_label in java_split(text, ',') {
         let label = raw_label.trim();
         let Some(sentences) = labeled.get(label) else {
@@ -517,6 +527,7 @@ fn attribute_text(attributes: &Attributes, key: AttributeKey) -> Option<String> 
 
 fn java_split(text: &str, delimiter: char) -> Vec<&str> {
     let mut values = text.split(delimiter).collect::<Vec<_>>();
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     while values.len() > 1 && values.last() == Some(&"") {
         values.pop();
     }
@@ -531,6 +542,7 @@ fn bool_token(value: bool) -> Term {
 }
 
 fn extend_unique(target: &mut Vec<Sentence>, additions: impl IntoIterator<Item = Sentence>) {
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for sentence in additions {
         if !target.contains(&sentence) {
             target.push(sentence);

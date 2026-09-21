@@ -1,3 +1,7 @@
+//! Search-pattern compilation applies sort injection and term-to-KORE conversion to one pattern (D15, D19).
+//! Complexity: O(N + P) over pattern nodes and production candidates.
+//! It adds no worklist of its own; the enclosed algorithms determine its cost.
+//!
 //! Compilation of one surface K search pattern into a verified-shape KORE target.
 
 use std::collections::BTreeSet;
@@ -237,6 +241,7 @@ fn encode_generated_identity(identity: GeneratedVariableIdentity) -> KoreVariabl
 }
 
 fn variable_identities(pattern: &Pattern) -> BTreeSet<KoreVariableIdentity> {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn collect(pattern: &Pattern, output: &mut BTreeSet<KoreVariableIdentity>) {
         match pattern {
             Pattern::Variable(variable) => {

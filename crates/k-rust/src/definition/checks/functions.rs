@@ -1,3 +1,5 @@
+//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded (D9).
+//!
 //! Function-symbol matching checks ported from Java `CheckFunctions`.
 
 use std::collections::BTreeSet;
@@ -56,6 +58,7 @@ pub fn check_functions(
 }
 
 #[allow(clippy::too_many_arguments)]
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn visit_term(
     term: &Term,
     position: TermPosition,

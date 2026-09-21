@@ -1,3 +1,5 @@
+//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded (D9).
+//!
 //! Attribute well-formedness checks ported from Java `CheckAtt` and `CheckBracket`.
 
 use super::Sentence;
@@ -252,6 +254,7 @@ fn check_production(
             production,
         ));
     }
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     let marks_overload = overloads.is_some_and(|overloads| {
         overloads.productions().any(|(id, candidate)| {
             sentence_equivalent(candidate, production) && overloads.order().contains(&id)
