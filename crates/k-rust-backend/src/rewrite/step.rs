@@ -1,7 +1,8 @@
 //! Priority-grouped rewrite step with remainder: `All` mode folds the remainder through every
 //! priority group (Kore `transitionAllRewrite`), while `Any` mode threads it through the rules
 //! sequentially (Kore `applyRewriteRulesSequence`). The returned remainder is complete in both
-//! modes. O(c) rule attempts per step for the c candidates of `rule::applicable_groups` plus one
+//! modes. O(c) rule attempts per step for the c candidates of `rule::applicable_rewrite_groups`
+//! plus one
 //! SAT check per productive group (`All`) or per applied rule (`Any`);
 //! `Counter::RewriteRulesApplied` (row B10).
 
@@ -11,7 +12,7 @@ use k_rust_kore::measure::{self, Counter};
 
 use crate::{
     definition::BackendDefinition,
-    rule::{RewriteRule, applicable_groups, term_index},
+    rule::{RewriteRule, applicable_rewrite_groups, subject_index, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver, simplify_with_solver},
     smt::{Satisfiability, SmtSolver},
     substitution::Substitution,
@@ -212,7 +213,8 @@ pub(super) fn rewrite_step_all(
     io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
     let index = term_index(&pattern.term);
-    let priority_groups = applicable_groups(&definition.rewrite_theory, &index);
+    let subject = subject_index(definition, &pattern.term);
+    let priority_groups = applicable_rewrite_groups(&definition.rewrite_theory, &index, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
@@ -265,7 +267,8 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
     assume_initial_defined: bool,
 ) -> RewriteResult {
     let index = term_index(&pattern.term);
-    let priority_groups = applicable_groups(&definition.rewrite_theory, &index);
+    let subject = subject_index(definition, &pattern.term);
+    let priority_groups = applicable_rewrite_groups(&definition.rewrite_theory, &index, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
@@ -406,7 +409,8 @@ pub(super) fn rewrite_step_any(
     io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
     let index = term_index(&pattern.term);
-    let priority_groups = applicable_groups(&definition.rewrite_theory, &index);
+    let subject = subject_index(definition, &pattern.term);
+    let priority_groups = applicable_rewrite_groups(&definition.rewrite_theory, &index, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }

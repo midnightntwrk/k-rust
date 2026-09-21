@@ -21,10 +21,10 @@ use crate::{
     matching::SortGraph,
     rewrite::Pattern,
     rule::{
-        AxiomError, ClassifiedAxiom, InternalizedRule, PredicateTheory, RuleKind, RulePatternError,
-        Theory, classify_axiom, insert_theory, internalize_axiom,
-        internalize_model_predicate as internalize_rule_model_predicate,
-        internalize_predicate as internalize_rule_predicate, internalize_rule_pattern,
+        AxiomError, ClassifiedAxiom, InternalizedRule, PredicateTheory, RewriteTheory, RuleKind,
+        RulePatternError, Theory, classify_axiom, insert_rewrite_theory, insert_theory,
+        internalize_axiom, internalize_model_predicate as internalize_rule_model_predicate,
+        internalize_predicate as internalize_rule_predicate, internalize_rule_pattern, rule_index,
     },
     smt::{SExpr, SmtType},
     term::{
@@ -154,7 +154,7 @@ pub struct BackendDefinition {
     pub classified_axioms: Vec<ClassifiedAxiom>,
     pub claims: Vec<PendingAxiom>,
     pub reachability_claims: Vec<ReachabilityClaim>,
-    pub rewrite_theory: Theory,
+    pub rewrite_theory: RewriteTheory,
     pub function_theory: Theory,
     pub simplification_theory: Theory,
     pub predicate_simplification_theory: PredicateTheory,
@@ -422,12 +422,8 @@ impl BackendDefinition {
     pub fn function_symbol_names(&self) -> BTreeSet<String> {
         self.symbols
             .iter()
-            .filter_map(|(name, symbol)| {
-                symbol
-                    .attributes
-                    .declared_function
-                    .then(|| name.to_string())
-            })
+            .filter(|(_, symbol)| symbol.attributes.declared_function)
+            .map(|(name, _)| name.to_string())
             .collect()
     }
 
@@ -464,8 +460,8 @@ impl BackendDefinition {
             .values()
             .flat_map(BTreeMap::values)
             .flatten()
-            .filter(|rule| !ranks.contains_key(rule.attributes.unique_id.as_str()))
-            .map(|rule| rule.attributes.unique_id.clone())
+            .filter(|stored| !ranks.contains_key(stored.rule.attributes.unique_id.as_str()))
+            .map(|stored| stored.rule.attributes.unique_id.clone())
             .collect::<BTreeSet<_>>();
         if !missing.is_empty() {
             return Err(DefinitionError::MissingRewriteOrderIds(
@@ -474,9 +470,9 @@ impl BackendDefinition {
         }
         for priority_groups in result.rewrite_theory.values_mut() {
             for rules in priority_groups.values_mut() {
-                rules.sort_by_key(|rule| {
+                rules.sort_by_key(|stored| {
                     ranks
-                        .get(rule.attributes.unique_id.as_str())
+                        .get(stored.rule.attributes.unique_id.as_str())
                         .copied()
                         .expect("all executable rewrites were checked above")
                 });
@@ -681,7 +677,7 @@ impl BackendDefinition {
             classified_axioms,
             claims,
             reachability_claims: Vec::new(),
-            rewrite_theory: Theory::new(),
+            rewrite_theory: RewriteTheory::new(),
             function_theory: Theory::new(),
             simplification_theory: Theory::new(),
             predicate_simplification_theory: PredicateTheory::new(),
@@ -703,12 +699,16 @@ impl BackendDefinition {
             .flatten();
         for rule in rules {
             match rule {
+                InternalizedRule::Term(RuleKind::Rewrite, rule) => {
+                    let index = rule_index(&result, &rule.lhs);
+                    insert_rewrite_theory(&mut result.rewrite_theory, rule, index);
+                }
                 InternalizedRule::Term(kind, rule) => {
                     let theory = match kind {
-                        RuleKind::Rewrite => &mut result.rewrite_theory,
                         RuleKind::Function => &mut result.function_theory,
                         RuleKind::Simplification => &mut result.simplification_theory,
                         RuleKind::Ceil => &mut result.ceil_theory,
+                        RuleKind::Rewrite => unreachable!("rewrite handled above"),
                     };
                     insert_theory(theory, rule);
                 }

@@ -375,7 +375,9 @@ fn counting_execution_to_depth_100_stays_within_the_pinned_rewrite_work() {
     assert_eq!(delta.get(Counter::RewriteSteps), STEPS_100);
     assert_eq!(delta.get(Counter::RewriteRulesApplied), 100);
     assert!(delta.get(Counter::RewriteRuleAttempts) <= RULE_ATTEMPTS_100);
-    assert!(delta.get(Counter::RewriteMatchFailures) <= delta.get(Counter::RewriteRuleAttempts));
+    assert!(
+        delta.get(Counter::RewriteMatchFailures) * 2 <= delta.get(Counter::RewriteRuleAttempts)
+    );
     assert_eq!(delta.get(Counter::RewriteIndeterminateRecoveries), 0);
     assert_eq!(delta.get(Counter::MatchingCollectionProblems), 0);
     assert!(delta.get(Counter::MatchingPairs) >= delta.get(Counter::MatchingProblems));
