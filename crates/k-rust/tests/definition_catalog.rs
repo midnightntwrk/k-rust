@@ -6,6 +6,7 @@ use k_rust::definition::{
     sentence_equivalent,
 };
 use k_rust::kast::{Label, Sort};
+use proptest::prelude::*;
 use serde_json::Value;
 
 fn attrs(keys: &[&str]) -> Attributes {
@@ -400,4 +401,57 @@ fn fresh_generators_reject_missing_and_multiple_labels() {
                 .collect(),
         }
     );
+}
+
+proptest! {
+    #[test]
+    fn indexed_local_ids_match_the_linear_visible_by_local_oracle(
+        imported in prop::collection::vec(0_u8..12, 0..20),
+        local in prop::collection::vec(0_u8..12, 0..20),
+    ) {
+        let productions = |specs: Vec<u8>| {
+            specs
+                .into_iter()
+                .map(|spec| production(
+                    Some(Label::new(format!("label{spec}"))),
+                    Vec::new(),
+                    Sort::new(format!("Sort{spec}")),
+                    vec![Sort::new(format!("Argument{spec}"))],
+                    Attributes::default(),
+                ))
+                .collect::<Vec<_>>()
+        };
+        let base = FlatModule {
+            name: "BASE".into(),
+            imports: Vec::new(),
+            local_sentences: productions(imported),
+            attributes: Attributes::default(),
+        };
+        let main = FlatModule {
+            name: "MAIN".into(),
+            imports: vec![FlatImport {
+                name: "BASE".into(),
+                public: true,
+            }],
+            local_sentences: productions(local),
+            attributes: Attributes::default(),
+        };
+        let resolved = ResolvedDefinition::resolve(&Definition {
+            main_module: "MAIN".into(),
+            modules: vec![main, base],
+            attributes: Attributes::default(),
+        }).unwrap();
+        let module = resolved.main_module_id();
+        let catalog = resolved.production_catalog(module);
+        let expected = catalog
+            .productions()
+            .filter(|(_, production)| {
+                resolved.module(module).local_sentences.iter()
+                    .any(|local| sentence_equivalent(production, local))
+            })
+            .map(|(id, _)| id)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        prop_assert_eq!(catalog.local_ids(), &expected);
+    }
 }

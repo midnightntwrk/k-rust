@@ -1,5 +1,5 @@
 //! Production catalogs group visible productions and build label, sort, hook, and identity indexes in declaration order.
-//! Construction costs O(n^2 * eq + n log n) before indexed equivalence; `Counter::KompileProductionCatalogsBuilt` measures builds after CQ-12's counter commit.
+//! Construction costs O(n log n + buckets * eq) with indexed equivalence; `Counter::KompileProductionCatalogsBuilt` measures builds after CQ-12's counter commit.
 //!
 //! Deterministic indexes over the productions visible from a resolved module.
 
@@ -220,26 +220,36 @@ impl<'a> ProductionCatalog<'a> {
                 .into_iter()
                 .filter(|sentence| matches!(sentence, Sentence::Production { .. })),
         );
+        Self::from_productions(productions, local_sentences)
+    }
 
+    pub(crate) fn from_deduplicated(
+        visible_sentences: impl IntoIterator<Item = &'a Sentence>,
+        local_sentences: impl IntoIterator<Item = &'a Sentence>,
+    ) -> Self {
+        let productions = visible_sentences
+            .into_iter()
+            .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
+            .collect::<Vec<_>>();
+        debug_assert!(
+            productions_are_deduplicated(&productions),
+            "ProductionCatalog::from_deduplicated received equivalent productions"
+        );
+        Self::from_productions(productions, local_sentences)
+    }
+
+    fn from_productions(
+        productions: Vec<&'a Sentence>,
+        local_sentences: impl IntoIterator<Item = &'a Sentence>,
+    ) -> Self {
         let local_sentences = local_sentences
             .into_iter()
             .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
             .collect::<Vec<_>>();
-        let local = productions
-            .iter()
-            .enumerate()
-            .filter(|(_, production)| {
-                local_sentences
-                    .iter()
-                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-                    .any(|local| sentence_equivalent(production, local))
-            })
-            .map(|(index, _)| ProductionId(index))
-            .collect();
 
         let mut catalog = Self {
             productions,
-            local,
+            local: BTreeSet::new(),
             by_label: BTreeMap::new(),
             by_sort: BTreeMap::new(),
             token_by_sort: BTreeMap::new(),
@@ -250,6 +260,10 @@ impl<'a> ProductionCatalog<'a> {
             macro_labels: BTreeSet::new(),
             by_key: OnceLock::new(),
         };
+        catalog.local = local_sentences
+            .into_iter()
+            .filter_map(|local| catalog.find_equivalent(local))
+            .collect();
         catalog.build_indexes();
         measure::bump(Counter::KompileProductionCatalogsBuilt);
         catalog
@@ -485,11 +499,26 @@ impl<'a> ProductionCatalog<'a> {
 
 impl ResolvedDefinition {
     pub fn production_catalog(&self, module: ModuleId) -> ProductionCatalog<'_> {
-        ProductionCatalog::new(
+        ProductionCatalog::from_deduplicated(
             self.sentences(module),
             self.module(module).local_sentences.iter(),
         )
     }
+}
+
+fn productions_are_deduplicated(productions: &[&Sentence]) -> bool {
+    let mut by_key = BTreeMap::<ProductionKey, Vec<&Sentence>>::new();
+    for &production in productions {
+        let bucket = by_key.entry(ProductionKey::of(production)).or_default();
+        if bucket
+            .iter()
+            .any(|candidate| sentence_equivalent(candidate, production))
+        {
+            return false;
+        }
+        bucket.push(production);
+    }
+    true
 }
 
 fn production_label(sentence: &Sentence) -> Option<&Label> {
@@ -497,4 +526,24 @@ fn production_label(sentence: &Sentence) -> Option<&Label> {
         return None;
     };
     label.as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "from_deduplicated received equivalent productions")]
+    fn deduplicated_constructor_checks_its_precondition() {
+        let production = Sentence::Production {
+            label: Some(Label::new("same")),
+            parameters: Vec::new(),
+            sort: Sort::new("Sort"),
+            items: Vec::new(),
+            attributes: Attributes::default(),
+        };
+
+        let _ = ProductionCatalog::from_deduplicated([&production, &production], []);
+    }
 }
