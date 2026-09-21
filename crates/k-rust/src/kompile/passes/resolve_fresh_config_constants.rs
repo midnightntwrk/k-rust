@@ -76,6 +76,7 @@ pub fn resolve_fresh_config_constants(
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform(
     term: Term,
     on_rhs: bool,

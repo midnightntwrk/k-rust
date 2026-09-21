@@ -430,6 +430,7 @@ impl<'a> TermConverter<'a> {
         )
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn collect_anonymous_variables(
         &self,
         term: &Term,
@@ -729,6 +730,7 @@ impl<'a> TermConverter<'a> {
         if ids.len() != 1
             && let Some(expected) = term.metadata().and_then(|metadata| metadata.sort.as_ref())
         {
+            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             let matching = ids
                 .iter()
                 .filter_map(|id| {

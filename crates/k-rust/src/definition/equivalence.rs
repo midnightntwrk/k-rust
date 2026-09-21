@@ -217,6 +217,8 @@ pub(crate) fn dedup_by_equivalence<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
 ) -> Vec<&'a Sentence> {
     let mut unique = Vec::new();
+    // Invariant: `unique` holds the first representative of every equivalence class in the
+    // processed prefix; the input iterator shrinks by one each iteration.
     for sentence in sentences {
         push_if_inequivalent(&mut unique, sentence);
     }
@@ -228,6 +230,8 @@ pub(crate) fn push_if_inequivalent<'a>(
     sentences: &mut Vec<&'a Sentence>,
     sentence: &'a Sentence,
 ) -> bool {
+    // Invariant: every earlier representative is inequivalent to `sentence`; the remaining
+    // representative iterator shrinks by one until a match is found or the scan ends.
     if sentences
         .iter()
         .any(|existing| sentence_equivalent(existing, sentence))
@@ -289,6 +293,7 @@ fn production_items_equivalent(left: &[ProductionItem], right: &[ProductionItem]
 ///
 /// K compares rule bodies as `K` terms, whose variable equality ignores the sort and
 /// which never carry the parser's metadata annotations.
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 pub fn term_equivalent(left: &Term, right: &Term) -> bool {
     match (left.unannotated(), right.unannotated()) {
         (Term::InjectedLabel(left), Term::InjectedLabel(right)) => left == right,

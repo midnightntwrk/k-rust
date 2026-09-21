@@ -240,6 +240,7 @@ fn local_ids<Id: Ord>(
     visible
         .iter()
         .enumerate()
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         .filter(|(_, sentence)| {
             local
                 .iter()

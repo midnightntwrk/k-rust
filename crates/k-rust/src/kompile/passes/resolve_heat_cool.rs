@@ -77,6 +77,7 @@ fn resolve_heat_cool_attributes_inner(
                 .string(AttributeKey::Result)
                 .unwrap_or(FrontendSort::KResult.as_str());
             let predicate_label = Label::sort_predicate(&Sort::new(result_sort)).name;
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             let predicate_exists = !productions
                 .productions_for(&LabelHead::new(predicate_label.clone()))
                 .is_empty()

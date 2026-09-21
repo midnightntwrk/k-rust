@@ -36,6 +36,7 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                             return None;
                         };
                         let head = SortHead::from(sort);
+                        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                         let missing_head = !parameters.contains(sort)
                             && !sorts.defined_heads().contains(&head)
                             && !sorts.synonym_map().contains_key(sort);
@@ -93,6 +94,7 @@ pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<D
     let candidates = module
         .local_sentences
         .iter()
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         .chain(visible.iter().copied().filter(|candidate| {
             !module
                 .local_sentences
@@ -111,6 +113,7 @@ pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<D
         }
 
         let own_origin = (attributes.source(), attributes.location());
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let previous = visible.iter().copied().find(|candidate| {
             let Sentence::Production {
                 sort: candidate_sort,

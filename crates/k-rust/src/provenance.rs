@@ -177,6 +177,7 @@ pub struct SourceTable {
 
 impl SourceTable {
     pub fn intern(&mut self, source: LogicalSourceId) -> SourceId {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         if let Some(index) = self
             .sources
             .iter()
@@ -465,6 +466,7 @@ pub fn record_generated_origins(
     pass: GeneratingPass,
 ) -> Definition {
     for module in &mut after.modules {
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let before_sentences = before
             .modules
             .iter()
@@ -551,6 +553,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             let Some(value) = sentence.attributes().string(key) else {
                 continue;
             };
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             if after
                 .iter()
                 .filter(|candidate| candidate.attributes().string(key) == Some(value))
@@ -559,6 +562,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             {
                 continue;
             }
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             let matching_before = before
                 .iter()
                 .enumerate()

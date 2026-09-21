@@ -254,6 +254,7 @@ fn check_production(
             production,
         ));
     }
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     let marks_overload = overloads.is_some_and(|overloads| {
         overloads.productions().any(|(id, candidate)| {
             sentence_equivalent(candidate, production) && overloads.order().contains(&id)

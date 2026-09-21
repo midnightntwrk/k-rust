@@ -42,6 +42,7 @@ fn remove_unit_inner(definition: &Definition) -> Result<Definition, String> {
     Ok(output)
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform(
     term: &Term,
     productions: &crate::definition::ProductionCatalog<'_>,
@@ -114,6 +115,7 @@ fn transform(
     }))
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn flatten(label: &crate::kast::Label, unit: &str, terms: &[Term], output: &mut Vec<Term>) {
     for term in terms {
         match term.unannotated() {

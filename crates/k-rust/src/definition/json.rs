@@ -481,6 +481,7 @@ fn collect_definition_metadata(
     Ok(())
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn collect_term_metadata(
     term: &Term,
     source_table: &SourceTable,
@@ -743,6 +744,7 @@ fn source_id(source_table: &SourceTable, source: &JsonLogicalSource) -> Result<S
     let identity = LogicalSourceId::try_from(source.clone())?;
     source_table
         .iter()
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         .position(|candidate| candidate == &identity)
         .map(SourceId)
         .ok_or_else(|| {

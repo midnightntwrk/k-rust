@@ -361,6 +361,7 @@ pub fn compile_loaded_definition_timed(
 }
 
 fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String>, String> {
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     fn visit<'a>(
         name: &str,
         modules: &BTreeMap<&str, &'a FlatModule>,
@@ -371,6 +372,7 @@ fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String
         if visited.contains(name) {
             return Ok(());
         }
+        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         if let Some(start) = visiting.iter().position(|candidate| *candidate == name) {
             let mut cycle = visiting[start..].to_vec();
             cycle.push(visiting[start]);
@@ -532,6 +534,7 @@ pub fn configuration_variables(
         }
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn collect(term: &Term, sorts: &mut BTreeMap<String, Sort>) -> Result<(), String> {
         match term.unannotated() {
             Term::Apply { label, arguments } => {
@@ -605,6 +608,7 @@ fn unadmitted_hook_namespace_diagnostics(
         let Some((namespace, _)) = hook.split_once('.') else {
             continue;
         };
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         if BUILTIN_HOOK_NAMESPACES.contains(&namespace)
             || admitted.iter().any(|candidate| candidate == namespace)
             || !seen.insert((namespace.to_owned(), hook.to_owned()))

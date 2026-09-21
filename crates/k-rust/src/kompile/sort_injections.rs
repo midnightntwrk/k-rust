@@ -322,6 +322,7 @@ impl<'a> SortInjector<'a> {
         self.term_sort_with_arity(term, expected, true)
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn term_sort_with_arity(
         &self,
         term: &Term,
@@ -458,6 +459,7 @@ impl<'a> SortInjector<'a> {
         }
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn inject_with_position(
         &self,
         term: &Term,
@@ -583,6 +585,7 @@ impl<'a> SortInjector<'a> {
                 } if parameters.is_empty()
                     && sort == expected
                     && attributes.has(AttributeKey::UserList)
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     && !items.iter().any(|item| {
                         matches!(item, crate::definition::ProductionItem::NonTerminal { .. })
                     }) =>
@@ -642,6 +645,7 @@ impl<'a> SortInjector<'a> {
                 .productions
                 .productions_for(&LabelHead::new(wrapped_label))
                 .iter()
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 .any(|id| {
                     matches!(
                         self.productions.production(*id),
@@ -864,6 +868,7 @@ impl<'a> SortInjector<'a> {
                 )?;
                 self.match_sort(parameters, declared, &actual, &mut matches);
             }
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             let result_only_parameter = parameters.iter().any(|parameter| {
                 contains_sort(sort, parameter)
                     && !argument_sorts
@@ -926,6 +931,7 @@ impl<'a> SortInjector<'a> {
         )
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn match_sort(
         &self,
         formal_parameters: &[Sort],
@@ -942,6 +948,7 @@ impl<'a> SortInjector<'a> {
         }
 
         self.match_sort_parameters(formal_parameters, declared, actual, matches);
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for candidate in self.sorts.sorted_all_sorts() {
             if candidate != actual && self.subsorts.less_than_eq(candidate, actual) {
                 self.match_sort_parameters(formal_parameters, declared, candidate, matches);
@@ -1082,6 +1089,7 @@ impl<'a> SortInjector<'a> {
             .iter()
             .filter(|sort| !sort.parameters.is_empty())
             .collect::<Vec<_>>();
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         bounds.retain(|bound| {
             parametric.iter().all(|sort| {
                 self.sorts
@@ -1151,6 +1159,7 @@ fn add_sort_injections_to_definition_inner(
             continue;
         }
         let source_catalog = resolved.production_catalog(module_id);
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
             let mut input = sentence.clone();
             if module_id != target && target_modules.contains(&module_id) {
@@ -1283,6 +1292,7 @@ fn has_rewrite(term: &Term) -> bool {
     found
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 pub(crate) fn rewrite_projection(term: &Term, right: bool) -> Term {
     match term.unannotated() {
         Term::Rewrite {

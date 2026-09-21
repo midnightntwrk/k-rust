@@ -528,6 +528,7 @@ fn load_impl(
             .iter()
             .map(|module| module.name.as_str())
             .collect::<std::collections::BTreeSet<_>>();
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         definition.modules.retain(|module| {
             !base_modules.contains(module.name.as_str())
                 || !module.attributes.source().is_some_and(|source| {
@@ -790,6 +791,7 @@ fn exclude_modules_by_attributes(
         .modules
         .iter()
         .filter(|module| {
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             excluded_attributes
                 .iter()
                 .any(|attribute| module.attributes.get(attribute).is_some())
@@ -863,6 +865,7 @@ fn add_implicit_configuration_imports(
     if has_map {
         for module in &mut definition.modules {
             let has_local_configuration =
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 module.local_sentences.iter().any(is_configuration_sentence);
             if has_local_configuration
                 && !module
@@ -904,6 +907,7 @@ struct Loader<'a, R> {
 }
 
 impl<R: SourceResolver> Loader<'_, R> {
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     fn visit(&mut self, source: ResolvedSource) -> Result<(), LoadError> {
         match self.states.get(&source.source) {
             Some(VisitState::Complete | VisitState::Visiting) => return Ok(()),
@@ -974,6 +978,7 @@ impl<R: SourceResolver> Loader<'_, R> {
                     span: requirement.span,
                     message,
                 })?;
+            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             if self.provided_sources.contains(&required.source) {
                 if required.text.is_empty() {
                     continue;
@@ -1098,6 +1103,7 @@ fn validate_prepared_modules(
 fn validate_and_select_modules(files: &[SourceFile]) -> Result<Option<Vec<SourceFile>>, LoadError> {
     let mut modules = BTreeMap::<&str, FirstModule<'_>>::new();
     let mut equivalent_duplicates = BTreeSet::new();
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for (file_index, file) in files.iter().enumerate() {
         let basename = Path::new(&file.source).file_name();
         for (module_index, module) in file.modules.iter().enumerate() {

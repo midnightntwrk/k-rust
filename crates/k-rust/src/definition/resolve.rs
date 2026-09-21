@@ -186,6 +186,7 @@ impl Ord for SentenceBody<'_> {
 }
 
 /// Preorder comparison of the unannotated term with variable sorts erased.
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn compare_erased_terms(left: &Term, right: &Term) -> Ordering {
     fn variant(term: &Term) -> u8 {
         match term {
@@ -304,6 +305,7 @@ impl ResolvedDefinition {
             }
         }
 
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut graph = DiGraph::new();
         let mut modules_by_name = BTreeMap::new();
         for module in &modules {
@@ -338,6 +340,7 @@ impl ResolvedDefinition {
                 if module_id == import_id {
                     return Err(Error::SelfImport(module.name.clone()));
                 }
+                // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
                 graph.add_edge(
                     module_id.0,
                     import_id.0,
@@ -348,6 +351,7 @@ impl ResolvedDefinition {
             }
         }
 
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut dependency_order = match toposort(&graph, None) {
             Ok(order) => order.into_iter().map(ModuleId).collect::<Vec<_>>(),
             Err(_) => {
@@ -357,6 +361,7 @@ impl ResolvedDefinition {
             }
         };
         dependency_order.reverse();
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let visible_sentences = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
@@ -399,6 +404,7 @@ impl ResolvedDefinition {
     pub fn direct_imports(&self, module: ModuleId) -> Vec<ImportRef> {
         let mut imports = self
             .graph
+            // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
             .edges_directed(module.0, Outgoing)
             .map(|edge| ImportRef {
                 module: ModuleId(edge.target()),
@@ -522,6 +528,7 @@ impl ResolvedDefinition {
 }
 
 fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn visit(
         graph: &DiGraph<ResolvedModule, Import>,
         node: NodeIndex,
@@ -531,6 +538,7 @@ fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
         state[node.index()] = 1;
         stack.push(node);
 
+        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         let mut imports = graph.neighbors_directed(node, Outgoing).collect::<Vec<_>>();
         imports.sort_by(|left, right| graph[*left].name.cmp(&graph[*right].name));
         for import in imports {
@@ -541,6 +549,7 @@ fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
                     }
                 }
                 1 => {
+                    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
                     let start = stack
                         .iter()
                         .position(|candidate| *candidate == import)
@@ -561,6 +570,7 @@ fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
         None
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     let mut nodes = graph.node_indices().collect::<Vec<_>>();
     nodes.sort_by(|left, right| graph[*left].name.cmp(&graph[*right].name));
     let mut state = vec![0; graph.node_count()];

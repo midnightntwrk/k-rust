@@ -311,6 +311,7 @@ pub fn check_syntax_groups(
             .into_iter()
             .collect::<Vec<_>>();
         for left in 0..tags.len() {
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             for right in left + 1..tags.len() {
                 if priorities.in_some_relation(tags[left], tags[right]) {
                     diagnostics.push(Diagnostic::warning(
@@ -521,6 +522,7 @@ struct RewriteState {
     in_function_body: bool,
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn visit_rewrite_term(
     term: &Term,
     state: &mut RewriteState,

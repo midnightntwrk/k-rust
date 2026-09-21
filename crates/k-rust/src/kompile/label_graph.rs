@@ -49,7 +49,9 @@ impl LabelDependencyGraph {
             let Sentence::Rule { body, requires, .. } = rule else {
                 unreachable!("rule catalogs contain rules")
             };
+            // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
             for root in [body, requires] {
+                // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
                 root.visit_preorder(&mut |term| {
                     let Term::Apply { label, .. } = term.unannotated() else {
                         return;
@@ -78,6 +80,8 @@ impl LabelDependencyGraph {
             let Some(&label_node) = self.nodes.get(&label) else {
                 continue;
             };
+            // Invariant: predecessors already visited from this node are in `seeds`; the finite
+            // incoming-edge iterator shrinks by one each iteration.
             for predecessor in self.graph.neighbors_directed(label_node, Incoming) {
                 let predecessor = self.graph[predecessor].clone();
                 if seeds.insert(predecessor.clone()) {

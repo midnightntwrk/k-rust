@@ -14,6 +14,8 @@ pub(crate) fn find_equivalent(
     source: &Sentence,
     target: &ProductionCatalog<'_>,
 ) -> Option<ProductionId> {
+    // Invariant: every smaller target ID has been checked and rejected; the remaining catalog
+    // iterator shrinks by one until the first equivalent production is found.
     target
         .productions()
         .find_map(|(id, candidate)| sentence_equivalent(source, candidate).then_some(id))
@@ -91,6 +93,8 @@ pub(crate) fn rebase_term_to_visible_catalog(
 }
 
 /// Localize sort-injection metadata, discarding absent and out-of-range source indexes.
+// Invariant: each recursive call consumes one child of the current term, so the finite term tree
+// strictly bounds the remaining calls.
 pub(crate) fn rebase_term_lossy(
     term: Term,
     source: &ProductionCatalog<'_>,
@@ -180,6 +184,7 @@ fn rebase_sentence_with_policy(
     Ok(())
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn rebase_term(
     term: Term,
     source: &ProductionCatalog<'_>,
@@ -197,6 +202,7 @@ fn rebase_term(
             ));
         }
         let production = source.production(ProductionId(index));
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let rebased = target
             .productions()
             .find_map(|(id, candidate)| production_matches(production, candidate).then_some(id));

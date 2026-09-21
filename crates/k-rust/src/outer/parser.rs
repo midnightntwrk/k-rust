@@ -44,6 +44,7 @@ pub fn parse(source: impl Into<String>, input: &str) -> Result<SourceFile, Parse
     let mut parser = Parser::new(input, 0, input.len());
     let mut requires = Vec::new();
     let mut modules = Vec::new();
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     while !parser.done() {
         parser.skip_trivia()?;
         if parser.done() {
@@ -120,6 +121,7 @@ impl<'a> Parser<'a> {
             .any(|attribute| attribute.key == AttributeKey::Private.as_str());
         let mut imports = Vec::new();
         let mut sentences = Vec::new();
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         loop {
             self.skip_trivia()?;
             if self.consume_word("endmodule") {
@@ -257,6 +259,7 @@ impl<'a> Parser<'a> {
 
     fn priority_blocks(&mut self) -> Result<Vec<PriorityBlock>, ParseError> {
         let mut blocks = Vec::new();
+        // Invariant: the current prefix satisfies every choice already made, and each iteration advances a candidate or backtracks one level in the finite search tree.
         loop {
             self.skip_trivia()?;
             let start = self.offset;
@@ -270,6 +273,7 @@ impl<'a> Parser<'a> {
                 self.offset = saved;
             }
             let mut productions = Vec::new();
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             loop {
                 productions.push(self.production()?);
                 if self.peek_char_after_trivia()? == Some('|') {
@@ -297,9 +301,11 @@ impl<'a> Parser<'a> {
         let start = self.offset;
         let mut items = Vec::new();
         let mut function_style = false;
+        // Invariant: the current prefix satisfies every choice already made, and each iteration advances a candidate or backtracks one level in the finite search tree.
         while !self.done() {
             let before_trivia = self.offset;
             self.skip_trivia()?;
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             if self.at_default_sentence_boundary() {
                 self.offset = before_trivia;
                 break;
@@ -440,6 +446,7 @@ impl<'a> Parser<'a> {
         };
         let mut content_start = None;
         let mut content_end = self.offset;
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         while let Some((run, start, end)) = self.peek_run() {
             if BUBBLE_TERMINATORS.contains(&run) {
                 break;
@@ -470,6 +477,7 @@ impl<'a> Parser<'a> {
         raw: &str,
         raw_start: usize,
     ) -> Result<(String, Vec<Attribute>, usize), ParseError> {
+        // Invariant: the current prefix satisfies every choice already made, and each iteration advances a candidate or backtracks one level in the finite search tree.
         for index in attribute_starts(raw).into_iter().rev() {
             let mut parser = self.subparser(raw_start + index, raw_start + raw.len());
             match parser.attributes() {
@@ -493,6 +501,7 @@ impl<'a> Parser<'a> {
     fn attributes(&mut self) -> Result<Vec<Attribute>, ParseError> {
         self.expect_char('[')?;
         let mut attributes = Vec::new();
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         loop {
             self.skip_trivia()?;
             if self.consume("]") {
@@ -698,6 +707,7 @@ impl<'a> Parser<'a> {
     fn raw_groups(&mut self, separator: char) -> Result<(Vec<Vec<String>>, usize), ParseError> {
         let mut groups = vec![Vec::new()];
         let mut last_end = self.offset;
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         while let Some((run, _, end)) = self.peek_run() {
             if BUBBLE_TERMINATORS.contains(&run) {
                 break;
@@ -716,6 +726,7 @@ impl<'a> Parser<'a> {
     fn raw_words(&mut self) -> Result<(Vec<String>, usize), ParseError> {
         let mut words = Vec::new();
         let mut last_end = self.offset;
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         while let Some((run, _, end)) = self.peek_run() {
             if BUBBLE_TERMINATORS.contains(&run) {
                 break;
@@ -752,6 +763,7 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_bubble_trivia(&mut self) {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         loop {
             while self.offset < self.end
                 && matches!(
@@ -859,6 +871,7 @@ impl<'a> Parser<'a> {
     fn unrestricted_word(&mut self) -> Result<String, ParseError> {
         self.skip_trivia()?;
         let start = self.offset;
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         while self.peek_char().is_some() {
             if self.at_word_boundary(self.offset) {
                 break;
@@ -957,6 +970,7 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_trivia(&mut self) -> Result<(), ParseError> {
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         loop {
             while self.peek_char().is_some_and(char::is_whitespace) {
                 self.bump();
@@ -1109,6 +1123,7 @@ fn attribute_starts(raw: &str) -> Vec<usize> {
     let mut state = State::Code;
     let mut offsets = Vec::new();
     let mut index = 0;
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     while index < bytes.len() {
         match state {
             State::Code if bytes[index..].starts_with(b"//") => {

@@ -36,6 +36,7 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
             .expect("resolved definition contains every source module");
         let sorts = resolved.sort_catalog(module_id);
         let visible = resolved.sentences(module_id);
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sort in sorts.all_sorts() {
             if is_parser_sort(sort) {
                 continue;
@@ -50,6 +51,7 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
                 }],
                 attributes: Attributes::default(),
             };
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             if !visible.contains(&&production) && !module.local_sentences.contains(&production) {
                 module.local_sentences.push(production);
             }

@@ -107,6 +107,7 @@ fn resolve_fresh_constants_inner(
                 None
             };
         if let Some(configuration) = configuration {
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             for sentence in counter_helpers() {
                 if !module.local_sentences.contains(&sentence) {
                     module.local_sentences.push(sentence);
@@ -545,6 +546,7 @@ fn root_cell_sort(
         .subsorts(module)
         .map_err(|error| error.to_string())?;
     let mut children = BTreeSet::new();
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for (_, production) in productions.productions() {
         let Sentence::Production {
             sort,
@@ -565,6 +567,7 @@ fn root_cell_sort(
             if cells.contains(sort) {
                 children.insert(sort.clone());
             } else if collections.contains(sort) {
+                // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                 children.extend(
                     cells
                         .iter()

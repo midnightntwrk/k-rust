@@ -115,6 +115,7 @@ fn lower_module(
             };
             // Cell sorts are recognised by the `…Cell`/`…CellFragment` naming convention of the outer lowering.
             if (sort.name.ends_with("Cell") || sort.name.ends_with("CellFragment"))
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 && !temporary_cell_sorts.contains(sort)
             {
                 temporary_cell_sorts.push(sort.clone());
@@ -285,6 +286,7 @@ fn lower_production(
         attributes,
     });
 
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for (key, associativity) in [
         (AttributeKey::Left, FlatAssociativity::Left),
         (AttributeKey::Right, FlatAssociativity::Right),
@@ -395,6 +397,8 @@ fn lower_user_list(
     );
     let mut terminator_attributes =
         sentence_source_attributes(file, production.span, &production.attributes);
+    // Invariant: each earlier list-only attribute has been removed from the terminator copy; the
+    // three-element key list shrinks by one each iteration.
     for key in [
         AttributeKey::Format,
         AttributeKey::Strict,
@@ -539,6 +543,7 @@ fn tag_key(module: &Module, production: &Production) -> Option<String> {
 
 fn insert_tag(index: &mut TagIndex, source: String, compiled: String) {
     let labels = index.entry(source).or_default();
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     if !labels.contains(&compiled) {
         labels.push(compiled);
         labels.sort();

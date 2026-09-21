@@ -179,6 +179,7 @@ impl<'a> ProductionCatalog<'a> {
             .filter(|(_, production)| {
                 local_sentences
                     .iter()
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     .any(|local| sentence_equivalent(production, local))
             })
             .map(|(index, _)| ProductionId(index))

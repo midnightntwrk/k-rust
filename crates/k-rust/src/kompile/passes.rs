@@ -169,6 +169,7 @@ fn resolve_comm_inner(definition: &Definition) -> Result<Definition, ResolveComm
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn commute_lhs(
     term: &Term,
     on_lhs: bool,

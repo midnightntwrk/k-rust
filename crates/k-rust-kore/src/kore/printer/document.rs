@@ -55,6 +55,7 @@ impl Doc {
         document
     }
 
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     pub(super) fn nest(mut self, amount: usize) -> Self {
         if !self.ops.is_empty() {
             self.ops.insert(0, Op::NestStart(amount));
@@ -63,6 +64,7 @@ impl Doc {
         self
     }
 
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     pub(super) fn group(mut self) -> Self {
         if !self.ops.is_empty() {
             self.ops.insert(0, Op::GroupStart);
@@ -88,6 +90,7 @@ pub(super) fn render(document: &Doc, mode: RenderMode, width: usize) -> String {
         RenderMode::Pretty => Mode::Break,
     }];
 
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     for (index, op) in document.ops.iter().enumerate() {
         match op {
             Op::Text(value) => {
@@ -132,6 +135,7 @@ enum Mode {
 fn flat_widths(ops: &[Op]) -> Vec<Option<usize>> {
     let mut result = vec![None; ops.len()];
     let mut stack: Vec<(usize, Option<usize>)> = Vec::new();
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     for (index, op) in ops.iter().enumerate() {
         let width = match op {
             Op::Text(value) => Some(value.chars().count()),

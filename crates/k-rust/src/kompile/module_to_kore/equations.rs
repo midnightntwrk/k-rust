@@ -394,6 +394,7 @@ fn emit_equation(
         let mut matches = Pattern::Top {
             sort: predicate_sort.clone(),
         };
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for ((variable, child), sort) in variables
             .iter()
             .zip(equation.children)
@@ -475,6 +476,7 @@ fn emit_owise_equation(
 
     // O2: reserve caller variables and allocate the per-module injection cache lazily.
     let mut fresh = FreshNames::default();
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for name in avoid_variables {
         fresh.reserve(name.clone());
     }
@@ -553,6 +555,7 @@ fn emit_owise_equation(
             };
             key(left).cmp(&key(right))
         });
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for term in quantified.into_iter().rev() {
             let Some(variable) = take_kore_variable(converter.convert(&term)?) else {
                 unreachable!("collected terms are variables")
@@ -648,6 +651,7 @@ fn equation_matches(
     let mut matches = Pattern::Top {
         sort: predicate_sort.clone(),
     };
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for ((variable, child), sort) in variables.iter().zip(children).zip(sorts).rev() {
         matches = Pattern::And {
             sort: predicate_sort.clone(),
@@ -671,6 +675,7 @@ fn variable_names<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeSet<Str
 
 fn variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<String, Term> {
     let mut variables = BTreeMap::new();
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     for root in roots {
         root.visit_preorder(&mut |term| {
             if let Term::Variable { name, .. } = term.unannotated() {
@@ -683,6 +688,7 @@ fn variable_terms<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<Str
     variables
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn refresh_variables(
     term: &Term,
     fresh: &mut FreshNames,
@@ -813,6 +819,7 @@ pub(super) fn check_variable_sorts(
             .or_default()
             .insert(variable.sort.clone());
     });
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     let Some((name, sorts)) = by_name.into_iter().find(|(_, sorts)| sorts.len() > 1) else {
         return Ok(());
     };
@@ -940,6 +947,7 @@ fn existential_variables(
     converter: &TermConverter<'_>,
 ) -> Result<Vec<Variable>, TermConversionError> {
     let mut terms = BTreeMap::<String, Term>::new();
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     for root in [right, ensures] {
         root.visit_preorder(&mut |term| {
             if let Term::Variable { name, .. } = term.unannotated()
@@ -960,6 +968,7 @@ fn existential_variables(
 
 fn existential_names(right: &Term, ensures: &Term) -> Vec<String> {
     let mut names = BTreeSet::new();
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     for root in [right, ensures] {
         root.visit_preorder(&mut |term| {
             if let Term::Variable { name, .. } = term.unannotated()

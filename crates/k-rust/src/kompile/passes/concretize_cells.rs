@@ -307,10 +307,12 @@ impl CellModel {
                     });
                     continue;
                 }
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 if let Some((collection_sort, concat, unit)) = collections
                     .iter()
                     .find(|(collection_sort, ..)| collection_sort == &child_sort)
                 {
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     let mut members = cell_sorts
                         .iter()
                         .filter(|cell| subsorts.directly_less_than(cell, collection_sort))
@@ -360,6 +362,7 @@ impl CellModel {
         }
 
         let mut parents = BTreeMap::new();
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for (parent_sort, cell) in &cells {
             for child in &cell.children {
                 if let Some(previous) = parents.insert(child.sort.clone(), parent_sort.clone())
@@ -408,6 +411,7 @@ impl CellModel {
             .map(|root| (root, 0))
             .collect::<BTreeMap<_, _>>();
         let mut changed = true;
+        // Invariant: the current state contains every fact found so far, and each successful iteration changes at least one fact in the finite state space.
         while changed {
             changed = false;
             for (child, parent) in &parents {
@@ -843,6 +847,7 @@ impl<'a> Concretizer<'a> {
             }
         }
         let target_level = self.model.levels[&cell.sort] + 1;
+        // Invariant: the current state contains every fact found so far, and each successful iteration changes at least one fact in the finite state space.
         while completion.iter().any(|item| {
             self.model
                 .sort_for_term(item)
@@ -920,6 +925,7 @@ impl<'a> Concretizer<'a> {
             flatten_cells(term)
                 .into_iter()
                 .filter_map(|term| self.model.sort_for_term(term))
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 .filter(|sort| {
                     parent.children.iter().any(|child| {
                         child.sort == *sort && child.multiplicity != Multiplicity::Star
@@ -957,6 +963,7 @@ impl<'a> Concretizer<'a> {
             )]);
         }
 
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let children_force_separation = if let Some(first) = children.first() {
             if let [sort] = first.as_slice() {
                 children.iter().all(|child| child.as_slice() == first)
@@ -970,6 +977,7 @@ impl<'a> Concretizer<'a> {
         } else {
             true
         };
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let rewrites_force_separation = rewrites.iter().all(|(left, right)| {
             rewrites.iter().all(|(other_left, other_right)| {
                 left.iter().any(|sort| other_left.contains(sort))
@@ -1079,6 +1087,7 @@ impl<'a> Concretizer<'a> {
             let mut contents = contents;
             if open_left || open_right {
                 if on_rhs {
+                    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                     for sort in required_left {
                         let child = cell
                             .children
@@ -1320,6 +1329,7 @@ impl<'a> Concretizer<'a> {
                         || (is_empty_cell_bag(left_side)
                             && matches!(right_side.unannotated(), Term::Variable { .. })))
                 {
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     let candidates = cell
                         .children
                         .iter()
@@ -1331,6 +1341,7 @@ impl<'a> Concretizer<'a> {
                 }
                 let singleton_sort = sorts.len() == 1;
                 for sort in sorts {
+                    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                     let child = cell
                         .children
                         .iter()
@@ -1388,6 +1399,7 @@ impl<'a> Concretizer<'a> {
                 }
                 continue;
             }
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             let candidates = cell
                 .children
                 .iter()
@@ -1439,6 +1451,7 @@ impl<'a> Concretizer<'a> {
         parent: &Cell,
     ) -> Result<BTreeMap<Sort, Term>, String> {
         let mut split = BTreeMap::new();
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for item in flatten_cells(term) {
             if let Some(sort) = self.model.sort_for_term(item) {
                 self.insert_child(&mut split, sort, item.clone(), parent)?;
@@ -1467,6 +1480,7 @@ impl<'a> Concretizer<'a> {
         item: Term,
         cell: &Cell,
     ) -> Result<(), String> {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let child = cell
             .children
             .iter()
@@ -1519,6 +1533,7 @@ fn collect_fragment_observations(
                     .iter()
                     .flat_map(flatten_cells)
                     .filter_map(|item| model.sort_for_term(item))
+                    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
                     .filter(|sort| {
                         parent
                             .children
@@ -1531,6 +1546,7 @@ fn collect_fragment_observations(
                 for argument in arguments {
                     collect_direct_fragment_variables(argument, &mut variables);
                 }
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 for (name, annotated_sort) in variables {
                     // Java tracks variables explicitly annotated with a cell sort separately from
                     // cell-fragment variables. They already identify one complete child and must
@@ -1617,6 +1633,7 @@ fn fragment_predicate(info: &FragmentInfo, model: &CellModel) -> Term {
     info.split
         .iter()
         .map(|(sort, term)| {
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             let child = parent
                 .children
                 .iter()

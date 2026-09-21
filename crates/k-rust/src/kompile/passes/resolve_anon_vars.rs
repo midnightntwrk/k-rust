@@ -64,6 +64,7 @@ fn resolve_anon_vars_in_sentence_mut(
     generated
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform(
     term: Term,
     fresh: &mut FreshNames,

@@ -173,6 +173,7 @@ fn resolve_function_with_config_inner(
                 }
                 _ => sentence.clone(),
             };
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             if !sentences.contains(&transformed) {
                 sentences.push(transformed);
             }
@@ -193,6 +194,7 @@ fn resolve_function_with_config_inner(
         return Err(ResolveFunctionWithConfigError { diagnostics });
     }
 
+    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     rebase_local_metadata_by(definition, output, |source, target| {
         sentence_equivalent(source, target)
             || function_production_equivalent(source, target, &with_config)
@@ -416,6 +418,7 @@ fn resolve_with_config_body(
     }
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform_term(term: Term, with_config: &BTreeSet<LabelHead>) -> Term {
     match term {
         Term::Annotated { term, metadata } => {

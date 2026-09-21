@@ -371,6 +371,7 @@ fn syntax_doc(root: SyntaxTask<'_>, indent: usize) -> Doc {
 
     let mut stack = vec![root];
     let mut ops = Vec::new();
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     while let Some(task) = stack.pop() {
         match task {
             SyntaxTask::Text(text) => ops.push(Op::Text(text)),

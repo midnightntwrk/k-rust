@@ -58,19 +58,23 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .flat_map(|(lesser, greater)| [lesser.clone(), greater.clone()])
             .collect::<BTreeSet<_>>();
 
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut graph = DiGraph::<T, ()>::new();
         let nodes = elements
             .iter()
             .cloned()
             .map(|element| {
+                // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
                 let node = graph.add_node(element.clone());
                 (element, node)
             })
             .collect::<BTreeMap<_, _>>();
         for (lesser, greater) in &direct {
+            // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
             graph.add_edge(nodes[lesser], nodes[greater], ());
         }
 
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         if toposort(&graph, None).is_err() {
             return Err(Cycle {
                 path: find_cycle(&graph).expect("toposort reported a cycle"),
@@ -79,15 +83,18 @@ impl<T: Clone + Ord> PartialOrder<T> {
 
         // Kahn's algorithm with an ordered ready set makes unrelated elements
         // deterministic without changing the lesser-to-greater edge direction.
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut indegree = graph
             .node_indices()
             .map(|node| (node, graph.neighbors_directed(node, Incoming).count()))
             .collect::<BTreeMap<_, _>>();
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut ready = graph
             .node_indices()
             .filter(|node| indegree[node] == 0)
             .map(|node| (graph[node].clone(), node))
             .collect::<BTreeSet<_>>();
+        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut order = Vec::with_capacity(graph.node_count());
         // Invariant: `ready` contains exactly the unprocessed zero-indegree nodes and `order` is
         // a prefix of a linear extension; each pop permanently appends one node.
@@ -212,6 +219,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .filter(|candidate| {
                 !elements
                     .iter()
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     .any(|other| self.less_than(other, candidate))
             })
             .map(|element| (*element).clone())
@@ -228,6 +236,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .filter(|candidate| {
                 !elements
                     .iter()
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     .any(|other| self.less_than(candidate, other))
             })
             .map(|element| (*element).clone())
@@ -263,6 +272,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
                     continue;
                 }
                 unseen.remove(&element);
+                // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                 for candidate in self.elements() {
                     if (self.less_than(&element, candidate) || self.less_than(candidate, &element))
                         && !component.contains(candidate)
@@ -289,6 +299,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .filter(|candidate| {
                 elements
                     .iter()
+                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     .all(|element| relation(self, candidate, element))
             })
             .cloned()
@@ -301,6 +312,7 @@ fn unique<T: Ord>(mut elements: BTreeSet<T>) -> Option<T> {
 }
 
 fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn visit<T: Clone + Ord>(
         graph: &DiGraph<T, ()>,
         node: NodeIndex,
@@ -309,6 +321,7 @@ fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
     ) -> Option<Vec<T>> {
         state[node.index()] = 1;
         stack.push(node);
+        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         let mut successors = graph.neighbors_directed(node, Outgoing).collect::<Vec<_>>();
         successors.sort_by(|left, right| graph[*left].cmp(&graph[*right]));
         for successor in successors {
@@ -319,6 +332,7 @@ fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
             } else if state[successor.index()] == 1 {
                 let start = stack
                     .iter()
+                    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
                     .position(|candidate| *candidate == successor)
                     .expect("active node is in DFS stack");
                 return Some(
@@ -335,10 +349,12 @@ fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
         None
     }
 
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     let mut state = vec![0; graph.node_count()];
     let mut stack = Vec::new();
     let mut nodes = graph.node_indices().collect::<Vec<_>>();
     nodes.sort_by(|left, right| graph[*left].cmp(&graph[*right]));
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     for node in nodes {
         if state[node.index()] == 0
             && let Some(cycle) = visit(graph, node, &mut state, &mut stack)

@@ -173,6 +173,7 @@ fn is_cell(term: &Term, productions: &ProductionCatalog<'_>, cell_sorts: &BTreeS
 }
 
 fn flatten_cells(term: &Term) -> Vec<&Term> {
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn flatten<'a>(term: &'a Term, output: &mut Vec<&'a Term>) {
         match term.unannotated() {
             Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {

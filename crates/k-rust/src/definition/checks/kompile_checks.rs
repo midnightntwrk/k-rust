@@ -173,6 +173,7 @@ fn parsed_definition_modules(
     );
     // `Module.sentences` is local plus transitively imported sentences; dependency order lists
     // every import before its importer, so one pass propagates visible bubbles.
+    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     let mut with_visible_bubbles = BTreeSet::new();
     for module in definition.dependency_order().iter().copied() {
         let local_bubble = definition

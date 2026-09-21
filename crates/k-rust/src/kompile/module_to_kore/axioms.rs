@@ -46,6 +46,7 @@ pub(super) fn generated_axioms(
         let Some(greater_productions) = overloads.order().relations_from(&lesser) else {
             continue;
         };
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for (greater, _) in overloads.catalog().productions() {
             if greater_productions.contains(&greater) {
                 let axiom = overload_axiom(overloads, lesser, greater)?;
@@ -138,6 +139,7 @@ fn no_confusion_axioms(
         Sentence::Production { sort, .. } => SortHead::from(sort),
         _ => unreachable!("production catalogs contain productions"),
     };
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for (other_id, other_production) in productions.productions() {
         if other_id == id
             || !constructors.contains(&other_id)
@@ -245,6 +247,7 @@ fn no_junk_axioms(
         let mut used_variable_names = BTreeSet::new();
         let mut variable_suffixes = BTreeMap::new();
         let mut has_token = false;
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for (_, production) in productions.productions() {
             let Sentence::Production {
                 label,
@@ -300,6 +303,7 @@ fn no_junk_axioms(
             }
         }
         if sort.name != BuiltinSort::K.k_name() {
+            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             for subsort in sorts
                 .sorted_all_sorts()
                 .filter(|subsort| subsorts.less_than(subsort, sort))
@@ -366,6 +370,7 @@ fn consistent_generated_variable(
             base.to_owned()
         } else {
             let suffix = suffixes.entry(base.to_owned()).or_insert(2);
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             loop {
                 let candidate = format!("{base}V{suffix}");
                 *suffix += 1;
@@ -424,6 +429,7 @@ fn generated_production_for_sort(
     })
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn match_sort_parameters(
     pattern: &Sort,
     concrete: &Sort,

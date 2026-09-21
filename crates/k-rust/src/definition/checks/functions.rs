@@ -58,6 +58,7 @@ pub fn check_functions(
 }
 
 #[allow(clippy::too_many_arguments)]
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn visit_term(
     term: &Term,
     position: TermPosition,

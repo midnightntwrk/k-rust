@@ -261,6 +261,7 @@ impl<'a> Expander<'a> {
                     .map(move |sentence| (std::ptr::from_ref(sentence), owner))
             })
             .collect::<BTreeMap<_, _>>();
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let all = definition
             .sentences(macro_module)
             .into_iter()
@@ -463,6 +464,7 @@ impl<'a> Expander<'a> {
         let Some(rules) = rules else {
             return Ok(subject);
         };
+        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         for rule in rules {
             let Sentence::Rule { requires, .. } = &rule.sentence else {
                 unreachable!()

@@ -156,6 +156,7 @@ pub fn compute_priorities<'a>(
         };
         for adjacent in priorities.windows(2) {
             for greater_precedence in &adjacent[0] {
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 for lesser_precedence in &adjacent[1] {
                     relations.insert((greater_precedence.clone(), lesser_precedence.clone()));
                 }
@@ -190,6 +191,7 @@ pub fn compute_associativities<'a>(
         };
         for target in targets {
             for parent in tags {
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 for child in tags {
                     target.insert((parent.clone(), child.clone()));
                 }
@@ -248,6 +250,7 @@ fn add_overload_group(
     require_lesser_label: bool,
 ) {
     for &lesser in group {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for &greater in group {
             let lesser_sentence = catalog.production(lesser);
             let lesser_has_label =

@@ -99,6 +99,7 @@ fn normalize_rule_variables(body: &Term, requires: &Term, ensures: &Term) -> [Te
     [body, requires, ensures].map(|term| normalize_term(term, &mut variables, &mut counter))
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn normalize_term(
     term: &Term,
     variables: &mut BTreeMap<String, String>,

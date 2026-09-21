@@ -116,6 +116,7 @@ impl<'a> Minimizer<'a> {
         }
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn gather_terms(
         &mut self,
         term: &Term,
@@ -176,6 +177,7 @@ impl<'a> Minimizer<'a> {
         Ok(())
     }
 
+    // Invariant: each recursive call consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining calls.
     fn filter_rhs(&mut self, term: &Term, position: Position) {
         let term = term.unannotated();
         if position == Position::Right && self.cache.contains_key(term) {
@@ -204,6 +206,7 @@ impl<'a> Minimizer<'a> {
         }
     }
 
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn transform(&self, term: &Term, position: Position, in_bad: bool) -> Term {
         if position == Position::Right
             && let Some(variable) = self.cache.get(term)

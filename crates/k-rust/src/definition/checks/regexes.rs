@@ -60,6 +60,7 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
             .flat_map(|regex| named_references(&regex.body))
             .filter(|name| !declarations.contains_key(name))
         {
+            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             if !bad_names.contains(&name) {
                 bad_names.push(name);
             }
@@ -180,6 +181,7 @@ fn named_references(body: &RegexBody) -> Vec<String> {
     let mut names = Vec::new();
     body.visit_preorder(&mut |body| {
         if let RegexBody::Named(name) = body
+            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             && !names.contains(name)
         {
             names.push(name.clone());
@@ -188,6 +190,7 @@ fn named_references(body: &RegexBody) -> Vec<String> {
     names
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn push_unique<T: PartialEq>(values: &mut Vec<T>, value: T) {
     if !values.contains(&value) {
         values.push(value);
@@ -196,6 +199,7 @@ fn push_unique<T: PartialEq>(values: &mut Vec<T>, value: T) {
 
 fn disjoint_cycles(mut adjacency: BTreeMap<String, BTreeSet<String>>) -> Vec<Vec<String>> {
     let mut cycles = Vec::new();
+    // Invariant: the current state contains every fact found so far, and each successful iteration changes at least one fact in the finite state space.
     while let Some(cycle) = find_cycle(&adjacency) {
         let members = cycle.iter().cloned().collect::<BTreeSet<_>>();
         adjacency.retain(|name, _| !members.contains(name));
@@ -207,6 +211,7 @@ fn disjoint_cycles(mut adjacency: BTreeMap<String, BTreeSet<String>>) -> Vec<Vec
     cycles
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn find_cycle(adjacency: &BTreeMap<String, BTreeSet<String>>) -> Option<Vec<String>> {
     let mut visited = BTreeSet::new();
     let mut stack = Vec::new();
@@ -219,6 +224,7 @@ fn find_cycle(adjacency: &BTreeMap<String, BTreeSet<String>>) -> Option<Vec<Stri
     None
 }
 
+// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn visit_cycle(
     name: &str,
     adjacency: &BTreeMap<String, BTreeSet<String>>,

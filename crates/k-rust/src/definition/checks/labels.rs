@@ -233,6 +233,7 @@ pub fn check_duplicate_overloads(definition: &ResolvedDefinition) -> Vec<Diagnos
     let components = overloads.order().connected_components();
     let mut diagnostics = Vec::new();
     for (key, group) in groups {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let group_components = components
             .iter()
             .map(|component| {
@@ -308,6 +309,7 @@ fn cell_collection_production(
         return false;
     };
     attributes.has(AttributeKey::Cell)
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         && items.iter().any(|item| {
             let ProductionItem::NonTerminal { sort, .. } = item else {
                 return false;
@@ -340,6 +342,7 @@ pub fn check_function_rule_attributes(definition: &ResolvedDefinition) -> Vec<Di
     let mut diagnostics = Vec::new();
 
     for function in productions.function_labels() {
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let function_rules = rules
             .rules()
             .filter(|(_, rule)| LabelHead::from(&match_rule_label(rule)) == *function)

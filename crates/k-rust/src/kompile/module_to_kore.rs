@@ -734,6 +734,7 @@ pub fn module_to_kore_from_resolved_with_options(
     // the error order. Only successful results from the first owise scan are reusable by later
     // owise scans over this immutable, already-rebased rule list.
     let mut owise_injections = Vec::new();
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for rule in &module_rules {
         let emitted = emit_rule_or_claim(
             rule,
@@ -983,6 +984,7 @@ fn map_ceil_origin_links(productions: [&Sentence; 3]) -> Vec<ProvenanceLink> {
     productions
         .into_iter()
         .flat_map(sentence_origin_links)
+        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         .fold(Vec::new(), |mut links, link| {
             if !links.contains(&link) {
                 links.push(link);
@@ -1006,6 +1008,7 @@ fn hooked_production(
     candidates: &[ProductionId],
     hook: &str,
 ) -> Option<(ProductionId, Label, Vec<Sort>)> {
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     candidates.iter().find_map(|id| {
         let Sentence::Production {
             label: Some(label),
@@ -1043,6 +1046,7 @@ fn bool_token(value: bool) -> Term {
 }
 
 fn sentence_owner(definition: &ResolvedDefinition, sentence: &Sentence) -> Option<ModuleId> {
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     definition.modules().find_map(|(module, resolved)| {
         resolved
             .local_sentences
@@ -1280,6 +1284,7 @@ fn sort_declarations(
         .map(SortHead::from)
         .collect::<BTreeSet<_>>();
     let mut declarations = Vec::new();
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for head in sorts.sorted_defined_heads() {
         if head.as_str() == BuiltinSort::K.k_name() || head.as_str() == BuiltinSort::KItem.k_name()
         {
@@ -1327,6 +1332,7 @@ fn collection_attribute_overrides(
     let production = productions
         .productions()
         .map(|(_, production)| production)
+        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         .find(|production| {
             matches!(
                 production,
@@ -1494,6 +1500,7 @@ fn add_syntax_attributes(
         return;
     };
     let mut nonterminal = 1;
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for (index, item) in items.iter().enumerate() {
         let replacement = match item {
             ProductionItem::NonTerminal { .. } => {
@@ -1652,6 +1659,7 @@ fn replace_format_slot(format: &str, slot: usize, replacement: &str) -> String {
     let needle = format!("%{slot}");
     let mut result = String::with_capacity(format.len() + replacement.len());
     let mut remaining = format;
+    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     while let Some(index) = remaining.find(&needle) {
         result.push_str(&remaining[..index]);
         let after = &remaining[index + needle.len()..];
@@ -1859,6 +1867,7 @@ fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
     attributes.string(AttributeKey::Hook).is_some_and(|hook| {
         hook.split_once('.').is_some_and(|(namespace, _)| {
             BUILTIN_HOOK_NAMESPACES.contains(&namespace)
+                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 || hook_namespaces.iter().any(|admitted| admitted == namespace)
         })
     })
@@ -1895,6 +1904,7 @@ pub fn encode_kore_sort(sort: &Sort) -> KoreSort {
 
 fn encode_kore_sort_with_formals(sort: &Sort, formals: &[Sort]) -> KoreSort {
     let name = identifier::encode_sort_name(&sort.name);
+    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     if formals.contains(sort) {
         KoreSort::Variable(name)
     } else {

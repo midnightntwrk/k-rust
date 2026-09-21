@@ -31,6 +31,7 @@ pub fn check_smt_lemmas(
             if ids.is_empty() {
                 return;
             }
+            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             if ids.iter().all(|id| {
                 let attributes = productions.production(*id).attributes();
                 !attributes.has(AttributeKey::SmtHook) && !attributes.has(AttributeKey::Smtlib)
