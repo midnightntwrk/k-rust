@@ -10,16 +10,10 @@ use serde_json::Value;
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{
-        Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence,
-    },
+    definition::{Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{GeneratedLabel, Label, Sort, Term},
-    provenance::{
-        GeneratingPass, record_generated_origins, seed_generated_sentence_origin,
-        sentence_origin_links,
-    },
+    provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
 
 use super::rebase_local_metadata;
@@ -47,24 +41,30 @@ impl std::error::Error for ResolveContextsError {}
 /// and cool rules. Imported modules remain unchanged, matching the reference definition-level
 /// transformer.
 pub fn resolve_contexts(definition: &Definition) -> Result<Definition, ResolveContextsError> {
-    resolve_contexts_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveContexts))
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_contexts_pass,
+        Some(GeneratingPass::ResolveContexts),
+    )
 }
 
-fn resolve_contexts_inner(definition: &Definition) -> Result<Definition, ResolveContextsError> {
-    let resolved =
-        ResolvedDefinition::resolve(definition).map_err(|error| ResolveContextsError {
-            diagnostics: vec![plain_error(error.to_string())],
-        })?;
+pub(crate) fn resolve_contexts_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, ResolveContextsError> {
+    let resolved = input.resolved_raw().map_err(|error| ResolveContextsError {
+        diagnostics: vec![plain_error(error.to_string())],
+    })?;
+    let views = resolved.views();
     let main_id = resolved.main_module_id();
-    let productions = resolved.production_catalog(main_id);
+    let productions = views.production_catalog(main_id);
     let contexts = resolved
         .sentences(main_id)
         .into_iter()
         .filter(|sentence| matches!(sentence, Sentence::Context { .. }))
         .collect::<Vec<_>>();
     if contexts.is_empty() {
-        return Ok(definition.clone());
+        return Ok(input.definition.clone());
     }
 
     let mut labels = productions
@@ -101,7 +101,7 @@ fn resolve_contexts_inner(definition: &Definition) -> Result<Definition, Resolve
         return Err(ResolveContextsError { diagnostics });
     }
 
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     let main = output.main_module.clone();
     let main = output
         .modules
@@ -122,7 +122,7 @@ fn resolve_contexts_inner(definition: &Definition) -> Result<Definition, Resolve
         extend_unique(&mut main.local_sentences, generated);
     }
     // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-    rebase_local_metadata(definition, output).map_err(|message| ResolveContextsError {
+    rebase_local_metadata(&views, output).map_err(|message| ResolveContextsError {
         diagnostics: vec![plain_error(message)],
     })
 }

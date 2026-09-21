@@ -3,7 +3,7 @@
 //!
 //! Final definition-wide transformations before KORE emission.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, convert::Infallible};
 
 use serde_json::Value;
 
@@ -11,8 +11,7 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, FlatImport, FlatModule, LabelHead, ResolvedDefinition, Sentence,
-        retain_new_sentences,
+        Attributes, Definition, FlatImport, FlatModule, LabelHead, Sentence, retain_new_sentences,
     },
     kast::{Sort, Term, WellKnownModule},
     provenance::{GeneratingPass, record_generated_origins},
@@ -23,6 +22,14 @@ use crate::{
 /// Full installations provide all four imports. Standalone `--no-prelude` definitions retain the
 /// same module boundary while importing only modules that actually exist.
 pub fn add_semantics_module(definition: &Definition) -> Result<Definition, String> {
+    super::super::pipeline::run_standalone(definition, add_semantics_module_pass, None)
+}
+
+pub(crate) fn add_semantics_module_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, String> {
+    let definition = input.definition;
     if definition
         .modules
         .iter()
@@ -64,7 +71,8 @@ pub fn add_semantics_module(definition: &Definition) -> Result<Definition, Strin
     });
     // A new root can change the global dependency traversal order, and therefore existing
     // modules' catalog positions, even though their visible production sets are unchanged.
-    super::rebase_local_metadata(definition, output)
+    let views = input.views().map_err(|error| error.message)?;
+    super::rebase_local_metadata(&views, output)
 }
 
 /// Mark rules and contexts whose left side begins with a variable in a main-cell K sequence.
@@ -73,11 +81,19 @@ pub fn add_semantics_module(definition: &Definition) -> Result<Definition, Strin
 /// `maincell` attribute is looked up in the main module's productions for every rule, including
 /// the rules of an imported module that does not see the generated configuration itself.
 pub fn add_cool_like_attributes(definition: &Definition) -> Definition {
-    let Ok(resolved) = ResolvedDefinition::resolve(definition) else {
-        return definition.clone();
+    super::super::pipeline::run_standalone(definition, add_cool_like_attributes_pass, None)
+        .unwrap_or_else(|error| match error {})
+}
+
+pub(crate) fn add_cool_like_attributes_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, Infallible> {
+    let Ok(resolved) = input.resolved_raw() else {
+        return Ok(input.definition.clone());
     };
     let productions = resolved.production_catalog(resolved.main_module_id());
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
             let body = match sentence {
@@ -98,7 +114,7 @@ pub fn add_cool_like_attributes(definition: &Definition) -> Definition {
             }
         }
     }
-    output
+    Ok(output)
 }
 
 /// Generate Java's final positive and `owise` negative sort-predicate rules.

@@ -17,7 +17,7 @@ use crate::definition::{
 };
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
-use crate::provenance::{GeneratingPass, record_generated_origins};
+use crate::provenance::GeneratingPass;
 
 use super::view::View;
 
@@ -1158,16 +1158,20 @@ pub fn add_sort_injections(
 pub fn add_sort_injections_to_definition(
     definition: &Definition,
 ) -> Result<Definition, SortInjectionError> {
-    add_sort_injections_to_definition_inner(definition).map(|output| {
-        record_generated_origins(definition, output, GeneratingPass::AddSortInjections)
-    })
+    super::pipeline::run_standalone(
+        definition,
+        add_sort_injections_to_definition_pass,
+        Some(GeneratingPass::AddSortInjections),
+    )
 }
 
-fn add_sort_injections_to_definition_inner(
-    definition: &Definition,
+pub(crate) fn add_sort_injections_to_definition_pass(
+    input: &super::pipeline::PassInput<'_>,
+    _: &mut super::pipeline::PipelineState,
 ) -> Result<Definition, SortInjectionError> {
-    let resolved =
-        ResolvedDefinition::resolve(definition).map_err(SortInjectionError::Definition)?;
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| SortInjectionError::Definition(error.clone()))?;
     let target = resolved.main_module_id();
     let target_modules = resolved
         .transitive_imports(target)
@@ -1176,7 +1180,7 @@ fn add_sort_injections_to_definition_inner(
         .collect::<BTreeSet<_>>();
     let views = resolved.views();
     let target_injector = SortInjector::with_views(&views, target)?;
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)

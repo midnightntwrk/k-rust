@@ -18,7 +18,7 @@ use crate::{
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term},
     kompile::fresh_names::{FreshNames, GeneratedVariableIdentity},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -78,15 +78,20 @@ pub fn concretize_cells_in_sentence(
 
 /// Apply Java's `ConcretizeCells` definition transformation.
 pub fn concretize_cells(definition: &Definition) -> Result<Definition, ConcretizeCellsError> {
-    concretize_cells_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::ConcretizeCells))
+    super::super::pipeline::run_standalone(
+        definition,
+        concretize_cells_pass,
+        Some(GeneratingPass::ConcretizeCells),
+    )
 }
 
-fn concretize_cells_inner(definition: &Definition) -> Result<Definition, ConcretizeCellsError> {
-    let resolved =
-        ResolvedDefinition::resolve(definition).map_err(|error| ConcretizeCellsError {
-            diagnostics: vec![plain_error(error.to_string())],
-        })?;
+pub(crate) fn concretize_cells_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, ConcretizeCellsError> {
+    let resolved = input.resolved_raw().map_err(|error| ConcretizeCellsError {
+        diagnostics: vec![plain_error(error.to_string())],
+    })?;
     let main_id = resolved.main_module_id();
     let views = resolved.views();
     let main_modules = resolved
@@ -103,10 +108,10 @@ fn concretize_cells_inner(definition: &Definition) -> Result<Definition, Concret
                 || CellModel::new(&views, module_id).is_ok_and(|model| model.cells.is_empty())
         })
     {
-        return Ok(definition.clone());
+        return Ok(input.definition.clone());
     }
 
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         let module_id = resolved

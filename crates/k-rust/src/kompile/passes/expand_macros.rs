@@ -24,7 +24,7 @@ use crate::{
         SortInjector,
         fresh_names::{FreshNames, GeneratedVariableIdentity},
     },
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,15 +55,21 @@ struct MacroRule {
 
 /// Apply Java's forward `ExpandMacros` sentence transformation.
 pub fn expand_macros(definition: &Definition) -> Result<Definition, ExpandMacrosError> {
-    expand_macros_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::MacroExpansion))
+    super::super::pipeline::run_standalone(
+        definition,
+        expand_macros_pass,
+        Some(GeneratingPass::MacroExpansion),
+    )
 }
 
-fn expand_macros_inner(definition: &Definition) -> Result<Definition, ExpandMacrosError> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ExpandMacrosError {
+pub(crate) fn expand_macros_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, ExpandMacrosError> {
+    let resolved = input.resolved_raw().map_err(|error| ExpandMacrosError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     let views = resolved.views();
     for module in &mut output.modules {

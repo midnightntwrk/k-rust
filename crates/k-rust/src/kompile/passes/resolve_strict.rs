@@ -15,10 +15,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, Label, Sort, Term, WellKnownModule, parser::parse_sort},
-    provenance::{
-        GeneratingPass, record_generated_origins, seed_generated_sentence_origin,
-        sentence_origin_links,
-    },
+    provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,18 +44,25 @@ struct Alias {
 
 /// Apply Java's `ResolveStrict` definition transformation.
 pub fn resolve_strict(definition: &Definition) -> Result<Definition, ResolveStrictError> {
-    resolve_strict_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveStrict))
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_strict_pass,
+        Some(GeneratingPass::ResolveStrict),
+    )
 }
 
-fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveStrictError> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ResolveStrictError {
+pub(crate) fn resolve_strict_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, ResolveStrictError> {
+    let resolved = input.resolved_raw().map_err(|error| ResolveStrictError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
+    let views = resolved.views();
     let main = resolved.main_module_id();
     let aliases = labeled_sentences(&resolved, main);
     let bool_module = resolved.module_id(WellKnownModule::Bool.as_str());
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
 
     for module in &mut output.modules {
@@ -123,7 +127,7 @@ fn resolve_strict_inner(definition: &Definition) -> Result<Definition, ResolveSt
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         // The private BOOL import changes this module's visible production catalog,
         // even though strictness itself does not add any productions.
-        super::rebase_local_metadata(definition, output).map_err(|message| ResolveStrictError {
+        super::rebase_local_metadata(&views, output).map_err(|message| ResolveStrictError {
             diagnostics: vec![plain_error(message)],
         })
     } else {

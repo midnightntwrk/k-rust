@@ -132,11 +132,14 @@ impl<'a> PassInput<'a> {
     }
 
     pub fn resolved(&self) -> Result<&ResolvedDefinition, PassError> {
+        self.resolved_raw().map_err(PassError::message)
+    }
+
+    pub(crate) fn resolved_raw(&self) -> Result<&ResolvedDefinition, &ResolveError> {
         self.current
             .resolved
             .get_or_init(|| ResolvedDefinition::resolve(self.definition))
             .as_ref()
-            .map_err(|error| PassError::message(error))
     }
 
     // A pass asks for this once and shares the returned memo among all of its algorithms.

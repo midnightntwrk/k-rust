@@ -7,10 +7,10 @@ use std::{fmt, mem};
 
 use crate::definition::AttributeKey;
 use crate::{
-    definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
+    definition::{Definition, LabelHead, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::{FrontendSort, Label, Sort, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,25 +34,28 @@ impl std::error::Error for ResolveHeatCoolError {}
 pub fn resolve_heat_cool_attributes(
     definition: &Definition,
 ) -> Result<Definition, ResolveHeatCoolError> {
-    resolve_heat_cool_attributes_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveHeatCool))
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_heat_cool_attributes_pass,
+        Some(GeneratingPass::ResolveHeatCool),
+    )
 }
 
-fn resolve_heat_cool_attributes_inner(
-    definition: &Definition,
+pub(crate) fn resolve_heat_cool_attributes_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, ResolveHeatCoolError> {
-    let resolved =
-        ResolvedDefinition::resolve(definition).map_err(|error| ResolveHeatCoolError {
-            diagnostics: vec![Diagnostic {
-                severity: crate::diagnostic::Severity::Error,
-                code: DiagnosticCode::InvalidHeatCool,
-                message: error.to_string(),
-                source: None,
-                location: None,
-            }],
-        })?;
+    let resolved = input.resolved_raw().map_err(|error| ResolveHeatCoolError {
+        diagnostics: vec![Diagnostic {
+            severity: crate::diagnostic::Severity::Error,
+            code: DiagnosticCode::InvalidHeatCool,
+            message: error.to_string(),
+            source: None,
+            location: None,
+        }],
+    })?;
     let views = resolved.views();
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         let module_id = resolved

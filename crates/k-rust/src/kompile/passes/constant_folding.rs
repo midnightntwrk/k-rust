@@ -11,12 +11,12 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 use crate::definition::AttributeKey;
 use crate::{
     definition::{
-        Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition,
-        Sentence, SortCatalog, SortHead,
+        Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog, Sentence, SortCatalog,
+        SortHead,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 #[cfg(feature = "mpfr-folding")]
@@ -42,23 +42,28 @@ impl std::error::Error for ConstantFoldingError {}
 
 /// Apply Java's rewrite-aware `ConstantFolding` transformation to local rules.
 pub fn constant_fold(definition: &Definition) -> Result<Definition, ConstantFoldingError> {
-    constant_fold_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::ConstantFolding))
+    super::super::pipeline::run_standalone(
+        definition,
+        constant_fold_pass,
+        Some(GeneratingPass::ConstantFolding),
+    )
 }
 
-fn constant_fold_inner(definition: &Definition) -> Result<Definition, ConstantFoldingError> {
-    let resolved =
-        ResolvedDefinition::resolve(definition).map_err(|error| ConstantFoldingError {
-            diagnostics: vec![Diagnostic {
-                severity: Severity::Error,
-                code: DiagnosticCode::InvalidConstantFolding,
-                message: error.to_string(),
-                source: None,
-                location: None,
-            }],
-        })?;
+pub(crate) fn constant_fold_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, ConstantFoldingError> {
+    let resolved = input.resolved_raw().map_err(|error| ConstantFoldingError {
+        diagnostics: vec![Diagnostic {
+            severity: Severity::Error,
+            code: DiagnosticCode::InvalidConstantFolding,
+            message: error.to_string(),
+            source: None,
+            location: None,
+        }],
+    })?;
     let views = resolved.views();
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         let module_id = resolved

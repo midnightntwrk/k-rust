@@ -8,10 +8,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{Definition, LabelHead, ProductionCatalog, ResolvedDefinition, Sentence},
+    definition::{Definition, LabelHead, ProductionCatalog, Sentence},
     kast::{InternalLabel, Sort, Term},
     kompile::fresh_names::FreshNames,
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 use super::super::{TermConversionError, TermConverter};
@@ -20,26 +20,30 @@ use super::super::{TermConversionError, TermConverter};
 pub fn minimize_term_construction(
     definition: &Definition,
 ) -> Result<Definition, TermConversionError> {
-    minimize_term_construction_inner(definition).map(|output| {
-        record_generated_origins(definition, output, GeneratingPass::MinimizeTermConstruction)
-    })
+    super::super::pipeline::run_standalone(
+        definition,
+        minimize_term_construction_pass,
+        Some(GeneratingPass::MinimizeTermConstruction),
+    )
 }
 
-fn minimize_term_construction_inner(
-    definition: &Definition,
+pub(crate) fn minimize_term_construction_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, TermConversionError> {
-    let resolved =
-        ResolvedDefinition::resolve(definition).map_err(TermConversionError::Definition)?;
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| TermConversionError::Definition(error.clone()))?;
     // Java constructs one minimizer from the final main module and applies it to every
     // sentence visible through that module. In particular, compiler-generated symbols such as
     // `<generatedTop>` may be declared in the main module while occurring in imported rules.
     let main_module = resolved
-        .module_id(&definition.main_module)
+        .module_id(&input.definition.main_module)
         .expect("resolved definition contains its main module");
     let views = resolved.views();
     let main_productions = views.production_catalog(main_module);
     let main_converter = TermConverter::with_views(&views, main_module)?;
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
