@@ -425,7 +425,12 @@ fn rule_grammar(
     // about fresh constants. The compiler generates their real productions later.
     // Import only these declarations into the grammar, preserving the source module.
     if let Some(rule_cells) = resolved.module_id("RULE-CELLS") {
-        for sentence in &resolved.module(rule_cells).local_sentences {
+        for sentence in resolved
+            .module(rule_cells)
+            .local_sentences
+            .iter()
+            .map(std::sync::Arc::as_ref)
+        {
             let Sentence::Production {
                 label,
                 sort,

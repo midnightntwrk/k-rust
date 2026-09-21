@@ -66,7 +66,7 @@ pub struct ImportRef {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedModule {
     pub name: String,
-    pub local_sentences: Vec<Sentence>,
+    pub local_sentences: Vec<Arc<Sentence>>,
     pub attributes: Attributes,
 }
 
@@ -459,8 +459,25 @@ impl ResolvedDefinition {
             .get_or_init(|| self.select_sentence_locations(module));
         locations
             .iter()
-            .map(|&(owner, index)| &self.module(owner).local_sentences[index])
+            .map(|&(owner, index)| self.module(owner).local_sentences[index].as_ref())
             .collect()
+    }
+
+    /// Local and visible sentences as shared nodes for derived owned views.
+    pub(crate) fn sentence_arcs(&self, module: ModuleId) -> Vec<Arc<Sentence>> {
+        let locations = self.visible_sentences[module.0.index()]
+            .get_or_init(|| self.select_sentence_locations(module));
+        locations
+            .iter()
+            .map(|&(owner, index)| Arc::clone(&self.module(owner).local_sentences[index]))
+            .collect()
+    }
+
+    pub(crate) fn local_sentence_arcs(
+        &self,
+        module: ModuleId,
+    ) -> impl Iterator<Item = Arc<Sentence>> + '_ {
+        self.module(module).local_sentences.iter().cloned()
     }
 
     fn select_sentence_locations(&self, module: ModuleId) -> Arc<[SentenceLocation]> {
@@ -478,7 +495,7 @@ impl ResolvedDefinition {
                     .local_sentences
                     .iter()
                     .enumerate()
-                    .map(move |(index, sentence)| (id, index, sentence))
+                    .map(move |(index, sentence)| (id, index, sentence.as_ref()))
             })
         {
             if push_if_inequivalent(&mut unique, sentence) {
@@ -515,7 +532,7 @@ impl ResolvedDefinition {
             .iter()
             .filter(|module| exported_modules.contains(module))
             .flat_map(|module| self.public_sentences(*module))
-            .chain(&self.module(module).local_sentences);
+            .chain(self.module(module).local_sentences.iter().map(Arc::as_ref));
         dedup_by_equivalence(sentences)
     }
 
@@ -533,6 +550,7 @@ impl ResolvedDefinition {
                     !sentence.attributes().has(AttributeKey::Private)
                 }
             })
+            .map(Arc::as_ref)
             .collect()
     }
 }
@@ -613,9 +631,9 @@ impl From<&FlatModule> for ResolvedModule {
     }
 }
 
-fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Sentence> {
+fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Arc<Sentence>> {
     dedup_by_equivalence(sentences)
         .into_iter()
-        .cloned()
+        .map(|sentence| Arc::new(sentence.clone()))
         .collect()
 }

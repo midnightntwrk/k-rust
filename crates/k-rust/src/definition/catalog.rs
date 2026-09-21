@@ -4,7 +4,10 @@
 //! Deterministic indexes over the productions visible from a resolved module.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::OnceLock;
+use std::{
+    marker::PhantomData,
+    sync::{Arc, OnceLock},
+};
 
 use k_rust_kore::measure::{self, Counter};
 
@@ -197,7 +200,7 @@ impl std::error::Error for FreshGeneratorError {}
 /// productions are collapsed before IDs are assigned.
 #[derive(Clone, Debug)]
 pub struct ProductionCatalog<'a> {
-    productions: Vec<&'a Sentence>,
+    productions: Vec<Arc<Sentence>>,
     identities: Vec<ProductionIdentity>,
     by_identity: BTreeMap<ProductionIdentity, ProductionId>,
     local: BTreeSet<ProductionId>,
@@ -210,6 +213,7 @@ pub struct ProductionCatalog<'a> {
     result_sort_by_label: BTreeMap<LabelHead, Sort>,
     macro_labels: BTreeSet<Label>,
     by_key: OnceLock<BTreeMap<ProductionKey, Vec<ProductionId>>>,
+    marker: PhantomData<&'a Sentence>,
 }
 
 impl<'a> ProductionCatalog<'a> {
@@ -240,13 +244,43 @@ impl<'a> ProductionCatalog<'a> {
         Self::from_productions(productions, local_sentences)
     }
 
+    pub(crate) fn from_deduplicated_arcs(
+        visible_sentences: impl IntoIterator<Item = Arc<Sentence>>,
+        local_sentences: impl IntoIterator<Item = Arc<Sentence>>,
+    ) -> Self {
+        let productions = visible_sentences
+            .into_iter()
+            .filter(|sentence| matches!(&**sentence, Sentence::Production { .. }))
+            .collect::<Vec<_>>();
+        debug_assert!(productions_are_deduplicated(
+            &productions.iter().map(Arc::as_ref).collect::<Vec<_>>()
+        ));
+        Self::from_arc_productions(productions, local_sentences)
+    }
+
     fn from_productions(
         productions: Vec<&'a Sentence>,
         local_sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Self {
+        Self::from_arc_productions(
+            productions
+                .into_iter()
+                .map(|sentence| Arc::new(sentence.clone()))
+                .collect(),
+            local_sentences
+                .into_iter()
+                .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
+                .map(|sentence| Arc::new(sentence.clone())),
+        )
+    }
+
+    fn from_arc_productions(
+        productions: Vec<Arc<Sentence>>,
+        local_sentences: impl IntoIterator<Item = Arc<Sentence>>,
+    ) -> Self {
         let local_sentences = local_sentences
             .into_iter()
-            .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
+            .filter(|sentence| matches!(&**sentence, Sentence::Production { .. }))
             .collect::<Vec<_>>();
 
         let mut catalog = Self {
@@ -263,10 +297,11 @@ impl<'a> ProductionCatalog<'a> {
             result_sort_by_label: BTreeMap::new(),
             macro_labels: BTreeSet::new(),
             by_key: OnceLock::new(),
+            marker: PhantomData,
         };
         catalog.local = local_sentences
             .into_iter()
-            .filter_map(|local| catalog.find_equivalent(local))
+            .filter_map(|local| catalog.find_equivalent(local.as_ref()))
             .collect();
         catalog.build_indexes();
         measure::bump(Counter::KompileProductionCatalogsBuilt);
@@ -289,8 +324,8 @@ impl<'a> ProductionCatalog<'a> {
         (0..self.len()).map(ProductionId)
     }
 
-    pub fn production(&self, id: ProductionId) -> &'a Sentence {
-        self.productions[id.0]
+    pub fn production(&self, id: ProductionId) -> &Sentence {
+        &self.productions[id.0]
     }
 
     /// Return the content identity aligned with `id`.
@@ -322,7 +357,7 @@ impl<'a> ProductionCatalog<'a> {
             .find(|id| sentence_equivalent(source, self.production(*id)))
     }
 
-    pub fn productions(&self) -> impl ExactSizeIterator<Item = (ProductionId, &'a Sentence)> + '_ {
+    pub fn productions(&self) -> impl ExactSizeIterator<Item = (ProductionId, &Sentence)> + '_ {
         self.ids().map(|id| (id, self.production(id)))
     }
 
@@ -332,7 +367,7 @@ impl<'a> ProductionCatalog<'a> {
 
     pub fn local_productions(
         &self,
-    ) -> impl ExactSizeIterator<Item = (ProductionId, &'a Sentence)> + '_ {
+    ) -> impl ExactSizeIterator<Item = (ProductionId, &Sentence)> + '_ {
         self.local
             .iter()
             .copied()
@@ -458,13 +493,14 @@ impl<'a> ProductionCatalog<'a> {
                 previous.is_none(),
                 "distinct catalog productions have the same ProductionIdentity"
             );
+            let sentence = self.production(id).clone();
             let Sentence::Production {
                 label,
                 parameters,
                 sort,
                 items,
                 attributes,
-            } = self.production(id)
+            } = &sentence
             else {
                 unreachable!()
             };
@@ -523,7 +559,7 @@ impl ResolvedDefinition {
     pub fn production_catalog(&self, module: ModuleId) -> ProductionCatalog<'_> {
         ProductionCatalog::from_deduplicated(
             self.sentences(module),
-            self.module(module).local_sentences.iter(),
+            self.module(module).local_sentences.iter().map(Arc::as_ref),
         )
     }
 }

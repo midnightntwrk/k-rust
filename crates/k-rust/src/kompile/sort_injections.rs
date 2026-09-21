@@ -991,11 +991,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         }
     }
 
-    fn production(
-        &self,
-        term: &Term,
-        label: &Label,
-    ) -> Result<&'definition Sentence, SortInjectionError> {
+    fn production(&self, term: &Term, label: &Label) -> Result<&Sentence, SortInjectionError> {
         let mut invalid_resolved = None;
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
             if let Some(production_id) = self.productions.lookup(&resolved) {

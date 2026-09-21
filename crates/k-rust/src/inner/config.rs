@@ -281,7 +281,7 @@ pub(super) fn implicit_kseq_bracket(resolved: &ResolvedDefinition) -> Option<&At
         .module(kseq)
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match sentence.as_ref() {
             Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Bracket) => {
                 Some(attributes)
             }

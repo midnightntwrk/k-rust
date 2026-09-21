@@ -50,9 +50,9 @@ impl<'a> DefinitionViews<'a> {
 
     pub fn production_catalog(&self, module: ModuleId) -> &ProductionCatalog<'a> {
         self.production_catalogs[module.0.index()].get_or_init(|| {
-            ProductionCatalog::from_deduplicated(
-                self.definition.sentences(module),
-                self.definition.module(module).local_sentences.iter(),
+            ProductionCatalog::from_deduplicated_arcs(
+                self.definition.sentence_arcs(module),
+                self.definition.local_sentence_arcs(module),
             )
         })
     }
