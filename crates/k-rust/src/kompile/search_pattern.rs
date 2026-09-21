@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use crate::definition::{Attributes, ResolvedDefinition, Sentence, sentence_equivalent};
+use crate::definition::{Attributes, ResolvedDefinition, Sentence};
 use crate::inner::{RuleError, parse_rule_content};
 use crate::kast::{Sort, Term, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
@@ -141,7 +141,6 @@ pub fn compile_search_pattern(
         &mut sentence,
         &parsing_definition.production_catalog(parsing_module),
         &execution_definition.production_catalog(execution_module),
-        &sentence_equivalent,
     )
     .map_err(CompileSearchPatternError::ProductionRebase)?;
 

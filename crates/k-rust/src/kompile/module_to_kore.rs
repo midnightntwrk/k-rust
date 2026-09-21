@@ -37,7 +37,7 @@ use crate::provenance::{
 use super::fresh_names::FreshNames;
 use super::label_graph::LabelDependencyGraph;
 use super::passes::number_sentence;
-use super::rebase::find_equivalent;
+use super::rebase::{ProductionIndex, find_equivalent};
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
 
@@ -1160,6 +1160,7 @@ fn production_rebase(
     target: &ProductionCatalog<'_>,
 ) -> Result<Vec<ProductionId>, ModuleToKoreError> {
     let source = definition.production_catalog(source_module);
+    let target_index = ProductionIndex::new(target);
     let target_by_pointer = target
         .productions()
         .map(|(id, production)| (std::ptr::from_ref(production) as usize, id))
@@ -1170,7 +1171,7 @@ fn production_rebase(
             target_by_pointer
                 .get(&(std::ptr::from_ref(production) as usize))
                 .copied()
-                .or_else(|| find_equivalent(production, target))
+                .or_else(|| find_equivalent(production, &target_index))
                 .ok_or_else(|| ModuleToKoreError::InvalidImportedProductionMetadata {
                     module: definition.module(source_module).name.clone(),
                     production: source_id.0,
