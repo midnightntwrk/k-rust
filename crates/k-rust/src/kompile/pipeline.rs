@@ -583,7 +583,7 @@ pub(crate) fn run_stages(
 ) -> Result<Definition, CompileError> {
     let mut current = Current::new(start);
     for stage in stages {
-        let (output, next_resolved) = timings.time(stage.name, || {
+        let output = timings.time(stage.name, || {
             let input = PassInput::new(&current);
             let output = (stage.run)(&input, state).map_err(|error| CompileError {
                 stage: stage.name,
@@ -598,12 +598,7 @@ pub(crate) fn run_stages(
             };
             #[cfg(debug_assertions)]
             assert_no_dangling_application_identities(&output);
-            let next_resolved = match current.resolved.get() {
-                Some(Ok(previous)) => Some(previous.update(&output)),
-                Some(Err(error)) => Some(Err(error.clone())),
-                None => None,
-            };
-            Ok((output, next_resolved))
+            Ok(output)
         })?;
         current = Current::new(output);
     }
