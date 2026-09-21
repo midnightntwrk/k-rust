@@ -14,7 +14,7 @@ use crate::{
         Attributes, Definition, FlatImport, FlatModule, LabelHead, Sentence, retain_new_sentences,
     },
     kast::{Sort, Term, WellKnownModule},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 /// Add Java's synthetic `LANGUAGE-PARSING` module.
@@ -119,7 +119,19 @@ pub(crate) fn add_cool_like_attributes_pass(
 
 /// Generate Java's final positive and `owise` negative sort-predicate rules.
 pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(
+        definition,
+        generate_sort_predicate_rules_pass,
+        Some(GeneratingPass::GenerateSortPredicateRules),
+    )
+    .unwrap_or_else(|error| match error {})
+}
+
+pub(crate) fn generate_sort_predicate_rules_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, Infallible> {
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         let predicates = module
             .local_sentences
@@ -173,11 +185,7 @@ pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
         let generated = retain_new_sentences(module.local_sentences.iter(), generated);
         module.local_sentences.extend(generated);
     }
-    record_generated_origins(
-        definition,
-        output,
-        GeneratingPass::GenerateSortPredicateRules,
-    )
+    Ok(output)
 }
 
 fn sort_from_json(value: &Value) -> Option<Sort> {

@@ -3,7 +3,7 @@
 //!
 //! Thread the generated top-cell configuration through functions that inspect configuration.
 
-use std::{collections::BTreeSet, fmt};
+use std::{collections::BTreeSet, convert::Infallible, fmt};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -14,7 +14,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 use super::super::label_graph::LabelDependencyGraph;
@@ -209,7 +209,19 @@ pub(crate) fn resolve_function_with_config_pass(
 /// This remains a separate operation because the KORE pipeline deliberately runs it only after
 /// cell concretization and semantics-module generation.
 pub fn resolve_config_var(definition: &Definition) -> Definition {
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_config_var_pass,
+        Some(GeneratingPass::ResolveFunctionWithConfig),
+    )
+    .unwrap_or_else(|error| match error {})
+}
+
+pub(crate) fn resolve_config_var_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, Infallible> {
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
             let (body, requires, ensures) = match sentence {
@@ -249,11 +261,7 @@ pub fn resolve_config_var(definition: &Definition) -> Definition {
             }
         }
     }
-    record_generated_origins(
-        definition,
-        output,
-        GeneratingPass::ResolveFunctionWithConfig,
-    )
+    Ok(output)
 }
 
 fn compute_with_config_functions(

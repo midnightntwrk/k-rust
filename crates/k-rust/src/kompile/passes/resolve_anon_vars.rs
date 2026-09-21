@@ -3,28 +3,36 @@
 //!
 //! Give every anonymous variable occurrence a collision-free sentence-local name.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, convert::Infallible};
 
 use crate::{
     definition::{Definition, Sentence},
     kast::Term,
     kompile::fresh_names::{FreshNames, GeneratedVariableIdentity},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 /// Apply Java's `ResolveAnonVar` transformation to rules, claims, and contexts.
 pub fn resolve_anon_vars(definition: &Definition) -> Definition {
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_anon_vars_pass,
+        Some(GeneratingPass::ResolveAnonymousVariables),
+    )
+    .unwrap_or_else(|error| match error {})
+}
+
+pub(crate) fn resolve_anon_vars_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, Infallible> {
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
             resolve_anon_vars_in_sentence_mut(sentence);
         }
     }
-    record_generated_origins(
-        definition,
-        output,
-        GeneratingPass::ResolveAnonymousVariables,
-    )
+    Ok(output)
 }
 
 /// Resolve anonymous variables in one sentence and return exactly the identities minted.

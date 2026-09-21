@@ -102,7 +102,14 @@ pub(crate) fn generate_sort_predicate_syntax_pass(
 /// Restore generated sort predicates to their canonical unary signature after passes that may
 /// temporarily add arguments, then generate predicates for any newly introduced sorts.
 pub fn regenerate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, String> {
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(definition, regenerate_sort_predicate_syntax_pass, None)
+}
+
+pub(crate) fn regenerate_sort_predicate_syntax_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, String> {
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
             let Sentence::Production {

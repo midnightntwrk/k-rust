@@ -10,6 +10,7 @@ use crate::{
 };
 
 use super::{CompileError, CompileOptions};
+use super::{passes, sort_injections};
 
 /// The common error carried across a pipeline stage boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -167,6 +168,420 @@ pub(crate) struct Stage {
     pub behavior: &'static str,
 }
 
+macro_rules! stage_adapter {
+    ($name:ident, $pass:path) => {
+        fn $name(
+            input: &PassInput<'_>,
+            state: &mut PipelineState,
+        ) -> Result<Definition, PassError> {
+            $pass(input, state).map_err(Into::into)
+        }
+    };
+}
+
+stage_adapter!(resolve_comm_stage, passes::resolve_comm_pass);
+stage_adapter!(resolve_io_stage, passes::resolve_io_pass);
+stage_adapter!(resolve_fun_stage, passes::resolve_fun_pass);
+stage_adapter!(
+    generate_sort_predicate_syntax_stage,
+    passes::generate_sort_predicate_syntax_pass
+);
+stage_adapter!(
+    resolve_function_with_config_stage,
+    passes::resolve_function_with_config_pass
+);
+stage_adapter!(resolve_strict_stage, passes::resolve_strict_pass);
+stage_adapter!(resolve_anon_vars_stage, passes::resolve_anon_vars_pass);
+stage_adapter!(resolve_contexts_stage, passes::resolve_contexts_pass);
+stage_adapter!(number_sentences_stage, passes::number_sentences_pass);
+stage_adapter!(
+    resolve_heat_cool_attributes_stage,
+    passes::resolve_heat_cool_attributes_pass
+);
+stage_adapter!(
+    resolve_semantic_casts_stage,
+    passes::resolve_semantic_casts_pass
+);
+stage_adapter!(subsort_kitem_stage, passes::subsort_kitem_pass);
+stage_adapter!(constant_fold_stage, passes::constant_fold_pass);
+stage_adapter!(
+    propagate_macro_attributes_stage,
+    passes::propagate_macro_attributes_pass
+);
+stage_adapter!(guard_or_patterns_stage, passes::guard_or_patterns_pass);
+stage_adapter!(
+    generate_sort_projections_stage,
+    passes::generate_sort_projections_pass
+);
+stage_adapter!(expand_macros_stage, passes::expand_macros_pass);
+stage_adapter!(
+    add_implicit_computation_cell_stage,
+    passes::add_implicit_computation_cell_pass
+);
+stage_adapter!(
+    resolve_fresh_constants_stage,
+    passes::resolve_fresh_constants_pass
+);
+stage_adapter!(
+    regenerate_sort_predicate_syntax_stage,
+    passes::regenerate_sort_predicate_syntax_pass
+);
+stage_adapter!(
+    check_simplification_rules_stage,
+    passes::check_simplification_rules_pass
+);
+stage_adapter!(concretize_cells_stage, passes::concretize_cells_pass);
+stage_adapter!(
+    add_semantics_module_stage,
+    passes::add_semantics_module_pass
+);
+stage_adapter!(resolve_config_var_stage, passes::resolve_config_var_pass);
+stage_adapter!(
+    add_cool_like_attributes_stage,
+    passes::add_cool_like_attributes_pass
+);
+stage_adapter!(
+    generate_sort_predicate_rules_stage,
+    passes::generate_sort_predicate_rules_pass
+);
+stage_adapter!(
+    add_sort_injections_to_definition_stage,
+    sort_injections::add_sort_injections_to_definition_pass
+);
+stage_adapter!(remove_unit_stage, passes::remove_unit_pass);
+stage_adapter!(
+    minimize_term_construction_stage,
+    passes::minimize_term_construction_pass
+);
+
+fn resolve_fresh_config_constants_stage(
+    input: &PassInput<'_>,
+    state: &mut PipelineState,
+) -> Result<Definition, PassError> {
+    passes::resolve_fresh_config_constants_pass(input, state)
+        .map(|(definition, _)| definition)
+        .map_err(Into::into)
+}
+
+const PREDICATE_SYNTAX_INTERNAL: &[GeneratingPass] = &[GeneratingPass::GenerateSortPredicateSyntax];
+
+macro_rules! stage {
+    ($name:literal, $call:literal, $run:ident, $provenance:expr, $behavior:literal) => {
+        Stage {
+            name: $name,
+            call: $call,
+            run: $run,
+            provenance: $provenance,
+            behavior: $behavior,
+        }
+    };
+}
+
+pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
+    stage!(
+        "resolve commutative rules",
+        "resolve_comm",
+        resolve_comm_stage,
+        Provenance::Driver(GeneratingPass::ResolveComm),
+        "generating"
+    ),
+    stage!(
+        "resolve I/O streams",
+        "resolve_io",
+        resolve_io_stage,
+        Provenance::Driver(GeneratingPass::ResolveIo),
+        "generating"
+    ),
+    stage!(
+        "resolve local functions",
+        "resolve_fun",
+        resolve_fun_stage,
+        Provenance::Driver(GeneratingPass::ResolveFun),
+        "generating"
+    ),
+    stage!(
+        "seed sort predicate syntax",
+        "generate_sort_predicate_syntax",
+        generate_sort_predicate_syntax_stage,
+        Provenance::Driver(GeneratingPass::GenerateSortPredicateSyntax),
+        "generating"
+    ),
+    stage!(
+        "resolve function configuration",
+        "resolve_function_with_config",
+        resolve_function_with_config_stage,
+        Provenance::Driver(GeneratingPass::ResolveFunctionWithConfig),
+        "generating"
+    ),
+    stage!(
+        "resolve strictness",
+        "resolve_strict",
+        resolve_strict_stage,
+        Provenance::Driver(GeneratingPass::ResolveStrict),
+        "generating"
+    ),
+    stage!(
+        "resolve anonymous variables",
+        "resolve_anon_vars",
+        resolve_anon_vars_stage,
+        Provenance::Driver(GeneratingPass::ResolveAnonymousVariables),
+        "generating"
+    ),
+    stage!(
+        "resolve contexts",
+        "resolve_contexts",
+        resolve_contexts_stage,
+        Provenance::Driver(GeneratingPass::ResolveContexts),
+        "generating"
+    ),
+    stage!(
+        "number sentences",
+        "number_sentences",
+        number_sentences_stage,
+        Provenance::None,
+        "metadata-only"
+    ),
+    stage!(
+        "resolve heat/cool attributes",
+        "resolve_heat_cool_attributes",
+        resolve_heat_cool_attributes_stage,
+        Provenance::Driver(GeneratingPass::ResolveHeatCool),
+        "generating"
+    ),
+    stage!(
+        "resolve semantic casts",
+        "resolve_semantic_casts",
+        resolve_semantic_casts_stage,
+        Provenance::Driver(GeneratingPass::SemanticCasts),
+        "generating"
+    ),
+    stage!(
+        "add KItem subsorts",
+        "subsort_kitem",
+        subsort_kitem_stage,
+        Provenance::Driver(GeneratingPass::SubsortKItem),
+        "generating"
+    ),
+    stage!(
+        "constant folding",
+        "constant_fold",
+        constant_fold_stage,
+        Provenance::Driver(GeneratingPass::ConstantFolding),
+        "generating"
+    ),
+    stage!(
+        "propagate macro attributes",
+        "propagate_macro_attributes",
+        propagate_macro_attributes_stage,
+        Provenance::None,
+        "metadata-only"
+    ),
+    stage!(
+        "guard or-patterns",
+        "guard_or_patterns",
+        guard_or_patterns_stage,
+        Provenance::Driver(GeneratingPass::GuardOrPatterns),
+        "generating"
+    ),
+    stage!(
+        "resolve fresh configuration constants",
+        "resolve_fresh_config_constants",
+        resolve_fresh_config_constants_stage,
+        Provenance::Driver(GeneratingPass::ResolveFreshConfigConstants),
+        "generating"
+    ),
+    stage!(
+        "generate sort predicate syntax",
+        "generate_sort_predicate_syntax",
+        generate_sort_predicate_syntax_stage,
+        Provenance::Driver(GeneratingPass::GenerateSortPredicateSyntax),
+        "generating"
+    ),
+    stage!(
+        "generate sort projections",
+        "generate_sort_projections",
+        generate_sort_projections_stage,
+        Provenance::Driver(GeneratingPass::GenerateSortProjections),
+        "generating"
+    ),
+    stage!(
+        "expand macros",
+        "expand_macros",
+        expand_macros_stage,
+        Provenance::Driver(GeneratingPass::MacroExpansion),
+        "generating"
+    ),
+    stage!(
+        "add implicit computation cell",
+        "add_implicit_computation_cell",
+        add_implicit_computation_cell_stage,
+        Provenance::Driver(GeneratingPass::AddImplicitComputationCell),
+        "generating"
+    ),
+    stage!(
+        "resolve fresh constants",
+        "resolve_fresh_constants",
+        resolve_fresh_constants_stage,
+        Provenance::Driver(GeneratingPass::ResolveFreshConstants),
+        "generating"
+    ),
+    stage!(
+        "regenerate sort predicate syntax",
+        "regenerate_sort_predicate_syntax",
+        regenerate_sort_predicate_syntax_stage,
+        Provenance::Internal(PREDICATE_SYNTAX_INTERNAL),
+        "metadata-only"
+    ),
+    stage!(
+        "regenerate sort projections",
+        "generate_sort_projections",
+        generate_sort_projections_stage,
+        Provenance::Driver(GeneratingPass::GenerateSortProjections),
+        "generating"
+    ),
+    stage!(
+        "check simplification rules",
+        "check_simplification_rules",
+        check_simplification_rules_stage,
+        Provenance::None,
+        "validation"
+    ),
+    stage!(
+        "finalize KItem subsorts",
+        "subsort_kitem",
+        subsort_kitem_stage,
+        Provenance::Driver(GeneratingPass::SubsortKItem),
+        "generating"
+    ),
+    stage!(
+        "concretize cells",
+        "concretize_cells",
+        concretize_cells_stage,
+        Provenance::Driver(GeneratingPass::ConcretizeCells),
+        "generating"
+    ),
+    stage!(
+        "add semantics module",
+        "add_semantics_module",
+        add_semantics_module_stage,
+        Provenance::None,
+        "structural-origin-free"
+    ),
+    stage!(
+        "resolve configuration variables",
+        "resolve_config_var",
+        resolve_config_var_stage,
+        Provenance::Driver(GeneratingPass::ResolveFunctionWithConfig),
+        "generating"
+    ),
+    stage!(
+        "add cool-like attributes",
+        "add_cool_like_attributes",
+        add_cool_like_attributes_stage,
+        Provenance::None,
+        "metadata-only"
+    ),
+    stage!(
+        "generate sort predicate rules",
+        "generate_sort_predicate_rules",
+        generate_sort_predicate_rules_stage,
+        Provenance::Driver(GeneratingPass::GenerateSortPredicateRules),
+        "generating"
+    ),
+    stage!(
+        "number sentences (final)",
+        "number_sentences",
+        number_sentences_stage,
+        Provenance::None,
+        "metadata-only"
+    ),
+];
+
+pub(crate) static EMISSION_STAGES: &[Stage] = &[
+    stage!(
+        "add sort injections",
+        "add_sort_injections_to_definition",
+        add_sort_injections_to_definition_stage,
+        Provenance::Driver(GeneratingPass::AddSortInjections),
+        "generating"
+    ),
+    stage!(
+        "remove units",
+        "remove_unit",
+        remove_unit_stage,
+        Provenance::Driver(GeneratingPass::RemoveUnit),
+        "generating"
+    ),
+    stage!(
+        "minimize term construction",
+        "minimize_term_construction",
+        minimize_term_construction_stage,
+        Provenance::Driver(GeneratingPass::MinimizeTermConstruction),
+        "generating"
+    ),
+];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StageDescription {
+    pub name: &'static str,
+    pub call: &'static str,
+    pub behavior: &'static str,
+    pub generating_passes: Vec<&'static str>,
+}
+
+fn description(stage: &Stage) -> StageDescription {
+    let generating_passes = match stage.provenance {
+        Provenance::Driver(pass) => vec![pass.as_str()],
+        // Internal provenance describes receipt placement. The manifest keeps the externally
+        // visible classification of metadata-only composite stages.
+        Provenance::Internal(passes) if stage.behavior == "generating" => {
+            passes.iter().map(|pass| pass.as_str()).collect()
+        }
+        Provenance::None | Provenance::Internal(_) => Vec::new(),
+    };
+    StageDescription {
+        name: stage.name,
+        call: stage.call,
+        behavior: stage.behavior,
+        generating_passes,
+    }
+}
+
+pub fn stage_descriptions() -> Vec<StageDescription> {
+    TRANSFORM_STAGES
+        .iter()
+        .chain(EMISSION_STAGES)
+        .map(description)
+        .collect()
+}
+
+pub fn prologue_descriptions() -> Vec<StageDescription> {
+    vec![
+        StageDescription {
+            name: "expand structured configurations",
+            call: "expand_configurations_with_diagnostics",
+            behavior: "generating",
+            generating_passes: vec![GeneratingPass::ConfigurationExpansion.as_str()],
+        },
+        StageDescription {
+            name: "resolve structured configurations",
+            call: "resolve",
+            behavior: "validation",
+            generating_passes: Vec::new(),
+        },
+        StageDescription {
+            name: "definition checks",
+            call: "check_definition_with_options",
+            behavior: "validation",
+            generating_passes: Vec::new(),
+        },
+    ]
+}
+
+pub fn pipeline_checkpoint() -> (&'static str, &'static str) {
+    ("execution_definition", "definition")
+}
+
 pub(crate) fn run_stages(
     stages: &[Stage],
     start: Definition,
@@ -200,14 +615,21 @@ pub(crate) fn run_standalone<E>(
     run: impl FnOnce(&PassInput<'_>, &mut PipelineState) -> Result<Definition, E>,
     provenance: Option<GeneratingPass>,
 ) -> Result<Definition, E> {
-    let current = Current::new(definition.clone());
-    let input = PassInput::new(&current);
-    let mut state = PipelineState::default();
-    let output = run(&input, &mut state)?;
+    let output = run_standalone_raw(definition, run)?;
     Ok(match provenance {
         Some(pass) => record_generated_origins(definition, output, pass),
         None => output,
     })
+}
+
+pub(crate) fn run_standalone_raw<T, E>(
+    definition: &Definition,
+    run: impl FnOnce(&PassInput<'_>, &mut PipelineState) -> Result<T, E>,
+) -> Result<T, E> {
+    let current = Current::new(definition.clone());
+    let input = PassInput::new(&current);
+    let mut state = PipelineState::default();
+    run(&input, &mut state)
 }
 
 #[cfg(test)]

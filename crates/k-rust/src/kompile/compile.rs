@@ -30,16 +30,7 @@ use crate::{
 use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
 use super::passes::number_sentence;
 use super::{
-    ModuleToKoreOptions, add_cool_like_attributes, add_implicit_computation_cell,
-    add_semantics_module, add_sort_injections_to_definition, check_simplification_rules,
-    concretize_cells, constant_fold, expand_macros, generate_sort_predicate_rules,
-    generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
-    minimize_term_construction, module_to_kore_from_resolved_with_options, number_sentences,
-    propagate_macro_attributes, regenerate_sort_predicate_syntax, remove_unit, resolve_anon_vars,
-    resolve_comm, resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
-    resolve_fresh_constants, resolve_fun, resolve_function_with_config,
-    resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts, resolve_strict,
-    rust_backend_hook_namespaces, subsort_kitem,
+    ModuleToKoreOptions, module_to_kore_from_resolved_with_options, rust_backend_hook_namespaces,
 };
 
 /// Backend whose KORE input should be generated.
@@ -226,15 +217,6 @@ fn stage<T, E: fmt::Display>(
     timings
         .time(name, run)
         .map_err(|error| CompileError::from_error(name, error))
-}
-
-macro_rules! diagnostic_stage {
-    ($policy:expr, $timings:expr, $name:literal, $result:expr) => {
-        $timings.time($name, || $result).map_err(|error| {
-            let message = error.to_string();
-            CompileError::from_diagnostics($name, message, $policy.apply(error.diagnostics))
-        })?
-    };
 }
 
 /// Compile an in-memory, backend-filtered definition into backend-facing textual KORE artifacts.
@@ -667,144 +649,23 @@ fn transform_loaded_definition(
     }
 
     // Checkpoint: every later transformation receives a resolved, structurally checked definition.
-    let definition = diagnostic_stage!(
-        options.diagnostics,
+    let mut state = super::pipeline::PipelineState::default();
+    let execution_definition = super::pipeline::run_stages(
+        super::pipeline::TRANSFORM_STAGES,
+        definition,
+        &mut state,
+        options,
         timings,
-        "resolve commutative rules",
-        resolve_comm(&definition)
-    );
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "resolve I/O streams",
-        resolve_io(&definition)
-    );
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "resolve local functions",
-        resolve_fun(&definition)
-    );
-    let definition = stage(timings, "seed sort predicate syntax", || {
-        generate_sort_predicate_syntax(&definition)
-    })?;
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "resolve function configuration",
-        resolve_function_with_config(&definition)
-    );
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "resolve strictness",
-        resolve_strict(&definition)
-    );
-    let definition = timings.time("resolve anonymous variables", || {
-        resolve_anon_vars(&definition)
-    });
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "resolve contexts",
-        resolve_contexts(&definition)
-    );
-    let definition = timings.time("number sentences", || number_sentences(&definition));
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "resolve heat/cool attributes",
-        resolve_heat_cool_attributes(&definition)
-    );
-    let definition = timings.time("resolve semantic casts", || {
-        resolve_semantic_casts(&definition)
-    });
-    let definition = stage(timings, "add KItem subsorts", || subsort_kitem(&definition))?;
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "constant folding",
-        constant_fold(&definition)
-    );
-    let definition = stage(timings, "propagate macro attributes", || {
-        propagate_macro_attributes(&definition)
-    })?;
-    let definition = stage(timings, "guard or-patterns", || {
-        guard_or_patterns(&definition)
-    })?;
-    let (definition, fresh_config_count) = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "resolve fresh configuration constants",
-        resolve_fresh_config_constants(&definition)
-    );
-    let definition = stage(timings, "generate sort predicate syntax", || {
-        generate_sort_predicate_syntax(&definition)
-    })?;
-    let definition = stage(timings, "generate sort projections", || {
-        generate_sort_projections(&definition)
-    })?;
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "expand macros",
-        expand_macros(&definition)
-    );
-    let definition = stage(timings, "add implicit computation cell", || {
-        add_implicit_computation_cell(&definition)
-    })?;
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "resolve fresh constants",
-        resolve_fresh_constants(&definition, fresh_config_count)
-    );
-    let definition = stage(timings, "regenerate sort predicate syntax", || {
-        regenerate_sort_predicate_syntax(&definition)
-    })?;
-    let definition = stage(timings, "regenerate sort projections", || {
-        generate_sort_projections(&definition)
-    })?;
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "check simplification rules",
-        check_simplification_rules(&definition)
-    );
-    let definition = stage(timings, "finalize KItem subsorts", || {
-        subsort_kitem(&definition)
-    })?;
-    let definition = diagnostic_stage!(
-        options.diagnostics,
-        timings,
-        "concretize cells",
-        concretize_cells(&definition)
-    );
-    // Coverage instrumentation and the optional unsafe-anywhere removal are identity stages
-    // because neither optional mode is exposed by the frontend API yet.
-    let definition = stage(timings, "add semantics module", || {
-        add_semantics_module(&definition)
-    })?;
-    let definition = timings.time("resolve configuration variables", || {
-        resolve_config_var(&definition)
-    });
-    let definition = timings.time("add cool-like attributes", || {
-        add_cool_like_attributes(&definition)
-    });
-    let definition = timings.time("generate sort predicate rules", || {
-        generate_sort_predicate_rules(&definition)
-    });
-    let definition = timings.time("number sentences (final)", || number_sentences(&definition));
+    )?;
     // Checkpoint: search-pattern compilation and the sentence counter observe this execution
     // definition; injection, unit removal, and construction minimization apply only to emission.
-    let execution_definition = definition;
-    let definition = stage(timings, "add sort injections", || {
-        add_sort_injections_to_definition(&execution_definition)
-    })?;
-    let definition = stage(timings, "remove units", || remove_unit(&definition))?;
-    let definition = stage(timings, "minimize term construction", || {
-        minimize_term_construction(&definition)
-    })?;
+    let definition = super::pipeline::run_stages(
+        super::pipeline::EMISSION_STAGES,
+        execution_definition.clone(),
+        &mut state,
+        options,
+        timings,
+    )?;
     Ok((execution_definition, definition, diagnostics))
 }
 

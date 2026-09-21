@@ -3,7 +3,7 @@
 //!
 //! Assign Java-compatible stable identifiers to rules and claims.
 
-use std::{collections::BTreeMap, fmt::Write};
+use std::{collections::BTreeMap, convert::Infallible, fmt::Write};
 
 use serde_json::Value;
 use sha3::{Digest, Sha3_256};
@@ -26,13 +26,21 @@ const PRESERVED_ATTRIBUTES: [AttributeKey; 7] = [
 
 /// Apply Java's `NumberSentences` transformation to every rule and claim.
 pub fn number_sentences(definition: &Definition) -> Definition {
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(definition, number_sentences_pass, None)
+        .unwrap_or_else(|error| match error {})
+}
+
+pub(crate) fn number_sentences_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, Infallible> {
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
             number_sentence(sentence);
         }
     }
-    output
+    Ok(output)
 }
 
 pub(crate) fn number_sentence(sentence: &mut Sentence) {

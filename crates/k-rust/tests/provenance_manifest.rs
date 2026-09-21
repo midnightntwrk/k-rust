@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::{
     kast::{Sort, Term},
+    kompile::pipeline::{pipeline_checkpoint, prologue_descriptions, stage_descriptions},
     provenance::{DECLARED_ORIGIN_FREE_NODE_KINDS, GeneratingPass, declared_origin_free},
 };
-use regex::Regex;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -45,54 +45,16 @@ struct BoundaryGenerator {
     reason: String,
 }
 
-fn definition_consuming_calls(source: &str) -> BTreeMap<String, usize> {
-    let call_pattern = Regex::new(
-        r"([A-Za-z_][A-Za-z0-9_]*)\(\s*(?:&loaded\.definition|&resolved|&definition|&execution_definition|definition)\s*(?:,|\))",
-    )
-    .unwrap();
-    let mut calls = BTreeMap::new();
-    for captures in call_pattern.captures_iter(source) {
-        *calls.entry(captures[1].to_owned()).or_insert(0) += 1;
-    }
-    calls
-}
-
-fn pipeline_checkpoints(source: &str) -> BTreeMap<String, String> {
-    let checkpoint_pattern =
-        Regex::new(r"(?m)^\s*let\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*;")
-            .unwrap();
-    checkpoint_pattern
-        .captures_iter(source)
-        .map(|captures| (captures[1].to_owned(), captures[2].to_owned()))
-        .collect()
-}
-
-fn pipeline_assignment_count(source: &str) -> usize {
-    Regex::new(r"(?m)^\s*let\s+(?:\([^=]+\)|[A-Za-z_][A-Za-z0-9_]*)\s*=")
-        .unwrap()
-        .find_iter(source)
-        .count()
-}
-
 #[test]
-fn pipeline_source_audit_detects_borrowed_and_by_value_rebindings() {
-    let source = "let definition = borrowed(&definition);\n\
-                  let definition = moved(definition);\n\
-                  let execution_definition = definition;\n\
-                  let definition = injected(&execution_definition);";
+fn pipeline_description_accessors_cover_both_tables_and_the_checkpoint() {
+    let stages = stage_descriptions();
+    assert_eq!(stages.len(), 34);
+    assert_eq!(stages.first().unwrap().call, "resolve_comm");
+    assert_eq!(stages.last().unwrap().call, "minimize_term_construction");
     assert_eq!(
-        definition_consuming_calls(source),
-        BTreeMap::from([
-            ("borrowed".into(), 1),
-            ("injected".into(), 1),
-            ("moved".into(), 1),
-        ])
+        pipeline_checkpoint(),
+        ("execution_definition", "definition")
     );
-    assert_eq!(
-        pipeline_checkpoints(source),
-        BTreeMap::from([("execution_definition".into(), "definition".into())])
-    );
-    assert_eq!(pipeline_assignment_count(source), 4);
 }
 
 #[test]
@@ -133,7 +95,18 @@ fn provenance_manifest_classifies_the_compile_pipeline_and_origin_free_nodes() {
     for stage in &manifest.pipeline {
         assert!(
             declared_pipeline
-                .insert(stage.call.clone(), stage.occurrences)
+                .insert(
+                    stage.call.clone(),
+                    (
+                        stage.occurrences,
+                        stage.behavior.clone(),
+                        stage
+                            .generating_passes
+                            .iter()
+                            .cloned()
+                            .collect::<BTreeSet<_>>(),
+                    ),
+                )
                 .is_none(),
             "duplicate pipeline classification for {:?}",
             stage.call
@@ -161,21 +134,33 @@ fn provenance_manifest_classifies_the_compile_pipeline_and_origin_free_nodes() {
         }
     }
 
-    let compile_source = include_str!("../src/kompile/compile.rs");
-    let pipeline_source = compile_source
-        .split_once("fn transform_loaded_definition(")
-        .unwrap()
-        .1
-        .split_once("fn with_newline(")
-        .unwrap()
-        .0;
-    let actual_pipeline = definition_consuming_calls(pipeline_source);
-    let actual_checkpoints = pipeline_checkpoints(pipeline_source);
-    assert_eq!(
-        actual_pipeline.values().sum::<usize>() + actual_checkpoints.len(),
-        pipeline_assignment_count(pipeline_source),
-        "every pipeline assignment must contain one recognized definition-consuming call or checkpoint"
-    );
+    let mut actual_pipeline = BTreeMap::<String, (usize, String, BTreeSet<String>)>::new();
+    for stage in prologue_descriptions()
+        .into_iter()
+        .chain(stage_descriptions())
+    {
+        let entry = actual_pipeline.entry(stage.call.into()).or_insert_with(|| {
+            (
+                0,
+                stage.behavior.into(),
+                stage
+                    .generating_passes
+                    .iter()
+                    .map(|pass| (*pass).to_owned())
+                    .collect(),
+            )
+        });
+        assert_eq!(entry.1, stage.behavior);
+        assert_eq!(
+            entry.2,
+            stage
+                .generating_passes
+                .iter()
+                .map(|pass| (*pass).to_owned())
+                .collect()
+        );
+        entry.0 += 1;
+    }
     assert_eq!(declared_pipeline, actual_pipeline);
     let declared_checkpoints = manifest
         .pipeline_checkpoint
@@ -189,7 +174,11 @@ fn provenance_manifest_classifies_the_compile_pipeline_and_origin_free_nodes() {
             (checkpoint.binding.clone(), checkpoint.source.clone())
         })
         .collect::<BTreeMap<_, _>>();
-    assert_eq!(declared_checkpoints, actual_checkpoints);
+    let checkpoint = pipeline_checkpoint();
+    assert_eq!(
+        declared_checkpoints,
+        BTreeMap::from([(checkpoint.0.to_owned(), checkpoint.1.to_owned())])
+    );
 
     let boundary_source = include_str!("../src/kompile/module_to_kore.rs");
     for boundary in &manifest.boundary_generator {
