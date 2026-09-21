@@ -515,8 +515,87 @@ pub(super) fn build_packed_term(
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
     use crate::kast::ResolvedProductionId;
+
+    #[derive(Clone, Debug)]
+    enum TestTree {
+        Leaf(u8),
+        Production(u8, Vec<TestTree>),
+        Ambiguity(Vec<TestTree>),
+    }
+
+    fn test_tree() -> impl Strategy<Value = TestTree> {
+        (0u8..6)
+            .prop_map(TestTree::Leaf)
+            .prop_recursive(4, 48, 4, |inner| {
+                prop_oneof![
+                    (0u8..4, prop::collection::vec(inner.clone(), 0..4)).prop_map(
+                        |(production, children)| TestTree::Production(production, children)
+                    ),
+                    prop::collection::vec(inner, 0..4).prop_map(TestTree::Ambiguity),
+                ]
+            })
+    }
+
+    fn pack_test_tree(tree: TestTree) -> Rc<PackedTerm> {
+        let node = match tree {
+            TestTree::Leaf(value) => PackedNode::Term(Term::Variable {
+                name: format!("V{value}"),
+                sort: None,
+            }),
+            TestTree::Production(production, children) => PackedNode::Production {
+                production: usize::from(production),
+                children: children.into_iter().map(pack_test_tree).collect(),
+                metadata: TermMetadata::default(),
+            },
+            TestTree::Ambiguity(alternatives) => {
+                PackedNode::Ambiguity(alternatives.into_iter().map(pack_test_tree).collect())
+            }
+        };
+        Rc::new(PackedTerm {
+            fingerprint: 0,
+            node,
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn packed_structural_comparison_is_a_total_order(
+            left in test_tree(),
+            middle in test_tree(),
+            right in test_tree(),
+        ) {
+            let left = pack_test_tree(left);
+            let middle = pack_test_tree(middle);
+            let right = pack_test_tree(right);
+
+            for (first, second) in [(&left, &middle), (&middle, &right), (&left, &right)] {
+                let ordering = cmp_packed_structurally(first, second);
+                prop_assert_eq!(ordering, cmp_packed_structurally(second, first).reverse());
+                if first.node != second.node {
+                    prop_assert_eq!(ordering, first.cmp(second));
+                }
+            }
+            prop_assert_eq!(cmp_packed_structurally(&left, &left), std::cmp::Ordering::Equal);
+            if cmp_packed_structurally(&left, &middle).is_le()
+                && cmp_packed_structurally(&middle, &right).is_le()
+            {
+                prop_assert!(cmp_packed_structurally(&left, &right).is_le());
+            }
+
+            let shared = Rc::clone(&middle);
+            reset_packed_structural_comparisons();
+            prop_assert_eq!(
+                cmp_packed_structurally(&middle, &shared),
+                std::cmp::Ordering::Equal,
+            );
+            prop_assert_eq!(middle.cmp(&shared), std::cmp::Ordering::Equal);
+            prop_assert_eq!(packed_structural_comparisons(), 0);
+        }
+    }
 
     fn variable(name: &str) -> ParsedTerm {
         ParsedTerm::Term(Term::Variable {

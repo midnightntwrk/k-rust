@@ -537,6 +537,8 @@ pub(super) fn canonical_packed_error(errors: Vec<(Rc<PackedTerm>, ParseError)>) 
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::super::*;
     use super::*;
 
@@ -588,6 +590,51 @@ mod tests {
                 ..TermMetadata::default()
             },
         )
+    }
+
+    fn generated_derivation(masks: &[u8]) -> Derivation {
+        masks
+            .iter()
+            .map(|mask| {
+                let alternatives = (0..3)
+                    .filter(|bit| mask & (1 << bit) != 0)
+                    .map(|bit| {
+                        PackedTerm::leaf(Term::Variable {
+                            name: format!("V{bit}"),
+                            sort: None,
+                        })
+                    })
+                    .collect();
+                PackedTerm::ambiguity(alternatives)
+            })
+            .collect()
+    }
+
+    proptest! {
+        #[test]
+        fn derivation_insertion_is_idempotent_and_retains_an_antichain(
+            sequence in prop::collection::vec(
+                prop::collection::vec(1u8..8, 0..4),
+                0..24,
+            ),
+        ) {
+            let mut stored = Derivations::default();
+            for masks in sequence {
+                let candidate = generated_derivation(&masks);
+                stored.insert(candidate.clone());
+                let once = stored.clone();
+                prop_assert!(!stored.insert(candidate));
+                prop_assert_eq!(&stored, &once);
+
+                let derivations = stored.iter().collect::<Vec<_>>();
+                for left in 0..derivations.len() {
+                    for right in left + 1..derivations.len() {
+                        prop_assert!(!derivation_covers(derivations[left], derivations[right]));
+                        prop_assert!(!derivation_covers(derivations[right], derivations[left]));
+                    }
+                }
+            }
+        }
     }
 
     #[test]

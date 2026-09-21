@@ -184,6 +184,8 @@ impl PredictionAnalysis {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::super::{
         CHART_COMPLETION_CANDIDATES, NONTERMINAL_PREDICTIONS_SKIPPED, PARSE_ATTEMPTS,
         PREDICTION_ANALYSIS_BUILDS, ParseContext, ParseError, ParseProvenance, PredictionMode,
@@ -243,6 +245,101 @@ mod tests {
             }
         }
         result
+    }
+
+    proptest! {
+        #[test]
+        fn prediction_fixed_points_match_naive_iteration(
+            productions_by_sort in prop::collection::vec(
+                prop::collection::vec(
+                    prop::collection::vec((any::<bool>(), any::<u8>()), 0..4),
+                    0..4,
+                ),
+                1..6,
+            ),
+        ) {
+            let sort_count = productions_by_sort.len();
+            let sorts = (0..sort_count)
+                .map(|index| Sort::new(format!("S{index}")))
+                .collect::<Vec<_>>();
+            let mut grammar = Grammar::default();
+            let mut productions = Vec::new();
+            for (result, sort_productions) in productions_by_sort.iter().enumerate() {
+                for raw_items in sort_productions {
+                    let items = raw_items
+                        .iter()
+                        .map(|(nonterminal, value)| {
+                            if *nonterminal {
+                                nt(&format!("S{}", usize::from(*value) % sort_count))
+                            } else {
+                                terminal(&char::from(b'a' + value % 3).to_string())
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    grammar
+                        .add(sorts[result].clone(), items.clone(), None, false, true)
+                        .unwrap();
+                    productions.push((result, items));
+                }
+            }
+
+            let mut nullable = vec![false; sort_count];
+            loop {
+                let previous = nullable.clone();
+                for (result, items) in &productions {
+                    nullable[*result] |= items.iter().all(|item| match item {
+                        ProductionItem::NonTerminal { sort, .. } => {
+                            let index = sorts.iter().position(|candidate| candidate == sort).unwrap();
+                            previous[index]
+                        }
+                        ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => false,
+                    });
+                }
+                if nullable == previous {
+                    break;
+                }
+            }
+
+            let mut first = vec![BTreeSet::new(); sort_count];
+            loop {
+                let previous = first.clone();
+                for (result, items) in &productions {
+                    for item in items {
+                        match item {
+                            ProductionItem::NonTerminal { sort, .. } => {
+                                let index =
+                                    sorts.iter().position(|candidate| candidate == sort).unwrap();
+                                first[*result].extend(previous[index].iter().copied());
+                                if !nullable[index] {
+                                    break;
+                                }
+                            }
+                            ProductionItem::Terminal(text) => {
+                                first[*result].insert(
+                                    grammar.scanner.lexeme_id(&Item::Terminal(text.clone())).unwrap(),
+                                );
+                                break;
+                            }
+                            ProductionItem::RegexTerminal { .. } => unreachable!(),
+                        }
+                    }
+                }
+                if first == previous {
+                    break;
+                }
+            }
+
+            let analysis = PredictionAnalysis::new(&grammar);
+            for (index, sort) in sorts.iter().enumerate() {
+                if let Ok(actual) = analysis.sorts.binary_search(sort) {
+                    prop_assert_eq!(analysis.epsilon[actual], nullable[index]);
+                    prop_assert_eq!(&analysis.first[actual], &first[index]);
+                } else {
+                    prop_assert!(!nullable[index]);
+                    prop_assert!(first[index].is_empty());
+                }
+            }
+        }
     }
 
     #[test]

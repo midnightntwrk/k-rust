@@ -469,9 +469,69 @@ fn match_k_regex(regex: &CompiledKRegex, input: &str, position: usize) -> Option
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use crate::{definition::Sentence, outer};
 
     use super::*;
+
+    fn declaration(terminal: &str) -> TokenPrecedenceDeclaration {
+        TokenPrecedenceDeclaration {
+            source: None,
+            location: None,
+            production: format!("syntax S ::= {terminal:?}"),
+            precedence: 0,
+        }
+    }
+
+    fn semantic_winner(
+        scanner: &Scanner,
+        input: &str,
+        position: usize,
+    ) -> Option<(Option<LexemeKey>, usize)> {
+        match scanner.winner(&Layout::disabled(), input, position, &mut None) {
+            Some(ScanWinner::Layout { end }) => Some((None, end)),
+            Some(ScanWinner::Token { lexeme, end }) => {
+                Some((Some(scanner.lexemes[lexeme].key.clone()), end))
+            }
+            None => None,
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn scanner_winners_do_not_depend_on_registration_order(
+            lexemes in prop::collection::btree_set("[abc]{1,3}", 1..8),
+            order_keys in prop::collection::vec(any::<u8>(), 1..8),
+            input in "[abc]{0,16}",
+        ) {
+            let canonical = lexemes.into_iter().collect::<Vec<_>>();
+            let mut reordered = canonical.clone();
+            reordered.sort_by_key(|terminal| {
+                let index = canonical.binary_search(terminal).unwrap();
+                (order_keys[index % order_keys.len()], index)
+            });
+
+            let scanner = |terminals: &[String]| {
+                let mut scanner = Scanner::default();
+                for terminal in terminals {
+                    let item = Item::Terminal(terminal.clone());
+                    scanner.register(&item, None, declaration(terminal)).unwrap();
+                }
+                scanner
+            };
+            let canonical = scanner(&canonical);
+            let reordered = scanner(&reordered);
+            for position in 0..=input.len() {
+                prop_assert_eq!(
+                    semantic_winner(&canonical, &input, position),
+                    semantic_winner(&reordered, &input, position),
+                    "position {}",
+                    position,
+                );
+            }
+        }
+    }
 
     fn restricted_regex(precede: Option<&str>, follow: Option<&str>) -> Item {
         compile_item(
