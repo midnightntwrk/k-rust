@@ -19,14 +19,12 @@ const LOAD_PHASES: &[&str] = &[
     "select source files",
     "lower files",
     "apply sort synonyms",
-    "resolve outer definition",
     "check outer modules",
     "select modules",
     "resolve configuration bubbles",
     "expand configurations",
     "resolve and check sorts",
     "resolve rule bubbles",
-    "resolve loaded definition",
 ];
 
 const COMPILE_PHASES: &[&str] = &[
