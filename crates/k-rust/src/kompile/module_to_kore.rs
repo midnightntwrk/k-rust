@@ -8,7 +8,9 @@ mod axioms;
 mod equations;
 
 use axioms::{constructor_productions, generated_axioms};
-use equations::{check_variable_sorts, emit_rule_or_claim, resolve_equation_production};
+use equations::{
+    RuleEmissionContext, check_variable_sorts, emit_rule_or_claim, resolve_equation_production,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -735,19 +737,17 @@ pub fn module_to_kore_from_resolved_with_options(
     // the error order. Only successful results from the first owise scan are reusable by later
     // owise scans over this immutable, already-rebased rule list.
     let mut owise_injections = Vec::new();
+    let emission_context = RuleEmissionContext {
+        valued: &valued,
+        productions: &productions,
+        injector: &injector,
+        converter: &converter,
+        module_rules: &module_rules,
+        default_reachability,
+    };
     // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for rule in &module_rules {
-        let emitted = emit_rule_or_claim(
-            rule,
-            false,
-            &valued,
-            &productions,
-            &injector,
-            &converter,
-            &module_rules,
-            &mut owise_injections,
-            default_reachability,
-        )?;
+        let emitted = emit_rule_or_claim(rule, false, &emission_context, &mut owise_injections)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(rule))?;
         if is_macro_rule(rule) {
             modules.macros.push(emitted);
@@ -783,17 +783,7 @@ pub fn module_to_kore_from_resolved_with_options(
             )?;
             &rebased
         };
-        let emitted = emit_rule_or_claim(
-            claim,
-            true,
-            &valued,
-            &productions,
-            &injector,
-            &converter,
-            &module_rules,
-            &mut owise_injections,
-            default_reachability,
-        )?;
+        let emitted = emit_rule_or_claim(claim, true, &emission_context, &mut owise_injections)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(claim))?;
         modules.semantics.sentences.push(emitted);
     }

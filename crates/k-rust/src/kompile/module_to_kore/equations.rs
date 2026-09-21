@@ -4,17 +4,29 @@
 use super::*;
 use k_rust_kore::measure::{self, Counter};
 
+pub(super) struct RuleEmissionContext<'a, 'definition> {
+    pub valued: &'a BTreeSet<String>,
+    pub productions: &'a ProductionCatalog<'definition>,
+    pub injector: &'a SortInjector<'definition>,
+    pub converter: &'a TermConverter<'definition>,
+    pub module_rules: &'a [Sentence],
+    pub default_reachability: Option<ReachabilityMode>,
+}
+
 pub(super) fn emit_rule_or_claim(
     sentence: &Sentence,
     claim: bool,
-    valued: &BTreeSet<String>,
-    productions: &ProductionCatalog<'_>,
-    injector: &SortInjector<'_>,
-    converter: &TermConverter<'_>,
-    module_rules: &[Sentence],
+    context: &RuleEmissionContext<'_, '_>,
     owise_injections: &mut Vec<Option<Sentence>>,
-    default_reachability: Option<ReachabilityMode>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
+    let RuleEmissionContext {
+        valued,
+        productions,
+        injector,
+        converter,
+        module_rules,
+        default_reachability,
+    } = context;
     let injected = injector.inject_sentence(sentence)?;
     let (body, requires, ensures, attributes) = match &injected {
         Sentence::Rule {
@@ -102,7 +114,7 @@ pub(super) fn emit_rule_or_claim(
             body: Box::new(right),
         };
     }
-    if let Some(mode) = reachability_mode(attributes).or(default_reachability) {
+    if let Some(mode) = reachability_mode(attributes).or(*default_reachability) {
         right = Pattern::Application {
             symbol: Symbol {
                 name: match mode {

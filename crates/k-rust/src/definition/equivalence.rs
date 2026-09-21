@@ -292,7 +292,7 @@ pub(crate) fn retain_new_sentences<'a>(
     for (index, sentence) in candidates.iter().enumerate() {
         let absent_from_existing = existing_by_key
             .get(&SentenceKey::of(sentence))
-            .is_none_or(|bucket| !bucket.iter().any(|existing| *existing == sentence));
+            .is_none_or(|bucket| !bucket.contains(&sentence));
         let absent_from_accepted =
             accepted_by_key
                 .get(&SentenceKey::of(sentence))
@@ -425,6 +425,14 @@ pub fn term_equivalent(left: &Term, right: &Term) -> bool {
     }
 }
 
+fn terms_equivalent(left: &[Term], right: &[Term]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| term_equivalent(left, right))
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -458,7 +466,7 @@ mod tests {
             for sentence in &sentences {
                 if !expected
                     .iter()
-                    .any(|existing| sentence_equivalent(*existing, sentence))
+                    .any(|existing| sentence_equivalent(existing, sentence))
                 {
                     expected.push(sentence);
                 }
@@ -492,12 +500,4 @@ mod tests {
             prop_assert_eq!(actual, expected);
         }
     }
-}
-
-fn terms_equivalent(left: &[Term], right: &[Term]) -> bool {
-    left.len() == right.len()
-        && left
-            .iter()
-            .zip(right)
-            .all(|(left, right)| term_equivalent(left, right))
 }
