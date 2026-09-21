@@ -11,6 +11,8 @@
 //! 10. Remove brackets and syntactic casts (owned tree, O(nodes)).
 //! 11. Factor and report remaining ambiguities (owned tree, O(nodes * alternatives)).
 //!
+//! One node/child memo pair is shared through recognition and packed-forest preparation for each
+//! parse attempt; child keys are `(identity, parent production, side)`.
 //! `Counter::ParserPackedPriorityComputations` counts priority memo misses. Portable and Z3
 //! inference paths remain independent oracles and must produce the same accepted tree.
 
@@ -354,6 +356,14 @@ impl Grammar {
         let mut memos = memos.borrow_mut();
         let PackedPriorityMemos { nodes, children } = &mut *memos;
         self.filter_packed_priority_memo(term, nodes, children)
+    }
+
+    #[cfg(test)]
+    pub(super) fn filter_or_defer_packed_priority_fresh(
+        &self,
+        term: Rc<PackedTerm>,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        self.filter_or_defer_packed_priority(term, &RefCell::new(PackedPriorityMemos::default()))
     }
 
     /// Filter a packed node against the priority and associativity relations.
@@ -2216,6 +2226,8 @@ mod tests {
     use crate::definition::{PartialOrder, ProductionId, ProductionItem, Sentence};
     use crate::kast::{Label, Sort};
     use crate::provenance::SourceId;
+    use k_rust_kore::measure::{Counter, snapshot};
+    use proptest::prelude::*;
 
     fn nonterminal(sort: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
@@ -2320,6 +2332,105 @@ mod tests {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+        }
+    }
+
+    fn priority_fixture() -> (Grammar, [usize; 2], Rc<PackedTerm>) {
+        let mut grammar = Grammar::default();
+        let low = add_production(&mut grammar, "Exp", &[], "low");
+        let high = add_production(&mut grammar, "Exp", &[], "high");
+        let left = add_production(&mut grammar, "Exp", &["Exp"], "left");
+        let right = add_production(&mut grammar, "Exp", &["Exp"], "right");
+        grammar.priorities = PartialOrder::new([
+            ("left".to_owned(), "low".to_owned()),
+            ("right".to_owned(), "high".to_owned()),
+        ])
+        .unwrap();
+        let shared = PackedTerm::ambiguity(BTreeSet::from([
+            PackedTerm::production(low, vec![], Default::default()),
+            PackedTerm::production(high, vec![], Default::default()),
+        ]));
+        (grammar, [left, right], shared)
+    }
+
+    fn wrapped(parent: usize, child: &Rc<PackedTerm>) -> Rc<PackedTerm> {
+        PackedTerm::production(parent, vec![Rc::clone(child)], Default::default())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn priority_child_memo_key_is_complete(
+            target_parent in 0usize..2,
+            target_side in 0usize..3,
+            prefill in prop::collection::vec((0usize..2, 0usize..3), 0..12),
+        ) {
+            let (grammar, parents, shared) = priority_fixture();
+            let sides = [None, Some(Side::Left), Some(Side::Right)];
+            let mut shared_memos = PackedPriorityMemos::default();
+            for (parent, side) in prefill {
+                let _ = grammar.filter_packed_priority_child(
+                    parents[parent],
+                    Rc::clone(&shared),
+                    sides[side],
+                    &mut shared_memos.nodes,
+                    &mut shared_memos.children,
+                );
+            }
+            let actual = grammar.filter_packed_priority_child(
+                parents[target_parent],
+                Rc::clone(&shared),
+                sides[target_side],
+                &mut shared_memos.nodes,
+                &mut shared_memos.children,
+            );
+            let mut fresh = PackedPriorityMemos::default();
+            let expected = grammar.filter_packed_priority_child(
+                parents[target_parent],
+                shared,
+                sides[target_side],
+                &mut fresh.nodes,
+                &mut fresh.children,
+            );
+            prop_assert_eq!(actual, expected);
+        }
+
+        #[test]
+        fn shared_priority_memos_match_fresh_results(
+            parents_to_filter in prop::collection::vec(0usize..2, 1..24),
+        ) {
+            let (grammar, parents, shared) = priority_fixture();
+            let memos = RefCell::new(PackedPriorityMemos::default());
+            for parent in parents_to_filter {
+                let root = wrapped(parents[parent], &shared);
+                let actual = grammar.filter_or_defer_packed_priority(Rc::clone(&root), &memos);
+                let expected = grammar.filter_or_defer_packed_priority_fresh(root);
+                prop_assert_eq!(actual, expected);
+            }
+        }
+
+        #[test]
+        fn sharing_never_increases_priority_computations(repetitions in 1usize..24) {
+            let (grammar, parents, shared) = priority_fixture();
+            let root = wrapped(parents[0], &shared);
+            let before = snapshot();
+            let memos = RefCell::new(PackedPriorityMemos::default());
+            for _ in 0..repetitions {
+                grammar
+                    .filter_or_defer_packed_priority(Rc::clone(&root), &memos)
+                    .unwrap();
+            }
+            let shared_work = snapshot().delta(&before).get(Counter::ParserPackedPriorityComputations);
+            let before = snapshot();
+            for _ in 0..repetitions {
+                grammar
+                    .filter_or_defer_packed_priority_fresh(Rc::clone(&root))
+                    .unwrap();
+            }
+            let fresh_work = snapshot().delta(&before).get(Counter::ParserPackedPriorityComputations);
+            prop_assert!(shared_work <= fresh_work);
+            prop_assert!(shared_work <= 4);
         }
     }
 

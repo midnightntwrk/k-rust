@@ -740,6 +740,7 @@ impl Grammar {
             diagnostic_provenance,
         } = context;
         measure::bump(Counter::ParserParseAttempts);
+        let priority_memos = RefCell::new(PackedPriorityMemos::default());
         let prediction_analysis = (prediction_mode == PredictionMode::Filtered).then(|| {
             self.prediction_analysis
                 .get_or_init(|| PredictionAnalysis::new(self))
@@ -889,6 +890,7 @@ impl Grammar {
                             position,
                             input,
                             provenance,
+                            &priority_memos,
                         );
                         if first_violation.is_none() {
                             first_violation = violation;
@@ -957,10 +959,9 @@ impl Grammar {
                                 position,
                                 provenance,
                             );
-                            match self.filter_or_defer_packed_priority(
-                                Rc::clone(&term),
-                                &RefCell::new(PackedPriorityMemos::default()),
-                            ) {
+                            match self
+                                .filter_or_defer_packed_priority(Rc::clone(&term), &priority_memos)
+                            {
                                 Ok(term) => {
                                     nodes.insert(term);
                                 }
@@ -1029,6 +1030,7 @@ impl Grammar {
                 position,
                 input,
                 provenance,
+                &priority_memos,
             );
             parses.extend(completed);
             if first_violation.is_none() {
@@ -1057,7 +1059,7 @@ impl Grammar {
         // preference must therefore run before descending into losing alternatives; filtering
         // each root independently incorrectly rejects inputs whose winning interpretation is a
         // top-level rewrite (for example a rewrite inside a competing map-item parse).
-        let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses))?;
+        let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)?;
         let inferred = self.infer_packed_sorts(forest, start, is_anywhere)?;
         let resolved = self.resolve_overloaded_terminators(inferred)?;
         let filtered = self.filter_overloads_prefer_avoid(resolved);
@@ -1116,11 +1118,14 @@ impl Grammar {
     /// before inference operates on the identity-shared DAG, matching Java's memoizing visitors.
     /// Priority runs after collapse because generated record productions deliberately defer edge
     /// checks until they have exposed their original production.
-    fn prepare_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<Rc<PackedTerm>, ParseError> {
+    fn prepare_packed_forest(
+        &self,
+        forest: Rc<PackedTerm>,
+        priority_memos: &RefCell<PackedPriorityMemos>,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
         let reserved_names = packed_variable_names(&forest);
         let forest = self.collapse_packed_record_productions(forest, reserved_names)?;
-        let forest =
-            self.filter_packed_priority(forest, &RefCell::new(PackedPriorityMemos::default()))?;
+        let forest = self.filter_packed_priority(forest, priority_memos)?;
         let forest = self.resolve_packed_applications(forest)?;
         let forest = self.factor_pre_inference_packed_ambiguities(forest);
         let forest = self.push_top_lhs_packed_ambiguity_up(forest);
@@ -1129,7 +1134,9 @@ impl Grammar {
 
     #[cfg(test)]
     fn materialize_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<ParsedTerm, ParseError> {
-        Ok(self.prepare_packed_forest(forest)?.unpack())
+        Ok(self
+            .prepare_packed_forest(forest, &RefCell::new(PackedPriorityMemos::default()))?
+            .unpack())
     }
 
     fn productions_for(&self, sort: &Sort) -> impl Iterator<Item = usize> + '_ {
