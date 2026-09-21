@@ -253,6 +253,13 @@ fn casted_rule_chain_builds_its_two_rule_grammars_once() {
 }
 
 #[test]
+fn indexed_prediction_preserves_the_casted_chain_counts() {
+    let delta = parse_casted_chain(15);
+    assert_eq!(delta.get(Counter::ParserChartPredictionAttempts), 290);
+    assert_eq!(delta.get(Counter::ParserTerminalPredictionsSkipped), 357);
+}
+
+#[test]
 fn casted_rule_chain_parse_stays_within_the_pinned_chart_work() {
     let operands = 15;
     let delta = parse_casted_chain(operands);

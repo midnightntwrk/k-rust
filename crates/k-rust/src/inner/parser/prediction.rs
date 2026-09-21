@@ -2,7 +2,8 @@
 //!
 //! Both are monotone worklists. Nullability is O(total production items); FIRST propagation
 //! is O(sorts * lexemes * re-enqueues) and runs once per grammar, counted by
-//! `Counter::ParserPredictionAnalysisBuilds`.
+//! `Counter::ParserPredictionAnalysisBuilds`. Filtered prediction visits only nonlexical-first
+//! productions and the lexical bucket for the scanner winner while retaining declaration order.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -16,12 +17,42 @@ enum Symbol {
     Lexical(Option<usize>),
 }
 
+#[derive(Clone, Debug, Default)]
+struct PredictionBucket {
+    nonlexical_first: Vec<usize>,
+    lexical_by_lexeme: BTreeMap<usize, Vec<usize>>,
+    lexical_total: usize,
+}
+
+pub(super) struct PredictionCandidates<'a> {
+    nonlexical: std::slice::Iter<'a, usize>,
+    lexical: std::slice::Iter<'a, usize>,
+}
+
+impl Iterator for PredictionCandidates<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match (
+            self.nonlexical.as_slice().first(),
+            self.lexical.as_slice().first(),
+        ) {
+            (Some(left), Some(right)) if left < right => self.nonlexical.next().copied(),
+            (Some(_), Some(_)) => self.lexical.next().copied(),
+            (Some(_), None) => self.nonlexical.next().copied(),
+            (None, Some(_)) => self.lexical.next().copied(),
+            (None, None) => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct PredictionAnalysis {
     sorts: Vec<Sort>,
     first_items: Vec<Option<Symbol>>,
     epsilon: Vec<bool>,
     first: Vec<BTreeSet<usize>>,
+    buckets: Vec<PredictionBucket>,
 }
 
 impl PredictionAnalysis {
@@ -70,6 +101,24 @@ impl PredictionAnalysis {
                 (sort_ids[&production.result], items)
             })
             .collect::<Vec<_>>();
+        let mut buckets = vec![PredictionBucket::default(); sorts.len()];
+        for (sort, indexes) in &grammar.by_result {
+            let bucket = &mut buckets[sort_ids[sort]];
+            for index in indexes {
+                match first_items[*index] {
+                    Some(Symbol::Lexical(Some(lexeme))) => {
+                        bucket.lexical_total += 1;
+                        bucket
+                            .lexical_by_lexeme
+                            .entry(lexeme)
+                            .or_default()
+                            .push(*index);
+                    }
+                    Some(Symbol::Lexical(None)) => bucket.lexical_total += 1,
+                    Some(Symbol::NonTerminal(_)) | None => bucket.nonlexical_first.push(*index),
+                }
+            }
+        }
 
         // Adapt Java EarleyParser.markNullable: a newly nullable sort wakes its callers.
         // Each nonterminal occurrence counts separately (e.g. S ::= N N).
@@ -156,7 +205,30 @@ impl PredictionAnalysis {
             first_items,
             epsilon,
             first,
+            buckets,
         }
+    }
+
+    pub(super) fn sort_id(&self, sort: &Sort) -> Option<usize> {
+        self.sorts.binary_search(sort).ok()
+    }
+
+    pub(super) fn candidates(
+        &self,
+        sort: usize,
+        winner: Option<usize>,
+    ) -> (PredictionCandidates<'_>, usize) {
+        let bucket = &self.buckets[sort];
+        let lexical = winner
+            .and_then(|winner| bucket.lexical_by_lexeme.get(&winner))
+            .map_or(&[][..], Vec::as_slice);
+        (
+            PredictionCandidates {
+                nonlexical: bucket.nonlexical_first.iter(),
+                lexical: lexical.iter(),
+            },
+            bucket.lexical_total - lexical.len(),
+        )
     }
 
     pub(super) fn can_filter(&self, production: usize, predicted: &BTreeSet<Sort>) -> bool {
@@ -180,6 +252,31 @@ impl PredictionAnalysis {
             None => false,
         }
     }
+
+    #[cfg(test)]
+    fn candidates_by_iteration(
+        &self,
+        grammar: &Grammar,
+        sort: &Sort,
+        winner: Option<usize>,
+        predicted: &BTreeSet<Sort>,
+    ) -> (Vec<usize>, usize, usize) {
+        let mut candidates = Vec::new();
+        let mut terminal_skipped = 0;
+        let mut nonterminal_skipped = 0;
+        for production in grammar.productions_for(sort) {
+            if self.can_filter(production, predicted) && self.cannot_start(production, winner) {
+                if matches!(self.first_items[production], Some(Symbol::NonTerminal(_))) {
+                    nonterminal_skipped += 1;
+                } else {
+                    terminal_skipped += 1;
+                }
+            } else {
+                candidates.push(production);
+            }
+        }
+        (candidates, terminal_skipped, nonterminal_skipped)
+    }
 }
 
 #[cfg(test)]
@@ -194,7 +291,6 @@ mod tests {
     use super::*;
     use crate::definition::{Attributes, ProductionCatalog, ProductionItem, Sentence};
     use crate::kast::Label;
-
     fn nt(sort: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
             sort: Sort::new(sort),
@@ -214,6 +310,24 @@ mod tests {
             items,
             attributes: Attributes::default(),
         }
+    }
+
+    fn indexed_grammar(kinds: &[u8]) -> Grammar {
+        let mut sentences = vec![
+            production("Start", vec![nt("Choice")], "start"),
+            production("Child", vec![terminal("c")], "child-c"),
+        ];
+        for (index, kind) in kinds.iter().enumerate() {
+            let items = match kind % 5 {
+                0 => vec![],
+                1 => vec![terminal("a")],
+                2 => vec![terminal("b")],
+                3 => vec![nt("Child")],
+                _ => vec![ProductionItem::regex("a*")],
+            };
+            sentences.push(production("Choice", items, &format!("choice-{index}")));
+        }
+        Grammar::from_sentences(&sentences).unwrap()
     }
 
     fn unfiltered(grammar: &Grammar, input: &str) -> Result<Term, ParseError> {
@@ -339,6 +453,106 @@ mod tests {
                     prop_assert!(first[index].is_empty());
                 }
             }
+        }
+    }
+
+    #[test]
+    fn buckets_partition_by_result_in_order() {
+        let grammar = Grammar::from_sentences(&[
+            production("Choice", vec![], "empty"),
+            production("Choice", vec![terminal("a")], "a1"),
+            production("Choice", vec![nt("Child")], "child"),
+            production("Choice", vec![terminal("b")], "b"),
+            production("Choice", vec![terminal("a")], "a2"),
+            production("Child", vec![terminal("c")], "c"),
+        ])
+        .unwrap();
+        let analysis = PredictionAnalysis::new(&grammar);
+        let sort = Sort::new("Choice");
+        let sort_id = analysis.sort_id(&sort).unwrap();
+        let winners = [
+            None,
+            grammar.scanner.lexeme_id(&Item::Terminal("a".into())),
+            grammar.scanner.lexeme_id(&Item::Terminal("b".into())),
+            grammar.scanner.lexeme_id(&Item::Terminal("c".into())),
+        ];
+        for winner in winners {
+            let (actual, excluded) = analysis.candidates(sort_id, winner);
+            let expected = grammar
+                .productions_for(&sort)
+                .filter(|index| match analysis.first_items[*index] {
+                    Some(Symbol::Lexical(target)) => target.is_some() && target == winner,
+                    Some(Symbol::NonTerminal(_)) | None => true,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actual.collect::<Vec<_>>(), expected);
+            assert_eq!(
+                excluded,
+                grammar
+                    .productions_for(&sort)
+                    .filter(|index| matches!(
+                        analysis.first_items[*index],
+                        Some(Symbol::Lexical(_))
+                    ))
+                    .count()
+                    - expected
+                        .iter()
+                        .filter(|index| {
+                            matches!(analysis.first_items[**index], Some(Symbol::Lexical(_)))
+                        })
+                        .count()
+            );
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn indexed_candidates_match_the_iteration_oracle(
+            kinds in prop::collection::vec(0u8..10, 1..20),
+            winner_choice in 0u8..4,
+            child_already_predicted in any::<bool>(),
+        ) {
+            let grammar = indexed_grammar(&kinds);
+            let analysis = PredictionAnalysis::new(&grammar);
+            let sort = Sort::new("Choice");
+            let winner = match winner_choice {
+                0 => None,
+                1 => grammar.scanner.lexeme_id(&Item::Terminal("a".into())),
+                2 => grammar.scanner.lexeme_id(&Item::Terminal("b".into())),
+                _ => grammar.scanner.lexeme_id(&Item::Terminal("c".into())),
+            };
+            let mut predicted = BTreeSet::from([sort.clone()]);
+            if child_already_predicted {
+                predicted.insert(Sort::new("Child"));
+            }
+            let (expected, terminal_skipped, nonterminal_skipped) =
+                analysis.candidates_by_iteration(&grammar, &sort, winner, &predicted);
+            let (indexed, excluded) = analysis.candidates(analysis.sort_id(&sort).unwrap(), winner);
+            let mut actual = Vec::new();
+            let mut indexed_nonterminal_skipped = 0;
+            for production in indexed {
+                if analysis.can_filter(production, &predicted)
+                    && analysis.cannot_start(production, winner)
+                {
+                    indexed_nonterminal_skipped += 1;
+                } else {
+                    actual.push(production);
+                }
+            }
+            prop_assert_eq!(actual, expected);
+            prop_assert_eq!(excluded, terminal_skipped);
+            prop_assert_eq!(indexed_nonterminal_skipped, nonterminal_skipped);
+        }
+
+        #[test]
+        fn indexed_prediction_matches_unfiltered_recognition(
+            kinds in prop::collection::vec(0u8..10, 1..12),
+            input in "[abc ]{0,12}",
+        ) {
+            let grammar = indexed_grammar(&kinds);
+            prop_assert_eq!(filtered(&grammar, &input), unfiltered(&grammar, &input));
         }
     }
 

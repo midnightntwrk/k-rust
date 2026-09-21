@@ -820,37 +820,46 @@ impl Grammar {
                             revisit,
                         );
                         if charts[position].predicted.insert(sort.clone()) {
-                            // Invariant: each production in this newly predicted sort bucket is
-                            // either inserted once or conservatively recorded as filtered.
-                            for predicted in self.productions_for(sort) {
+                            let winner = prediction_analysis.and_then(|_| {
+                                self.scanner
+                                    .winner(
+                                        &self.layout,
+                                        input,
+                                        position,
+                                        &mut scanner_cache[position],
+                                    )
+                                    .and_then(|winner| match winner {
+                                        ScanWinner::Token { lexeme, .. } => Some(lexeme),
+                                        ScanWinner::Layout { .. } => None,
+                                    })
+                            });
+                            let (candidates, excluded): (Box<dyn Iterator<Item = usize> + '_>, _) =
+                                if let Some(analysis) = prediction_analysis {
+                                    let sort_id = analysis
+                                        .sort_id(sort)
+                                        .expect("every predicted result sort is analyzed");
+                                    let (candidates, excluded) =
+                                        analysis.candidates(sort_id, winner);
+                                    (Box::new(candidates), excluded)
+                                } else {
+                                    (Box::new(self.productions_for(sort)), 0)
+                                };
+                            if excluded != 0 {
+                                measure::add(
+                                    Counter::ParserTerminalPredictionsSkipped,
+                                    excluded as u64,
+                                );
+                                charts[position].invalidate_completed_nodes();
+                                *pruned = true;
+                            }
+                            // Invariant: each indexed survivor in this newly predicted sort bucket
+                            // is either inserted once or conservatively filtered as nonterminal-first.
+                            for predicted in candidates {
                                 if let Some(analysis) = prediction_analysis
                                     && analysis.can_filter(predicted, &charts[position].predicted)
-                                    && analysis.cannot_start(
-                                        predicted,
-                                        self.scanner
-                                            .winner(
-                                                &self.layout,
-                                                input,
-                                                position,
-                                                &mut scanner_cache[position],
-                                            )
-                                            .and_then(|winner| match winner {
-                                                ScanWinner::Token { lexeme, .. } => Some(lexeme),
-                                                ScanWinner::Layout { .. } => None,
-                                            }),
-                                    )
+                                    && analysis.cannot_start(predicted, winner)
                                 {
-                                    if matches!(
-                                        self.productions[predicted].items.first(),
-                                        Some(Item::NonTerminal(_))
-                                    ) {
-                                        measure::bump(Counter::ParserNonterminalPredictionsSkipped);
-                                    } else {
-                                        measure::bump(Counter::ParserTerminalPredictionsSkipped);
-                                    }
-                                    // This bucket's initial state would be new. Preserve its
-                                    // snapshot invalidation so packed sharing and anonymous
-                                    // inference identities follow the unfiltered parse.
+                                    measure::bump(Counter::ParserNonterminalPredictionsSkipped);
                                     charts[position].invalidate_completed_nodes();
                                     *pruned = true;
                                     continue;

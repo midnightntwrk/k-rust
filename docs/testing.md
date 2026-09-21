@@ -162,7 +162,7 @@ cargo build --release -p k-rust --bin krust --features measure
 KRUST_COUNTERS=counters.json target/release/krust kcompile examples/rewrite.k --main-module REWRITE --output-directory out
 ```
 
-The file is one JSON document, `{"format": "krust-counters", "version": 3, "counters": {...}}`, with every counter in `Counter::ALL` order and zeros included, written at process exit on success and on failure.
+The file is one JSON document, `{"format": "krust-counters", "version": 4, "counters": {...}}`, with every counter in `Counter::ALL` order and zeros included, written at process exit on success and on failure.
 The counters are thread-local and the one-shot subcommands do their work on the main thread; `krust kore-rpc` answers requests on connection threads, so its dump shows zeros for the backend families.
 A ratchet asserts a bound on a checked-in input and a growth shape on a parameterised one; a bound that trips after a deliberate algorithm change is re-pinned in a commit that states the new measured value and why it moved.
 Renaming or removing a counter changes the dump schema and bumps `version`.
