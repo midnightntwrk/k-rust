@@ -68,10 +68,10 @@ fn retarget_term(
     replacements: &BTreeMap<ProductionIdentity, ProductionIdentity>,
 ) -> Term {
     let mut metadata = term.metadata().cloned().unwrap_or_default();
-    if let Some(identity) = metadata.production {
-        if let Some(replacement) = replacements.get(&identity) {
-            metadata.production = Some(*replacement);
-        }
+    if let Some(identity) = metadata.production
+        && let Some(replacement) = replacements.get(&identity)
+    {
+        metadata.production = Some(*replacement);
     }
     let rebuilt = match term.into_unannotated() {
         Term::Rewrite { left, right } => Term::Rewrite {

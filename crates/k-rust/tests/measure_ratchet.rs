@@ -77,7 +77,7 @@ fn rewrite_example_compile_stays_within_the_pinned_kompile_work() {
     let delta = compile(&name, &source, "REWRITE");
     eprintln!("kompile of examples/rewrite.k: {:?}", nonzero(&delta));
     assert!(delta.get(Counter::KompileResolveCalls) <= RESOLVE_CALLS_REWRITE);
-    assert!(delta.get(Counter::KompileRebaseCalls) <= REBASE_CALLS_REWRITE);
+    assert_eq!(delta.get(Counter::KompileRebaseCalls), REBASE_CALLS_REWRITE);
     assert_eq!(
         delta.get(Counter::KompileRuleBubblesParsed),
         RULE_BUBBLES_REWRITE

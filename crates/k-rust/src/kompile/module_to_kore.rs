@@ -756,8 +756,6 @@ pub fn module_to_kore_from_resolved_with_options(
                 kind: "macro claim".into(),
             });
         }
-        let owner = sentence_owner(definition, claim).unwrap_or(module_id);
-        let claim = if owner == module_id { claim } else { claim };
         let emitted = emit_rule_or_claim(claim, true, &emission_context, &mut owise_injections)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(claim))?;
         modules.semantics.sentences.push(emitted);

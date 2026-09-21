@@ -658,13 +658,13 @@ fn assert_sentence_identities(
 
 #[cfg(debug_assertions)]
 fn assert_term_identities(term: &Term, catalog: &ProductionCatalog<'_>, module_name: &str) {
-    if let (Some(metadata), Term::Apply { label, .. }) = (term.metadata(), term.unannotated()) {
-        if let Some(identity) = metadata.production {
-            assert!(
-                catalog.lookup(&identity).is_some(),
-                "dangling production identity {identity} on application {label} in module {module_name}"
-            );
-        }
+    if let (Some(metadata), Term::Apply { label, .. }) = (term.metadata(), term.unannotated())
+        && let Some(identity) = metadata.production
+    {
+        assert!(
+            catalog.lookup(&identity).is_some(),
+            "dangling production identity {identity} on application {label} in module {module_name}"
+        );
     }
     match term {
         Term::Annotated { term, .. } => assert_term_identities(term, catalog, module_name),

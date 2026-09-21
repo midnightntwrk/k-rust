@@ -111,10 +111,10 @@ impl ProductionIdentity {
             return None;
         }
         let mut digest = [0; 16];
-        for (index, pair) in text.as_bytes().chunks_exact(2).enumerate() {
-            let high = decode_lower_hex(pair[0])?;
-            let low = decode_lower_hex(pair[1])?;
-            digest[index] = (high << 4) | low;
+        for (index, byte) in digest.iter_mut().enumerate() {
+            let high = decode_lower_hex(text.as_bytes()[index * 2])?;
+            let low = decode_lower_hex(text.as_bytes()[index * 2 + 1])?;
+            *byte = (high << 4) | low;
         }
         Some(Self(digest))
     }
