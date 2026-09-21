@@ -331,7 +331,7 @@ impl Attributes {
     pub(crate) fn identical(&self, other: &Self) -> bool {
         self.entries == other.entries
             && match (&self.origin, &other.origin) {
-                (Some(left), Some(right)) => left.identical(right),
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right) || left.identical(right),
                 (None, None) => true,
                 _ => false,
             }
