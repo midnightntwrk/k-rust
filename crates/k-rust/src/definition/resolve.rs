@@ -16,6 +16,7 @@ use petgraph::Direction::Outgoing;
 use petgraph::algo::toposort;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
+use sha2::{Digest, Sha256};
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
 use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence, push_if_inequivalent};
@@ -320,11 +321,7 @@ impl ResolvedDefinition {
         let mut graph = DiGraph::new();
         let mut modules_by_name = BTreeMap::new();
         for module in &modules {
-            let id = ModuleId(graph.add_node(ResolvedModule {
-                name: module.name.clone(),
-                local_sentences: deduplicate_sentences(&module.local_sentences),
-                attributes: module.attributes.clone(),
-            }));
+            let id = ModuleId(graph.add_node(ResolvedModule::from(*module)));
             modules_by_name.insert(module.name.clone(), id);
         }
 
@@ -390,6 +387,90 @@ impl ResolvedDefinition {
 
     pub fn main_module(&self) -> &ResolvedModule {
         self.module(self.main_module)
+    }
+
+    /// Reuse resolved nodes and visible sentence selections for an updated flat definition.
+    /// The module set and import graph are structural inputs; when either changes, rebuilding
+    /// the graph is both simpler and required to preserve deterministic node coordinates.
+    pub fn update(&self, definition: &Definition) -> Result<Self, Error> {
+        if definition.main_module != self.main_module().name
+            || definition.modules.len() != self.graph.node_count()
+        {
+            return Self::resolve(definition);
+        }
+
+        let mut next_by_name = BTreeMap::new();
+        for module in &definition.modules {
+            if next_by_name.insert(module.name.as_str(), module).is_some() {
+                return Self::resolve(definition);
+            }
+        }
+        if next_by_name.len() != self.modules_by_name.len()
+            || self
+                .modules_by_name
+                .keys()
+                .any(|name| !next_by_name.contains_key(name.as_str()))
+            || self.modules_by_name.iter().any(|(name, &id)| {
+                let old_imports = self.direct_imports(id);
+                let mut next_imports = next_by_name[name.as_str()]
+                    .imports
+                    .iter()
+                    .map(|import| (import.name.as_str(), import.public))
+                    .collect::<Vec<_>>();
+                next_imports.sort_unstable();
+                next_imports.dedup();
+                let old_imports = old_imports
+                    .into_iter()
+                    .map(|import| (self.module(import.module).name.as_str(), import.public))
+                    .collect::<Vec<_>>();
+                old_imports != next_imports
+            })
+        {
+            return Self::resolve(definition);
+        }
+
+        let mut graph = self.graph.clone();
+        let mut changed = vec![false; graph.node_count()];
+        for (name, &id) in &self.modules_by_name {
+            let module = next_by_name[name.as_str()];
+            if module_digest(module) != resolved_module_digest(self.module(id)) {
+                graph[id.0] = ResolvedModule::from(module);
+                changed[id.0.index()] = true;
+            }
+        }
+
+        let invalidated = (0..graph.node_count())
+            .map(|index| {
+                let id = ModuleId(NodeIndex::new(index));
+                changed[index]
+                    || self
+                        .transitive_imports(id)
+                        .into_iter()
+                        .any(|import| changed[import.0.index()])
+            })
+            .collect::<Vec<_>>();
+        let visible_sentences = self
+            .visible_sentences
+            .iter()
+            .enumerate()
+            .map(|(index, previous)| {
+                let lock = OnceLock::new();
+                if !invalidated[index]
+                    && let Some(locations) = previous.get()
+                {
+                    let _ = lock.set(Arc::clone(locations));
+                }
+                lock
+            })
+            .collect();
+        measure::bump(Counter::KompileResolveUpdates);
+        Ok(Self {
+            graph,
+            modules_by_name: self.modules_by_name.clone(),
+            main_module: self.main_module,
+            dependency_order: self.dependency_order.clone(),
+            visible_sentences,
+        })
     }
 
     pub fn module_id(&self, name: &str) -> Option<ModuleId> {
@@ -631,9 +712,97 @@ impl From<&FlatModule> for ResolvedModule {
     }
 }
 
+fn module_digest(module: &FlatModule) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(module.name.as_bytes());
+    digest.update(format!("{:?}{:?}", module.attributes, module.local_sentences).as_bytes());
+    digest.finalize().into()
+}
+
+fn resolved_module_digest(module: &ResolvedModule) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(module.name.as_bytes());
+    digest.update(format!("{:?}{:?}", module.attributes, module.local_sentences).as_bytes());
+    digest.finalize().into()
+}
+
 fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Arc<Sentence>> {
     dedup_by_equivalence(sentences)
         .into_iter()
         .map(|sentence| Arc::new(sentence.clone()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::ast::FlatImport;
+    use super::*;
+
+    fn module(name: &str, sentence: Sentence) -> FlatModule {
+        FlatModule {
+            name: name.into(),
+            imports: Vec::new(),
+            local_sentences: vec![sentence],
+            attributes: Attributes::default(),
+        }
+    }
+
+    fn sort_sentence(name: &str) -> Sentence {
+        Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new(name),
+            attributes: Attributes::default(),
+        }
+    }
+
+    #[test]
+    fn update_matches_full_resolve_and_reuses_unchanged_nodes() {
+        let initial = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                module("MAIN", sort_sentence("K")),
+                module("OTHER", sort_sentence("A")),
+            ],
+            attributes: Attributes::default(),
+        };
+        let base = ResolvedDefinition::resolve(&initial).unwrap();
+        let mut next = initial.clone();
+        next.modules[1].local_sentences[0] = sort_sentence("B");
+        let updated = base.update(&next).unwrap();
+        let resolved = ResolvedDefinition::resolve(&next).unwrap();
+        assert_eq!(updated.dependency_order, resolved.dependency_order);
+        for id in updated.dependency_order().iter().copied() {
+            assert_eq!(updated.sentences(id), resolved.sentences(id));
+        }
+        let main = updated.module_id("MAIN").unwrap();
+        assert!(Arc::ptr_eq(
+            &base.module(main).local_sentences[0],
+            &updated.module(main).local_sentences[0]
+        ));
+    }
+
+    #[test]
+    fn update_falls_back_when_imports_change() {
+        let initial = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                module("MAIN", sort_sentence("K")),
+                module("OTHER", sort_sentence("A")),
+            ],
+            attributes: Attributes::default(),
+        };
+        let base = ResolvedDefinition::resolve(&initial).unwrap();
+        let mut next = initial.clone();
+        next.modules[0].imports.push(FlatImport {
+            name: "OTHER".into(),
+            public: true,
+        });
+        let updated = base.update(&next).unwrap();
+        let resolved = ResolvedDefinition::resolve(&next).unwrap();
+        assert_eq!(updated.dependency_order, resolved.dependency_order);
+        for id in updated.dependency_order().iter().copied() {
+            assert_eq!(updated.sentences(id), resolved.sentences(id));
+        }
+        assert_eq!(updated.sentences(updated.main_module_id()).len(), 2);
+    }
 }

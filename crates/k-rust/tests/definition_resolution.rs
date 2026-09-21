@@ -329,7 +329,7 @@ fn assert_owned_locations(
     for (sentence, &(owner, index)) in sentences.iter().zip(expected) {
         let owner = resolved.module(resolved.module_id(owner).unwrap());
         assert!(
-            std::ptr::eq(*sentence, &owner.local_sentences[index]),
+            std::ptr::eq(*sentence, owner.local_sentences[index].as_ref()),
             "result must borrow the expected receiver-owned sentence {owner:?} at {index}"
         );
     }

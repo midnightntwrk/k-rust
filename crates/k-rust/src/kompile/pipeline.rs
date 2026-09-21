@@ -119,6 +119,12 @@ impl Current {
     fn into_definition(self) -> Definition {
         self.definition
     }
+
+    fn with_resolved(definition: Definition, resolved: ResolvedDefinition) -> Self {
+        let current = Self::new(definition);
+        let _ = current.resolved.set(Ok(resolved));
+        current
+    }
 }
 
 /// The immutable input and lazily resolved views for one stage.
@@ -581,7 +587,21 @@ pub(crate) fn run_stages(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
 ) -> Result<Definition, CompileError> {
-    let mut current = Current::new(start);
+    run_stages_seeded(stages, start, state, options, timings, None)
+}
+
+pub(crate) fn run_stages_seeded(
+    stages: &[Stage],
+    start: Definition,
+    state: &mut PipelineState,
+    options: &CompileOptions,
+    timings: &mut PhaseTimings,
+    seed: Option<ResolvedDefinition>,
+) -> Result<Definition, CompileError> {
+    let mut current = seed.map_or_else(
+        || Current::new(start.clone()),
+        |resolved| Current::with_resolved(start.clone(), resolved),
+    );
     for stage in stages {
         let output = timings.time(stage.name, || {
             let input = PassInput::new(&current);
@@ -600,7 +620,15 @@ pub(crate) fn run_stages(
             assert_no_dangling_application_identities(&output);
             Ok(output)
         })?;
+        let next_resolved = match current.resolved.get() {
+            Some(Ok(previous)) => Some(previous.update(&output)),
+            Some(Err(error)) => Some(Err(error.clone())),
+            None => None,
+        };
         current = Current::new(output);
+        if let Some(resolved) = next_resolved {
+            let _ = current.resolved.set(resolved);
+        }
     }
     Ok(current.into_definition())
 }

@@ -19,7 +19,7 @@
 //! rename is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 5;
+pub const COUNTER_SCHEMA_VERSION: u64 = 6;
 
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -28,6 +28,8 @@ pub enum Counter {
     // kompile (frontend)
     /// Full module-catalog rebuilds (`ResolvedDefinition::resolve`).
     KompileResolveCalls,
+    /// Incremental resolutions that reuse unchanged module nodes.
+    KompileResolveUpdates,
     /// Retained schema counter for the removed positional production rebases; always zero.
     KompileRebaseCalls,
     /// Rule bubbles parsed (one Earley parse plus sort inference each).
@@ -138,11 +140,12 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 53;
+    pub const COUNT: usize = 54;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
         Counter::KompileResolveCalls,
+        Counter::KompileResolveUpdates,
         Counter::KompileRebaseCalls,
         Counter::KompileRuleBubblesParsed,
         Counter::KompileSentencesTransformed,
@@ -201,6 +204,7 @@ impl Counter {
     pub const fn name(self) -> &'static str {
         match self {
             Counter::KompileResolveCalls => "kompile.resolve_calls",
+            Counter::KompileResolveUpdates => "kompile.resolve_updates",
             Counter::KompileRebaseCalls => "kompile.rebase_calls",
             Counter::KompileRuleBubblesParsed => "kompile.rule_bubbles_parsed",
             Counter::KompileSentencesTransformed => "kompile.sentences_transformed",

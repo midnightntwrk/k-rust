@@ -650,12 +650,13 @@ fn transform_loaded_definition(
 
     // Checkpoint: every later transformation receives a resolved, structurally checked definition.
     let mut state = super::pipeline::PipelineState::default();
-    let execution_definition = super::pipeline::run_stages(
+    let execution_definition = super::pipeline::run_stages_seeded(
         super::pipeline::TRANSFORM_STAGES,
-        definition,
+        definition.clone(),
         &mut state,
         options,
         timings,
+        Some(resolved),
     )?;
     // Checkpoint: search-pattern compilation and the sentence counter observe this execution
     // definition; injection, unit removal, and construction minimization apply only to emission.
