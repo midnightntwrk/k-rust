@@ -12,11 +12,10 @@ use std::{
 };
 
 use k_rust_kore::measure::{self, Counter};
-use petgraph::Direction::Outgoing;
+use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::algo::toposort;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
-use sha2::{Digest, Sha256};
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
 use super::catalog::ProductionCatalog;
@@ -292,7 +291,7 @@ pub struct ResolvedDefinition {
     // The graph is immutable, with dense node indices and stable local sentence indices.
     // Clones share only coordinates; each read borrows sentences from its receiving graph.
     visible_sentences: Vec<OnceLock<Arc<[SentenceLocation]>>>,
-    pub(crate) production_catalogs: Arc<Vec<OnceLock<ProductionCatalog<'static>>>>,
+    pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
 }
 
 impl fmt::Debug for ResolvedDefinition {
@@ -396,38 +395,41 @@ impl ResolvedDefinition {
     /// Reuse resolved nodes and visible sentence selections for an updated flat definition.
     /// The module set and import graph are structural inputs; when either changes, rebuilding
     /// the graph is both simpler and required to preserve deterministic node coordinates.
-    pub fn update(&self, definition: &Definition) -> Result<Self, Error> {
+    pub fn update(&self, previous: &Definition, definition: &Definition) -> Result<Self, Error> {
         if definition.main_module != self.main_module().name
             || definition.modules.len() != self.graph.node_count()
+            || previous.modules.len() != self.graph.node_count()
         {
             return Self::resolve(definition);
         }
 
+        let mut previous_by_name = BTreeMap::new();
         let mut next_by_name = BTreeMap::new();
+        for module in &previous.modules {
+            if previous_by_name
+                .insert(module.name.as_str(), module)
+                .is_some()
+            {
+                return Self::resolve(definition);
+            }
+        }
         for module in &definition.modules {
             if next_by_name.insert(module.name.as_str(), module).is_some() {
                 return Self::resolve(definition);
             }
         }
-        if next_by_name.len() != self.modules_by_name.len()
-            || self
-                .modules_by_name
-                .keys()
-                .any(|name| !next_by_name.contains_key(name.as_str()))
+        if previous.main_module != definition.main_module
+            || previous_by_name.len() != self.modules_by_name.len()
+            || next_by_name.len() != self.modules_by_name.len()
+            || self.modules_by_name.keys().any(|name| {
+                !previous_by_name.contains_key(name.as_str())
+                    || !next_by_name.contains_key(name.as_str())
+            })
             || self.modules_by_name.iter().any(|(name, &id)| {
-                let old_imports = self.direct_imports(id);
-                let mut next_imports = next_by_name[name.as_str()]
-                    .imports
-                    .iter()
-                    .map(|import| (import.name.as_str(), import.public))
-                    .collect::<Vec<_>>();
-                next_imports.sort_unstable();
-                next_imports.dedup();
-                let old_imports = old_imports
-                    .into_iter()
-                    .map(|import| (self.module(import.module).name.as_str(), import.public))
-                    .collect::<Vec<_>>();
-                old_imports != next_imports
+                normalized_imports(previous_by_name[name.as_str()])
+                    != normalized_imports(next_by_name[name.as_str()])
+                    || normalized_imports(previous_by_name[name.as_str()])
+                        != normalized_imports_from_resolved(self, id)
             })
         {
             return Self::resolve(definition);
@@ -435,31 +437,26 @@ impl ResolvedDefinition {
 
         let mut graph = self.graph.clone();
         let mut changed = vec![false; graph.node_count()];
+        let mut syntax_changed = vec![false; graph.node_count()];
         for (name, &id) in &self.modules_by_name {
-            let module = next_by_name[name.as_str()];
-            if module_digest(module) != resolved_module_digest(self.module(id)) {
-                graph[id.0] = ResolvedModule::from(module);
+            let (same, same_syntax) =
+                modules_identical(previous_by_name[name.as_str()], next_by_name[name.as_str()]);
+            if !same {
+                graph[id.0] = ResolvedModule::from(next_by_name[name.as_str()]);
                 changed[id.0.index()] = true;
+                syntax_changed[id.0.index()] = !same_syntax;
             }
         }
 
-        let invalidated = (0..graph.node_count())
-            .map(|index| {
-                let id = ModuleId(NodeIndex::new(index));
-                changed[index]
-                    || self
-                        .transitive_imports(id)
-                        .into_iter()
-                        .any(|import| changed[import.0.index()])
-            })
-            .collect::<Vec<_>>();
+        let visible_invalid = reverse_reachable(&graph, &changed);
+        let catalog_invalid = reverse_reachable(&graph, &syntax_changed);
         let visible_sentences = self
             .visible_sentences
             .iter()
             .enumerate()
             .map(|(index, previous)| {
                 let lock = OnceLock::new();
-                if !invalidated[index]
+                if !visible_invalid[index]
                     && let Some(locations) = previous.get()
                 {
                     let _ = lock.set(Arc::clone(locations));
@@ -473,11 +470,10 @@ impl ResolvedDefinition {
             .enumerate()
             .map(|(index, previous)| {
                 let lock = OnceLock::new();
-                let module = ModuleId(NodeIndex::new(index));
-                let syntax_unchanged = self.visible_syntax_digest(module)
-                    == definition_visible_syntax_digest(definition, &self.module(module).name);
-                if syntax_unchanged && let Some(catalog) = previous.get() {
-                    let _ = lock.set(catalog.clone());
+                if !catalog_invalid[index]
+                    && let Some(catalog) = previous.get()
+                {
+                    let _ = lock.set(Arc::clone(catalog));
                 }
                 lock
             })
@@ -495,22 +491,6 @@ impl ResolvedDefinition {
 
     pub fn module_id(&self, name: &str) -> Option<ModuleId> {
         self.modules_by_name.get(name).copied()
-    }
-
-    pub(crate) fn visible_syntax_digest(&self, module: ModuleId) -> [u8; 32] {
-        let mut digest = Sha256::new();
-        let mut modules = self.transitive_imports(module);
-        modules.push(module);
-        modules.sort_by_key(|id| self.module(*id).name.as_str());
-        for id in modules {
-            digest.update(self.module(id).name.as_bytes());
-            for sentence in &self.module(id).local_sentences {
-                if is_syntax_sentence(sentence) {
-                    digest.update(format!("{sentence:?}").as_bytes());
-                }
-            }
-        }
-        digest.finalize().into()
     }
 
     pub fn module(&self, id: ModuleId) -> &ResolvedModule {
@@ -672,6 +652,293 @@ impl ResolvedDefinition {
     }
 }
 
+fn normalized_imports(module: &FlatModule) -> Vec<(&str, bool)> {
+    let mut imports = module
+        .imports
+        .iter()
+        .map(|import| (import.name.as_str(), import.public))
+        .collect::<Vec<_>>();
+    imports.sort_unstable();
+    imports.dedup();
+    imports
+}
+
+fn normalized_imports_from_resolved(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+) -> Vec<(&str, bool)> {
+    let mut imports = resolved
+        .direct_imports(module)
+        .into_iter()
+        .map(|import| (resolved.module(import.module).name.as_str(), import.public))
+        .collect::<Vec<_>>();
+    imports.sort_unstable();
+    imports.dedup();
+    imports
+}
+
+fn modules_identical(previous: &FlatModule, next: &FlatModule) -> (bool, bool) {
+    let same_header = previous.name == next.name
+        && previous.imports == next.imports
+        && previous.attributes.identical(&next.attributes);
+    let same_sentences = previous.local_sentences.len() == next.local_sentences.len()
+        && previous
+            .local_sentences
+            .iter()
+            .zip(&next.local_sentences)
+            .all(|(left, right)| {
+                measure::bump(Counter::KompileResolveUpdateSentenceVisits);
+                sentences_identical(left, right)
+            });
+    let identical = same_header && same_sentences;
+    let syntax_identical = identical
+        || iter_identical(
+            previous
+                .local_sentences
+                .iter()
+                .filter(|sentence| is_syntax_sentence(sentence)),
+            next.local_sentences
+                .iter()
+                .filter(|sentence| is_syntax_sentence(sentence)),
+        );
+    (identical, syntax_identical)
+}
+
+fn iter_identical<'a>(
+    mut left: impl Iterator<Item = &'a Sentence>,
+    mut right: impl Iterator<Item = &'a Sentence>,
+) -> bool {
+    loop {
+        match (left.next(), right.next()) {
+            (Some(left), Some(right)) if sentences_identical(left, right) => {}
+            (None, None) => return true,
+            _ => return false,
+        }
+    }
+}
+
+fn sentences_identical(left: &Sentence, right: &Sentence) -> bool {
+    match (left, right) {
+        (
+            Sentence::SyntaxSort {
+                parameters: left_parameters,
+                sort: left_sort,
+                attributes: left_attributes,
+            },
+            Sentence::SyntaxSort {
+                parameters: right_parameters,
+                sort: right_sort,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_parameters == right_parameters
+                && left_sort == right_sort
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::SortSynonym {
+                new_sort: left_new,
+                old_sort: left_old,
+                attributes: left_attributes,
+            },
+            Sentence::SortSynonym {
+                new_sort: right_new,
+                old_sort: right_old,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_new == right_new
+                && left_old == right_old
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::SyntaxLexical {
+                name: left_name,
+                regex: left_regex,
+                attributes: left_attributes,
+            },
+            Sentence::SyntaxLexical {
+                name: right_name,
+                regex: right_regex,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_name == right_name
+                && left_regex == right_regex
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Production {
+                label: left_label,
+                parameters: left_parameters,
+                sort: left_sort,
+                items: left_items,
+                attributes: left_attributes,
+            },
+            Sentence::Production {
+                label: right_label,
+                parameters: right_parameters,
+                sort: right_sort,
+                items: right_items,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_label == right_label
+                && left_parameters == right_parameters
+                && left_sort == right_sort
+                && left_items == right_items
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::SyntaxAssociativity {
+                associativity: left_associativity,
+                tags: left_tags,
+                attributes: left_attributes,
+            },
+            Sentence::SyntaxAssociativity {
+                associativity: right_associativity,
+                tags: right_tags,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_associativity == right_associativity
+                && left_tags == right_tags
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::SyntaxPriority {
+                priorities: left_priorities,
+                attributes: left_attributes,
+            },
+            Sentence::SyntaxPriority {
+                priorities: right_priorities,
+                attributes: right_attributes,
+            },
+        ) => left_priorities == right_priorities && left_attributes.identical(right_attributes),
+        (
+            Sentence::ContextAlias {
+                body: left_body,
+                requires: left_requires,
+                attributes: left_attributes,
+            },
+            Sentence::ContextAlias {
+                body: right_body,
+                requires: right_requires,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_requires.identical(right_requires)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Context {
+                body: left_body,
+                requires: left_requires,
+                attributes: left_attributes,
+            },
+            Sentence::Context {
+                body: right_body,
+                requires: right_requires,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_requires.identical(right_requires)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Rule {
+                body: left_body,
+                requires: left_requires,
+                ensures: left_ensures,
+                attributes: left_attributes,
+            },
+            Sentence::Rule {
+                body: right_body,
+                requires: right_requires,
+                ensures: right_ensures,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_requires.identical(right_requires)
+                && left_ensures.identical(right_ensures)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Claim {
+                body: left_body,
+                requires: left_requires,
+                ensures: left_ensures,
+                attributes: left_attributes,
+            },
+            Sentence::Claim {
+                body: right_body,
+                requires: right_requires,
+                ensures: right_ensures,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_requires.identical(right_requires)
+                && left_ensures.identical(right_ensures)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Configuration {
+                body: left_body,
+                ensures: left_ensures,
+                attributes: left_attributes,
+            },
+            Sentence::Configuration {
+                body: right_body,
+                ensures: right_ensures,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_ensures.identical(right_ensures)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Bubble {
+                sentence_type: left_type,
+                contents: left_contents,
+                attributes: left_attributes,
+            },
+            Sentence::Bubble {
+                sentence_type: right_type,
+                contents: right_contents,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_type == right_type
+                && left_contents == right_contents
+                && left_attributes.identical(right_attributes)
+        }
+        _ => false,
+    }
+}
+
+fn reverse_reachable(graph: &DiGraph<ResolvedModule, Import>, roots: &[bool]) -> Vec<bool> {
+    let mut reached = roots.to_vec();
+    let mut pending = roots
+        .iter()
+        .enumerate()
+        .filter_map(|(index, root)| root.then_some(NodeIndex::new(index)))
+        .collect::<Vec<_>>();
+    while let Some(node) = pending.pop() {
+        for importer in graph.neighbors_directed(node, Incoming) {
+            if !reached[importer.index()] {
+                reached[importer.index()] = true;
+                pending.push(importer);
+            }
+        }
+    }
+    reached
+}
+
 fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
     // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
     fn visit(
@@ -748,20 +1015,6 @@ impl From<&FlatModule> for ResolvedModule {
     }
 }
 
-fn module_digest(module: &FlatModule) -> [u8; 32] {
-    let mut digest = Sha256::new();
-    digest.update(module.name.as_bytes());
-    digest.update(format!("{:?}{:?}", module.attributes, module.local_sentences).as_bytes());
-    digest.finalize().into()
-}
-
-fn resolved_module_digest(module: &ResolvedModule) -> [u8; 32] {
-    let mut digest = Sha256::new();
-    digest.update(module.name.as_bytes());
-    digest.update(format!("{:?}{:?}", module.attributes, module.local_sentences).as_bytes());
-    digest.finalize().into()
-}
-
 fn is_syntax_sentence(sentence: &Sentence) -> bool {
     matches!(
         sentence,
@@ -772,37 +1025,6 @@ fn is_syntax_sentence(sentence: &Sentence) -> bool {
             | Sentence::SyntaxAssociativity { .. }
             | Sentence::SyntaxPriority { .. }
     )
-}
-
-fn definition_visible_syntax_digest(definition: &Definition, module_name: &str) -> [u8; 32] {
-    let modules = definition
-        .modules
-        .iter()
-        .map(|module| (module.name.as_str(), module))
-        .collect::<BTreeMap<_, _>>();
-    let mut visited = BTreeSet::new();
-    let mut pending = vec![module_name];
-    while let Some(name) = pending.pop() {
-        if !visited.insert(name) {
-            continue;
-        }
-        if let Some(module) = modules.get(name) {
-            pending.extend(module.imports.iter().map(|import| import.name.as_str()));
-        }
-    }
-    let mut names = visited.into_iter().collect::<Vec<_>>();
-    names.sort_unstable();
-    let mut digest = Sha256::new();
-    for name in names {
-        let module = modules[name];
-        digest.update(name.as_bytes());
-        for sentence in &module.local_sentences {
-            if is_syntax_sentence(sentence) {
-                digest.update(format!("{sentence:?}").as_bytes());
-            }
-        }
-    }
-    digest.finalize().into()
 }
 
 fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Arc<Sentence>> {
@@ -847,7 +1069,7 @@ mod tests {
         let base = ResolvedDefinition::resolve(&initial).unwrap();
         let mut next = initial.clone();
         next.modules[1].local_sentences[0] = sort_sentence("B");
-        let updated = base.update(&next).unwrap();
+        let updated = base.update(&initial, &next).unwrap();
         let resolved = ResolvedDefinition::resolve(&next).unwrap();
         assert_eq!(updated.dependency_order, resolved.dependency_order);
         for id in updated.dependency_order().iter().copied() {
@@ -876,7 +1098,7 @@ mod tests {
             name: "OTHER".into(),
             public: true,
         });
-        let updated = base.update(&next).unwrap();
+        let updated = base.update(&initial, &next).unwrap();
         let resolved = ResolvedDefinition::resolve(&next).unwrap();
         assert_eq!(updated.dependency_order, resolved.dependency_order);
         for id in updated.dependency_order().iter().copied() {

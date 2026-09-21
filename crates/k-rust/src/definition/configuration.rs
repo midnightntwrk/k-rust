@@ -154,9 +154,10 @@ fn expand_configurations_inner(
         }
 
         output.extend(generated);
+        let previous = transformed.clone();
         transformed.modules[module_index].local_sentences = output;
         resolved = resolved
-            .update(&transformed)
+            .update(&previous, &transformed)
             .map_err(ConfigurationError::Definition)?;
     }
 

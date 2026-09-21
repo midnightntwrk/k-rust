@@ -108,7 +108,6 @@ fn assert_residual(definition: &Path, main_module: &str, workspace: &Workspace) 
 }
 
 #[test]
-#[ignore = "enabled after CQ-15 removes the known carried-update residual"]
 fn compile_timing_residual_stays_below_ten_percent() {
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
 

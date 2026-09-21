@@ -190,7 +190,7 @@ impl<'definition> SortInjector<'definition, 'definition> {
             .subsorts(module)
             .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path))?;
         Ok(Self {
-            productions: View::Owned(definition.production_catalog(module)),
+            productions: View::Shared(definition.production_catalog(module)),
             sorts: View::Owned(definition.sort_catalog(module)),
             subsorts: View::Owned(subsorts),
             next_sort_parameter: Cell::new(0),

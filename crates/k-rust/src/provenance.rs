@@ -413,6 +413,16 @@ impl OriginReceipt {
         self.record.as_ref()
     }
 
+    /// Compare receipts without rendering a structured receipt into JSON.
+    pub(crate) fn identical(&self, other: &Self) -> bool {
+        match (&self.record, &other.record) {
+            (Some(left), Some(right)) => left == right,
+            (None, None) => self.value == other.value,
+            (Some(record), None) => record.to_value() == *other.value(),
+            (None, Some(record)) => *self.value() == record.to_value(),
+        }
+    }
+
     /// The JSON form of the receipt, rendered at most once per shared receipt.
     pub fn value(&self) -> &Value {
         self.value.get_or_init(|| self.expect_record().to_value())

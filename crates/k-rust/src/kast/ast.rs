@@ -274,6 +274,90 @@ impl Term {
         term
     }
 
+    /// Strict structural equality used by incremental definition resolution.
+    /// Semantic equality intentionally ignores compiler annotations; reuse cannot.
+    pub(crate) fn identical(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Annotated {
+                    term: left,
+                    metadata: left_metadata,
+                },
+                Self::Annotated {
+                    term: right,
+                    metadata: right_metadata,
+                },
+            ) => left_metadata == right_metadata && left.identical(right),
+            (Self::Annotated { .. }, _) | (_, Self::Annotated { .. }) => false,
+            (Self::InjectedLabel(left), Self::InjectedLabel(right)) => left == right,
+            (
+                Self::Rewrite {
+                    left: left_left,
+                    right: left_right,
+                },
+                Self::Rewrite {
+                    left: right_left,
+                    right: right_right,
+                },
+            ) => left_left.identical(right_left) && left_right.identical(right_right),
+            (
+                Self::As {
+                    pattern: left_pattern,
+                    alias: left_alias,
+                },
+                Self::As {
+                    pattern: right_pattern,
+                    alias: right_alias,
+                },
+            ) => left_pattern.identical(right_pattern) && left_alias.identical(right_alias),
+            (
+                Self::Variable {
+                    name: left_name,
+                    sort: left_sort,
+                },
+                Self::Variable {
+                    name: right_name,
+                    sort: right_sort,
+                },
+            ) => left_name == right_name && left_sort == right_sort,
+            (Self::Sequence(left), Self::Sequence(right)) => {
+                left.len() == right.len()
+                    && left
+                        .iter()
+                        .zip(right)
+                        .all(|(left, right)| left.identical(right))
+            }
+            (
+                Self::Apply {
+                    label: left_label,
+                    arguments: left_arguments,
+                },
+                Self::Apply {
+                    label: right_label,
+                    arguments: right_arguments,
+                },
+            ) => {
+                left_label == right_label
+                    && left_arguments.len() == right_arguments.len()
+                    && left_arguments
+                        .iter()
+                        .zip(right_arguments)
+                        .all(|(left, right)| left.identical(right))
+            }
+            (
+                Self::Token {
+                    token: left_token,
+                    sort: left_sort,
+                },
+                Self::Token {
+                    token: right_token,
+                    sort: right_sort,
+                },
+            ) => left_token == right_token && left_sort == right_sort,
+            _ => false,
+        }
+    }
+
     /// Visit this term and its descendants in deterministic pre-order.
     pub fn visit_preorder(&self, visitor: &mut impl FnMut(&Self)) {
         let term = self.unannotated();
