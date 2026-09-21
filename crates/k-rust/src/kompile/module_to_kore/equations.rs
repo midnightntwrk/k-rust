@@ -289,7 +289,7 @@ fn equation_info<'a>(
         label,
         children: arguments,
         argument_sorts,
-        result_sort: substitute_equation_sort(&sort, &substitution),
+        result_sort: substitute_equation_sort(sort, &substitution),
         direct: simplification,
     }))
 }
@@ -297,7 +297,7 @@ fn equation_info<'a>(
 pub(super) fn resolve_equation_production<'a>(
     application: &Term,
     label: &Label,
-    productions: &'a ProductionCatalog<'a>,
+    productions: &ProductionCatalog<'a>,
 ) -> Result<&'a Sentence, ModuleToKoreError> {
     if let Some(identity) = application
         .metadata()

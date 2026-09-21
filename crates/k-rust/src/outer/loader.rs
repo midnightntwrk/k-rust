@@ -20,12 +20,10 @@ use crate::{
     builtin,
     definition::{
         ConfigurationError, Definition, FlatImport, Location, ResolveError, ResolvedDefinition,
-        Sentence, apply_sort_synonyms_with_resolved, check_outer_modules, check_sorts,
+        Sentence, apply_sort_synonyms, check_outer_modules, check_sorts,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
-    inner::{
-        ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles_with_resolved,
-    },
+    inner::{ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles},
     kast::WellKnownModule,
     provenance::{LogicalSourceId, SourceTable},
     timings::PhaseTimings,
@@ -475,7 +473,6 @@ fn load_impl(
     compilation: Option<selection::CompilationSelection<'_>>,
 ) -> Result<(LoadedDefinition, Option<String>, PhaseTimings), LoadError> {
     let main_module = main_module.into();
-    let span_started = web_time::Instant::now();
     let mut timings = PhaseTimings::default();
     let mut loader = Loader {
         resolver,
@@ -554,7 +551,6 @@ fn load_impl(
         compilation,
         &mut timings,
     )?;
-    timings.set_span_seconds(span_started.elapsed().as_secs_f64());
     Ok((loaded, syntax_module, timings))
 }
 
@@ -631,8 +627,11 @@ fn finish_load(
     compilation: Option<selection::CompilationSelection<'_>>,
     timings: &mut PhaseTimings,
 ) -> Result<(LoadedDefinition, Option<String>), LoadError> {
-    let (definition, resolved) = timings.time("apply sort synonyms", || {
-        apply_sort_synonyms_with_resolved(&definition).map_err(LoadError::DefinitionResolution)
+    let definition = timings.time("apply sort synonyms", || {
+        apply_sort_synonyms(&definition).map_err(LoadError::DefinitionResolution)
+    })?;
+    let resolved = timings.time("resolve outer definition", || {
+        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)
     })?;
     let mut diagnostics = diagnostics;
     let outer_diagnostics = timings.time("check outer modules", || check_outer_modules(&resolved));
@@ -683,14 +682,14 @@ fn finish_load(
         })?;
     diagnostics.extend(configuration_diagnostics);
     remove_temporary_cell_sort_declarations(&mut definition);
-    let (resolved, expanded_diagnostics) = timings.time("resolve and check sorts", || {
+    let expanded_diagnostics = timings.time("resolve and check sorts", || {
         let resolved =
             ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
         let mut expanded_diagnostics = Vec::new();
         for (module_id, module) in resolved.modules() {
             expanded_diagnostics.extend(check_sorts(module, &resolved.sort_catalog(module_id)));
         }
-        Ok::<_, LoadError>((resolved, expanded_diagnostics))
+        Ok::<_, LoadError>(expanded_diagnostics)
     })?;
     let has_expanded_errors = expanded_diagnostics
         .iter()
@@ -702,9 +701,11 @@ fn finish_load(
         ));
     }
 
-    let (definition, resolved) = timings.time_nested("resolve rule bubbles", |nested| {
-        resolve_rule_bubbles_with_resolved(&definition, &resolved, Some(nested))
-            .map_err(LoadError::RuleParsing)
+    let definition = timings.time("resolve rule bubbles", || {
+        resolve_rule_bubbles(&definition).map_err(LoadError::RuleParsing)
+    })?;
+    let resolved = timings.time("resolve loaded definition", || {
+        ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)
     })?;
     let diagnostics = options.diagnostics.apply(diagnostics);
     if diagnostics
@@ -833,11 +834,16 @@ fn add_implicit_configuration_imports(
         .any(|module| module.name == WellKnownModule::Map.as_str());
 
     if has_default {
+        let resolved =
+            ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
         let configuration_module = configuration_module.unwrap_or(&definition.main_module);
-        let has_visible_configuration =
-            definition_has_visible_configuration(&definition, configuration_module).ok_or_else(
-                || LoadError::MissingConfigurationModule(configuration_module.into()),
-            )?;
+        let configuration_module_id = resolved
+            .module_id(configuration_module)
+            .ok_or_else(|| LoadError::MissingConfigurationModule(configuration_module.into()))?;
+        let has_visible_configuration = resolved
+            .sentences(configuration_module_id)
+            .into_iter()
+            .any(is_configuration_sentence);
         if !has_visible_configuration {
             let module = definition
                 .modules
@@ -877,31 +883,6 @@ fn add_implicit_configuration_imports(
     }
 
     Ok(definition)
-}
-
-/// Whether a module or any transitively imported module contains a configuration sentence.
-fn definition_has_visible_configuration(definition: &Definition, module: &str) -> Option<bool> {
-    let modules = definition
-        .modules
-        .iter()
-        .map(|module| (module.name.as_str(), module))
-        .collect::<BTreeMap<_, _>>();
-    modules.get(module)?;
-    let mut pending = vec![module];
-    let mut visited = BTreeSet::new();
-    while let Some(name) = pending.pop() {
-        if !visited.insert(name) {
-            continue;
-        }
-        let Some(module) = modules.get(name) else {
-            continue;
-        };
-        if module.local_sentences.iter().any(is_configuration_sentence) {
-            return Some(true);
-        }
-        pending.extend(module.imports.iter().map(|import| import.name.as_str()));
-    }
-    Some(false)
 }
 
 fn is_configuration_sentence(sentence: &Sentence) -> bool {

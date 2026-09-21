@@ -1027,7 +1027,7 @@ fn sentence_owner(definition: &ResolvedDefinition, sentence: &Sentence) -> Optio
         resolved
             .local_sentences
             .iter()
-            .any(|candidate| std::ptr::eq(candidate.as_ref(), sentence))
+            .any(|candidate| std::ptr::eq(candidate, sentence))
             .then_some(module)
     })
 }

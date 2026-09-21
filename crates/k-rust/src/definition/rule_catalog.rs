@@ -174,10 +174,7 @@ impl ResolvedDefinition {
     pub fn rule_catalog(&self, module: ModuleId) -> RuleCatalog<'_> {
         RuleCatalog::new(
             self.sentences(module),
-            self.module(module)
-                .local_sentences
-                .iter()
-                .map(std::sync::Arc::as_ref),
+            self.module(module).local_sentences.iter(),
         )
     }
 }

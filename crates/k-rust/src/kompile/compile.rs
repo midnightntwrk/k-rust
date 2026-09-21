@@ -15,8 +15,8 @@ use k_rust_kore::measure::{self, Counter};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::{
-        AttributeKey, CheckMode, ConfigurationError, Definition, FlatModule, ResolveError,
-        ResolvedDefinition, Sentence, StructuralCheckBackend, StructuralCheckOptions,
+        AttributeKey, CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence,
+        StructuralCheckBackend, StructuralCheckOptions,
         checks::{check_definition_with_options, check_singleton_overloads},
         expand_configurations_with_diagnostics,
     },
@@ -242,7 +242,7 @@ pub fn compile_loaded_definition_timed(
     let span_started = web_time::Instant::now();
     let mut timings = PhaseTimings::default();
     let timings = &mut timings;
-    let (execution_definition, definition, mut diagnostics, resolved) =
+    let (execution_definition, definition, mut diagnostics) =
         transform_loaded_definition(loaded, &options, timings)?;
     measure::add(
         Counter::KompileSentencesTransformed,
@@ -256,7 +256,7 @@ pub fn compile_loaded_definition_timed(
         collect_execution_rewrite_order(&execution_definition)
     })?;
     let resolved = stage(timings, "resolve transformed definition", || {
-        Ok::<_, String>(resolved)
+        ResolvedDefinition::resolve(&definition)
     })?;
     diagnostics.extend(options.diagnostics.apply(
         timings.time("singleton overload checks", || {
@@ -615,33 +615,16 @@ fn transform_loaded_definition(
     loaded: &LoadedDefinition,
     options: &CompileOptions,
     timings: &mut PhaseTimings,
-) -> Result<(Definition, Definition, Vec<Diagnostic>, ResolvedDefinition), CompileError> {
+) -> Result<(Definition, Definition, Vec<Diagnostic>), CompileError> {
     // Loader-produced definitions are already expanded, while structured embedders can construct
     // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
-    let (definition, configuration_diagnostics, resolved) = if loaded
-        .definition
-        .modules
-        .iter()
-        .flat_map(|module| module.local_sentences.iter())
-        .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
-    {
-        let (definition, configuration_diagnostics) =
-            stage(timings, "expand structured configurations", || {
-                expand_configurations_with_diagnostics(&loaded.definition)
-            })?;
-        let resolved = stage(timings, "resolve structured configurations", || {
-            ResolvedDefinition::resolve(&definition)
+    let (definition, configuration_diagnostics) =
+        stage(timings, "expand structured configurations", || {
+            expand_configurations_with_diagnostics(&loaded.definition)
         })?;
-        (definition, configuration_diagnostics, resolved)
-    } else {
-        let definition = stage(timings, "expand structured configurations", || {
-            Ok::<_, ConfigurationError>(loaded.definition.clone())
-        })?;
-        let resolved = stage(timings, "resolve structured configurations", || {
-            Ok::<_, ResolveError>(loaded.resolved.clone())
-        })?;
-        (definition, Vec::new(), resolved)
-    };
+    let resolved = stage(timings, "resolve structured configurations", || {
+        ResolvedDefinition::resolve(&definition)
+    })?;
     let checked = options
         .diagnostics
         .apply(stage(timings, "definition checks", || {
@@ -669,26 +652,23 @@ fn transform_loaded_definition(
 
     // Checkpoint: every later transformation receives a resolved, structurally checked definition.
     let mut state = super::pipeline::PipelineState::default();
-    let (execution_definition, execution_resolved) =
-        super::pipeline::run_stages_seeded_with_resolved(
-            super::pipeline::TRANSFORM_STAGES,
-            definition.clone(),
-            &mut state,
-            options,
-            timings,
-            resolved,
-        )?;
+    let execution_definition = super::pipeline::run_stages(
+        super::pipeline::TRANSFORM_STAGES,
+        definition,
+        &mut state,
+        options,
+        timings,
+    )?;
     // Checkpoint: search-pattern compilation and the sentence counter observe this execution
     // definition; injection, unit removal, and construction minimization apply only to emission.
-    let (definition, resolved) = super::pipeline::run_stages_seeded_with_resolved(
+    let definition = super::pipeline::run_stages(
         super::pipeline::EMISSION_STAGES,
         execution_definition.clone(),
         &mut state,
         options,
         timings,
-        execution_resolved,
     )?;
-    Ok((execution_definition, definition, diagnostics, resolved))
+    Ok((execution_definition, definition, diagnostics))
 }
 
 fn with_newline(mut text: String) -> String {

@@ -99,12 +99,12 @@ pub fn check_duplicate_klabels(definition: &ResolvedDefinition) -> Vec<Diagnosti
             .module(*module)
             .local_sentences
             .iter()
-            .filter(|sentence| matches!(sentence.as_ref(), Sentence::Production { .. }))
+            .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
             .collect::<Vec<_>>();
         for production in productions {
             let Sentence::Production {
                 label: Some(label), ..
-            } = production.as_ref()
+            } = production
             else {
                 continue;
             };
@@ -117,10 +117,10 @@ pub fn check_duplicate_klabels(definition: &ResolvedDefinition) -> Vec<Diagnosti
                         "Symbol {} is not unique. Previously defined as: {previous:?}",
                         label.name
                     ),
-                    production.as_ref(),
+                    production,
                 ));
             }
-            previous.insert(label.name.clone(), production.as_ref());
+            previous.insert(label.name.clone(), production);
         }
     }
     diagnostics
@@ -147,12 +147,7 @@ pub(super) fn check_unused_symbols_with_views(
         .iter()
         .filter(|module| visible_modules.contains(module))
     {
-        for production in definition
-            .module(*module)
-            .local_sentences
-            .iter()
-            .map(std::sync::Arc::as_ref)
-        {
+        for production in &definition.module(*module).local_sentences {
             let Sentence::Production {
                 label: Some(label),
                 attributes,

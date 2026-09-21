@@ -2094,7 +2094,7 @@ fn attribute_registry_rejects_unknown_and_misplaced_attributes() {
     };
     let module = ResolvedModule {
         name: "MAIN".into(),
-        local_sentences: vec![sentence.into()],
+        local_sentences: vec![sentence],
         attributes: attrs(&[("function", json!(""))]),
     };
     let diagnostics = check_attributes(&module);

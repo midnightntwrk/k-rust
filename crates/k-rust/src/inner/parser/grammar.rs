@@ -998,18 +998,9 @@ mod tests {
         };
         let small = source_catalog.identity(source_id("Small"));
         let big = source_catalog.identity(source_id("Big"));
-        let cell = source_catalog
-            .productions()
-            .find_map(|(id, sentence)| match sentence {
-                Sentence::Production {
-                    label: Some(label), ..
-                } if label.name == "cell" => Some(source_catalog.identity(id)),
-                _ => None,
-            })
-            .unwrap();
 
         assert!(grammar.overloads.less_than(&small, &big));
-        assert!(!grammar.overloads.contains(&cell));
+        assert!(!grammar.overloads.contains(&small));
 
         let parsed = |source| {
             let production = grammar

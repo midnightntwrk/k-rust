@@ -32,11 +32,11 @@ impl<'a> OverloadOrder<'a> {
         &self.order
     }
 
-    pub fn production(&self, id: ProductionId) -> &Sentence {
+    pub fn production(&self, id: ProductionId) -> &'a Sentence {
         self.catalog.production(id)
     }
 
-    pub fn productions(&self) -> impl ExactSizeIterator<Item = (ProductionId, &Sentence)> + '_ {
+    pub fn productions(&self) -> impl ExactSizeIterator<Item = (ProductionId, &'a Sentence)> + '_ {
         self.catalog.productions()
     }
 

@@ -19,7 +19,7 @@
 //! rename is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 7;
+pub const COUNTER_SCHEMA_VERSION: u64 = 5;
 
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -28,8 +28,6 @@ pub enum Counter {
     // kompile (frontend)
     /// Full module-catalog rebuilds (`ResolvedDefinition::resolve`).
     KompileResolveCalls,
-    /// Incremental resolutions that reuse unchanged module nodes.
-    KompileResolveUpdates,
     /// Retained schema counter for the removed positional production rebases; always zero.
     KompileRebaseCalls,
     /// Rule bubbles parsed (one Earley parse plus sort inference each).
@@ -89,8 +87,6 @@ pub enum Counter {
     ParserZ3Checks,
     /// Complete parser grammars constructed from visible sentences.
     ParserGrammarBuilds,
-    /// Rule grammars served from the phase-local memo (zero when no signature is reused).
-    ParserGrammarReuses,
     /// Scanner winner computations after a per-position cache miss.
     ParserScannerWinnerComputations,
     /// Portable sort-inference attempts.
@@ -142,12 +138,11 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 55;
+    pub const COUNT: usize = 53;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
         Counter::KompileResolveCalls,
-        Counter::KompileResolveUpdates,
         Counter::KompileRebaseCalls,
         Counter::KompileRuleBubblesParsed,
         Counter::KompileSentencesTransformed,
@@ -177,7 +172,6 @@ impl Counter {
         Counter::ParserCompletedNodesMisses,
         Counter::ParserZ3Checks,
         Counter::ParserGrammarBuilds,
-        Counter::ParserGrammarReuses,
         Counter::ParserScannerWinnerComputations,
         Counter::ParserPortableInferences,
         Counter::ParserZ3EncodingBuilds,
@@ -207,7 +201,6 @@ impl Counter {
     pub const fn name(self) -> &'static str {
         match self {
             Counter::KompileResolveCalls => "kompile.resolve_calls",
-            Counter::KompileResolveUpdates => "kompile.resolve_updates",
             Counter::KompileRebaseCalls => "kompile.rebase_calls",
             Counter::KompileRuleBubblesParsed => "kompile.rule_bubbles_parsed",
             Counter::KompileSentencesTransformed => "kompile.sentences_transformed",
@@ -239,7 +232,6 @@ impl Counter {
             Counter::ParserCompletedNodesMisses => "parser.completed_nodes_misses",
             Counter::ParserZ3Checks => "parser.z3_checks",
             Counter::ParserGrammarBuilds => "parser.grammar_builds",
-            Counter::ParserGrammarReuses => "parser.grammar_reuses",
             Counter::ParserScannerWinnerComputations => "parser.scanner_winner_computations",
             Counter::ParserPortableInferences => "parser.portable_inferences",
             Counter::ParserZ3EncodingBuilds => "parser.z3_encoding_builds",

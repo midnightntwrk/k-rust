@@ -3273,7 +3273,7 @@ fn imported_macro_expansion_preserves_template_and_caller_production_identity() 
             .module(module_id)
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence.as_ref() {
+            .find_map(|sentence| match sentence {
                 Sentence::Rule {
                     body, attributes, ..
                 } if attributes.get_str("label") == Some(rule_label) => Some(body),
@@ -6957,7 +6957,7 @@ fn language_parsing_module_preserves_imported_overload_identity() {
                 .local_sentences
                 .iter()
                 .find_map(|sentence| {
-                    let Sentence::Rule { body, .. } = sentence.as_ref() else {
+                    let Sentence::Rule { body, .. } = sentence else {
                         return None;
                     };
                     let Term::Rewrite { left, .. } = body.unannotated() else {

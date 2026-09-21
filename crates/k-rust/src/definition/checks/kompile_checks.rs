@@ -35,7 +35,7 @@ pub fn check_claims_in_definition(
     definition
         .modules()
         .filter(|(module, _)| checked_modules.contains(module))
-        .flat_map(|(_, module)| module.local_sentences.iter().map(std::sync::Arc::as_ref))
+        .flat_map(|(_, module)| &module.local_sentences)
         .filter(|sentence| matches!(sentence, Sentence::Claim { .. }))
         .map(|sentence| {
             Diagnostic::error(
@@ -78,7 +78,7 @@ pub(super) fn check_proof_module_with_views(
         if definition_closure.contains(&module_id) || !specification_closure.contains(&module_id) {
             continue;
         }
-        for sentence in module.local_sentences.iter().map(std::sync::Arc::as_ref) {
+        for sentence in &module.local_sentences {
             if is_proof_syntax(sentence) && !is_existing_sort_token(sentence, definition_sorts) {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::ProofModuleSyntax,
@@ -134,12 +134,7 @@ pub(super) fn check_is_sort_predicates_with_views(
         .collect::<BTreeSet<_>>();
     let mut diagnostics = Vec::new();
     for module in checked_modules {
-        for sentence in definition
-            .module(module)
-            .local_sentences
-            .iter()
-            .map(std::sync::Arc::as_ref)
-        {
+        for sentence in &definition.module(module).local_sentences {
             let Sentence::Production { sort, items, .. } = sentence else {
                 continue;
             };
@@ -203,7 +198,7 @@ fn parsed_definition_modules(
             .module(module)
             .local_sentences
             .iter()
-            .any(|sentence| is_bubble_sentence(sentence.as_ref()));
+            .any(is_bubble_sentence);
         let imported_bubble = definition
             .direct_imports(module)
             .iter()

@@ -809,7 +809,7 @@ fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
     ));
 
     let resolved_main = loaded.resolved.main_module();
-    let Sentence::Production { sort, .. } = resolved_main.local_sentences[0].as_ref() else {
+    let Sentence::Production { sort, .. } = &resolved_main.local_sentences[0] else {
         panic!("expected production")
     };
     assert_eq!(sort, &k_rust::kast::Sort::new("Exp"));

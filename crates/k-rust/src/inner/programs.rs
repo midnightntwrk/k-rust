@@ -281,11 +281,7 @@ fn program_sentences(
     {
         append_unique(
             &mut sentences,
-            definition
-                .module(module)
-                .local_sentences
-                .iter()
-                .map(std::sync::Arc::as_ref),
+            definition.module(module).local_sentences.iter(),
         );
     }
     sentences

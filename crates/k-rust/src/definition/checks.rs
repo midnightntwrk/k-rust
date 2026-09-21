@@ -104,7 +104,6 @@ fn check_module_with_options_and_catalog(
         .module(module)
         .local_sentences
         .iter()
-        .map(std::sync::Arc::as_ref)
         .collect::<Vec<_>>();
     let subsorts = views
         .subsorts(module)

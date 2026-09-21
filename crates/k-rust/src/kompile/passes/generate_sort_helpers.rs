@@ -9,8 +9,7 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
-        retain_new_sentences,
+        Attributes, Definition, LabelHead, ProductionItem, Sentence, SortHead, retain_new_sentences,
     },
     kast::{FrontendSort, Label, Sort, Term},
     provenance::GeneratingPass,
@@ -30,15 +29,8 @@ pub(crate) fn generate_sort_predicate_syntax_pass(
     _: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, String> {
     let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
-    generate_sort_predicate_syntax_from_resolved(input.definition, resolved)
-}
-
-fn generate_sort_predicate_syntax_from_resolved(
-    definition: &Definition,
-    resolved: &ResolvedDefinition,
-) -> Result<Definition, String> {
     let views = resolved.views();
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
@@ -115,7 +107,6 @@ pub(crate) fn regenerate_sort_predicate_syntax_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, String> {
-    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
@@ -142,7 +133,7 @@ pub(crate) fn regenerate_sort_predicate_syntax_pass(
             ];
         }
     }
-    generate_sort_predicate_syntax_from_resolved(&output, resolved)
+    generate_sort_predicate_syntax(&output)
 }
 
 /// Apply the non-coverage form of Java's `GenerateSortProjections` transformation.

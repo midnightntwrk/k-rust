@@ -60,9 +60,6 @@ pub fn expand_configurations(definition: &Definition) -> Result<Definition, Conf
 pub fn expand_configurations_with_diagnostics(
     definition: &Definition,
 ) -> Result<(Definition, Vec<Diagnostic>), ConfigurationError> {
-    if !has_structured_configuration(definition) {
-        return Ok((definition.clone(), Vec::new()));
-    }
     expand_configurations_inner(definition, false).map(|(expanded, diagnostics)| {
         (
             record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion),
@@ -75,9 +72,6 @@ pub fn expand_configurations_with_diagnostics(
 pub(crate) fn expand_configurations_allowing_reserved_cells(
     definition: &Definition,
 ) -> Result<Definition, ConfigurationError> {
-    if !has_structured_configuration(definition) {
-        return Ok(definition.clone());
-    }
     expand_configurations_inner(definition, true).map(|(expanded, _)| {
         record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion)
     })
@@ -87,12 +81,12 @@ fn expand_configurations_inner(
     definition: &Definition,
     allow_reserved_cell_names: bool,
 ) -> Result<(Definition, Vec<Diagnostic>), ConfigurationError> {
-    let mut resolved =
+    let initial =
         ResolvedDefinition::resolve(definition).map_err(ConfigurationError::Definition)?;
-    let module_names = resolved
+    let module_names = initial
         .dependency_order()
         .iter()
-        .map(|id| resolved.module(*id).name.clone())
+        .map(|id| initial.module(*id).name.clone())
         .collect::<Vec<_>>();
     let mut transformed = definition.clone();
     let mut diagnostics = Vec::new();
@@ -114,6 +108,8 @@ fn expand_configurations_inner(
             continue;
         }
 
+        let resolved =
+            ResolvedDefinition::resolve(&transformed).map_err(ConfigurationError::Definition)?;
         let module_id = resolved
             .module_id(&module_name)
             .expect("the module remains present while configurations are expanded");
@@ -155,21 +151,10 @@ fn expand_configurations_inner(
 
         output.extend(generated);
         transformed.modules[module_index].local_sentences = output;
-        resolved = resolved
-            .update(&transformed)
-            .map_err(ConfigurationError::Definition)?;
     }
 
+    ResolvedDefinition::resolve(&transformed).map_err(ConfigurationError::Definition)?;
     Ok((transformed, diagnostics))
-}
-
-fn has_structured_configuration(definition: &Definition) -> bool {
-    definition.modules.iter().any(|module| {
-        module
-            .local_sentences
-            .iter()
-            .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
-    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

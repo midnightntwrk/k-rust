@@ -113,7 +113,7 @@ pub(super) fn select_modules(
             .module(id)
             .local_sentences
             .iter()
-            .any(|s| matches!(s.as_ref(), Sentence::Bubble { .. }))
+            .any(|s| matches!(s, Sentence::Bubble { .. }))
             || resolved
                 .direct_imports(id)
                 .iter()
@@ -174,11 +174,7 @@ fn has_configuration_after_exclusion(
         {
             continue;
         }
-        if module
-            .local_sentences
-            .iter()
-            .any(|sentence| is_configuration_sentence(sentence.as_ref()))
-        {
+        if module.local_sentences.iter().any(is_configuration_sentence) {
             return true;
         }
         pending.extend(
