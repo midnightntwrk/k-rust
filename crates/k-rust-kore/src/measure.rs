@@ -19,7 +19,7 @@
 //! rename is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 3;
+pub const COUNTER_SCHEMA_VERSION: u64 = 4;
 
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
