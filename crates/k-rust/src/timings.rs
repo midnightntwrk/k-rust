@@ -25,6 +25,8 @@ pub struct PhaseTiming {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct PhaseTimings {
     pub phases: Vec<PhaseTiming>,
+    #[serde(skip)]
+    pub(crate) span_seconds: Option<f64>,
 }
 
 impl PhaseTimings {
@@ -65,6 +67,26 @@ impl PhaseTimings {
         }
         self.phases.extend(children.phases);
         value
+    }
+
+    /// Run a group entry point and retain its wall-clock span in addition to
+    /// the phase entries recorded by the callback.
+    pub fn span<T>(&mut self, run: impl FnOnce(&mut PhaseTimings) -> T) -> T {
+        let started = Instant::now();
+        let value = run(self);
+        self.span_seconds = Some(started.elapsed().as_secs_f64());
+        value
+    }
+
+    /// Record a span measured by a caller that must own the entry-point setup.
+    pub fn set_span_seconds(&mut self, seconds: f64) {
+        self.span_seconds = Some(seconds);
+    }
+
+    /// Return the measured group span, falling back to the top-level phase sum
+    /// for synthetic or legacy timing values.
+    pub fn measured_span_seconds(&self) -> f64 {
+        self.span_seconds.unwrap_or_else(|| self.total_seconds())
     }
 
     /// Append every phase of `other` after the phases already recorded.

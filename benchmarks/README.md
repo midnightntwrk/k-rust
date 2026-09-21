@@ -164,7 +164,7 @@ diagnostic sample, not the Hyperfine sample distribution, and excludes output an
 Trusted claims and claims restored from saved proofs appear with `trusted` and `saved` statuses and zero proof time.
 
 `krust kcompile --timings FILE` and `krust krun --timings FILE` write the same kind of diagnostic sample for compilation and execution.
-The kcompile file lists every entry-source resolution, load, compile, and artifact-write phase in execution order under `phases`, with `load_seconds`, `compile_seconds`, and `write_seconds` as the group totals.
+The kcompile file lists every entry-source resolution, load, compile, and artifact-write phase in execution order under `phases`, with `load_seconds`, `compile_seconds`, and `write_seconds` as the sums of top-level phases. The corresponding `*_wall_seconds` fields record each group's wall-clock span, while `*_unattributed_seconds` reports the span not claimed by a top-level phase; `total_wall_seconds` is their sum. Nested phases carry a `depth` field and are excluded from the group sums.
 The krun file nests that object under `compile` (its `write_seconds` is zero because nothing is written) and adds `program_parse_seconds`, `config_vars_parse_seconds`, `internalize_seconds`, `execute_seconds`, and `output_seconds`.
 The benchmark cases do not write these two files; the flags are for one-off diagnosis of where a compile or run spends its time.
 

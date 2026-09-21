@@ -1084,6 +1084,13 @@ struct CompileTimings {
     load_seconds: f64,
     compile_seconds: f64,
     write_seconds: f64,
+    load_wall_seconds: f64,
+    compile_wall_seconds: f64,
+    write_wall_seconds: f64,
+    load_unattributed_seconds: f64,
+    compile_unattributed_seconds: f64,
+    write_unattributed_seconds: f64,
+    total_wall_seconds: f64,
     phases: Vec<PhaseTiming>,
 }
 
@@ -1092,6 +1099,13 @@ impl CompileTimings {
         let load_seconds = load.total_seconds();
         let compile_seconds = compile.total_seconds();
         let write_seconds = write.total_seconds();
+        let load_wall_seconds = load.measured_span_seconds();
+        let compile_wall_seconds = compile.measured_span_seconds();
+        let write_wall_seconds = write.measured_span_seconds();
+        let load_unattributed_seconds = (load_wall_seconds - load_seconds).max(0.0);
+        let compile_unattributed_seconds = (compile_wall_seconds - compile_seconds).max(0.0);
+        let write_unattributed_seconds = (write_wall_seconds - write_seconds).max(0.0);
+        let total_wall_seconds = load_wall_seconds + compile_wall_seconds + write_wall_seconds;
         let mut phases = load;
         phases.extend(compile);
         phases.extend(write);
@@ -1099,6 +1113,13 @@ impl CompileTimings {
             load_seconds,
             compile_seconds,
             write_seconds,
+            load_wall_seconds,
+            compile_wall_seconds,
+            write_wall_seconds,
+            load_unattributed_seconds,
+            compile_unattributed_seconds,
+            write_unattributed_seconds,
+            total_wall_seconds,
             phases: phases.phases,
         }
     }
@@ -1474,6 +1495,7 @@ fn load_definition_impl(
     ),
     Box<dyn Error>,
 > {
+    let span_started = Instant::now();
     let mut timings = PhaseTimings::default();
     let (mut resolver, entry, load_options) = timings.time("resolve entry source", || {
         let builtin_directory = options.configured_builtin_directory();
@@ -1518,11 +1540,13 @@ fn load_definition_impl(
             }
         })?;
         timings.extend(loader_timings);
+        timings.set_span_seconds(span_started.elapsed().as_secs_f64());
         Ok((loaded, Some(syntax), timings))
     } else {
         let (loaded, loader_timings) =
             load_with_options_timed(entry, &options.module, &mut resolver, &load_options)?;
         timings.extend(loader_timings);
+        timings.set_span_seconds(span_started.elapsed().as_secs_f64());
         Ok((loaded, None, timings))
     }
 }
@@ -1603,6 +1627,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     // marker first prevents both interrupted recompilation and LLVM output written over a prior
     // Rust directory from appearing runnable.
     unpublish_runnable_artifact(&options.output_directory)?;
+    let write_span_started = Instant::now();
     let mut write_timings = PhaseTimings::default();
     let bison_mode = if options.gen_glr_bison_parser {
         Some(k_rust::bison::Mode::Glr)
@@ -1708,6 +1733,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         }
         Ok::<_, Box<dyn Error>>(())
     })?;
+    write_timings.set_span_seconds(write_span_started.elapsed().as_secs_f64());
     CompileTimings::new(load_timings, compile_timings, write_timings)
         .write(options.timings.as_deref())?;
     Ok(())
@@ -2731,6 +2757,7 @@ fn load_definition_against_prepared(
     prepared: &Path,
     bison_lists: bool,
 ) -> Result<(k_rust::outer::LoadedDefinition, PhaseTimings), Box<dyn Error>> {
+    let span_started = Instant::now();
     let mut timings = PhaseTimings::default();
     let (mut resolver, entry, manifest, base) = timings.time("read prepared definition", || {
         let directory = prepared_artifact_directory(prepared);
@@ -2769,6 +2796,7 @@ fn load_definition_against_prepared(
         &manifest.modules,
     )?;
     timings.extend(loader_timings);
+    timings.set_span_seconds(span_started.elapsed().as_secs_f64());
     Ok((loaded, timings))
 }
 

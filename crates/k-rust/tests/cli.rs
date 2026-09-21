@@ -7600,7 +7600,18 @@ endmodule
     assert!(output_directory.join("definition.kore").is_file());
     let timings: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
-    for key in ["load_seconds", "compile_seconds", "write_seconds"] {
+    for key in [
+        "load_seconds",
+        "compile_seconds",
+        "write_seconds",
+        "load_wall_seconds",
+        "compile_wall_seconds",
+        "write_wall_seconds",
+        "load_unattributed_seconds",
+        "compile_unattributed_seconds",
+        "write_unattributed_seconds",
+        "total_wall_seconds",
+    ] {
         assert!(timings[key].as_f64().unwrap() >= 0.0, "{key}: {timings}");
     }
     let phases = timings["phases"].as_array().unwrap();
@@ -7683,6 +7694,17 @@ endmodule
         "{timings}"
     );
     assert_eq!(compile["write_seconds"], 0.0, "{timings}");
+    for key in [
+        "load_wall_seconds",
+        "compile_wall_seconds",
+        "write_wall_seconds",
+        "load_unattributed_seconds",
+        "compile_unattributed_seconds",
+        "write_unattributed_seconds",
+        "total_wall_seconds",
+    ] {
+        assert!(compile[key].as_f64().unwrap() >= 0.0, "{key}: {timings}");
+    }
     let names = compile["phases"]
         .as_array()
         .unwrap()

@@ -475,6 +475,7 @@ fn load_impl(
     compilation: Option<selection::CompilationSelection<'_>>,
 ) -> Result<(LoadedDefinition, Option<String>, PhaseTimings), LoadError> {
     let main_module = main_module.into();
+    let span_started = web_time::Instant::now();
     let mut timings = PhaseTimings::default();
     let mut loader = Loader {
         resolver,
@@ -553,6 +554,7 @@ fn load_impl(
         compilation,
         &mut timings,
     )?;
+    timings.set_span_seconds(span_started.elapsed().as_secs_f64());
     Ok((loaded, syntax_module, timings))
 }
 
