@@ -19,7 +19,7 @@
 //! rename is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 2;
+pub const COUNTER_SCHEMA_VERSION: u64 = 3;
 
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -71,6 +71,14 @@ pub enum Counter {
     ParserCompletedNodesMisses,
     /// Z3 check-sat calls issued by sort inference.
     ParserZ3Checks,
+    /// Complete parser grammars constructed from visible sentences.
+    ParserGrammarBuilds,
+    /// Scanner winner computations after a per-position cache miss.
+    ParserScannerWinnerComputations,
+    /// Portable sort-inference attempts.
+    ParserPortableInferences,
+    /// Grammar and term sort encodings constructed for Z3 inference.
+    ParserZ3EncodingBuilds,
     // backend
     /// States popped by the execution loop, one per rewrite step attempted.
     RewriteSteps,
@@ -116,7 +124,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 42;
+    pub const COUNT: usize = 46;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -142,6 +150,10 @@ impl Counter {
         Counter::ParserCompletedNodesHits,
         Counter::ParserCompletedNodesMisses,
         Counter::ParserZ3Checks,
+        Counter::ParserGrammarBuilds,
+        Counter::ParserScannerWinnerComputations,
+        Counter::ParserPortableInferences,
+        Counter::ParserZ3EncodingBuilds,
         Counter::RewriteSteps,
         Counter::RewriteRuleAttempts,
         Counter::RewriteMatchFailures,
@@ -191,6 +203,10 @@ impl Counter {
             Counter::ParserCompletedNodesHits => "parser.completed_nodes_hits",
             Counter::ParserCompletedNodesMisses => "parser.completed_nodes_misses",
             Counter::ParserZ3Checks => "parser.z3_checks",
+            Counter::ParserGrammarBuilds => "parser.grammar_builds",
+            Counter::ParserScannerWinnerComputations => "parser.scanner_winner_computations",
+            Counter::ParserPortableInferences => "parser.portable_inferences",
+            Counter::ParserZ3EncodingBuilds => "parser.z3_encoding_builds",
             Counter::RewriteSteps => "rewrite.steps",
             Counter::RewriteRuleAttempts => "rewrite.rule_attempts",
             Counter::RewriteMatchFailures => "rewrite.match_failures",

@@ -402,6 +402,7 @@ impl<'a> Encoding<'a> {
         anywhere: bool,
         collect_terms: impl FnOnce(&mut BTreeSet<SortHead>, &mut BTreeSet<Sort>),
     ) -> Result<Self, ParseError> {
+        measure::bump(Counter::ParserZ3EncodingBuilds);
         let semantic = PartialOrder::new(grammar.subsort_relations.iter().cloned())
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         let syntactic = PartialOrder::new(grammar.syntactic_subsort_relations.iter().cloned())

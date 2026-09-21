@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use regex::Regex as CompiledRegex;
 use regex_automata::{MatchKind, meta::Regex as LongestRegex};
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::definition::{ProductionItem, Regex as KRegex, parse_regex};
 use crate::kast::Sort;
 
@@ -233,6 +235,7 @@ impl Scanner {
         match cached {
             Some(winner) => *winner,
             None => {
+                measure::bump(Counter::ParserScannerWinnerComputations);
                 let token = self
                     .lexemes
                     .iter()

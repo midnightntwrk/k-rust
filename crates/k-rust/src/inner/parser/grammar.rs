@@ -6,6 +6,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::definition::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionId, ProductionItem,
     Regex as KRegex, Sentence, compute_associativities, compute_disambiguation_subsorts,
@@ -250,6 +252,7 @@ impl Grammar {
             grammar.add_record_productions(production)?;
         }
         grammar.identify_productive_unary_cycles();
+        measure::bump(Counter::ParserGrammarBuilds);
         Ok(grammar)
     }
 }

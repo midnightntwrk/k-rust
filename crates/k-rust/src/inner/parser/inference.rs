@@ -7,6 +7,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::rc::Rc;
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
@@ -183,6 +185,7 @@ impl Grammar {
         top_sort: &Sort,
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
+        measure::bump(Counter::ParserPortableInferences);
         let order = PartialOrder::new(self.subsort_relations.iter().cloned()).map_err(|cycle| {
             inference_error(format!(
                 "cannot infer sorts with a circular subsort relation: {}",
