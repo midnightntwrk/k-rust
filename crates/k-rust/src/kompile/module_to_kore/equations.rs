@@ -1,6 +1,7 @@
 //! Rule, claim, macro, equation, and owise emission.
 
 use super::*;
+use k_rust_kore::measure::{self, Counter};
 
 pub(super) fn emit_rule_or_claim(
     sentence: &Sentence,
@@ -486,6 +487,7 @@ fn emit_owise_equation(
     // Invariant: `competitors` contains exactly the accepted rules before `index`, each with
     // refreshed variables and at most one cached injection in `owise_injections`.
     for (index, sentence) in module_rules.iter().enumerate() {
+        measure::bump(Counter::KompileOwiseCompetitorScans);
         if owise_injections[index].is_none() {
             owise_injections[index] = Some(injector.inject_sentence(sentence)?);
         }

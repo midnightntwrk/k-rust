@@ -83,6 +83,11 @@ fn rewrite_example_compile_stays_within_the_pinned_kompile_work() {
         RULE_BUBBLES_REWRITE
     );
     assert!(delta.get(Counter::KompileSentencesTransformed) <= SENTENCES_REWRITE);
+    assert!(
+        delta.get(Counter::KompileSentenceEquivalenceChecks) <= SENTENCE_EQUIVALENCE_CHECKS_REWRITE
+    );
+    assert!(delta.get(Counter::KompileProductionCatalogsBuilt) <= PRODUCTION_CATALOGS_REWRITE);
+    assert!(delta.get(Counter::ProvenanceLinkDedupProbes) <= LINK_DEDUP_PROBES_REWRITE);
     // Prediction analyses are built per grammar, never per bubble.
     assert!(
         delta.get(Counter::ParserPredictionAnalysisBuilds)
@@ -140,6 +145,20 @@ fn module_chain_compile_resolves_per_pass_and_grows_sentences_linearly() {
     assert_eq!(
         at_10.get(Counter::KompileRebaseCalls),
         at_5.get(Counter::KompileRebaseCalls)
+    );
+    assert!(
+        at_10.get(Counter::KompileProductionCatalogsBuilt)
+            <= 2 * at_5.get(Counter::KompileProductionCatalogsBuilt),
+        "{} catalogs at 10 modules versus {} at 5",
+        at_10.get(Counter::KompileProductionCatalogsBuilt),
+        at_5.get(Counter::KompileProductionCatalogsBuilt)
+    );
+    assert!(
+        at_10.get(Counter::KompileSentenceEquivalenceChecks)
+            <= 4 * at_5.get(Counter::KompileSentenceEquivalenceChecks),
+        "{} equivalence checks at 10 modules versus {} at 5",
+        at_10.get(Counter::KompileSentenceEquivalenceChecks),
+        at_5.get(Counter::KompileSentenceEquivalenceChecks)
     );
     assert_eq!(
         at_10.get(Counter::KompileRuleBubblesParsed),
@@ -375,6 +394,12 @@ const REBASE_CALLS_REWRITE: u64 = 12;
 const RULE_BUBBLES_REWRITE: u64 = 198;
 /// `examples/rewrite.k`: 2091 sentences after transformation.
 const SENTENCES_REWRITE: u64 = 2300;
+/// `examples/rewrite.k`: 18,297,983 structural sentence-equivalence checks.
+const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 20_128_000;
+/// `examples/rewrite.k`: 3,787 production catalogs built.
+const PRODUCTION_CATALOGS_REWRITE: u64 = 4_166;
+/// `examples/rewrite.k`: 69,079 order-preserving provenance-link dedup probes.
+const LINK_DEDUP_PROBES_REWRITE: u64 = 76_000;
 /// Casted rule chain of 15 operands: 1553 completion candidates.
 const COMPLETION_CANDIDATES_CHAIN_15: u64 = 1710;
 /// Casted rule chain of 15 operands: 2990 agenda pops.

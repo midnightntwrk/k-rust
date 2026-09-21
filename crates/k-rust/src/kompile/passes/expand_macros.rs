@@ -8,6 +8,8 @@ use std::{
     fmt,
 };
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
@@ -471,6 +473,7 @@ impl<'a> Expander<'a> {
             let mut substitution = BTreeMap::new();
             let matched = self.matches(&mut substitution, &rule.left, &subject)?;
             if matched && (rule.recursive || !applied.contains(&rule.id)) {
+                measure::bump(Counter::KompileMacroApplications);
                 let mut next_applied = applied.clone();
                 next_applied.insert(rule.id);
                 let substituted = self.substitute(rule.right.clone(), &mut substitution);

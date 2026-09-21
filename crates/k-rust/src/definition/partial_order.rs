@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use k_rust_kore::measure::{self, Counter};
 use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::algo::toposort;
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -123,11 +124,13 @@ impl<T: Clone + Ord> PartialOrder<T> {
             }
         }
 
-        Ok(Self {
+        let order = Self {
             direct,
             closure,
             sorted: order.into_iter().map(|node| graph[node].clone()).collect(),
-        })
+        };
+        measure::bump(Counter::KompilePartialOrdersBuilt);
+        Ok(order)
     }
 
     pub fn elements(&self) -> impl ExactSizeIterator<Item = &T> {

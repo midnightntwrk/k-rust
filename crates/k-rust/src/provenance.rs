@@ -11,6 +11,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use k_rust_kore::measure::{self, Counter};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -762,6 +763,7 @@ fn collect_source_links(term: &Term, links: &mut Vec<ProvenanceLink>) {
 }
 
 fn push_unique(links: &mut Vec<ProvenanceLink>, link: ProvenanceLink) {
+    measure::bump(Counter::ProvenanceLinkDedupProbes);
     // Invariant: `links` contains distinct entries in first-encounter order.
     if !links.contains(&link) {
         links.push(link);

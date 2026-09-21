@@ -7,6 +7,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use k_rust_kore::measure::{self, Counter};
 use serde_json::json;
 
 use crate::definition::{
@@ -1239,6 +1240,7 @@ pub fn add_sort_injections_from_resolved(
 }
 
 fn injection(from: Sort, to: Sort, term: Term) -> Term {
+    measure::bump(Counter::KompileInjectionsInserted);
     Term::Apply {
         label: Label::with_parameters(WellKnownSymbol::Inj.as_str(), vec![from, to]),
         arguments: vec![term],

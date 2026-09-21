@@ -5,6 +5,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use k_rust_kore::measure::{self, Counter};
+
 use super::ast::{Attributes, ProductionItem, Sentence};
 use super::attribute_keys::AttributeKey;
 use super::equivalence::{dedup_by_equivalence, sentence_equivalent};
@@ -195,6 +197,7 @@ impl<'a> ProductionCatalog<'a> {
             macro_labels: BTreeSet::new(),
         };
         catalog.build_indexes();
+        measure::bump(Counter::KompileProductionCatalogsBuilt);
         catalog
     }
 

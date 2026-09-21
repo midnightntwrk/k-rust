@@ -5,12 +5,15 @@
 
 use std::collections::BTreeSet;
 
+use k_rust_kore::measure::{self, Counter};
+
 use super::ast::{Attributes, ProductionItem, Sentence};
 use crate::definition::AttributeKey;
 use crate::kast::Term;
 
 /// Scala sentence equality, including `Production`'s custom equality override.
 pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {
+    measure::bump(Counter::KompileSentenceEquivalenceChecks);
     match (left, right) {
         (
             Sentence::SyntaxSort {
