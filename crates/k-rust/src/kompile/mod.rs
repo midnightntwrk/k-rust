@@ -10,6 +10,7 @@ pub mod initial_configuration;
 mod label_graph;
 mod module_to_kore;
 mod passes;
+pub mod pipeline;
 mod rebase;
 mod search_pattern;
 mod sort_injections;
