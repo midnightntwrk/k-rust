@@ -457,6 +457,7 @@ fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn completed_nodes(
     chart: &Chart,
     grammar: &Grammar,

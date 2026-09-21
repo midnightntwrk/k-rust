@@ -1,8 +1,10 @@
 //! Z3-backed maximal-model sort inference for ambiguous and parametric parse forests.
 //!
 //! Each check is counted by `Counter::ParserZ3Checks`; model enumeration is proportional to
-//! the number of maximal typings times solver checks. Grammar-determined encoding construction
-//! is counted by `ParserZ3EncodingBuilds`. The unpacked path remains a checked oracle.
+//! the number of maximal typings times solver checks. Grammar-determined encoding construction is
+//! O(heads + ground sorts squared) once per grammar generation and top sort on each thread; each
+//! attempt then constructs O(term nodes) constraints. `ParserZ3EncodingBuilds` counts base builds.
+//! The unpacked path remains a checked oracle.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -84,6 +86,19 @@ impl Deref for Encoding<'_> {
         &self.base
     }
 }
+
+type EncodingBaseKey = (u64, Sort);
+type EncodingBaseCache = Vec<(EncodingBaseKey, Rc<EncodingBase>)>;
+
+thread_local! {
+    static ENCODING_BASES: RefCell<EncodingBaseCache> = const {
+        RefCell::new(Vec::new())
+    };
+    #[cfg(test)]
+    static FORCE_UNCACHED_BASE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+const ENCODING_BASE_CACHE_CAPACITY: usize = 8;
 
 const UNSAT_MESSAGE: &str = "no well-sorted parse or variable assignment exists";
 
@@ -580,7 +595,6 @@ impl EncodingBase {
         Ok(Sort::with_parameters(head.as_str(), parameters))
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     fn covers(&self, term_sorts: &TermSorts) -> bool {
         term_sorts
             .heads
@@ -588,6 +602,76 @@ impl EncodingBase {
             .all(|head| self.head_indexes.contains_key(head))
             && term_sorts.ground.is_subset(&self.ground_sorts)
     }
+}
+
+fn encoding_base(
+    grammar: &Grammar,
+    top_sort: &Sort,
+    term_sorts: &TermSorts,
+) -> Result<Rc<EncodingBase>, ParseError> {
+    #[cfg(test)]
+    if FORCE_UNCACHED_BASE.with(std::cell::Cell::get) {
+        return encoding_base_uncached(grammar, top_sort, term_sorts);
+    }
+
+    let key = (grammar.generation, top_sort.clone());
+    let cached = ENCODING_BASES.with(|bases| {
+        let mut bases = bases.borrow_mut();
+        let position = bases.iter().position(|(candidate, _)| candidate == &key)?;
+        let entry = bases.remove(position);
+        let base = Rc::clone(&entry.1);
+        bases.push(entry);
+        Some(base)
+    });
+    if let Some(base) = cached {
+        return if base.covers(term_sorts) {
+            Ok(base)
+        } else {
+            encoding_base_uncached_impl(grammar, top_sort, term_sorts)
+        };
+    }
+
+    let base = encoding_base_uncached_impl(grammar, top_sort, &TermSorts::default())?;
+    ENCODING_BASES.with(|bases| {
+        let mut bases = bases.borrow_mut();
+        bases.retain(|(candidate, _)| candidate != &key);
+        bases.push((key, Rc::clone(&base)));
+        if bases.len() > ENCODING_BASE_CACHE_CAPACITY {
+            bases.remove(0);
+        }
+    });
+    if base.covers(term_sorts) {
+        Ok(base)
+    } else {
+        encoding_base_uncached_impl(grammar, top_sort, term_sorts)
+    }
+}
+
+fn encoding_base_uncached_impl(
+    grammar: &Grammar,
+    top_sort: &Sort,
+    term_sorts: &TermSorts,
+) -> Result<Rc<EncodingBase>, ParseError> {
+    EncodingBase::build(grammar, top_sort, term_sorts).map(Rc::new)
+}
+
+#[cfg(test)]
+fn encoding_base_uncached(
+    grammar: &Grammar,
+    top_sort: &Sort,
+    term_sorts: &TermSorts,
+) -> Result<Rc<EncodingBase>, ParseError> {
+    encoding_base_uncached_impl(grammar, top_sort, term_sorts)
+}
+
+#[cfg(test)]
+fn with_uncached_encoding_base<T>(f: impl FnOnce() -> T) -> T {
+    FORCE_UNCACHED_BASE.with(|force| {
+        let previous = force.replace(true);
+        let result = f();
+        force.set(previous);
+        result
+    })
 }
 
 impl<'a> Encoding<'a> {
@@ -623,7 +707,7 @@ impl<'a> Encoding<'a> {
     ) -> Result<Self, ParseError> {
         Ok(Self {
             grammar,
-            base: Rc::new(EncodingBase::build(grammar, top_sort, term_sorts)?),
+            base: encoding_base(grammar, top_sort, term_sorts)?,
             variables: BTreeMap::new(),
             parameters: BTreeSet::new(),
             packed_overload_preferences: Vec::new(),
@@ -2764,11 +2848,135 @@ mod tests {
     use super::*;
     use crate::definition::ProductionItem;
     use crate::kast::Label;
+    use proptest::prelude::*;
 
     fn nonterminal(name: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
             sort: Sort::new(name),
             name: None,
+        }
+    }
+
+    fn cached_encoding_fixture(sort_count: usize) -> (Grammar, Rc<PackedTerm>, Sort) {
+        let mut grammar = Grammar::default();
+        for index in 0..sort_count {
+            grammar
+                .add(
+                    Sort::new(format!("S{index}")),
+                    vec![ProductionItem::Terminal(format!("s{index}"))],
+                    Some(Label::new(format!("s{index}"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+            if index > 0 {
+                grammar.subsort_relations.insert((
+                    Sort::new(format!("S{}", index - 1)),
+                    Sort::new(format!("S{index}")),
+                ));
+            }
+        }
+        let top_sort =
+            Sort::with_parameters("Box", vec![Sort::new(format!("S{}", sort_count - 1))]);
+        let production = grammar.productions.len();
+        grammar
+            .add(
+                top_sort.clone(),
+                vec![ProductionItem::Terminal("box".into())],
+                Some(Label::new("box")),
+                false,
+                false,
+            )
+            .unwrap();
+        (
+            grammar,
+            PackedTerm::production(production, vec![], Default::default()),
+            top_sort,
+        )
+    }
+
+    fn decoded_relation(
+        base: &EncodingBase,
+        relation: &[(Datatype, Datatype)],
+    ) -> Result<Vec<(Sort, Sort)>, ParseError> {
+        relation
+            .iter()
+            .map(|(left, right)| Ok((base.decode_sort(left)?, base.decode_sort(right)?)))
+            .collect()
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        #[test]
+        fn cached_encoding_base_matches_uncached(sort_count in 2usize..6) {
+            let (grammar, term, top_sort) = cached_encoding_fixture(sort_count);
+            let mut term_sorts = TermSorts::default();
+            collect_packed_term_sorts(&term, &mut term_sorts.heads, &mut term_sorts.ground);
+            let cached = encoding_base(&grammar, &top_sort, &term_sorts).unwrap();
+            let uncached = encoding_base_uncached(&grammar, &top_sort, &term_sorts).unwrap();
+            prop_assert_eq!(&cached.heads, &uncached.heads);
+            prop_assert_eq!(&cached.head_indexes, &uncached.head_indexes);
+            prop_assert_eq!(&cached.ground_sorts, &uncached.ground_sorts);
+            prop_assert_eq!(&cached.declared_nat_sorts, &uncached.declared_nat_sorts);
+            let cached_variants = cached.datatype.variants.iter()
+                .map(|variant| variant.constructor.name().to_string())
+                .collect::<Vec<_>>();
+            let uncached_variants = uncached.datatype.variants.iter()
+                .map(|variant| variant.constructor.name().to_string())
+                .collect::<Vec<_>>();
+            prop_assert_eq!(cached_variants, uncached_variants);
+            prop_assert_eq!(
+                decoded_relation(&cached, &cached.semantic_relation).unwrap(),
+                decoded_relation(&uncached, &uncached.semantic_relation).unwrap()
+            );
+            prop_assert_eq!(
+                decoded_relation(&cached, &cached.syntactic_relation).unwrap(),
+                decoded_relation(&uncached, &uncached.syntactic_relation).unwrap()
+            );
+        }
+
+        #[test]
+        fn cached_and_uncached_inference_agree(
+            first_sort_count in 2usize..5,
+            second_sort_count in 2usize..5,
+            repetitions in 1usize..4,
+        ) {
+            let first = cached_encoding_fixture(first_sort_count);
+            let second = cached_encoding_fixture(second_sort_count);
+            for (grammar, term, top_sort) in [&first, &second].into_iter().cycle().take(2 * repetitions) {
+                let before = measure::snapshot();
+                let cached = grammar.infer_packed_sorts_z3(Rc::clone(term), top_sort, false);
+                let cached_checks = measure::snapshot()
+                    .delta(&before)
+                    .get(Counter::ParserZ3Checks);
+                let before = measure::snapshot();
+                let uncached = with_uncached_encoding_base(|| {
+                    grammar.infer_packed_sorts_z3(Rc::clone(term), top_sort, false)
+                });
+                let uncached_checks = measure::snapshot()
+                    .delta(&before)
+                    .get(Counter::ParserZ3Checks);
+                prop_assert_eq!(cached, uncached);
+                prop_assert_eq!(cached_checks, uncached_checks);
+            }
+        }
+
+        #[test]
+        fn cached_sort_values_round_trip(sort_count in 2usize..6, repetitions in 1usize..4) {
+            let (grammar, term, top_sort) = cached_encoding_fixture(sort_count);
+            for _ in 0..repetitions {
+                grammar
+                    .infer_packed_sorts_z3(Rc::clone(&term), &top_sort, false)
+                    .unwrap();
+            }
+            let mut term_sorts = TermSorts::default();
+            collect_packed_term_sorts(&term, &mut term_sorts.heads, &mut term_sorts.ground);
+            let base = encoding_base(&grammar, &top_sort, &term_sorts).unwrap();
+            for sort in &base.ground_sorts {
+                let value = base.sort_value(sort, &BTreeMap::new()).unwrap();
+                prop_assert_eq!(base.decode_sort(&value).unwrap(), sort.clone());
+            }
         }
     }
 
