@@ -40,7 +40,7 @@ fn has_rule(loaded: &LoadedDefinition, module: &str) -> bool {
         .module(loaded.resolved.module_id(module).unwrap())
         .local_sentences
         .iter()
-        .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+        .any(|sentence| matches!(sentence.as_ref(), Sentence::Rule { .. }))
 }
 
 #[test]

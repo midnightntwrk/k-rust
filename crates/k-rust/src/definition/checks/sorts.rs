@@ -13,7 +13,7 @@ use crate::kast::{FrontendSort, Sort};
 pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    for sentence in &module.local_sentences {
+    for sentence in module.local_sentences.iter().map(std::sync::Arc::as_ref) {
         match sentence {
             Sentence::SyntaxSort { sort, .. } => {
                 check_parametric_sort(sort, sentence, &mut diagnostics);
@@ -94,12 +94,13 @@ pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<D
     let candidates = module
         .local_sentences
         .iter()
+        .map(std::sync::Arc::as_ref)
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         .chain(visible.iter().copied().filter(|candidate| {
             !module
                 .local_sentences
                 .iter()
-                .any(|local| std::ptr::eq(local, *candidate))
+                .any(|local| std::ptr::eq(local.as_ref(), *candidate))
         }));
     for sentence in candidates {
         let Sentence::Production {

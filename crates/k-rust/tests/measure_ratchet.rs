@@ -386,10 +386,10 @@ fn z3_checks_are_paid_once_per_bubble() {
 // Measured at the commit that added this file, then rounded up by about 10 %. The measured
 // values are in that commit's message; re-pin in a commit that says why the value moved.
 
-/// `examples/rewrite.k`: 59 resolutions after CQ-14's stage cache, 46 after production
-/// identities remove the eleven ordinary rebase resolutions; the bound gives the measured
-/// result about 10 % headroom.
-const RESOLVE_CALLS_REWRITE: u64 = 51;
+/// `examples/rewrite.k`: seven full resolutions remain after carrying resolved state through
+/// configuration normalization, loading, and both pipeline checkpoints; the bound permits two
+/// structural rebuilds beyond that measurement.
+const RESOLVE_CALLS_REWRITE: u64 = 9;
 /// `examples/rewrite.k`: production identities remove every positional rebase.
 const REBASE_CALLS_REWRITE: u64 = 0;
 /// `examples/rewrite.k`: its one rule plus the prelude bubbles reachable from REWRITE.
@@ -399,7 +399,7 @@ const SENTENCES_REWRITE: u64 = 2300;
 /// `examples/rewrite.k`: 1,100,936 structural sentence-equivalence checks with catalog indexes and views.
 const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 1_211_030;
 /// `examples/rewrite.k`: 3,360 production catalogs built with per-resolution views.
-const PRODUCTION_CATALOGS_REWRITE: u64 = 3_696;
+const PRODUCTION_CATALOGS_REWRITE: u64 = 655;
 /// `examples/rewrite.k`: 69,079 order-preserving provenance-link dedup probes.
 const LINK_DEDUP_PROBES_REWRITE: u64 = 76_000;
 /// Casted rule chain of 15 operands: 1553 completion candidates.
