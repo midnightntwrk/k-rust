@@ -19,14 +19,12 @@ const LOAD_PHASES: &[&str] = &[
     "select source files",
     "lower files",
     "apply sort synonyms",
-    "resolve outer definition",
     "check outer modules",
     "select modules",
     "resolve configuration bubbles",
     "expand configurations",
     "resolve and check sorts",
     "resolve rule bubbles",
-    "resolve loaded definition",
 ];
 
 const COMPILE_PHASES: &[&str] = &[
@@ -176,12 +174,7 @@ fn phase_timings_are_non_negative_and_sum_by_prefix() {
         .expect("rule-bubble parent phase should be recorded")
         .seconds;
     let rule_children = timings
-        .phases
-        .iter()
-        .filter(|phase| {
-            phase.name == "resolve rule bubbles / grammars"
-                || phase.name == "resolve rule bubbles / parse"
-        })
+        .children_of("resolve rule bubbles")
         .map(|phase| phase.seconds)
         .sum::<f64>();
     assert!(
@@ -200,4 +193,28 @@ fn phase_timings_are_non_negative_and_sum_by_prefix() {
     );
     assert_eq!(timings.seconds_of("print "), print_total);
     assert_eq!(timings.seconds_of("no such phase"), 0.0);
+}
+
+#[test]
+fn sequential_nested_phases_keep_one_child_depth() {
+    let mut timings = PhaseTimings::default();
+    timings.time_nested("first", |children| {
+        children.time("first child", || ());
+    });
+    timings.time_nested("second", |children| {
+        children.time("second child", || ());
+    });
+    assert_eq!(
+        timings
+            .phases
+            .iter()
+            .map(|phase| (phase.name, phase.depth))
+            .collect::<Vec<_>>(),
+        vec![
+            ("first", 0),
+            ("first child", 1),
+            ("second", 0),
+            ("second child", 1),
+        ]
+    );
 }

@@ -423,6 +423,7 @@ jq -n \
   --argjson profiled_exit "$profiled_exit" \
   --argjson counters "$([[ -f "$out/counters.json" ]] && echo true || echo false)" \
   --argjson timings "$([[ -f "$out/timings.json" ]] && echo true || echo false)" \
+  --argjson timings_unattributed "$(if [[ -f "$out/timings.json" ]]; then jq -c '[.load_unattributed_seconds, .compile_unattributed_seconds, .write_unattributed_seconds] | map(select(type == "number")) | add // 0' "$out/timings.json"; else echo null; fi)" \
   '{
     workload: $workload,
     claim: (if $claim == "" then null else $claim end),
@@ -441,7 +442,7 @@ jq -n \
     profiled: (if $profiled_exit == null then null else
       {wall_seconds: $profiled_wall, peak_rss_kib: $profiled_rss, exit_code: $profiled_exit,
        note: "measured around samply record; wall includes profile serialisation and peak RSS is the larger of samply and krust"} end),
-    outputs: {counters_json: $counters, timings_json: $timings}
+    outputs: {counters_json: $counters, timings_json: $timings, timings_unattributed_seconds: $timings_unattributed}
   }' >"$out/metadata.json"
 
 if [[ "$skip_profile" == 1 ]]; then

@@ -649,7 +649,7 @@ fn run_stages_seeded_current(
         |resolved| Current::with_resolved(start.clone(), resolved),
     );
     for stage in stages {
-        let output = timings.time(stage.name, || {
+        let (output, next_resolved) = timings.time(stage.name, || {
             let input = PassInput::new(&current);
             let output = (stage.run)(&input, state).map_err(|error| CompileError {
                 stage: stage.name,
@@ -664,13 +664,13 @@ fn run_stages_seeded_current(
             };
             #[cfg(debug_assertions)]
             assert_no_dangling_application_identities(&output);
-            Ok(output)
+            let next_resolved = match current.resolved.get() {
+                Some(Ok(previous)) => Some(previous.update(&output)),
+                Some(Err(error)) => Some(Err(error.clone())),
+                None => None,
+            };
+            Ok((output, next_resolved))
         })?;
-        let next_resolved = match current.resolved.get() {
-            Some(Ok(previous)) => Some(previous.update(&output)),
-            Some(Err(error)) => Some(Err(error.clone())),
-            None => None,
-        };
         current = Current::new(output);
         if let Some(resolved) = next_resolved {
             let _ = current.resolved.set(resolved);

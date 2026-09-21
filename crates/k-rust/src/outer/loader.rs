@@ -475,6 +475,7 @@ fn load_impl(
     compilation: Option<selection::CompilationSelection<'_>>,
 ) -> Result<(LoadedDefinition, Option<String>, PhaseTimings), LoadError> {
     let main_module = main_module.into();
+    let span_started = web_time::Instant::now();
     let mut timings = PhaseTimings::default();
     let mut loader = Loader {
         resolver,
@@ -553,6 +554,7 @@ fn load_impl(
         compilation,
         &mut timings,
     )?;
+    timings.set_span_seconds(span_started.elapsed().as_secs_f64());
     Ok((loaded, syntax_module, timings))
 }
 
@@ -632,7 +634,6 @@ fn finish_load(
     let (definition, resolved) = timings.time("apply sort synonyms", || {
         apply_sort_synonyms_with_resolved(&definition).map_err(LoadError::DefinitionResolution)
     })?;
-    let resolved = timings.time("resolve outer definition", || Ok::<_, LoadError>(resolved))?;
     let mut diagnostics = diagnostics;
     let outer_diagnostics = timings.time("check outer modules", || check_outer_modules(&resolved));
     let has_outer_errors = outer_diagnostics
@@ -705,7 +706,6 @@ fn finish_load(
         resolve_rule_bubbles_with_resolved(&definition, &resolved, Some(nested))
             .map_err(LoadError::RuleParsing)
     })?;
-    let resolved = timings.time("resolve loaded definition", || Ok::<_, LoadError>(resolved))?;
     let diagnostics = options.diagnostics.apply(diagnostics);
     if diagnostics
         .iter()

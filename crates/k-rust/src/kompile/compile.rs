@@ -239,6 +239,7 @@ pub fn compile_loaded_definition_timed(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<(CompiledKoreArtifacts, PhaseTimings), CompileError> {
+    let span_started = web_time::Instant::now();
     let mut timings = PhaseTimings::default();
     let timings = &mut timings;
     let (execution_definition, definition, mut diagnostics, resolved) =
@@ -329,6 +330,7 @@ pub fn compile_loaded_definition_timed(
                 .join("\n"),
         )
     });
+    timings.set_span_seconds(span_started.elapsed().as_secs_f64());
     Ok((
         CompiledKoreArtifacts {
             definition_kore,

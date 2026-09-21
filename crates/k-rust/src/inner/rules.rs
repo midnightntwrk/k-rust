@@ -218,10 +218,12 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
         timings.phases.push(crate::timings::PhaseTiming {
             name: "resolve rule bubbles / grammars",
             seconds: grammar_seconds,
+            depth: 1,
         });
         timings.phases.push(crate::timings::PhaseTiming {
             name: "resolve rule bubbles / parse",
             seconds: parse_seconds,
+            depth: 1,
         });
     }
 

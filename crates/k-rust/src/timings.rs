@@ -16,12 +16,19 @@ use web_time::Instant;
 pub struct PhaseTiming {
     pub name: &'static str,
     pub seconds: f64,
+    /// Nesting depth. Top-level phases have depth zero; children recorded by
+    /// [`PhaseTimings::time_nested`] have their parent's depth plus one.
+    pub depth: u8,
 }
 
 /// Named phase durations in execution order.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct PhaseTimings {
     pub phases: Vec<PhaseTiming>,
+    #[serde(skip)]
+    pub(crate) span_seconds: Option<f64>,
+    #[serde(skip)]
+    depth: u8,
 }
 
 impl PhaseTimings {
@@ -34,6 +41,7 @@ impl PhaseTimings {
         self.phases.push(PhaseTiming {
             name,
             seconds: started.elapsed().as_secs_f64(),
+            depth: self.depth,
         });
         value
     }
@@ -45,14 +53,39 @@ impl PhaseTimings {
         run: impl FnOnce(&mut PhaseTimings) -> T,
     ) -> T {
         let started = Instant::now();
-        let mut children = PhaseTimings::default();
+        let parent_depth = self.depth;
+        let mut children = PhaseTimings {
+            depth: parent_depth.saturating_add(1),
+            ..PhaseTimings::default()
+        };
         let value = run(&mut children);
         self.phases.push(PhaseTiming {
             name,
             seconds: started.elapsed().as_secs_f64(),
+            depth: parent_depth,
         });
         self.phases.extend(children.phases);
         value
+    }
+
+    /// Run a group entry point and retain its wall-clock span in addition to
+    /// the phase entries recorded by the callback.
+    pub fn span<T>(&mut self, run: impl FnOnce(&mut PhaseTimings) -> T) -> T {
+        let started = Instant::now();
+        let value = run(self);
+        self.span_seconds = Some(started.elapsed().as_secs_f64());
+        value
+    }
+
+    /// Record a span measured by a caller that must own the entry-point setup.
+    pub fn set_span_seconds(&mut self, seconds: f64) {
+        self.span_seconds = Some(seconds);
+    }
+
+    /// Return the measured group span, falling back to the top-level phase sum
+    /// for synthetic or legacy timing values.
+    pub fn measured_span_seconds(&self) -> f64 {
+        self.span_seconds.unwrap_or_else(|| self.total_seconds())
     }
 
     /// Append every phase of `other` after the phases already recorded.
@@ -64,6 +97,7 @@ impl PhaseTimings {
     pub fn total_seconds(&self) -> f64 {
         self.phases
             .iter()
+            .filter(|phase| phase.depth == 0)
             .fold(0.0, |total, phase| total + phase.seconds)
     }
 
@@ -71,7 +105,26 @@ impl PhaseTimings {
     pub fn seconds_of(&self, prefix: &str) -> f64 {
         self.phases
             .iter()
+            .filter(|phase| phase.depth == 0)
             .filter(|phase| phase.name.starts_with(prefix))
             .fold(0.0, |total, phase| total + phase.seconds)
+    }
+
+    /// Return the descendants immediately recorded after `name`.
+    pub fn children_of(&self, name: &str) -> impl Iterator<Item = &PhaseTiming> {
+        let (start, depth) = self
+            .phases
+            .iter()
+            .enumerate()
+            .find(|(_, phase)| phase.name == name)
+            .map_or((self.phases.len(), 0), |(index, phase)| {
+                (index + 1, phase.depth)
+            });
+        self.phases
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take_while(move |(_, phase)| phase.depth > depth)
+            .map(|(_, phase)| phase)
     }
 }
