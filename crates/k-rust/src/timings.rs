@@ -27,6 +27,8 @@ pub struct PhaseTimings {
     pub phases: Vec<PhaseTiming>,
     #[serde(skip)]
     pub(crate) span_seconds: Option<f64>,
+    #[serde(skip)]
+    depth: u8,
 }
 
 impl PhaseTimings {
@@ -39,7 +41,7 @@ impl PhaseTimings {
         self.phases.push(PhaseTiming {
             name,
             seconds: started.elapsed().as_secs_f64(),
-            depth: 0,
+            depth: self.depth,
         });
         value
     }
@@ -51,20 +53,17 @@ impl PhaseTimings {
         run: impl FnOnce(&mut PhaseTimings) -> T,
     ) -> T {
         let started = Instant::now();
-        let mut children = PhaseTimings::default();
+        let parent_depth = self.depth;
+        let mut children = PhaseTimings {
+            depth: parent_depth.saturating_add(1),
+            ..PhaseTimings::default()
+        };
         let value = run(&mut children);
-        let parent_depth = self
-            .phases
-            .last()
-            .map_or(0, |phase| phase.depth.saturating_add(1));
         self.phases.push(PhaseTiming {
             name,
             seconds: started.elapsed().as_secs_f64(),
-            depth: parent_depth.saturating_sub(1),
+            depth: parent_depth,
         });
-        for phase in &mut children.phases {
-            phase.depth = phase.depth.saturating_add(parent_depth);
-        }
         self.phases.extend(children.phases);
         value
     }
