@@ -79,7 +79,7 @@ Implemented end to end:
 
 - K outer syntax, Markdown/literate-K sources, recursive `requires`, imports, source spans, syntax
   declarations, configurations, and rule-like bubbles.
-- A portable Earley/chart parser with K's scanner winner rules, layout, priorities,
+- A portable agenda-driven Earley parser whose packed forest is built during completion, with K's scanner winner rules, layout, priorities,
   associativity, records, user lists, casts, cells, ambiguity factoring, and sort inference.
 - Native Z3-backed ambiguous and parametric inference by default, with a portable non-Z3 subset.
 - KAST text and JSON v4; KORE text, JSON v1, binary KORE 1.0–1.2, ASTs, compact and pretty

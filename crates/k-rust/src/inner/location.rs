@@ -1,3 +1,5 @@
+//! Maps parser byte spans back to source locations in O(prefix bytes) time.
+
 use crate::definition::AttributeKey;
 use crate::definition::{Attributes, Location};
 use crate::kast::TermSpan;

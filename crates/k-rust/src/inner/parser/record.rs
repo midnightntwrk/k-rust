@@ -1,4 +1,7 @@
 //! Generation and collapse of Scala-compatible record productions.
+//!
+//! Production generation is O(fields). Packed collapse is O(nodes + fields) because pointer
+//! memos visit each shared node once; generated field names saturate a reserved-name set.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
@@ -223,6 +226,8 @@ impl Grammar {
             PackedNode::Ambiguity(alternatives) => {
                 let mut retained = BTreeSet::new();
                 let mut errors = Vec::new();
+                // Invariant: every processed alternative is memoized recursively, and `retained`
+                // holds the successful flattened results in deterministic structural order.
                 for alternative in packed_terms_in_structural_order(alternatives) {
                     match self.collapse_packed_records(
                         Rc::clone(&alternative),
@@ -266,6 +271,8 @@ impl Grammar {
             } => {
                 let mut collapsed_children = Vec::with_capacity(children.len());
                 let mut errors = Vec::new();
+                // Invariant: each completed prefix of `collapsed_children` corresponds to the
+                // same prefix of input children; errors retain the original child identity.
                 for child in children {
                     match self.collapse_packed_records(
                         Rc::clone(child),
@@ -331,6 +338,8 @@ impl Grammar {
                             sort: None,
                         });
                     }
+                    // Invariant: every rejected candidate is already reserved and `next`
+                    // strictly increases until the first definition-wide fresh name is inserted.
                     let name = loop {
                         let candidate = format!("_{stem}{}", *next);
                         *next += 1;

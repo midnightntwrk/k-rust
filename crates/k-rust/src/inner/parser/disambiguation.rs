@@ -1,4 +1,18 @@
-//! Priority and associativity filtering over production-bearing parse trees.
+//! Packed-DAG and owned-tree disambiguation in the following pipeline order.
+//! 1. Reserve variable names (packed DAG, O(nodes)).
+//! 2. Collapse record syntax (packed DAG, O(nodes + fields)).
+//! 3. Filter priority and associativity (packed DAG, O(nodes per memo lifetime)).
+//! 4. Resolve `#KApply` (packed DAG, O(nodes * matching productions)).
+//! 5. Factor packed ambiguities (packed DAG, O(nodes * alternatives)).
+//! 6. Lift top-LHS ambiguities (packed DAG, O(nodes)).
+//! 7. Infer sorts and unpack (packed DAG to owned tree).
+//! 8. Resolve overloaded terminators (owned tree, O(nodes * list candidates)).
+//! 9. Apply prefer/avoid and overload filtering (owned tree, O(nodes)).
+//! 10. Remove brackets and syntactic casts (owned tree, O(nodes)).
+//! 11. Factor and report remaining ambiguities (owned tree, O(nodes * alternatives)).
+//!
+//! `Counter::ParserPackedPriorityComputations` counts priority memo misses. Portable and Z3
+//! inference paths remain independent oracles and must produce the same accepted tree.
 
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
@@ -75,6 +89,8 @@ impl Grammar {
         term: Rc<PackedTerm>,
         memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
     ) -> Rc<PackedTerm> {
+        // Invariant: every memoized identity has a complete factored result; recursion only visits
+        // unrecorded children or alternatives.
         let identity = Rc::as_ptr(&term);
         if let Some((_, factored)) = memo.get(&identity) {
             return Rc::clone(factored);
@@ -162,6 +178,8 @@ impl Grammar {
         alternatives: BTreeSet<Rc<PackedTerm>>,
         memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
     ) -> Rc<PackedTerm> {
+        // Invariant: retained alternatives agree on the factored production prefix, and each
+        // recursive difference occupies one child ambiguity.
         if alternatives.len() <= 1 {
             return PackedTerm::ambiguity(alternatives);
         }
@@ -336,6 +354,8 @@ impl Grammar {
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
+        // Invariant: node entries are complete context-free results and child entries are complete
+        // for the `(identity, parent, side)` context.
         let identity = Rc::as_ptr(&term);
         if let Some((_, filtered)) = memo.get(&identity) {
             return filtered.clone();
@@ -498,6 +518,8 @@ impl Grammar {
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
+        // Invariant: a cache hit has the same identity, parent production, and associativity side
+        // as the requested decision.
         let identity = Rc::as_ptr(&child);
         let key = (identity, parent, side);
         if let Some((_, filtered)) = child_memo.get(&key) {
@@ -522,6 +544,8 @@ impl Grammar {
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
+        // Invariant: every processed alternative contributes one filtered result or one
+        // diagnostic, and retained results remain ordered and unique.
         if let PackedNode::Ambiguity(alternatives) = &child.node {
             let mut retained = BTreeSet::new();
             let mut errors = Vec::new();
@@ -1002,6 +1026,8 @@ impl Grammar {
         term: Rc<PackedTerm>,
         memo: &mut PackedTransformMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
+        // Invariant: every memoized identity has its complete `#KApply` resolution; recursion only
+        // visits identities absent from the memo.
         let identity = Rc::as_ptr(&term);
         if let Some((_, resolved)) = memo.get(&identity) {
             return resolved.clone();
@@ -1591,6 +1617,8 @@ impl Grammar {
     /// Apply Scala's post-inference overload and `prefer`/`avoid` selection,
     /// then push shared-production ambiguity into its one differing child.
     pub(super) fn filter_overloads_prefer_avoid(&self, term: ParsedTerm) -> ParsedTerm {
+        // Invariant: recursion strictly descends the owned tree and retains exactly the maximal
+        // overload choices after prefer/avoid classification.
         match term {
             ParsedTerm::Term(_) => term,
             ParsedTerm::Production {
@@ -1808,6 +1836,8 @@ impl Grammar {
         term: Rc<PackedTerm>,
         expansion_memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, BTreeSet<Rc<PackedTerm>>)>,
     ) -> Rc<PackedTerm> {
+        // Invariant: every visited identity is memoized completely, and an ambiguity moves only
+        // toward the rule-content root.
         if let PackedNode::Ambiguity(alternatives) = &term.node {
             let mut lifted = BTreeSet::new();
             for alternative in alternatives {
@@ -1864,6 +1894,8 @@ impl Grammar {
         body: Rc<PackedTerm>,
         memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, BTreeSet<Rc<PackedTerm>>)>,
     ) -> BTreeSet<Rc<PackedTerm>> {
+        // Invariant: every memoized identity has all rewrite-LHS alternatives expanded once while
+        // shared descendants remain shared.
         let identity = Rc::as_ptr(&body);
         if let Some((_, expanded)) = memo.get(&identity) {
             return expanded.clone();

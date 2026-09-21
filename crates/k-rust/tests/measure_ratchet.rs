@@ -88,6 +88,11 @@ fn rewrite_example_compile_stays_within_the_pinned_kompile_work() {
         delta.get(Counter::ParserPredictionAnalysisBuilds)
             < delta.get(Counter::KompileRuleBubblesParsed)
     );
+    assert_eq!(
+        delta.get(Counter::ParserGrammarBuilds),
+        delta.get(Counter::ParserPredictionAnalysisBuilds) + 1,
+        "one grammar is built for each bubble-bearing module plus the program grammar"
+    );
 }
 
 /// The module chain of `kompile_memory.rs`: module `n` imports module `n - 1`, and every
@@ -227,6 +232,24 @@ fn program_chain_parse_work_grows_at_most_quadratically() {
             at_15.get(counter)
         );
     }
+}
+
+#[test]
+fn scanner_winner_work_is_bounded_by_input_positions() {
+    let operands = 15;
+    let delta = parse_program_chain(operands);
+    let input_bytes = 2 * operands - 1;
+    assert!(
+        delta.get(Counter::ParserScannerWinnerComputations) <= input_bytes as u64 + 1,
+        "{} winner computations for {input_bytes} input bytes",
+        delta.get(Counter::ParserScannerWinnerComputations)
+    );
+}
+
+#[test]
+fn casted_rule_chain_builds_its_two_rule_grammars_once() {
+    let delta = parse_casted_chain(15);
+    assert_eq!(delta.get(Counter::ParserGrammarBuilds), 2);
 }
 
 #[test]

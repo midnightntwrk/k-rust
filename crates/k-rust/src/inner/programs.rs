@@ -1,4 +1,8 @@
-//! Parsing user programs with a module's concrete syntax.
+//! User-program parsing with a cached module-derived concrete-syntax grammar.
+//!
+//! A `ProgramParser` builds one grammar, then each parse uses the Earley pipeline. Public syntax
+//! collection is a visited-set DFS, O(modules + imports + visible sentences); parse work is
+//! measured by the parser counter family.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -318,6 +322,8 @@ fn collect_public_signature(
     visited: &mut BTreeSet<(ModuleId, bool)>,
     sentences: &mut Vec<Sentence>,
 ) {
+    // Invariant: `visited` contains expanded `(module, substitution)` states; recursion follows
+    // one public import and appends only first-equivalent sentences.
     if !visited.insert((module, substitute_imports)) {
         return;
     }

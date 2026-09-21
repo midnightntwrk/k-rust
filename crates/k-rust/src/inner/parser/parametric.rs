@@ -1,4 +1,7 @@
 //! Scala-compatible concretization of parametric productions for Earley parsing.
+//!
+//! Construction is O(concrete sorts * formal productions), including the four K-specific
+//! instantiation cases; substitution is linear in the traversed sort tree.
 
 use std::collections::BTreeMap;
 
