@@ -8,8 +8,8 @@ use std::fmt;
 
 use crate::definition::AttributeKey;
 use crate::definition::{
-    Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
-    Sentence, push_if_inequivalent,
+    Attributes, Definition, EquivalenceAccumulator, Location, ModuleId, ProductionItem,
+    ResolveError, ResolvedDefinition, Sentence, push_if_inequivalent,
 };
 use crate::kast::{InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
@@ -299,9 +299,13 @@ pub(super) fn add_implicit_ml_syntax<'a>(
     let Some(module) = resolved.module_id("ML-SYNTAX") else {
         return;
     };
-    for sentence in resolved.signature_sentences(module) {
-        push_if_inequivalent(visible, sentence);
-    }
+    let mut unique = EquivalenceAccumulator::from_sentences(visible.iter().copied());
+    let accepted = resolved
+        .signature_sentences(module)
+        .into_iter()
+        .filter(|sentence| push_if_inequivalent(&mut unique, sentence))
+        .collect::<Vec<_>>();
+    visible.extend(accepted);
 }
 
 fn is_cell_name(value: &str) -> bool {

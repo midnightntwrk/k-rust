@@ -10,6 +10,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
+        retain_new_sentences,
     },
     kast::{FrontendSort, Label, Sort, Term},
     provenance::{GeneratingPass, record_generated_origins},
@@ -66,11 +67,12 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
                     (AttributeKey::Predicate, sort_json(sort)),
                 ]),
             };
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-            if !visible.contains(&&production) && !module.local_sentences.contains(&production) {
-                generated.push(production);
-            }
+            generated.push(production);
         }
+        let mut generated = retain_new_sentences(
+            visible.iter().copied().chain(module.local_sentences.iter()),
+            generated,
+        );
         if !generated.is_empty() {
             let k_sort = Sentence::SyntaxSort {
                 parameters: Vec::new(),
@@ -168,12 +170,8 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
                 &defined_labels,
             ));
         }
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
-        for sentence in generated {
-            if !module.local_sentences.contains(&sentence) {
-                module.local_sentences.push(sentence);
-            }
-        }
+        let generated = retain_new_sentences(module.local_sentences.iter(), generated);
+        module.local_sentences.extend(generated);
     }
     let output = rebase_local_metadata(definition, output)?;
     Ok(record_generated_origins(

@@ -155,7 +155,7 @@ fn module_chain_compile_resolves_per_pass_and_grows_sentences_linearly() {
     );
     assert!(
         at_10.get(Counter::KompileSentenceEquivalenceChecks)
-            <= 4 * at_5.get(Counter::KompileSentenceEquivalenceChecks),
+            <= 2 * at_5.get(Counter::KompileSentenceEquivalenceChecks),
         "{} equivalence checks at 10 modules versus {} at 5",
         at_10.get(Counter::KompileSentenceEquivalenceChecks),
         at_5.get(Counter::KompileSentenceEquivalenceChecks)
@@ -394,8 +394,8 @@ const REBASE_CALLS_REWRITE: u64 = 12;
 const RULE_BUBBLES_REWRITE: u64 = 198;
 /// `examples/rewrite.k`: 2091 sentences after transformation.
 const SENTENCES_REWRITE: u64 = 2300;
-/// `examples/rewrite.k`: 18,297,983 structural sentence-equivalence checks.
-const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 20_128_000;
+/// `examples/rewrite.k`: 4,453,951 structural sentence-equivalence checks after key indexing.
+const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 4_900_000;
 /// `examples/rewrite.k`: 3,787 production catalogs built.
 const PRODUCTION_CATALOGS_REWRITE: u64 = 4_166;
 /// `examples/rewrite.k`: 69,079 order-preserving provenance-link dedup probes.

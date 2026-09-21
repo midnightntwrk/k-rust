@@ -17,7 +17,6 @@ use crate::{
         Attributes, Definition, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition,
         Sentence, SortCatalog,
         checks::{check_functions, check_smt_lemmas},
-        sentence_equivalent,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
@@ -170,7 +169,6 @@ pub fn expand_macros_in_term_with_scope(
             term,
             &resolved.production_catalog(term_module_id),
             &resolved.production_catalog(macro_module_id),
-            &sentence_equivalent,
         )?
     };
     let mut expanded = expand_macros_in_terms_from_resolved_with_scope(
@@ -276,18 +274,10 @@ impl<'a> Expander<'a> {
                     // no executable production. Template applications remain strict, while a
                     // private lexical token can discard its self-describing production index.
                     let source = definition.production_catalog(owner);
-                    rule.left = super::rebase_term_to_visible_catalog(
-                        rule.left,
-                        &source,
-                        &productions,
-                        &sentence_equivalent,
-                    )?;
-                    rule.right = super::rebase_term_to_visible_catalog(
-                        rule.right,
-                        &source,
-                        &productions,
-                        &sentence_equivalent,
-                    )?;
+                    let mut rebaser =
+                        super::super::rebase::ExactRebaser::new(&source, &productions);
+                    rule.left = rebaser.rebase_term_discarding_tokens(rule.left)?;
+                    rule.right = rebaser.rebase_term_discarding_tokens(rule.right)?;
                     let Sentence::Rule {
                         body,
                         requires,
@@ -297,18 +287,10 @@ impl<'a> Expander<'a> {
                     else {
                         unreachable!("macro rules are rules")
                     };
-                    *requires = super::rebase_term_to_visible_catalog(
-                        std::mem::replace(requires, truth()),
-                        &source,
-                        &productions,
-                        &sentence_equivalent,
-                    )?;
-                    *ensures = super::rebase_term_to_visible_catalog(
-                        std::mem::replace(ensures, truth()),
-                        &source,
-                        &productions,
-                        &sentence_equivalent,
-                    )?;
+                    *requires = rebaser
+                        .rebase_term_discarding_tokens(std::mem::replace(requires, truth()))?;
+                    *ensures = rebaser
+                        .rebase_term_discarding_tokens(std::mem::replace(ensures, truth()))?;
                     *body = Term::Rewrite {
                         left: Box::new(rule.left.clone()),
                         right: Box::new(rule.right.clone()),

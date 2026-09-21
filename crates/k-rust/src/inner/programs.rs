@@ -9,8 +9,8 @@ use std::fmt;
 
 use crate::definition::AttributeKey;
 use crate::definition::{
-    Attributes, Definition, ModuleId, ProductionCatalog, ProductionId, ProductionItem,
-    ResolveError, ResolvedDefinition, Sentence, SortCatalog, push_if_inequivalent,
+    Attributes, Definition, EquivalenceAccumulator, ModuleId, ProductionCatalog, ProductionId,
+    ProductionItem, ResolveError, ResolvedDefinition, Sentence, SortCatalog, push_if_inequivalent,
 };
 use crate::kast::names::PROGRAM_PARSING_POSTFIX;
 use crate::kast::{Sort, Term};
@@ -369,7 +369,7 @@ fn append_unique<'a>(
     sentences: &mut Vec<Sentence>,
     incoming: impl IntoIterator<Item = &'a Sentence>,
 ) {
-    let mut seen = sentences.iter().collect::<Vec<_>>();
+    let mut seen = EquivalenceAccumulator::from_sentences(sentences.iter());
     let accepted = incoming
         .into_iter()
         .filter(|sentence| push_if_inequivalent(&mut seen, sentence))

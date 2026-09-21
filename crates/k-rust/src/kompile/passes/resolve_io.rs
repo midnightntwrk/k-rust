@@ -8,10 +8,7 @@ use std::{fmt, ops::Range};
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{
-        Definition, FlatImport, LabelHead, ModuleId, ResolvedDefinition, Sentence,
-        sentence_equivalent,
-    },
+    definition::{Definition, FlatImport, LabelHead, ModuleId, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, WellKnownModule},
     provenance::{GeneratingPass, record_generated_origins},
@@ -190,11 +187,9 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
                 .module_id(&target_name)
                 .expect("resolved output contains every output module");
             let target_catalog = target.production_catalog(target_module);
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+            let mut rebaser = super::super::rebase::ExactRebaser::new(&source, &target_catalog);
             for sentence in &mut output.modules[origin.module].local_sentences[origin.sentences] {
-                if let Err(message) =
-                    super::rebase_sentence(sentence, &source, &target_catalog, &sentence_equivalent)
-                {
+                if let Err(message) = rebaser.rebase_sentence(sentence) {
                     diagnostics.push(plain_error(format!(
                         "failed to rebase I/O metadata from {} into {}: {message}",
                         resolved.module(origin.source).name,

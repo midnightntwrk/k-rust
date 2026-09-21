@@ -12,7 +12,7 @@ use serde_json::json;
 
 use crate::definition::{
     AttributeKey, Definition, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
-    ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead, sentence_equivalent,
+    ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
@@ -1159,22 +1159,23 @@ fn add_sort_injections_to_definition_inner(
             continue;
         }
         let source_catalog = resolved.production_catalog(module_id);
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        let mut import_rebaser = (module_id != target).then(|| {
+            super::rebase::ExactRebaser::new(&source_catalog, &target_injector.productions)
+        });
+        let mut localization_rebaser = (module_id != target).then(|| {
+            super::rebase::ExactRebaser::new(&target_injector.productions, &source_catalog)
+        });
         for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
             let mut input = sentence.clone();
             if module_id != target && target_modules.contains(&module_id) {
-                super::passes::rebase_sentence(
-                    &mut input,
-                    &source_catalog,
-                    &target_injector.productions,
-                    &sentence_equivalent,
-                )
-                .map_err(|message| {
-                    SortInjectionError::InvalidImportedMetadata {
+                import_rebaser
+                    .as_mut()
+                    .expect("non-target modules have an import rebaser")
+                    .rebase_sentence(&mut input)
+                    .map_err(|message| SortInjectionError::InvalidImportedMetadata {
                         module: module.name.clone(),
                         message,
-                    }
-                })?;
+                    })?;
             }
             let mut injected = target_injector.inject_sentence(&input).map_err(|error| {
                 SortInjectionError::Sentence {
@@ -1191,8 +1192,9 @@ fn add_sort_injections_to_definition_inner(
             if module_id != target && target_modules.contains(&module_id) {
                 localize_sentence_metadata(
                     &mut injected,
-                    &target_injector.productions,
-                    &source_catalog,
+                    localization_rebaser
+                        .as_mut()
+                        .expect("non-target modules have a localization rebaser"),
                 );
             }
             *sentence = injected;
@@ -1203,12 +1205,11 @@ fn add_sort_injections_to_definition_inner(
 
 fn localize_sentence_metadata(
     sentence: &mut Sentence,
-    source: &ProductionCatalog<'_>,
-    target: &ProductionCatalog<'_>,
+    rebaser: &mut super::rebase::ExactRebaser<'_, '_, '_, '_>,
 ) {
-    let localize = |term: &mut Term| {
+    let mut localize = |term: &mut Term| {
         let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
-        *term = super::rebase::rebase_term_lossy(taken, source, target);
+        *term = rebaser.rebase_term_lossy(taken);
     };
     match sentence {
         Sentence::Rule {
