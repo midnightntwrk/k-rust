@@ -7,31 +7,31 @@ use std::collections::BTreeSet;
 
 use crate::definition::AttributeKey;
 use crate::{
-    definition::{
-        Definition, LabelHead, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
-    },
+    definition::{Definition, LabelHead, ProductionCatalog, ProductionId, Sentence},
     kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 /// Apply Java's `AddImplicitComputationCell` definition transformation.
 pub fn add_implicit_computation_cell(definition: &Definition) -> Result<Definition, String> {
-    add_implicit_computation_cell_inner(definition).map(|output| {
-        record_generated_origins(
-            definition,
-            output,
-            GeneratingPass::AddImplicitComputationCell,
-        )
-    })
+    super::super::pipeline::run_standalone(
+        definition,
+        add_implicit_computation_cell_pass,
+        Some(GeneratingPass::AddImplicitComputationCell),
+    )
 }
 
-fn add_implicit_computation_cell_inner(definition: &Definition) -> Result<Definition, String> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
-    let mut output = definition.clone();
+pub(crate) fn add_implicit_computation_cell_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, String> {
+    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+    let views = resolved.views();
+    let mut output = input.definition.clone();
     // Java derives configuration and label information once from the definition's main-module
     // closure. Syntax modules may contain generated strictness rules without importing the
     // configuration themselves; those rules still use the main definition's computation cell.
-    let configuration_productions = resolved.production_catalog(resolved.main_module_id());
+    let configuration_productions = views.production_catalog(resolved.main_module_id());
     let cell_sorts = configuration_productions
         .productions()
         .filter(|(_, production)| production.attributes().has(AttributeKey::Cell))
@@ -58,7 +58,7 @@ fn add_implicit_computation_cell_inner(definition: &Definition) -> Result<Defini
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let productions = resolved.production_catalog(module_id);
+        let productions = views.production_catalog(module_id);
 
         for sentence in &mut module.local_sentences {
             if skip_sentence(sentence) {

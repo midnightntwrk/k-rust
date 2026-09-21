@@ -3,7 +3,7 @@
 //!
 //! Thread the generated top-cell configuration through functions that inspect configuration.
 
-use std::{collections::BTreeSet, fmt};
+use std::{collections::BTreeSet, convert::Infallible, fmt};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -14,7 +14,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 use super::super::label_graph::LabelDependencyGraph;
@@ -47,32 +47,32 @@ impl std::error::Error for ResolveFunctionWithConfigError {}
 pub fn resolve_function_with_config(
     definition: &Definition,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
-    resolve_function_with_config_inner(definition).map(|output| {
-        record_generated_origins(
-            definition,
-            output,
-            GeneratingPass::ResolveFunctionWithConfig,
-        )
-    })
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_function_with_config_pass,
+        Some(GeneratingPass::ResolveFunctionWithConfig),
+    )
 }
 
-fn resolve_function_with_config_inner(
-    definition: &Definition,
+pub(crate) fn resolve_function_with_config_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| {
-        ResolveFunctionWithConfigError {
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| ResolveFunctionWithConfigError {
             diagnostics: vec![plain_error(error.to_string())],
-        }
-    })?;
+        })?;
+    let views = resolved.views();
     let main_module = resolved
-        .module_id(&definition.main_module)
+        .module_id(&input.definition.main_module)
         .expect("resolved definition contains its main module");
     let with_config = compute_with_config_functions(&resolved, main_module);
     if with_config.is_empty() {
-        return Ok(definition.clone());
+        return Ok(input.definition.clone());
     }
 
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         let module_id = resolved
@@ -195,7 +195,7 @@ fn resolve_function_with_config_inner(
     }
 
     // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-    rebase_local_metadata_by(definition, output, |source, target| {
+    rebase_local_metadata_by(&views, output, |source, target| {
         sentence_equivalent(source, target)
             || function_production_equivalent(source, target, &with_config)
     })
@@ -209,7 +209,19 @@ fn resolve_function_with_config_inner(
 /// This remains a separate operation because the KORE pipeline deliberately runs it only after
 /// cell concretization and semantics-module generation.
 pub fn resolve_config_var(definition: &Definition) -> Definition {
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_config_var_pass,
+        Some(GeneratingPass::ResolveFunctionWithConfig),
+    )
+    .unwrap_or_else(|error| match error {})
+}
+
+pub(crate) fn resolve_config_var_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, Infallible> {
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
             let (body, requires, ensures) = match sentence {
@@ -249,11 +261,7 @@ pub fn resolve_config_var(definition: &Definition) -> Definition {
             }
         }
     }
-    record_generated_origins(
-        definition,
-        output,
-        GeneratingPass::ResolveFunctionWithConfig,
-    )
+    Ok(output)
 }
 
 fn compute_with_config_functions(

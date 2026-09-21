@@ -386,9 +386,10 @@ fn z3_checks_are_paid_once_per_bubble() {
 // Measured at the commit that added this file, then rounded up by about 10 %. The measured
 // values are in that commit's message; re-pin in a commit that says why the value moved.
 
-/// `examples/rewrite.k`: 69 resolutions (one per pass, the same for every input).
-const RESOLVE_CALLS_REWRITE: u64 = 76;
-/// `examples/rewrite.k`: 11 rebases.
+/// `examples/rewrite.k`: 69 resolutions at a85030c4, 59 after all 11 exercised rebases reuse
+/// their input resolution; the bound gives the measured result about 10 % headroom.
+const RESOLVE_CALLS_REWRITE: u64 = 65;
+/// `examples/rewrite.k`: 11 rebases at a85030c4 and after the pipeline conversion.
 const REBASE_CALLS_REWRITE: u64 = 12;
 /// `examples/rewrite.k`: its one rule plus the prelude bubbles reachable from REWRITE.
 const RULE_BUBBLES_REWRITE: u64 = 198;

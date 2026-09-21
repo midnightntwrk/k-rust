@@ -11,7 +11,7 @@ use crate::{
     definition::{Definition, FlatImport, LabelHead, ModuleId, ResolvedDefinition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, WellKnownModule},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -52,14 +52,22 @@ struct MetadataOrigin {
 /// Java, imports selected stream sentences under the user's cell label, and empties the two
 /// template modules after instantiation.
 pub fn resolve_io(definition: &Definition) -> Result<Definition, ResolveIoError> {
-    resolve_io_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveIo))
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_io_pass,
+        Some(GeneratingPass::ResolveIo),
+    )
 }
 
-fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoError> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ResolveIoError {
+pub(crate) fn resolve_io_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, ResolveIoError> {
+    let definition = input.definition;
+    let resolved = input.resolved_raw().map_err(|error| ResolveIoError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
+    let views = resolved.views();
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
     let mut metadata_origins = Vec::new();
@@ -181,7 +189,7 @@ fn resolve_io_inner(definition: &Definition) -> Result<Definition, ResolveIoErro
         };
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for origin in metadata_origins {
-            let source = resolved.production_catalog(origin.source);
+            let source = views.production_catalog(origin.source);
             let target_name = output.modules[origin.module].name.clone();
             let target_module = target
                 .module_id(&target_name)

@@ -7,10 +7,10 @@ use std::fmt;
 
 use crate::definition::AttributeKey;
 use crate::{
-    definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
+    definition::{Definition, LabelHead, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::{InternalLabel, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 mod add_implicit_computation_cell;
@@ -42,40 +42,70 @@ pub(crate) use super::rebase::{
     rebase_term_to_visible_catalog,
 };
 pub use add_implicit_computation_cell::add_implicit_computation_cell;
+pub(crate) use add_implicit_computation_cell::add_implicit_computation_cell_pass;
+pub(crate) use check_simplification::check_simplification_rules_pass;
 pub use check_simplification::{CheckSimplificationError, check_simplification_rules};
+pub(crate) use concretize_cells::concretize_cells_pass;
 pub use concretize_cells::{ConcretizeCellsError, concretize_cells, concretize_cells_in_sentence};
+pub(crate) use constant_folding::constant_fold_pass;
 pub use constant_folding::{ConstantFoldingError, constant_fold};
 pub(crate) use expand_macros::expand_macros_in_terms_from_resolved;
+pub(crate) use expand_macros::expand_macros_pass;
 pub use expand_macros::{
     ExpandMacrosError, expand_macros, expand_macros_in_term, expand_macros_in_term_with_scope,
 };
 pub use finalize::{add_cool_like_attributes, add_semantics_module, generate_sort_predicate_rules};
+pub(crate) use finalize::{
+    add_cool_like_attributes_pass, add_semantics_module_pass, generate_sort_predicate_rules_pass,
+};
 pub use generate_sort_helpers::{
     generate_sort_predicate_syntax, generate_sort_projections, regenerate_sort_predicate_syntax,
 };
+pub(crate) use generate_sort_helpers::{
+    generate_sort_predicate_syntax_pass, generate_sort_projections_pass,
+    regenerate_sort_predicate_syntax_pass,
+};
 pub use guard_or_patterns::guard_or_patterns;
+pub(crate) use guard_or_patterns::guard_or_patterns_pass;
 pub use minimize_term_construction::minimize_term_construction;
+pub(crate) use minimize_term_construction::minimize_term_construction_pass;
 pub(crate) use number_sentences::number_sentence;
 pub use number_sentences::number_sentences;
+pub(crate) use number_sentences::number_sentences_pass;
 pub use propagate_macro::propagate_macro_attributes;
+pub(crate) use propagate_macro::propagate_macro_attributes_pass;
 pub use remove_unit::remove_unit;
+pub(crate) use remove_unit::remove_unit_pass;
+pub(crate) use resolve_anon_vars::resolve_anon_vars_pass;
 pub use resolve_anon_vars::{resolve_anon_vars, resolve_anon_vars_in_sentence};
+pub(crate) use resolve_contexts::resolve_contexts_pass;
 pub use resolve_contexts::{ResolveContextsError, resolve_contexts};
+pub(crate) use resolve_fresh_config_constants::resolve_fresh_config_constants_pass;
 pub use resolve_fresh_config_constants::{
     ResolveFreshConfigConstantsError, resolve_fresh_config_constants,
 };
+pub(crate) use resolve_fresh_constants::resolve_fresh_constants_pass;
 pub use resolve_fresh_constants::{ResolveFreshConstantsError, resolve_fresh_constants};
+pub(crate) use resolve_fun::resolve_fun_pass;
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,
 };
+pub(crate) use resolve_function_with_config::{
+    resolve_config_var_pass, resolve_function_with_config_pass,
+};
+pub(crate) use resolve_heat_cool::resolve_heat_cool_attributes_pass;
 pub use resolve_heat_cool::{ResolveHeatCoolError, resolve_heat_cool_attributes};
+pub(crate) use resolve_io::resolve_io_pass;
 pub use resolve_io::{ResolveIoError, resolve_io};
+pub(crate) use resolve_semantic_casts::resolve_semantic_casts_pass;
 pub use resolve_semantic_casts::{
     resolve_semantic_casts, resolve_semantic_casts_in_sentence,
     resolve_semantic_casts_with_predicates_in_sentence,
 };
+pub(crate) use resolve_strict::resolve_strict_pass;
 pub use resolve_strict::{ResolveStrictError, resolve_strict};
+pub(crate) use subsort_kitem::subsort_kitem_pass;
 pub use subsort_kitem::{SubsortKItemError, subsort_kitem};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -100,12 +130,18 @@ impl std::error::Error for ResolveCommError {}
 /// This is Java's first KORE backend pass. The rule-level `comm` attribute is removed because the
 /// backend assigns it a different meaning; the production itself must also carry `comm`.
 pub fn resolve_comm(definition: &Definition) -> Result<Definition, ResolveCommError> {
-    resolve_comm_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveComm))
+    super::pipeline::run_standalone(
+        definition,
+        resolve_comm_pass,
+        Some(GeneratingPass::ResolveComm),
+    )
 }
 
-fn resolve_comm_inner(definition: &Definition) -> Result<Definition, ResolveCommError> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ResolveCommError {
+pub(crate) fn resolve_comm_pass(
+    input: &super::pipeline::PassInput<'_>,
+    _: &mut super::pipeline::PipelineState,
+) -> Result<Definition, ResolveCommError> {
+    let resolved = input.resolved_raw().map_err(|error| ResolveCommError {
         diagnostics: vec![Diagnostic {
             severity: crate::diagnostic::Severity::Error,
             code: DiagnosticCode::InvalidCommutativeSimplification,
@@ -114,7 +150,7 @@ fn resolve_comm_inner(definition: &Definition) -> Result<Definition, ResolveComm
             location: None,
         }],
     })?;
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
 
     for module in &mut output.modules {

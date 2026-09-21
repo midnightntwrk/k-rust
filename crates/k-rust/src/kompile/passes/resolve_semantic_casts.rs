@@ -3,14 +3,17 @@
 //!
 //! Remove semantic-cast applications while retaining their inferred sorts.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    convert::Infallible,
+};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, Sentence},
     kast::{Label, Sort, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 /// Apply the KORE backend form of Java's `ResolveSemanticCasts` pass.
@@ -19,13 +22,25 @@ use crate::{
 /// not add redundant `isSort` side conditions. Casted variables retain their inferred sort in the
 /// public variable node as well.
 pub fn resolve_semantic_casts(definition: &Definition) -> Definition {
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_semantic_casts_pass,
+        Some(GeneratingPass::SemanticCasts),
+    )
+    .unwrap_or_else(|error| match error {})
+}
+
+pub(crate) fn resolve_semantic_casts_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, Infallible> {
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
             resolve_semantic_casts_in_sentence_mut(sentence, false);
         }
     }
-    record_generated_origins(definition, output, GeneratingPass::SemanticCasts)
+    Ok(output)
 }
 
 /// Resolve semantic casts across all term-bearing roots of one sentence.

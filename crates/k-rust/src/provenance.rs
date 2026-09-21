@@ -464,8 +464,17 @@ impl Eq for OriginReceipt {}
 /// Attach one pass's receipts without changing semantic term equality or ordering.
 pub fn record_generated_origins(
     before: &Definition,
+    after: Definition,
+    pass: GeneratingPass,
+) -> Definition {
+    record_generated_origins_inner(before, after, pass, true)
+}
+
+fn record_generated_origins_inner(
+    before: &Definition,
     mut after: Definition,
     pass: GeneratingPass,
+    skip_unchanged: bool,
 ) -> Definition {
     for module in &mut after.modules {
         // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
@@ -475,6 +484,9 @@ pub fn record_generated_origins(
             .find(|candidate| candidate.name == module.name)
             .map(|candidate| candidate.local_sentences.as_slice())
             .unwrap_or_default();
+        if skip_unchanged && before_sentences == module.local_sentences.as_slice() {
+            continue;
+        }
         // One module-wide origin set per pass, shared by every generated sentence that has no
         // narrower derivation of its own.
         let module_origins: Arc<[ProvenanceLink]> =
@@ -1116,7 +1128,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        definition::{Attributes, FlatModule},
+        definition::{Attributes, FlatImport, FlatModule, json as definition_json},
         kast::{Sort, TermMetadata},
     };
 
@@ -1496,6 +1508,47 @@ mod tests {
             panic!("expected application");
         };
         assert_eq!(arguments[0].metadata(), None);
+    }
+
+    #[test]
+    fn unchanged_module_guard_matches_the_full_walk_for_every_generating_pass() {
+        let module = |name: &str, imports: &[&str], body: &str| FlatModule {
+            name: name.into(),
+            imports: imports
+                .iter()
+                .map(|name| FlatImport {
+                    name: (*name).into(),
+                    public: true,
+                })
+                .collect(),
+            local_sentences: vec![rule(Term::apply(body, Vec::new()))],
+            attributes: Attributes::default(),
+        };
+        let before = Definition {
+            main_module: "IMP".into(),
+            modules: vec![
+                module("IMP-COMMON", &[], "common"),
+                module("IMP-SYNTAX", &["IMP-COMMON"], "syntax"),
+                module("IMP", &["IMP-SYNTAX"], "before"),
+            ],
+            attributes: Attributes::default(),
+        };
+        let mut after = before.clone();
+        let Sentence::Rule { body, .. } = &mut after.modules[2].local_sentences[0] else {
+            unreachable!()
+        };
+        *body = Term::apply("after", vec![Term::variable("X")]);
+        let sources = SourceTable::default();
+
+        for pass in GeneratingPass::ALL {
+            let guarded = record_generated_origins(&before, after.clone(), pass);
+            let full = record_generated_origins_inner(&before, after.clone(), pass, false);
+            assert_eq!(
+                definition_json::to_provenance_string(&guarded, &sources).unwrap(),
+                definition_json::to_provenance_string(&full, &sources).unwrap(),
+                "unchanged-module guard changed {pass:?} receipts",
+            );
+        }
     }
 
     #[test]

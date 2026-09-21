@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::{
-    Definition, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
+    Definition, DefinitionViews, ProductionCatalog, ProductionId, ResolvedDefinition, Sentence,
 };
 use crate::kast::{ResolvedProductionId, Term};
 
@@ -131,14 +131,13 @@ impl<'source_catalog, 'source, 'target_catalog, 'target>
 /// terms while changing the catalog around them, so every production-changing pass must translate
 /// surviving indexes before the next resolved-definition boundary.
 pub(crate) fn rebase_local_metadata(
-    before: &Definition,
+    before: &DefinitionViews<'_>,
     mut after: Definition,
 ) -> Result<Definition, String> {
     measure::bump(Counter::KompileRebaseCalls);
-    let before = ResolvedDefinition::resolve(before).map_err(|error| error.to_string())?;
     let after_resolved = ResolvedDefinition::resolve(&after).map_err(|error| error.to_string())?;
     for module in &mut after.modules {
-        let Some(before_module) = before.module_id(&module.name) else {
+        let Some(before_module) = before.definition().module_id(&module.name) else {
             continue;
         };
         let Some(after_module) = after_resolved.module_id(&module.name) else {
@@ -157,15 +156,14 @@ pub(crate) fn rebase_local_metadata(
 /// Predicate-based rebase for transformations whose matching relation is wider than exact
 /// sentence equivalence. These deliberately retain the linear target scan.
 pub(crate) fn rebase_local_metadata_by(
-    before: &Definition,
+    before: &DefinitionViews<'_>,
     mut after: Definition,
     production_matches: impl Fn(&Sentence, &Sentence) -> bool,
 ) -> Result<Definition, String> {
     measure::bump(Counter::KompileRebaseCalls);
-    let before = ResolvedDefinition::resolve(before).map_err(|error| error.to_string())?;
     let after_resolved = ResolvedDefinition::resolve(&after).map_err(|error| error.to_string())?;
     for module in &mut after.modules {
-        let Some(before_module) = before.module_id(&module.name) else {
+        let Some(before_module) = before.definition().module_id(&module.name) else {
             continue;
         };
         let Some(after_module) = after_resolved.module_id(&module.name) else {

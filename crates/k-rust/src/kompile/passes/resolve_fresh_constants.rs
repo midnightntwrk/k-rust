@@ -16,7 +16,7 @@ use crate::{
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 use super::rebase_local_metadata_by;
@@ -43,18 +43,28 @@ pub fn resolve_fresh_constants(
     definition: &Definition,
     initial_fresh: usize,
 ) -> Result<Definition, ResolveFreshConstantsError> {
-    resolve_fresh_constants_inner(definition, initial_fresh).map(|output| {
-        record_generated_origins(definition, output, GeneratingPass::ResolveFreshConstants)
-    })
+    super::super::pipeline::run_standalone(
+        definition,
+        |input, state| {
+            state.fresh_config_count = Some(initial_fresh);
+            resolve_fresh_constants_pass(input, state)
+        },
+        Some(GeneratingPass::ResolveFreshConstants),
+    )
 }
 
-fn resolve_fresh_constants_inner(
-    definition: &Definition,
-    initial_fresh: usize,
+pub(crate) fn resolve_fresh_constants_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    state: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, ResolveFreshConstantsError> {
-    let resolved =
-        ResolvedDefinition::resolve(definition).map_err(|error| error_from(error.to_string()))?;
-    let mut output = definition.clone();
+    let initial_fresh = state
+        .fresh_config_count
+        .expect("fresh configuration count is set by the preceding pipeline stage");
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| error_from(error.to_string()))?;
+    let views = resolved.views();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
 
     for module in &mut output.modules {
@@ -92,7 +102,7 @@ fn resolve_fresh_constants_inner(
             .productions()
             .any(|(_, production)| production.attributes().has(AttributeKey::Cell));
         let configuration =
-            if module.name == definition.main_module && !visible_generated_top && has_cells {
+            if module.name == input.definition.main_module && !visible_generated_top && has_cells {
                 match generated_top_configuration(&resolved, module_id, &productions, initial_fresh)
                 {
                     Ok(configuration) => Some(configuration),
@@ -133,7 +143,7 @@ fn resolve_fresh_constants_inner(
             fix_generated_top_format(sentence);
         }
     }
-    rebase_local_metadata_by(definition, expanded, |source, target| {
+    rebase_local_metadata_by(&views, expanded, |source, target| {
         sentence_equivalent(source, target) || both_generated_top_productions(source, target)
     })
     .map_err(error_from)

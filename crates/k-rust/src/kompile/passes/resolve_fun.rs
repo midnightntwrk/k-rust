@@ -8,11 +8,11 @@ use std::{collections::BTreeSet, fmt};
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence},
+    definition::{Attributes, Definition, ProductionItem, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{GeneratedLabel, InternalLabel, Label, Sort, Term},
     kompile::{SortInjectionError, SortInjector, fresh_names::FreshNames},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 use super::rebase_local_metadata;
@@ -41,17 +41,25 @@ impl std::error::Error for ResolveFunError {}
 /// explicit closure arguments. Generated sentences remain local to the module containing the
 /// expression, exactly as in Java's `ResolveFun` module transformer.
 pub fn resolve_fun(definition: &Definition) -> Result<Definition, ResolveFunError> {
-    resolve_fun_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::ResolveFun))
+    super::super::pipeline::run_standalone(
+        definition,
+        resolve_fun_pass,
+        Some(GeneratingPass::ResolveFun),
+    )
 }
 
-fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunError> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| ResolveFunError {
+pub(crate) fn resolve_fun_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, ResolveFunError> {
+    let resolved = input.resolved_raw().map_err(|error| ResolveFunError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
-    let mut output = definition.clone();
+    let views = resolved.views();
+    let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
-    let mut labels = definition
+    let mut labels = input
+        .definition
         .modules
         .iter()
         .flat_map(|module| &module.local_sentences)
@@ -65,7 +73,10 @@ fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunEr
 
     // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for module in &mut output.modules {
-        let injector = match SortInjector::new(&resolved, &module.name) {
+        let module_id = resolved
+            .module_id(&module.name)
+            .expect("resolved definition contains every source module");
+        let injector = match SortInjector::with_views(&views, module_id) {
             Ok(injector) => injector,
             Err(error) => {
                 diagnostics.push(sort_error(error));
@@ -90,7 +101,7 @@ fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunEr
     }
 
     if diagnostics.is_empty() {
-        rebase_local_metadata(definition, output).map_err(|message| ResolveFunError {
+        rebase_local_metadata(&views, output).map_err(|message| ResolveFunError {
             diagnostics: vec![plain_error(message)],
         })
     } else {
@@ -100,15 +111,15 @@ fn resolve_fun_inner(definition: &Definition) -> Result<Definition, ResolveFunEr
     }
 }
 
-struct Resolver<'a, 'definition> {
-    injector: SortInjector<'definition, 'definition>,
+struct Resolver<'a, 'view, 'definition> {
+    injector: SortInjector<'view, 'definition>,
     labels: &'a mut BTreeSet<String>,
     productions: Vec<Sentence>,
     rules: Vec<Sentence>,
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 
-impl Resolver<'_, '_> {
+impl Resolver<'_, '_, '_> {
     fn transform_sentence(&mut self, sentence: Sentence) -> Sentence {
         match sentence {
             Sentence::Rule {

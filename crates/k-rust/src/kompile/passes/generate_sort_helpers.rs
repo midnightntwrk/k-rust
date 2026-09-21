@@ -9,24 +9,35 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
-        retain_new_sentences,
+        Attributes, Definition, LabelHead, ProductionItem, Sentence, SortHead, retain_new_sentences,
     },
     kast::{FrontendSort, Label, Sort, Term},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 use super::rebase_local_metadata;
 
 /// Apply Java's `GenerateSortPredicateSyntax` transformation.
 pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, String> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(
+        definition,
+        generate_sort_predicate_syntax_pass,
+        Some(GeneratingPass::GenerateSortPredicateSyntax),
+    )
+}
+
+pub(crate) fn generate_sort_predicate_syntax_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, String> {
+    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+    let views = resolved.views();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let sorts = resolved.sort_catalog(module_id);
+        let sorts = views.sort_catalog(module_id);
         let visible = resolved.sentences(module_id);
         let mut generated = Vec::new();
         // Predicate rules produce Boolean tokens even in standalone definitions.
@@ -85,18 +96,20 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
             module.local_sentences.extend(generated);
         }
     }
-    let output = rebase_local_metadata(definition, output)?;
-    Ok(record_generated_origins(
-        definition,
-        output,
-        GeneratingPass::GenerateSortPredicateSyntax,
-    ))
+    rebase_local_metadata(&views, output)
 }
 
 /// Restore generated sort predicates to their canonical unary signature after passes that may
 /// temporarily add arguments, then generate predicates for any newly introduced sorts.
 pub fn regenerate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, String> {
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(definition, regenerate_sort_predicate_syntax_pass, None)
+}
+
+pub(crate) fn regenerate_sort_predicate_syntax_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, String> {
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
             let Sentence::Production {
@@ -127,11 +140,22 @@ pub fn regenerate_sort_predicate_syntax(definition: &Definition) -> Result<Defin
 
 /// Apply the non-coverage form of Java's `GenerateSortProjections` transformation.
 pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, String> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
+    super::super::pipeline::run_standalone(
+        definition,
+        generate_sort_projections_pass,
+        Some(GeneratingPass::GenerateSortProjections),
+    )
+}
+
+pub(crate) fn generate_sort_projections_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, String> {
+    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
     let main_id = resolved.main_module_id();
     let views = resolved.views();
     let main_productions = views.production_catalog(main_id);
-    let mut output = definition.clone();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
@@ -174,12 +198,7 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
         let generated = retain_new_sentences(module.local_sentences.iter(), generated);
         module.local_sentences.extend(generated);
     }
-    let output = rebase_local_metadata(definition, output)?;
-    Ok(record_generated_origins(
-        definition,
-        output,
-        GeneratingPass::GenerateSortProjections,
-    ))
+    rebase_local_metadata(&views, output)
 }
 
 fn sort_projection(sort: &Sort, label: Label) -> [Sentence; 2] {

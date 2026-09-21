@@ -35,7 +35,25 @@ impl std::error::Error for ResolveFreshConfigConstantsError {}
 pub fn resolve_fresh_config_constants(
     definition: &Definition,
 ) -> Result<(Definition, usize), ResolveFreshConfigConstantsError> {
-    let mut output = definition.clone();
+    let (output, count) = super::super::pipeline::run_standalone_raw(
+        definition,
+        resolve_fresh_config_constants_pass,
+    )?;
+    Ok((
+        record_generated_origins(
+            definition,
+            output,
+            GeneratingPass::ResolveFreshConfigConstants,
+        ),
+        count,
+    ))
+}
+
+pub(crate) fn resolve_fresh_config_constants_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    state: &mut super::super::pipeline::PipelineState,
+) -> Result<(Definition, usize), ResolveFreshConfigConstantsError> {
+    let mut output = input.definition.clone();
     let mut counter = 0usize;
     let mut named = BTreeMap::<String, usize>::new();
     let mut diagnostics = Vec::new();
@@ -62,14 +80,8 @@ pub fn resolve_fresh_config_constants(
         }
     }
     if diagnostics.is_empty() {
-        Ok((
-            record_generated_origins(
-                definition,
-                output,
-                GeneratingPass::ResolveFreshConfigConstants,
-            ),
-            counter,
-        ))
+        state.fresh_config_count = Some(counter);
+        Ok((output, counter))
     } else {
         diagnostics.sort();
         Err(ResolveFreshConfigConstantsError { diagnostics })

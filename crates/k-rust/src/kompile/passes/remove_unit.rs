@@ -5,25 +5,32 @@
 
 use crate::definition::AttributeKey;
 use crate::{
-    definition::{Definition, LabelHead, ResolvedDefinition, Sentence},
+    definition::{Definition, LabelHead, Sentence},
     kast::Term,
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 /// Apply Java's final `RemoveUnit` transformation to rules.
 pub fn remove_unit(definition: &Definition) -> Result<Definition, String> {
-    remove_unit_inner(definition)
-        .map(|output| record_generated_origins(definition, output, GeneratingPass::RemoveUnit))
+    super::super::pipeline::run_standalone(
+        definition,
+        remove_unit_pass,
+        Some(GeneratingPass::RemoveUnit),
+    )
 }
 
-fn remove_unit_inner(definition: &Definition) -> Result<Definition, String> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
-    let mut output = definition.clone();
+pub(crate) fn remove_unit_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, String> {
+    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+    let views = resolved.views();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let productions = resolved.production_catalog(module_id);
+        let productions = views.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
             let Sentence::Rule {
                 body,

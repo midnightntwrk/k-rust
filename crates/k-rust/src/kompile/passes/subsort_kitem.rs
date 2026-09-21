@@ -7,11 +7,9 @@ use std::fmt;
 
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{
-        Attributes, Definition, ProductionItem, ResolvedDefinition, Sentence, retain_new_sentences,
-    },
+    definition::{Attributes, Definition, ProductionItem, Sentence, retain_new_sentences},
     kast::{FrontendSort, Sort},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 use super::rebase_local_metadata;
@@ -29,14 +27,27 @@ impl std::error::Error for SubsortKItemError {}
 
 /// Apply Java's `Kompile.subsortKItem` module transformation.
 pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItemError> {
-    let resolved = ResolvedDefinition::resolve(definition)
+    super::super::pipeline::run_standalone(
+        definition,
+        subsort_kitem_pass,
+        Some(GeneratingPass::SubsortKItem),
+    )
+}
+
+pub(crate) fn subsort_kitem_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, SubsortKItemError> {
+    let resolved = input
+        .resolved_raw()
         .map_err(|error| SubsortKItemError(error.to_string()))?;
-    let mut output = definition.clone();
+    let views = resolved.views();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let sorts = resolved.sort_catalog(module_id);
+        let sorts = views.sort_catalog(module_id);
         let visible = resolved.sentences(module_id);
         let mut generated = Vec::new();
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
@@ -62,12 +73,7 @@ pub fn subsort_kitem(definition: &Definition) -> Result<Definition, SubsortKItem
         );
         module.local_sentences.extend(generated);
     }
-    let output = rebase_local_metadata(definition, output).map_err(SubsortKItemError)?;
-    Ok(record_generated_origins(
-        definition,
-        output,
-        GeneratingPass::SubsortKItem,
-    ))
+    rebase_local_metadata(&views, output).map_err(SubsortKItemError)
 }
 
 fn is_parser_sort(sort: &Sort) -> bool {

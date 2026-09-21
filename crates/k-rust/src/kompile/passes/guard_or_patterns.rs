@@ -4,19 +4,34 @@
 //! Give matching-logic disjunctions explicit aliases.
 
 use crate::{
-    definition::{Definition, ResolvedDefinition, Sentence},
+    definition::{Definition, Sentence},
     kast::{InternalLabel, Term},
     kompile::{SortInjector, fresh_names::FreshNames},
-    provenance::{GeneratingPass, record_generated_origins},
+    provenance::GeneratingPass,
 };
 
 /// Apply Java's `GuardOrPatterns` transformation to rules and contexts.
 pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> {
-    let resolved = ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
-    let mut output = definition.clone();
+    super::super::pipeline::run_standalone(
+        definition,
+        guard_or_patterns_pass,
+        Some(GeneratingPass::GuardOrPatterns),
+    )
+}
+
+pub(crate) fn guard_or_patterns_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, String> {
+    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+    let views = resolved.views();
+    let mut output = input.definition.clone();
     for module in &mut output.modules {
+        let module_id = resolved
+            .module_id(&module.name)
+            .expect("resolved definition contains every source module");
         let injector =
-            SortInjector::new(&resolved, &module.name).map_err(|error| error.to_string())?;
+            SortInjector::with_views(&views, module_id).map_err(|error| error.to_string())?;
         for sentence in &mut module.local_sentences {
             let mut fresh = FreshNames::for_sentence(sentence);
             let roots = match sentence {
@@ -36,11 +51,7 @@ pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> 
             }
         }
     }
-    Ok(record_generated_origins(
-        definition,
-        output,
-        GeneratingPass::GuardOrPatterns,
-    ))
+    Ok(output)
 }
 
 // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.

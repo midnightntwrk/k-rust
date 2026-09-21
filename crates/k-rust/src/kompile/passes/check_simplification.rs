@@ -7,7 +7,7 @@ use std::fmt;
 
 use crate::definition::AttributeKey;
 use crate::{
-    definition::{Definition, LabelHead, ResolvedDefinition, Sentence, match_rule_label},
+    definition::{Definition, LabelHead, Sentence, match_rule_label},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
 };
 
@@ -32,8 +32,16 @@ impl std::error::Error for CheckSimplificationError {}
 pub fn check_simplification_rules(
     definition: &Definition,
 ) -> Result<Definition, CheckSimplificationError> {
-    let resolved =
-        ResolvedDefinition::resolve(definition).map_err(|error| CheckSimplificationError {
+    super::super::pipeline::run_standalone(definition, check_simplification_rules_pass, None)
+}
+
+pub(crate) fn check_simplification_rules_pass(
+    input: &super::super::pipeline::PassInput<'_>,
+    _: &mut super::super::pipeline::PipelineState,
+) -> Result<Definition, CheckSimplificationError> {
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| CheckSimplificationError {
             diagnostics: vec![Diagnostic {
                 severity: Severity::Error,
                 code: DiagnosticCode::InvalidSimplification,
@@ -43,11 +51,12 @@ pub fn check_simplification_rules(
             }],
         })?;
     let mut diagnostics = Vec::new();
-    for module in &definition.modules {
+    let views = resolved.views();
+    for module in &input.definition.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let productions = resolved.production_catalog(module_id);
+        let productions = views.production_catalog(module_id);
         for sentence in &module.local_sentences {
             if !matches!(sentence, Sentence::Rule { attributes, .. } if attributes.has(AttributeKey::Simplification))
             {
@@ -71,7 +80,7 @@ pub fn check_simplification_rules(
         }
     }
     if diagnostics.is_empty() {
-        Ok(definition.clone())
+        Ok(input.definition.clone())
     } else {
         diagnostics.sort();
         diagnostics.dedup();
