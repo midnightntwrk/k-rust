@@ -84,6 +84,10 @@ fn rewrite_example_compile_stays_within_the_pinned_kompile_work() {
     );
     assert!(delta.get(Counter::KompileSentencesTransformed) <= SENTENCES_REWRITE);
     assert!(
+        delta.get(Counter::KompileResolveUpdateSentenceVisits)
+            <= RESOLVE_UPDATE_SENTENCE_VISITS_REWRITE
+    );
+    assert!(
         delta.get(Counter::KompileSentenceEquivalenceChecks) <= SENTENCE_EQUIVALENCE_CHECKS_REWRITE
     );
     assert!(delta.get(Counter::KompileProductionCatalogsBuilt) <= PRODUCTION_CATALOGS_REWRITE);
@@ -396,6 +400,8 @@ const REBASE_CALLS_REWRITE: u64 = 0;
 const RULE_BUBBLES_REWRITE: u64 = 198;
 /// `examples/rewrite.k`: 2091 sentences after transformation.
 const SENTENCES_REWRITE: u64 = 2300;
+/// `examples/rewrite.k`: strict incremental comparisons examine 45,987 flat sentences.
+const RESOLVE_UPDATE_SENTENCE_VISITS_REWRITE: u64 = 50_000;
 /// `examples/rewrite.k`: 1,100,936 structural sentence-equivalence checks with catalog indexes and views.
 const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 1_211_030;
 /// `examples/rewrite.k`: 3,360 production catalogs built with per-resolution views.
