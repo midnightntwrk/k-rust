@@ -1965,6 +1965,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         load_timings.phases.push(PhaseTiming {
             name: "read runnable artifact",
             seconds: started.elapsed().as_secs_f64(),
+            depth: 0,
         });
         KrunCompiledInput {
             main_module: artifact.main_module,

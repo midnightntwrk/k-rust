@@ -176,12 +176,7 @@ fn phase_timings_are_non_negative_and_sum_by_prefix() {
         .expect("rule-bubble parent phase should be recorded")
         .seconds;
     let rule_children = timings
-        .phases
-        .iter()
-        .filter(|phase| {
-            phase.name == "resolve rule bubbles / grammars"
-                || phase.name == "resolve rule bubbles / parse"
-        })
+        .children_of("resolve rule bubbles")
         .map(|phase| phase.seconds)
         .sum::<f64>();
     assert!(
