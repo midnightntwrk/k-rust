@@ -1,4 +1,8 @@
-//! Resolution of rule-like bubbles with K's implicit rule syntax.
+//! Per-module rule-bubble parsing with K implicit rule syntax.
+//!
+//! One grammar is built per bubble-bearing module and each bubble is parsed through the Earley
+//! pipeline. `Counter::KompileRuleBubblesParsed` counts bubbles; `parse_rule_content` deliberately
+//! rebuilds its standalone grammar. Total cost is grammar construction plus bubble parse work.
 
 use std::collections::BTreeSet;
 use std::fmt;

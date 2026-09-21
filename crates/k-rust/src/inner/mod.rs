@@ -1,4 +1,7 @@
-//! Parsing of outer-syntax bubbles with module-derived inner grammars.
+//! Inner parsing is a six-layer pipeline: grammar construction, global-winner scanning,
+//! agenda-driven Earley recognition, packed-forest normalization, sort inference, and
+//! tree disambiguation/lowering. Bubble drivers count work with
+//! `Counter::KompileRuleBubblesParsed`; each algorithm module documents its own cost.
 
 mod config;
 mod location;

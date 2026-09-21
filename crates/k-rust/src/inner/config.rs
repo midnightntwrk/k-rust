@@ -1,4 +1,8 @@
-//! Resolution of configuration bubbles with K's implicit configuration syntax.
+//! Per-module configuration-bubble parsing with K implicit configuration syntax.
+//!
+//! One grammar is built for each module with configurations, then each bubble runs the Earley
+//! pipeline. Cost is O(grammar construction + bubble parse work); rule bubbles use
+//! `Counter::KompileRuleBubblesParsed`, while configuration work is visible in parse counters.
 
 use std::fmt;
 

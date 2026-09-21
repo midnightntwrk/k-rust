@@ -1,4 +1,8 @@
-//! Portable sort inference for unambiguous, monomorphic parse trees.
+//! Portable bound-propagation sort inference for unambiguous, monomorphic trees.
+//!
+//! Constraint propagation saturates a finite sort-bound graph, worst-case O(V * E).
+//! Ambiguous or parametric forests dispatch to Z3; checked mode runs both engines as oracles.
+//! `Counter::ParserPortableInferences` counts portable inference attempts.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::rc::Rc;
@@ -63,6 +67,8 @@ impl Grammar {
     }
 
     fn packed_sort_inference_supported(&self, term: &Rc<PackedTerm>) -> bool {
+        // Invariant: accepted recursion has seen only a monomorphic, unambiguous subtree and every
+        // call strictly descends.
         fn supported(
             grammar: &Grammar,
             term: &Rc<PackedTerm>,
@@ -635,6 +641,8 @@ impl<'a> Solver<'a> {
     }
 
     fn constrain(&mut self, lesser: SortRef, greater: SortRef) -> Result<(), ParseError> {
+        // Invariant: `constraint_cache` contains every propagated bound; recursive propagation
+        // only adds finite lower or upper bounds.
         if lesser == greater
             || !self
                 .constraint_cache
@@ -752,6 +760,8 @@ impl<'a> Solver<'a> {
         upper: bool,
         visited: &mut BTreeSet<usize>,
     ) -> BTreeSet<Sort> {
+        // Invariant: `visited` is the current DFS path; recursion follows one bound edge and
+        // returns only reachable concrete sorts.
         if !visited.insert(variable) {
             return BTreeSet::new();
         }

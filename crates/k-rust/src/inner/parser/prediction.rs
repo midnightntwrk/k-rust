@@ -1,4 +1,8 @@
-//! Scanner-identity FIRST sets and epsilon-nullability for immutable grammar snapshots.
+//! Epsilon-nullability and scanner-identity FIRST sets for immutable grammar snapshots.
+//!
+//! Both are monotone worklists. Nullability is O(total production items); FIRST propagation
+//! is O(sorts * lexemes * re-enqueues) and runs once per grammar, counted by
+//! `Counter::ParserPredictionAnalysisBuilds`.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -90,6 +94,8 @@ impl PredictionAnalysis {
                 pending.push_back(*result);
             }
         }
+        // Invariant: every queued sort has just become nullable; each caller's remaining count is
+        // the number of child occurrences not yet proved nullable and can only decrease to zero.
         while let Some(sort) = pending.pop_front() {
             for caller in &callers[sort] {
                 let count = remaining[*caller]
@@ -131,6 +137,8 @@ impl PredictionAnalysis {
                 .enumerate()
                 .filter_map(|(index, queued)| queued.then_some(index)),
         );
+        // Invariant: each queued sort has new FIRST tokens not yet propagated; all sets grow
+        // monotonically and a parent is queued only after its set grows.
         while let Some(sort) = pending.pop_front() {
             queued[sort] = false;
             let tokens = first[sort].clone();

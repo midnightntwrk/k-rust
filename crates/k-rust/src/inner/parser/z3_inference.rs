@@ -1,4 +1,8 @@
-//! Native Z3-backed sort inference for ambiguous and parametric parse forests.
+//! Z3-backed maximal-model sort inference for ambiguous and parametric parse forests.
+//!
+//! Each check is counted by `Counter::ParserZ3Checks`; model enumeration is proportional to
+//! the number of maximal typings times solver checks. Grammar-determined encoding construction
+//! is counted by `ParserZ3EncodingBuilds`. The unpacked path remains a checked oracle.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -1163,6 +1167,8 @@ impl<'a> Encoding<'a> {
         constraints.sort_by_key(|constraint| {
             !matches!(constraint.subject, ReplaySubject::Variable { .. })
         });
+        // Invariant: the solver contains exactly the satisfiable replay prefix; the next
+        // constraint becomes permanent only when its temporary scoped check is satisfiable.
         for constraint in constraints {
             solver.push();
             solver.assert(&constraint.constraint);
@@ -1415,6 +1421,8 @@ impl<'a> Encoding<'a> {
             .collect::<Vec<_>>();
         let mut low = 0;
         let mut high = preferences.len();
+        // Invariant: `low` preferences are satisfiable, values above `high` are unsatisfiable,
+        // and the interval strictly shrinks toward the maximal satisfiable count.
         while low < high {
             let candidate = low + (high - low).div_ceil(2);
             solver.push();
@@ -1507,6 +1515,8 @@ impl<'a> Encoding<'a> {
             .collect::<Vec<_>>();
         let mut models = Vec::new();
         let mut first = seed;
+        // Invariant: every recorded model is maximal and blocked; each iteration consumes the
+        // optional seed or finds the next unblocked satisfying assignment.
         loop {
             let mut values = if let Some(seed) = first.take() {
                 seed
@@ -1526,6 +1536,8 @@ impl<'a> Encoding<'a> {
                         .ok_or_else(|| z3_error("Z3 returned sat without a model"))?,
                 )?
             };
+            // Invariant: `values` is satisfiable and each successful iteration strictly raises
+            // at least one real variable in the finite sort order.
             loop {
                 solver.push();
                 let greater = real_variables
@@ -2413,6 +2425,8 @@ fn collect_packed_term_sorts(
 ) {
     let mut visited = HashSet::new();
     let mut pending = vec![Rc::clone(root)];
+    // Invariant: `visited` contains every packed identity already scanned and `pending` contains
+    // reachable identities whose token sorts or descendants remain to be examined.
     while let Some(term) = pending.pop() {
         if !visited.insert(Rc::as_ptr(&term)) {
             continue;
@@ -2437,6 +2451,8 @@ fn collect_packed_term_sorts(
 }
 
 fn packed_term_ids(root: &Rc<PackedTerm>) -> HashMap<*const PackedTerm, usize> {
+    // Invariant: `ids` assigns one stable preorder number to every visited identity; recursion
+    // only descends into an identity absent from the map.
     fn visit(term: &Rc<PackedTerm>, ids: &mut HashMap<*const PackedTerm, usize>, next: &mut usize) {
         let identity = Rc::as_ptr(term);
         if ids.contains_key(&identity) {

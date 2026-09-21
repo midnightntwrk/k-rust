@@ -1,4 +1,10 @@
-//! A portable chart parser over lowered K productions.
+//! Agenda-driven Earley recognition over lowered K productions.
+//!
+//! Each attempt is O(pops * dispatch cost): `ParserChartAgendaPops` counts pops,
+//! `ParserChartPredictionAttempts` plus the skipped-prediction counters count predictor work,
+//! and `ParserParseAttempts` includes a possible FIRST-filtered then unfiltered retry.
+//! Completion builds the packed forest; normalization, sort inference, tree disambiguation,
+//! and lowering run in that order after recognition.
 
 mod disambiguation;
 mod inference;
@@ -815,6 +821,8 @@ fn cmp_packed_structurally(left: &Rc<PackedTerm>, right: &Rc<PackedTerm>) -> std
             std::cmp::Ordering,
         >,
     ) -> std::cmp::Ordering {
+        // Invariant: every memoized pair has a complete structural ordering, and recursion only
+        // visits a not-yet-memoized pair before recording both directions.
         use std::cmp::Ordering;
 
         if Rc::ptr_eq(left, right) {
@@ -909,6 +917,8 @@ fn packed_variable_names(root: &Rc<PackedTerm>) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let mut visited = HashSet::new();
     let mut pending = vec![Rc::clone(root)];
+    // Invariant: `visited` contains exactly the DAG nodes already scanned and `pending` contains
+    // reachable nodes whose children or alternatives have not yet been scheduled.
     while let Some(term) = pending.pop() {
         if !visited.insert(Rc::as_ptr(&term)) {
             continue;
@@ -1439,6 +1449,8 @@ impl Grammar {
             self.parse_attempt(start, input, context, PredictionMode::Filtered, &mut pruned);
         // Failed first scans still contribute to chart-derived diagnostics. Retry the complete
         // pipeline so every error, including inference and ambiguity errors, stays unchanged.
+        // Invariant: an unfiltered retry occurs exactly when the filtered recognizer pruned at
+        // least one prediction, and it reruns the complete pipeline with the same context.
         if result.is_err() && pruned {
             self.parse_attempt(
                 start,
@@ -1489,9 +1501,12 @@ impl Grammar {
         charts[start_position].predicted.insert(start.clone());
         let mut first_violation = None;
 
+        // Recognition phase: saturate each position's agenda before moving to the next byte.
         for position in start_position..=input.len() {
             // Empty charts can lie inside a UTF-8 character; only evaluate layout on dispatch.
             let mut canonical_position = None;
+            // Invariant: every queued state has new derivation information not yet dispatched;
+            // processing either advances it or monotonically grows a chart state.
             while let Some(state) = charts[position].agenda.pop_front() {
                 measure::bump(Counter::ParserChartAgendaPops);
                 #[cfg(any(test, feature = "measure"))]
@@ -1545,6 +1560,8 @@ impl Grammar {
                             revisit,
                         );
                         if charts[position].predicted.insert(sort.clone()) {
+                            // Invariant: each production in this newly predicted sort bucket is
+                            // either inserted once or conservatively recorded as filtered.
                             for predicted in self.productions_for(sort) {
                                 if let Some(analysis) = prediction_analysis
                                     && analysis.can_filter(predicted, &charts[position].predicted)
@@ -1721,6 +1738,7 @@ impl Grammar {
             }
         }
 
+        // Root collection phase: keep completed start productions whose suffix is layout only.
         let mut parses = BTreeSet::new();
         for (position, chart) in charts.iter().enumerate().skip(start_position) {
             if chart.states.is_empty() {
@@ -1759,6 +1777,8 @@ impl Grammar {
         // share their descendants. In particular, do not expand losing non-rewrite parses before
         // Java's root rewrite/sequence/let preference has selected the corresponding sibling.
         drop(charts);
+        // Packed normalization and inference phase: preserve sharing until losing alternatives
+        // are removed, then materialize exactly the retained inferred trees.
         // Java applies `PriorityVisitor` to the packed root ambiguity. Its rewrite/sequence/let
         // preference must therefore run before descending into losing alternatives; filtering
         // each root independently incorrectly rejects inputs whose winning interpretation is a
@@ -2201,6 +2221,8 @@ impl Grammar {
         mut position: usize,
         scanner_cache: &mut [ScanCacheEntry],
     ) -> usize {
+        // Invariant: `position` begins at a token boundary and strictly increases whenever a
+        // nonempty layout winner is consumed, so the loop terminates at a canonical boundary.
         loop {
             match self
                 .scanner
@@ -2271,6 +2293,8 @@ impl Grammar {
         };
         let mut previous = None;
         let mut cursor = 0;
+        // Invariant: `cursor` is canonical, never passes `position`, and `previous` is the last
+        // non-layout token ending at or before it.
         while cursor < position {
             let Some(winner) =
                 self.scanner
@@ -2786,6 +2810,8 @@ impl Chart {
         let new_state = !self.states.contains_key(&state);
         let stored = self.states.entry(state).or_default();
         let mut changed = false;
+        // Invariant: `stored` is an antichain under derivation coverage after every insertion;
+        // `changed` is true exactly when the represented parse set grows.
         for derivation in derivations {
             changed |= stored.insert(derivation);
         }
@@ -2848,6 +2874,8 @@ fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
 
     let mut groups = BTreeMap::<Vec<TermSpan>, Vec<Derivation>>::new();
     let mut unspanned = BTreeSet::new();
+    // Invariant: drained derivations are partitioned by an identical child-span vector, while
+    // unspanned derivations remain separate and no recognized boundary correlation is lost.
     for derivation in std::mem::take(derivations) {
         match derivation
             .iter()
@@ -2916,6 +2944,8 @@ fn pack_alternatives(mut nodes: BTreeSet<Rc<PackedTerm>>) -> Rc<PackedTerm> {
 fn unary_reachable(start: &Sort, target: &Sort, edges: &BTreeSet<(Sort, Sort)>) -> bool {
     let mut pending = vec![start.clone()];
     let mut visited = BTreeSet::new();
+    // Invariant: `visited` contains the explored unary closure and `pending` contains reachable
+    // sorts whose outgoing edges have not yet been scanned.
     while let Some(sort) = pending.pop() {
         if &sort == target {
             return true;
@@ -2942,6 +2972,8 @@ fn completed_nodes(
     input: &str,
     provenance: ParseProvenance,
 ) -> (BTreeSet<Rc<PackedTerm>>, Option<ParseError>) {
+    // Invariant: on a cache miss, every completed state for this exact boundary contributes each
+    // derivation once; the memo is populated only with the complete packed result and first error.
     #[cfg(test)]
     update_chart_work_counters(|counters| counters.completed_nodes_calls += 1);
     let key = (

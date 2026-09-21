@@ -1,4 +1,7 @@
-//! Portable implementation of Scala's global scanner winner rules.
+//! K global-winner scanning: longest match, then precedence, then lexeme key.
+//!
+//! A winner costs O(L) regex attempts for L registered lexemes and is memoized per position,
+//! giving O(input bytes * L) per attempt. `ParserScannerWinnerComputations` counts cache misses.
 
 use std::collections::BTreeMap;
 

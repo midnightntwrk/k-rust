@@ -1,4 +1,8 @@
-//! Deterministic rendering of the Bison grammar used by standalone program parsers.
+//! Deterministic Bison grammar rendering for standalone program parsers.
+//!
+//! Restricted-sort expansion is a monotone worklist over `(sort, excluded label)` pairs,
+//! O(pairs * productions). Reachability is a visited-set DFS, O(reachable sorts * productions).
+//! These exporter-only algorithms have no CQ-02 counter.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Write};
@@ -323,6 +327,8 @@ fn transform_priority_and_associativity(
     let base = productions.clone();
     let mut queue = pending.iter().cloned().collect::<VecDeque<_>>();
     let mut expanded = BTreeSet::new();
+    // Invariant: `expanded` contains the processed restricted-sort states and every queued state
+    // was discovered from a production of an already reachable state.
     while let Some((sort, excluded)) = queue.pop_front() {
         if !expanded.insert((sort.clone(), excluded.clone())) {
             continue;
@@ -630,6 +636,8 @@ fn restricted_sort(sort: &Sort, ordinal: usize) -> Sort {
 fn reachable_sorts(productions: &[GrammarProduction], start: &Sort) -> BTreeSet<Sort> {
     let mut reachable = BTreeSet::new();
     let mut pending = vec![start.clone()];
+    // Invariant: `reachable` contains exactly the visited sort closure and `pending` contains
+    // discovered sorts whose production children have not yet been scanned.
     while let Some(sort) = pending.pop() {
         if !reachable.insert(sort.clone()) {
             continue;

@@ -1,4 +1,7 @@
-//! Scala-compatible insertion of implicit user-list constructors and terminators.
+//! Scala-compatible implicit user-list constructors, terminators, and reconstruction.
+//!
+//! Grammar insertion is O(list declarations); tree reconstruction is O(nodes * candidate
+//! instantiations) and recursively preserves declared child sorts.
 
 use std::collections::{BTreeMap, BTreeSet};
 
