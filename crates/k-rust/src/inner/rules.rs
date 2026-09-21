@@ -138,6 +138,14 @@ pub fn parse_rule_content(
 /// inputs that remain genuinely ambiguous are reported explicitly.
 pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(RuleError::Definition)?;
+    resolve_rule_bubbles_with_resolved(definition, &resolved).map(|(transformed, _)| transformed)
+}
+
+/// Resolve rule bubbles using a graph already built for the same module structure.
+pub(crate) fn resolve_rule_bubbles_with_resolved(
+    definition: &Definition,
+    resolved: &ResolvedDefinition,
+) -> Result<(Definition, ResolvedDefinition), RuleError> {
     let mut transformed = definition.clone();
     let main = resolved.main_module_id();
     let global = global_rule_grammar(&resolved)?;
@@ -185,7 +193,10 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
         }
     }
 
-    Ok(transformed)
+    let resolved = resolved
+        .update(&transformed)
+        .map_err(RuleError::Definition)?;
+    Ok((transformed, resolved))
 }
 
 fn global_rule_grammar(definition: &ResolvedDefinition) -> Result<Grammar, RuleError> {

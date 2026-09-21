@@ -59,6 +59,14 @@ impl std::error::Error for ConfigError {}
 /// Generating cell productions and initializer rules remains a subsequent
 /// compilation pass.
 pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definition, ConfigError> {
+    if !definition
+        .modules
+        .iter()
+        .flat_map(|module| module.local_sentences.iter())
+        .any(is_configuration_bubble)
+    {
+        return Ok(definition.clone());
+    }
     let resolved = ResolvedDefinition::resolve(definition).map_err(ConfigError::Definition)?;
     let mut transformed = definition.clone();
 

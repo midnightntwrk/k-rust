@@ -116,8 +116,28 @@ impl Current {
         }
     }
 
+    #[cfg(test)]
     fn into_definition(self) -> Definition {
         self.definition
+    }
+
+    fn into_definition_and_resolved(
+        self,
+        stage: &'static str,
+    ) -> Result<(Definition, ResolvedDefinition), CompileError> {
+        let Current {
+            definition,
+            resolved,
+        } = self;
+        let resolved = resolved
+            .into_inner()
+            .expect("pipeline current should have a resolution slot")
+            .map_err(|error| CompileError {
+                stage,
+                message: error.to_string(),
+                diagnostics: Vec::new(),
+            })?;
+        Ok((definition, resolved))
     }
 
     fn with_resolved(definition: Definition, resolved: ResolvedDefinition) -> Self {
@@ -580,6 +600,7 @@ pub fn pipeline_checkpoint() -> (&'static str, &'static str) {
     ("execution_definition", "definition")
 }
 
+#[cfg(test)]
 pub(crate) fn run_stages(
     stages: &[Stage],
     start: Definition,
@@ -590,6 +611,7 @@ pub(crate) fn run_stages(
     run_stages_seeded(stages, start, state, options, timings, None)
 }
 
+#[cfg(test)]
 pub(crate) fn run_stages_seeded(
     stages: &[Stage],
     start: Definition,
@@ -598,6 +620,30 @@ pub(crate) fn run_stages_seeded(
     timings: &mut PhaseTimings,
     seed: Option<ResolvedDefinition>,
 ) -> Result<Definition, CompileError> {
+    run_stages_seeded_current(stages, start, state, options, timings, seed)
+        .map(Current::into_definition)
+}
+
+pub(crate) fn run_stages_seeded_with_resolved(
+    stages: &[Stage],
+    start: Definition,
+    state: &mut PipelineState,
+    options: &CompileOptions,
+    timings: &mut PhaseTimings,
+    seed: ResolvedDefinition,
+) -> Result<(Definition, ResolvedDefinition), CompileError> {
+    run_stages_seeded_current(stages, start, state, options, timings, Some(seed))
+        .and_then(|current| current.into_definition_and_resolved("resolve pipeline output"))
+}
+
+fn run_stages_seeded_current(
+    stages: &[Stage],
+    start: Definition,
+    state: &mut PipelineState,
+    options: &CompileOptions,
+    timings: &mut PhaseTimings,
+    seed: Option<ResolvedDefinition>,
+) -> Result<Current, CompileError> {
     let mut current = seed.map_or_else(
         || Current::new(start.clone()),
         |resolved| Current::with_resolved(start.clone(), resolved),
@@ -630,7 +676,7 @@ pub(crate) fn run_stages_seeded(
             let _ = current.resolved.set(resolved);
         }
     }
-    Ok(current.into_definition())
+    Ok(current)
 }
 
 #[cfg(debug_assertions)]
