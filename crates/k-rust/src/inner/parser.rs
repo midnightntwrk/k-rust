@@ -30,6 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::rc::Rc;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use k_rust_kore::measure::{self, Counter};
 
@@ -557,6 +558,7 @@ fn chart_completion_candidates() -> usize {
 /// their original form for sort inference.
 #[derive(Clone, Debug)]
 pub struct Grammar {
+    generation: u64,
     productions: Vec<Production>,
     by_result: BTreeMap<Sort, Vec<usize>>,
     scanner: Scanner,
@@ -583,6 +585,7 @@ enum ParserRole {
 impl Default for Grammar {
     fn default() -> Self {
         Self {
+            generation: next_grammar_generation(),
             productions: Vec::new(),
             by_result: BTreeMap::new(),
             scanner: Scanner::default(),
@@ -602,6 +605,11 @@ impl Default for Grammar {
 }
 
 impl Grammar {
+    fn invalidate_prediction_analysis(&mut self) {
+        self.prediction_analysis.take();
+        self.generation = next_grammar_generation();
+    }
+
     fn add_chart_state(
         &self,
         chart: &mut Chart,
@@ -1256,6 +1264,12 @@ impl Grammar {
             }),
         }
     }
+}
+
+static NEXT_GRAMMAR_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+fn next_grammar_generation() -> u64 {
+    NEXT_GRAMMAR_GENERATION.fetch_add(1, Ordering::Relaxed)
 }
 
 /// Links from grammar sentences back to the source production catalog.
