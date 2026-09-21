@@ -49,12 +49,8 @@ impl<'a> DefinitionViews<'a> {
     }
 
     pub fn production_catalog(&self, module: ModuleId) -> &ProductionCatalog<'a> {
-        self.production_catalogs[module.0.index()].get_or_init(|| {
-            ProductionCatalog::from_deduplicated_arcs(
-                self.definition.sentence_arcs(module),
-                self.definition.local_sentence_arcs(module),
-            )
-        })
+        self.production_catalogs[module.0.index()]
+            .get_or_init(|| self.definition.production_catalog(module))
     }
 
     pub fn sort_catalog(&self, module: ModuleId) -> &SortCatalog<'a> {

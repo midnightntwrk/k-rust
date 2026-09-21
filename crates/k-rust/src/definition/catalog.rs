@@ -229,6 +229,7 @@ impl<'a> ProductionCatalog<'a> {
         Self::from_productions(productions, local_sentences)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn from_deduplicated(
         visible_sentences: impl IntoIterator<Item = &'a Sentence>,
         local_sentences: impl IntoIterator<Item = &'a Sentence>,
@@ -557,10 +558,14 @@ impl<'a> ProductionCatalog<'a> {
 
 impl ResolvedDefinition {
     pub fn production_catalog(&self, module: ModuleId) -> ProductionCatalog<'_> {
-        ProductionCatalog::from_deduplicated(
-            self.sentences(module),
-            self.module(module).local_sentences.iter().map(Arc::as_ref),
-        )
+        self.production_catalogs[module.0.index()]
+            .get_or_init(|| {
+                ProductionCatalog::from_deduplicated_arcs(
+                    self.sentence_arcs(module),
+                    self.local_sentence_arcs(module),
+                )
+            })
+            .clone()
     }
 }
 

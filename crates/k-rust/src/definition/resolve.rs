@@ -19,6 +19,7 @@ use petgraph::visit::EdgeRef;
 use sha2::{Digest, Sha256};
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
+use super::catalog::ProductionCatalog;
 use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence, push_if_inequivalent};
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
@@ -291,6 +292,7 @@ pub struct ResolvedDefinition {
     // The graph is immutable, with dense node indices and stable local sentence indices.
     // Clones share only coordinates; each read borrows sentences from its receiving graph.
     visible_sentences: Vec<OnceLock<Arc<[SentenceLocation]>>>,
+    pub(crate) production_catalogs: Arc<Vec<OnceLock<ProductionCatalog<'static>>>>,
 }
 
 impl fmt::Debug for ResolvedDefinition {
@@ -371,6 +373,7 @@ impl ResolvedDefinition {
         dependency_order.reverse();
         // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let visible_sentences = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
+        let production_catalogs = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
             graph,
@@ -378,6 +381,7 @@ impl ResolvedDefinition {
             main_module,
             dependency_order,
             visible_sentences,
+            production_catalogs: Arc::new(production_catalogs),
         })
     }
 
@@ -463,6 +467,20 @@ impl ResolvedDefinition {
                 lock
             })
             .collect();
+        let production_catalogs = self
+            .production_catalogs
+            .iter()
+            .enumerate()
+            .map(|(index, previous)| {
+                let lock = OnceLock::new();
+                if !invalidated[index]
+                    && let Some(catalog) = previous.get()
+                {
+                    let _ = lock.set(catalog.clone());
+                }
+                lock
+            })
+            .collect();
         measure::bump(Counter::KompileResolveUpdates);
         Ok(Self {
             graph,
@@ -470,6 +488,7 @@ impl ResolvedDefinition {
             main_module: self.main_module,
             dependency_order: self.dependency_order.clone(),
             visible_sentences,
+            production_catalogs: Arc::new(production_catalogs),
         })
     }
 
