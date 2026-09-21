@@ -291,7 +291,7 @@ pub struct ResolvedDefinition {
     // The graph is immutable, with dense node indices and stable local sentence indices.
     // Clones share only coordinates; each read borrows sentences from its receiving graph.
     visible_sentences: Vec<OnceLock<Arc<[SentenceLocation]>>>,
-    pub(crate) production_catalogs: Arc<Vec<OnceLock<ProductionCatalog<'static>>>>,
+    pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
 }
 
 impl fmt::Debug for ResolvedDefinition {
@@ -473,7 +473,7 @@ impl ResolvedDefinition {
                 if !catalog_invalid[index]
                     && let Some(catalog) = previous.get()
                 {
-                    let _ = lock.set(catalog.clone());
+                    let _ = lock.set(Arc::clone(catalog));
                 }
                 lock
             })
