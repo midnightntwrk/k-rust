@@ -36,15 +36,16 @@ fn minimize_term_construction_inner(
     let main_module = resolved
         .module_id(&definition.main_module)
         .expect("resolved definition contains its main module");
-    let main_productions = resolved.production_catalog(main_module);
-    let main_converter = TermConverter::new(&resolved, &definition.main_module)?;
+    let views = resolved.views();
+    let main_productions = views.production_catalog(main_module);
+    let main_converter = TermConverter::with_views(&views, main_module)?;
     let mut output = definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let productions = resolved.production_catalog(module_id);
-        let converter = TermConverter::new(&resolved, &module.name)?;
+        let productions = views.production_catalog(module_id);
+        let converter = TermConverter::with_views(&views, module_id)?;
         for sentence in &mut module.local_sentences {
             let Sentence::Rule {
                 body,
@@ -60,9 +61,9 @@ fn minimize_term_construction_inner(
             }
             let fresh = FreshNames::for_terms([&*body, &*requires, &*ensures]);
             let mut minimizer = Minimizer::new(
-                &productions,
+                productions,
                 &converter,
-                &main_productions,
+                main_productions,
                 &main_converter,
                 fresh,
             );
@@ -87,22 +88,22 @@ enum Position {
     Right,
 }
 
-struct Minimizer<'a> {
-    productions: &'a ProductionCatalog<'a>,
-    converter: &'a TermConverter<'a>,
-    main_productions: &'a ProductionCatalog<'a>,
-    main_converter: &'a TermConverter<'a>,
+struct Minimizer<'use_, 'view, 'definition> {
+    productions: &'use_ ProductionCatalog<'definition>,
+    converter: &'use_ TermConverter<'view, 'definition>,
+    main_productions: &'use_ ProductionCatalog<'definition>,
+    main_converter: &'use_ TermConverter<'view, 'definition>,
     fresh: FreshNames,
     cache: BTreeMap<Term, Term>,
     used_on_rhs: BTreeSet<Term>,
 }
 
-impl<'a> Minimizer<'a> {
+impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
     fn new(
-        productions: &'a ProductionCatalog<'a>,
-        converter: &'a TermConverter<'a>,
-        main_productions: &'a ProductionCatalog<'a>,
-        main_converter: &'a TermConverter<'a>,
+        productions: &'use_ ProductionCatalog<'definition>,
+        converter: &'use_ TermConverter<'view, 'definition>,
+        main_productions: &'use_ ProductionCatalog<'definition>,
+        main_converter: &'use_ TermConverter<'view, 'definition>,
         fresh: FreshNames,
     ) -> Self {
         Self {

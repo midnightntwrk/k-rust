@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use super::rhs_variables::{CheckMode, StructuralCheckOptions};
 use super::{ProductionItem, Sentence};
 use crate::definition::AttributeKey;
-use crate::definition::{ModuleId, ResolvedDefinition};
+use crate::definition::{DefinitionViews, ModuleId, ResolvedDefinition};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{Label, Sort, WellKnownModule};
 use crate::names::BuiltinSort;
@@ -51,6 +51,15 @@ pub fn check_proof_module(
     definition: &ResolvedDefinition,
     options: &StructuralCheckOptions,
 ) -> Vec<Diagnostic> {
+    let views = definition.views();
+    check_proof_module_with_views(&views, options)
+}
+
+pub(super) fn check_proof_module_with_views(
+    views: &DefinitionViews<'_>,
+    options: &StructuralCheckOptions,
+) -> Vec<Diagnostic> {
+    let definition = views.definition();
     let CheckMode::Proof { definition_module } = &options.mode else {
         return Vec::new();
     };
@@ -62,7 +71,7 @@ pub fn check_proof_module(
     }
     let definition_closure = module_closure(definition, definition_module);
     let specification_closure = module_closure(definition, definition.main_module_id());
-    let definition_sort_catalog = definition.sort_catalog(definition_module);
+    let definition_sort_catalog = views.sort_catalog(definition_module);
     let definition_sorts = definition_sort_catalog.all_sorts();
     let mut diagnostics = Vec::new();
     for (module_id, module) in definition.modules() {
@@ -102,11 +111,20 @@ pub fn check_is_sort_predicates(
     definition: &ResolvedDefinition,
     options: &StructuralCheckOptions,
 ) -> Vec<Diagnostic> {
+    let views = definition.views();
+    check_is_sort_predicates_with_views(&views, options)
+}
+
+pub(super) fn check_is_sort_predicates_with_views(
+    views: &DefinitionViews<'_>,
+    options: &StructuralCheckOptions,
+) -> Vec<Diagnostic> {
+    let definition = views.definition();
     let checked_modules = parsed_definition_modules(definition, options);
     let generated = checked_modules
         .iter()
         .flat_map(|module| {
-            definition
+            views
                 .sort_catalog(*module)
                 .defined_heads()
                 .iter()

@@ -121,18 +121,18 @@ impl std::error::Error for TermConversionError {}
 
 /// Converts terms using the productions, sort hooks, and subsorts visible from a module.
 #[derive(Clone, Debug)]
-pub struct TermConverter<'a> {
-    productions: View<'a, ProductionCatalog<'a>>,
-    sorts: View<'a, SortCatalog<'a>>,
-    token_sorts: Option<View<'a, SortCatalog<'a>>>,
-    subsorts: View<'a, PartialOrder<Sort>>,
+pub struct TermConverter<'view, 'definition> {
+    productions: View<'view, ProductionCatalog<'definition>>,
+    sorts: View<'view, SortCatalog<'definition>>,
+    token_sorts: Option<View<'view, SortCatalog<'definition>>>,
+    subsorts: View<'view, PartialOrder<Sort>>,
     sort_variables: BTreeSet<String>,
     generated_anonymous: Option<BTreeSet<GeneratedVariableIdentity>>,
 }
 
-impl<'a> TermConverter<'a> {
+impl<'definition> TermConverter<'definition, 'definition> {
     pub fn new(
-        definition: &'a ResolvedDefinition,
+        definition: &'definition ResolvedDefinition,
         module: &str,
     ) -> Result<Self, TermConversionError> {
         let module = definition
@@ -150,10 +150,11 @@ impl<'a> TermConverter<'a> {
             generated_anonymous: None,
         })
     }
+}
 
-    #[allow(dead_code)] // Wired into the pass callers in the next CQ-14a commit.
+impl<'view, 'definition> TermConverter<'view, 'definition> {
     pub(crate) fn with_views(
-        views: &'a DefinitionViews<'a>,
+        views: &'view DefinitionViews<'definition>,
         module: ModuleId,
     ) -> Result<Self, TermConversionError> {
         let subsorts = views
@@ -168,14 +169,16 @@ impl<'a> TermConverter<'a> {
             generated_anonymous: None,
         })
     }
+}
 
+impl<'definition> TermConverter<'definition, 'definition> {
     /// Read lexical token hooks from `token_module` before falling back to the executable module.
     ///
     /// Source-driven execution rebases applications into the main module, but a parser-only token
     /// has no application production to rebase. Its sort is self-describing while its STRING or
     /// BYTES decoding hook can remain local to the parser module.
     pub fn new_with_token_module(
-        definition: &'a ResolvedDefinition,
+        definition: &'definition ResolvedDefinition,
         module: &str,
         token_module: &str,
     ) -> Result<Self, TermConversionError> {
@@ -191,7 +194,7 @@ impl<'a> TermConverter<'a> {
     /// variables. The ordinary constructor retains the legacy spelling-based behavior required by
     /// whole-definition emission.
     pub fn new_with_generated_anonymous(
-        definition: &'a ResolvedDefinition,
+        definition: &'definition ResolvedDefinition,
         module: &str,
         generated: &BTreeSet<GeneratedVariableIdentity>,
     ) -> Result<Self, TermConversionError> {
@@ -199,7 +202,9 @@ impl<'a> TermConverter<'a> {
         converter.generated_anonymous = Some(generated.clone());
         Ok(converter)
     }
+}
 
+impl<'view, 'definition> TermConverter<'view, 'definition> {
     /// Treat the supplied K sort names as KORE sort variables during conversion.
     pub fn with_sort_variables(&self, variables: impl IntoIterator<Item = String>) -> Self {
         let mut converter = self.clone();

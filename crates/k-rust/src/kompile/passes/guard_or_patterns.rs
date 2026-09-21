@@ -46,7 +46,7 @@ pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> 
 // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn transform(
     term: Term,
-    injector: &SortInjector<'_>,
+    injector: &SortInjector<'_, '_>,
     fresh: &mut FreshNames,
 ) -> Result<Term, crate::kompile::SortInjectionError> {
     let metadata = term.metadata().cloned();
