@@ -1,7 +1,7 @@
 //! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions (D13, D35).
-//! Complexity: O(A(A + B) + N k²) before CQ-12b.
-//! Annotation is linear in visited nodes plus origin-union probes; `ProvenanceLinkDedupProbes` measures those probes after CQ-12.
-//! The former linear `push_unique` union was the largest KEVM self frame at the audit base and is replaced by CQ-12b.
+//! Complexity: receipt diff O(N log N) per module per pass; origin unions O(k) expected per visited node after CQ-12b.
+//! Annotation is linear in visited nodes and link insertions; `ProvenanceLinkDedupProbes` measures those insertions.
+//! The former linear `push_unique` union was the largest KEVM self frame at the audit base.
 //!
 //! Stable source identities and provenance shared by the semantic frontend.
 
