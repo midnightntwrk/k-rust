@@ -1,20 +1,19 @@
-//! Axiom-shape classification and the single-symbol rule index (`TermIndex`/`Theory`): rule
-//! selection by the top symbol of the subject is O(log k) map lookups for k index keys plus O(c)
-//! `Arc` clones for the c candidates returned; c per step is `Counter::RewriteRuleAttempts` /
-//! `Counter::RewriteSteps` (row B1), of which `Counter::RewriteMatchFailures` fail at match.
+//! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
+//! rewrite rules additionally store the head of their `<k>` cell as a `RuleIndex`. Candidate
+//! order remains exact-symbol then variable-symbol, priority, and declaration order (row B1).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
-use k_rust_kore::kore::ast as kore;
+use k_rust_kore::kore::ast::{self as kore, KoreString};
 use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
     substitution::{Substitution, substitute},
-    term::{Name, Term, TermKind, Variable, names::VariableProvenance},
+    term::{Name, SymbolType, Term, TermKind, Variable, names::VariableProvenance},
 };
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -143,7 +142,67 @@ pub enum TermIndex {
     And,
 }
 
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CellIndex {
+    None,
+    Anything,
+    Constructor(Name),
+    Function(Name),
+    Value(KoreString),
+    Map,
+    List,
+    Set,
+}
+
+impl CellIndex {
+    pub fn covers(&self, subject: &Self) -> bool {
+        matches!(self, Self::Anything) || (!matches!(self, Self::None) && self == subject)
+    }
+
+    pub fn meet(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::None, _) | (_, Self::None) => Self::None,
+            (Self::Anything, other) | (other, Self::Anything) => other,
+            (left, right) if left == right => left,
+            _ => Self::None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuleIndex(Vec<CellIndex>);
+
+impl RuleIndex {
+    pub fn covers(&self, subject: &Self) -> bool {
+        self.0.len() == subject.0.len()
+            && self
+                .0
+                .iter()
+                .zip(&subject.0)
+                .all(|(rule, subject)| rule.covers(subject))
+    }
+
+    pub fn cells(&self) -> &[CellIndex] {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IndexedRewriteRule {
+    pub rule: Arc<RewriteRule>,
+    pub index: RuleIndex,
+}
+
+impl std::ops::Deref for IndexedRewriteRule {
+    type Target = RewriteRule;
+
+    fn deref(&self) -> &Self::Target {
+        &self.rule
+    }
+}
+
 pub type Theory = BTreeMap<TermIndex, BTreeMap<u8, Vec<Arc<RewriteRule>>>>;
+pub type RewriteTheory = BTreeMap<TermIndex, BTreeMap<u8, Vec<IndexedRewriteRule>>>;
 pub type PredicateTheory = BTreeMap<u8, Vec<Arc<PredicateRewriteRule>>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -651,6 +710,118 @@ pub fn insert_theory(theory: &mut Theory, rule: RewriteRule) {
         .push(Arc::new(rule));
 }
 
+pub fn insert_rewrite_theory(theory: &mut RewriteTheory, rule: RewriteRule, index: RuleIndex) {
+    let priority = rule.attributes.priority;
+    theory
+        .entry(term_index(&rule.lhs))
+        .or_default()
+        .entry(priority)
+        .or_default()
+        .push(IndexedRewriteRule {
+            rule: Arc::new(rule),
+            index,
+        });
+}
+
+pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
+    RuleIndex(vec![
+        find_k_cell(term)
+            .and_then(k_cell_head)
+            .map_or(CellIndex::Anything, |head| cell_index(definition, head)),
+    ])
+}
+
+pub fn subject_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
+    let mut index = rule_index(definition, term);
+    for cell in &mut index.0 {
+        if matches!(cell, CellIndex::Function(_)) {
+            *cell = CellIndex::Anything;
+        }
+    }
+    index
+}
+
+fn find_k_cell(term: &Term) -> Option<&Term> {
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                return Some(term);
+            }
+            arguments.iter().find_map(find_k_cell)
+        }
+        TermKind::And(left, right) => find_k_cell(left).or_else(|| find_k_cell(right)),
+        TermKind::Injection { term, .. } => find_k_cell(term),
+        TermKind::Map { entries, rest, .. } => entries
+            .iter()
+            .find_map(|(key, value)| find_k_cell(key).or_else(|| find_k_cell(value)))
+            .or_else(|| rest.as_ref().and_then(find_k_cell)),
+        TermKind::List { heads, rest, .. } => heads.iter().find_map(find_k_cell).or_else(|| {
+            rest.as_ref().and_then(|(middle, tails)| {
+                find_k_cell(middle).or_else(|| tails.iter().find_map(find_k_cell))
+            })
+        }),
+        TermKind::Set { elements, rest, .. } => elements
+            .iter()
+            .find_map(find_k_cell)
+            .or_else(|| rest.as_ref().and_then(find_k_cell)),
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => None,
+    }
+}
+
+fn k_cell_head(cell: &Term) -> Option<&Term> {
+    let TermKind::Application {
+        arguments: cell_arguments,
+        ..
+    } = cell.kind()
+    else {
+        return None;
+    };
+    let [contents] = cell_arguments.as_slice() else {
+        return None;
+    };
+    match contents.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } if symbol.is(WellKnownSymbol::KSeq) => {
+            let [head, _tail] = arguments.as_slice() else {
+                return None;
+            };
+            Some(head)
+        }
+        TermKind::Application {
+            symbol, arguments, ..
+        } if symbol.is(WellKnownSymbol::DotK) && arguments.is_empty() => Some(contents),
+        _ => None,
+    }
+}
+
+fn cell_index(definition: &BackendDefinition, term: &Term) -> CellIndex {
+    match term.kind() {
+        TermKind::Injection { term, .. } => cell_index(definition, term),
+        TermKind::And(left, right) => {
+            cell_index(definition, left).meet(cell_index(definition, right))
+        }
+        TermKind::Variable(_) => CellIndex::Anything,
+        TermKind::Application { symbol, .. }
+            if definition.overloads.is_overloaded(&symbol.name)
+                || symbol.attributes.associative
+                || symbol.attributes.idempotent =>
+        {
+            CellIndex::Anything
+        }
+        TermKind::Application { symbol, .. } => match symbol.attributes.symbol_type {
+            SymbolType::Constructor => CellIndex::Constructor(symbol.name.clone()),
+            SymbolType::Function(_) => CellIndex::Function(symbol.name.clone()),
+        },
+        TermKind::DomainValue { value, .. } => CellIndex::Value(value.clone()),
+        TermKind::Map { .. } => CellIndex::Map,
+        TermKind::List { .. } => CellIndex::List,
+        TermKind::Set { .. } => CellIndex::Set,
+    }
+}
+
 pub fn term_index(term: &Term) -> TermIndex {
     match term.kind() {
         TermKind::Application { symbol, .. } => TermIndex::Symbol(symbol.name.clone()),
@@ -694,6 +865,29 @@ pub(crate) fn applicable_groups(
                     .entry(*priority)
                     .or_insert_with(Vec::new)
                     .extend(rules.iter().cloned());
+            }
+        }
+    }
+    groups
+}
+
+pub(crate) fn applicable_rewrite_groups(
+    theory: &RewriteTheory,
+    index: &TermIndex,
+) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
+    let mut groups = BTreeMap::new();
+    let covered = if index == &TermIndex::Variable {
+        vec![index]
+    } else {
+        vec![index, &TermIndex::Variable]
+    };
+    for covered in covered {
+        if let Some(found) = theory.get(covered) {
+            for (priority, rules) in found {
+                groups
+                    .entry(*priority)
+                    .or_insert_with(Vec::new)
+                    .extend(rules.iter().map(|stored| stored.rule.clone()));
             }
         }
     }

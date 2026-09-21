@@ -9,6 +9,8 @@ mod overloaded_list_owise;
 mod properties;
 #[path = "backend/rewrite.rs"]
 mod rewrite;
+#[path = "backend/rule_index.rs"]
+mod rule_index;
 #[path = "backend/simplify.rs"]
 mod simplify;
 #[path = "backend/support.rs"]

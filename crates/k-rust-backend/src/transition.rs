@@ -234,7 +234,10 @@ impl ObservationOptions {
             for rules in priorities.values() {
                 for rule in rules {
                     *available
-                        .entry((rule.attributes.unique_id.clone(), rule.lhs_alternative))
+                        .entry((
+                            rule.rule.attributes.unique_id.clone(),
+                            rule.rule.lhs_alternative,
+                        ))
                         .or_default() += 1;
                 }
             }

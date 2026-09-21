@@ -26,7 +26,7 @@ pub(crate) fn discharge_rewrite_definedness(definition: &mut BackendDefinition) 
                         index.clone(),
                         *priority,
                         position,
-                        rule_is_defined(definition, rule),
+                        rule_is_defined(definition, &rule.rule),
                     ));
                 }
             }
@@ -43,7 +43,8 @@ pub(crate) fn discharge_rewrite_definedness(definition: &mut BackendDefinition) 
                 .get_mut(&index)
                 .expect("indexed rewrite group should remain present")
                 .get_mut(&priority)
-                .expect("indexed rewrite priority should remain present")[position],
+                .expect("indexed rewrite priority should remain present")[position]
+                .rule,
         );
         rule.attributes.preserves_definedness = true;
         rule.computed_attributes.undefined_symbols.clear();
@@ -328,6 +329,7 @@ mod tests {
             .flat_map(|groups| groups.values())
             .flatten()
             .next()
+            .map(|stored| &stored.rule)
             .expect("rewrite rule should be indexed")
     }
 

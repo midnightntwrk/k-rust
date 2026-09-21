@@ -7,7 +7,7 @@
 
 use crate::kore::ast::{Attributes, Pattern, Sort, Symbol};
 
-/// Symbols every compiled definition contains regardless of the user's modules.
+/// Symbols emitted with fixed KORE spellings and shared across frontend and backend code.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum WellKnownSymbol {
     /// `inj{From, To}(From) : To [sortInjection{}()]`, the prelude's polymorphic injection.
@@ -20,15 +20,18 @@ pub enum WellKnownSymbol {
     Append,
     /// `rawTerm{}(KItem)`, the LLVM backend's wrapper around a top-level injected term.
     RawTerm,
+    /// `Lbl'-LT-'k'-GT-'{}(K) : KCell`, the generated computation cell.
+    KCell,
 }
 
 impl WellKnownSymbol {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Inj,
         Self::KSeq,
         Self::DotK,
         Self::Append,
         Self::RawTerm,
+        Self::KCell,
     ];
 
     /// The KORE symbol name.
@@ -39,6 +42,7 @@ impl WellKnownSymbol {
             Self::DotK => "dotk",
             Self::Append => "append",
             Self::RawTerm => "rawTerm",
+            Self::KCell => "Lbl'-LT-'k'-GT-'",
         }
     }
 }
