@@ -2,6 +2,8 @@
 
 use std::{convert::Infallible, fmt};
 
+use k_rust_kore::measure;
+
 use crate::{
     definition::{Definition, ProductionCatalog, ResolveError, ResolvedDefinition, Sentence},
     diagnostic::Diagnostic,
@@ -605,14 +607,16 @@ pub(crate) fn run_stages(
 
 #[cfg(debug_assertions)]
 fn assert_no_dangling_application_identities(definition: &Definition) {
-    let resolved = ResolvedDefinition::resolve(definition)
-        .expect("a pipeline stage produced a definition that cannot be resolved");
-    for (module_id, module) in resolved.modules() {
-        let catalog = resolved.production_catalog(module_id);
-        for sentence in &module.local_sentences {
-            assert_sentence_identities(sentence, &catalog, &module.name);
+    measure::without_counting(|| {
+        let resolved = ResolvedDefinition::resolve(definition)
+            .expect("a pipeline stage produced a definition that cannot be resolved");
+        for (module_id, module) in resolved.modules() {
+            let catalog = resolved.production_catalog(module_id);
+            for sentence in &module.local_sentences {
+                assert_sentence_identities(sentence, &catalog, &module.name);
+            }
         }
-    }
+    });
 }
 
 #[cfg(debug_assertions)]
