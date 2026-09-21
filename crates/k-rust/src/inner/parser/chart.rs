@@ -15,6 +15,7 @@ use k_rust_kore::measure::{self, Counter};
 use crate::kast::{Sort, TermSpan};
 use crate::provenance::SourceId;
 
+use super::disambiguation::PackedPriorityMemos;
 use super::forest::{
     Derivation, PackedNode, PackedTerm, build_packed_term, cmp_packed_structurally,
     pack_alternatives,
@@ -508,7 +509,10 @@ pub(super) fn completed_nodes(
                 end,
                 provenance,
             );
-            match grammar.filter_or_defer_packed_priority(Rc::clone(&term)) {
+            match grammar.filter_or_defer_packed_priority(
+                Rc::clone(&term),
+                &RefCell::new(PackedPriorityMemos::default()),
+            ) {
                 Ok(term) => {
                     nodes.insert(term);
                 }
@@ -675,7 +679,7 @@ mod tests {
             },
         );
         let parent = grammar
-            .filter_or_defer_packed_priority(parent)
+            .filter_or_defer_packed_priority(parent, &RefCell::new(PackedPriorityMemos::default()))
             .expect("packed parent satisfies priority");
         let PackedNode::Production { children, .. } = &parent.node else {
             panic!("expected packed production");

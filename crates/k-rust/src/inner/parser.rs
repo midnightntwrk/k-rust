@@ -20,10 +20,12 @@ mod scanner;
 mod z3_inference;
 
 use self::chart::*;
+use self::disambiguation::PackedPriorityMemos;
 use self::forest::*;
 pub(super) use self::grammar::named_projection_productions;
 use self::grammar::{catalog_production, render_added_production, render_production};
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::rc::Rc;
@@ -955,7 +957,10 @@ impl Grammar {
                                 position,
                                 provenance,
                             );
-                            match self.filter_or_defer_packed_priority(Rc::clone(&term)) {
+                            match self.filter_or_defer_packed_priority(
+                                Rc::clone(&term),
+                                &RefCell::new(PackedPriorityMemos::default()),
+                            ) {
                                 Ok(term) => {
                                     nodes.insert(term);
                                 }
@@ -1114,7 +1119,8 @@ impl Grammar {
     fn prepare_packed_forest(&self, forest: Rc<PackedTerm>) -> Result<Rc<PackedTerm>, ParseError> {
         let reserved_names = packed_variable_names(&forest);
         let forest = self.collapse_packed_record_productions(forest, reserved_names)?;
-        let forest = self.filter_packed_priority(forest)?;
+        let forest =
+            self.filter_packed_priority(forest, &RefCell::new(PackedPriorityMemos::default()))?;
         let forest = self.resolve_packed_applications(forest)?;
         let forest = self.factor_pre_inference_packed_ambiguities(forest);
         let forest = self.push_top_lhs_packed_ambiguity_up(forest);
@@ -1797,7 +1803,10 @@ mod chart_tests {
         let cast = PackedTerm::production(1, vec![infix], TermMetadata::default());
 
         assert_eq!(
-            grammar.filter_or_defer_packed_priority(cast),
+            grammar.filter_or_defer_packed_priority(
+                cast,
+                &RefCell::new(PackedPriorityMemos::default()),
+            ),
             Err(ParseError::CastPriority {
                 cast: "#SemanticCastToS".to_owned(),
                 child: "plus".to_owned(),
@@ -2105,7 +2114,10 @@ mod chart_tests {
         }
         let baseline_names = packed_variable_names(&shared);
         let baseline = grammar
-            .filter_packed_priority(Rc::clone(&shared))
+            .filter_packed_priority(
+                Rc::clone(&shared),
+                &RefCell::new(PackedPriorityMemos::default()),
+            )
             .expect("the packed diamond satisfies priority")
             .unpack();
         let baseline = grammar
@@ -3090,7 +3102,7 @@ mod chart_tests {
         reset_packed_priority_computations();
 
         let error = grammar
-            .filter_packed_priority(forest)
+            .filter_packed_priority(forest, &RefCell::new(PackedPriorityMemos::default()))
             .expect_err("the shared parent cannot contain an unscoped rewrite");
 
         assert_eq!(

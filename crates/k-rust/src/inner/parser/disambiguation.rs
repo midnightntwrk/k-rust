@@ -14,6 +14,7 @@
 //! `Counter::ParserPackedPriorityComputations` counts priority memo misses. Portable and Z3
 //! inference paths remain independent oracles and must produce the same accepted tree.
 
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
@@ -42,6 +43,12 @@ type PackedTransformResult = Result<Rc<PackedTerm>, ParseError>;
 type PackedTransformMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedTransformResult)>;
 type PackedPriorityChildMemo =
     HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
+
+#[derive(Default)]
+pub(super) struct PackedPriorityMemos {
+    nodes: PackedTransformMemo,
+    children: PackedPriorityChildMemo,
+}
 
 /// The parent labels a nested `#KRewrite` may appear under.
 const SCOPE_REWRITE: [InternalLabel; 6] = [
@@ -315,12 +322,11 @@ impl Grammar {
     pub(super) fn filter_or_defer_packed_priority(
         &self,
         term: Rc<PackedTerm>,
+        memos: &RefCell<PackedPriorityMemos>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        match self.filter_packed_priority_memo(
-            Rc::clone(&term),
-            &mut HashMap::new(),
-            &mut HashMap::new(),
-        ) {
+        let mut memos = memos.borrow_mut();
+        let PackedPriorityMemos { nodes, children } = &mut *memos;
+        match self.filter_packed_priority_memo(Rc::clone(&term), nodes, children) {
             Ok(term) => Ok(term),
             // A locally invalid nested rewrite/sequence/let may be the losing view of an
             // ambiguity whose sibling has that operation at the root. Retain only those failures
@@ -343,8 +349,11 @@ impl Grammar {
     pub(super) fn filter_packed_priority(
         &self,
         term: Rc<PackedTerm>,
+        memos: &RefCell<PackedPriorityMemos>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        self.filter_packed_priority_memo(term, &mut HashMap::new(), &mut HashMap::new())
+        let mut memos = memos.borrow_mut();
+        let PackedPriorityMemos { nodes, children } = &mut *memos;
+        self.filter_packed_priority_memo(term, nodes, children)
     }
 
     /// Filter a packed node against the priority and associativity relations.
