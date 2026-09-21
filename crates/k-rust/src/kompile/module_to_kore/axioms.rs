@@ -1,4 +1,5 @@
-//! Generated KORE syntax and semantic axiom families.
+//! Generated KORE syntax and semantic axiom families (D16).
+//! Complexity: O(P² + S(P + S log S) + O²) over productions, sorts, and overloads; no dedicated counter.
 
 use super::equations::substitute_equation_sort;
 use super::*;

@@ -1,4 +1,5 @@
-//! Source loading follows the `requires` DFS, selects modules, and runs the ordered load phases before lowering.
+//! Source loading follows the `requires` DFS, selects modules, and runs the ordered load phases before lowering (D11, D21).
+//! Complexity: O(F + E + B) over files, require edges, and source bytes.
 //! Each source is visited once and each selection scans reachable modules; phase timings measure the driver.
 //!
 //! Recursive, host-independent loading of outer-syntax source graphs.

@@ -1,4 +1,4 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded (D9).
 //!
 //! Variable-binding checks and position-aware KAST traversal.
 

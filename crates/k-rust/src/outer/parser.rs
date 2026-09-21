@@ -1,4 +1,5 @@
-//! Outer syntax uses recursive descent with save-and-restore lookahead over a finite token stream.
+//! Outer syntax uses recursive descent with save-and-restore lookahead over a finite token stream (D33).
+//! Complexity: O(T C) over tokens and tried production candidates.
 //! Parsing is linear in consumed tokens apart from bounded alternatives; no dedicated counter.
 //!
 use std::{error::Error, fmt, rc::Rc, sync::LazyLock};

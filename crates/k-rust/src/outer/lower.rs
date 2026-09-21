@@ -1,4 +1,5 @@
-//! Outer lowering maps tag-indexed syntax nodes into the flat definition model.
+//! Outer lowering maps tag-indexed syntax nodes into the flat definition model (D33).
+//! Complexity: O(S + I) over sentences and production items.
 //! It visits each syntax node once; no dedicated counter.
 //!
 use std::collections::BTreeMap;

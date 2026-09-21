@@ -1,4 +1,5 @@
-//! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
+//! This definition-layer algorithm scans or transforms its model in deterministic declaration order (D34).
+//! Complexity: O(B) over regex syntax bytes.
 //! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
 //!
 //! K's structured regular-expression syntax.

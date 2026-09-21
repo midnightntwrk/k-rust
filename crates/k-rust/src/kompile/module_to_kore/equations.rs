@@ -1,4 +1,5 @@
-//! Rule, claim, macro, equation, and owise emission.
+//! Rule, claim, macro, equation, and owise emission (D17).
+//! Complexity: O(R(inject + convert)) plus O(R) per owise equation; `KompileOwiseCompetitorScans` measures the latter scan.
 
 use super::*;
 use k_rust_kore::measure::{self, Counter};

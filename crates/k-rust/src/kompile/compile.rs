@@ -1,4 +1,5 @@
-//! The host-independent pass driver applies 39 named stages and preserves two checked-definition checkpoints.
+//! The host-independent pass driver applies 39 named stages and preserves two checked-definition checkpoints (D11).
+//! Complexity: O(sum of the named stage work).
 //! `tests/phase_timings.rs` pins stage names and `tests/provenance_manifest.rs` pins the transformation source; `KompileSentencesTransformed` measures output volume.
 //!
 //! Host-independent orchestration of the ordered K frontend compilation pipeline.

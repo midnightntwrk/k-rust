@@ -1,4 +1,5 @@
-//! Markdown extraction is a fence-state machine that emits K code blocks in source order.
+//! Markdown extraction is a fence-state machine that emits K code blocks in source order (D33).
+//! Complexity: O(B) over Markdown bytes.
 //! It is linear in input lines; no dedicated counter.
 //!
 //! Literate K extraction from Markdown fenced code blocks.

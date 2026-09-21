@@ -1,4 +1,5 @@
-//! Five relation builders scan one module's productions and return deterministic partial orders.
+//! Five relation builders scan one module's productions and return deterministic partial orders (D7).
+//! Complexity: O(P² + closure) over production pairs and partial-order construction.
 //! Each view is rebuilt per call; its cost is the production scan plus partial-order construction.
 //!
 //! Derived subsort, overload, priority, and associativity relations.

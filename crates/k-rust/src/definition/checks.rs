@@ -1,4 +1,5 @@
-//! Structural definition checking composes Java-compatible per-module checks over resolved catalogs.
+//! Structural definition checking composes Java-compatible per-module checks over resolved catalogs (D9).
+//! Complexity: O(M(S + catalog work)) over modules and their sentences.
 //! Checks are linear in visited sentences and terms unless a submodule states another bound; no dedicated counter.
 //!
 //! Dependency-light structural checks ported from the Java frontend.

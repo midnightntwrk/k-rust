@@ -1,4 +1,4 @@
-//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
+//! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded (D9).
 //!
 //! Function-symbol matching checks ported from Java `CheckFunctions`.
 

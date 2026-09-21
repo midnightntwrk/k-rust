@@ -1,4 +1,5 @@
-//! Outer checks validate module and sentence declarations by linear scans with no worklist and no dedicated counter.
+//! Outer checks validate module and sentence declarations by linear scans with no worklist and no dedicated counter (D33).
+//! Complexity: O(N) over outer syntax nodes.
 //!
 use std::sync::LazyLock;
 
