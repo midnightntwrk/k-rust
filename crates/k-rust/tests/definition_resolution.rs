@@ -10,7 +10,8 @@ use k_rust::definition::{
 };
 use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan};
 use k_rust::provenance::{
-    GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord, ProvenanceLink, SourceTable,
+    GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord, ProvenanceLink, SourceId,
+    SourceTable,
 };
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -1080,4 +1081,74 @@ proptest::proptest! {
             ));
         }
     }
+}
+
+#[test]
+fn strict_update_invalidates_term_metadata_and_provenance_changes() {
+    fn rule(span: usize, origin: &str) -> Sentence {
+        let mut entries = BTreeMap::new();
+        entries.insert(ORIGIN_ATTRIBUTE.into(), json!({"marker": origin}));
+        Sentence::Rule {
+            body: Term::variable("X").with_metadata(TermMetadata {
+                span: Some(TermSpan {
+                    source: SourceId(0),
+                    start: span,
+                    end: span + 1,
+                }),
+                ..TermMetadata::default()
+            }),
+            requires: Term::variable("true"),
+            ensures: Term::variable("true"),
+            attributes: Attributes::new(entries),
+        }
+    }
+
+    let previous = Definition {
+        main_module: "A".into(),
+        modules: vec![
+            FlatModule {
+                name: "A".into(),
+                imports: Vec::new(),
+                local_sentences: vec![rule(0, "before")],
+                attributes: Attributes::default(),
+            },
+            module("B", &[]),
+        ],
+        attributes: Attributes::default(),
+    };
+    let base = ResolvedDefinition::resolve(&previous).unwrap();
+    let a = base.module_id("A").unwrap();
+    let b = base.module_id("B").unwrap();
+    let _ = base.sentences(a);
+    let _ = base.production_catalog(a);
+
+    let mut metadata_next = previous.clone();
+    metadata_next.modules[0].local_sentences[0] = rule(2, "before");
+    let metadata_updated = base.update(&previous, &metadata_next).unwrap();
+    let metadata_resolved = ResolvedDefinition::resolve(&metadata_next).unwrap();
+    assert_eq!(
+        metadata_updated.sentences(a),
+        metadata_resolved.sentences(a)
+    );
+    assert!(!Arc::ptr_eq(
+        &base.module(a).local_sentences[0],
+        &metadata_updated.module(a).local_sentences[0],
+    ));
+    assert!(Arc::ptr_eq(
+        &base.module(b).local_sentences[0],
+        &metadata_updated.module(b).local_sentences[0],
+    ));
+
+    let mut provenance_next = previous.clone();
+    provenance_next.modules[0].local_sentences[0] = rule(0, "after");
+    let provenance_updated = base.update(&previous, &provenance_next).unwrap();
+    let provenance_resolved = ResolvedDefinition::resolve(&provenance_next).unwrap();
+    assert_eq!(
+        provenance_updated.sentences(a),
+        provenance_resolved.sentences(a)
+    );
+    assert!(!Arc::ptr_eq(
+        &base.module(a).local_sentences[0],
+        &provenance_updated.module(a).local_sentences[0],
+    ));
 }
