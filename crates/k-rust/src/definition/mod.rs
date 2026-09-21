@@ -49,7 +49,9 @@ pub use configuration::{
 pub(crate) use equivalence::{
     EquivalenceAccumulator, dedup_by_equivalence, push_if_inequivalent, retain_new_sentences,
 };
-pub use equivalence::{sentence_equivalent, term_equivalent};
+pub use equivalence::{
+    canonical_production_payload, production_identity, sentence_equivalent, term_equivalent,
+};
 pub use partial_order::{Cycle as PartialOrderCycle, PartialOrder};
 pub use regex::{
     CharClass as RegexCharClass, ParseError as RegexParseError, Regex, RegexBody,

@@ -85,6 +85,53 @@ pub struct TermSpan {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ResolvedProductionId(pub usize);
 
+/// A collision-resistant content identity for a production.
+///
+/// The identity is the first 128 bits of SHA-256 over the canonical production payload. Equal
+/// payloads always have equal identities. The compiler relies on SHA-256 collision resistance
+/// when using identity equality as a substitute for comparing the payloads.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ProductionIdentity([u8; 16]);
+
+impl ProductionIdentity {
+    pub(crate) fn from_digest(digest: [u8; 16]) -> Self {
+        Self(digest)
+    }
+
+    /// Encode this identity as 32 lowercase hexadecimal characters.
+    pub fn to_hex(self) -> String {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut encoded = String::with_capacity(32);
+        for byte in self.0 {
+            encoded.push(HEX[usize::from(byte >> 4)] as char);
+            encoded.push(HEX[usize::from(byte & 0x0f)] as char);
+        }
+        encoded
+    }
+
+    /// Decode exactly 32 lowercase hexadecimal characters.
+    pub fn from_hex(text: &str) -> Option<Self> {
+        if text.len() != 32 {
+            return None;
+        }
+        let mut digest = [0; 16];
+        for (index, pair) in text.as_bytes().chunks_exact(2).enumerate() {
+            let high = decode_lower_hex(pair[0])?;
+            let low = decode_lower_hex(pair[1])?;
+            digest[index] = (high << 4) | low;
+        }
+        Some(Self(digest))
+    }
+}
+
+fn decode_lower_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
+
 /// Compiler metadata carried by a nested term.
 ///
 /// User-facing equality, ordering, debug output, textual KAST, and KAST JSON all
