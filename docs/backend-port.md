@@ -70,6 +70,15 @@ section 4.1 (row ids B1 to B21), one home per row.
 | `builtin.rs`, `builtin/*.rs` | B19 | hook evaluation by namespace; capture-avoiding object-language substitution in `builtin/substitution.rs` | `SimplifyBuiltinEvaluations` (at the caller) |
 | `externalize.rs`, `verify.rs` | none | conversion back to KORE; syntactic sentence verification | none |
 
+Rewrite theory lookup first preserves the top-symbol `TermIndex` sequence, then filters it by the
+head of the generated `<k>` cell. The rule-side `RuleIndex` treats variables, overload members,
+associative and idempotent heads, and missing or uncertain cells as wildcards; the subject side
+also treats function heads and configurations with multiple `<k>` cells as uncertain, which
+disables filtering. This is an over-approximation of matching: every rejected
+candidate has a rigid incompatible head, while every retained candidate stays in its prior
+priority and declaration position. Function, simplification, and ceil theories continue to use
+only `TermIndex`.
+
 ## Behavioral slices
 
 The port proceeds in dependency order, with differential tests against the pinned Haskell source

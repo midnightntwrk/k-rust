@@ -1,6 +1,12 @@
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
-//! rewrite rules additionally store the head of their `<k>` cell as a `RuleIndex`. Candidate
-//! order remains exact-symbol then variable-symbol, priority, and declaration order (row B1).
+//! rewrite rules additionally filter by the head of their `<k>` cell. Candidate count is the old
+//! exact-symbol then variable-symbol sequence filtered by `rule.index.covers(subject_index)`, so
+//! priority and declaration order remain unchanged (row B1).
+//!
+//! The index uses `Anything` for absent or malformed `<k>` cells, variables, overloaded heads,
+//! associative or idempotent heads, and subject-side functions. It strips injections and meets
+//! conjunctions. These conservative cases correspond to the matcher's overload, AC, variable,
+//! injection, and symbolic-function paths; a later matcher extension must keep this list sound.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -156,7 +162,10 @@ pub enum CellIndex {
 
 impl CellIndex {
     pub fn covers(&self, subject: &Self) -> bool {
-        matches!(self, Self::Anything) || (!matches!(self, Self::None) && self == subject)
+        !matches!(self, Self::None)
+            && (matches!(self, Self::Anything)
+                || matches!(subject, Self::Anything)
+                || self == subject)
     }
 
     pub fn meet(self, other: Self) -> Self {
@@ -724,9 +733,14 @@ pub fn insert_rewrite_theory(theory: &mut RewriteTheory, rule: RewriteRule, inde
 }
 
 pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
+    let mut cells = Vec::with_capacity(2);
+    find_k_cells(term, &mut cells);
+    let cell = match cells.as_slice() {
+        [cell] => Some(*cell),
+        _ => None,
+    };
     RuleIndex(vec![
-        find_k_cell(term)
-            .and_then(k_cell_head)
+        cell.and_then(k_cell_head)
             .map_or(CellIndex::Anything, |head| cell_index(definition, head)),
     ])
 }
@@ -741,32 +755,56 @@ pub fn subject_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
     index
 }
 
-fn find_k_cell(term: &Term) -> Option<&Term> {
+fn find_k_cells<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
+    if cells.len() > 1 {
+        return;
+    }
     match term.kind() {
         TermKind::Application {
             symbol, arguments, ..
         } => {
             if symbol.is(WellKnownSymbol::KCell) {
-                return Some(term);
+                cells.push(term);
+                return;
             }
-            arguments.iter().find_map(find_k_cell)
+            for argument in arguments {
+                find_k_cells(argument, cells);
+            }
         }
-        TermKind::And(left, right) => find_k_cell(left).or_else(|| find_k_cell(right)),
-        TermKind::Injection { term, .. } => find_k_cell(term),
-        TermKind::Map { entries, rest, .. } => entries
-            .iter()
-            .find_map(|(key, value)| find_k_cell(key).or_else(|| find_k_cell(value)))
-            .or_else(|| rest.as_ref().and_then(find_k_cell)),
-        TermKind::List { heads, rest, .. } => heads.iter().find_map(find_k_cell).or_else(|| {
-            rest.as_ref().and_then(|(middle, tails)| {
-                find_k_cell(middle).or_else(|| tails.iter().find_map(find_k_cell))
-            })
-        }),
-        TermKind::Set { elements, rest, .. } => elements
-            .iter()
-            .find_map(find_k_cell)
-            .or_else(|| rest.as_ref().and_then(find_k_cell)),
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => None,
+        TermKind::And(left, right) => {
+            find_k_cells(left, cells);
+            find_k_cells(right, cells);
+        }
+        TermKind::Injection { term, .. } => find_k_cells(term, cells),
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries {
+                find_k_cells(key, cells);
+                find_k_cells(value, cells);
+            }
+            if let Some(rest) = rest {
+                find_k_cells(rest, cells);
+            }
+        }
+        TermKind::List { heads, rest, .. } => {
+            for head in heads {
+                find_k_cells(head, cells);
+            }
+            if let Some((middle, tails)) = rest {
+                find_k_cells(middle, cells);
+                for tail in tails {
+                    find_k_cells(tail, cells);
+                }
+            }
+        }
+        TermKind::Set { elements, rest, .. } => {
+            for element in elements {
+                find_k_cells(element, cells);
+            }
+            if let Some(rest) = rest {
+                find_k_cells(rest, cells);
+            }
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
     }
 }
 
@@ -871,9 +909,10 @@ pub(crate) fn applicable_groups(
     groups
 }
 
-pub(crate) fn applicable_rewrite_groups(
+pub fn applicable_rewrite_groups(
     theory: &RewriteTheory,
     index: &TermIndex,
+    subject: &RuleIndex,
 ) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
     let mut groups = BTreeMap::new();
     let covered = if index == &TermIndex::Variable {
@@ -884,10 +923,12 @@ pub(crate) fn applicable_rewrite_groups(
     for covered in covered {
         if let Some(found) = theory.get(covered) {
             for (priority, rules) in found {
-                groups
-                    .entry(*priority)
-                    .or_insert_with(Vec::new)
-                    .extend(rules.iter().map(|stored| stored.rule.clone()));
+                groups.entry(*priority).or_insert_with(Vec::new).extend(
+                    rules
+                        .iter()
+                        .filter(|stored| stored.index.covers(subject))
+                        .map(|stored| stored.rule.clone()),
+                );
             }
         }
     }
