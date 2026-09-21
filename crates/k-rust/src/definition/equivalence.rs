@@ -3,11 +3,12 @@
 //!
 //! K sentence equality for deduplication, including `Production`'s custom equality override.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust_kore::measure::{self, Counter};
 
 use super::ast::{Attributes, ProductionItem, Sentence};
+use super::resolve::SentenceKey;
 use crate::definition::AttributeKey;
 use crate::kast::Term;
 
@@ -216,31 +217,61 @@ pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {
 pub(crate) fn dedup_by_equivalence<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
 ) -> Vec<&'a Sentence> {
-    let mut unique = Vec::new();
-    // Invariant: `unique` holds the first representative of every equivalence class in the
-    // processed prefix; the input iterator shrinks by one each iteration.
+    let mut unique = EquivalenceAccumulator::new();
     for sentence in sentences {
         push_if_inequivalent(&mut unique, sentence);
     }
-    unique
+    unique.into_sentences()
+}
+
+/// Declaration-ordered representatives with candidate indexes by [`SentenceKey`].
+pub(crate) struct EquivalenceAccumulator<'a> {
+    sentences: Vec<&'a Sentence>,
+    by_key: BTreeMap<SentenceKey<'a>, Vec<usize>>,
+}
+
+impl<'a> EquivalenceAccumulator<'a> {
+    pub(crate) fn new() -> Self {
+        Self {
+            sentences: Vec::new(),
+            by_key: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn from_sentences(sentences: impl IntoIterator<Item = &'a Sentence>) -> Self {
+        let mut accumulator = Self::new();
+        for sentence in sentences {
+            accumulator.push(sentence);
+        }
+        accumulator
+    }
+
+    pub(crate) fn push(&mut self, sentence: &'a Sentence) -> bool {
+        let key = SentenceKey::of(sentence);
+        if self.by_key.get(&key).is_some_and(|candidates| {
+            candidates
+                .iter()
+                .any(|&index| sentence_equivalent(self.sentences[index], sentence))
+        }) {
+            return false;
+        }
+        let index = self.sentences.len();
+        self.sentences.push(sentence);
+        self.by_key.entry(key).or_default().push(index);
+        true
+    }
+
+    fn into_sentences(self) -> Vec<&'a Sentence> {
+        self.sentences
+    }
 }
 
 /// Append `sentence` when no retained sentence is structurally equivalent.
 pub(crate) fn push_if_inequivalent<'a>(
-    sentences: &mut Vec<&'a Sentence>,
+    sentences: &mut EquivalenceAccumulator<'a>,
     sentence: &'a Sentence,
 ) -> bool {
-    // Invariant: every earlier representative is inequivalent to `sentence`; the remaining
-    // representative iterator shrinks by one until a match is found or the scan ends.
-    if sentences
-        .iter()
-        .any(|existing| sentence_equivalent(existing, sentence))
-    {
-        false
-    } else {
-        sentences.push(sentence);
-        true
-    }
+    sentences.push(sentence)
 }
 
 fn tag_set(tags: &[String]) -> BTreeSet<&str> {
@@ -342,6 +373,51 @@ pub fn term_equivalent(left: &Term, right: &Term) -> bool {
             },
         ) => left_token == right_token && left_sort == right_sort,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::kast::{Label, Sort};
+
+    fn production((label, sort, first, second): (u8, u8, u8, u8)) -> Sentence {
+        Sentence::Production {
+            label: Some(Label::new(format!("label{label}"))),
+            parameters: Vec::new(),
+            sort: Sort::new(format!("Sort{sort}")),
+            items: vec![
+                ProductionItem::Terminal(first.to_string()),
+                ProductionItem::Terminal(second.to_string()),
+            ],
+            attributes: Attributes::default(),
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn indexed_dedup_matches_the_linear_first_representative_oracle(
+            specs in prop::collection::vec(
+                (any::<u8>(), any::<u8>(), any::<u8>(), any::<u8>()),
+                0..80,
+            ),
+        ) {
+            let sentences = specs.into_iter().map(production).collect::<Vec<_>>();
+            let mut expected: Vec<&Sentence> = Vec::new();
+            for sentence in &sentences {
+                if !expected
+                    .iter()
+                    .any(|existing| sentence_equivalent(*existing, sentence))
+                {
+                    expected.push(sentence);
+                }
+            }
+
+            let actual = dedup_by_equivalence(&sentences);
+            prop_assert_eq!(actual, expected);
+        }
     }
 }
 

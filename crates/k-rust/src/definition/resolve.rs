@@ -18,7 +18,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
-use super::equivalence::{dedup_by_equivalence, push_if_inequivalent};
+use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence, push_if_inequivalent};
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
 
@@ -467,7 +467,7 @@ impl ResolvedDefinition {
         let mut visible = self.transitive_imports(module);
         visible.push(module);
         let visible = visible.into_iter().collect::<BTreeSet<_>>();
-        let mut buckets: BTreeMap<SentenceKey<'_>, Vec<&Sentence>> = BTreeMap::new();
+        let mut unique = EquivalenceAccumulator::new();
         let mut locations = Vec::new();
         for (owner, index, sentence) in self
             .dependency_order
@@ -481,8 +481,7 @@ impl ResolvedDefinition {
                     .map(move |(index, sentence)| (id, index, sentence))
             })
         {
-            let sentences = buckets.entry(SentenceKey::of(sentence)).or_default();
-            if push_if_inequivalent(sentences, sentence) {
+            if push_if_inequivalent(&mut unique, sentence) {
                 locations.push((owner, index));
             }
         }

@@ -10,8 +10,8 @@ use std::fmt;
 use serde_json::{Value, json};
 
 use super::{
-    Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolveError,
-    ResolvedDefinition, Sentence,
+    Attributes, Definition, EquivalenceAccumulator, LabelHead, ProductionCatalog, ProductionItem,
+    ResolveError, ResolvedDefinition, Sentence,
     attribute_keys::{KeyParameter, builtin_key},
     dedup_by_equivalence, push_if_inequivalent,
 };
@@ -836,7 +836,7 @@ impl Generator<'_, '_> {
     }
 
     fn push(&mut self, sentence: Sentence) {
-        let mut generated = self.generated.iter().collect::<Vec<_>>();
+        let mut generated = EquivalenceAccumulator::from_sentences(self.generated.iter());
         if push_if_inequivalent(&mut generated, &sentence) {
             self.generated.push(sentence);
         }
