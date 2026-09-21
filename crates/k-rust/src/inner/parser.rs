@@ -1469,6 +1469,9 @@ mod chart_tests {
                 "chosen",
             ));
             let grammar = Grammar::from_sentences(&sentences).unwrap();
+            let chosen_identity = crate::definition::production_identity(
+                sentences.last().expect("chosen production"),
+            );
             CHART_PREDICTION_ATTEMPTS.set(0);
             let baseline = unfiltered(&grammar, "Start", " \né ").unwrap();
             assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 65);
@@ -1496,10 +1499,7 @@ mod chart_tests {
                     end: 104
                 })
             );
-            assert_eq!(
-                metadata.production,
-                Some(ProductionIdentity::from_hex(&format!("{:032x}", 65)).unwrap())
-            );
+            assert_eq!(metadata.production, chosen_identity);
         }
 
         #[test]
