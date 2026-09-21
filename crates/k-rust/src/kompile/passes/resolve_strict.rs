@@ -58,7 +58,6 @@ pub(crate) fn resolve_strict_pass(
     let resolved = input.resolved_raw().map_err(|error| ResolveStrictError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
-    let views = resolved.views();
     let main = resolved.main_module_id();
     let aliases = labeled_sentences(&resolved, main);
     let bool_module = resolved.module_id(WellKnownModule::Bool.as_str());
@@ -125,11 +124,7 @@ pub(crate) fn resolve_strict_pass(
 
     if diagnostics.is_empty() {
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-        // The private BOOL import changes this module's visible production catalog,
-        // even though strictness itself does not add any productions.
-        super::rebase_local_metadata(&views, output).map_err(|message| ResolveStrictError {
-            diagnostics: vec![plain_error(message)],
-        })
+        Ok(output)
     } else {
         diagnostics.sort();
         diagnostics.dedup();

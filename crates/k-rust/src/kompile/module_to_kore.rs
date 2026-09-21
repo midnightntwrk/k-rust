@@ -693,8 +693,6 @@ pub fn module_to_kore_from_resolved_with_options(
         reachability_mode(&definition.module(module_id).attributes).or(options
             .default_claims_to_all_path
             .then_some(ReachabilityMode::AllPath));
-    let mut production_rebases =
-        BTreeMap::<ModuleId, BTreeMap<ProductionIdentity, ProductionIdentity>>::new();
     let mut module_rules = Vec::with_capacity(rules.rules().len());
     for (_, rule) in rules.rules() {
         let owner = sentence_owner(definition, rule).unwrap_or(module_id);
@@ -703,14 +701,7 @@ pub fn module_to_kore_from_resolved_with_options(
             module_rules.push(propagated);
             continue;
         }
-        if let std::collections::btree_map::Entry::Vacant(entry) = production_rebases.entry(owner) {
-            entry.insert(production_rebase(definition, owner, &productions)?);
-        }
-        module_rules.push(rebase_sentence_metadata(
-            &definition.module(owner).name,
-            &production_rebases[&owner],
-            propagated,
-        )?);
+        module_rules.push(propagated);
     }
     if options.generate_map_ceil_axioms {
         module_rules.extend(generate_map_ceil_rules(&productions)?);
@@ -766,22 +757,7 @@ pub fn module_to_kore_from_resolved_with_options(
             });
         }
         let owner = sentence_owner(definition, claim).unwrap_or(module_id);
-        let rebased;
-        let claim = if owner == module_id {
-            claim
-        } else {
-            if let std::collections::btree_map::Entry::Vacant(entry) =
-                production_rebases.entry(owner)
-            {
-                entry.insert(production_rebase(definition, owner, &productions)?);
-            }
-            rebased = rebase_sentence_metadata(
-                &definition.module(owner).name,
-                &production_rebases[&owner],
-                claim.clone(),
-            )?;
-            &rebased
-        };
+        let claim = if owner == module_id { claim } else { claim };
         let emitted = emit_rule_or_claim(claim, true, &emission_context, &mut owise_injections)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(claim))?;
         modules.semantics.sentences.push(emitted);
@@ -1056,130 +1032,6 @@ fn sentence_owner(definition: &ResolvedDefinition, sentence: &Sentence) -> Optio
             .any(|candidate| std::ptr::eq(candidate, sentence))
             .then_some(module)
     })
-}
-
-fn rebase_sentence_metadata(
-    source_module: &str,
-    production_rebase: &BTreeMap<ProductionIdentity, ProductionIdentity>,
-    sentence: Sentence,
-) -> Result<Sentence, ModuleToKoreError> {
-    let rebase = |term| rebase_term_metadata(term, source_module, production_rebase);
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            attributes,
-        } => Ok(Sentence::Rule {
-            body: rebase(body)?,
-            requires: rebase(requires)?,
-            ensures: rebase(ensures)?,
-            attributes,
-        }),
-        Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            attributes,
-        } => Ok(Sentence::Claim {
-            body: rebase(body)?,
-            requires: rebase(requires)?,
-            ensures: rebase(ensures)?,
-            attributes,
-        }),
-        sentence => Ok(sentence),
-    }
-}
-
-fn rebase_term_metadata(
-    term: Term,
-    source_module: &str,
-    production_rebase: &BTreeMap<ProductionIdentity, ProductionIdentity>,
-) -> Result<Term, ModuleToKoreError> {
-    let mut metadata = term.metadata().cloned().unwrap_or_default();
-    if let Some(identity) = metadata.production {
-        let Some(target_id) = production_rebase.get(&identity) else {
-            return Err(ModuleToKoreError::InvalidImportedProductionMetadata {
-                module: source_module.to_owned(),
-                production: identity.to_hex(),
-                message: format!(
-                    "the source production identity is absent from the imported catalog map ({} entries)",
-                    production_rebase.len()
-                ),
-            });
-        };
-        metadata.production = Some(*target_id);
-    }
-
-    let rebuilt = match term.into_unannotated() {
-        Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(rebase_term_metadata(
-                *left,
-                source_module,
-                production_rebase,
-            )?),
-            right: Box::new(rebase_term_metadata(
-                *right,
-                source_module,
-                production_rebase,
-            )?),
-        },
-        Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(rebase_term_metadata(
-                *pattern,
-                source_module,
-                production_rebase,
-            )?),
-            alias: Box::new(rebase_term_metadata(
-                *alias,
-                source_module,
-                production_rebase,
-            )?),
-        },
-        Term::Sequence(items) => Term::Sequence(
-            items
-                .into_iter()
-                .map(|item| rebase_term_metadata(item, source_module, production_rebase))
-                .collect::<Result<_, _>>()?,
-        ),
-        Term::Apply { label, arguments } => Term::Apply {
-            label,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| rebase_term_metadata(argument, source_module, production_rebase))
-                .collect::<Result<_, _>>()?,
-        },
-        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
-        Term::Annotated { .. } => unreachable!(),
-    };
-    Ok(rebuilt.with_metadata(metadata))
-}
-
-fn production_rebase(
-    definition: &ResolvedDefinition,
-    source_module: ModuleId,
-    target: &ProductionCatalog<'_>,
-) -> Result<BTreeMap<ProductionIdentity, ProductionIdentity>, ModuleToKoreError> {
-    let source = definition.production_catalog(source_module);
-    let target_by_pointer = target
-        .productions()
-        .map(|(id, production)| (std::ptr::from_ref(production) as usize, id))
-        .collect::<BTreeMap<_, _>>();
-    source
-        .productions()
-        .map(|(source_id, production)| {
-            target_by_pointer
-                .get(&(std::ptr::from_ref(production) as usize))
-                .copied()
-                .or_else(|| target.find_equivalent(production))
-                .map(|target_id| (source.identity(source_id), target.identity(target_id)))
-                .ok_or_else(|| ModuleToKoreError::InvalidImportedProductionMetadata {
-                    module: definition.module(source_module).name.clone(),
-                    production: source.identity(source_id).to_hex(),
-                    message: "the production is not visible from the target module".into(),
-                })
-        })
-        .collect::<Result<BTreeMap<_, _>, _>>()
 }
 
 fn reachability_mode(attributes: &KAttributes) -> Option<ReachabilityMode> {

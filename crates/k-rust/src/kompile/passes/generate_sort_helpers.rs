@@ -15,8 +15,6 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-use super::rebase_local_metadata;
-
 /// Apply Java's `GenerateSortPredicateSyntax` transformation.
 pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, String> {
     super::super::pipeline::run_standalone(
@@ -96,7 +94,7 @@ pub(crate) fn generate_sort_predicate_syntax_pass(
             module.local_sentences.extend(generated);
         }
     }
-    rebase_local_metadata(&views, output)
+    Ok(output)
 }
 
 /// Restore generated sort predicates to their canonical unary signature after passes that may
@@ -198,7 +196,7 @@ pub(crate) fn generate_sort_projections_pass(
         let generated = retain_new_sentences(module.local_sentences.iter(), generated);
         module.local_sentences.extend(generated);
     }
-    rebase_local_metadata(&views, output)
+    Ok(output)
 }
 
 fn sort_projection(sort: &Sort, label: Label) -> [Sentence; 2] {

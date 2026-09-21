@@ -3,12 +3,12 @@
 //!
 //! Java-compatible resolution of configuration cells marked with `stream`.
 
-use std::{fmt, ops::Range};
+use std::fmt;
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{Definition, FlatImport, LabelHead, ModuleId, ResolvedDefinition, Sentence},
+    definition::{Definition, FlatImport, LabelHead, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, WellKnownModule},
     provenance::GeneratingPass,
@@ -39,12 +39,6 @@ struct StreamProduction {
     sentence: Sentence,
 }
 
-struct MetadataOrigin {
-    module: usize,
-    sentences: Range<usize>,
-    source: ModuleId,
-}
-
 /// Instantiate K's builtin `STDIN-STREAM` and `STDOUT-STREAM` modules for user stream cells.
 ///
 /// This is the second ordered KORE-backend pass. It replaces generated cell initializers with the
@@ -67,10 +61,8 @@ pub(crate) fn resolve_io_pass(
     let resolved = input.resolved_raw().map_err(|error| ResolveIoError {
         diagnostics: vec![plain_error(error.to_string())],
     })?;
-    let views = resolved.views();
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
-    let mut metadata_origins = Vec::new();
 
     for module_index in 0..output.modules.len() {
         let module_name = output.modules[module_index].name.clone();
@@ -94,7 +86,6 @@ pub(crate) fn resolve_io_pass(
             .iter()
             .any(|sentence| stream_name(sentence).is_some());
         let mut sentences = output.modules[module_index].local_sentences.clone();
-        let original_sentences = sentences.len();
 
         // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for stream in &streams {
@@ -112,37 +103,16 @@ pub(crate) fn resolve_io_pass(
         for stream in streams.iter().filter(|stream| stream.stream == "stdin") {
             let generated =
                 stdin_unblocking_rules(definition, stream, &sentences, &mut diagnostics);
-            let start = sentences.len();
             extend_unique(&mut sentences, generated);
-            metadata_origins.push(MetadataOrigin {
-                module: module_index,
-                sentences: start..sentences.len(),
-                source: module_id,
-            });
         }
 
         if local_has_stream {
             // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             for stream in &streams {
                 let imported = stream_module_sentences(definition, stream, &mut diagnostics);
-                let start = sentences.len();
                 extend_unique(&mut sentences, imported);
-                let source_name = format!("{}-STREAM", stream.stream.to_uppercase());
-                if let Some(source) = resolved.module_id(&source_name) {
-                    metadata_origins.push(MetadataOrigin {
-                        module: module_index,
-                        sentences: start..sentences.len(),
-                        source,
-                    });
-                }
             }
         }
-
-        metadata_origins.push(MetadataOrigin {
-            module: module_index,
-            sentences: 0..original_sentences,
-            source: module_id,
-        });
 
         output.modules[module_index].local_sentences = sentences;
         // Invariant: each earlier implicit import has been added exactly when its module exists;
@@ -176,35 +146,6 @@ pub(crate) fn resolve_io_pass(
         {
             module.imports.clear();
             module.local_sentences.clear();
-        }
-    }
-
-    if diagnostics.is_empty() {
-        let target = match ResolvedDefinition::resolve(&output) {
-            Ok(target) => target,
-            Err(error) => {
-                diagnostics.push(plain_error(error.to_string()));
-                return Err(ResolveIoError { diagnostics });
-            }
-        };
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-        for origin in metadata_origins {
-            let source = views.production_catalog(origin.source);
-            let target_name = output.modules[origin.module].name.clone();
-            let target_module = target
-                .module_id(&target_name)
-                .expect("resolved output contains every output module");
-            let target_catalog = target.production_catalog(target_module);
-            let mut rebaser = super::super::rebase::ExactRebaser::new(&source, &target_catalog);
-            for sentence in &mut output.modules[origin.module].local_sentences[origin.sentences] {
-                if let Err(message) = rebaser.rebase_sentence(sentence) {
-                    diagnostics.push(plain_error(format!(
-                        "failed to rebase I/O metadata from {} into {}: {message}",
-                        resolved.module(origin.source).name,
-                        target_name,
-                    )));
-                }
-            }
         }
     }
 

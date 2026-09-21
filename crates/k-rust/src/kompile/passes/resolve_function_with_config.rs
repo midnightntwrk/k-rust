@@ -3,22 +3,26 @@
 //!
 //! Thread the generated top-cell configuration through functions that inspect configuration.
 
-use std::{collections::BTreeSet, convert::Infallible, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    convert::Infallible,
+    fmt,
+};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence, SortHead, sentence_equivalent,
+        Sentence, SortHead, production_identity,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
+    kast::{GeneratedCell, InternalLabel, Label, ProductionIdentity, Sort, Term},
     provenance::GeneratingPass,
 };
 
 use super::super::label_graph::LabelDependencyGraph;
-use super::rebase_local_metadata_by;
+use super::retarget_production_identities;
 
 const CONFIGURATION_VARIABLE: &str = "#Configuration";
 
@@ -63,7 +67,6 @@ pub(crate) fn resolve_function_with_config_pass(
         .map_err(|error| ResolveFunctionWithConfigError {
             diagnostics: vec![plain_error(error.to_string())],
         })?;
-    let views = resolved.views();
     let main_module = resolved
         .module_id(&input.definition.main_module)
         .expect("resolved definition contains its main module");
@@ -74,6 +77,7 @@ pub(crate) fn resolve_function_with_config_pass(
 
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
+    let mut replacements = BTreeMap::<ProductionIdentity, ProductionIdentity>::new();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
@@ -173,6 +177,13 @@ pub(crate) fn resolve_function_with_config_pass(
                 }
                 _ => sentence.clone(),
             };
+            if let (Some(before), Some(after)) = (
+                production_identity(sentence),
+                production_identity(&transformed),
+            ) && before != after
+            {
+                replacements.insert(before, after);
+            }
             // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             if !sentences.contains(&transformed) {
                 sentences.push(transformed);
@@ -194,14 +205,8 @@ pub(crate) fn resolve_function_with_config_pass(
         return Err(ResolveFunctionWithConfigError { diagnostics });
     }
 
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-    rebase_local_metadata_by(&views, output, |source, target| {
-        sentence_equivalent(source, target)
-            || function_production_equivalent(source, target, &with_config)
-    })
-    .map_err(|message| ResolveFunctionWithConfigError {
-        diagnostics: vec![plain_error(message)],
-    })
+    retarget_production_identities(&mut output, &replacements);
+    Ok(output)
 }
 
 /// Apply Java's later `resolveConfigVar` sentence transformation.
@@ -480,45 +485,6 @@ fn configuration_variable() -> Term {
         name: CONFIGURATION_VARIABLE.to_owned(),
         sort: Some(Sort::builtin(BuiltinSort::GeneratedTopCell)),
     }
-}
-
-fn function_production_equivalent(
-    source: &Sentence,
-    target: &Sentence,
-    with_config: &BTreeSet<LabelHead>,
-) -> bool {
-    let Sentence::Production {
-        label: Some(source_label),
-        parameters: source_parameters,
-        sort: source_sort,
-        items: source_items,
-        attributes: source_attributes,
-    } = source
-    else {
-        return false;
-    };
-    let Sentence::Production {
-        label: Some(target_label),
-        parameters: target_parameters,
-        sort: target_sort,
-        items: target_items,
-        attributes: target_attributes,
-    } = target
-    else {
-        return false;
-    };
-    with_config.contains(&LabelHead::from(source_label))
-        && source_label == target_label
-        && source_parameters == target_parameters
-        && source_sort == target_sort
-        && source_attributes == target_attributes
-        && target_items.len() == source_items.len() + 1
-        && target_items.starts_with(source_items)
-        && matches!(
-            target_items.last(),
-            Some(ProductionItem::NonTerminal { sort, name: None })
-                if sort.is_builtin(BuiltinSort::GeneratedTopCell)
-        )
 }
 
 fn contains_rewrite(term: &Term) -> bool {

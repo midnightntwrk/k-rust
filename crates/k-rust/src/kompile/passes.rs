@@ -37,10 +37,7 @@ mod resolve_semantic_casts;
 mod resolve_strict;
 mod subsort_kitem;
 
-pub(crate) use super::rebase::{
-    rebase_local_metadata, rebase_local_metadata_by, rebase_sentence,
-    rebase_term_to_visible_catalog,
-};
+pub(crate) use super::retarget::retarget_production_identities;
 pub use add_implicit_computation_cell::add_implicit_computation_cell;
 pub(crate) use add_implicit_computation_cell::add_implicit_computation_cell_pass;
 pub(crate) use check_simplification::check_simplification_rules_pass;

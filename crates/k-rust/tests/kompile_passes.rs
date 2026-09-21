@@ -831,7 +831,7 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
     };
     let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
     *body = taken.with_metadata(TermMetadata {
-        production: Some(ProductionIdentity::from_hex(&format!("{:032x}", cell.0)).unwrap()),
+        production: Some(catalog.identity(cell)),
         ..TermMetadata::default()
     });
 
@@ -2721,10 +2721,10 @@ fn guard_or_patterns_preserves_resolved_production_for_top_cell_alias_sort() {
         )],
         attributes: Attributes::default(),
     };
-    let top_cell_or = {
+    let top_cell_or_identity = {
         let resolved = ResolvedDefinition::resolve(&definition).unwrap();
         let catalog = resolved.production_catalog(resolved.main_module_id());
-        catalog
+        let production = catalog
             .productions_for(&LabelHead::from(&Label::new("#Or")))
             .iter()
             .copied()
@@ -2734,7 +2734,8 @@ fn guard_or_patterns_preserves_resolved_production_for_top_cell_alias_sort() {
                     Sentence::Production { sort, .. } if sort == &Sort::new("TopCell")
                 )
             })
-            .unwrap()
+            .unwrap();
+        catalog.identity(production)
     };
     let metadata = TermMetadata {
         span: Some(TermSpan {
@@ -2742,7 +2743,7 @@ fn guard_or_patterns_preserves_resolved_production_for_top_cell_alias_sort() {
             start: 10,
             end: 30,
         }),
-        production: Some(ProductionIdentity::from_hex(&format!("{:032x}", top_cell_or.0)).unwrap()),
+        production: Some(top_cell_or_identity),
         ..TermMetadata::default()
     };
     let Sentence::Rule { body, .. } = definition
@@ -3751,7 +3752,7 @@ fn falls_back_safely_when_function_application_metadata_is_stale() {
         };
         let stale = if rule_label == "step" { f } else { a };
         let annotated = left.as_ref().clone().with_metadata(TermMetadata {
-            production: Some(ProductionIdentity::from_hex(&format!("{:032x}", stale.0)).unwrap()),
+            production: Some(catalog.identity(stale)),
             ..TermMetadata::default()
         });
         let rebuilt = Term::Rewrite {

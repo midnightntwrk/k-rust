@@ -15,7 +15,7 @@ use crate::names::BuiltinSort;
 
 use super::fresh_names::GeneratedVariableIdentity;
 use super::passes::{
-    expand_macros_in_terms_from_resolved, rebase_sentence, resolve_anon_vars_in_sentence,
+    expand_macros_in_terms_from_resolved, resolve_anon_vars_in_sentence,
     resolve_semantic_casts_with_predicates_in_sentence,
 };
 use super::sort_injections::{SortInjectionError, SortInjector, rewrite_projection};
@@ -54,7 +54,6 @@ pub struct CompiledSearchPattern {
 pub enum CompileSearchPatternError {
     Rule(RuleError),
     MissingExecutionModule(String),
-    ProductionRebase(String),
     CellConcretization(ConcretizeCellsError),
     MacroExpansion(String),
     SortInjection(SortInjectionError),
@@ -70,12 +69,6 @@ impl fmt::Display for CompileSearchPatternError {
                 write!(
                     formatter,
                     "compiled execution module {module:?} was not found"
-                )
-            }
-            Self::ProductionRebase(message) => {
-                write!(
-                    formatter,
-                    "could not rebase parsed pattern productions: {message}"
                 )
             }
             Self::CellConcretization(error) => error.fmt(formatter),
@@ -130,19 +123,10 @@ pub fn compile_search_pattern(
     contents: &str,
     attributes: Attributes,
 ) -> Result<CompiledSearchPattern, CompileSearchPatternError> {
-    let mut sentence = parse_rule_content(parsing_definition, module, contents, attributes)?;
-    let parsing_module = parsing_definition
-        .module_id(module)
-        .expect("parse_rule_content checked the parsing module");
-    let execution_module = execution_definition
+    let sentence = parse_rule_content(parsing_definition, module, contents, attributes)?;
+    execution_definition
         .module_id(module)
         .ok_or_else(|| CompileSearchPatternError::MissingExecutionModule(module.to_owned()))?;
-    rebase_sentence(
-        &mut sentence,
-        &parsing_definition.production_catalog(parsing_module),
-        &execution_definition.production_catalog(execution_module),
-    )
-    .map_err(CompileSearchPatternError::ProductionRebase)?;
 
     let (sentence, mut generated) = resolve_anon_vars_in_sentence(sentence);
     let sentence = resolve_semantic_casts_with_predicates_in_sentence(sentence);

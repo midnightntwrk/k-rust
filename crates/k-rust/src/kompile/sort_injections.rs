@@ -1184,26 +1184,8 @@ pub(crate) fn add_sort_injections_to_definition_pass(
         if !target_modules.contains(&module_id) {
             continue;
         }
-        let source_catalog = views.production_catalog(module_id);
-        let mut import_rebaser = (module_id != target).then(|| {
-            super::rebase::ExactRebaser::new(source_catalog, &target_injector.productions)
-        });
-        let mut localization_rebaser = (module_id != target).then(|| {
-            super::rebase::ExactRebaser::new(&target_injector.productions, source_catalog)
-        });
         for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
-            let mut input = sentence.clone();
-            if module_id != target && target_modules.contains(&module_id) {
-                import_rebaser
-                    .as_mut()
-                    .expect("non-target modules have an import rebaser")
-                    .rebase_sentence(&mut input)
-                    .map_err(|message| SortInjectionError::InvalidImportedMetadata {
-                        module: module.name.clone(),
-                        message,
-                    })?;
-            }
-            let mut injected = target_injector.inject_sentence(&input).map_err(|error| {
+            let injected = target_injector.inject_sentence(sentence).map_err(|error| {
                 SortInjectionError::Sentence {
                     module: module.name.clone(),
                     sentence: sentence_index,
@@ -1215,56 +1197,10 @@ pub(crate) fn add_sort_injections_to_definition_pass(
                     error: Box::new(error),
                 }
             })?;
-            if module_id != target && target_modules.contains(&module_id) {
-                localize_sentence_metadata(
-                    &mut injected,
-                    localization_rebaser
-                        .as_mut()
-                        .expect("non-target modules have a localization rebaser"),
-                );
-            }
             *sentence = injected;
         }
     }
     Ok(output)
-}
-
-fn localize_sentence_metadata(
-    sentence: &mut Sentence,
-    rebaser: &mut super::rebase::ExactRebaser<'_, '_, '_, '_>,
-) {
-    let mut localize = |term: &mut Term| {
-        let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
-        *term = rebaser.rebase_term_lossy(taken);
-    };
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => {
-            localize(body);
-            localize(requires);
-            localize(ensures);
-        }
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => {
-            localize(body);
-            localize(requires);
-        }
-        Sentence::Configuration { body, ensures, .. } => {
-            localize(body);
-            localize(ensures);
-        }
-        _ => {}
-    }
 }
 
 pub fn add_sort_injections_from_resolved(
