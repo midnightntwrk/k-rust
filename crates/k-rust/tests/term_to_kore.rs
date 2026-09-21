@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use indoc::indoc;
 use k_rust::definition::{Definition, LabelHead, ResolvedDefinition, Sentence};
 use k_rust::inner::resolve_rule_bubbles;
-use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
+use k_rust::kast::{Label, Sort, Term, TermMetadata};
 use k_rust::kompile::{
     GeneratedVariableIdentity, TermConversionError, TermConverter, term_to_kore,
 };
@@ -389,7 +389,7 @@ fn resolved_production_identity_disambiguates_application_sorts() {
     let production = catalog.productions_for(&LabelHead::new("choice"))[0];
     let annotated = Term::apply("choice", vec![]).with_metadata(TermMetadata {
         span: None,
-        production: Some(ResolvedProductionId(production.0)),
+        production: Some(catalog.identity(production)),
         sort: None,
         origin: None,
     });
@@ -422,7 +422,7 @@ fn recovers_a_stale_catalog_identity_for_a_unique_label() {
     let stale = catalog.productions_for(&LabelHead::new("b"))[0];
     let stale_application = Term::apply("a", Vec::new()).with_metadata(TermMetadata {
         span: None,
-        production: Some(ResolvedProductionId(stale.0)),
+        production: Some(catalog.identity(stale)),
         sort: None,
         origin: None,
     });
@@ -460,7 +460,7 @@ fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
     let stale = catalog.productions_for(&LabelHead::new("stale"))[0];
     let choice = Term::apply("choice", Vec::new()).with_metadata(TermMetadata {
         span: None,
-        production: Some(ResolvedProductionId(stale.0)),
+        production: Some(catalog.identity(stale)),
         sort: Some(Sort::new("A")),
         origin: None,
     });

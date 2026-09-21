@@ -4,7 +4,7 @@ use k_rust::definition::json;
 use k_rust::definition::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, ProductionItem, Sentence,
 };
-use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
+use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan};
 use k_rust::provenance::{
     DestinationAnchor, GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord,
     ProvenanceLink, SourceOffsetMap, SourceTable,
@@ -348,7 +348,7 @@ fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
     )
     .with_metadata(TermMetadata {
         span: Some(span),
-        production: Some(ResolvedProductionId(3)),
+        production: Some(ProductionIdentity::from_hex(&format!("{:032x}", 3)).unwrap()),
         sort: Some(Sort::new("Exp")),
         origin: Some(Arc::clone(&origin)),
     });

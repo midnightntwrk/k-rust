@@ -2,9 +2,12 @@
 
 use std::{convert::Infallible, fmt};
 
+use k_rust_kore::measure;
+
 use crate::{
-    definition::{Definition, DefinitionViews, ResolveError, ResolvedDefinition},
+    definition::{Definition, ProductionCatalog, ResolveError, ResolvedDefinition, Sentence},
     diagnostic::Diagnostic,
+    kast::Term,
     provenance::{GeneratingPass, record_generated_origins},
     timings::PhaseTimings,
 };
@@ -132,22 +135,11 @@ impl<'a> PassInput<'a> {
         }
     }
 
-    pub fn resolved(&self) -> Result<&ResolvedDefinition, PassError> {
-        self.resolved_raw().map_err(PassError::message)
-    }
-
     pub(crate) fn resolved_raw(&self) -> Result<&ResolvedDefinition, &ResolveError> {
         self.current
             .resolved
             .get_or_init(|| ResolvedDefinition::resolve(self.definition))
             .as_ref()
-    }
-
-    // A pass asks for this once and shares the returned memo among all of its algorithms.
-    // Keeping the memo by value avoids a self-referential `Current`; resolution itself remains
-    // cached for the full stage.
-    pub fn views(&self) -> Result<DefinitionViews<'_>, PassError> {
-        Ok(self.resolved()?.views())
     }
 }
 
@@ -598,16 +590,102 @@ pub(crate) fn run_stages(
                 message: error.message,
                 diagnostics: options.diagnostics.apply(error.diagnostics),
             })?;
-            Ok(match stage.provenance {
+            let output = match stage.provenance {
                 Provenance::Driver(pass) => {
                     record_generated_origins(&current.definition, output, pass)
                 }
                 Provenance::None | Provenance::Internal(_) => output,
-            })
+            };
+            #[cfg(debug_assertions)]
+            assert_no_dangling_application_identities(&output);
+            Ok(output)
         })?;
         current = Current::new(output);
     }
     Ok(current.into_definition())
+}
+
+#[cfg(debug_assertions)]
+fn assert_no_dangling_application_identities(definition: &Definition) {
+    measure::without_counting(|| {
+        let resolved = ResolvedDefinition::resolve(definition)
+            .expect("a pipeline stage produced a definition that cannot be resolved");
+        for (module_id, module) in resolved.modules() {
+            let catalog = resolved.production_catalog(module_id);
+            for sentence in &module.local_sentences {
+                assert_sentence_identities(sentence, &catalog, &module.name);
+            }
+        }
+    });
+}
+
+#[cfg(debug_assertions)]
+fn assert_sentence_identities(
+    sentence: &Sentence,
+    catalog: &ProductionCatalog<'_>,
+    module_name: &str,
+) {
+    let check = |term: &Term| assert_term_identities(term, catalog, module_name);
+    match sentence {
+        Sentence::ContextAlias { body, requires, .. }
+        | Sentence::Context { body, requires, .. } => {
+            check(body);
+            check(requires);
+        }
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => {
+            check(body);
+            check(requires);
+            check(ensures);
+        }
+        Sentence::Configuration { body, ensures, .. } => {
+            check(body);
+            check(ensures);
+        }
+        _ => {}
+    }
+}
+
+#[cfg(debug_assertions)]
+fn assert_term_identities(term: &Term, catalog: &ProductionCatalog<'_>, module_name: &str) {
+    if let (Some(metadata), Term::Apply { label, .. }) = (term.metadata(), term.unannotated()) {
+        if let Some(identity) = metadata.production {
+            assert!(
+                catalog.lookup(&identity).is_some(),
+                "dangling production identity {identity} on application {label} in module {module_name}"
+            );
+        }
+    }
+    match term {
+        Term::Annotated { term, .. } => assert_term_identities(term, catalog, module_name),
+        Term::Rewrite { left, right } => {
+            assert_term_identities(left, catalog, module_name);
+            assert_term_identities(right, catalog, module_name);
+        }
+        Term::As { pattern, alias } => {
+            assert_term_identities(pattern, catalog, module_name);
+            assert_term_identities(alias, catalog, module_name);
+        }
+        Term::Sequence(items)
+        | Term::Apply {
+            arguments: items, ..
+        } => {
+            for item in items {
+                assert_term_identities(item, catalog, module_name);
+            }
+        }
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+    }
 }
 
 pub(crate) fn run_standalone<E>(
@@ -661,8 +739,8 @@ mod tests {
         let current = Current::new(definition());
         let input = PassInput::new(&current);
         assert!(std::ptr::eq(
-            input.resolved().unwrap(),
-            input.resolved().unwrap()
+            input.resolved_raw().unwrap(),
+            input.resolved_raw().unwrap()
         ));
     }
 

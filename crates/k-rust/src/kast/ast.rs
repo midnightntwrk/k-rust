@@ -81,9 +81,63 @@ pub struct TermSpan {
     pub end: usize,
 }
 
-/// The catalog-scoped production index selected while parsing a term.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct ResolvedProductionId(pub usize);
+/// A collision-resistant content identity for a production.
+///
+/// The identity is the first 128 bits of SHA-256 over the canonical production payload. Equal
+/// payloads always have equal identities. The compiler relies on SHA-256 collision resistance
+/// when using identity equality as a substitute for comparing the payloads.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ProductionIdentity([u8; 16]);
+
+impl ProductionIdentity {
+    pub(crate) fn from_digest(digest: [u8; 16]) -> Self {
+        Self(digest)
+    }
+
+    /// Encode this identity as 32 lowercase hexadecimal characters.
+    pub fn to_hex(self) -> String {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut encoded = String::with_capacity(32);
+        for byte in self.0 {
+            encoded.push(HEX[usize::from(byte >> 4)] as char);
+            encoded.push(HEX[usize::from(byte & 0x0f)] as char);
+        }
+        encoded
+    }
+
+    /// Decode exactly 32 lowercase hexadecimal characters.
+    pub fn from_hex(text: &str) -> Option<Self> {
+        if text.len() != 32 {
+            return None;
+        }
+        let mut digest = [0; 16];
+        for (index, pair) in text.as_bytes().chunks_exact(2).enumerate() {
+            let high = decode_lower_hex(pair[0])?;
+            let low = decode_lower_hex(pair[1])?;
+            digest[index] = (high << 4) | low;
+        }
+        Some(Self(digest))
+    }
+
+    /// Return the digest bytes used by deterministic compiler fingerprints.
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
+impl Display for ProductionIdentity {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.to_hex())
+    }
+}
+
+fn decode_lower_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
 
 /// Compiler metadata carried by a nested term.
 ///
@@ -92,7 +146,7 @@ pub struct ResolvedProductionId(pub usize);
 #[derive(Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TermMetadata {
     pub span: Option<TermSpan>,
-    pub production: Option<ResolvedProductionId>,
+    pub production: Option<ProductionIdentity>,
     /// An explicit compiler sort attached by transformations such as semantic-cast resolution.
     /// Sort injection consumes a strict subsort of an application's natural result as runtime
     /// projection metadata; equal, wider, and unrelated sorts do not authorize a projection.

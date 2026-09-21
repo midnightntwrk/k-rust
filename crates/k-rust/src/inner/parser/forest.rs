@@ -370,7 +370,7 @@ impl Fingerprint {
         }
         if let Some(production) = metadata.production {
             self.write(&[2]);
-            self.write_usize(production.0);
+            self.write(production.as_bytes());
         }
         if let Some(sort) = &metadata.sort {
             self.write(&[3]);
@@ -518,7 +518,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::kast::ResolvedProductionId;
+    use crate::kast::ProductionIdentity;
 
     #[derive(Clone, Debug)]
     enum TestTree {
@@ -661,7 +661,9 @@ mod tests {
     #[test]
     fn production_metadata_participates_in_packed_fingerprints() {
         let metadata = |production| TermMetadata {
-            production: Some(ResolvedProductionId(production)),
+            production: Some(
+                ProductionIdentity::from_hex(&format!("{:032x}", production)).unwrap(),
+            ),
             ..TermMetadata::default()
         };
         let left = PackedTerm::production(0, Vec::new(), metadata(1));

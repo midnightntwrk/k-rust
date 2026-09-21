@@ -9,8 +9,8 @@ use std::fmt;
 
 use crate::definition::AttributeKey;
 use crate::definition::{
-    Attributes, Definition, EquivalenceAccumulator, ModuleId, ProductionCatalog, ProductionId,
-    ProductionItem, ResolveError, ResolvedDefinition, Sentence, SortCatalog, push_if_inequivalent,
+    Attributes, Definition, EquivalenceAccumulator, ModuleId, ProductionCatalog, ProductionItem,
+    ResolveError, ResolvedDefinition, Sentence, SortCatalog, push_if_inequivalent,
 };
 use crate::kast::names::PROGRAM_PARSING_POSTFIX;
 use crate::kast::{Sort, Term};
@@ -387,11 +387,12 @@ pub fn prepare_reference_kast(term: Term, productions: &ProductionCatalog<'_>) -
         .as_ref()
         .and_then(|metadata| metadata.production)
         .is_some_and(|production| {
-            production.0 < productions.len()
-                && matches!(
-                    productions.production(ProductionId(production.0)),
+            productions.lookup(&production).is_some_and(|production| {
+                matches!(
+                    productions.production(production),
                     Sentence::Production { parameters, .. } if !parameters.is_empty()
                 )
+            })
         });
     let rebuilt = match term.into_unannotated() {
         Term::Apply {

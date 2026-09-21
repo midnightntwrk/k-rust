@@ -4,7 +4,7 @@ use k_rust::definition::{
     ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence,
 };
 use k_rust::inner::resolve_rule_bubbles;
-use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata};
+use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata};
 use k_rust::kompile::{
     SortInjectionError, SortInjector, add_sort_injections_to_definition, generate_sort_projections,
     term_to_kore_from_resolved,
@@ -111,7 +111,7 @@ fn recovers_a_stale_catalog_identity_for_a_unique_label() {
     let stale = catalog.productions_for(&k_rust::definition::LabelHead::new("b"))[0];
     let term = Term::apply("a", Vec::new()).with_metadata(TermMetadata {
         span: None,
-        production: Some(ResolvedProductionId(stale.0)),
+        production: Some(ProductionIdentity::from_hex(&format!("{:032x}", stale.0)).unwrap()),
         sort: None,
         origin: None,
     });
@@ -138,7 +138,7 @@ fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
     let stale = catalog.productions_for(&k_rust::definition::LabelHead::new("stale"))[0];
     let term = Term::apply("choice", Vec::new()).with_metadata(TermMetadata {
         span: None,
-        production: Some(ResolvedProductionId(stale.0)),
+        production: Some(ProductionIdentity::from_hex(&format!("{:032x}", stale.0)).unwrap()),
         sort: Some(Sort::new("A")),
         origin: None,
     });

@@ -117,7 +117,7 @@ fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
     let expected = catalog.productions_for(&LabelHead::new("a"));
 
     assert_eq!(expected.len(), 1);
-    assert_eq!(production.0, expected[0].0);
+    assert_eq!(production, catalog.identity(expected[0]));
 }
 
 #[test]

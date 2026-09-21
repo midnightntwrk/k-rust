@@ -10,9 +10,9 @@ use k_rust_kore::measure::{self, Counter};
 
 use super::ast::{Attributes, ProductionItem, Sentence};
 use super::attribute_keys::AttributeKey;
-use super::equivalence::{dedup_by_equivalence, sentence_equivalent};
+use super::equivalence::{dedup_by_equivalence, production_identity, sentence_equivalent};
 use super::resolve::{ModuleId, ResolvedDefinition};
-use crate::kast::{Label, Sort};
+use crate::kast::{Label, ProductionIdentity, Sort};
 
 /// A production identity scoped to one [`ProductionCatalog`].
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -198,6 +198,8 @@ impl std::error::Error for FreshGeneratorError {}
 #[derive(Clone, Debug)]
 pub struct ProductionCatalog<'a> {
     productions: Vec<&'a Sentence>,
+    identities: Vec<ProductionIdentity>,
+    by_identity: BTreeMap<ProductionIdentity, ProductionId>,
     local: BTreeSet<ProductionId>,
     by_label: BTreeMap<LabelHead, Vec<ProductionId>>,
     by_sort: BTreeMap<SortHead, Vec<ProductionId>>,
@@ -249,6 +251,8 @@ impl<'a> ProductionCatalog<'a> {
 
         let mut catalog = Self {
             productions,
+            identities: Vec::new(),
+            by_identity: BTreeMap::new(),
             local: BTreeSet::new(),
             by_label: BTreeMap::new(),
             by_sort: BTreeMap::new(),
@@ -287,6 +291,16 @@ impl<'a> ProductionCatalog<'a> {
 
     pub fn production(&self, id: ProductionId) -> &'a Sentence {
         self.productions[id.0]
+    }
+
+    /// Return the content identity aligned with `id`.
+    pub fn identity(&self, id: ProductionId) -> ProductionIdentity {
+        self.identities[id.0]
+    }
+
+    /// Find the catalog position for a content identity.
+    pub fn lookup(&self, identity: &ProductionIdentity) -> Option<ProductionId> {
+        self.by_identity.get(identity).copied()
     }
 
     /// Find the smallest ID structurally equivalent to `source`.
@@ -436,6 +450,14 @@ impl<'a> ProductionCatalog<'a> {
 
     fn build_indexes(&mut self) {
         for id in self.ids().collect::<Vec<_>>() {
+            let identity = production_identity(self.production(id))
+                .expect("production catalogs contain only productions");
+            self.identities.push(identity);
+            let previous = self.by_identity.insert(identity, id);
+            debug_assert!(
+                previous.is_none(),
+                "distinct catalog productions have the same ProductionIdentity"
+            );
             let Sentence::Production {
                 label,
                 parameters,
@@ -545,5 +567,28 @@ mod tests {
         };
 
         let _ = ProductionCatalog::from_deduplicated([&production, &production], []);
+    }
+
+    #[test]
+    fn identity_index_round_trips_every_catalog_position() {
+        let first = Sentence::Production {
+            label: Some(Label::new("first")),
+            parameters: Vec::new(),
+            sort: Sort::new("Sort"),
+            items: Vec::new(),
+            attributes: Attributes::default(),
+        };
+        let second = Sentence::Production {
+            label: Some(Label::new("second")),
+            parameters: Vec::new(),
+            sort: Sort::new("Sort"),
+            items: Vec::new(),
+            attributes: Attributes::default(),
+        };
+        let catalog = ProductionCatalog::from_visible([&first, &second]);
+
+        for id in catalog.ids() {
+            assert_eq!(catalog.lookup(&catalog.identity(id)), Some(id));
+        }
     }
 }

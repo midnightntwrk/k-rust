@@ -15,8 +15,6 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-use super::rebase_local_metadata;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveFunError {
     pub diagnostics: Vec<Diagnostic>,
@@ -101,9 +99,7 @@ pub(crate) fn resolve_fun_pass(
     }
 
     if diagnostics.is_empty() {
-        rebase_local_metadata(&views, output).map_err(|message| ResolveFunError {
-            diagnostics: vec![plain_error(message)],
-        })
+        Ok(output)
     } else {
         diagnostics.sort();
         diagnostics.dedup();

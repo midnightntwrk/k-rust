@@ -12,8 +12,6 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-use super::rebase_local_metadata;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SubsortKItemError(pub String);
 
@@ -73,7 +71,7 @@ pub(crate) fn subsort_kitem_pass(
         );
         module.local_sentences.extend(generated);
     }
-    rebase_local_metadata(&views, output).map_err(SubsortKItemError)
+    Ok(output)
 }
 
 fn is_parser_sort(sort: &Sort) -> bool {

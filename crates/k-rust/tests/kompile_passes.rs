@@ -15,11 +15,11 @@ use k_rust::{
 };
 use k_rust::{
     definition::{
-        Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionId, ProductionItem,
+        Attributes, Definition, FlatImport, FlatModule, LabelHead, ProductionItem,
         ResolvedDefinition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE,
         Sentence, checks::check_definition,
     },
-    kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan, printer::Printer},
+    kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, printer::Printer},
     kompile::{
         GeneratedVariableIdentity, add_cool_like_attributes, add_implicit_computation_cell,
         add_semantics_module, add_sort_injections_to_definition, check_simplification_rules,
@@ -831,7 +831,7 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
     };
     let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
     *body = taken.with_metadata(TermMetadata {
-        production: Some(ResolvedProductionId(cell.0)),
+        production: Some(catalog.identity(cell)),
         ..TermMetadata::default()
     });
 
@@ -894,7 +894,7 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
         .and_then(|metadata| metadata.production)
         .unwrap();
     assert!(matches!(
-        catalog.production(ProductionId(rebased.0)),
+        catalog.production(catalog.lookup(&rebased).unwrap()),
         Sentence::Production { label: Some(label), .. } if label.name == "<in>"
     ));
     for template in ["STDIN-STREAM", "STDOUT-STREAM"] {
@@ -1922,7 +1922,7 @@ fn rebases_function_metadata_after_adding_configuration_arguments() {
     let production = left
         .metadata()
         .and_then(|metadata| metadata.production)
-        .map(|id| productions.production(k_rust::definition::ProductionId(id.0)))
+        .map(|id| productions.production(productions.lookup(&id).unwrap()))
         .expect("parsed application should retain transformed production identity");
     assert!(matches!(
         production,
@@ -2721,10 +2721,10 @@ fn guard_or_patterns_preserves_resolved_production_for_top_cell_alias_sort() {
         )],
         attributes: Attributes::default(),
     };
-    let top_cell_or = {
+    let top_cell_or_identity = {
         let resolved = ResolvedDefinition::resolve(&definition).unwrap();
         let catalog = resolved.production_catalog(resolved.main_module_id());
-        catalog
+        let production = catalog
             .productions_for(&LabelHead::from(&Label::new("#Or")))
             .iter()
             .copied()
@@ -2734,7 +2734,8 @@ fn guard_or_patterns_preserves_resolved_production_for_top_cell_alias_sort() {
                     Sentence::Production { sort, .. } if sort == &Sort::new("TopCell")
                 )
             })
-            .unwrap()
+            .unwrap();
+        catalog.identity(production)
     };
     let metadata = TermMetadata {
         span: Some(TermSpan {
@@ -2742,7 +2743,7 @@ fn guard_or_patterns_preserves_resolved_production_for_top_cell_alias_sort() {
             start: 10,
             end: 30,
         }),
-        production: Some(ResolvedProductionId(top_cell_or.0)),
+        production: Some(top_cell_or_identity),
         ..TermMetadata::default()
     };
     let Sentence::Rule { body, .. } = definition
@@ -3292,7 +3293,7 @@ fn imported_macro_expansion_preserves_template_and_caller_production_identity() 
         assert_eq!(label.name, "box");
         let production = expanded.metadata().unwrap().production.unwrap();
         assert!(
-            matches!(catalog.production(ProductionId(production.0)),
+            matches!(catalog.production(catalog.lookup(&production).unwrap()),
             Sentence::Production { label: Some(label), sort, .. }
                 if label.name == "box" && sort == &Sort::new("Exp")),
             "{module_name}: expanded macro must retain the Exp overload"
@@ -3300,7 +3301,7 @@ fn imported_macro_expansion_preserves_template_and_caller_production_identity() 
         let argument = &arguments[0];
         let production = argument.metadata().unwrap().production.unwrap();
         assert!(
-            matches!(catalog.production(ProductionId(production.0)),
+            matches!(catalog.production(catalog.lookup(&production).unwrap()),
             Sentence::Production { label: Some(label), .. } if label.name == argument_label),
             "{module_name}: substitution must retain its caller's production"
         );
@@ -3751,7 +3752,7 @@ fn falls_back_safely_when_function_application_metadata_is_stale() {
         };
         let stale = if rule_label == "step" { f } else { a };
         let annotated = left.as_ref().clone().with_metadata(TermMetadata {
-            production: Some(ResolvedProductionId(stale.0)),
+            production: Some(catalog.identity(stale)),
             ..TermMetadata::default()
         });
         let rebuilt = Term::Rewrite {
@@ -5444,7 +5445,7 @@ fn strictness_bool_import_rebases_existing_production_metadata() {
         let id = left.metadata().unwrap().production.unwrap();
         let expected = original_catalog.productions_for(&LabelHead::new("f"))[0];
         assert_eq!(
-            catalog.production(ProductionId(id.0)),
+            catalog.production(catalog.lookup(&id).unwrap()),
             original_catalog.production(expected),
             "strictness must retain the original production when BOOL is newly or already imported"
         );
@@ -5784,7 +5785,9 @@ fn semantic_cast_predicates_share_sorts_across_roots_and_preserve_compound_metad
                                 start: 11,
                                 end: 17,
                             }),
-                            production: Some(ResolvedProductionId(3)),
+                            production: Some(
+                                ProductionIdentity::from_hex(&format!("{:032x}", 3)).unwrap(),
+                            ),
                             ..TermMetadata::default()
                         }),
                     ],
@@ -5864,7 +5867,10 @@ fn semantic_cast_predicates_share_sorts_across_roots_and_preserve_compound_metad
     assert_eq!(predicate_labels, ["isBool", "isInt", "isInt"]);
     let compound_metadata = compound_metadata.expect("compound predicate operand has metadata");
     assert_eq!(compound_metadata.sort, Some(Sort::new("Int")));
-    assert_eq!(compound_metadata.production, Some(ResolvedProductionId(3)));
+    assert_eq!(
+        compound_metadata.production,
+        Some(ProductionIdentity::from_hex(&format!("{:032x}", 3)).unwrap())
+    );
     assert_eq!(
         compound_metadata.span,
         Some(TermSpan {
@@ -6965,14 +6971,9 @@ fn language_parsing_module_preserves_imported_overload_identity() {
         let rebased_metadata = rule_head(after.module(after_id));
         let old_index = original_metadata.production.unwrap();
         let new_index = rebased_metadata.production.unwrap();
-        let expected = source.production(ProductionId(old_index.0));
-        assert_ne!(
-            target.production(ProductionId(old_index.0)),
-            expected,
-            "fixture must shift the original catalog position for {owner}"
-        );
+        let expected = source.production(source.lookup(&old_index).unwrap());
         assert_eq!(
-            target.production(ProductionId(new_index.0)),
+            target.production(target.lookup(&new_index).unwrap()),
             expected,
             "{owner}: preserve the selected argument/result-sort overload and its provenance"
         );

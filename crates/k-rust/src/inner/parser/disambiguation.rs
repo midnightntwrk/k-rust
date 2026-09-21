@@ -932,9 +932,7 @@ impl Grammar {
         mut metadata: crate::kast::TermMetadata,
     ) -> Term {
         let production = &self.productions[production];
-        metadata.production = production
-            .source_production
-            .map(|production| crate::kast::ResolvedProductionId(production.0));
+        metadata.production = production.source_production;
         if let Some(parameters) = parameters {
             let mut instantiated = production.clone();
             if let Some(label) = &mut instantiated.label {
@@ -955,10 +953,7 @@ impl Grammar {
             ParsedTerm::Term(term) => term
                 .metadata()
                 .and_then(|metadata| metadata.production)
-                .and_then(|production| {
-                    self.source_production_texts
-                        .get(&crate::definition::ProductionId(production.0))
-                })
+                .and_then(|production| self.source_production_texts.get(&production))
                 .cloned(),
             ParsedTerm::Ambiguity(_) => None,
         }
@@ -1140,11 +1135,8 @@ impl Grammar {
                                     let candidate =
                                         candidate_production.term_production.unwrap_or(candidate);
                                     let mut candidate_metadata = metadata.clone();
-                                    candidate_metadata.production = self.productions[candidate]
-                                        .source_production
-                                        .map(|production| {
-                                            crate::kast::ResolvedProductionId(production.0)
-                                        });
+                                    candidate_metadata.production =
+                                        self.productions[candidate].source_production;
                                     candidates.insert(PackedTerm::production(
                                         candidate,
                                         arguments.clone(),
@@ -1285,9 +1277,8 @@ impl Grammar {
                             let candidate =
                                 candidate_production.term_production.unwrap_or(candidate);
                             let mut candidate_metadata = metadata.clone();
-                            candidate_metadata.production = self.productions[candidate]
-                                .source_production
-                                .map(|production| crate::kast::ResolvedProductionId(production.0));
+                            candidate_metadata.production =
+                                self.productions[candidate].source_production;
                             candidates.insert(ParsedTerm::Production {
                                 production: candidate,
                                 children: arguments.clone(),
@@ -1818,7 +1809,7 @@ impl Grammar {
                     self.productions.iter().any(|production| {
                         production
                             .source_production
-                            .is_some_and(|candidate| candidate.0 == source.0 && production.prefer)
+                            .is_some_and(|candidate| candidate == source && production.prefer)
                     })
                 }),
             ParsedTerm::Ambiguity(_) => false,
@@ -1838,7 +1829,7 @@ impl Grammar {
                     self.productions.iter().any(|production| {
                         production
                             .source_production
-                            .is_some_and(|candidate| candidate.0 == source.0 && production.avoid)
+                            .is_some_and(|candidate| candidate == source && production.avoid)
                     })
                 }),
             ParsedTerm::Ambiguity(_) => false,
@@ -2223,11 +2214,15 @@ pub(super) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, Pars
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::definition::{PartialOrder, ProductionId, ProductionItem, Sentence};
-    use crate::kast::{Label, Sort};
+    use crate::definition::{PartialOrder, ProductionItem, Sentence};
+    use crate::kast::{Label, ProductionIdentity, Sort};
     use crate::provenance::SourceId;
     use k_rust_kore::measure::{Counter, snapshot};
     use proptest::prelude::*;
+
+    fn identity(value: usize) -> ProductionIdentity {
+        ProductionIdentity::from_hex(&format!("{value:032x}")).unwrap()
+    }
 
     fn nonterminal(sort: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
@@ -2687,9 +2682,9 @@ mod tests {
                 false,
             )
             .unwrap();
-        grammar.productions[preferred].source_production = Some(ProductionId(10));
+        grammar.productions[preferred].source_production = Some(identity(10));
         grammar.productions[preferred].prefer = true;
-        grammar.productions[ordinary].source_production = Some(ProductionId(11));
+        grammar.productions[ordinary].source_production = Some(identity(11));
 
         let token = |source, sort| {
             ParsedTerm::Term(
@@ -2698,7 +2693,7 @@ mod tests {
                     sort: Sort::new(sort),
                 }
                 .with_metadata(crate::kast::TermMetadata {
-                    production: Some(crate::kast::ResolvedProductionId(source)),
+                    production: Some(identity(source)),
                     ..Default::default()
                 }),
             )
@@ -2716,10 +2711,10 @@ mod tests {
         let mut grammar = Grammar::default();
         let specific = add_production(&mut grammar, "Small", &[], "pick");
         let general = add_production(&mut grammar, "Large", &[], "pick");
-        grammar.productions[specific].source_production = Some(ProductionId(0));
-        grammar.productions[general].source_production = Some(ProductionId(1));
+        grammar.productions[specific].source_production = Some(identity(0));
+        grammar.productions[general].source_production = Some(identity(1));
         grammar.productions[general].prefer = true;
-        grammar.overloads = PartialOrder::new([(ProductionId(0), ProductionId(1))]).unwrap();
+        grammar.overloads = PartialOrder::new([(identity(0), identity(1))]).unwrap();
 
         let alternative = |production| ParsedTerm::Production {
             production,
@@ -2777,13 +2772,10 @@ mod tests {
         let second = add_production(&mut ambiguous, "Second", &[], "unit");
         let general = add_production(&mut ambiguous, "General", &[], "unit");
         for (index, source) in [first, second, general].into_iter().enumerate() {
-            ambiguous.productions[source].source_production = Some(ProductionId(index));
+            ambiguous.productions[source].source_production = Some(identity(index));
         }
-        ambiguous.overloads = PartialOrder::new([
-            (ProductionId(0), ProductionId(2)),
-            (ProductionId(1), ProductionId(2)),
-        ])
-        .unwrap();
+        ambiguous.overloads =
+            PartialOrder::new([(identity(0), identity(2)), (identity(1), identity(2))]).unwrap();
         let error = ambiguous
             .resolve_overloaded_terminators(ParsedTerm::Production {
                 production: general,

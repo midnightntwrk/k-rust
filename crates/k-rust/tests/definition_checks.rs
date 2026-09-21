@@ -13,7 +13,7 @@ use k_rust::definition::{
 };
 use k_rust::diagnostic::{Diagnostic, DiagnosticCode, Severity};
 use k_rust::kast::{Label, Sort, Term};
-use k_rust::kast::{ResolvedProductionId, TermMetadata};
+use k_rust::kast::{ProductionIdentity, TermMetadata};
 use serde_json::{Value, json};
 
 fn attrs(entries: &[(&str, Value)]) -> Attributes {
@@ -537,7 +537,9 @@ fn deprecated_productions_are_reported_per_use() {
         .unwrap();
     let use_deprecated = || {
         Term::apply("foo", Vec::new()).with_metadata(TermMetadata {
-            production: Some(ResolvedProductionId(deprecated_id.0)),
+            production: Some(
+                ProductionIdentity::from_hex(&format!("{:032x}", deprecated_id.0)).unwrap(),
+            ),
             ..TermMetadata::default()
         })
     };

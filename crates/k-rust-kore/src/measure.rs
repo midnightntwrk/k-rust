@@ -28,7 +28,7 @@ pub enum Counter {
     // kompile (frontend)
     /// Full module-catalog rebuilds (`ResolvedDefinition::resolve`).
     KompileResolveCalls,
-    /// Production-index rebases after a production-changing pass.
+    /// Retained schema counter for the removed positional production rebases; always zero.
     KompileRebaseCalls,
     /// Rule bubbles parsed (one Earley parse plus sort inference each).
     KompileRuleBubblesParsed,
@@ -300,6 +300,15 @@ pub fn bump(counter: Counter) {
 
 pub use imp::{add, reset, snapshot};
 
+/// Run a debug-only validation without charging its implementation work to compiler counters.
+///
+/// Validation may reuse the measured algorithms (for example, resolving a definition to inspect
+/// its catalogs), but that work is not part of the compilation contract represented by the
+/// counters. The suppression is thread-local, like the counters themselves.
+pub fn without_counting<T>(work: impl FnOnce() -> T) -> T {
+    imp::without_counting(work)
+}
+
 #[cfg(feature = "measure")]
 mod imp {
     use std::cell::Cell;
@@ -309,15 +318,40 @@ mod imp {
     thread_local! {
         static COUNTERS: [Cell<u64>; Counter::COUNT] =
             const { [const { Cell::new(0) }; Counter::COUNT] };
+        static SUPPRESS: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Add `n` to a counter of the current thread, wrapping on overflow.
     #[inline]
     pub fn add(counter: Counter, n: u64) {
-        COUNTERS.with(|counters| {
-            let cell = &counters[counter as usize];
-            cell.set(cell.get().wrapping_add(n));
+        SUPPRESS.with(|suppress| {
+            if suppress.get() {
+                return;
+            }
+            COUNTERS.with(|counters| {
+                let cell = &counters[counter as usize];
+                cell.set(cell.get().wrapping_add(n));
+            });
         });
+    }
+
+    pub fn without_counting<T>(work: impl FnOnce() -> T) -> T {
+        struct Restore<'a> {
+            flag: &'a Cell<bool>,
+            previous: bool,
+        }
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                self.flag.set(self.previous);
+            }
+        }
+        SUPPRESS.with(|flag| {
+            let _restore = Restore {
+                flag,
+                previous: flag.replace(true),
+            };
+            work()
+        })
     }
 
     /// Zero every counter of the current thread.
@@ -348,6 +382,10 @@ mod imp {
     /// Counting is compiled out without the `measure` feature.
     #[inline(always)]
     pub fn add(_counter: Counter, _n: u64) {}
+
+    pub fn without_counting<T>(work: impl FnOnce() -> T) -> T {
+        work()
+    }
 
     /// Counting is compiled out without the `measure` feature.
     #[inline(always)]

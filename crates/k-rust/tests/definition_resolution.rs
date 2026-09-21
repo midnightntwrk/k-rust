@@ -8,7 +8,7 @@ use k_rust::definition::{
     ResolveError, ResolvedDefinition, SENTENCE_END_OFFSET_ATTRIBUTE,
     SENTENCE_START_OFFSET_ATTRIBUTE, Sentence, sentence_equivalent,
 };
-use k_rust::kast::{Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
+use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan};
 use k_rust::provenance::{
     GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord, ProvenanceLink, SourceTable,
 };
@@ -462,7 +462,7 @@ fn cached_clones_borrow_their_own_graph_and_outlive_the_original_with_metadata()
     });
     let metadata = TermMetadata {
         span: Some(span),
-        production: Some(ResolvedProductionId(0)),
+        production: Some(ProductionIdentity::from_hex(&format!("{:032x}", 0)).unwrap()),
         sort: Some(Sort::new("Exp")),
         origin: Some(origin.clone()),
     };
@@ -704,7 +704,7 @@ fn sentence_buckets_preserve_term_equality_and_condition_attribute_collisions() 
         };
         let metadata = TermMetadata {
             sort: Some(Sort::new("Generated")),
-            production: Some(ResolvedProductionId(7)),
+            production: Some(ProductionIdentity::from_hex(&format!("{:032x}", 7)).unwrap()),
             ..TermMetadata::default()
         };
         let variable = if annotated {

@@ -37,11 +37,11 @@ use k_rust_kore::measure::{self, Counter};
 #[cfg(test)]
 use crate::definition::Sentence;
 use crate::definition::{
-    AssociativityRelations, AttributeKey, Attributes, PartialOrder, ProductionId, ProductionItem,
+    AssociativityRelations, AttributeKey, Attributes, PartialOrder, ProductionItem,
     Regex as KRegex, RegexBody,
 };
 use crate::kast::{
-    FrontendSort, InternalLabel, Label, ResolvedProductionId, Sort, Term, TermMetadata, TermSpan,
+    FrontendSort, InternalLabel, Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan,
 };
 use crate::names::BuiltinSort;
 use crate::provenance::SourceId;
@@ -150,7 +150,7 @@ pub enum ParseError {
         path: Vec<Sort>,
     },
     CircularOverloads {
-        path: Vec<ProductionId>,
+        path: Vec<String>,
     },
     InvalidApplyPriority {
         value: String,
@@ -389,7 +389,7 @@ struct Production {
     macro_like: bool,
     prefer: bool,
     avoid: bool,
-    source_production: Option<ProductionId>,
+    source_production: Option<ProductionIdentity>,
     source_production_text: Option<String>,
     user_list: bool,
     user_list_nonempty: bool,
@@ -464,7 +464,7 @@ struct ProductionOptions<'a> {
     macro_like: bool,
     prefer: bool,
     avoid: bool,
-    source_production: Option<ProductionId>,
+    source_production: Option<ProductionIdentity>,
     source_production_text: Option<&'a str>,
     source: Option<&'a str>,
     location: Option<crate::definition::Location>,
@@ -563,13 +563,13 @@ pub struct Grammar {
     by_result: BTreeMap<Sort, Vec<usize>>,
     scanner: Scanner,
     prediction_analysis: OnceLock<PredictionAnalysis>,
-    source_production_texts: BTreeMap<ProductionId, String>,
+    source_production_texts: BTreeMap<ProductionIdentity, String>,
     layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
     subsort_relations: BTreeSet<(Sort, Sort)>,
     syntactic_subsort_relations: BTreeSet<(Sort, Sort)>,
-    overloads: PartialOrder<ProductionId>,
+    overloads: PartialOrder<ProductionIdentity>,
     user_lists: BTreeMap<Sort, UserList>,
     productive_unary_cycles: BTreeSet<usize>,
     role: ParserRole,
@@ -1357,9 +1357,7 @@ fn term_metadata(
 ) -> TermMetadata {
     TermMetadata {
         span: Some(TermSpan { source, start, end }),
-        production: production
-            .source_production
-            .map(|production| ResolvedProductionId(production.0)),
+        production: production.source_production,
         sort: None,
         origin: None,
     }
@@ -1498,7 +1496,10 @@ mod chart_tests {
                     end: 104
                 })
             );
-            assert_eq!(metadata.production, Some(ResolvedProductionId(65)));
+            assert_eq!(
+                metadata.production,
+                Some(ProductionIdentity::from_hex(&format!("{:032x}", 65)).unwrap())
+            );
         }
 
         #[test]

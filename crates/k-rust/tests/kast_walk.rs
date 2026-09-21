@@ -1,4 +1,4 @@
-use k_rust::kast::{ResolvedProductionId, Sort, Term, TermMetadata, TermSpan};
+use k_rust::kast::{ProductionIdentity, Sort, Term, TermMetadata, TermSpan};
 
 #[test]
 fn preorder_walk_visits_every_term_in_source_order() {
@@ -36,7 +36,7 @@ fn metadata_is_semantically_transparent_but_remains_inspectable() {
             start: 2,
             end: 6,
         }),
-        production: Some(ResolvedProductionId(7)),
+        production: Some(ProductionIdentity::from_hex(&format!("{:032x}", 7)).unwrap()),
         sort: Some(Sort::new("Exp")),
         origin: None,
     });
@@ -52,7 +52,7 @@ fn metadata_is_semantically_transparent_but_remains_inspectable() {
                 start: 2,
                 end: 6,
             }),
-            production: Some(ResolvedProductionId(7)),
+            production: Some(ProductionIdentity::from_hex(&format!("{:032x}", 7)).unwrap()),
             sort: Some(Sort::new("Exp")),
             origin: None,
         })

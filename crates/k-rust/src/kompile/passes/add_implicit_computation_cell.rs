@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use crate::definition::AttributeKey;
 use crate::{
-    definition::{Definition, LabelHead, ProductionCatalog, ProductionId, Sentence},
+    definition::{Definition, LabelHead, ProductionCatalog, Sentence},
     kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
     provenance::GeneratingPass,
 };
@@ -115,8 +115,8 @@ fn is_function_application(
         .metadata()
         .and_then(|metadata| metadata.production)
     {
-        if resolved.0 < productions.len() {
-            let production = productions.production(ProductionId(resolved.0));
+        if let Some(production_id) = productions.lookup(&resolved) {
+            let production = productions.production(production_id);
             if matches!(
                 production,
                 Sentence::Production { label: Some(candidate), .. } if candidate.name == label.name

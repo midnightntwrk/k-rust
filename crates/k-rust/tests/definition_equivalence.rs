@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
-    Associativity, Attributes, Definition, FlatImport, FlatModule, ProductionItem,
+    Associativity, AttributeKey, Attributes, Definition, FlatImport, FlatModule, ProductionItem,
     ResolvedDefinition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE, Sentence,
-    sentence_equivalent, term_equivalent,
+    canonical_production_payload, production_identity, sentence_equivalent, term_equivalent,
 };
-use k_rust::kast::{Label, Sort, Term, TermMetadata};
+use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata};
 use k_rust::provenance::ORIGIN_ATTRIBUTE;
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -38,6 +38,21 @@ fn production(sort: &str, attributes: Attributes) -> Sentence {
         }],
         attributes,
     }
+}
+
+#[test]
+fn production_identity_hex_is_exact_lowercase_and_round_trips() {
+    let identity = production_identity(&production("Int", empty())).unwrap();
+    let encoded = identity.to_hex();
+    assert_eq!(encoded.len(), 32);
+    assert!(
+        encoded
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    );
+    assert_eq!(ProductionIdentity::from_hex(&encoded), Some(identity));
+    assert_eq!(ProductionIdentity::from_hex(&encoded.to_uppercase()), None);
+    assert_eq!(ProductionIdentity::from_hex(&encoded[..31]), None);
 }
 
 #[test]
@@ -117,6 +132,79 @@ fn label() -> impl Strategy<Value = Label> {
         prop::collection::vec(sort(), 0..3),
     )
         .prop_map(|(name, parameters)| Label { name, parameters })
+}
+
+fn production_identity_case() -> impl Strategy<Value = (Sentence, Sentence, u8)> {
+    (
+        label(),
+        prop::collection::vec(sort(), 0..3),
+        sort(),
+        sort(),
+        prop::option::of("[a-z]{0,5}"),
+        "[a-z]{0,5}",
+        "[a-z]{0,5}",
+        "[a-z]{0,5}",
+        "[a-z]{0,5}",
+        0_u8..10,
+    )
+        .prop_map(
+            |(
+                label,
+                parameters,
+                result,
+                argument,
+                argument_name,
+                regex,
+                terminal,
+                klabel,
+                function,
+                mutation,
+            )| {
+                let mut attributes = Attributes::default();
+                attributes.set(AttributeKey::Klabel, json!(klabel));
+                attributes.set(AttributeKey::Function, json!(function));
+                attributes.set(AttributeKey::Symbol, json!("symbol"));
+                attributes.insert("ignored", json!("left"));
+                let items = vec![
+                    ProductionItem::NonTerminal {
+                        sort: argument,
+                        name: argument_name,
+                    },
+                    ProductionItem::RegexTerminal {
+                        precede_regex: Some("left-precede".into()),
+                        regex,
+                        follow_regex: Some("left-follow".into()),
+                    },
+                    ProductionItem::Terminal(terminal),
+                ];
+                let left = Sentence::Production {
+                    label: Some(label),
+                    parameters,
+                    sort: result,
+                    items,
+                    attributes,
+                };
+                let mut equivalent = left.clone();
+                let Sentence::Production {
+                    items, attributes, ..
+                } = &mut equivalent
+                else {
+                    unreachable!()
+                };
+                let ProductionItem::RegexTerminal {
+                    precede_regex,
+                    follow_regex,
+                    ..
+                } = &mut items[1]
+                else {
+                    unreachable!()
+                };
+                *precede_regex = Some("right-precede".into());
+                *follow_regex = Some("right-follow".into());
+                attributes.insert("ignored", json!("right"));
+                (left, equivalent, mutation)
+            },
+        )
 }
 
 fn term() -> impl Strategy<Value = Term> {
@@ -329,5 +417,75 @@ proptest! {
             visible_rule_count(left.clone(), right.clone()),
             if term_equivalent(&left, &right) { 1 } else { 2 },
         );
+    }
+
+    #[test]
+    fn canonical_production_payload_matches_equivalence(
+        (left, equivalent, mutation) in production_identity_case(),
+    ) {
+        prop_assert!(sentence_equivalent(&left, &equivalent));
+        prop_assert_eq!(
+            canonical_production_payload(&left),
+            canonical_production_payload(&equivalent),
+        );
+        prop_assert_eq!(production_identity(&left), production_identity(&equivalent));
+
+        let mut changed = left.clone();
+        let Sentence::Production {
+            label,
+            parameters,
+            sort,
+            items,
+            attributes,
+        } = &mut changed
+        else {
+            unreachable!()
+        };
+        match mutation {
+            0 => label.as_mut().unwrap().name.push('!'),
+            1 => label.as_mut().unwrap().parameters.push(Sort::new("Changed")),
+            2 => parameters.push(Sort::new("Changed")),
+            3 => sort.name.push('!'),
+            4 => {
+                let ProductionItem::NonTerminal { name, .. } = &mut items[0] else {
+                    unreachable!()
+                };
+                name.get_or_insert_default().push('!');
+            }
+            5 => {
+                let ProductionItem::RegexTerminal { regex, .. } = &mut items[1] else {
+                    unreachable!()
+                };
+                regex.push('!');
+            }
+            6 => {
+                let ProductionItem::Terminal(text) = &mut items[2] else {
+                    unreachable!()
+                };
+                text.push('!');
+            }
+            7 => {
+                let changed = format!("{}!", attributes.string(AttributeKey::Klabel).unwrap());
+                attributes.set(AttributeKey::Klabel, json!(changed));
+            }
+            8 => {
+                let changed = format!("{}!", attributes.string(AttributeKey::Function).unwrap());
+                attributes.set(AttributeKey::Function, json!(changed));
+            }
+            9 => {
+                let changed = format!("{}!", attributes.string(AttributeKey::Symbol).unwrap());
+                attributes.set(AttributeKey::Symbol, json!(changed));
+            }
+            _ => unreachable!(),
+        }
+
+        prop_assert!(!sentence_equivalent(&left, &changed));
+        prop_assert_ne!(
+            canonical_production_payload(&left),
+            canonical_production_payload(&changed),
+        );
+        // A collision is theoretically possible; this generated test samples the compiler's
+        // explicit SHA-256 collision-resistance assumption rather than proving it.
+        prop_assert_ne!(production_identity(&left), production_identity(&changed));
     }
 }

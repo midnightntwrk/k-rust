@@ -69,10 +69,7 @@ pub(crate) fn add_semantics_module_pass(
         local_sentences: Vec::new(),
         attributes: Attributes::default(),
     });
-    // A new root can change the global dependency traversal order, and therefore existing
-    // modules' catalog positions, even though their visible production sets are unchanged.
-    let views = input.views().map_err(|error| error.message)?;
-    super::rebase_local_metadata(&views, output)
+    Ok(output)
 }
 
 /// Mark rules and contexts whose left side begins with a variable in a main-cell K sequence.

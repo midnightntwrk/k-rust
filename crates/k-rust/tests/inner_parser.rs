@@ -707,7 +707,8 @@ fn prediction_reuse_distinguishes_full_parameterized_sorts() {
 
 #[test]
 fn prediction_reuse_preserves_layout_positions_provenance_and_rejection() {
-    use k_rust::kast::{ResolvedProductionId, TermSpan};
+    use k_rust::definition::production_identity;
+    use k_rust::kast::TermSpan;
     use k_rust::provenance::SourceId;
 
     let sentences = vec![
@@ -736,6 +737,7 @@ fn prediction_reuse_preserves_layout_positions_provenance_and_rejection() {
         panic!("expected the start constructor");
     };
     assert_eq!(arguments.len(), 3);
+    let empty_identity = production_identity(&sentences[1]).expect("empty is a production");
     for (child, position) in arguments.iter().zip([
         input.find('x').unwrap(),
         input.rfind('x').unwrap(),
@@ -750,7 +752,7 @@ fn prediction_reuse_preserves_layout_positions_provenance_and_rejection() {
                 end: offset + position
             })
         );
-        assert_eq!(metadata.production, Some(ResolvedProductionId(1)));
+        assert_eq!(metadata.production, Some(empty_identity));
     }
     assert_eq!(
         grammar.parse(&Sort::new("Start"), "x y"),

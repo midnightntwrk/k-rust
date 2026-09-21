@@ -1319,7 +1319,7 @@ impl<'a> Encoding<'a> {
                     production.token
                         && production
                             .source_production
-                            .is_some_and(|source| source.0 == id.0)
+                            .is_some_and(|source| source == id)
                 })
             });
         match production {

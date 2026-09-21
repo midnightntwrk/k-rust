@@ -12,14 +12,14 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
-        Sentence, expand_configurations_allowing_reserved_cells, sentence_equivalent,
+        Sentence, expand_configurations_allowing_reserved_cells, production_identity,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term},
+    kast::{FrontendSort, GeneratedCell, InternalLabel, Label, ProductionIdentity, Sort, Term},
     provenance::GeneratingPass,
 };
 
-use super::rebase_local_metadata_by;
+use super::retarget_production_identities;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveFreshConstantsError {
@@ -63,9 +63,9 @@ pub(crate) fn resolve_fresh_constants_pass(
     let resolved = input
         .resolved_raw()
         .map_err(|error| error_from(error.to_string()))?;
-    let views = resolved.views();
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
+    let mut replacements = BTreeMap::<ProductionIdentity, ProductionIdentity>::new();
 
     for module in &mut output.modules {
         let module_id = resolved
@@ -87,9 +87,18 @@ pub(crate) fn resolve_fresh_constants_pass(
             .contains(&LabelHead::new(GeneratedCell::Top.label()));
 
         for sentence in &mut module.local_sentences {
+            let before_identity = production_identity(sentence);
             let original = sentence.clone();
             match transform_sentence(original, &productions, &generators) {
-                Ok(transformed) => *sentence = transformed,
+                Ok(transformed) => {
+                    if let (Some(before), Some(after)) =
+                        (before_identity, production_identity(&transformed))
+                        && before != after
+                    {
+                        replacements.insert(before, after);
+                    }
+                    *sentence = transformed;
+                }
                 Err(message) => diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidFreshConstant,
                     message,
@@ -126,7 +135,13 @@ pub(crate) fn resolve_fresh_constants_pass(
             module.local_sentences.push(configuration);
         }
         for sentence in &mut module.local_sentences {
+            let before_identity = production_identity(sentence);
             fix_generated_top_format(sentence);
+            if let (Some(before), Some(after)) = (before_identity, production_identity(sentence))
+                && before != after
+            {
+                replacements.insert(before, after);
+            }
         }
     }
 
@@ -140,13 +155,17 @@ pub(crate) fn resolve_fresh_constants_pass(
         .map_err(|error| error_from(error.to_string()))?;
     for module in &mut expanded.modules {
         for sentence in &mut module.local_sentences {
+            let before_identity = production_identity(sentence);
             fix_generated_top_format(sentence);
+            if let (Some(before), Some(after)) = (before_identity, production_identity(sentence))
+                && before != after
+            {
+                replacements.insert(before, after);
+            }
         }
     }
-    rebase_local_metadata_by(&views, expanded, |source, target| {
-        sentence_equivalent(source, target) || both_generated_top_productions(source, target)
-    })
-    .map_err(error_from)
+    retarget_production_identities(&mut expanded, &replacements);
+    Ok(expanded)
 }
 
 fn transform_sentence(
@@ -759,17 +778,6 @@ impl TermApply for Term {
             _ => None,
         }
     }
-}
-
-fn both_generated_top_productions(source: &Sentence, target: &Sentence) -> bool {
-    matches!(
-        (source, target),
-        (
-            Sentence::Production { label: Some(source), .. },
-            Sentence::Production { label: Some(target), .. }
-        ) if source.name == GeneratedCell::Top.label()
-            && target.name == GeneratedCell::Top.label()
-    )
 }
 
 fn with_metadata(term: Term, metadata: Option<crate::kast::TermMetadata>) -> Term {

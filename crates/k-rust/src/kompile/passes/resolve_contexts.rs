@@ -16,8 +16,6 @@ use crate::{
     provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
 
-use super::rebase_local_metadata;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveContextsError {
     pub diagnostics: Vec<Diagnostic>,
@@ -122,9 +120,7 @@ pub(crate) fn resolve_contexts_pass(
         extend_unique(&mut main.local_sentences, generated);
     }
     // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
-    rebase_local_metadata(&views, output).map_err(|message| ResolveContextsError {
-        diagnostics: vec![plain_error(message)],
-    })
+    Ok(output)
 }
 
 fn resolve_context(

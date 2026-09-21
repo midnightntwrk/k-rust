@@ -6,11 +6,121 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust_kore::measure::{self, Counter};
+use sha2::{Digest, Sha256};
 
 use super::ast::{Attributes, ProductionItem, Sentence};
 use super::resolve::SentenceKey;
 use crate::definition::AttributeKey;
-use crate::kast::Term;
+use crate::kast::{Label, ProductionIdentity, Sort, Term};
+
+/// Return the canonical byte payload for a production.
+///
+/// Payload equality is exactly production equivalence. Sorts and labels use their structural
+/// fields rather than their display forms so arbitrary names cannot make the encoding ambiguous.
+pub fn canonical_production_payload(sentence: &Sentence) -> Option<Vec<u8>> {
+    let Sentence::Production {
+        label,
+        parameters,
+        sort,
+        items,
+        attributes,
+    } = sentence
+    else {
+        return None;
+    };
+
+    let mut payload = b"k-rust-production-identity\0\x01".to_vec();
+    encode_option(&mut payload, label.as_ref(), encode_label);
+    encode_sequence(&mut payload, parameters, encode_sort);
+    encode_sort(&mut payload, sort);
+    encode_sequence(&mut payload, items, |payload, item| match item {
+        ProductionItem::NonTerminal { sort, name } => {
+            payload.push(b'N');
+            encode_sort(payload, sort);
+            encode_option(payload, name.as_deref(), encode_string);
+        }
+        ProductionItem::RegexTerminal { regex, .. } => {
+            payload.push(b'R');
+            encode_string(payload, regex);
+        }
+        ProductionItem::Terminal(text) => {
+            payload.push(b'T');
+            encode_string(payload, text);
+        }
+    });
+    encode_option(
+        &mut payload,
+        production_label_attribute(label.as_ref(), attributes),
+        encode_string,
+    );
+    encode_option(
+        &mut payload,
+        attributes.string(AttributeKey::Function),
+        encode_string,
+    );
+    encode_option(
+        &mut payload,
+        attributes.string(AttributeKey::Symbol),
+        encode_string,
+    );
+    Some(payload)
+}
+
+/// Compute the 128-bit content identity of a production.
+///
+/// Equivalent productions have equal identities. Treating the converse as true relies on the
+/// collision resistance of the truncated SHA-256 digest rather than a mathematical guarantee.
+pub fn production_identity(sentence: &Sentence) -> Option<ProductionIdentity> {
+    let digest = Sha256::digest(canonical_production_payload(sentence)?);
+    let mut identity = [0; 16];
+    identity.copy_from_slice(&digest[..16]);
+    Some(ProductionIdentity::from_digest(identity))
+}
+
+fn encode_label(payload: &mut Vec<u8>, label: &Label) {
+    encode_string(payload, &label.name);
+    encode_sequence(payload, &label.parameters, encode_sort);
+}
+
+fn encode_sort(payload: &mut Vec<u8>, sort: &Sort) {
+    encode_string(payload, &sort.name);
+    encode_sequence(payload, &sort.parameters, encode_sort);
+}
+
+fn encode_sequence<T>(
+    payload: &mut Vec<u8>,
+    items: &[T],
+    encode: impl Copy + Fn(&mut Vec<u8>, &T),
+) {
+    encode_length(payload, items.len());
+    for item in items {
+        encode(payload, item);
+    }
+}
+
+fn encode_option<T: ?Sized>(
+    payload: &mut Vec<u8>,
+    value: Option<&T>,
+    encode: impl FnOnce(&mut Vec<u8>, &T),
+) {
+    match value {
+        Some(value) => {
+            payload.push(1);
+            encode(payload, value);
+        }
+        None => payload.push(0),
+    }
+}
+
+fn encode_string(payload: &mut Vec<u8>, text: &str) {
+    encode_length(payload, text.len());
+    payload.extend_from_slice(text.as_bytes());
+}
+
+fn encode_length(payload: &mut Vec<u8>, length: usize) {
+    let length = u64::try_from(length).expect("usize fits in u64 on supported targets");
+    payload.extend_from_slice(&length.to_be_bytes());
+}
 
 /// Scala sentence equality, including `Production`'s custom equality override.
 pub fn sentence_equivalent(left: &Sentence, right: &Sentence) -> bool {

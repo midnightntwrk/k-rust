@@ -153,7 +153,7 @@ pub fn expand_macros_in_term(
 /// discards the production index.
 pub fn expand_macros_in_term_with_scope(
     definition: &Definition,
-    term_module: &str,
+    _term_module: &str,
     macro_module: &str,
     term: Term,
 ) -> Result<Term, String> {
@@ -163,22 +163,7 @@ pub fn expand_macros_in_term_with_scope(
     let definition = super::resolve_semantic_casts(definition);
     let definition = super::propagate_macro_attributes(&definition)?;
     let resolved = ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
-    let term_module_id = resolved
-        .module_id(term_module)
-        .ok_or_else(|| format!("unknown module {term_module}"))?;
-    let macro_module_id = resolved
-        .module_id(macro_module)
-        .ok_or_else(|| format!("unknown module {macro_module}"))?;
     let views = resolved.views();
-    let term = if term_module_id == macro_module_id {
-        term
-    } else {
-        super::rebase_term_to_visible_catalog(
-            term,
-            views.production_catalog(term_module_id),
-            views.production_catalog(macro_module_id),
-        )?
-    };
     let mut expanded = expand_macros_in_terms_from_views_with_scope(
         &views,
         macro_module,
@@ -261,16 +246,6 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let overloads = views
             .overloads(term_module)
             .map_err(|error| error.to_string())?;
-        let owners = definition
-            .modules()
-            .flat_map(|(owner, resolved)| {
-                resolved
-                    .local_sentences
-                    .iter()
-                    .map(move |sentence| (std::ptr::from_ref(sentence), owner))
-            })
-            .collect::<BTreeMap<_, _>>();
-        let mut rebasers = BTreeMap::new();
         // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let all = definition
             .sentences(macro_module)
@@ -279,40 +254,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             .filter_map(|(id, sentence)| {
                 macro_rule(id, sentence, &productions).map(|rule| (sentence, rule))
             })
-            .map(|(sentence, mut rule)| {
-                let owner = owners[&std::ptr::from_ref(sentence)];
-                if owner != term_module {
-                    // Project away the rule-body rewrite before rebasing. Its metadata describes
-                    // no executable production. Template applications remain strict, while a
-                    // private lexical token can discard its self-describing production index.
-                    let rebaser = rebasers.entry(owner).or_insert_with(|| {
-                        super::super::rebase::ExactRebaser::new(
-                            views.production_catalog(owner),
-                            productions,
-                        )
-                    });
-                    rule.left = rebaser.rebase_term_discarding_tokens(rule.left)?;
-                    rule.right = rebaser.rebase_term_discarding_tokens(rule.right)?;
-                    let Sentence::Rule {
-                        body,
-                        requires,
-                        ensures,
-                        ..
-                    } = &mut rule.sentence
-                    else {
-                        unreachable!("macro rules are rules")
-                    };
-                    *requires = rebaser
-                        .rebase_term_discarding_tokens(std::mem::replace(requires, truth()))?;
-                    *ensures = rebaser
-                        .rebase_term_discarding_tokens(std::mem::replace(ensures, truth()))?;
-                    *body = Term::Rewrite {
-                        left: Box::new(rule.left.clone()),
-                        right: Box::new(rule.right.clone()),
-                    };
-                }
-                Ok(rule)
-            })
+            .map(|(_, rule)| Ok(rule))
             .collect::<Result<Vec<_>, String>>()?;
         let priorities = all
             .iter()

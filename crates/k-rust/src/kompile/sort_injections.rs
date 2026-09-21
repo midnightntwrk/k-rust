@@ -1,5 +1,6 @@
 //! Sort injection computes expected sorts, least upper bounds, and explicit KORE injections, with strict rebase-in and lossy localization-out metadata policies.
-//! Work is O(term nodes times production and subsort queries); `KompileRebaseCalls` and `KompileInjectionsInserted` measure its variable work after CQ-12.
+//! Work is O(term nodes times production and subsort queries); the retained zero-valued
+//! `KompileRebaseCalls` and `KompileInjectionsInserted` measure its variable work after CQ-12.
 //!
 //! Production-aware insertion of explicit KORE subsort injections.
 
@@ -12,8 +13,7 @@ use serde_json::json;
 
 use crate::definition::{
     AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
-    ProductionCatalog, ProductionId, ResolveError, ResolvedDefinition, Sentence, SortCatalog,
-    SortHead,
+    ProductionCatalog, ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
@@ -34,7 +34,7 @@ pub enum SortInjectionError {
     },
     InvalidResolvedProduction {
         label: String,
-        production: usize,
+        production: String,
         message: String,
     },
     InvalidImportedMetadata {
@@ -998,17 +998,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     ) -> Result<&'definition Sentence, SortInjectionError> {
         let mut invalid_resolved = None;
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
-            if resolved.0 >= self.productions.len() {
-                invalid_resolved = Some(SortInjectionError::InvalidResolvedProduction {
-                    label: label.name.clone(),
-                    production: resolved.0,
-                    message: format!(
-                        "the active production catalog contains only {} productions",
-                        self.productions.len()
-                    ),
-                });
-            } else {
-                let production = self.productions.production(ProductionId(resolved.0));
+            if let Some(production_id) = self.productions.lookup(&resolved) {
+                let production = self.productions.production(production_id);
                 let Sentence::Production {
                     label: production_label,
                     ..
@@ -1024,8 +1015,14 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 }
                 invalid_resolved = Some(SortInjectionError::InvalidResolvedProduction {
                     label: label.name.clone(),
-                    production: resolved.0,
+                    production: resolved.to_hex(),
                     message: "the production belongs to a different KLabel".into(),
+                });
+            } else {
+                invalid_resolved = Some(SortInjectionError::InvalidResolvedProduction {
+                    label: label.name.clone(),
+                    production: resolved.to_hex(),
+                    message: "the active production catalog does not contain this identity".into(),
                 });
             }
         }
@@ -1188,26 +1185,8 @@ pub(crate) fn add_sort_injections_to_definition_pass(
         if !target_modules.contains(&module_id) {
             continue;
         }
-        let source_catalog = views.production_catalog(module_id);
-        let mut import_rebaser = (module_id != target).then(|| {
-            super::rebase::ExactRebaser::new(source_catalog, &target_injector.productions)
-        });
-        let mut localization_rebaser = (module_id != target).then(|| {
-            super::rebase::ExactRebaser::new(&target_injector.productions, source_catalog)
-        });
         for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
-            let mut input = sentence.clone();
-            if module_id != target && target_modules.contains(&module_id) {
-                import_rebaser
-                    .as_mut()
-                    .expect("non-target modules have an import rebaser")
-                    .rebase_sentence(&mut input)
-                    .map_err(|message| SortInjectionError::InvalidImportedMetadata {
-                        module: module.name.clone(),
-                        message,
-                    })?;
-            }
-            let mut injected = target_injector.inject_sentence(&input).map_err(|error| {
+            let injected = target_injector.inject_sentence(sentence).map_err(|error| {
                 SortInjectionError::Sentence {
                     module: module.name.clone(),
                     sentence: sentence_index,
@@ -1219,56 +1198,10 @@ pub(crate) fn add_sort_injections_to_definition_pass(
                     error: Box::new(error),
                 }
             })?;
-            if module_id != target && target_modules.contains(&module_id) {
-                localize_sentence_metadata(
-                    &mut injected,
-                    localization_rebaser
-                        .as_mut()
-                        .expect("non-target modules have a localization rebaser"),
-                );
-            }
             *sentence = injected;
         }
     }
     Ok(output)
-}
-
-fn localize_sentence_metadata(
-    sentence: &mut Sentence,
-    rebaser: &mut super::rebase::ExactRebaser<'_, '_, '_, '_>,
-) {
-    let mut localize = |term: &mut Term| {
-        let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
-        *term = rebaser.rebase_term_lossy(taken);
-    };
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => {
-            localize(body);
-            localize(requires);
-            localize(ensures);
-        }
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => {
-            localize(body);
-            localize(requires);
-        }
-        Sentence::Configuration { body, ensures, .. } => {
-            localize(body);
-            localize(ensures);
-        }
-        _ => {}
-    }
 }
 
 pub fn add_sort_injections_from_resolved(

@@ -8,8 +8,7 @@ use std::fmt;
 
 use crate::definition::{
     AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
-    ProductionCatalog, ProductionId, ResolveError, ResolvedDefinition, Sentence, SortCatalog,
-    SortHead,
+    ProductionCatalog, ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{self, FrontendSort, InternalLabel, Label, Sort, Term, identifier};
 use crate::kore::ast::{KoreString, Pattern, Symbol, Variable, VariableKind};
@@ -33,7 +32,7 @@ pub enum TermConversionError {
     },
     InvalidResolvedProduction {
         label: String,
-        production: usize,
+        production: String,
         message: String,
     },
     MissingSort(&'static str),
@@ -714,17 +713,8 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         let ids = self.productions.productions_for(&LabelHead::from(label));
         let mut invalid_resolved = None;
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
-            if resolved.0 >= self.productions.len() {
-                invalid_resolved = Some(TermConversionError::InvalidResolvedProduction {
-                    label: label.name.clone(),
-                    production: resolved.0,
-                    message: format!(
-                        "the active production catalog contains only {} productions",
-                        self.productions.len()
-                    ),
-                });
-            } else {
-                let production = self.productions.production(ProductionId(resolved.0));
+            if let Some(production_id) = self.productions.lookup(&resolved) {
+                let production = self.productions.production(production_id);
                 let Sentence::Production {
                     label: production_label,
                     parameters,
@@ -742,8 +732,14 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                 }
                 invalid_resolved = Some(TermConversionError::InvalidResolvedProduction {
                     label: label.name.clone(),
-                    production: resolved.0,
+                    production: resolved.to_hex(),
                     message: "the production belongs to a different KLabel".into(),
+                });
+            } else {
+                invalid_resolved = Some(TermConversionError::InvalidResolvedProduction {
+                    label: label.name.clone(),
+                    production: resolved.to_hex(),
+                    message: "the active production catalog does not contain this identity".into(),
                 });
             }
         }
