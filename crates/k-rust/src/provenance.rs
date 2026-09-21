@@ -1104,6 +1104,8 @@ pub fn declared_origin_free(term: &Term) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
     use crate::{
         definition::{Attributes, FlatModule},
@@ -1146,6 +1148,38 @@ mod tests {
                 attributes: Attributes::default(),
             }],
             attributes: Attributes::default(),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn provenance_union_preserves_first_encounter_order_and_is_idempotent(
+            values in prop::collection::vec(0_u8..16, 0..64),
+        ) {
+            let links = values
+                .into_iter()
+                .map(|value| ProvenanceLink::Sentence {
+                    unique_id: format!("s{}", value % 8),
+                })
+                .collect::<Vec<_>>();
+            let mut actual = Vec::new();
+            for link in links.iter().cloned() {
+                push_unique(&mut actual, link);
+            }
+            let mut oracle = Vec::new();
+            for link in links.iter().cloned() {
+                if !oracle.contains(&link) {
+                    oracle.push(link);
+                }
+            }
+            prop_assert_eq!(&actual, &oracle);
+
+            for link in links {
+                push_unique(&mut actual, link);
+            }
+            prop_assert_eq!(actual, oracle);
         }
     }
 
