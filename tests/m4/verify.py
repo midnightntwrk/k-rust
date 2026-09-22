@@ -770,12 +770,12 @@ pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147
 
 [k_rust]
 version = "0.4.0"
-commit = "fb9b3e1472623d9b991a386edf56792959973456"
-tracked_crate_sha256 = "699411dd94cb8cf4c6cec319db2703c205c749e1b6fb6b1c956a70707a1b7099"
+commit = "efda6192785d4113eeea2fa090e4662d30dc8801"
+tracked_crate_sha256 = "fa370981fb26255cce152cba31e5a5573bf8a24128522119af76dbce56b25359"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "14db1103162d46447b16ff6c66f39f73e8cabcc390374dc5ffb9c9ba135797d1"
+tracked_backend_sha256 = "852e65b378c07027da83c9fc578662ac6fb6700cf9476f78303c38c2db206b78"
 kore_version = "0.4.0"
-tracked_kore_sha256 = "c70789c7270be4666dc5bcbbf7df6f021efcdfad03c314f833d10c7b4bda6109"
+tracked_kore_sha256 = "e8de6794ce13316e37fdae5dd4de91270418dc9fae5955e46d245e95ad79901b"
 
 [builtin_registry]
 source_sha256 = "7076fb0bcf4667b8e819445995b1055d55b10d9fc4f7a5b8e037189556c2910a"

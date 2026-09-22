@@ -1,14 +1,15 @@
 //! Fail-closed native/reference KORE comparison for the M4 complete-IMP gate.
 //!
-//! The only structural allowance beyond metadata and per-sentence alpha
-//! normalization is a mechanically proven, complete, closed, unused pair made
-//! from one structured-adapter named projector declaration and its one defining
-//! equation. A projector-looking prefix is never sufficient for exclusion.
+//! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives whose order differs between K's `Production.ord` and k-rust's declaration order.
+//! Its only exclusion beyond metadata and per-sentence alpha normalization is a mechanically proven, complete, closed, unused pair made from one structured-adapter named projector declaration and its one defining equation.
+//! A projector-looking prefix is never sufficient.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 
-use k_rust::kore::ast::{Attributes, Module, Pattern, Sentence, Sort, Variable, VariableKind};
+use k_rust::kore::ast::{
+    Attributes, Module, Pattern, Sentence, Sort, Symbol, Variable, VariableKind,
+};
 use k_rust::kore::parser::parse_definition;
 
 const PROJECTOR_PREFIX: &str = "Lblproject'Coln'";
@@ -262,11 +263,110 @@ fn normalize_labels(
 }
 
 fn alpha_normalize_sentence(sentence: &mut Sentence) {
+    canonicalize_no_junk_axiom(sentence);
+    canonicalize_no_confusion_pair(sentence);
     let mut names = BTreeMap::<(VariableKind, String, Sort), String>::new();
     for pattern in sentence_patterns_mut(sentence) {
         normalize_commuting_exists(pattern);
         alpha_normalize_pattern(pattern, &mut names);
     }
+}
+
+/// Canonicalize the commutative alternatives in one generated constructor no-junk axiom.
+///
+/// Each constructor alternative owns its existential binders.
+/// Normalize those local names before ordering the alternatives so declaration order and `Production.ord` produce the same exact multiset member while retaining every alternative and its complete structure.
+fn canonicalize_no_junk_axiom(sentence: &mut Sentence) {
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return;
+    };
+    if !has_constructor_marker(attributes) {
+        return;
+    }
+    let Pattern::Or { arguments, .. } = pattern.as_mut() else {
+        return;
+    };
+    for argument in arguments.iter_mut() {
+        normalize_commuting_exists(argument);
+        alpha_normalize_pattern(argument, &mut BTreeMap::new());
+    }
+    arguments.sort();
+}
+
+/// Canonicalize the commutative constructor pair in one generated no-confusion axiom.
+///
+/// K orders the pair by `Production.ord`, while current k-rust uses declaration order.
+/// The conjunction is commutative and its generated free variables are alpha-equivalent, so the comparator orders the applications by symbol and argument sorts before its ordinary per-sentence alpha normalization.
+fn canonicalize_no_confusion_pair(sentence: &mut Sentence) {
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return;
+    };
+    if !has_constructor_marker(attributes) {
+        return;
+    }
+    let Pattern::Not { argument, .. } = pattern.as_mut() else {
+        return;
+    };
+    let Pattern::And { arguments, .. } = argument.as_mut() else {
+        return;
+    };
+    if arguments.len() != 2 || !arguments.iter().all(is_application_over_variables) {
+        return;
+    }
+    arguments.sort_by_cached_key(no_confusion_conjunct_key);
+    for (side, conjunct) in arguments.iter_mut().enumerate() {
+        let Pattern::Application { arguments, .. } = conjunct else {
+            unreachable!("no-confusion conjunct shape was checked")
+        };
+        for (position, argument) in arguments.iter_mut().enumerate() {
+            let Pattern::Variable(variable) = argument else {
+                unreachable!("no-confusion argument shape was checked")
+            };
+            variable.name = format!("NoConfusionSide{side}Arg{position}");
+        }
+    }
+}
+
+fn has_constructor_marker(attributes: &Attributes) -> bool {
+    attributes.0.iter().any(|attribute| {
+        matches!(
+            attribute,
+            Pattern::Application { symbol, arguments }
+                if symbol.name == "constructor" && arguments.is_empty()
+        )
+    })
+}
+
+fn is_application_over_variables(pattern: &Pattern) -> bool {
+    matches!(
+        pattern,
+        Pattern::Application { arguments, .. }
+            if arguments.iter().all(|argument| matches!(argument, Pattern::Variable(_)))
+    )
+}
+
+fn no_confusion_conjunct_key(pattern: &Pattern) -> (Symbol, Vec<Sort>) {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        unreachable!("only applications over variables are keyed")
+    };
+    let sorts = arguments
+        .iter()
+        .map(|argument| match argument {
+            Pattern::Variable(variable) => variable.sort.clone(),
+            _ => unreachable!("only applications over variables are keyed"),
+        })
+        .collect();
+    (symbol.clone(), sorts)
 }
 
 /// Normalize one standalone proof-result pattern using the same reviewed
@@ -749,7 +849,6 @@ fn format_difference(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k_rust::kore::ast::Symbol;
 
     fn sort() -> Sort {
         Sort::Application {
@@ -931,6 +1030,85 @@ mod tests {
         let mut native_names = BTreeMap::new();
         alpha_normalize_pattern(&mut reference, &mut reference_names);
         alpha_normalize_pattern(&mut native, &mut native_names);
+
+        assert_eq!(reference, native);
+    }
+
+    #[test]
+    fn commutative_no_confusion_pairs_normalize_identically() {
+        fn variable(name: &str) -> Pattern {
+            Pattern::Variable(Variable {
+                kind: VariableKind::Element,
+                name: name.to_owned(),
+                sort: sort(),
+            })
+        }
+
+        fn no_confusion(left: Pattern, right: Pattern) -> Sentence {
+            Sentence::Axiom {
+                parameters: Vec::new(),
+                pattern: Box::new(Pattern::Not {
+                    sort: sort(),
+                    argument: Box::new(Pattern::And {
+                        sort: sort(),
+                        arguments: vec![left, right],
+                    }),
+                }),
+                attributes: Attributes(vec![application("constructor", Vec::new())]),
+            }
+        }
+
+        let pair = application("pair", vec![variable("X"), variable("Y")]);
+        let zero = application("zero", Vec::new());
+        let mut reference = no_confusion(pair.clone(), zero.clone());
+        let mut native = no_confusion(zero, pair);
+
+        alpha_normalize_sentence(&mut reference);
+        alpha_normalize_sentence(&mut native);
+
+        assert_eq!(reference, native);
+    }
+
+    #[test]
+    fn commutative_no_junk_alternatives_normalize_identically() {
+        fn alternative(name: &str, variable_name: &str) -> Pattern {
+            let variable = Variable {
+                kind: VariableKind::Element,
+                name: variable_name.to_owned(),
+                sort: sort(),
+            };
+            Pattern::Exists {
+                sort: sort(),
+                variable: variable.clone(),
+                body: Box::new(application(name, vec![Pattern::Variable(variable)])),
+            }
+        }
+
+        fn no_junk(arguments: Vec<Pattern>) -> Sentence {
+            Sentence::Axiom {
+                parameters: Vec::new(),
+                pattern: Box::new(Pattern::Or {
+                    sort: sort(),
+                    arguments,
+                }),
+                attributes: Attributes(vec![application("constructor", Vec::new())]),
+            }
+        }
+
+        let bottom = Pattern::Bottom { sort: sort() };
+        let mut reference = no_junk(vec![
+            alternative("left", "X"),
+            alternative("right", "Y"),
+            bottom.clone(),
+        ]);
+        let mut native = no_junk(vec![
+            bottom,
+            alternative("right", "Other"),
+            alternative("left", "Value"),
+        ]);
+
+        alpha_normalize_sentence(&mut reference);
+        alpha_normalize_sentence(&mut native);
 
         assert_eq!(reference, native);
     }

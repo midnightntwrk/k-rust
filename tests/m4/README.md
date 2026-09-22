@@ -18,9 +18,9 @@ Every authored source file is rustc-valid Rust.
 
 The authored and independently expanded IMP packages are checked on Rust 1.88.0.
 Native/frontend helpers are additionally qualified on exact stable Rust 1.98.0.
-Clean k-rust main `fb9b3e1472623d9b991a386edf56792959973456` declares and enforces MSRV 1.88, so the gate also checks the workspace and every helper on exact Rust 1.88.0.
+Clean k-rust main `efda6192785d4113eeea2fa090e4662d30dc8801` declares and enforces MSRV 1.88, so the gate also checks the workspace and every helper on exact Rust 1.88.0.
 `K_RUST_UPSTREAM.toml` records the closed if-let-guard discrepancy that previously blocked this alignment.
-The complete M4.1-M4.8 gate passed against that pin on 2026-09-10 JST.
+The complete M4.1-M4.8 gate passed against that pin on 2026-09-15 JST.
 
 ## Evidence layers
 
@@ -32,8 +32,7 @@ layer:
 3. repeated KRS collection, byte-exact layer-2 Rust expansion, `.k`, sidecar,
    IR, and native artifact determinism;
 4. fail-closed parsed and compiled source-definition comparison;
-5. native Definition/KORE comparison with only the reviewed closed unused
-   named-projector allowance;
+5. native Definition/KORE comparison with reviewed constructor-axiom order canonicalization and the closed unused named-projector allowance;
 6. parser and unparser comparison over the M3A--M3C corpus;
 7. concrete execution, all frozen depth states, stuck states, and failures;
 8. finite and bounded-live search frontier comparison;

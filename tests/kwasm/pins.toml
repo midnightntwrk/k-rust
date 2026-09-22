@@ -3,7 +3,7 @@ corpus_sha256 = "1c87b15baef19c0429fed9fb694d3763f8057a3215857c16b92aec04a60484e
 expansion_sha256 = "697c66071bc71307d745c414f113201905d37c2df13cf6bfbcdf65278b44b7df"
 behavior_sha256 = "4a3b6107cb23fa451a392d0a0ef1d42203d5eb64cda8cbcda025e75d2458afd5"
 definition_kore_sha256 = "d85e22389012617a27323d2cdece0340c8e5bc45364a1d499118a50f2972f4bb"
-native_definition_kore_sha256 = "b8d5f7e787e70fc6d8ab26adfa1df800d96c0541e04caa8a514032c49baac3b7"
+native_definition_kore_sha256 = "cfd2a9b63d612f4a80c46470a7f5cbd3575c78ab5678c1474d4ea5c00c270e1e"
 
 [schemas]
 descriptor_protocol = 35
@@ -34,7 +34,7 @@ commit = "212271bd434bd402e27c42f6416854342733386d"
 "crates/krs-ir/src/protocol_v7_rule.rs" = "fb6e33f9a8424b3369956545577d9fd9a082483035dc373bb2a4562cb778f03c"
 "crates/krs-ir/src/semantic.rs" = "1be75aa384e922f4053e3cf60e2d8447704e1b579f1f94509f2a5117c2a93086"
 "crates/krs-ir/src/state.rs" = "87c7394207508d32bf776c0a4c4d5d996620aeb696a68f743e4185405d3447d1"
-"crates/krs-k-rust/src/lib.rs" = "c590a2976b50cf0a34d7f4787ad099eb36623eb934a55e1e19bf83f1f2bf4f81"
+"crates/krs-k-rust/src/lib.rs" = "12afe8ce672b005c7f595933fb3e611dc77d227ced50de25bdec83260f480eb9"
 "crates/krs-k-rust/src/bin/krs-native-compile.rs" = "3909a4c60455891091472aa126abfd52989807a47d647a2a30d2c19ec9eceeb9"
 "crates/krs-k-rust/src/bin/krs-native-runner.rs" = "10a2bb5c7c5deb7d51fe126be1184d785fab5a3acb877035e86aa18ceee78eac"
 "crates/krs-macros/src/expand.rs" = "71af8df0c2347d866e9ac036f3a034efcc2f42b2c53671eaaa02c79f8bcb0dcf"

@@ -1,11 +1,13 @@
 # M4 native/reference KORE comparator
 
-This is the permanent, fail-closed version of the reviewed M3C native KORE
-investigation. It parses both definitions with the pinned public `k-rust`
-KORE AST, selects exactly one explicitly named module, removes only five
-enumerated renderer metadata attributes, alpha-normalizes variables within
-each sentence while retaining variable kind and sort, and compares sentence
-multisets including multiplicity.
+This is the permanent, fail-closed version of the reviewed M3C native KORE investigation.
+It parses both definitions with the pinned public `k-rust` KORE AST, selects exactly one explicitly named module, removes only five enumerated renderer metadata attributes, canonicalizes only constructor-tagged no-confusion pairs and no-junk alternatives, alpha-normalizes variables within each sentence while retaining variable kind and sort, and compares sentence multisets including multiplicity.
+
+K's frontend orders the two constructor applications in a no-confusion axiom by `Production.ord`; current k-rust orders them by declaration rank.
+The comparator normalizes this exact top-level `not(and(P(X...), Q(Y...)))` family because the conjunction is commutative and its generated free variables are alpha-equivalent.
+The same declaration-order difference affects constructor-tagged no-junk axioms whose top-level disjunction enumerates existentially wrapped constructor applications.
+The comparator alpha-normalizes each complete alternative independently and sorts those alternatives while retaining multiplicity.
+Other conjunctions, other disjunctions, and ordinary application argument order remain exact.
 
 The structured native adapter may add named Rust-field projections. Such a
 sentence is excluded only after the comparator proves a complete pair:

@@ -1,15 +1,16 @@
 # KRS k-rust handoff
 
-Status: KRS migrated to the latest committed local k-rust `main`; adapter and semantics requalification against that pin completed 2026-09-10 JST
+Status: KRS migrated to the latest fully qualified k-rust `main`; adapter and semantics requalification against that pin completed 2026-09-15 JST
 
 ## Current decision
 
 KRS uses k-rust `0.4.0` from the dedicated worktree at `../inspirations/midnightntwrk/k-rust-krs-main`.
-That worktree is detached at `fb9b3e1472623d9b991a386edf56792959973456`, the clean `origin/main` head used for this migration.
+That worktree is detached at `efda6192785d4113eeea2fa090e4662d30dc8801`, the clean `origin/main` head used for this migration.
 The old `krs-integration-main` branch remains at `c41caa8bede96e279e0b058577dce504e4144f65` as rollback evidence.
 KRS must not depend directly on the shared `../inspirations/midnightntwrk/k-rust` main worktree because that branch may continue advancing independently.
-During qualification, concurrent work advanced the shared local `main` by three unpublished commits (`2434ae7`, `acac11b`, and `bd82005`) over `origin/main`.
-Those commits touch cell closure, KORE binder identity, and search compilation; they were deliberately excluded from the reproducible KRS pin and the shared worktree was not modified.
+The dedicated dependency worktree was advanced without modifying the shared main worktree or the retired patched checkout.
+
+The latest shared k-rust `main` candidate is clean at `41ee041068db671f7ba8e417d1e31e98f2e3a8f8` as of 2026-09-22 JST. This candidate has only received a static-source screen so far and is not the reproducible KRS input: `Krs.lock` remains pinned to `efda6192785d4113eeea2fa090e4662d30dc8801` until the adapter and native gates are rerun. The screen confirms that semantic-cast projection and labelled-token constructor handling remain open, while typed simplification-budget diagnostics are present but the default budget remains 100.
 
 The active dedicated worktree has no KRS-only source or manifest changes.
 Current upstream supports external Z3 acquisition through `default-features = false, features = ["z3-inference"]`, so KRS retains the Nix-pinned Z3 4.12.5 policy without editing k-rust.
@@ -38,6 +39,10 @@ Two narrow compatibility lowerings remain.
 Typed `List.get` and `Map.get` stay as explicit `project:<Sort>` applications because removing the lowering widens function equations to `KItem` before upstream materializes the semantic projection.
 Native token productions omit their otherwise-unused application label because the frontend emits a labelled token on a domain-value sort as a constructor which the matching backend rejects.
 `K_RUST_UPSTREAM.toml` records both active reproductions and requested upstream actions.
+
+The active pin emits frontend catalogs and generated axioms in declaration order.
+K's reference frontend uses `Production.ord` for constructor no-confusion pairs and no-junk alternatives, so the M4 comparator adopts the matching published normalizations: constructor-tagged pairs are ordered by symbol and argument sorts, and complete existential no-junk alternatives are independently alpha-normalized before ordering.
+Multiplicity, complete alternative structure, other conjunctions, other disjunctions, and ordinary application argument order remain exact.
 
 The prior `../inspirations/midnightntwrk/k-rust-krs` checkout remains detached at `3cce7a47941c4dc0664e6e870d4e0529d74753c6` with its eight recovered local modifications.
 It is rollback and comparison evidence only and is not an active KRS input.
@@ -116,18 +121,18 @@ When claims exist, the adapter supplies `CheckMode::Proof { definition_module: m
 ```toml
 [k_rust]
 version = "0.4.0"
-commit = "fb9b3e1472623d9b991a386edf56792959973456"
-tracked_crate_sha256 = "699411dd94cb8cf4c6cec319db2703c205c749e1b6fb6b1c956a70707a1b7099"
+commit = "efda6192785d4113eeea2fa090e4662d30dc8801"
+tracked_crate_sha256 = "fa370981fb26255cce152cba31e5a5573bf8a24128522119af76dbce56b25359"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "14db1103162d46447b16ff6c66f39f73e8cabcc390374dc5ffb9c9ba135797d1"
+tracked_backend_sha256 = "852e65b378c07027da83c9fc578662ac6fb6700cf9476f78303c38c2db206b78"
 kore_version = "0.4.0"
-tracked_kore_sha256 = "c70789c7270be4666dc5bcbbf7df6f021efcdfad03c314f833d10c7b4bda6109"
+tracked_kore_sha256 = "e8de6794ce13316e37fdae5dd4de91270418dc9fae5955e46d245e95ad79901b"
 ```
 
 ## Qualification evidence
 
 The k-rust 0.4 migration passes all 25 `krs-k-rust` adapter tests.
-The complete IMP M4.1-M4.8 gate passed on 2026-09-10 JST at descriptor protocol 35 and Definition IR schema 27 against the active main pin.
+The complete IMP M4.1-M4.8 gate passed on 2026-09-15 JST at descriptor protocol 35 and Definition IR schema 27 against the active main pin.
 Native frontend parity remains 1,206/1,206 KORE sentences.
 The behavior evidence remains `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`.
 All 21 proof specifications and 20 unique native claims pass.
@@ -143,13 +148,13 @@ The complete corpus, including builtin-List `BLOCKHASH`, the selected memory/cop
 The runner uses a bounded 4,096-iteration simplification budget because K-Rust's default budget of 100 causes repeated partial work on the 1,024-word recursive stack-size boundary.
 The normal gate retains the full corpus and defers the pinned Java behavior and eight-proof authority run to the explicit `tests/kevm/verify.py --java-reference` mode.
 
-The direct complete-cell representation produces native KEVM KORE SHA-256 `b9fc739eaeb99746e58da1522bac200203b6130cc8d38fb518b26d9422bfebdb`.
+The direct complete-cell representation produces native KEVM KORE SHA-256 `6c307ebbd12211d6ec726f3fb2d2b9d875d5e04e5e653078e1cf5dc19bdf2796`.
 All 240 native executions retain behavior SHA-256 `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673`.
 
 KMIR and KWasm now follow the same policy.
 Their default gates compile Definition IR directly through K-Rust, execute 184 and 32 concrete cases through persistent workers, and defer their reference proof to `--java-reference`.
 The upstream structured loader prepares KWasm's `<instrs>` computation cell without adding a fallback `<k>` configuration.
-The direct KWasm and KMIR KORE hashes are `b8d5f7e787e70fc6d8ab26adfa1df800d96c0541e04caa8a514032c49baac3b7` and `6947318bfd5bb5cb51584d74f00c3ec9410ca0415d4c4d9921b8dce294e846fc`.
+The direct KWasm and KMIR KORE hashes are `cfd2a9b63d612f4a80c46470a7f5cbd3575c78ab5678c1474d4ea5c00c270e1e` and `1dfbd76951e943b8d40e89163f8bcda2202d2a393a91e0b676f986c8983f5014`.
 
 K-Rust materializes the projection for a semantic cast around builtin `List:get` or `Map:lookup`, but it computes the enclosing rewrite's least upper bound first and widens a typed function equation to `KItem`.
 KRS avoids carrying a dedicated-checkout patch by lowering its typed List and Map lookups directly to K-Rust's generated `project:<Sort>` function.
