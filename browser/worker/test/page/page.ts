@@ -3,11 +3,12 @@
 // window.ir15 for the WebDriver/BiDi drivers.
 
 import { KrsCompiler, loadVerifiedAssets } from "../../src/controller.ts";
-import type { CompileEvent, LessonManifest, PackManifest } from "../../src/protocol.ts";
-import { check, SCENARIOS } from "../scenarios.ts";
+import type { CompileEvent, FaultInjection, LessonManifest, PackManifest } from "../../src/protocol.ts";
+import { check, expectationFor, SCENARIOS } from "../scenarios.ts";
 
 let compiler: KrsCompiler | null = null;
 let lesson: LessonManifest | null = null;
+let forkRevision = "";
 const fixtures = new Map<string, string>();
 
 function base64(bytes: Uint8Array): string {
@@ -62,6 +63,7 @@ async function collect(iterable: AsyncIterable<CompileEvent>, onEvent?: (event: 
 async function init() {
   const t0 = performance.now();
   const pack = (await (await fetch("./assets/pack.json")).json()) as PackManifest;
+  forkRevision = pack.fork_revision;
   lesson = (await (await fetch("./assets/lessons/tour-minimal/lesson.json")).json()) as LessonManifest;
   for (const scenario of SCENARIOS) {
     if (!fixtures.has(scenario.fixture)) fixtures.set(scenario.fixture, await (await fetch(`./fixtures/${scenario.fixture}`)).text());
@@ -100,7 +102,7 @@ async function run(name: string, options: { debugEvidence?: boolean; keepBundle?
   const { events, wallMs } = await collect(
     compiler.compile({ lesson, files: { "src/lib.rs": fixtures.get(scenario.fixture)! }, debugEvidence: options.debugEvidence ?? true }),
   );
-  const verdict = check(scenario.expect, events.map((e) => e.event));
+  const verdict = check(expectationFor(scenario, forkRevision), events.map((e) => e.event));
   return {
     scenario: name,
     wallMs,
@@ -125,6 +127,7 @@ async function runSource(options: {
   debugEvidence?: boolean;
   keepBundle?: boolean;
   keepExpanded?: boolean;
+  faultInjection?: FaultInjection;
 }) {
   const target = options.lesson ?? lesson;
   if (!compiler || !target) throw new Error("not initialized");
@@ -135,6 +138,7 @@ async function runSource(options: {
       lesson: target,
       files: { [target.display_file]: options.source },
       debugEvidence: options.debugEvidence ?? true,
+      ...(options.faultInjection ? { faultInjection: options.faultInjection } : {}),
     }),
   );
   return {

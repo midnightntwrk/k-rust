@@ -12,7 +12,7 @@ import { parseArgs } from "node:util";
 import { loadVerifiedAssets } from "../src/pack.ts";
 import { createPipelineContext, runBuild } from "../src/pipeline.ts";
 import type { CompileEvent, LessonManifest, PackManifest } from "../src/protocol.ts";
-import { check, SCENARIOS } from "./scenarios.ts";
+import { check, expectationFor, SCENARIOS } from "./scenarios.ts";
 
 const { values } = parseArgs({
   options: {
@@ -71,7 +71,7 @@ for (let round = 0; round < Number(values.repeat); round += 1) {
       { emit: (event) => events.push(event), memory },
     );
     const wallMs = performance.now() - started;
-    const verdict = check(scenario.expect, events);
+    const verdict = check(expectationFor(scenario, pack.fork_revision), events);
     if (!verdict.ok) failed += 1;
     const terminal = events[events.length - 1]!;
     process.stderr.write(

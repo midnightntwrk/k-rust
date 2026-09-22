@@ -70,7 +70,26 @@ export interface CompileRequest {
   files: Record<string, string>;
   /** Attach expanded text, rustc arguments, VFS listings, and raw stderr to the result. */
   debugEvidence?: boolean;
+  /** Test-only fault injection (IR-18 D005, D006, D009); the docs site never sets it. */
+  faultInjection?: FaultInjection;
 }
+
+/**
+ * Test-only faults that no authored input can produce without a defect (IR-18).
+ *
+ * - `registration-table-missing-factory`: after expansion, the first
+ *   registration's factory reference inside the generated-only registration
+ *   table is renamed to a same-length name that no item has, so rustc reports
+ *   E0425 wholly inside generated text (D009). Byte offsets, and therefore the
+ *   source map, are unchanged.
+ * - `collector-source`: after both rustc stages, the collector's view of the
+ *   named lesson files (package-relative) is replaced by the given text, or
+ *   removed when the value is null; rustc still compiled the request's files
+ *   (stale source D005, missing source D006).
+ */
+export type FaultInjection =
+  | { kind: "registration-table-missing-factory" }
+  | { kind: "collector-source"; files: Record<string, string | null> };
 
 export type DiagnosticOrigin = "policy" | "expander" | "rustc" | "collector";
 
@@ -126,6 +145,8 @@ export interface Diagnostic {
 /** Debug evidence, attached only when CompileRequest.debugEvidence is set. */
 export interface Evidence {
   stageMs: Partial<Record<Stage, number>>;
+  /** The applied test-only fault, with what it changed. */
+  fault?: { kind: FaultInjection["kind"]; detail: string };
   expandedText?: string;
   expandedSha256?: string;
   sourceMap?: unknown;
