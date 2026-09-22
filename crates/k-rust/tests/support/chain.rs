@@ -1,6 +1,7 @@
 //! Generated module-graph definitions used by memory and scaling tests.
 
 /// The import topology used by a generated definition.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Shape {
     /// Module `n` imports only module `n - 1`.
