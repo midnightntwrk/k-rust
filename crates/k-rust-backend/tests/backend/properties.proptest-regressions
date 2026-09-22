@@ -8,3 +8,5 @@ cc 298838a8052d3e207f85187e835bd2ebf570622b41f1ad05b4d61a24ba6b9340 # shrinks to
 cc ccdec3c078f0cf3975d5838daa10be12622767fa4d1b4f4d7348e7671eb6d1fd # shrinks to left = VarS(0), right = VarS(0)
 cc 34a9902037c636aeea0c8c15d5ecba8dc638bd924e0ba7de709ab3fb9285c356 # shrinks to pattern = VarS(0), ground_s = [DvS(0), DvS(0), DvS(0)], ground_t = [DvT(0), DvT(0)]
 cc 6841ef10bede52b08286ae2e7fcaf7dc6b414977524e3b29c5a2efb197921a93 # shrinks to equalities = [(2, VarS(0)), (2, C1(C2(VarS(0), VarS(2))))]
+cc 8cca3b07fc1047ae0d4673c0202d32cdf14d4cead80f26cceefd8288a7bfb717 # shrinks to equalities = [(2, VarS(2)), (2, DvS(0))]
+cc f7077c8218aa012bb11aeaac33876920019899837b5b6c1838e9894c31856bd5 # shrinks to equalities = [(2, C1(C1(DvS(0)))), (2, C1(C1(DvS(0))))]
