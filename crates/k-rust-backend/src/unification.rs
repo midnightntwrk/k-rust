@@ -5,6 +5,7 @@
 //! variable = "n = pairs; s = bindings; t = term size"
 //! counters = ["UnificationProblems"]
 //! span = "per problem"
+//! produces = [{ type = "k_rust_backend::unification::UnificationResult", role = "unification result" }]
 //!
 //! [[cost]]
 //! mode = "symbolic KORE terms"

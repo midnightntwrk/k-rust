@@ -4,6 +4,7 @@
 //! sites = ["build_packed_term", "pack_alternatives", "append_nodes", "PackedTerm::unpack"]
 //! variable = "C = children packed; N = nodes unpacked"
 //! counters = ["ParserUnpackedNodes"]
+//! produces = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //!
 //! [[cost]]
 //! mode = "construction and unpacking"

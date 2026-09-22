@@ -24,6 +24,7 @@
 //! counters = []
 //! no_counter = "substitution extraction has no dedicated counter"
 //! span = "per call"
+//! produces = [{ type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" }]
 //!
 //! [[cost]]
 //! mode = "cycle breaking"

@@ -5,6 +5,8 @@
 //! variable = "N = visited configuration-term nodes; G = generated sentences; M = modules; C = modules with a configuration; D = modules and sentence references in the flat definition; k = generated sentences sharing one SentenceKey; eq = sentence-equivalence cost"
 //! counters = []
 //! no_counter = "configuration expansion is measured by enclosing resolution and sentence counters"
+//! consumes = [{ type = "k_rust::definition::Definition", role = "parsed configuration bubbles" }]
+//! produces = [{ type = "k_rust::definition::Definition", role = "expanded configurations" }]
 //!
 //! [[cost]]
 //! mode = "one definition"

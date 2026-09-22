@@ -5,6 +5,10 @@
 //! variable = "r = antecedent simplification rounds; c = consequents"
 //! counters = ["SmtQueries"]
 //! span = "per problem"
+//! consumes = [
+//!   { type = "k_rust_backend::matching::MatchResult", role = "match result" },
+//!   { type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" },
+//! ]
 //!
 //! [[cost]]
 //! mode = "one consequent (check_implication_with_existentials_and_options_and_policy)"

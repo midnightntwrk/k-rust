@@ -98,6 +98,7 @@
 //! variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
+//! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //!
 //! [[cost]]
 //! mode = "one parsed tree"

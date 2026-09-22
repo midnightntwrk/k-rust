@@ -6,7 +6,8 @@
 //! counters = ["KompileResolveCalls", "KompileResolveUpdates", "KompileResolveUpdateSentenceVisits", "KompileSentenceEquivalenceChecks"]
 //! consumes = [
 //!   { type = "k_rust::definition::Definition", role = "lowered source" },
-//!   { type = "k_rust::definition::Definition", role = "parsed bubbles" },
+//!   { type = "k_rust::definition::Definition", role = "expanded configurations" },
+//!   { type = "k_rust::definition::Definition", role = "parsed rule bubbles" },
 //! ]
 //! produces = [{ type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" }]
 //!

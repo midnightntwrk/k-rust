@@ -5,6 +5,7 @@
 //! variable = "n = distinct (depth, pattern, is_rewritable) keys at one depth; r = results retained"
 //! counters = ["SearchStatesDeduplicated"]
 //! span = "per problem"
+//! consumes = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
 //!
 //! [[cost]]
 //! mode = "one depth"
@@ -23,6 +24,7 @@
 //! counters = []
 //! no_counter = "path enumeration has no dedicated counter"
 //! span = "per problem"
+//! consumes = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
 //!
 //! [[cost]]
 //! mode = "simple paths"
@@ -37,6 +39,7 @@
 //! counters = []
 //! no_counter = "pattern search has no dedicated counter"
 //! span = "per problem"
+//! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
 //! [[cost]]
 //! mode = "result-set search"

@@ -63,6 +63,7 @@ sites = ["freshen_claim"]
 ```
 
 A site card must contain `id`, `role`, and `sites`.
+A site card carries `consumes`, `produces`, or `constrains` only when its site is the process boundary where a representation enters or leaves the program, as the command-line entry points in `main.rs` do; every other representation and constraint is declared on a primary card.
 The role is one of `"part"`, `"variant"`, or `"fallback"`.
 A variant site may add a scalar `variant_of`; a fallback site may add an ordered `falls_back_to` list.
 The referenced algorithm identity must exist; a card must not create an identity that is absent from `Algorithm::ALL`.
@@ -73,6 +74,7 @@ An entry in `consumes` or `produces` is either a workspace type path or `{ type 
 The type must resolve in the workspace.
 The optional role distinguishes different meanings of one Rust type and participates in representation identity.
 A card declares a representation only where the Rust type or its role changes; ordinary `Term`-to-`Term` backend steps do not declare representation edges.
+A representation whose producer or consumer has no card, because it is an input file, a host, or another process, is declared on the one side that has a card.
 
 A `constrains` entry names the producer node, names one consumer `site` from the declaring card, and explains the non-call carrier in `via`.
 For example, backend internalization depends on the sentence numbering performed before KORE emission:

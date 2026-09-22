@@ -5,6 +5,7 @@
 //! variable = "k = pattern entries or elements left after common-key cancellation; n = subject entries or elements; h = list elements outside the frames; q = collection pairs in one call"
 //! counters = ["MatchingCollectionProblems"]
 //! span = "per problem"
+//! produces = [{ type = "k_rust_backend::matching::collections::CollectionSolution", role = "collection solution" }]
 //!
 //! [[cost]]
 //! mode = "maps and sets"

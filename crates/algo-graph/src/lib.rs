@@ -1285,6 +1285,11 @@ mod tests {
                     Some("resolve_rule_bubbles_with_resolved"),
                 ),
                 (
+                    "definition.catalog.production",
+                    "parser.programs.parse",
+                    Some("ProgramParser::parse"),
+                ),
+                (
                     "definition.provenance.record",
                     "definition.json.encode",
                     Some("serialize_provenance"),
@@ -1351,6 +1356,12 @@ mod tests {
                     ("definition.catalog.production", "parser.bubble.rules"),
                     Some(
                         "the per-module ProductionCatalog that rule_grammar reads from ResolvedDefinition::production_catalog",
+                    ),
+                ),
+                (
+                    ("definition.catalog.production", "parser.programs.parse"),
+                    Some(
+                        "the per-module ProductionCatalog that ProgramParser::from_resolved reads from ResolvedDefinition::production_catalog",
                     ),
                 ),
                 (

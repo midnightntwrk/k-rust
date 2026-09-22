@@ -5,10 +5,9 @@
 //! variable = "b = rule bubbles; g = grammar construction work; p = parse work"
 //! counters = ["KompileRuleBubblesParsed", "ParserGrammarBuilds", "ParserParseAttempts"]
 //! consumes = [
-//!   { type = "k_rust::definition::Definition", role = "lowered source" },
-//!   { type = "k_rust::kast::Term", role = "parsed term" },
+//!   { type = "k_rust::definition::Definition", role = "expanded configurations" },
 //! ]
-//! produces = [{ type = "k_rust::definition::Definition", role = "parsed bubbles" }]
+//! produces = [{ type = "k_rust::definition::Definition", role = "parsed rule bubbles" }]
 //! constrains = [
 //!   { id = "definition.catalog.production", site = "resolve_rule_bubbles_with_resolved", via = "the per-module ProductionCatalog that rule_grammar reads from ResolvedDefinition::production_catalog" },
 //! ]

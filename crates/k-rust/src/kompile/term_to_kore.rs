@@ -6,6 +6,7 @@
 //! counters = ["KompileResolveCalls"]
 //! consumes = [
 //!   { type = "k_rust::kast::Term", role = "parsed term" },
+//!   { type = "k_rust::kast::Term", role = "parsed program" },
 //!   { type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" },
 //!   { type = "k_rust::definition::SortCatalog<'a>", role = "sort lookup" },
 //!   { type = "k_rust::definition::PartialOrder<k_rust::kast::Sort>", role = "subsort order" },

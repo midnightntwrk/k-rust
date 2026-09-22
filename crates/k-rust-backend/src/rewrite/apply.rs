@@ -5,6 +5,10 @@
 //! variable = "r = unmatched remainder pairs; a = right-hand-side alternatives of the rule; f = partial matches returned by one recovery split"
 //! counters = ["RewriteRuleAttempts", "RewriteMatchFailures", "SmtQueries"]
 //! span = "per call"
+//! consumes = [
+//!   { type = "k_rust_backend::matching::MatchResult", role = "match result" },
+//!   { type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" },
+//! ]
 //!
 //! [[cost]]
 //! mode = "direct match"

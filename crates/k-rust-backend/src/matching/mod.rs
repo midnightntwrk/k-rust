@@ -5,6 +5,8 @@
 //! variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term"
 //! counters = ["MatchingProblems", "MatchingPairs"]
 //! span = "per problem"
+//! consumes = [{ type = "k_rust_backend::matching::collections::CollectionSolution", role = "collection solution" }]
+//! produces = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
 //! [[cost]]
 //! mode = "one matching problem"

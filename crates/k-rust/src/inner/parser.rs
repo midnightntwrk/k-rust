@@ -26,6 +26,7 @@
 //! variable = "N = parsed tree nodes; h = parsed tree height"
 //! counters = []
 //! no_counter = "term lowering has no dedicated counter"
+//! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //! produces = [{ type = "k_rust::kast::Term", role = "parsed term" }]
 //! span = "none"
 //!

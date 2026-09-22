@@ -5,6 +5,11 @@
 //! variable = "k = symbolic map-key pattern entries; n = subject entries"
 //! counters = ["RewriteIndeterminateRecoveries"]
 //! span = "per call"
+//! consumes = [
+//!   { type = "k_rust_backend::matching::MatchResult", role = "match result" },
+//!   { type = "k_rust_backend::matching::collections::CollectionSolution", role = "collection solution" },
+//!   { type = "k_rust_backend::unification::UnificationResult", role = "unification result" },
+//! ]
 //!
 //! [[cost]]
 //! mode = "ordered recovery ladder"

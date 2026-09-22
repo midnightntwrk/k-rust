@@ -5,6 +5,8 @@
 //! variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case"
 //! counters = ["ParserPortableInferences"]
 //! falls_back_to = ["parser.inference.z3"]
+//! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
+//! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //!
 //! [[cost]]
 //! mode = "one tree"

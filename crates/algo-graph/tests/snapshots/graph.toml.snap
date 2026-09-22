@@ -3444,6 +3444,20 @@ symbol = "PreparedDefinitionManifest"
 
 [[node]]
 kind = "representation"
+id = "k_rust::definition::Definition [expanded configurations]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::Definition"
+type_path = "k_rust::definition::Definition"
+role = "expanded configurations"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/ast.rs"
+symbol = "Definition"
+
+[[node]]
+kind = "representation"
 id = "k_rust::definition::Definition [lowered source]"
 provenance = "declared"
 area = "kompile"
@@ -3458,12 +3472,12 @@ symbol = "Definition"
 
 [[node]]
 kind = "representation"
-id = "k_rust::definition::Definition [parsed bubbles]"
+id = "k_rust::definition::Definition [parsed configuration bubbles]"
 provenance = "declared"
 area = "kompile"
 name = "k_rust::definition::Definition"
 type_path = "k_rust::definition::Definition"
-role = "parsed bubbles"
+role = "parsed configuration bubbles"
 
 [node.anchor]
 crate = "k-rust"
@@ -3472,12 +3486,12 @@ symbol = "Definition"
 
 [[node]]
 kind = "representation"
-id = "k_rust::definition::Definition [parsed configuration bubbles]"
+id = "k_rust::definition::Definition [parsed rule bubbles]"
 provenance = "declared"
 area = "kompile"
 name = "k_rust::definition::Definition"
 type_path = "k_rust::definition::Definition"
-role = "parsed configuration bubbles"
+role = "parsed rule bubbles"
 
 [node.anchor]
 crate = "k-rust"
@@ -3556,6 +3570,34 @@ symbol = "SortCatalog"
 
 [[node]]
 kind = "representation"
+id = "k_rust::inner::parser::forest::PackedTerm [packed forest]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::inner::parser::forest::PackedTerm"
+type_path = "k_rust::inner::parser::forest::PackedTerm"
+role = "packed forest"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "PackedTerm"
+
+[[node]]
+kind = "representation"
+id = "k_rust::inner::parser::forest::ParsedTerm [sorted tree]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::inner::parser::forest::ParsedTerm"
+type_path = "k_rust::inner::parser::forest::ParsedTerm"
+role = "sorted tree"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "ParsedTerm"
+
+[[node]]
+kind = "representation"
 id = "k_rust::kast::Term [parsed program]"
 provenance = "declared"
 area = "kompile"
@@ -3581,20 +3623,6 @@ role = "parsed term"
 crate = "k-rust"
 file = "crates/k-rust/src/kast/ast.rs"
 symbol = "Term"
-
-[[node]]
-kind = "representation"
-id = "k_rust::kompile::DeclarationModules [KORE declaration modules]"
-provenance = "declared"
-area = "kompile"
-name = "k_rust::kompile::DeclarationModules"
-type_path = "k_rust::kompile::DeclarationModules"
-role = "KORE declaration modules"
-
-[node.anchor]
-crate = "k-rust"
-file = "crates/k-rust/src/kompile/module_to_kore.rs"
-symbol = "DeclarationModules"
 
 [[node]]
 kind = "representation"
@@ -3640,6 +3668,20 @@ symbol = "SourceFile"
 
 [[node]]
 kind = "representation"
+id = "k_rust_backend::claim::ReachabilityClaim [claim]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::claim::ReachabilityClaim"
+type_path = "k_rust_backend::claim::ReachabilityClaim"
+role = "claim"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/claim.rs"
+symbol = "ReachabilityClaim"
+
+[[node]]
+kind = "representation"
 id = "k_rust_backend::definition::BackendDefinition [internalized theory]"
 provenance = "declared"
 area = "backend"
@@ -3651,6 +3693,48 @@ role = "internalized theory"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definition.rs"
 symbol = "BackendDefinition"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::matching::MatchResult"
+type_path = "k_rust_backend::matching::MatchResult"
+role = "match result"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "MatchResult"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::matching::collections::CollectionSolution [collection solution]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::matching::collections::CollectionSolution"
+type_path = "k_rust_backend::matching::collections::CollectionSolution"
+role = "collection solution"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "CollectionSolution"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::proof::ProofResult [proof result]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::proof::ProofResult"
+type_path = "k_rust_backend::proof::ProofResult"
+role = "proof result"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "ProofResult"
 
 [[node]]
 kind = "representation"
@@ -3696,6 +3780,20 @@ symbol = "RewriteResult"
 
 [[node]]
 kind = "representation"
+id = "k_rust_backend::substitution::Substitution [extracted substitution]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::substitution::Substitution"
+type_path = "k_rust_backend::substitution::Substitution"
+role = "extracted substitution"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "Substitution"
+
+[[node]]
+kind = "representation"
 id = "k_rust_backend::term::Term [internalized term]"
 provenance = "declared"
 area = "backend"
@@ -3707,6 +3805,20 @@ role = "internalized term"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term.rs"
 symbol = "Term"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::unification::UnificationResult [unification result]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::unification::UnificationResult"
+type_path = "k_rust_backend::unification::UnificationResult"
+role = "unification result"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/unification.rs"
+symbol = "UnificationResult"
 
 [[node]]
 kind = "representation"
@@ -6558,6 +6670,18 @@ to = "backend.fresh.variables"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "backend.implication.check"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.implication.check"
+to = "k_rust_backend::substitution::Substitution [extracted substitution]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "backend.implication.check"
 to = "SmtQueries"
@@ -6567,6 +6691,18 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.matching.collections"
 to = "MatchingCollectionProblems"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.matching.collections"
+to = "k_rust_backend::matching::collections::CollectionSolution [collection solution]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.matching.syntactic"
+to = "k_rust_backend::matching::collections::CollectionSolution [collection solution]"
 provenance = "declared"
 
 [[edge]]
@@ -6582,9 +6718,33 @@ to = "MatchingProblems"
 provenance = "declared"
 
 [[edge]]
+kind = "produces"
+from = "backend.matching.syntactic"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.proof.search"
+to = "k_rust_backend::claim::ReachabilityClaim [claim]"
+provenance = "declared"
+
+[[edge]]
 kind = "consumes"
 from = "backend.proof.search"
 to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.proof.search"
+to = "k_rust_backend::substitution::Substitution [extracted substitution]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.proof.search"
+to = "k_rust_backend::unification::UnificationResult [unification result]"
 provenance = "declared"
 
 [[edge]]
@@ -6597,6 +6757,24 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.proof.search"
 to = "ProofStatesExplored"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.proof.search"
+to = "k_rust_backend::proof::ProofResult [proof result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.apply"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.apply"
+to = "k_rust_backend::substitution::Substitution [extracted substitution]"
 provenance = "declared"
 
 [[edge]]
@@ -6648,6 +6826,24 @@ to = "k_rust_backend::rewrite::ExecutionResult [execution result]"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "backend.rewrite.recover"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.recover"
+to = "k_rust_backend::matching::collections::CollectionSolution [collection solution]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.recover"
+to = "k_rust_backend::unification::UnificationResult [unification result]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "backend.rewrite.recover"
 to = "RewriteIndeterminateRecoveries"
@@ -6678,9 +6874,27 @@ to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "backend.search.configurations"
+to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "backend.search.configurations"
 to = "SearchStatesDeduplicated"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.search.paths"
+to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.search.patterns"
+to = "k_rust_backend::matching::MatchResult [match result]"
 provenance = "declared"
 
 [[edge]]
@@ -6732,6 +6946,12 @@ to = "SmtSolverRuns"
 provenance = "declared"
 
 [[edge]]
+kind = "produces"
+from = "backend.substitution.extract"
+to = "k_rust_backend::substitution::Substitution [extracted substitution]"
+provenance = "declared"
+
+[[edge]]
 kind = "variant-of"
 from = "backend.substitution.extract_output"
 to = "backend.substitution.extract"
@@ -6741,6 +6961,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.unification.syntactic"
 to = "UnificationProblems"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.unification.syntactic"
+to = "k_rust_backend::unification::UnificationResult [unification result]"
 provenance = "declared"
 
 [[edge]]
@@ -6807,6 +7033,18 @@ file = "crates/k-rust/src/inner/rules.rs"
 symbol = "resolve_rule_bubbles_with_resolved"
 
 [[edge]]
+kind = "constrains"
+from = "definition.catalog.production"
+to = "parser.programs.parse"
+provenance = "declared"
+detail = "the per-module ProductionCatalog that ProgramParser::from_resolved reads from ResolvedDefinition::production_catalog"
+
+[edge.consumer_site]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "ProgramParser::parse"
+
+[[edge]]
 kind = "consumes"
 from = "definition.catalog.production"
 to = "k_rust::definition::ResolvedDefinition [resolved definition]"
@@ -6852,6 +7090,18 @@ provenance = "declared"
 kind = "produces"
 from = "definition.catalog.sort"
 to = "k_rust::definition::SortCatalog<'a> [sort lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.configuration.expand"
+to = "k_rust::definition::Definition [parsed configuration bubbles]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.configuration.expand"
+to = "k_rust::definition::Definition [expanded configurations]"
 provenance = "declared"
 
 [[edge]]
@@ -7001,13 +7251,19 @@ symbol = "PassInput::resolved_raw"
 [[edge]]
 kind = "consumes"
 from = "definition.resolve.imports"
+to = "k_rust::definition::Definition [expanded configurations]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.resolve.imports"
 to = "k_rust::definition::Definition [lowered source]"
 provenance = "declared"
 
 [[edge]]
 kind = "consumes"
 from = "definition.resolve.imports"
-to = "k_rust::definition::Definition [parsed bubbles]"
+to = "k_rust::definition::Definition [parsed rule bubbles]"
 provenance = "declared"
 
 [[edge]]
@@ -7152,6 +7408,12 @@ provenance = "declared"
 [[edge]]
 kind = "consumes"
 from = "kompile.kore.convert_term"
+to = "k_rust::kast::Term [parsed program]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.convert_term"
 to = "k_rust::kast::Term [parsed term]"
 provenance = "declared"
 
@@ -7213,12 +7475,6 @@ provenance = "declared"
 kind = "produces"
 from = "kompile.kore.declarations"
 to = "k_rust::PreparedDefinitionManifest [prepared definition manifest]"
-provenance = "declared"
-
-[[edge]]
-kind = "produces"
-from = "kompile.kore.declarations"
-to = "k_rust::kompile::DeclarationModules [KORE declaration modules]"
 provenance = "declared"
 
 [[edge]]
@@ -7346,13 +7602,7 @@ provenance = "declared"
 [[edge]]
 kind = "consumes"
 from = "parser.bubble.rules"
-to = "k_rust::definition::Definition [lowered source]"
-provenance = "declared"
-
-[[edge]]
-kind = "consumes"
-from = "parser.bubble.rules"
-to = "k_rust::kast::Term [parsed term]"
+to = "k_rust::definition::Definition [expanded configurations]"
 provenance = "declared"
 
 [[edge]]
@@ -7376,7 +7626,7 @@ provenance = "declared"
 [[edge]]
 kind = "produces"
 from = "parser.bubble.rules"
-to = "k_rust::definition::Definition [parsed bubbles]"
+to = "k_rust::definition::Definition [parsed rule bubbles]"
 provenance = "declared"
 
 [[edge]]
@@ -7419,6 +7669,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "parser.disambiguation.priority"
 to = "ParserPackedPriorityComputations"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.disambiguation.resolve_ambiguity"
+to = "k_rust::inner::parser::forest::ParsedTerm [sorted tree]"
 provenance = "declared"
 
 [[edge]]
@@ -7488,9 +7744,21 @@ to = "ParserUnpackedNodes"
 provenance = "declared"
 
 [[edge]]
+kind = "produces"
+from = "parser.forest.pack"
+to = "k_rust::inner::parser::forest::PackedTerm [packed forest]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "parser.grammar.build"
 to = "ParserGrammarBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.inference.portable"
+to = "k_rust::inner::parser::forest::PackedTerm [packed forest]"
 provenance = "declared"
 
 [[edge]]
@@ -7507,6 +7775,18 @@ to = "ParserPortableInferences"
 provenance = "declared"
 
 [[edge]]
+kind = "produces"
+from = "parser.inference.portable"
+to = "k_rust::inner::parser::forest::ParsedTerm [sorted tree]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.inference.z3"
+to = "k_rust::inner::parser::forest::PackedTerm [packed forest]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "parser.inference.z3"
 to = "ParserZ3Checks"
@@ -7516,6 +7796,18 @@ provenance = "declared"
 kind = "measured-by"
 from = "parser.inference.z3"
 to = "ParserZ3EncodingBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "parser.inference.z3"
+to = "k_rust::inner::parser::forest::ParsedTerm [sorted tree]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.lower.term"
+to = "k_rust::inner::parser::forest::ParsedTerm [sorted tree]"
 provenance = "declared"
 
 [[edge]]

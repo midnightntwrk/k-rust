@@ -4,6 +4,8 @@
 //! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base"]
 //! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
+//! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
+//! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //!
 //! [[cost]]
 //! mode = "encoding construction"

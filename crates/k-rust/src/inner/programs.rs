@@ -5,6 +5,9 @@
 //! variable = "g = grammar construction work; p = parse work"
 //! counters = ["ParserGrammarBuilds", "ParserParseAttempts"]
 //! produces = [{ type = "k_rust::kast::Term", role = "parsed program" }]
+//! constrains = [
+//!   { id = "definition.catalog.production", site = "ProgramParser::parse", via = "the per-module ProductionCatalog that ProgramParser::from_resolved reads from ResolvedDefinition::production_catalog" },
+//! ]
 //!
 //! [[cost]]
 //! mode = "one parser and its parses"

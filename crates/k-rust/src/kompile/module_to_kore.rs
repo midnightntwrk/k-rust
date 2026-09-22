@@ -11,7 +11,6 @@
 //!   { type = "k_rust::definition::PartialOrder<k_rust::kast::Sort>", role = "subsort order" },
 //! ]
 //! produces = [
-//!   { type = "k_rust::kompile::DeclarationModules", role = "KORE declaration modules" },
 //!   { type = "k_rust_kore::kore::ast::Definition", role = "compiled definition" },
 //! ]
 //!

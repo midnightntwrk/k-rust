@@ -5,7 +5,13 @@
 //! variable = "s = explored states; c = circularities; u = states still pending when the breadth limit is reached"
 //! counters = ["ProofStatesExplored", "ProofImplicationChecks"]
 //! span = "per problem"
-//! consumes = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
+//! consumes = [
+//!   { type = "k_rust_backend::claim::ReachabilityClaim", role = "claim" },
+//!   { type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" },
+//!   { type = "k_rust_backend::unification::UnificationResult", role = "unification result" },
+//!   { type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" },
+//! ]
+//! produces = [{ type = "k_rust_backend::proof::ProofResult", role = "proof result" }]
 //!
 //! [[cost]]
 //! mode = "one proof"
