@@ -21,7 +21,6 @@ use krs_syntax::{
     parse_subsort_attribute, parse_subsort_declaration, parse_symbol_attribute,
     parse_term_expression, parse_token_attribute, parse_token_declaration,
 };
-use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
@@ -32,6 +31,7 @@ use syn::{
     parse_quote,
 };
 
+use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
 pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
@@ -77,7 +77,11 @@ pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<
 }
 
 #[allow(clippy::too_many_lines)] // Legacy and aliased carriers share one descriptor expansion.
-pub(crate) fn sort(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn sort(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let attribute =
         parse_sort_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let mut item: ItemTrait = syn::parse2(item)?;
@@ -86,7 +90,7 @@ pub(crate) fn sort(attributes: TokenStream, item: TokenStream) -> syn::Result<To
     let brackets = take_bracket_helpers(&mut item.attrs)?;
     let declaration = parse_sort_declaration(item.to_token_stream())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     if attribute.is_reference() && attribute.parents().len() != declaration.parents().len() {
         return Err(syn::Error::new(
             declaration.item().ident.span(),
@@ -126,8 +130,8 @@ pub(crate) fn sort(attributes: TokenStream, item: TokenStream) -> syn::Result<To
     }
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
-    let nonce = expansion_nonce("sort", &declaration.item().ident, fallback);
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let nonce = expansion_nonce(env, "sort", &declaration.item().ident, fallback);
     let factory = format_ident!(
         "__krs_sort_descriptor_{nonce:016x}",
         span = Span::call_site()
@@ -178,6 +182,7 @@ pub(crate) fn sort(attributes: TokenStream, item: TokenStream) -> syn::Result<To
     let mut grammar = Vec::new();
     for (index, bracket) in brackets.iter().enumerate() {
         grammar.push(expand_bracket_grammar(
+            env,
             &facade,
             &name,
             semantic_sort_range,
@@ -245,10 +250,10 @@ pub(crate) fn sort(attributes: TokenStream, item: TokenStream) -> syn::Result<To
 /// generated Rust supertrait graph. The pair set is deduplicated so diamonds
 /// produce exactly one Rust impl for their shared ancestor; only the authored
 /// direct edge is registered as an object-language subsort descriptor.
-pub(crate) fn sorts(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
     let declaration =
         parse_sorts_declaration(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let local_parents = declaration
         .entries()
         .iter()
@@ -268,7 +273,7 @@ pub(crate) fn sorts(input: TokenStream) -> syn::Result<TokenStream> {
         match entry {
             krs_syntax::SortsEntry::Sort(sort) => {
                 requests_framework_sorts |= sort.parents().iter().any(is_framework_sort_path);
-                output.push(expand_readable_sort(&facade, sort)?);
+                output.push(expand_readable_sort(env, &facade, sort)?);
             }
             krs_syntax::SortsEntry::Membership(membership) => {
                 requests_framework_sorts |= is_framework_sort_path(membership.supersort());
@@ -304,7 +309,7 @@ pub(crate) fn sorts(input: TokenStream) -> syn::Result<TokenStream> {
                         }
                     }
                     output.push(expand_readable_membership(
-                        &facade, membership, member, &identity,
+                        env, &facade, membership, member, &identity,
                     )?);
                 }
             }
@@ -353,6 +358,7 @@ fn is_framework_sort_path(path: &Path) -> bool {
 }
 
 fn expand_readable_sort(
+    env: &dyn MacroEnvironment,
     facade: &Path,
     declaration: &krs_syntax::SortsSort,
 ) -> syn::Result<TokenStream> {
@@ -363,8 +369,8 @@ fn expand_readable_sort(
         .first()
         .map(ProvenanceAnchor::range)
         .ok_or_else(|| syn::Error::new(declaration.name().span(), "empty sort declaration"))?;
-    let provenance = host_provenance(facade, fallback, &anchors)?;
-    let nonce = expansion_nonce("readable_sort", declaration.name(), fallback);
+    let provenance = host_provenance(env, facade, fallback, &anchors)?;
+    let nonce = expansion_nonce(env, "readable_sort", declaration.name(), fallback);
     let factory = format_ident!("__krs_sort_descriptor_{nonce:016x}");
     let declared_key = format_ident!("__krs_sort_type_{nonce:016x}");
     let name = declaration.name().to_string();
@@ -401,6 +407,7 @@ fn expand_readable_sort(
             .bracket_provenance(bracket)
             .map_err(krs_syntax::SyntaxError::into_syn_error)?;
         brackets.push(expand_bracket_grammar_parts(
+            env,
             facade,
             &name,
             &declared_key,
@@ -456,6 +463,7 @@ fn expand_readable_sort(
 }
 
 fn expand_readable_membership(
+    env: &dyn MacroEnvironment,
     facade: &Path,
     declaration: &krs_syntax::SortsMembership,
     member: &Path,
@@ -465,7 +473,7 @@ fn expand_readable_membership(
         .member_provenance(member)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let fallback = anchors[0].range();
-    let provenance = host_provenance(facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, facade, fallback, &anchors)?;
     let rust_key = &identity.rust_key;
     let super_key = format_ident!("__krs_subsort_super_{rust_key}", span = Span::call_site());
     let sub_key = format_ident!("__krs_subsort_sub_{rust_key}", span = Span::call_site());
@@ -591,13 +599,21 @@ fn readable_sort_marker_path(facade: &Path, path: &Path) -> syn::Result<Path> {
 }
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn constructor(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn constructor(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let attribute =
         parse_constructor_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    constructor_like(attribute, item, None, None)
+    constructor_like(env, attribute, item, None, None)
 }
 
-pub(crate) fn function(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn function(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let function =
         parse_function_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let totality_anchor = function
@@ -621,39 +637,39 @@ pub(crate) fn function(attributes: TokenStream, item: TokenStream) -> syn::Resul
                 .collect::<Vec<_>>();
             let operation = match segments.as_slice() {
                 [module, name] if module == "krypto" && name == "keccak256_raw" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoKeccak256Raw)
                 }
                 [module, name] if module == "krypto" && name == "sha256_raw" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoSha256Raw)
                 }
                 [module, name] if module == "krypto" && name == "ripemd160_raw" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoRipemd160Raw)
                 }
                 [module, name] if module == "krypto" && name == "ecdsa_recover" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoEcdsaRecover)
                 }
                 [module, name] if module == "krypto" && name == "bn128_valid" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoBn128Valid)
                 }
                 [module, name] if module == "krypto" && name == "bn128_add" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoBn128Add)
                 }
                 [module, name] if module == "krypto" && name == "bn128_mul" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoBn128Mul)
                 }
                 [module, name] if module == "krypto" && name == "bn128_g2_valid" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoBn128G2Valid)
                 }
                 [module, name] if module == "krypto" && name == "bn128_ate" => {
-                    let facade = facade_path()?;
+                    let facade = env.facade_path()?;
                     quote!(#facade::HookOperation::KryptoBn128Ate)
                 }
                 _ => {
@@ -675,6 +691,7 @@ pub(crate) fn function(attributes: TokenStream, item: TokenStream) -> syn::Resul
         })
         .transpose()?;
     constructor_like(
+        env,
         function.production().clone(),
         item,
         Some((totality_anchor, function.is_total())),
@@ -684,6 +701,7 @@ pub(crate) fn function(attributes: TokenStream, item: TokenStream) -> syn::Resul
 
 #[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
 fn constructor_like(
+    env: &dyn MacroEnvironment,
     attribute: krs_syntax::ConstructorAttribute,
     item: TokenStream,
     totality: Option<(ProvenanceAnchor, bool)>,
@@ -717,7 +735,7 @@ fn constructor_like(
             )
             .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     }
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let mut declaration_anchors = attribute
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -735,7 +753,7 @@ fn constructor_like(
     }
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &declaration_anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &declaration_anchors)?;
     let mut grammar_anchors = attribute
         .m3a_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -791,8 +809,8 @@ fn constructor_like(
                 .map_err(krs_syntax::SyntaxError::into_syn_error)?,
         );
     }
-    let grammar_provenance = host_provenance(&facade, fallback, &grammar_anchors)?;
-    let nonce = expansion_nonce("constructor", declaration.name(), fallback);
+    let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors)?;
+    let nonce = expansion_nonce(env, "constructor", declaration.name(), fallback);
     let factory = format_ident!(
         "__krs_constructor_descriptor_{nonce:016x}",
         span = Span::call_site()
@@ -952,6 +970,7 @@ fn constructor_like(
 
 #[allow(clippy::too_many_lines)]
 pub(crate) fn configuration(
+    env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
@@ -959,7 +978,7 @@ pub(crate) fn configuration(
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let declaration =
         parse_configuration_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let mut anchors = declaration
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -970,8 +989,8 @@ pub(crate) fn configuration(
     );
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
-    let nonce = expansion_nonce("configuration", declaration.name(), fallback);
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let nonce = expansion_nonce(env, "configuration", declaration.name(), fallback);
     let declared_key = format_ident!(
         "__krs_configuration_type_{nonce:016x}",
         span = Span::call_site()
@@ -1052,19 +1071,23 @@ pub(crate) fn configuration(
     })
 }
 
-pub(crate) fn cell(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn cell(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     krs_syntax::parse_cell_attribute(attributes)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let declaration =
         parse_configuration_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let anchors = declaration
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let fallback = TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
-    let nonce = expansion_nonce("cell", declaration.name(), fallback);
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let nonce = expansion_nonce(env, "cell", declaration.name(), fallback);
     let declared_key = format_ident!("__krs_cell_type_{nonce:016x}");
     let factory = format_ident!("__krs_cell_descriptor_{nonce:016x}");
     let mut item = declaration.item().clone();
@@ -1390,17 +1413,21 @@ fn configuration_fields(
 }
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn init(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn init(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     parse_init_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let initializer =
         parse_initializer_function(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let anchors = initializer
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let fallback = krs_syntax::TokenRange::for_tokens(initializer.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
 
     let bindings = initializer
         .variables()
@@ -1408,7 +1435,7 @@ pub(crate) fn init(attributes: TokenStream, item: TokenStream) -> syn::Result<To
         .map(|variable| variable.binding().clone())
         .collect::<Vec<_>>();
     let cfg = call_site_cfg_attributes(&initializer.item().attrs)?;
-    let nonce = expansion_nonce("initializer", &initializer.item().sig.ident, fallback);
+    let nonce = expansion_nonce(env, "initializer", &initializer.item().sig.ident, fallback);
     let mut builder = InitializerBuilder::new(&facade, nonce, &cfg, &bindings);
     let mut variables = Vec::new();
     for (index, variable) in initializer.variables().iter().enumerate() {
@@ -1997,7 +2024,11 @@ fn rule_owise_tokens(facade: &Path, attribute: &krs_syntax::RuleAttribute) -> To
 }
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn rule(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn rule(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let attribute =
         parse_rule_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let parsed: ItemFn = syn::parse2(item.clone())?;
@@ -2016,9 +2047,10 @@ pub(crate) fn rule(attributes: TokenStream, item: TokenStream) -> syn::Result<To
             .is_some_and(|segment| segment.ident == "cells")
     });
     if is_cells_rule {
-        return configuration_rule(item, &attribute);
+        return configuration_rule(env, item, &attribute);
     }
     ordinary_rule(
+        env,
         item,
         &attribute,
         krs_ir::SentenceKind::Transition,
@@ -2027,19 +2059,32 @@ pub(crate) fn rule(attributes: TokenStream, item: TokenStream) -> syn::Result<To
     )
 }
 
-pub(crate) fn equation(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn equation(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     parse_equation_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let attribute = krs_syntax::RuleAttribute::default();
-    ordinary_rule(item, &attribute, krs_ir::SentenceKind::Equation, None, None)
+    ordinary_rule(
+        env,
+        item,
+        &attribute,
+        krs_ir::SentenceKind::Equation,
+        None,
+        None,
+    )
 }
 
 pub(crate) fn simplification(
+    env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
     let attribute = parse_simplification_attribute(attributes)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     ordinary_rule(
+        env,
         item,
         &krs_syntax::RuleAttribute::default(),
         krs_ir::SentenceKind::Simplification,
@@ -2049,16 +2094,25 @@ pub(crate) fn simplification(
 }
 
 /// Expands one whole-configuration reachability claim.
-pub(crate) fn claim(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn claim(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let attribute =
         parse_claim_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    configuration_claim(item, &attribute)
+    configuration_claim(env, item, &attribute)
 }
 
-pub(crate) fn alias(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn alias(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     parse_alias_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     if syn::parse2::<ItemFn>(item.clone()).is_ok() {
         return ordinary_rule(
+            env,
             item,
             &krs_syntax::RuleAttribute::default(),
             krs_ir::SentenceKind::Alias,
@@ -2074,6 +2128,7 @@ pub(crate) fn alias(attributes: TokenStream, item: TokenStream) -> syn::Result<T
 
 #[allow(clippy::too_many_lines)]
 pub(crate) fn context_alias(
+    env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
@@ -2081,7 +2136,7 @@ pub(crate) fn context_alias(
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let alias = parse_state_context_alias_item(item, attribute.here())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let mut anchors = attribute
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -2098,8 +2153,8 @@ pub(crate) fn context_alias(
     );
     let fallback =
         TokenRange::for_tokens(alias.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
-    let nonce = expansion_nonce("context_alias", &alias.item().sig.ident, fallback);
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let nonce = expansion_nonce(env, "context_alias", &alias.item().sig.ident, fallback);
     let factory = format_ident!("__krs_context_alias_{nonce:016x}");
     let configuration_key = format_ident!("__krs_context_alias_configuration_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&alias.item().attrs)?;
@@ -2242,7 +2297,11 @@ pub(crate) fn context_alias(
     })
 }
 
-pub(crate) fn priority(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn priority(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let priority =
         parse_priority_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let mut function: ItemFn = syn::parse2(item)?;
@@ -2258,6 +2317,7 @@ pub(crate) fn priority(attributes: TokenStream, item: TokenStream) -> syn::Resul
     };
     function.attrs.remove(index);
     ordinary_rule(
+        env,
         function.to_token_stream(),
         &krs_syntax::RuleAttribute::default(),
         krs_ir::SentenceKind::Equation,
@@ -2268,6 +2328,7 @@ pub(crate) fn priority(attributes: TokenStream, item: TokenStream) -> syn::Resul
 
 #[allow(clippy::too_many_lines)]
 fn ordinary_rule(
+    env: &dyn MacroEnvironment,
     item: TokenStream,
     attribute: &krs_syntax::RuleAttribute,
     sentence_kind: krs_ir::SentenceKind,
@@ -2276,6 +2337,7 @@ fn ordinary_rule(
 ) -> syn::Result<TokenStream> {
     let rule = parse_rule_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     expand_ordinary_rule(
+        env,
         &rule,
         attribute,
         sentence_kind,
@@ -2287,7 +2349,7 @@ fn ordinary_rule(
 }
 
 /// Expands a readable block into independent ordinary rule declarations.
-pub(crate) fn rules(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
     let block = parse_rule_block(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let enum_owner = block.imports().first().map(krs_syntax::RuleImport::owner);
     let enum_variant = block
@@ -2306,6 +2368,7 @@ pub(crate) fn rules(input: TokenStream) -> syn::Result<TokenStream> {
     let mut clauses = Vec::with_capacity(block.clauses().len());
     for clause in block.clauses() {
         clauses.push(expand_head_rule(
+            env,
             clause,
             enum_owner,
             enum_variant,
@@ -2320,12 +2383,13 @@ pub(crate) fn rules(input: TokenStream) -> syn::Result<TokenStream> {
 
 #[allow(clippy::too_many_lines)]
 fn expand_head_rule(
+    env: &dyn MacroEnvironment,
     clause: &krs_syntax::RuleClause,
     enum_owner: Option<&Path>,
     enum_variant: Option<&Ident>,
     configuration_owned: bool,
 ) -> syn::Result<TokenStream> {
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let rule = clause.rule();
     let mut anchors = clause
         .provenance()
@@ -2338,8 +2402,8 @@ fn expand_head_rule(
     );
     let fallback =
         TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
-    let nonce = expansion_nonce("head_rule", &rule.item().sig.ident, fallback);
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_head_rule_descriptor_{nonce:016x}");
     let sort_key = format_ident!("__krs_head_rule_sort_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
@@ -2619,6 +2683,7 @@ fn expand_head_rule(
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn expand_ordinary_rule(
+    env: &dyn MacroEnvironment,
     rule: &krs_syntax::RuleItem,
     attribute: &krs_syntax::RuleAttribute,
     sentence_kind: krs_ir::SentenceKind,
@@ -2627,7 +2692,7 @@ fn expand_ordinary_rule(
     enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> syn::Result<TokenStream> {
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let mut anchors = rule
         .m3a_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -2666,7 +2731,7 @@ fn expand_ordinary_rule(
     }
     let fallback = krs_syntax::TokenRange::for_tokens(rule.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
     let sentence_name = match sentence_kind {
         krs_ir::SentenceKind::Transition => "rule",
         krs_ir::SentenceKind::Equation => "equation",
@@ -2674,7 +2739,7 @@ fn expand_ordinary_rule(
         krs_ir::SentenceKind::Alias => "alias",
         krs_ir::SentenceKind::Claim => unreachable!("claims have a separate authoring form"),
     };
-    let nonce = expansion_nonce(sentence_name, &rule.item().sig.ident, fallback);
+    let nonce = expansion_nonce(env, sentence_name, &rule.item().sig.ident, fallback);
     let factory = format_ident!(
         "__krs_rule_descriptor_{nonce:016x}",
         span = Span::call_site()
@@ -2884,11 +2949,12 @@ fn expand_ordinary_rule(
 
 #[allow(clippy::too_many_lines)]
 fn configuration_rule(
+    env: &dyn MacroEnvironment,
     item: TokenStream,
     attribute: &krs_syntax::RuleAttribute,
 ) -> syn::Result<TokenStream> {
     let rule = parse_state_rule_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let mut anchors = rule
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -2899,8 +2965,8 @@ fn configuration_rule(
     );
     let fallback =
         TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
-    let nonce = expansion_nonce("configuration_rule", &rule.item().sig.ident, fallback);
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let nonce = expansion_nonce(env, "configuration_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_rule_{nonce:016x}");
     let subject_key = format_ident!("__krs_rule_configuration_left_{nonce:016x}");
     let result_key = format_ident!("__krs_rule_configuration_right_{nonce:016x}");
@@ -3105,12 +3171,13 @@ fn configuration_rule(
 
 #[allow(clippy::too_many_lines)]
 fn configuration_claim(
+    env: &dyn MacroEnvironment,
     item: TokenStream,
     attribute: &krs_syntax::ClaimAttribute,
 ) -> syn::Result<TokenStream> {
     let claim = parse_state_claim_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let rule = claim.rule();
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let mut anchors = claim
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -3121,8 +3188,8 @@ fn configuration_claim(
     );
     let fallback =
         TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
-    let nonce = expansion_nonce("configuration_claim", &rule.item().sig.ident, fallback);
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let nonce = expansion_nonce(env, "configuration_claim", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_claim_{nonce:016x}");
     let subject_key = format_ident!("__krs_claim_configuration_left_{nonce:016x}");
     let result_key = format_ident!("__krs_claim_configuration_right_{nonce:016x}");
@@ -3786,11 +3853,11 @@ pub(crate) fn term(input: TokenStream) -> syn::Result<TokenStream> {
     }})
 }
 
-pub(crate) fn k(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn k(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
     let sequence =
         parse_k_sequence_expression(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let expressions = sequence.items().iter().map(TermExpression::expression);
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     Ok(quote! {{
         let _krs_typecheck_computation_items = || {
             #(let _ = #expressions;)*
@@ -3799,7 +3866,7 @@ pub(crate) fn k(input: TokenStream) -> syn::Result<TokenStream> {
     }})
 }
 
-pub(crate) fn map(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
     let map = parse_map_expression(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let mut expressions = Vec::new();
     match map.body() {
@@ -3814,7 +3881,7 @@ pub(crate) fn map(input: TokenStream) -> syn::Result<TokenStream> {
             expressions.extend([base.expression(), key.expression(), value.expression()]);
         }
     }
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     Ok(quote! {{
         let _krs_typecheck_map_items = || {
             #(let _ = #expressions;)*
@@ -3859,8 +3926,11 @@ pub(crate) fn cells(input: TokenStream) -> syn::Result<TokenStream> {
     }})
 }
 
-pub(crate) fn fragment(input: &TokenStream) -> syn::Result<TokenStream> {
-    let facade = facade_path()?;
+pub(crate) fn fragment(
+    env: &dyn MacroEnvironment,
+    input: &TokenStream,
+) -> syn::Result<TokenStream> {
+    let facade = env.facade_path()?;
     let record: syn::ExprStruct = syn::parse2(input.clone())?;
     let parsed = parse_term_expression(quote!(#facade::fragment![#input]))
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -4641,6 +4711,7 @@ pub(crate) fn orphan_strictness(
 
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn orphan_rule_helper(
+    env: &dyn MacroEnvironment,
     name: &str,
     attributes: TokenStream,
     item: TokenStream,
@@ -4662,9 +4733,9 @@ pub(crate) fn orphan_rule_helper(
             let helper: Attribute = syn::parse_quote!(#[k::requires(#attributes)]);
             function.attrs.insert(0, helper);
             return if outer == "equation" {
-                equation(TokenStream::new(), function.to_token_stream())
+                equation(env, TokenStream::new(), function.to_token_stream())
             } else {
-                simplification(TokenStream::new(), function.to_token_stream())
+                simplification(env, TokenStream::new(), function.to_token_stream())
             };
         }
     }
@@ -4679,15 +4750,19 @@ pub(crate) fn orphan_rule_helper(
 }
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn token(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn token(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let attribute =
         parse_token_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let declaration =
         parse_token_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let fallback = TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let nonce = expansion_nonce("token", declaration.name(), fallback);
+    let nonce = expansion_nonce(env, "token", declaration.name(), fallback);
     let key_fn = format_ident!("__krs_token_type_{nonce:016x}");
     let sort_factory = format_ident!("__krs_token_sort_descriptor_{nonce:016x}");
     let grammar_factory = format_ident!("__krs_token_grammar_descriptor_{nonce:016x}");
@@ -4702,7 +4777,7 @@ pub(crate) fn token(attributes: TokenStream, item: TokenStream) -> syn::Result<T
         TokenRange::for_tokens(declaration.name())
             .map_err(krs_syntax::SyntaxError::into_syn_error)?,
     );
-    let sort_provenance = host_provenance(&facade, fallback, &[sort_anchor])?;
+    let sort_provenance = host_provenance(env, &facade, fallback, &[sort_anchor])?;
     let mut grammar_anchors = attribute
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -4711,7 +4786,7 @@ pub(crate) fn token(attributes: TokenStream, item: TokenStream) -> syn::Result<T
             .provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?,
     );
-    let grammar_provenance = host_provenance(&facade, fallback, &grammar_anchors)?;
+    let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors)?;
     let regex = attribute.regex().value();
     let lexical_precedence = if let Some(value) = attribute.lexical_precedence() {
         quote!(::core::option::Option::Some(#facade::DescriptorLexicalPrecedence {
@@ -4810,16 +4885,20 @@ pub(crate) fn token(attributes: TokenStream, item: TokenStream) -> syn::Result<T
 }
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn constructors(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn constructors(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let attribute = parse_constructors_attribute(attributes)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let item: ItemEnum = syn::parse2(item)?;
     let declaration = krs_syntax::EnumConstructorDeclaration::from_parts(&attribute, item)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let fallback = TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let nonce = expansion_nonce("constructors", declaration.sort_name(), fallback);
+    let nonce = expansion_nonce(env, "constructors", declaration.sort_name(), fallback);
     let cfg = call_site_cfg_attributes(&declaration.item().attrs)?;
     let enum_ident = call_site_ident(declaration.sort_name())?;
     let enum_name = declaration.sort_name().to_string();
@@ -4896,6 +4975,7 @@ pub(crate) fn constructors(attributes: TokenStream, item: TokenStream) -> syn::R
             }
         });
         variant_expansions.push(expand_enum_variant(
+            env,
             &facade,
             &declaration,
             variant,
@@ -4929,11 +5009,11 @@ pub(crate) fn constructors(attributes: TokenStream, item: TokenStream) -> syn::R
         let sort_anchors = declaration
             .sort_provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-        let sort_provenance = host_provenance(&facade, fallback, &sort_anchors)?;
+        let sort_provenance = host_provenance(env, &facade, fallback, &sort_anchors)?;
         let membership_anchors = declaration
             .membership_provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-        let membership_provenance = host_provenance(&facade, fallback, &membership_anchors)?;
+        let membership_provenance = host_provenance(env, &facade, fallback, &membership_anchors)?;
         quote! {
             #(#cfg)*
             #[doc(hidden)]
@@ -5002,8 +5082,15 @@ pub(crate) fn constructors(attributes: TokenStream, item: TokenStream) -> syn::R
             }
         }
     });
-    let family_grammar =
-        expand_enum_family_grammar(&facade, &declaration, nonce, &enum_name, &cfg, fallback)?;
+    let family_grammar = expand_enum_family_grammar(
+        env,
+        &facade,
+        &declaration,
+        nonce,
+        &enum_name,
+        &cfg,
+        fallback,
+    )?;
 
     Ok(quote! {
         #item
@@ -5041,6 +5128,7 @@ fn enum_precedence_group_name(
 
 #[allow(clippy::too_many_lines)]
 fn expand_enum_family_grammar(
+    env: &dyn MacroEnvironment,
     facade: &Path,
     declaration: &krs_syntax::EnumConstructorDeclaration,
     nonce: u64,
@@ -5056,7 +5144,7 @@ fn expand_enum_family_grammar(
         .precedence_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?
     {
-        let provenance = host_provenance(facade, fallback, &anchors)?;
+        let provenance = host_provenance(env, facade, fallback, &anchors)?;
         let factory = format_ident!("__krs_enum_precedence_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_precedence");
         let mut groups = Vec::new();
@@ -5099,7 +5187,7 @@ fn expand_enum_family_grammar(
         .associativity_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?
     {
-        let provenance = host_provenance(facade, fallback, &anchors)?;
+        let provenance = host_provenance(env, facade, fallback, &anchors)?;
         let factory = format_ident!("__krs_enum_associativity_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_associativity");
         let mut sentences = Vec::new();
@@ -5162,6 +5250,7 @@ fn expand_enum_family_grammar(
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn expand_enum_variant(
+    env: &dyn MacroEnvironment,
     facade: &Path,
     declaration: &krs_syntax::EnumConstructorDeclaration,
     variant: &krs_syntax::EnumConstructorVariant,
@@ -5193,8 +5282,8 @@ fn expand_enum_variant(
     }
     let fallback = TokenRange::for_tokens(variant.variant())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(facade, fallback, &anchors)?;
-    let grammar_provenance = host_provenance(facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, facade, fallback, &anchors)?;
+    let grammar_provenance = host_provenance(env, facade, fallback, &anchors)?;
     let syntax = option_owned_string(variant.syntax().map(|syntax| syntax.syntax().value()));
 
     let mut field_key_functions = Vec::new();
@@ -5261,7 +5350,7 @@ fn expand_enum_variant(
             .fields()
             .iter()
             .map(krs_syntax::ConstructorField::name),
-        expansion_nonce("enum_strictness", variant.name(), fallback),
+        expansion_nonce(env, "enum_strictness", variant.name(), fallback),
         cfg,
     )?;
     if let Some(strictness) = strictness {
@@ -5475,14 +5564,18 @@ pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> syn::Resul
 }
 
 #[allow(clippy::too_many_lines)] // Both identity carriers deliberately emit the same payload shape.
-pub(crate) fn subsort(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn subsort(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
     let reference = (!attributes.is_empty())
         .then(|| parse_subsort_attribute(attributes))
         .transpose()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let declaration =
         parse_subsort_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let fallback = TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let anchors = if let Some(reference) = &reference {
@@ -5506,7 +5599,7 @@ pub(crate) fn subsort(attributes: TokenStream, item: TokenStream) -> syn::Result
             .provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?
     };
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
     let (super_key, sub_key, factory, grammar_name) = if let Some(reference) = &reference {
         let identity = ReadableMembershipIdentity::new(reference.sort(), declaration.sub_sort());
         (
@@ -5517,7 +5610,7 @@ pub(crate) fn subsort(attributes: TokenStream, item: TokenStream) -> syn::Result
         )
     } else {
         let synthetic = Ident::new("subsort", Span::call_site());
-        let nonce = expansion_nonce("subsort", &synthetic, fallback);
+        let nonce = expansion_nonce(env, "subsort", &synthetic, fallback);
         (
             format_ident!("__krs_subsort_super_{nonce:016x}"),
             format_ident!("__krs_subsort_sub_{nonce:016x}"),
@@ -5599,10 +5692,13 @@ pub(crate) fn subsort(attributes: TokenStream, item: TokenStream) -> syn::Result
     })
 }
 
-pub(crate) fn precedence(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn precedence(
+    env: &dyn MacroEnvironment,
+    input: TokenStream,
+) -> syn::Result<TokenStream> {
     let declaration =
         parse_precedence_declaration(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let anchors = declaration
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -5610,8 +5706,9 @@ pub(crate) fn precedence(input: TokenStream) -> syn::Result<TokenStream> {
         .first()
         .map(ProvenanceAnchor::range)
         .ok_or_else(|| syn::Error::new(Span::call_site(), "empty precedence declaration"))?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
     let nonce = expansion_nonce(
+        env,
         "precedence",
         &Ident::new("precedence", Span::call_site()),
         fallback,
@@ -5672,10 +5769,13 @@ pub(crate) fn precedence(input: TokenStream) -> syn::Result<TokenStream> {
     ))
 }
 
-pub(crate) fn associativity(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn associativity(
+    env: &dyn MacroEnvironment,
+    input: TokenStream,
+) -> syn::Result<TokenStream> {
     let declaration =
         parse_associativity_declaration(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let facade = facade_path()?;
+    let facade = env.facade_path()?;
     let anchors = declaration
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -5683,8 +5783,9 @@ pub(crate) fn associativity(input: TokenStream) -> syn::Result<TokenStream> {
         .first()
         .map(ProvenanceAnchor::range)
         .ok_or_else(|| syn::Error::new(Span::call_site(), "empty associativity declaration"))?;
-    let provenance = host_provenance(&facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
     let nonce = expansion_nonce(
+        env,
         "associativity",
         &Ident::new("associativity", Span::call_site()),
         fallback,
@@ -5793,6 +5894,7 @@ fn grammar_macro_descriptor(
 
 #[allow(clippy::too_many_arguments)]
 fn expand_bracket_grammar(
+    env: &dyn MacroEnvironment,
     facade: &Path,
     semantic_sort_name: &str,
     semantic_sort_range: TokenRange,
@@ -5811,6 +5913,7 @@ fn expand_bracket_grammar(
     ));
     let sort_key = format_ident!("__krs_sort_type_{nonce:016x}");
     expand_bracket_grammar_parts(
+        env,
         facade,
         semantic_sort_name,
         &sort_key,
@@ -5824,6 +5927,7 @@ fn expand_bracket_grammar(
 
 #[allow(clippy::too_many_arguments)]
 fn expand_bracket_grammar_parts(
+    env: &dyn MacroEnvironment,
     facade: &Path,
     sort_name: &str,
     sort_key: &Ident,
@@ -5837,7 +5941,7 @@ fn expand_bracket_grammar_parts(
         .first()
         .map(ProvenanceAnchor::range)
         .ok_or_else(|| syn::Error::new(bracket.template().literal().span(), "empty bracket"))?;
-    let provenance = host_provenance(facade, fallback, anchors)?;
+    let provenance = host_provenance(env, facade, fallback, anchors)?;
     let factory = format_ident!("__krs_bracket_descriptor_{nonce:016x}_{index}");
     let grammar_name = format!("__krs_grammar_bracket_{sort_name}_{index}");
     let sort_reference = |role: &str| host_sort_reference(facade, role, 0, sort_key, sort_name);
@@ -6501,22 +6605,6 @@ fn append_nested_state_islands(tokens: &TokenStream, output: &mut Vec<Path>) {
     }
 }
 
-fn facade_path() -> syn::Result<Path> {
-    match crate_name("krs") {
-        Ok(FoundCrate::Itself) => Ok(parse_quote!(crate)),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = Ident::new(&name, Span::call_site());
-            Ok(parse_quote!(::#ident))
-        }
-        Err(error) => Err(syn::Error::new(
-            Span::call_site(),
-            format!(
-                "KRS macros require a direct dependency on the `krs` facade (dependency renames are supported): {error}"
-            ),
-        )),
-    }
-}
-
 fn type_reference(facade: &Path, key_function: &Ident, authored_path: &str) -> TokenStream {
     quote! {
         #facade::HostTypeReference {
@@ -6565,11 +6653,16 @@ fn call_site_cfg_attributes(attributes: &[Attribute]) -> syn::Result<Vec<Attribu
     Ok(parsed)
 }
 
-fn expansion_nonce(kind: &str, ident: &Ident, range: krs_syntax::TokenRange) -> u64 {
+fn expansion_nonce(
+    env: &dyn MacroEnvironment,
+    kind: &str,
+    ident: &Ident,
+    range: krs_syntax::TokenRange,
+) -> u64 {
     let mut hasher = StableHasher::default();
     kind.hash(&mut hasher);
     ident.to_string().hash(&mut hasher);
-    range.first().unwrap().file().hash(&mut hasher);
+    env.span_file(range.first()).hash(&mut hasher);
     let start = range.start();
     let end = range.end();
     start.line.hash(&mut hasher);
@@ -6611,7 +6704,8 @@ impl Hasher for StableHasher {
 
 #[cfg(test)]
 mod tests {
-    use super::{ReadableMembershipIdentity, bytes_token_value};
+    use super::{ReadableMembershipIdentity, bytes_token_value, expansion_nonce};
+    use crate::environment::FixedEnvironment;
 
     fn membership_identity_bytes(source: &str) -> Vec<Vec<u8>> {
         let declaration = krs_syntax::parse_sorts_declaration_source(source).unwrap();
@@ -6691,6 +6785,23 @@ mod tests {
             [first.rust_key, second.rust_key, crossed.rust_key]
                 .iter()
                 .all(|key| key.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        );
+    }
+
+    #[test]
+    fn expansion_nonce_depends_on_the_environment_display_file() {
+        let ident: syn::Ident = syn::parse_str("Exp").unwrap();
+        let tokens: proc_macro2::TokenStream = "Exp;".parse().unwrap();
+        let range = krs_syntax::TokenRange::for_tokens(&tokens).unwrap();
+        let first = FixedEnvironment::new("src/first.rs", "::k");
+        let second = FixedEnvironment::new("src/second.rs", "::k");
+        assert_eq!(
+            expansion_nonce(&first, "sort", &ident, range),
+            expansion_nonce(&first, "sort", &ident, range)
+        );
+        assert_ne!(
+            expansion_nonce(&first, "sort", &ident, range),
+            expansion_nonce(&second, "sort", &ident, range)
         );
     }
 
