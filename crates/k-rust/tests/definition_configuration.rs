@@ -4,7 +4,7 @@ use k_rust::definition::{
     expand_configurations_with_diagnostics,
 };
 use k_rust::diagnostic::DiagnosticCode;
-use k_rust::inner::{ConfigError, resolve_configuration_bubbles};
+use k_rust::inner::resolve_configuration_bubbles;
 use k_rust::kast::{Term, TermSpan};
 use k_rust::outer::{ResolvedSource, load};
 use k_rust::provenance::{
@@ -693,14 +693,14 @@ expansion_error!(
 );
 
 #[test]
-fn parse_errors_remain_distinct_from_expansion_errors() {
+fn configuration_resolution_is_an_identity_for_definitions_without_bubbles() {
     let definition = k_rust::definition::Definition {
         main_module: "MISSING".into(),
         modules: vec![],
         attributes: Default::default(),
     };
-    assert!(matches!(
-        resolve_configuration_bubbles(&definition),
-        Err(ConfigError::Definition(_))
-    ));
+    assert_eq!(
+        resolve_configuration_bubbles(&definition).unwrap(),
+        definition
+    );
 }

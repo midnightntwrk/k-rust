@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use k_rust_kore::measure::{self, Counter};
+use web_time::Instant;
 
 use crate::definition::AttributeKey;
 use crate::definition::{
@@ -16,6 +17,7 @@ use crate::definition::{
 };
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
+use crate::timings::PhaseTimings;
 
 use super::config::{
     BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort,
@@ -138,9 +140,26 @@ pub fn parse_rule_content(
 /// inputs that remain genuinely ambiguous are reported explicitly.
 pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleError> {
     let resolved = ResolvedDefinition::resolve(definition).map_err(RuleError::Definition)?;
+    resolve_rule_bubbles_with_resolved(definition, &resolved, None)
+        .map(|(transformed, _)| transformed)
+}
+
+/// Resolve rule bubbles using a graph already built for the same module structure.
+pub(crate) fn resolve_rule_bubbles_with_resolved(
+    definition: &Definition,
+    resolved: &ResolvedDefinition,
+    timings: Option<&mut PhaseTimings>,
+) -> Result<(Definition, ResolvedDefinition), RuleError> {
+    let mut grammar_seconds = 0.0;
+    let mut parse_seconds = 0.0;
     let mut transformed = definition.clone();
     let main = resolved.main_module_id();
-    let global = global_rule_grammar(&resolved)?;
+    let global_started = timings.as_ref().map(|_| Instant::now());
+    let global = global_rule_grammar(resolved);
+    if let Some(started) = global_started {
+        grammar_seconds += started.elapsed().as_secs_f64();
+    }
+    let global = global?;
     let reachable = resolved
         .transitive_imports(main)
         .into_iter()
@@ -153,14 +172,19 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
         let module_id = resolved
             .module_id(&module.name)
             .expect("every flat module was added to the resolved definition");
+        let grammar_started = timings.as_ref().map(|_| Instant::now());
         let grammar = module_rule_grammar(
-            &resolved,
+            resolved,
             module_id,
             &global,
             &reachable,
             "rule-like sentence",
             &module.attributes,
-        )?;
+        );
+        if let Some(started) = grammar_started {
+            grammar_seconds += started.elapsed().as_secs_f64();
+        }
+        let grammar = grammar?;
 
         for sentence in &mut module.local_sentences {
             let Sentence::Bubble {
@@ -175,17 +199,38 @@ pub fn resolve_rule_bubbles(definition: &Definition) -> Result<Definition, RuleE
                 continue;
             }
             measure::bump(Counter::KompileRuleBubblesParsed);
-            *sentence = parse_rule_like_sentence(
+            let parse_started = timings.as_ref().map(|_| Instant::now());
+            let parsed = parse_rule_like_sentence(
                 &grammar,
                 &module.name,
                 sentence_type,
                 contents,
                 attributes.clone(),
-            )?;
+            );
+            if let Some(started) = parse_started {
+                parse_seconds += started.elapsed().as_secs_f64();
+            }
+            *sentence = parsed?;
         }
     }
 
-    Ok(transformed)
+    if let Some(timings) = timings {
+        timings.phases.push(crate::timings::PhaseTiming {
+            name: "resolve rule bubbles / grammars",
+            seconds: grammar_seconds,
+            depth: 1,
+        });
+        timings.phases.push(crate::timings::PhaseTiming {
+            name: "resolve rule bubbles / parse",
+            seconds: parse_seconds,
+            depth: 1,
+        });
+    }
+
+    let resolved = resolved
+        .update(definition, &transformed)
+        .map_err(RuleError::Definition)?;
+    Ok((transformed, resolved))
 }
 
 fn global_rule_grammar(definition: &ResolvedDefinition) -> Result<Grammar, RuleError> {
@@ -425,7 +470,12 @@ fn rule_grammar(
     // about fresh constants. The compiler generates their real productions later.
     // Import only these declarations into the grammar, preserving the source module.
     if let Some(rule_cells) = resolved.module_id("RULE-CELLS") {
-        for sentence in &resolved.module(rule_cells).local_sentences {
+        for sentence in resolved
+            .module(rule_cells)
+            .local_sentences
+            .iter()
+            .map(std::sync::Arc::as_ref)
+        {
             let Sentence::Production {
                 label,
                 sort,

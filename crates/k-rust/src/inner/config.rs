@@ -59,6 +59,14 @@ impl std::error::Error for ConfigError {}
 /// Generating cell productions and initializer rules remains a subsequent
 /// compilation pass.
 pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definition, ConfigError> {
+    if !definition
+        .modules
+        .iter()
+        .flat_map(|module| module.local_sentences.iter())
+        .any(is_configuration_bubble)
+    {
+        return Ok(definition.clone());
+    }
     let resolved = ResolvedDefinition::resolve(definition).map_err(ConfigError::Definition)?;
     let mut transformed = definition.clone();
 
@@ -281,7 +289,7 @@ pub(super) fn implicit_kseq_bracket(resolved: &ResolvedDefinition) -> Option<&At
         .module(kseq)
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match sentence.as_ref() {
             Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Bracket) => {
                 Some(attributes)
             }

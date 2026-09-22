@@ -1,0 +1,15 @@
+---
+source: crates/k-rust-backend/tests/measure_ratchet.rs
+description: map matching counters with four entries
+---
+rewrite.steps = 5
+rewrite.rule_attempts = 5
+rewrite.rules_applied = 1
+rewrite.indeterminate_recoveries = 1
+matching.problems = 14
+matching.pairs = 15
+matching.collection_problems = 1
+simplify.rounds = 11
+simplify.invocations = 37
+simplify.nodes_skipped_evaluated = 11
+term.constructed = 16

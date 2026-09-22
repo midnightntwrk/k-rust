@@ -1,0 +1,15 @@
+---
+source: crates/k-rust-backend/tests/measure_ratchet.rs
+description: rewrite/simplification counters at depth 100
+---
+rewrite.steps = 101
+rewrite.rule_attempts = 100
+rewrite.rules_applied = 100
+matching.problems = 200
+matching.pairs = 400
+simplify.rounds = 302
+simplify.invocations = 704
+simplify.nodes_skipped_evaluated = 302
+simplify.equation_attempts = 100
+simplify.builtin_evaluations = 100
+term.constructed = 700

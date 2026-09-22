@@ -23,8 +23,9 @@ use support::chain::{Shape, definition as generated_definition, main_module};
 
 /// Number of chained modules in the reduced memory pin.
 const MODULES: usize = 10;
-/// Peak RSS ceiling for the chain compile.
-const PEAK_RSS_LIMIT_KIB: u64 = 400 * 1024;
+/// Blow-up detector for the chain compile; the ceiling protects against the recorded
+/// pre-regression peak in `draft/EB/evidence/chain/27ee9550`.
+const PEAK_RSS_BLOWUP_DETECTOR_KIB: u64 = 400 * 1024;
 
 struct Workspace {
     root: PathBuf,
@@ -96,10 +97,10 @@ fn module_chain_compile_stays_under_the_pre_regression_peak_rss() {
     assert_eq!(measured_value(&metrics, "exit_code"), 0);
     let peak_rss_kib = u64::try_from(measured_value(&metrics, "peak_rss_kib")).unwrap();
     assert!(
-        peak_rss_kib <= PEAK_RSS_LIMIT_KIB,
+        peak_rss_kib <= PEAK_RSS_BLOWUP_DETECTOR_KIB,
         "kcompile of the {MODULES}-module chain peaked at {peak_rss_kib} KiB ({} MiB), above the \
-         {PEAK_RSS_LIMIT_KIB} KiB ({} MiB) pre-regression ceiling",
+         {PEAK_RSS_BLOWUP_DETECTOR_KIB} KiB ({} MiB) pre-regression ceiling",
         peak_rss_kib / 1024,
-        PEAK_RSS_LIMIT_KIB / 1024,
+        PEAK_RSS_BLOWUP_DETECTOR_KIB / 1024,
     );
 }

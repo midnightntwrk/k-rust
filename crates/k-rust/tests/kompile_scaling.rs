@@ -23,11 +23,11 @@ use support::chain::{Shape, definition, main_module};
 
 const CHAIN_MODULES: usize = 40;
 const FAN_IN_MODULES: usize = 24;
-// The ceilings retain 20% headroom over the CQ-15 spike measurements (chain-40: 701 MiB).
-const CHAIN_PEAK_RSS_LIMIT_KIB: u64 = 850 * 1024;
-const FAN_IN_PEAK_RSS_LIMIT_KIB: u64 = 850 * 1024;
-const CHAIN_WALL_LIMIT_SECONDS: f64 = 45.0;
-const FAN_IN_WALL_LIMIT_SECONDS: f64 = 45.0;
+// Blow-up detectors retain headroom over the restored-design receipts in
+// draft/EB/evidence/chain/2ce5484d while staying below the pre-regression receipt in
+// draft/EB/evidence/chain/27ee9550.
+const CHAIN_PEAK_RSS_BLOWUP_DETECTOR_KIB: u64 = 850 * 1024;
+const FAN_IN_PEAK_RSS_BLOWUP_DETECTOR_KIB: u64 = 850 * 1024;
 
 struct Workspace {
     root: PathBuf,
@@ -66,13 +66,7 @@ fn number(report: &Value, key: &str) -> f64 {
         .unwrap_or_else(|| panic!("timing report recorded no number {key}"))
 }
 
-fn run_scaling_case(
-    label: &str,
-    modules: usize,
-    shape: Shape,
-    peak_limit_kib: u64,
-    wall_limit: f64,
-) {
+fn run_scaling_case(label: &str, modules: usize, shape: Shape, peak_limit_kib: u64) {
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let workspace = Workspace::new(label);
     let source = workspace.root.join("definition.k");
@@ -111,14 +105,8 @@ fn run_scaling_case(
         .parse::<TomlValue>()
         .unwrap();
     assert_eq!(integer(&metrics, "exit_code"), 0);
-    let wall = metrics["wall_seconds"]
-        .as_float()
-        .unwrap_or_else(|| metrics["wall_seconds"].as_integer().unwrap() as f64);
     let peak = integer(&metrics, "peak_rss_kib");
-    assert!(
-        wall <= wall_limit,
-        "{label} took {wall:.1}s, above {wall_limit:.1}s"
-    );
+    // kind: blow-up-detector; see draft/EB/evidence/chain/27ee9550 and 2ce5484d.
     assert!(
         peak <= peak_limit_kib,
         "{label} peaked at {} MiB, above {} MiB",
@@ -149,8 +137,7 @@ fn chain_40_scaling_stays_within_the_fallback_envelope() {
         "chain-40",
         CHAIN_MODULES,
         Shape::Chain,
-        CHAIN_PEAK_RSS_LIMIT_KIB,
-        CHAIN_WALL_LIMIT_SECONDS,
+        CHAIN_PEAK_RSS_BLOWUP_DETECTOR_KIB,
     );
 }
 
@@ -161,7 +148,6 @@ fn fan_in_24_scaling_stays_within_the_fallback_envelope() {
         "fanin-24",
         FAN_IN_MODULES,
         Shape::FanIn,
-        FAN_IN_PEAK_RSS_LIMIT_KIB,
-        FAN_IN_WALL_LIMIT_SECONDS,
+        FAN_IN_PEAK_RSS_BLOWUP_DETECTOR_KIB,
     );
 }

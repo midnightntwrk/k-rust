@@ -125,6 +125,25 @@ fn nonzero(snapshot: &Snapshot) -> Vec<(&'static str, u64)> {
     snapshot.iter().filter(|(_, value)| *value > 0).collect()
 }
 
+fn report(snapshot: &Snapshot) -> String {
+    snapshot
+        .iter()
+        .filter(|(_, value)| *value > 0)
+        .map(|(name, value)| format!("{name} = {value}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn snapshot_report(name: &str, snapshot: &Snapshot, description: &'static str) {
+    insta::with_settings!({
+        description => description,
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_snapshot!(name, report(snapshot));
+    });
+}
+
 fn measured<T>(work: impl FnOnce() -> T) -> (T, Snapshot) {
     let before = snapshot();
     let result = work();
@@ -265,12 +284,14 @@ fn be08_measure_stopped(definition: &BackendDefinition, mode: ExecutionMode) -> 
 }
 
 #[cfg(feature = "z3")]
-fn assert_be08_snapshot(name: &str, actual: Snapshot, expected: [u64; Counter::COUNT]) {
-    if std::env::var_os("KRUST_BE08_CAPTURE").is_some() {
-        eprintln!("BE08 capture {name}: {:?}", actual.0);
-    } else {
-        assert_eq!(actual, Snapshot(expected), "BE08 counter capture {name}");
-    }
+fn assert_be08_snapshot(name: &str, actual: Snapshot) {
+    insta::with_settings!({
+        description => "BE08 backend counter report",
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_snapshot!(name, report(&actual));
+    });
 }
 
 /// All and Any complete each remainder in one step and attempt every candidate at most once.
@@ -293,30 +314,9 @@ fn complete_steps_attempt_each_candidate_rule_once() {
     assert_eq!(any.get(Counter::RewriteRulesApplied), 1);
     assert_eq!(any.get(Counter::RewriteMatchFailures), 0);
     assert_eq!(any.get(Counter::RewriteSteps), 1);
-    assert_be08_snapshot(
-        "T3 S0 All",
-        s0,
-        [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 1, 4, 0, 4, 0, 4, 8, 0, 0, 21, 31, 33, 0, 0, 17, 9, 0, 0, 0, 29,
-        ],
-    );
-    assert_be08_snapshot(
-        "T3 S1 All",
-        s1,
-        [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 1, 10, 0, 10, 0, 10, 20, 0, 0, 104, 81, 180, 0, 0, 128, 108, 0, 0, 0, 170,
-        ],
-    );
-    assert_be08_snapshot(
-        "T15 Any",
-        any,
-        [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 2, 0, 0, 10, 13, 15, 0, 0, 7, 5, 0, 0, 0, 14,
-        ],
-    );
+    assert_be08_snapshot("be08_s0_all", s0);
+    assert_be08_snapshot("be08_s1_all", s1);
+    assert_be08_snapshot("be08_any", any);
 }
 
 /// ExploreAll queues the complete remainder through its normal pipeline without retrying rules.
@@ -371,6 +371,11 @@ fn counting_execution_to_depth_100_stays_within_the_pinned_rewrite_work() {
     let definition = definition(COUNTING);
     let delta = execute_counting(&definition, 100);
     eprintln!("rewrite/simplify/term at depth 100: {:?}", nonzero(&delta));
+    snapshot_report(
+        "counting_depth_100",
+        &delta,
+        "rewrite/simplification counters at depth 100",
+    );
     // The initial state plus one pop per step.
     assert_eq!(delta.get(Counter::RewriteSteps), STEPS_100);
     assert_eq!(delta.get(Counter::RewriteRulesApplied), 100);
@@ -584,6 +589,16 @@ fn simplifier_work_per_step_stays_flat_with_cached_closed_collections() {
     let late = one_simplifier_growth_step(&definition, 64);
     eprintln!("simplifier growth at step 8: {:?}", nonzero(&early));
     eprintln!("simplifier growth at step 64: {:?}", nonzero(&late));
+    snapshot_report(
+        "simplifier_growth_step_8",
+        &early,
+        "simplifier work at step 8",
+    );
+    snapshot_report(
+        "simplifier_growth_step_64",
+        &late,
+        "simplifier work at step 64",
+    );
     assert_eq!(early.get(Counter::RewriteSteps), 1);
     assert_eq!(late.get(Counter::RewriteSteps), 1);
     // CB-12-4 caches each closed anywhere head after its inapplicable equation scan. Measured on
@@ -631,6 +646,11 @@ fn branching_search_deduplicates_the_state_both_rules_reach() {
     let definition = definition(BRANCHING);
     let delta = search_branching(&definition, 4);
     eprintln!("search at depth 4: {:?}", nonzero(&delta));
+    snapshot_report(
+        "branching_search_depth_4",
+        &delta,
+        "branching search counters at depth 4",
+    );
     // Both rules take inc(N) to inc(N + 1); the second arrival at every depth is dropped.
     assert!(delta.get(Counter::SearchStatesDeduplicated) >= 1);
     assert!(delta.get(Counter::SearchStatesDeduplicated) <= DEDUPLICATED_4);
@@ -798,6 +818,11 @@ fn execute_map(entries: usize) -> Snapshot {
 fn map_matching_with_a_free_key_stays_within_the_pinned_collection_work() {
     let delta = execute_map(4);
     eprintln!("map step with 4 entries: {:?}", nonzero(&delta));
+    snapshot_report(
+        "map_step_4_entries",
+        &delta,
+        "map matching counters with four entries",
+    );
     assert!(delta.get(Counter::MatchingCollectionProblems) >= 1);
     assert!(delta.get(Counter::MatchingCollectionProblems) <= COLLECTION_PROBLEMS_4);
     assert!(delta.get(Counter::MatchingCollectionProblems) <= delta.get(Counter::MatchingProblems));

@@ -67,4 +67,5 @@ pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition
 pub use rule_catalog::{ClaimId, ContextId, RuleCatalog, RuleId, match_rule_label};
 pub use sort_catalog::SortCatalog;
 pub use synonyms::apply_sort_synonyms;
+pub(crate) use synonyms::apply_sort_synonyms_with_resolved;
 pub use views::DefinitionViews;

@@ -190,7 +190,7 @@ impl<'definition> SortInjector<'definition, 'definition> {
             .subsorts(module)
             .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path))?;
         Ok(Self {
-            productions: View::Owned(definition.production_catalog(module)),
+            productions: View::Shared(definition.production_catalog(module)),
             sorts: View::Owned(definition.sort_catalog(module)),
             subsorts: View::Owned(subsorts),
             next_sort_parameter: Cell::new(0),
@@ -991,11 +991,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         }
     }
 
-    fn production(
-        &self,
-        term: &Term,
-        label: &Label,
-    ) -> Result<&'definition Sentence, SortInjectionError> {
+    fn production(&self, term: &Term, label: &Label) -> Result<&Sentence, SortInjectionError> {
         let mut invalid_resolved = None;
         if let Some(resolved) = term.metadata().and_then(|metadata| metadata.production) {
             if let Some(production_id) = self.productions.lookup(&resolved) {

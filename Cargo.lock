@@ -1004,6 +1004,7 @@ name = "k-rust-backend"
 version = "0.3.0"
 dependencies = [
  "indoc",
+ "insta",
  "k-rust-backend",
  "k-rust-kore",
  "k256",

@@ -1,0 +1,14 @@
+---
+source: crates/k-rust-backend/tests/measure_ratchet.rs
+description: branching search counters at depth 4
+---
+rewrite.rule_attempts = 8
+rewrite.rules_applied = 8
+matching.problems = 8
+matching.pairs = 16
+simplify.rounds = 18
+simplify.invocations = 56
+simplify.nodes_skipped_evaluated = 18
+simplify.builtin_evaluations = 8
+search.states_deduplicated = 4
+term.constructed = 40

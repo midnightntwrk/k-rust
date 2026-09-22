@@ -13,6 +13,14 @@ use super::{Definition, ProductionItem, ResolveError, ResolvedDefinition, Senten
 /// production result sorts and nonterminal sorts; production parameters and
 /// sort-synonym declarations remain unchanged.
 pub fn apply_sort_synonyms(definition: &Definition) -> Result<Definition, ResolveError> {
+    apply_sort_synonyms_with_resolved(definition).map(|(transformed, _)| transformed)
+}
+
+/// Apply sort synonyms and retain the resolved graph for callers that immediately need derived
+/// views of the transformed definition.
+pub(crate) fn apply_sort_synonyms_with_resolved(
+    definition: &Definition,
+) -> Result<(Definition, ResolvedDefinition), ResolveError> {
     let resolved = ResolvedDefinition::resolve(definition)?;
     let mut transformed = definition.clone();
 
@@ -27,7 +35,8 @@ pub fn apply_sort_synonyms(definition: &Definition) -> Result<Definition, Resolv
         }
     }
 
-    Ok(transformed)
+    let resolved = resolved.update(definition, &transformed)?;
+    Ok((transformed, resolved))
 }
 
 fn apply_to_sentence(sentence: &mut Sentence, synonyms: &std::collections::BTreeMap<Sort, Sort>) {

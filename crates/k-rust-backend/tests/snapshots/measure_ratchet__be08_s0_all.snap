@@ -1,0 +1,15 @@
+---
+source: crates/k-rust-backend/tests/measure_ratchet.rs
+description: BE08 backend counter report
+---
+rewrite.steps = 1
+rewrite.rule_attempts = 4
+rewrite.rules_applied = 4
+matching.problems = 4
+matching.pairs = 8
+simplify.rounds = 21
+simplify.invocations = 31
+simplify.nodes_skipped_evaluated = 33
+smt.queries = 17
+smt.solver_runs = 9
+term.constructed = 29

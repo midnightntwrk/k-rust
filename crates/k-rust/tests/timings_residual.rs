@@ -1,8 +1,7 @@
 //! The phase timing report must account for nearly all of a sandbox compile.
 //!
-//! This pin is ignored on the CQ-15a base because the carried resolved-state update is
-//! intentionally still expensive there. CQ-15 removes that work; the orchestrator then
-//! enables this test.
+//! This test protects the phase timing report from silently losing a material portion of a
+//! compile. The incremental resolution design keeps the residual within the documented bound.
 
 #![cfg(feature = "cli")]
 
@@ -108,7 +107,6 @@ fn assert_residual(definition: &Path, main_module: &str, workspace: &Workspace) 
 }
 
 #[test]
-#[ignore = "enabled after CQ-15 removes the known carried-update residual"]
 fn compile_timing_residual_stays_below_ten_percent() {
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
 

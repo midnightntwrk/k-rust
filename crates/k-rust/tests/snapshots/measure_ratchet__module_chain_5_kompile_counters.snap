@@ -1,0 +1,37 @@
+---
+source: crates/k-rust/tests/measure_ratchet.rs
+description: kompile of the 5-module chain
+---
+kompile.resolve_calls = 7
+kompile.resolve_updates = 39
+kompile.resolve_update_sentence_visits = 52765
+kompile.rule_bubbles_parsed = 227
+kompile.sentences_transformed = 2584
+kompile.sentence_equivalence_checks = 491957
+kompile.production_catalogs_built = 646
+kompile.partial_orders_built = 1500
+kompile.injections_inserted = 203
+kompile.owise_competitor_scans = 8155
+provenance.link_dedup_probes = 135513
+parser.parse_attempts = 231
+parser.prediction_analysis_builds = 33
+parser.chart_prediction_attempts = 180807
+parser.terminal_predictions_skipped = 753328
+parser.nonterminal_predictions_skipped = 95828
+parser.chart_completion_candidates = 36154
+parser.packed_structural_comparisons = 194573
+parser.unpacked_nodes = 3445
+parser.packed_application_resolutions = 90
+parser.packed_priority_computations = 14238
+parser.chart_add_calls = 633460
+parser.chart_state_changes = 505684
+parser.chart_agenda_pops = 505684
+parser.chart_revisit_pops = 31550
+parser.chart_derivations_read = 505800
+parser.completed_nodes_hits = 115714
+parser.completed_nodes_misses = 69645
+parser.z3_checks = 304
+parser.grammar_builds = 34
+parser.scanner_winner_computations = 7730
+parser.portable_inferences = 207
+parser.z3_encoding_builds = 9

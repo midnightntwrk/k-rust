@@ -326,6 +326,17 @@ impl Attributes {
         self.origin.as_deref()
     }
 
+    /// Strict equality used when deciding whether a resolved module can be reused.
+    /// Unlike `PartialEq`, this includes provenance-only entries and receipts.
+    pub(crate) fn identical(&self, other: &Self) -> bool {
+        self.entries == other.entries
+            && match (&self.origin, &other.origin) {
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right) || left.identical(right),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+
     /// The structured receipt written by a kompile pass, if this sentence carries one.
     pub fn origin_record(&self) -> Option<&OriginRecord> {
         self.origin_receipt().and_then(OriginReceipt::record)

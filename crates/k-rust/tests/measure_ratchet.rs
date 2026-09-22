@@ -29,6 +29,25 @@ fn nonzero(snapshot: &Snapshot) -> Vec<(&'static str, u64)> {
     snapshot.iter().filter(|(_, value)| *value > 0).collect()
 }
 
+fn report(snapshot: &Snapshot) -> String {
+    snapshot
+        .iter()
+        .filter(|(_, value)| *value > 0)
+        .map(|(name, value)| format!("{name} = {value}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn snapshot_report(name: &str, snapshot: &Snapshot, description: &'static str) {
+    insta::with_settings!({
+        description => description,
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+    }, {
+        insta::assert_snapshot!(name, report(snapshot));
+    });
+}
+
 fn measured<T>(work: impl FnOnce() -> T) -> (T, Snapshot) {
     let before = snapshot();
     let result = work();
@@ -76,18 +95,16 @@ fn rewrite_example_compile_stays_within_the_pinned_kompile_work() {
     let (name, source) = example("rewrite.k");
     let delta = compile(&name, &source, "REWRITE");
     eprintln!("kompile of examples/rewrite.k: {:?}", nonzero(&delta));
-    assert!(delta.get(Counter::KompileResolveCalls) <= RESOLVE_CALLS_REWRITE);
-    assert_eq!(delta.get(Counter::KompileRebaseCalls), REBASE_CALLS_REWRITE);
+    snapshot_report(
+        "rewrite_example_kompile_counters",
+        &delta,
+        "kompile of examples/rewrite.k",
+    );
     assert_eq!(
         delta.get(Counter::KompileRuleBubblesParsed),
         RULE_BUBBLES_REWRITE
     );
     assert!(delta.get(Counter::KompileSentencesTransformed) <= SENTENCES_REWRITE);
-    assert!(
-        delta.get(Counter::KompileSentenceEquivalenceChecks) <= SENTENCE_EQUIVALENCE_CHECKS_REWRITE
-    );
-    assert!(delta.get(Counter::KompileProductionCatalogsBuilt) <= PRODUCTION_CATALOGS_REWRITE);
-    assert!(delta.get(Counter::ProvenanceLinkDedupProbes) <= LINK_DEDUP_PROBES_REWRITE);
     // Prediction analyses are built per grammar, never per bubble.
     assert!(
         delta.get(Counter::ParserPredictionAnalysisBuilds)
@@ -137,14 +154,15 @@ fn module_chain_compile_resolves_per_pass_and_grows_sentences_linearly() {
     let at_10 = compile("chain.k", &chain_definition(10), "CHAIN-9");
     eprintln!("kompile of the 5-module chain: {:?}", nonzero(&at_5));
     eprintln!("kompile of the 10-module chain: {:?}", nonzero(&at_10));
-    // Resolutions and rebases happen per pass, not per module.
-    assert_eq!(
-        at_10.get(Counter::KompileResolveCalls),
-        at_5.get(Counter::KompileResolveCalls)
+    snapshot_report(
+        "module_chain_5_kompile_counters",
+        &at_5,
+        "kompile of the 5-module chain",
     );
-    assert_eq!(
-        at_10.get(Counter::KompileRebaseCalls),
-        at_5.get(Counter::KompileRebaseCalls)
+    snapshot_report(
+        "module_chain_10_kompile_counters",
+        &at_10,
+        "kompile of the 10-module chain",
     );
     assert!(
         at_10.get(Counter::KompileProductionCatalogsBuilt)
@@ -274,8 +292,11 @@ fn casted_rule_chain_builds_its_two_rule_grammars_once() {
 #[test]
 fn indexed_prediction_preserves_the_casted_chain_counts() {
     let delta = parse_casted_chain(15);
-    assert_eq!(delta.get(Counter::ParserChartPredictionAttempts), 290);
-    assert_eq!(delta.get(Counter::ParserTerminalPredictionsSkipped), 357);
+    snapshot_report(
+        "casted_chain_15_parser_counters",
+        &delta,
+        "casted rule chain parser counters",
+    );
 }
 
 #[test]
@@ -386,22 +407,10 @@ fn z3_checks_are_paid_once_per_bubble() {
 // Measured at the commit that added this file, then rounded up by about 10 %. The measured
 // values are in that commit's message; re-pin in a commit that says why the value moved.
 
-/// `examples/rewrite.k`: 59 resolutions after CQ-14's stage cache, 46 after production
-/// identities remove the eleven ordinary rebase resolutions; the bound gives the measured
-/// result about 10 % headroom.
-const RESOLVE_CALLS_REWRITE: u64 = 51;
-/// `examples/rewrite.k`: production identities remove every positional rebase.
-const REBASE_CALLS_REWRITE: u64 = 0;
 /// `examples/rewrite.k`: its one rule plus the prelude bubbles reachable from REWRITE.
 const RULE_BUBBLES_REWRITE: u64 = 198;
 /// `examples/rewrite.k`: 2091 sentences after transformation.
 const SENTENCES_REWRITE: u64 = 2300;
-/// `examples/rewrite.k`: 1,100,936 structural sentence-equivalence checks with catalog indexes and views.
-const SENTENCE_EQUIVALENCE_CHECKS_REWRITE: u64 = 1_211_030;
-/// `examples/rewrite.k`: 3,360 production catalogs built with per-resolution views.
-const PRODUCTION_CATALOGS_REWRITE: u64 = 3_696;
-/// `examples/rewrite.k`: 69,079 order-preserving provenance-link dedup probes.
-const LINK_DEDUP_PROBES_REWRITE: u64 = 76_000;
 /// Casted rule chain of 15 operands: 1553 completion candidates.
 const COMPLETION_CANDIDATES_CHAIN_15: u64 = 1710;
 /// Casted rule chain of 15 operands: 2990 agenda pops.

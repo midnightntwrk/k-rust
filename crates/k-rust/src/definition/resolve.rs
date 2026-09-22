@@ -12,12 +12,13 @@ use std::{
 };
 
 use k_rust_kore::measure::{self, Counter};
-use petgraph::Direction::Outgoing;
+use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::algo::toposort;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
+use super::catalog::ProductionCatalog;
 use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence, push_if_inequivalent};
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
@@ -66,7 +67,7 @@ pub struct ImportRef {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedModule {
     pub name: String,
-    pub local_sentences: Vec<Sentence>,
+    pub local_sentences: Vec<Arc<Sentence>>,
     pub attributes: Attributes,
 }
 
@@ -290,6 +291,7 @@ pub struct ResolvedDefinition {
     // The graph is immutable, with dense node indices and stable local sentence indices.
     // Clones share only coordinates; each read borrows sentences from its receiving graph.
     visible_sentences: Vec<OnceLock<Arc<[SentenceLocation]>>>,
+    pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
 }
 
 impl fmt::Debug for ResolvedDefinition {
@@ -320,11 +322,7 @@ impl ResolvedDefinition {
         let mut graph = DiGraph::new();
         let mut modules_by_name = BTreeMap::new();
         for module in &modules {
-            let id = ModuleId(graph.add_node(ResolvedModule {
-                name: module.name.clone(),
-                local_sentences: deduplicate_sentences(&module.local_sentences),
-                attributes: module.attributes.clone(),
-            }));
+            let id = ModuleId(graph.add_node(ResolvedModule::from(*module)));
             modules_by_name.insert(module.name.clone(), id);
         }
 
@@ -374,6 +372,7 @@ impl ResolvedDefinition {
         dependency_order.reverse();
         // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let visible_sentences = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
+        let production_catalogs = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
             graph,
@@ -381,6 +380,7 @@ impl ResolvedDefinition {
             main_module,
             dependency_order,
             visible_sentences,
+            production_catalogs: Arc::new(production_catalogs),
         })
     }
 
@@ -390,6 +390,103 @@ impl ResolvedDefinition {
 
     pub fn main_module(&self) -> &ResolvedModule {
         self.module(self.main_module)
+    }
+
+    /// Reuse resolved nodes and visible sentence selections for an updated flat definition.
+    /// The module set and import graph are structural inputs; when either changes, rebuilding
+    /// the graph is both simpler and required to preserve deterministic node coordinates.
+    pub fn update(&self, previous: &Definition, definition: &Definition) -> Result<Self, Error> {
+        if definition.main_module != self.main_module().name
+            || definition.modules.len() != self.graph.node_count()
+            || previous.modules.len() != self.graph.node_count()
+        {
+            return Self::resolve(definition);
+        }
+
+        let mut previous_by_name = BTreeMap::new();
+        let mut next_by_name = BTreeMap::new();
+        for module in &previous.modules {
+            if previous_by_name
+                .insert(module.name.as_str(), module)
+                .is_some()
+            {
+                return Self::resolve(definition);
+            }
+        }
+        for module in &definition.modules {
+            if next_by_name.insert(module.name.as_str(), module).is_some() {
+                return Self::resolve(definition);
+            }
+        }
+        if previous.main_module != definition.main_module
+            || previous_by_name.len() != self.modules_by_name.len()
+            || next_by_name.len() != self.modules_by_name.len()
+            || self.modules_by_name.keys().any(|name| {
+                !previous_by_name.contains_key(name.as_str())
+                    || !next_by_name.contains_key(name.as_str())
+            })
+            || self.modules_by_name.iter().any(|(name, &id)| {
+                normalized_imports(previous_by_name[name.as_str()])
+                    != normalized_imports(next_by_name[name.as_str()])
+                    || normalized_imports(previous_by_name[name.as_str()])
+                        != normalized_imports_from_resolved(self, id)
+            })
+        {
+            return Self::resolve(definition);
+        }
+
+        let mut graph = self.graph.clone();
+        let mut changed = vec![false; graph.node_count()];
+        let mut syntax_changed = vec![false; graph.node_count()];
+        for (name, &id) in &self.modules_by_name {
+            let (same, same_syntax) =
+                modules_identical(previous_by_name[name.as_str()], next_by_name[name.as_str()]);
+            if !same {
+                graph[id.0] = ResolvedModule::from(next_by_name[name.as_str()]);
+                changed[id.0.index()] = true;
+                syntax_changed[id.0.index()] = !same_syntax;
+            }
+        }
+
+        let visible_invalid = reverse_reachable(&graph, &changed);
+        let catalog_invalid = reverse_reachable(&graph, &syntax_changed);
+        let visible_sentences = self
+            .visible_sentences
+            .iter()
+            .enumerate()
+            .map(|(index, previous)| {
+                let lock = OnceLock::new();
+                if !visible_invalid[index]
+                    && let Some(locations) = previous.get()
+                {
+                    let _ = lock.set(Arc::clone(locations));
+                }
+                lock
+            })
+            .collect();
+        let production_catalogs = self
+            .production_catalogs
+            .iter()
+            .enumerate()
+            .map(|(index, previous)| {
+                let lock = OnceLock::new();
+                if !catalog_invalid[index]
+                    && let Some(catalog) = previous.get()
+                {
+                    let _ = lock.set(Arc::clone(catalog));
+                }
+                lock
+            })
+            .collect();
+        measure::bump(Counter::KompileResolveUpdates);
+        Ok(Self {
+            graph,
+            modules_by_name: self.modules_by_name.clone(),
+            main_module: self.main_module,
+            dependency_order: self.dependency_order.clone(),
+            visible_sentences,
+            production_catalogs: Arc::new(production_catalogs),
+        })
     }
 
     pub fn module_id(&self, name: &str) -> Option<ModuleId> {
@@ -459,8 +556,25 @@ impl ResolvedDefinition {
             .get_or_init(|| self.select_sentence_locations(module));
         locations
             .iter()
-            .map(|&(owner, index)| &self.module(owner).local_sentences[index])
+            .map(|&(owner, index)| self.module(owner).local_sentences[index].as_ref())
             .collect()
+    }
+
+    /// Local and visible sentences as shared nodes for derived owned views.
+    pub(crate) fn sentence_arcs(&self, module: ModuleId) -> Vec<Arc<Sentence>> {
+        let locations = self.visible_sentences[module.0.index()]
+            .get_or_init(|| self.select_sentence_locations(module));
+        locations
+            .iter()
+            .map(|&(owner, index)| Arc::clone(&self.module(owner).local_sentences[index]))
+            .collect()
+    }
+
+    pub(crate) fn local_sentence_arcs(
+        &self,
+        module: ModuleId,
+    ) -> impl Iterator<Item = Arc<Sentence>> + '_ {
+        self.module(module).local_sentences.iter().cloned()
     }
 
     fn select_sentence_locations(&self, module: ModuleId) -> Arc<[SentenceLocation]> {
@@ -478,7 +592,7 @@ impl ResolvedDefinition {
                     .local_sentences
                     .iter()
                     .enumerate()
-                    .map(move |(index, sentence)| (id, index, sentence))
+                    .map(move |(index, sentence)| (id, index, sentence.as_ref()))
             })
         {
             if push_if_inequivalent(&mut unique, sentence) {
@@ -515,7 +629,7 @@ impl ResolvedDefinition {
             .iter()
             .filter(|module| exported_modules.contains(module))
             .flat_map(|module| self.public_sentences(*module))
-            .chain(&self.module(module).local_sentences);
+            .chain(self.module(module).local_sentences.iter().map(Arc::as_ref));
         dedup_by_equivalence(sentences)
     }
 
@@ -533,8 +647,296 @@ impl ResolvedDefinition {
                     !sentence.attributes().has(AttributeKey::Private)
                 }
             })
+            .map(Arc::as_ref)
             .collect()
     }
+}
+
+fn normalized_imports(module: &FlatModule) -> Vec<(&str, bool)> {
+    let mut imports = module
+        .imports
+        .iter()
+        .map(|import| (import.name.as_str(), import.public))
+        .collect::<Vec<_>>();
+    imports.sort_unstable();
+    imports.dedup();
+    imports
+}
+
+fn normalized_imports_from_resolved(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+) -> Vec<(&str, bool)> {
+    let mut imports = resolved
+        .direct_imports(module)
+        .into_iter()
+        .map(|import| (resolved.module(import.module).name.as_str(), import.public))
+        .collect::<Vec<_>>();
+    imports.sort_unstable();
+    imports.dedup();
+    imports
+}
+
+fn modules_identical(previous: &FlatModule, next: &FlatModule) -> (bool, bool) {
+    let same_header = previous.name == next.name
+        && previous.imports == next.imports
+        && previous.attributes.identical(&next.attributes);
+    let same_sentences = previous.local_sentences.len() == next.local_sentences.len()
+        && previous
+            .local_sentences
+            .iter()
+            .zip(&next.local_sentences)
+            .all(|(left, right)| {
+                measure::bump(Counter::KompileResolveUpdateSentenceVisits);
+                sentences_identical(left, right)
+            });
+    let identical = same_header && same_sentences;
+    let syntax_identical = identical
+        || iter_identical(
+            previous
+                .local_sentences
+                .iter()
+                .filter(|sentence| is_syntax_sentence(sentence)),
+            next.local_sentences
+                .iter()
+                .filter(|sentence| is_syntax_sentence(sentence)),
+        );
+    (identical, syntax_identical)
+}
+
+fn iter_identical<'a>(
+    mut left: impl Iterator<Item = &'a Sentence>,
+    mut right: impl Iterator<Item = &'a Sentence>,
+) -> bool {
+    loop {
+        match (left.next(), right.next()) {
+            (Some(left), Some(right)) if sentences_identical(left, right) => {}
+            (None, None) => return true,
+            _ => return false,
+        }
+    }
+}
+
+fn sentences_identical(left: &Sentence, right: &Sentence) -> bool {
+    match (left, right) {
+        (
+            Sentence::SyntaxSort {
+                parameters: left_parameters,
+                sort: left_sort,
+                attributes: left_attributes,
+            },
+            Sentence::SyntaxSort {
+                parameters: right_parameters,
+                sort: right_sort,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_parameters == right_parameters
+                && left_sort == right_sort
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::SortSynonym {
+                new_sort: left_new,
+                old_sort: left_old,
+                attributes: left_attributes,
+            },
+            Sentence::SortSynonym {
+                new_sort: right_new,
+                old_sort: right_old,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_new == right_new
+                && left_old == right_old
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::SyntaxLexical {
+                name: left_name,
+                regex: left_regex,
+                attributes: left_attributes,
+            },
+            Sentence::SyntaxLexical {
+                name: right_name,
+                regex: right_regex,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_name == right_name
+                && left_regex == right_regex
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Production {
+                label: left_label,
+                parameters: left_parameters,
+                sort: left_sort,
+                items: left_items,
+                attributes: left_attributes,
+            },
+            Sentence::Production {
+                label: right_label,
+                parameters: right_parameters,
+                sort: right_sort,
+                items: right_items,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_label == right_label
+                && left_parameters == right_parameters
+                && left_sort == right_sort
+                && left_items == right_items
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::SyntaxAssociativity {
+                associativity: left_associativity,
+                tags: left_tags,
+                attributes: left_attributes,
+            },
+            Sentence::SyntaxAssociativity {
+                associativity: right_associativity,
+                tags: right_tags,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_associativity == right_associativity
+                && left_tags == right_tags
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::SyntaxPriority {
+                priorities: left_priorities,
+                attributes: left_attributes,
+            },
+            Sentence::SyntaxPriority {
+                priorities: right_priorities,
+                attributes: right_attributes,
+            },
+        ) => left_priorities == right_priorities && left_attributes.identical(right_attributes),
+        (
+            Sentence::ContextAlias {
+                body: left_body,
+                requires: left_requires,
+                attributes: left_attributes,
+            },
+            Sentence::ContextAlias {
+                body: right_body,
+                requires: right_requires,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_requires.identical(right_requires)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Context {
+                body: left_body,
+                requires: left_requires,
+                attributes: left_attributes,
+            },
+            Sentence::Context {
+                body: right_body,
+                requires: right_requires,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_requires.identical(right_requires)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Rule {
+                body: left_body,
+                requires: left_requires,
+                ensures: left_ensures,
+                attributes: left_attributes,
+            },
+            Sentence::Rule {
+                body: right_body,
+                requires: right_requires,
+                ensures: right_ensures,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_requires.identical(right_requires)
+                && left_ensures.identical(right_ensures)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Claim {
+                body: left_body,
+                requires: left_requires,
+                ensures: left_ensures,
+                attributes: left_attributes,
+            },
+            Sentence::Claim {
+                body: right_body,
+                requires: right_requires,
+                ensures: right_ensures,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_requires.identical(right_requires)
+                && left_ensures.identical(right_ensures)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Configuration {
+                body: left_body,
+                ensures: left_ensures,
+                attributes: left_attributes,
+            },
+            Sentence::Configuration {
+                body: right_body,
+                ensures: right_ensures,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_body.identical(right_body)
+                && left_ensures.identical(right_ensures)
+                && left_attributes.identical(right_attributes)
+        }
+        (
+            Sentence::Bubble {
+                sentence_type: left_type,
+                contents: left_contents,
+                attributes: left_attributes,
+            },
+            Sentence::Bubble {
+                sentence_type: right_type,
+                contents: right_contents,
+                attributes: right_attributes,
+            },
+        ) => {
+            left_type == right_type
+                && left_contents == right_contents
+                && left_attributes.identical(right_attributes)
+        }
+        _ => false,
+    }
+}
+
+fn reverse_reachable(graph: &DiGraph<ResolvedModule, Import>, roots: &[bool]) -> Vec<bool> {
+    let mut reached = roots.to_vec();
+    let mut pending = roots
+        .iter()
+        .enumerate()
+        .filter_map(|(index, root)| root.then_some(NodeIndex::new(index)))
+        .collect::<Vec<_>>();
+    while let Some(node) = pending.pop() {
+        for importer in graph.neighbors_directed(node, Incoming) {
+            if !reached[importer.index()] {
+                reached[importer.index()] = true;
+                pending.push(importer);
+            }
+        }
+    }
+    reached
 }
 
 fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
@@ -613,9 +1015,95 @@ impl From<&FlatModule> for ResolvedModule {
     }
 }
 
-fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Sentence> {
+fn is_syntax_sentence(sentence: &Sentence) -> bool {
+    matches!(
+        sentence,
+        Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+    )
+}
+
+fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Arc<Sentence>> {
     dedup_by_equivalence(sentences)
         .into_iter()
-        .cloned()
+        .map(|sentence| Arc::new(sentence.clone()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::ast::FlatImport;
+    use super::*;
+
+    fn module(name: &str, sentence: Sentence) -> FlatModule {
+        FlatModule {
+            name: name.into(),
+            imports: Vec::new(),
+            local_sentences: vec![sentence],
+            attributes: Attributes::default(),
+        }
+    }
+
+    fn sort_sentence(name: &str) -> Sentence {
+        Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new(name),
+            attributes: Attributes::default(),
+        }
+    }
+
+    #[test]
+    fn update_matches_full_resolve_and_reuses_unchanged_nodes() {
+        let initial = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                module("MAIN", sort_sentence("K")),
+                module("OTHER", sort_sentence("A")),
+            ],
+            attributes: Attributes::default(),
+        };
+        let base = ResolvedDefinition::resolve(&initial).unwrap();
+        let mut next = initial.clone();
+        next.modules[1].local_sentences[0] = sort_sentence("B");
+        let updated = base.update(&initial, &next).unwrap();
+        let resolved = ResolvedDefinition::resolve(&next).unwrap();
+        assert_eq!(updated.dependency_order, resolved.dependency_order);
+        for id in updated.dependency_order().iter().copied() {
+            assert_eq!(updated.sentences(id), resolved.sentences(id));
+        }
+        let main = updated.module_id("MAIN").unwrap();
+        assert!(Arc::ptr_eq(
+            &base.module(main).local_sentences[0],
+            &updated.module(main).local_sentences[0]
+        ));
+    }
+
+    #[test]
+    fn update_falls_back_when_imports_change() {
+        let initial = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                module("MAIN", sort_sentence("K")),
+                module("OTHER", sort_sentence("A")),
+            ],
+            attributes: Attributes::default(),
+        };
+        let base = ResolvedDefinition::resolve(&initial).unwrap();
+        let mut next = initial.clone();
+        next.modules[0].imports.push(FlatImport {
+            name: "OTHER".into(),
+            public: true,
+        });
+        let updated = base.update(&initial, &next).unwrap();
+        let resolved = ResolvedDefinition::resolve(&next).unwrap();
+        assert_eq!(updated.dependency_order, resolved.dependency_order);
+        for id in updated.dependency_order().iter().copied() {
+            assert_eq!(updated.sentences(id), resolved.sentences(id));
+        }
+        assert_eq!(updated.sentences(updated.main_module_id()).len(), 2);
+    }
 }

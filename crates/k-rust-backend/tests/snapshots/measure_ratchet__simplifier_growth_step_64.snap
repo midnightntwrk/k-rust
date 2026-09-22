@@ -1,0 +1,14 @@
+---
+source: crates/k-rust-backend/tests/measure_ratchet.rs
+description: simplifier work at step 64
+---
+rewrite.steps = 1
+rewrite.rule_attempts = 1
+rewrite.rules_applied = 1
+matching.problems = 1
+matching.pairs = 4
+simplify.rounds = 7
+simplify.invocations = 9
+simplify.nodes_skipped_evaluated = 198
+simplify.builtin_evaluations = 1
+term.constructed = 15

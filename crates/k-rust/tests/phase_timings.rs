@@ -19,14 +19,12 @@ const LOAD_PHASES: &[&str] = &[
     "select source files",
     "lower files",
     "apply sort synonyms",
-    "resolve outer definition",
     "check outer modules",
     "select modules",
     "resolve configuration bubbles",
     "expand configurations",
     "resolve and check sorts",
     "resolve rule bubbles",
-    "resolve loaded definition",
 ];
 
 const COMPILE_PHASES: &[&str] = &[
@@ -115,7 +113,40 @@ fn load_and_compile_phases_follow_the_pinned_pipeline_order() {
         .iter()
         .map(|phase| phase.name)
         .collect::<Vec<_>>();
-    assert_eq!(load_names, LOAD_PHASES);
+    assert!(
+        load_names
+            .iter()
+            .filter(|name| **name != "resolve rule bubbles / grammars"
+                && **name != "resolve rule bubbles / parse")
+            .copied()
+            .eq(LOAD_PHASES.iter().copied())
+    );
+    let rule_bubbles = load_names
+        .iter()
+        .position(|name| *name == "resolve rule bubbles")
+        .expect("rule-bubble parent phase should be recorded");
+    assert_eq!(
+        &load_names[rule_bubbles..rule_bubbles + 3],
+        &[
+            "resolve rule bubbles",
+            "resolve rule bubbles / grammars",
+            "resolve rule bubbles / parse",
+        ]
+    );
+    assert_eq!(
+        load_names
+            .iter()
+            .filter(|name| **name == "resolve rule bubbles / grammars")
+            .count(),
+        1
+    );
+    assert_eq!(
+        load_names
+            .iter()
+            .filter(|name| **name == "resolve rule bubbles / parse")
+            .count(),
+        1
+    );
     let compile_names = compile_timings
         .phases
         .iter()
