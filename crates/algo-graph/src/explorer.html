@@ -187,6 +187,11 @@ table.lanes td.wide, table.lanes th.wide { min-width: 180px; }
 .chip:hover { border-color: var(--accent); }
 .chip.observed { border-style: dashed; }
 .chip.dim { opacity: 0.38; }
+.chip.unknown, svg.nbhd .node.unknown rect, table.data tr.unknown td:first-child, .sw.unknown {
+  background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in oklab, var(--muted) 22%, transparent) 4px 6px);
+}
+.chip.unknown { border-style: dotted; border-width: 2px; }
+svg.nbhd .node.unknown rect { stroke-dasharray: 2 2; }
 .chip.sel { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
 .chip .t { display: block; font-family: var(--sans); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* Panel */
@@ -234,6 +239,7 @@ svg.nbhd .node.algorithm rect { fill: color-mix(in oklab, var(--heat) var(--h, 0
 svg.nbhd .node.other rect { fill: var(--surface-2); stroke-dasharray: 4 3; }
 svg.nbhd .node.center rect { stroke: var(--accent); stroke-width: 2.5; }
 svg.nbhd .node.dim { opacity: 0.4; }
+svg.nbhd .node.unknown rect { fill: var(--surface-2); }
 svg.nbhd .node { cursor: pointer; }
 svg.nbhd .node:hover rect { stroke: var(--accent); }
 svg.nbhd path.edge { fill: none; stroke: var(--muted); stroke-width: 1.3; }
@@ -250,6 +256,12 @@ svg.nbhd marker path { fill: var(--muted); }
 .legend .sw.dotted { border-top: 2px dotted var(--ink); }
 .legend .sw.constrains { border-top: 2px solid var(--constrain); }
 .legend .sw.observed { border-top: 2px dashed var(--heat); }
+.legend .sw.unknown { height: 10px; width: 18px; border: 2px dotted var(--muted); border-radius: 3px; }
+.legend .sw.notrun { height: 10px; width: 18px; border: 1px solid var(--line); border-radius: 3px; opacity: 0.38; background: var(--surface-2); }
+.verdict { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 5px; border: 1px solid var(--line); }
+.verdict.ran { color: var(--good); border-color: var(--good); }
+.verdict.not-run { color: var(--muted); }
+.verdict.unknown { color: var(--ink); border-style: dotted; border-width: 2px; }
 .legend .heatbar { display: inline-block; width: 60px; height: 10px; vertical-align: middle; border: 1px solid var(--line); background: linear-gradient(90deg, var(--surface), var(--heat)); margin-right: 4px; }
 /* Run */
 .runmeta { font-size: 12.5px; color: var(--muted); display: grid; gap: 2px; margin-bottom: 8px; }
@@ -329,7 +341,14 @@ table.data td:last-child { min-width: 280px; }
   <section id="run-section" aria-labelledby="run-h" hidden>
     <div class="section-head">
       <h2 id="run-h">Run</h2>
-      <label class="check"><input type="checkbox" id="unexercised"> include unexercised algorithms</label>
+      <label class="check">show algorithms
+        <select id="verdicts">
+          <option value="ran">that ran</option>
+          <option value="ran not-run">that ran or did not run</option>
+          <option value="ran unknown">that ran or are unknown</option>
+          <option value="ran not-run unknown">with every verdict</option>
+        </select>
+      </label>
     </div>
     <div class="runmeta" id="runmeta"></div>
     <p class="note" id="perfetto"></p>
@@ -491,7 +510,7 @@ table.data td:last-child { min-width: 280px; }
     counters: (DATA.filters && DATA.filters.counters) || [],
     zero: false,
     allPhases: false,
-    unexercised: false,
+    verdicts: new Set(["ran"]),
     run: RUNS.length ? 0 : -1,
     selected: null,
     depth: 2,
@@ -503,8 +522,8 @@ table.data td:last-child { min-width: 280px; }
     if (state.run < 0) { R = null; return; }
     const join = RUNS[state.run].join;
     const alg = new Map(join.algorithm.map((a) => [a.id, a]));
-    const exercised = new Map();
-    for (const n of join.node) exercised.set(n.kind + "\u0000" + n.id, n);
+    const verdict = new Map();
+    for (const n of join.node) verdict.set(n.kind + "\u0000" + n.id, n);
     const phaseRun = new Map(join.phase.map((p) => [p.id, p]));
     const nestOut = new Map(), nestIn = new Map();
     for (const e of join.observed_nest) { pushMap(nestOut, e.from, e); pushMap(nestIn, e.to, e); }
@@ -513,7 +532,7 @@ table.data td:last-child { min-width: 280px; }
     const receipt = new Map(join.receipt_counter.map((c) => [c.name, c.value]));
     let maxSelf = 0;
     for (const a of join.algorithm) maxSelf = Math.max(maxSelf, a.self_seconds);
-    R = { join, alg, exercised, phaseRun, nestOut, nestIn, contains, containsIn, receipt, maxSelf };
+    R = { join, alg, verdict, phaseRun, nestOut, nestIn, contains, containsIn, receipt, maxSelf };
   }
   function heat(id) {
     if (!R) return 0;
@@ -521,11 +540,20 @@ table.data td:last-child { min-width: 280px; }
     if (!a || !R.maxSelf || !a.self_seconds) return 0;
     return Math.round(Math.sqrt(a.self_seconds / R.maxSelf) * 80);
   }
-  function isExercised(kind, id) {
-    if (!R) return true;
-    const n = R.exercised.get(kind + "\u0000" + id);
-    return n ? n.exercised : !!(R.alg.get(id) && R.alg.get(id).count > 0);
+  // The join's verdict for a node: "ran", "not-run", or "unknown". A run-only algorithm id (no
+  // graph node) ran, because only its span puts it in the join.
+  function verdictOf(kind, id) {
+    if (!R) return "ran";
+    const n = R.verdict.get(kind + "\u0000" + id);
+    if (n) return n.verdict;
+    return R.alg.get(id) && R.alg.get(id).count > 0 ? "ran" : "unknown";
   }
+  function verdictClass(kind, id) {
+    if (!R) return "";
+    const v = verdictOf(kind, id);
+    return v === "not-run" ? " dim" : v === "unknown" ? " unknown" : "";
+  }
+  function verdictBadge(v) { return h("span", { class: "verdict " + v }, v); }
 
   // ---- Filtering ----
   function searchText(n) {
@@ -604,7 +632,7 @@ table.data td:last-child { min-width: 280px; }
     $("q").addEventListener("input", (ev) => { state.q = ev.target.value.trim(); renderAll(); });
     $("allphases").addEventListener("change", (ev) => { state.allPhases = ev.target.checked; renderLanes(); });
     $("zero").addEventListener("change", (ev) => { state.zero = ev.target.checked; renderAll(); });
-    $("unexercised").addEventListener("change", (ev) => { state.unexercised = ev.target.checked; renderRun(); });
+    $("verdicts").addEventListener("change", (ev) => { state.verdicts = new Set(ev.target.value.split(" ")); renderRun(); });
     $("depth").addEventListener("change", (ev) => { state.depth = Number(ev.target.value); renderNeighbourhood(); });
 
     const runSel = $("run");
@@ -662,13 +690,13 @@ table.data td:last-child { min-width: 280px; }
     }
     const rowAreas = areas.concat([...rowHas].filter((a) => !areas.includes(a)));
     const allCols = cols.length;
-    // With a run, a phase column is shown by default only when the run entered the phase or
-    // exercised one of its algorithms.
+    // With a run, a phase column is shown by default only when the phase or one of its
+    // algorithms has the verdict ran.
     const ran = (c) => {
       if (!R) return true;
       const pr = R.phaseRun.get(c.key);
-      if (pr && pr.count > 0) return true;
-      return rowAreas.some((area) => [...((cells.get(area + "\u0000" + c.key) || new Map()).keys())].some((id) => isExercised("algorithm", id)));
+      if ((pr && pr.count > 0) || verdictOf("phase", c.key) === "ran") return true;
+      return rowAreas.some((area) => [...((cells.get(area + "\u0000" + c.key) || new Map()).keys())].some((id) => verdictOf("algorithm", id) === "ran"));
     };
     if (!state.allPhases) cols = cols.filter((c) => colHas.has(c.key) && ran(c));
     const shownCols = new Set(cols.map((c) => c.key));
@@ -725,12 +753,13 @@ table.data td:last-child { min-width: 280px; }
     if (loose.childNodes.length) parts.push(h("h3", null, "In no phase column shown"), loose);
     if (!parts.length) parts.push(h("p", { class: "muted" }, "No algorithm passes the filters."));
     $("lanes").replaceChildren(...parts);
-    $("lanes-hint").textContent = shownIds.size + " of " + algos.length + " algorithms shown. Columns follow the stage tables in follows order; a phase contains the algorithms whose sites its call names. " + (state.allPhases ? "Narrow columns contain no algorithm shown." : (allCols - cols.length) + " of " + allCols + " phases are hidden because they contain no algorithm shown" + (R ? " or the run did not enter them" : "") + ".");
+    $("lanes-hint").textContent = shownIds.size + " of " + algos.length + " algorithms shown. Columns follow the stage tables in follows order; a phase contains the algorithms whose sites its call names. " + (state.allPhases ? "Narrow columns contain no algorithm shown." : (allCols - cols.length) + " of " + allCols + " phases are hidden because they contain no algorithm shown" + (R ? " or the run does not show them running" : "") + ".");
     const legend = [h("span", null, h("span", { class: "sw solid" }), "contained by the phase table")];
     if (R) {
       legend.push(h("span", null, h("span", { class: "sw observed" }), "observed inside the phase in this run only"));
       legend.push(h("span", null, h("span", { class: "heatbar" }), "self time, square-root scale"));
-      legend.push(h("span", null, "faded: not exercised by this run"));
+      legend.push(h("span", null, h("span", { class: "sw notrun" }), "not-run: instrumentation that would record it recorded nothing"));
+      legend.push(h("span", null, h("span", { class: "sw unknown" }), "unknown: this run cannot tell (no span opened, or only counters)"));
     }
     $("lanes-legend").replaceChildren(...legend);
   }
@@ -740,7 +769,7 @@ table.data td:last-child { min-width: 280px; }
     const label = area && id.startsWith(area + ".") ? id.slice(area.length + 1) : id;
     const n = byId.get(id);
     const b = h("button", {
-      class: "chip" + (observed ? " observed" : "") + (R && !isExercised("algorithm", id) ? " dim" : "") + (state.selected === id ? " sel" : ""),
+      class: "chip" + (observed ? " observed" : "") + verdictClass("algorithm", id) + (state.selected === id ? " sel" : ""),
       type: "button", "data-select": id, style: "--h:" + hv + "%",
       title: id + (n && n.name ? "\n" + n.name : "") + (run ? "\nself " + fmtS(run.self_seconds) + ", total " + fmtS(run.total_seconds) + ", ×" + run.count : ""),
     }, label);
@@ -891,13 +920,11 @@ table.data td:last-child { min-width: 280px; }
   function runBox(id, run, n) {
     const box = h("div", { class: "runbox" });
     box.append(h("div", null, h("b", null, "Run "), RUNS[state.run].label));
-    if (!run || (run.count === 0 && !isExercised(n ? n.kind : "algorithm", id))) {
-      box.append(h("div", { class: "muted" }, n && n.kind !== "algorithm" ? (isExercised(n.kind, id) ? "exercised" : "not exercised") : "not exercised by this run"));
-      return box;
-    }
+    const kind = n ? n.kind : "algorithm";
+    const decided = R.verdict.get(kind + "\u0000" + id);
+    box.append(h("div", null, verdictBadge(verdictOf(kind, id)), decided ? h("span", { class: "muted" }, " " + decided.evidence + ": " + decided.reason) : h("span", { class: "muted" }, " the run records this id by its span")));
+    if (!run || run.count === 0) return box;
     box.append(h("div", { class: "num" }, "×" + fmtN(run.count) + " · total " + fmtS(run.total_seconds) + " · self " + fmtS(run.self_seconds)));
-    const ex = R.exercised.get("algorithm\u0000" + id);
-    if (ex && ex.exercised_by) box.append(h("div", { class: "muted" }, "exercised by " + ex.exercised_by));
     const parents = R.nestIn.get(id) || [], children = R.nestOut.get(id) || [];
     const fmtNest = (list, key) => list.slice().sort((a, b) => b.count - a.count).map((e, i) => [i ? ", " : "", nodeLink(e[key]), h("span", { class: "muted" }, " ×" + fmtN(e.count))]);
     if (parents.length) box.append(h("div", null, h("span", { class: "muted" }, "called inside "), fmtNest(parents, "from")));
@@ -1017,7 +1044,7 @@ table.data td:last-child { min-width: 280px; }
       const isAlgo = node && node.kind === "algorithm";
       const label = n.length > 30 ? n.slice(0, 29) + "…" : n;
       const g = s("g", {
-        class: "node " + (isAlgo ? "algorithm" : "other") + (n === id ? " center" : "") + (R && isAlgo && !isExercised("algorithm", n) ? " dim" : ""),
+        class: "node " + (isAlgo ? "algorithm" : "other") + (n === id ? " center" : "") + (isAlgo ? verdictClass("algorithm", n) : ""),
         transform: "translate(" + p.x + "," + p.y + ")", "data-select": n, tabindex: "0", role: "button", style: "--h:" + heat(n) + "%",
       },
       s("title", null, n + (node && node.name ? "\n" + node.name : "") + (node && node.kind !== "algorithm" ? "\n(" + node.kind + ")" : "")),
@@ -1042,7 +1069,7 @@ table.data td:last-child { min-width: 280px; }
         const r = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
         return (dir === "descending" ? -r : r) || (a.id < b.id ? -1 : 1);
       });
-      tbody.replaceChildren(...sorted.map((r) => h("tr", { class: r.dim ? "dim" : null }, columns.map((c) => h("td", { class: c.num ? "num" : null }, c.render(r))))));
+      tbody.replaceChildren(...sorted.map((r) => h("tr", { class: [r.dim ? "dim" : "", r.cls || ""].join(" ").trim() || null }, columns.map((c) => h("td", { class: c.num ? "num" : null }, c.render(r))))));
       for (const th of headRow.children) th.setAttribute("aria-sort", th.dataset.key === sortKey ? dir : "none");
     };
     for (const c of columns) {
@@ -1065,19 +1092,20 @@ table.data td:last-child { min-width: 280px; }
     const meta = [
       h("div", null, h("b", null, rc.workload), rc.claim ? " · claim " + rc.claim : "", rc.timestamp ? " · " + rc.timestamp : ""),
       h("div", null, "krust " + (rc.krust_revision || "unknown revision") + (rc.tool || []).map((t) => " · " + t.version).join("")),
-      h("div", null, j.summary.exercised_algorithms + " of " + j.summary.declared_algorithms + " declared algorithms exercised; largest self time: ",
+      h("div", null, "declared algorithms: " + j.summary.ran_algorithms + " ran, " + j.summary.not_run_algorithms + " not-run, " + j.summary.unknown_algorithms + " unknown of " + j.summary.declared_algorithms + "; largest self time: ",
         j.summary.largest_self_time_algorithm ? nodeLink(j.summary.largest_self_time_algorithm) : "none", " (" + fmtS(j.summary.largest_self_seconds) + ")"),
       h("div", null, "receipt " + rc.directory + " · counter schema " + rc.counter_schema + (rc.counters_partial ? " (partial)" : "") + " · timings schema " + rc.timings_schema + (rc.timings_partial ? " (partial)" : "")),
     ];
+    meta.push(h("details", null, h("summary", { class: "muted" }, "verdict rule"), h("p", { class: "hint" }, j.verdict_rule)));
     $("runmeta").replaceChildren(...meta);
     $("perfetto").replaceChildren("Per-invocation drill-down: open the run's ", h("code", null, "trace.json"), " (normally in ", h("code", null, rc.directory), ") in Perfetto (", h("code", null, "https://ui.perfetto.dev"), "). This page aggregates by algorithm id and draws no flame chart.");
 
     const rows = [];
     for (const a of j.algorithm) {
-      const exercised = a.count > 0 || isExercised("algorithm", a.id);
-      if (!exercised && !state.unexercised) continue;
+      const v = verdictOf("algorithm", a.id);
+      if (!state.verdicts.has(v)) continue;
       if (!passes(a.id)) continue;
-      rows.push({ id: a.id, a, dim: !exercised });
+      rows.push({ id: a.id, a, v, dim: v === "not-run", cls: v === "unknown" ? "unknown" : null });
     }
     const counterCell = (r) => {
       const node = byId.get(r.id);
@@ -1094,6 +1122,7 @@ table.data td:last-child { min-width: 280px; }
     };
     const columns = [
       { key: "id", label: "Algorithm", value: (r) => r.id, render: (r) => h("span", { class: "nowrap" }, nodeLink(r.id)) },
+      { key: "verdict", label: "Verdict", value: (r) => r.v, render: (r) => { const d = R.verdict.get("algorithm\u0000" + r.id); return h("span", { title: d ? d.evidence + ": " + d.reason : "" }, verdictBadge(r.v)); } },
       { key: "count", label: "Count", num: true, value: (r) => r.a.count, render: (r) => fmtN(r.a.count) },
       { key: "total", label: "Total", num: true, value: (r) => r.a.total_seconds, render: (r) => fmtS(r.a.total_seconds) },
       { key: "self", label: "Self", num: true, value: (r) => r.a.self_seconds, render: (r) => fmtS(r.a.self_seconds) },
@@ -1101,9 +1130,12 @@ table.data td:last-child { min-width: 280px; }
     ];
     $("runtable").replaceChildren(rows.length ? sortableTable(columns, rows, { key: "self", dir: "descending" }) : h("p", { class: "muted", style: "padding:8px" }, "No algorithm row passes the filters."));
 
-    const phaseRows = j.phase.filter((p) => state.zero || p.count > 0).map((p) => ({ id: p.id, p }));
+    const phaseRows = j.phase.map((p) => ({ id: p.id, p, v: verdictOf("phase", p.id) }))
+      .filter((r) => state.zero || r.p.count > 0 || r.v === "ran")
+      .map((r) => Object.assign(r, { dim: r.v === "not-run", cls: r.v === "unknown" ? "unknown" : null }));
     const phaseCols = [
       { key: "id", label: "Phase", value: (r) => r.id, render: (r) => h("span", { class: "mono" }, r.id, byId.has(r.id) ? null : h("span", { class: "muted" }, " (no table)")) },
+      { key: "verdict", label: "Verdict", value: (r) => r.v, render: (r) => { const d = R.verdict.get("phase\u0000" + r.id); return h("span", { title: d ? d.evidence + ": " + d.reason : "" }, verdictBadge(r.v)); } },
       { key: "count", label: "Count", num: true, value: (r) => r.p.count, render: (r) => fmtN(r.p.count) },
       { key: "total", label: "Total", num: true, value: (r) => r.p.total_seconds, render: (r) => fmtS(r.p.total_seconds) },
       { key: "attr", label: "In algorithms", num: true, value: (r) => r.p.algorithm_self_seconds, render: (r) => fmtS(r.p.algorithm_self_seconds) },

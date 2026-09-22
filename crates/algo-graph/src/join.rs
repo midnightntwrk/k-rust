@@ -11,16 +11,44 @@ use serde_json::{Map, Value};
 use crate::{Cost, Edge, Error, Graph};
 
 /// Schema of the canonical run-projection TOML.
-pub const JOIN_SCHEMA_VERSION: u32 = 1;
+pub const JOIN_SCHEMA_VERSION: u32 = 2;
 
 /// The exact rule used to aggregate span observations by algorithm id.
-pub const AGGREGATION_RULE: &str = "per algorithm id: invocation count; total duration is the sum of inclusive invocation durations, where an invocation nested inside an open invocation of the same id (recursion) adds nothing because the outermost one already includes it; self duration subtracts direct nested algorithm durations; counter totals are summed across invocations with the same recursion rule and self counters subtract direct nested algorithm deltas; an algorithm node is exercised by spans when it has an invocation and by counters when a counter its card declares is nonzero in the receipt or in any span";
+pub const AGGREGATION_RULE: &str = "per algorithm id: invocation count; total duration is the sum of inclusive invocation durations, where an invocation nested inside an open invocation of the same id (recursion) adds nothing because the outermost one already includes it; self duration subtracts direct nested algorithm durations; counter totals are summed across invocations with the same recursion rule and self counters subtract direct nested algorithm deltas";
+
+/// How a run's evidence decides each node's verdict; [`edge_verdict_rule`] gives the edge rules.
+pub const VERDICT_RULE: &str = "each node and edge is ran, not-run, or unknown: a positive observation proves presence, and absence proves absence only where the instrumentation would have recorded it. An algorithm ran when its own span opened and is unknown otherwise: some entries do an algorithm's work without opening its span, so a zero span count proves nothing, and a counter is incremented wherever its code runs, so a moved counter is not attributed to the card that declares it. A phase ran when its span opened or the receipt's timings list names it, and did not run when neither holds and the receipt has a current-schema timings list. A counter ran when it moved and did not run when a current-schema dump records it at zero. Representations, contracts, and registries are unknown: nothing records them. Span policies are those of the joined graph, which must be generated at the receipt's commit";
+
+/// What one run's evidence establishes about a node or an edge.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Verdict {
+    /// A positive observation shows that it happened in the run.
+    Ran,
+    /// Instrumentation that would have recorded it recorded nothing.
+    NotRun,
+    /// The run's evidence cannot tell.
+    Unknown,
+}
+
+impl Verdict {
+    /// The serialized name: `ran`, `not-run`, or `unknown`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ran => "ran",
+            Self::NotRun => "not-run",
+            Self::Unknown => "unknown",
+        }
+    }
+}
 
 /// A static graph joined to one trace and its receipt.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Join {
     pub schema_version: u32,
     pub aggregation_rule: String,
+    /// [`VERDICT_RULE`] at the time of the join.
+    pub verdict_rule: String,
     pub receipt: Receipt,
     pub summary: Summary,
     #[serde(rename = "algorithm", default)]
@@ -87,8 +115,12 @@ pub struct Summary {
     pub largest_self_time_algorithm: Option<String>,
     pub largest_self_seconds: f64,
     pub declared_algorithms: usize,
-    pub exercised_algorithms: usize,
-    pub unexercised_backend_algorithms: Vec<String>,
+    /// Declared algorithms by verdict; the three counts sum to `declared_algorithms`.
+    pub ran_algorithms: usize,
+    pub not_run_algorithms: usize,
+    pub unknown_algorithms: usize,
+    pub not_run_backend_algorithms: Vec<String>,
+    pub unknown_backend_algorithms: Vec<String>,
 }
 
 /// Static claims and dynamic observations for one stable algorithm id.
@@ -163,19 +195,26 @@ pub struct ReceiptCounter {
     pub declared_in_graph: bool,
 }
 
-/// Exercise status for every static graph node.
+/// The verdict for every static graph node.
+///
+/// `evidence` names the fact that decided the verdict. Algorithms: `span` (ran), `zero-span`,
+/// `unobservable`, `counter-moved`, `counter-idle` (unknown). Phases:
+/// `span`, `timings` (ran), `absent` (not-run), `unrecorded` (unknown). Counters: `counter`
+/// (ran), `counter-zero` (not-run), `counter-unrecorded` (unknown). Every other node kind:
+/// `unobserved` (unknown). `reason` states the same fact with the run's values.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct NodeRun {
     pub kind: String,
     pub id: String,
-    pub exercised: bool,
+    pub verdict: Verdict,
     pub evidence: String,
-    /// For an exercised algorithm node: `spans`, `counters`, or `both`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exercised_by: Option<String>,
+    pub reason: String,
 }
 
-/// Exercise status for every static graph edge.
+/// The verdict for every static graph edge.
+///
+/// `evidence` is `observed` (ran), `endpoint-not-run` (not-run), or `unobserved` (unknown);
+/// [`edge_verdict_rule`] states the rule per kind.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EdgeRun {
     pub kind: String,
@@ -186,7 +225,8 @@ pub struct EdgeRun {
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub order: Option<usize>,
-    pub exercised: bool,
+    pub verdict: Verdict,
+    pub evidence: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -227,6 +267,8 @@ pub(crate) struct TraceObservations {
     phases: BTreeMap<String, Aggregate>,
     nests: BTreeMap<(String, String), u64>,
     contains: BTreeMap<(String, String), Aggregate>,
+    /// (phase, algorithm) for every algorithm span opened inside a phase span at any depth.
+    within: BTreeSet<(String, String)>,
     follows: BTreeSet<(String, String)>,
 }
 
@@ -249,9 +291,15 @@ pub fn join_files(
     graph.sort();
     let events: Value = serde_json::from_str(&fs::read_to_string(trace)?)?;
     let observations = parse_trace(&events)?;
-    let (mut receipt_info, receipt_counters) = read_receipt(receipt)?;
+    let (mut receipt_info, receipt_counters, timings_phases) = read_receipt(receipt)?;
     receipt_info.directory = receipt_directory(root, receipt);
-    let joined = project(&graph, observations, receipt_info, receipt_counters);
+    let joined = project_with_timings(
+        &graph,
+        observations,
+        receipt_info,
+        receipt_counters,
+        timings_phases,
+    );
     Ok((graph, joined))
 }
 
@@ -328,6 +376,11 @@ pub(crate) fn parse_trace(document: &Value) -> Result<TraceObservations, Error> 
                     });
                     if let Some(parent) = &parent {
                         checked_increment(&mut result.nests, (parent.clone(), id.clone()))?;
+                    }
+                    for frame in stack.iter() {
+                        if let FrameKind::Phase { name, .. } = &frame.kind {
+                            result.within.insert((name.clone(), id.clone()));
+                        }
                     }
                     FrameKind::Algorithm {
                         id,
@@ -530,7 +583,10 @@ fn add_counters(
     Ok(())
 }
 
-fn read_receipt(receipt: &Path) -> Result<(Receipt, BTreeMap<String, u64>), Error> {
+/// The receipt identity, its counter dump, and the phase names of a current-schema timings list.
+type ReceiptFiles = (Receipt, BTreeMap<String, u64>, Option<BTreeSet<String>>);
+
+fn read_receipt(receipt: &Path) -> Result<ReceiptFiles, Error> {
     let metadata: Value =
         serde_json::from_str(&fs::read_to_string(receipt.join("metadata.json"))?)?;
     let metadata = metadata
@@ -543,18 +599,31 @@ fn read_receipt(receipt: &Path) -> Result<(Receipt, BTreeMap<String, u64>), Erro
         .to_owned();
     let metadata_schema = schema_label(metadata.get("version"), "unversioned")?;
     let timings_path = receipt.join("timings.json");
-    let (timings_schema, timings_partial) = if timings_path.exists() {
+    let (timings_schema, timings_partial, timings_phases) = if timings_path.exists() {
         let timings: Value = serde_json::from_str(&fs::read_to_string(&timings_path)?)?;
         let timings = timings
             .as_object()
             .ok_or_else(|| Error::Invalid("timings.json is not an object".to_owned()))?;
+        let partial = timings.get("version").and_then(Value::as_u64)
+            != Some(u64::from(k_rust::timings::TIMINGS_SCHEMA_VERSION));
+        let phases = timings
+            .get("phases")
+            .and_then(Value::as_array)
+            .filter(|_| !partial)
+            .map(|phases| {
+                phases
+                    .iter()
+                    .filter_map(|phase| phase.get("name").and_then(Value::as_str))
+                    .map(ToOwned::to_owned)
+                    .collect::<BTreeSet<_>>()
+            });
         (
             schema_label(timings.get("version"), "pre-versioned")?,
-            timings.get("version").and_then(Value::as_u64)
-                != Some(u64::from(k_rust::timings::TIMINGS_SCHEMA_VERSION)),
+            partial,
+            phases,
         )
     } else {
-        ("missing".to_owned(), true)
+        ("missing".to_owned(), true, None)
     };
     let counters_path = receipt.join("counters.json");
     let (counter_schema, counters_partial, counters) = if counters_path.exists() {
@@ -613,7 +682,7 @@ fn read_receipt(receipt: &Path) -> Result<(Receipt, BTreeMap<String, u64>), Erro
         tools,
         revisions,
     };
-    Ok((info, counters))
+    Ok((info, counters, timings_phases))
 }
 
 /// The receipt directory relative to the workspace root, or its last two components (the
@@ -667,11 +736,23 @@ fn optional_string(value: Option<&Value>) -> Option<String> {
     value.filter(|value| !value.is_null()).map(scalar_text)
 }
 
+/// Project a run whose receipt holds no timings phase list.
+#[cfg(test)]
 pub(crate) fn project(
     graph: &Graph,
     observations: TraceObservations,
     receipt: Receipt,
     receipt_counter_values: BTreeMap<String, u64>,
+) -> Join {
+    project_with_timings(graph, observations, receipt, receipt_counter_values, None)
+}
+
+pub(crate) fn project_with_timings(
+    graph: &Graph,
+    observations: TraceObservations,
+    receipt: Receipt,
+    receipt_counter_values: BTreeMap<String, u64>,
+    timings_phases: Option<BTreeSet<String>>,
 ) -> Join {
     let node_by_id = graph
         .nodes
@@ -807,113 +888,63 @@ pub(crate) fn project(
             declared_in_graph: observation_names.values().any(|declared| declared == name),
         })
         .collect::<Vec<_>>();
-    let counter_moved = |name: &str| {
-        receipt_counter_values
-            .get(name)
-            .is_some_and(|value| *value > 0)
-            || observations
-                .algorithms
-                .values()
-                .any(|aggregate| aggregate.counters.get(name).is_some_and(|value| *value > 0))
+    let mut declarers = BTreeMap::<&str, BTreeSet<&str>>::new();
+    for (algorithm, declared) in &declared_counters {
+        for (_, name) in declared {
+            declarers
+                .entry(name.as_str())
+                .or_default()
+                .insert(algorithm.as_str());
+        }
+    }
+    let facts = RunFacts {
+        observations: &observations,
+        receipt_counters: &receipt_counter_values,
+        counters_current: !receipt.counters_partial,
+        timings_phases: timings_phases.as_ref(),
+        declarers: &declarers,
     };
-    let mut exercised_by = BTreeMap::<String, &str>::new();
-    let base_exercised = graph
-        .nodes
-        .iter()
-        .map(|node| {
-            let (exercised, evidence) = match node.kind.as_str() {
-                "algorithm" => {
-                    let spans = observations
-                        .algorithms
-                        .get(&node.id)
-                        .is_some_and(|aggregate| aggregate.count > 0);
-                    let counters = declared_counters.get(&node.id).is_some_and(|declared| {
-                        declared.iter().any(|(_, name)| counter_moved(name))
-                    });
-                    let signal = match (spans, counters) {
-                        (true, true) => Some("both"),
-                        (true, false) => Some("spans"),
-                        (false, true) => Some("counters"),
-                        (false, false) => None,
-                    };
-                    if let Some(signal) = signal {
-                        exercised_by.insert(node.id.clone(), signal);
-                    }
-                    (
-                        spans || counters,
-                        if node.span.as_deref() == Some("none") {
-                            "no-span-policy"
-                        } else {
-                            "algorithm-span"
-                        },
-                    )
-                }
-                "phase" => (
-                    observations
-                        .phases
-                        .get(&node.id)
-                        .is_some_and(|aggregate| aggregate.count > 0),
-                    "phase-span",
-                ),
-                "observation" => (
-                    node.registry_name.as_deref().is_some_and(&counter_moved),
-                    "counter",
-                ),
-                _ => (false, "none"),
-            };
-            (node.id.clone(), (exercised, evidence.to_owned()))
-        })
-        .collect::<BTreeMap<_, _>>();
     let nodes = graph
         .nodes
         .iter()
         .map(|node| {
-            let (mut exercised, mut evidence) = base_exercised
-                .get(&node.id)
-                .cloned()
-                .unwrap_or((false, "none".to_owned()));
-            if node.kind == "representation" {
-                exercised = graph.edges.iter().any(|edge| {
-                    matches!(edge.kind.as_str(), "consumes" | "produces")
-                        && (edge.from == node.id || edge.to == node.id)
-                        && [edge.from.as_str(), edge.to.as_str()].iter().any(|id| {
-                            base_exercised
-                                .get(*id)
-                                .is_some_and(|(exercised, _)| *exercised)
-                        })
-                });
-                evidence = "adjacent-algorithm".to_owned();
-            }
+            let decided = match node.kind.as_str() {
+                "algorithm" => facts.algorithm(node, declared_counters.get(&node.id)),
+                "phase" => facts.phase(&node.id),
+                "observation" => facts.observation(node),
+                kind => Decided::unknown(
+                    "unobserved",
+                    format!("no instrumentation records a {kind} node"),
+                ),
+            };
             NodeRun {
                 kind: node.kind.clone(),
                 id: node.id.clone(),
-                exercised,
-                evidence,
-                exercised_by: (node.kind == "algorithm")
-                    .then(|| {
-                        exercised_by
-                            .get(&node.id)
-                            .map(|signal| (*signal).to_owned())
-                    })
-                    .flatten(),
+                verdict: decided.verdict,
+                evidence: decided.evidence.to_owned(),
+                reason: decided.reason,
             }
         })
         .collect::<Vec<_>>();
-    let node_exercised = nodes
+    let node_verdicts = nodes
         .iter()
-        .map(|node| (node.id.as_str(), node.exercised))
+        .map(|node| (node.id.as_str(), node.verdict))
         .collect::<BTreeMap<_, _>>();
     let edges = graph
         .edges
         .iter()
-        .map(|edge| EdgeRun {
-            kind: edge.kind.clone(),
-            from: edge.from.clone(),
-            to: edge.to.clone(),
-            provenance: edge.provenance.clone(),
-            detail: edge.detail.clone(),
-            order: edge.order,
-            exercised: edge_exercised(edge, &observations, &observation_names, &node_exercised),
+        .map(|edge| {
+            let (verdict, evidence) = facts.edge(edge, &observation_names, &node_verdicts);
+            EdgeRun {
+                kind: edge.kind.clone(),
+                from: edge.from.clone(),
+                to: edge.to.clone(),
+                provenance: edge.provenance.clone(),
+                detail: edge.detail.clone(),
+                order: edge.order,
+                verdict,
+                evidence: evidence.to_owned(),
+            }
         })
         .collect::<Vec<_>>();
     let largest = algorithms.iter().max_by(|left, right| {
@@ -921,6 +952,24 @@ pub(crate) fn project(
             .total_cmp(&right.self_seconds)
             .then_with(|| right.id.cmp(&left.id))
     });
+    let declared_verdicts = nodes
+        .iter()
+        .filter(|node| node.kind == "algorithm")
+        .collect::<Vec<_>>();
+    let count_verdict = |verdict: Verdict| {
+        declared_verdicts
+            .iter()
+            .filter(|node| node.verdict == verdict)
+            .count()
+    };
+    let backend_with = |verdict: Verdict| {
+        algorithms
+            .iter()
+            .filter(|algorithm| algorithm.declared && algorithm.area.as_deref() == Some("backend"))
+            .filter(|algorithm| node_verdicts.get(algorithm.id.as_str()) == Some(&verdict))
+            .map(|algorithm| algorithm.id.clone())
+            .collect::<Vec<_>>()
+    };
     let summary = Summary {
         largest_self_time_algorithm: largest
             .filter(|algorithm| algorithm.count > 0)
@@ -932,21 +981,16 @@ pub(crate) fn project(
             .iter()
             .filter(|algorithm| algorithm.declared)
             .count(),
-        exercised_algorithms: algorithms
-            .iter()
-            .filter(|algorithm| algorithm.count > 0 || exercised_by.contains_key(&algorithm.id))
-            .count(),
-        unexercised_backend_algorithms: algorithms
-            .iter()
-            .filter(|algorithm| algorithm.declared)
-            .filter(|algorithm| algorithm.area.as_deref() == Some("backend"))
-            .filter(|algorithm| algorithm.count == 0 && !exercised_by.contains_key(&algorithm.id))
-            .map(|algorithm| algorithm.id.clone())
-            .collect(),
+        ran_algorithms: count_verdict(Verdict::Ran),
+        not_run_algorithms: count_verdict(Verdict::NotRun),
+        unknown_algorithms: count_verdict(Verdict::Unknown),
+        not_run_backend_algorithms: backend_with(Verdict::NotRun),
+        unknown_backend_algorithms: backend_with(Verdict::Unknown),
     };
     Join {
         schema_version: JOIN_SCHEMA_VERSION,
         aggregation_rule: AGGREGATION_RULE.to_owned(),
+        verdict_rule: VERDICT_RULE.to_owned(),
         receipt,
         summary,
         algorithms,
@@ -970,47 +1014,314 @@ fn observed_edges(edges: &BTreeMap<(String, String), u64>) -> Vec<ObservedEdge> 
         .collect()
 }
 
-fn edge_exercised(
-    edge: &Edge,
-    observations: &TraceObservations,
-    observation_names: &BTreeMap<String, String>,
-    node_exercised: &BTreeMap<&str, bool>,
-) -> bool {
-    match edge.kind.as_str() {
-        "contains" => observations
-            .contains
-            .contains_key(&(edge.from.clone(), edge.to.clone())),
-        "nests" => observations
-            .nests
-            .contains_key(&(edge.from.clone(), edge.to.clone())),
-        "follows" => observations
-            .follows
-            .contains(&(edge.from.clone(), edge.to.clone())),
-        "measured-by" => observation_names.get(&edge.to).is_some_and(|name| {
-            observations
-                .algorithms
-                .get(&edge.from)
-                .and_then(|algorithm| algorithm.counters.get(name))
-                .is_some_and(|value| *value > 0)
-        }),
-        "consumes" | "produces" => [edge.from.as_str(), edge.to.as_str()]
-            .iter()
-            .any(|id| node_exercised.get(id).copied().unwrap_or(false)),
-        _ => {
-            node_exercised
-                .get(edge.from.as_str())
-                .copied()
-                .unwrap_or(false)
-                && node_exercised
-                    .get(edge.to.as_str())
-                    .copied()
-                    .unwrap_or(false)
+/// The facts of one run that verdicts are decided from.
+struct RunFacts<'a> {
+    observations: &'a TraceObservations,
+    receipt_counters: &'a BTreeMap<String, u64>,
+    /// The receipt holds a counter dump at the current schema, so a counter absent from a span's
+    /// delta or zero in the dump did not move, and spans carry counter deltas.
+    counters_current: bool,
+    /// Phase names in the receipt's `timings.json` `phases` list; `None` when the receipt has no
+    /// such list at the current timings schema.
+    timings_phases: Option<&'a BTreeSet<String>>,
+    /// Counter registry name to the algorithms whose cards declare it.
+    declarers: &'a BTreeMap<&'a str, BTreeSet<&'a str>>,
+}
+
+/// A verdict with the evidence code and sentence that decided it.
+struct Decided {
+    verdict: Verdict,
+    evidence: &'static str,
+    reason: String,
+}
+
+impl Decided {
+    fn ran(evidence: &'static str, reason: String) -> Self {
+        Self {
+            verdict: Verdict::Ran,
+            evidence,
+            reason,
+        }
+    }
+
+    fn not_run(evidence: &'static str, reason: String) -> Self {
+        Self {
+            verdict: Verdict::NotRun,
+            evidence,
+            reason,
+        }
+    }
+
+    fn unknown(evidence: &'static str, reason: String) -> Self {
+        Self {
+            verdict: Verdict::Unknown,
+            evidence,
+            reason,
         }
     }
 }
 
+/// What the run recorded for one counter.
+enum CounterState {
+    /// Positive in the receipt dump or in some algorithm span's delta.
+    Moved(u64),
+    /// Zero in a counter dump at the current schema.
+    Zero,
+    /// The receipt holds no current-schema value and no span saw it move.
+    Unrecorded,
+}
+
+impl RunFacts<'_> {
+    fn counter(&self, name: &str) -> CounterState {
+        let in_spans = self
+            .observations
+            .algorithms
+            .values()
+            .filter_map(|aggregate| aggregate.counters.get(name))
+            .copied()
+            .max()
+            .unwrap_or(0);
+        match self.receipt_counters.get(name).copied() {
+            Some(value) if value > 0 => CounterState::Moved(value),
+            _ if in_spans > 0 => CounterState::Moved(in_spans),
+            Some(_) if self.counters_current => CounterState::Zero,
+            _ => CounterState::Unrecorded,
+        }
+    }
+
+    /// An algorithm ran when its own span opened; nothing else decides a verdict.
+    ///
+    /// A zero span count does not prove that it did not run: the source gate checks that some
+    /// site file opens the span, not that every entry does, and entries that do the work without
+    /// the span exist (the prelude check calls `Z3Solver::solve_uncached` directly, and predicate
+    /// simplification calls `simplify_with_budget` outside the term span). Counters decide
+    /// nothing either: a counter is incremented wherever its code runs, which can lie outside the
+    /// declaring algorithm even when one card alone declares it (`provenance.receipt_renders`
+    /// moves inside `parser.grammar.build` spans), and a counter that counts part of the work can
+    /// stay zero while the algorithm runs.
+    fn algorithm(&self, node: &crate::Node, declared: Option<&Vec<(String, String)>>) -> Decided {
+        let count = self
+            .observations
+            .algorithms
+            .get(&node.id)
+            .map_or(0, |aggregate| aggregate.count);
+        if count > 0 {
+            return Decided::ran("span", format!("its span opened {count} times"));
+        }
+        let policy = node.span.as_deref().unwrap_or("absent");
+        if matches!(policy, "per call" | "per problem") {
+            return Decided::unknown(
+                "zero-span",
+                format!(
+                    "span policy {policy} and its span never opened, but not every entry opens the span, so a zero count does not show that it did not run"
+                ),
+            );
+        }
+        let declared = declared.map(Vec::as_slice).unwrap_or_default();
+        if declared.is_empty() {
+            return Decided::unknown(
+                "unobservable",
+                format!(
+                    "span policy {policy} and no declared counter, so no run can show whether it ran"
+                ),
+            );
+        }
+        let describe = |name: &str, value: Option<u64>| {
+            let cards = self.declarers.get(name).map_or(0, BTreeSet::len);
+            let value = value.map_or_else(|| "unrecorded".to_owned(), |value| value.to_string());
+            if cards > 1 {
+                format!("{name} = {value} (declared by {cards} cards)")
+            } else {
+                format!("{name} = {value} (declared by this card alone)")
+            }
+        };
+        let states = declared
+            .iter()
+            .map(|(_, name)| (name.as_str(), self.counter(name)))
+            .collect::<Vec<_>>();
+        let moved = states
+            .iter()
+            .filter_map(|(name, state)| match state {
+                CounterState::Moved(value) => Some(describe(name, Some(*value))),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if moved.is_empty() {
+            let idle = states
+                .iter()
+                .map(|(name, state)| {
+                    describe(
+                        name,
+                        match state {
+                            CounterState::Zero => Some(0),
+                            _ => None,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            Decided::unknown(
+                "counter-idle",
+                format!(
+                    "span policy {policy}; no declared counter moved ({}), and a counter that counts part of the work does not show that the algorithm did not run",
+                    idle.join("; ")
+                ),
+            )
+        } else {
+            Decided::unknown(
+                "counter-moved",
+                format!(
+                    "span policy {policy}; declared counters moved ({}), but a counter is incremented wherever its code runs, so it does not show that this algorithm ran",
+                    moved.join("; ")
+                ),
+            )
+        }
+    }
+
+    /// A phase ran when its span opened or when the receipt's timings list names it; some phases
+    /// are recorded in timings without a span. A phase with neither did not run when the receipt
+    /// holds a current-schema timings list, which records every phase the pipeline executed.
+    fn phase(&self, id: &str) -> Decided {
+        let count = self
+            .observations
+            .phases
+            .get(id)
+            .map_or(0, |aggregate| aggregate.count);
+        if count > 0 {
+            return Decided::ran("span", format!("its span opened {count} times"));
+        }
+        match self.timings_phases {
+            Some(names) if names.contains(id) => Decided::ran(
+                "timings",
+                "the receipt's timings list records it; it has no phase span".to_owned(),
+            ),
+            Some(_) => Decided::not_run(
+                "absent",
+                "no phase span and no entry in the receipt's timings list".to_owned(),
+            ),
+            None => Decided::unknown(
+                "unrecorded",
+                "no phase span, and the receipt has no current-schema timings list that would record a phase without one".to_owned(),
+            ),
+        }
+    }
+
+    /// A counter node ran when the counter moved and did not run when a current-schema dump
+    /// records it at zero.
+    fn observation(&self, node: &crate::Node) -> Decided {
+        let Some(name) = node.registry_name.as_deref() else {
+            return Decided::unknown("unobserved", "the node names no counter".to_owned());
+        };
+        match self.counter(name) {
+            CounterState::Moved(value) => Decided::ran("counter", format!("{name} = {value}")),
+            CounterState::Zero => Decided::not_run(
+                "counter-zero",
+                format!("{name} is zero in a current-schema counter dump"),
+            ),
+            CounterState::Unrecorded => Decided::unknown(
+                "counter-unrecorded",
+                format!("the receipt holds no current-schema value for {name}"),
+            ),
+        }
+    }
+
+    /// The verdict of one static edge; [`edge_verdict_rule`] states the rule per kind.
+    fn edge(
+        &self,
+        edge: &Edge,
+        observation_names: &BTreeMap<String, String>,
+        node_verdicts: &BTreeMap<&str, Verdict>,
+    ) -> (Verdict, &'static str) {
+        let verdict = |id: &str| node_verdicts.get(id).copied().unwrap_or(Verdict::Unknown);
+        let from = verdict(&edge.from);
+        let to = verdict(&edge.to);
+        let key = (edge.from.clone(), edge.to.clone());
+        let either_not_run = from == Verdict::NotRun || to == Verdict::NotRun;
+        let not_run = (Verdict::NotRun, "endpoint-not-run");
+        let unknown = (Verdict::Unknown, "unobserved");
+        match edge.kind.as_str() {
+            "contains" => {
+                if self.observations.within.contains(&key) {
+                    (Verdict::Ran, "observed")
+                } else if either_not_run {
+                    not_run
+                } else {
+                    unknown
+                }
+            }
+            "nests" => {
+                if self.observations.nests.contains_key(&key) {
+                    (Verdict::Ran, "observed")
+                } else if either_not_run {
+                    not_run
+                } else {
+                    unknown
+                }
+            }
+            "follows" => {
+                if self.observations.follows.contains(&key) {
+                    (Verdict::Ran, "observed")
+                } else if either_not_run {
+                    not_run
+                } else {
+                    unknown
+                }
+            }
+            "measured-by" => {
+                let moved = observation_names.get(&edge.to).and_then(|name| {
+                    self.observations
+                        .algorithms
+                        .get(&edge.from)
+                        .and_then(|algorithm| algorithm.counters.get(name).copied())
+                });
+                if moved.is_some_and(|value| value > 0) {
+                    (Verdict::Ran, "observed")
+                } else if either_not_run {
+                    not_run
+                } else {
+                    unknown
+                }
+            }
+            "consumes" | "produces" if from == Verdict::NotRun => not_run,
+            "constrains" if to == Verdict::NotRun => not_run,
+            "falls-back-to" if either_not_run => not_run,
+            "consumes" | "produces" | "constrains" | "falls-back-to" => unknown,
+            _ if from == Verdict::NotRun && to == Verdict::NotRun => not_run,
+            _ => unknown,
+        }
+    }
+}
+
+/// The rule that decides one edge kind's verdict, stated for the reader.
+pub fn edge_verdict_rule(kind: &str) -> &'static str {
+    match kind {
+        "contains" => {
+            "ran when the algorithm's span opened inside the phase's span, at any depth; not-run when either endpoint did not run; otherwise unknown, because the algorithm may run inside the phase through an entry without its span"
+        }
+        "nests" => {
+            "ran when the inner algorithm's span opened directly inside the outer one's; not-run when either endpoint did not run; otherwise unknown"
+        }
+        "follows" => {
+            "ran when the later phase's span started next after the earlier one under the same parent; not-run when either phase did not run; otherwise unknown, because an optional phase between them hides the order"
+        }
+        "measured-by" => {
+            "ran when the counter moved inside the algorithm's spans; not-run when either endpoint did not run, including a counter that stayed zero; otherwise unknown, because the algorithm may move the counter through an entry without its span"
+        }
+        "consumes" | "produces" => {
+            "not-run when the algorithm did not run; otherwise unknown, because no instrumentation records a representation"
+        }
+        "constrains" => {
+            "not-run when the consumer did not run; otherwise unknown, because the carrier is not a call and may cross processes (a compiled definition read by the backend)"
+        }
+        "falls-back-to" => {
+            "not-run when either algorithm did not run; otherwise unknown, because no instrumentation records the fallback itself"
+        }
+        _ => "not-run when both endpoints did not run; otherwise unknown",
+    }
+}
+
 /// Render a complete run overlay. Static cost bounds stay in the algorithm label beside the
-/// trace observations, and unexercised nodes and edges are dimmed.
+/// trace observations. Nodes and edges carry their verdict: `ran` in green, `not-run` dimmed,
+/// and `unknown` with a dashed outline or a dashed link, so the evidence gap stays visible.
 ///
 /// A counter node whose receipt value is zero is omitted together with its edges: the run
 /// observed nothing on it, so it carries no run information. A counter the receipt does not
@@ -1034,7 +1345,7 @@ pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
     let status = join
         .nodes
         .iter()
-        .map(|node| ((node.kind.as_str(), node.id.as_str()), node.exercised))
+        .map(|node| ((node.kind.as_str(), node.id.as_str()), node.verdict))
         .collect::<BTreeMap<_, _>>();
     let observed_zero = |node: &&crate::Node| {
         node.kind == "observation"
@@ -1073,6 +1384,10 @@ pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
     output.push_str(
         "%% generated by algo-graph join; static bounds and run observations are distinct\n",
     );
+    output.push_str(
+        "%% verdicts: ran (green) was observed; not-run (dimmed) would have been recorded and was not; unknown (dashed) cannot be told from this run\n",
+    );
+    output.push_str(&format!("%% rule: {VERDICT_RULE}\n"));
     output.push_str("flowchart LR\n");
     for node in &nodes {
         let id = &ids[&(node.kind.as_str(), node.id.as_str())];
@@ -1121,11 +1436,11 @@ pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
                     edge.detail.as_deref(),
                     edge.order,
                 ),
-                edge.exercised,
+                edge.verdict,
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let mut unexercised_links = Vec::new();
+    let mut link_verdicts = BTreeMap::<Verdict, Vec<usize>>::new();
     let mut link = 0usize;
     for edge in &graph.edges {
         let Some(from) = first_id.get(edge.from.as_str()) else {
@@ -1141,7 +1456,7 @@ pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
             escape(&edge.kind),
             escape(&edge.provenance)
         ));
-        let exercised = edge_status
+        let verdict = edge_status
             .get(&(
                 edge.kind.as_str(),
                 edge.from.as_str(),
@@ -1150,10 +1465,8 @@ pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
                 edge.order,
             ))
             .copied()
-            .unwrap_or(false);
-        if !exercised {
-            unexercised_links.push(index);
-        }
+            .unwrap_or(Verdict::Unknown);
+        link_verdicts.entry(verdict).or_default().push(index);
     }
     for edge in &join.observed_nests {
         let (Some(from), Some(to)) = (
@@ -1167,43 +1480,48 @@ pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
             edge.count
         ));
     }
-    output.push_str("  classDef exercised fill:#e5f6e8,stroke:#2f6f3e,color:#17251b\n");
-    output.push_str("  classDef unexercised fill:#f1f1f1,stroke:#aaa,color:#999\n");
-    let exercised = nodes
-        .iter()
-        .filter(|node| {
-            status
-                .get(&(node.kind.as_str(), node.id.as_str()))
-                .copied()
-                .unwrap_or(false)
-        })
-        .map(|node| ids[&(node.kind.as_str(), node.id.as_str())].as_str())
-        .collect::<Vec<_>>();
-    let unexercised = nodes
-        .iter()
-        .filter(|node| {
-            !status
-                .get(&(node.kind.as_str(), node.id.as_str()))
-                .copied()
-                .unwrap_or(false)
-        })
-        .map(|node| ids[&(node.kind.as_str(), node.id.as_str())].as_str())
-        .collect::<Vec<_>>();
-    if !exercised.is_empty() {
-        output.push_str(&format!("  class {} exercised\n", exercised.join(",")));
+    output.push_str("  classDef ran fill:#e5f6e8,stroke:#2f6f3e,color:#17251b\n");
+    output.push_str("  classDef notrun fill:#f1f1f1,stroke:#aaa,color:#999\n");
+    output.push_str(
+        "  classDef unknown fill:#fffdf5,stroke:#8a6d1f,stroke-width:2px,stroke-dasharray:6 3,color:#3b3218\n",
+    );
+    for (verdict, class) in [
+        (Verdict::Ran, "ran"),
+        (Verdict::NotRun, "notrun"),
+        (Verdict::Unknown, "unknown"),
+    ] {
+        let members = nodes
+            .iter()
+            .filter(|node| {
+                status
+                    .get(&(node.kind.as_str(), node.id.as_str()))
+                    .copied()
+                    .unwrap_or(Verdict::Unknown)
+                    == verdict
+            })
+            .map(|node| ids[&(node.kind.as_str(), node.id.as_str())].as_str())
+            .collect::<Vec<_>>();
+        if !members.is_empty() {
+            output.push_str(&format!("  class {} {class}\n", members.join(",")));
+        }
     }
-    if !unexercised.is_empty() {
-        output.push_str(&format!("  class {} unexercised\n", unexercised.join(",")));
-    }
-    if !unexercised_links.is_empty() {
-        output.push_str(&format!(
-            "  linkStyle {} stroke:#bbb,color:#999,opacity:0.35\n",
-            unexercised_links
-                .iter()
-                .map(usize::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        ));
+    for (verdict, style) in [
+        (Verdict::NotRun, "stroke:#bbb,color:#999,opacity:0.35"),
+        (
+            Verdict::Unknown,
+            "stroke:#8a6d1f,color:#5c4a16,stroke-dasharray:6 3",
+        ),
+    ] {
+        if let Some(links) = link_verdicts.get(&verdict) {
+            output.push_str(&format!(
+                "  linkStyle {} {style}\n",
+                links
+                    .iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
     }
     output
 }
@@ -1396,9 +1714,11 @@ provenance = "declared"
             join.summary.largest_self_time_algorithm.as_deref(),
             Some("backend.a")
         );
+        assert!(join.summary.not_run_backend_algorithms.is_empty());
+        assert_eq!(join.summary.unknown_backend_algorithms, ["backend.unused"]);
         assert_eq!(
-            join.summary.unexercised_backend_algorithms,
-            ["backend.unused"]
+            (join.summary.ran_algorithms, join.summary.unknown_algorithms),
+            (2, 1)
         );
         let a = join
             .algorithms
@@ -1437,16 +1757,18 @@ provenance = "declared"
         assert!(overlay.contains("bound (worst-case): O(n)"));
         assert!(overlay.contains("receipt n: 10"));
         assert!(overlay.contains("observed nests ×1"));
-        assert!(overlay.contains("unexercised"));
+        assert!(overlay.contains(" unknown\n"), "{overlay}");
         assert!(!overlay.contains("CounterZero"), "{overlay}");
         assert!(!overlay.contains("receipt n: 0"), "{overlay}");
-        let links = overlay.lines().filter(|line| line.contains("-->|")).count();
-        let dimmed = overlay
+        // The one drawn edge without an observation is proof -> backend.unused, and it is
+        // unknown rather than not-run because an entry may bypass the algorithm's span.
+        let styled = overlay
             .lines()
-            .find_map(|line| line.strip_prefix("  linkStyle "))
-            .and_then(|line| line.split_whitespace().next())
-            .unwrap();
-        assert_eq!(dimmed, (links - 1).to_string(), "{overlay}");
+            .filter_map(|line| line.strip_prefix("  linkStyle "))
+            .collect::<Vec<_>>();
+        assert_eq!(styled.len(), 1, "{overlay}");
+        assert!(styled[0].contains("stroke-dasharray"), "{overlay}");
+        assert!(!styled[0].split_whitespace().next().unwrap().contains(','));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1496,60 +1818,8 @@ provenance = "declared"
         );
     }
 
-    #[test]
-    fn declared_counters_exercise_a_span_less_algorithm() {
-        let graph: Graph = toml::from_str(
-            r#"
-[[node]]
-kind = "algorithm"
-id = "kompile.counted"
-provenance = "declared"
-span = "none"
-[node.anchor]
-crate = "demo"
-file = "a.rs"
-symbol = "a"
-
-[[node]]
-kind = "algorithm"
-id = "kompile.both"
-provenance = "declared"
-span = "per call"
-[node.anchor]
-crate = "demo"
-file = "b.rs"
-symbol = "b"
-
-[[node]]
-kind = "observation"
-id = "CounterA"
-provenance = "table"
-registry_name = "work.a"
-[node.anchor]
-crate = "demo"
-file = "measure.rs"
-symbol = "Counter::A"
-
-[[edge]]
-kind = "measured-by"
-from = "kompile.counted"
-to = "CounterA"
-provenance = "declared"
-
-[[edge]]
-kind = "measured-by"
-from = "kompile.both"
-to = "CounterA"
-provenance = "declared"
-"#,
-        )
-        .unwrap();
-        let observations = parse_trace(&serde_json::json!([
-            {"ph":"B","name":"algo","ts":0,"pid":1,"tid":1,"args":{"id":"kompile.both"}},
-            {"ph":"E","name":"algo","ts":1,"pid":1,"tid":1}
-        ]))
-        .unwrap();
-        let receipt = Receipt {
+    fn demo_receipt() -> Receipt {
+        Receipt {
             directory: "evidence/demo".to_owned(),
             workload: "demo".to_owned(),
             claim: None,
@@ -1566,23 +1836,224 @@ provenance = "declared"
             trace_schema: "chrome-trace-event-B/E".to_owned(),
             tools: Vec::new(),
             revisions: Vec::new(),
+        }
+    }
+
+    /// One node or edge per verdict rule, joined to a trace, a counter dump, and a timings list.
+    #[test]
+    fn verdicts_follow_only_the_evidence_that_can_prove_them() {
+        let algorithm = |id: &str, span: &str| {
+            format!(
+                "[[node]]\nkind = \"algorithm\"\nid = \"{id}\"\nprovenance = \"declared\"\narea = \"backend\"\nspan = \"{span}\"\n[node.anchor]\ncrate = \"demo\"\nfile = \"a.rs\"\nsymbol = \"{id}\"\n\n"
+            )
         };
-        let join = project(
+        let node = |kind: &str, id: &str, extra: &str| {
+            format!(
+                "[[node]]\nkind = \"{kind}\"\nid = \"{id}\"\nprovenance = \"table\"\n{extra}[node.anchor]\ncrate = \"demo\"\nfile = \"t.rs\"\nsymbol = \"{id}\"\n\n"
+            )
+        };
+        let edge = |kind: &str, from: &str, to: &str| {
+            format!(
+                "[[edge]]\nkind = \"{kind}\"\nfrom = \"{from}\"\nto = \"{to}\"\nprovenance = \"declared\"\n\n"
+            )
+        };
+        let mut source = String::new();
+        source.push_str(&algorithm("t.spanned", "per call"));
+        source.push_str(&algorithm("t.idle_span", "per problem"));
+        source.push_str(&algorithm("t.exclusive", "none"));
+        source.push_str(&algorithm("t.shared_a", "none"));
+        source.push_str(&algorithm("t.shared_b", "none"));
+        source.push_str(&algorithm("t.zero", "none"));
+        source.push_str(&algorithm("t.invisible", "none"));
+        source.push_str(&node("phase", "outer", ""));
+        source.push_str(&node("phase", "inner", ""));
+        source.push_str(&node("phase", "timed", ""));
+        source.push_str(&node("phase", "skipped", ""));
+        source.push_str(&node("observation", "Own", "registry_name = \"t.own\"\n"));
+        source.push_str(&node(
+            "observation",
+            "Shared",
+            "registry_name = \"t.shared\"\n",
+        ));
+        source.push_str(&node("observation", "Idle", "registry_name = \"t.idle\"\n"));
+        source.push_str(&node(
+            "observation",
+            "Missing",
+            "registry_name = \"t.missing\"\n",
+        ));
+        source.push_str(&node(
+            "representation",
+            "t::R [r]",
+            "type_path = \"t::R\"\n",
+        ));
+        source.push_str(&edge("measured-by", "t.exclusive", "Own"));
+        source.push_str(&edge("measured-by", "t.shared_a", "Shared"));
+        source.push_str(&edge("measured-by", "t.shared_b", "Shared"));
+        source.push_str(&edge("measured-by", "t.zero", "Idle"));
+        source.push_str(&edge("measured-by", "t.spanned", "Shared"));
+        source.push_str(&edge("contains", "outer", "t.spanned"));
+        source.push_str(&edge("contains", "skipped", "t.idle_span"));
+        source.push_str(&edge("contains", "timed", "t.idle_span"));
+        source.push_str(&edge("follows", "outer", "timed"));
+        source.push_str(&edge("follows", "timed", "skipped"));
+        source.push_str(&edge("consumes", "t.spanned", "t::R [r]"));
+        source.push_str(&edge("produces", "t.idle_span", "t::R [r]"));
+        let mut graph: Graph = toml::from_str(&source).unwrap();
+        graph.sort();
+        // `t.spanned` runs inside `inner`, a phase nested in `outer`.
+        let observations = parse_trace(&serde_json::json!([
+            {"ph":"B","name":"phase","ts":0,"pid":1,"tid":1,"args":{"name":"outer"}},
+            {"ph":"B","name":"phase","ts":0,"pid":1,"tid":1,"args":{"name":"inner"}},
+            {"ph":"B","name":"algo","ts":1,"pid":1,"tid":1,"args":{"id":"t.spanned"}},
+            {"ph":"E","name":"algo","ts":2,"pid":1,"tid":1,"args":{"counters":{"t.shared":2}}},
+            {"ph":"E","name":"phase","ts":3,"pid":1,"tid":1},
+            {"ph":"E","name":"phase","ts":3,"pid":1,"tid":1}
+        ]))
+        .unwrap();
+        let join = project_with_timings(
             &graph,
             observations,
-            receipt,
-            BTreeMap::from([("work.a".to_owned(), 4)]),
+            demo_receipt(),
+            BTreeMap::from([
+                ("t.own".to_owned(), 4),
+                ("t.shared".to_owned(), 9),
+                ("t.idle".to_owned(), 0),
+            ]),
+            Some(BTreeSet::from([
+                "outer".to_owned(),
+                "inner".to_owned(),
+                "timed".to_owned(),
+            ])),
         );
-        let signal = |id: &str| {
+        let node = |id: &str| {
             let node = join.nodes.iter().find(|node| node.id == id).unwrap();
-            (node.exercised, node.exercised_by.clone())
+            (node.verdict, node.evidence.as_str())
         };
-        assert_eq!(
-            signal("kompile.counted"),
-            (true, Some("counters".to_owned()))
+        let edge = |kind: &str, from: &str, to: &str| {
+            let edge = join
+                .edges
+                .iter()
+                .find(|edge| edge.kind == kind && edge.from == from && edge.to == to)
+                .unwrap();
+            (edge.verdict, edge.evidence.as_str())
+        };
+        use Verdict::{NotRun, Ran, Unknown};
+        assert_eq!(node("t.spanned"), (Ran, "span"));
+        // A spanned algorithm whose span never opened: an entry may bypass the span.
+        assert_eq!(node("t.idle_span"), (Unknown, "zero-span"));
+        // A counter-only algorithm with a positive counter that only its card declares.
+        assert_eq!(node("t.exclusive"), (Unknown, "counter-moved"));
+        let exclusive = join
+            .nodes
+            .iter()
+            .find(|node| node.id == "t.exclusive")
+            .unwrap();
+        assert!(
+            exclusive
+                .reason
+                .contains("t.own = 4 (declared by this card alone)"),
+            "{}",
+            exclusive.reason
         );
-        assert_eq!(signal("kompile.both"), (true, Some("both".to_owned())));
-        assert_eq!(join.summary.exercised_algorithms, 2);
+        // A positive counter that three cards declare.
+        assert_eq!(node("t.shared_a"), (Unknown, "counter-moved"));
+        let shared = join
+            .nodes
+            .iter()
+            .find(|node| node.id == "t.shared_b")
+            .unwrap();
+        assert!(
+            shared.reason.contains("t.shared = 9 (declared by 3 cards)"),
+            "{}",
+            shared.reason
+        );
+        // A zero counter does not show that the algorithm did not run.
+        assert_eq!(node("t.zero"), (Unknown, "counter-idle"));
+        assert_eq!(node("t.invisible"), (Unknown, "unobservable"));
+
+        assert_eq!(node("outer"), (Ran, "span"));
+        assert_eq!(node("timed"), (Ran, "timings"));
+        assert_eq!(node("skipped"), (NotRun, "absent"));
+        assert_eq!(node("Own"), (Ran, "counter"));
+        assert_eq!(node("Idle"), (NotRun, "counter-zero"));
+        assert_eq!(node("Missing"), (Unknown, "counter-unrecorded"));
+        assert_eq!(node("t::R [r]"), (Unknown, "unobserved"));
+
+        assert_eq!(edge("contains", "outer", "t.spanned"), (Ran, "observed"));
+        assert_eq!(
+            edge("contains", "skipped", "t.idle_span"),
+            (NotRun, "endpoint-not-run")
+        );
+        assert_eq!(
+            edge("contains", "timed", "t.idle_span"),
+            (Unknown, "unobserved")
+        );
+        assert_eq!(edge("follows", "outer", "timed"), (Unknown, "unobserved"));
+        assert_eq!(
+            edge("follows", "timed", "skipped"),
+            (NotRun, "endpoint-not-run")
+        );
+        assert_eq!(
+            edge("measured-by", "t.spanned", "Shared"),
+            (Ran, "observed")
+        );
+        assert_eq!(
+            edge("measured-by", "t.shared_a", "Shared"),
+            (Unknown, "unobserved")
+        );
+        assert_eq!(
+            edge("measured-by", "t.zero", "Idle"),
+            (NotRun, "endpoint-not-run")
+        );
+        assert_eq!(
+            edge("consumes", "t.spanned", "t::R [r]"),
+            (Unknown, "unobserved")
+        );
+        assert_eq!(
+            edge("produces", "t.idle_span", "t::R [r]"),
+            (Unknown, "unobserved")
+        );
+
+        assert_eq!(join.summary.declared_algorithms, 7);
+        assert_eq!(
+            (
+                join.summary.ran_algorithms,
+                join.summary.not_run_algorithms,
+                join.summary.unknown_algorithms
+            ),
+            (1, 0, 6)
+        );
+        assert!(join.summary.not_run_backend_algorithms.is_empty());
+        assert_eq!(join.summary.unknown_backend_algorithms.len(), 6);
+        assert_eq!(join.verdict_rule, VERDICT_RULE);
+
+        // Without a timings list, a phase with no span is unknown rather than not-run.
+        let without_timings = project(
+            &graph,
+            TraceObservations::default(),
+            demo_receipt(),
+            BTreeMap::new(),
+        );
+        let skipped = without_timings
+            .nodes
+            .iter()
+            .find(|node| node.id == "skipped")
+            .unwrap();
+        assert_eq!(
+            (skipped.verdict, skipped.evidence.as_str()),
+            (Unknown, "unrecorded")
+        );
+
+        let overlay = render_run_overlay(&graph, &join);
+        assert!(overlay.contains(VERDICT_RULE), "{overlay}");
+        for class in ["ran", "notrun", "unknown"] {
+            assert!(
+                overlay.lines().any(
+                    |line| line.starts_with("  class ") && line.ends_with(&format!(" {class}"))
+                ),
+                "{class}: {overlay}"
+            );
+        }
     }
 
     #[test]

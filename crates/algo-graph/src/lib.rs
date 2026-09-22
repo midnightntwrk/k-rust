@@ -30,7 +30,8 @@ pub use html::{HTML_DATA_ELEMENT_ID, render_html};
 pub use join::{
     AGGREGATION_RULE, AlgorithmCounter, AlgorithmRun, EdgeRun, JOIN_SCHEMA_VERSION, Join, NodeRun,
     ObservedContain, ObservedEdge, PhaseRun, Receipt, ReceiptCounter, Revision, Summary,
-    ToolVersion, canonical_join_toml, join_files, render_run_overlay,
+    ToolVersion, VERDICT_RULE, Verdict, canonical_join_toml, edge_verdict_rule, join_files,
+    render_run_overlay,
 };
 use k_rust::kompile::pipeline::{
     EMISSION_PHASES, LOAD_PHASES, StageDescription, prologue_descriptions, stage_descriptions,

@@ -178,11 +178,12 @@ Examples:
         #[arg(long, value_enum, default_value_t = HotBy::SelfSeconds)]
         by: HotBy,
     },
-    /// What a run did not exercise: declared algorithms with no span and no moved counter, and graph edges.
+    /// What a run did not show running: declared algorithms and graph edges whose join verdict is not `ran`.
     ///
-    /// Algorithms are split into `not run` (they have a span or a counter, and nothing was
-    /// recorded) and `not observable` (no span and no counter, so the run cannot show them).
-    /// Edges are grouped by kind, each with the rule the join used to mark it exercised.
+    /// Algorithms are split by the join's verdict into `not-run` (instrumentation that would
+    /// have recorded them recorded nothing) and `unknown` (the run's evidence cannot tell), each
+    /// with the evidence that decided it; the join's verdict rule is printed first. Edges are
+    /// grouped by kind and verdict, each kind with its verdict rule.
     #[command(after_help = "\
 Examples:
   algo-graph query unexercised --join target/algo/join.toml

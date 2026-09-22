@@ -17,7 +17,10 @@ use std::{
 
 use serde::Serialize;
 
-use crate::{AlgorithmRun, Anchor, Cost, Edge, Error, Graph, Join, Node, build_graph};
+use crate::{
+    AlgorithmRun, Anchor, Cost, Edge, Error, Graph, JOIN_SCHEMA_VERSION, Join, Node, Verdict,
+    build_graph, edge_verdict_rule,
+};
 
 /// The caveat every relation-listing answer repeats.
 pub const ABSENT_RELATION_CAVEAT: &str = "an absent relation proves nothing: relations are declared by hand on cards or read from the stage table, and there is no call graph";
@@ -86,7 +89,18 @@ pub fn load_graph(root: &Path, saved: Option<&Path>) -> Result<(Graph, Vec<Strin
 
 /// Read a canonical join file as written by `algo-graph join`.
 pub fn read_join(path: &Path) -> Result<Join, Error> {
-    Ok(toml::from_str(&fs::read_to_string(path)?)?)
+    let source = fs::read_to_string(path)?;
+    let schema = toml::from_str::<toml::Table>(&source)?
+        .get("schema_version")
+        .and_then(toml::Value::as_integer);
+    if schema != Some(i64::from(JOIN_SCHEMA_VERSION)) {
+        return Err(Error::Invalid(format!(
+            "{}: join schema {}, but this tool reads schema {JOIN_SCHEMA_VERSION}; rerun `algo-graph join`",
+            path.display(),
+            schema.map_or_else(|| "absent".to_owned(), |schema| schema.to_string())
+        )));
+    }
+    Ok(toml::from_str(&source)?)
 }
 
 /// A counter named by its `Counter` variant and its dotted registry name.
@@ -1190,7 +1204,8 @@ pub struct HotAnswer {
     pub note: String,
     #[serde(rename = "algorithm")]
     pub rows: Vec<HotRow>,
-    /// Algorithms the run exercised through declared counters only; they have no time.
+    /// Algorithms without a span invocation whose declared counters moved; they have no time,
+    /// and their verdict is unknown because a counter is not attributed to one algorithm.
     pub counter_only: Vec<String>,
 }
 
@@ -1326,7 +1341,7 @@ pub fn hot(graph: &Graph, join: &Join, by: HotOrder, limit: usize) -> HotAnswer 
         counter_only: join
             .nodes
             .iter()
-            .filter(|node| node.kind == "algorithm" && node.exercised_by.as_deref() == Some("counters"))
+            .filter(|node| node.kind == "algorithm" && node.evidence == "counter-moved")
             .map(|node| node.id.clone())
             .collect(),
     }
@@ -1409,7 +1424,7 @@ impl Answer for HotAnswer {
             line(
                 &mut out,
                 format!(
-                    "exercised by counters only, so untimed: {}",
+                    "no span but declared counters moved, so untimed and of unknown verdict: {}",
                     self.counter_only.join(", ")
                 ),
             );
@@ -1447,25 +1462,28 @@ fn observations_text(observations: &[CounterObservation]) -> String {
 // ---------------------------------------------------------------------------------------------
 // unexercised
 
-/// The declared algorithms and edges one run did not exercise.
+/// The declared algorithms and edges one run did not show running, split by verdict.
 #[derive(Clone, Debug, Serialize)]
 pub struct UnexercisedAnswer {
     pub run: RunIdentity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub area: Option<String>,
     pub declared_algorithms: usize,
+    /// The join's verdict rule.
     pub rule: String,
     /// False when the edge list was not requested.
     pub edges_listed: bool,
-    #[serde(rename = "algorithm")]
-    pub algorithms: Vec<UnexercisedAlgorithm>,
-    /// Edges per kind in the join after the area filter, exercised or not.
+    /// Algorithms whose instrumentation would have recorded them and recorded nothing.
+    pub not_run: Vec<UnexercisedAlgorithm>,
+    /// Algorithms whose evidence in this run cannot tell whether they ran.
+    pub unknown: Vec<UnexercisedAlgorithm>,
+    /// Edges per kind in the join after the area filter, whatever their verdict.
     pub edge_totals: BTreeMap<String, usize>,
     #[serde(rename = "edge")]
     pub edges: Vec<UnexercisedEdge>,
 }
 
-/// One declared algorithm with neither an invocation nor a moved declared counter.
+/// One declared algorithm whose verdict is `not-run` or `unknown`.
 #[derive(Clone, Debug, Serialize)]
 pub struct UnexercisedAlgorithm {
     pub id: String,
@@ -1474,24 +1492,27 @@ pub struct UnexercisedAlgorithm {
     /// The span policy at the receipt's commit, or `absent`.
     pub span: String,
     pub declared_counters: Vec<String>,
-    /// False when the algorithm had neither a span nor a counter, so no run can show it.
-    pub observable: bool,
+    /// The join's evidence code and sentence for the verdict.
+    pub evidence: String,
+    pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anchor: Option<Anchor>,
 }
 
-/// One graph edge the join marks as not exercised.
+/// One graph edge whose verdict is `not-run` or `unknown`.
 #[derive(Clone, Debug, Serialize)]
 pub struct UnexercisedEdge {
     pub kind: String,
     pub from: String,
     pub to: String,
     pub provenance: String,
+    pub verdict: Verdict,
+    pub evidence: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anchor: Option<Anchor>,
 }
 
-/// Answer `unexercised --join <join.toml> [--area A]`.
+/// Answer `unexercised --join <join.toml> [--area A]` from the join's verdicts.
 pub fn unexercised(
     graph: &Graph,
     join: &Join,
@@ -1517,10 +1538,11 @@ pub fn unexercised(
             )),
         });
     }
-    let exercised = join
+    let verdicts = join
         .nodes
         .iter()
-        .map(|node| (node.id.as_str(), node.exercised))
+        .filter(|node| node.kind == "algorithm")
+        .map(|node| (node.id.as_str(), node))
         .collect::<BTreeMap<_, _>>();
     let in_area =
         |algorithm_area: Option<&str>| area.is_none_or(|area| algorithm_area == Some(area));
@@ -1529,39 +1551,33 @@ pub fn unexercised(
         .iter()
         .filter(|algorithm| algorithm.declared && in_area(algorithm.area.as_deref()))
         .collect::<Vec<_>>();
-    let algorithms = declared
-        .iter()
-        .filter(|algorithm| {
-            algorithm.count == 0
-                && !exercised
-                    .get(algorithm.id.as_str())
-                    .copied()
-                    .unwrap_or(false)
-        })
-        .map(|algorithm| {
-            let declared_counters = algorithm
-                .counters
-                .iter()
-                .filter(|counter| counter.declared)
-                .map(|counter| counter.name.clone())
-                .collect::<Vec<_>>();
-            let spanned = matches!(
-                algorithm.span_policy.as_deref(),
-                Some("per problem" | "per call")
-            );
-            UnexercisedAlgorithm {
-                id: algorithm.id.clone(),
-                area: algorithm.area.clone(),
-                span: algorithm
-                    .span_policy
-                    .clone()
-                    .unwrap_or_else(|| "absent".to_owned()),
-                observable: spanned || !declared_counters.is_empty(),
-                declared_counters,
-                anchor: index.anchor(&algorithm.id),
-            }
-        })
-        .collect::<Vec<_>>();
+    let with_verdict = |verdict: Verdict| {
+        declared
+            .iter()
+            .filter_map(|algorithm| {
+                let node = verdicts.get(algorithm.id.as_str())?;
+                (node.verdict == verdict).then(|| UnexercisedAlgorithm {
+                    id: algorithm.id.clone(),
+                    area: algorithm.area.clone(),
+                    span: algorithm
+                        .span_policy
+                        .clone()
+                        .unwrap_or_else(|| "absent".to_owned()),
+                    declared_counters: algorithm
+                        .counters
+                        .iter()
+                        .filter(|counter| counter.declared)
+                        .map(|counter| counter.name.clone())
+                        .collect(),
+                    evidence: node.evidence.clone(),
+                    reason: node.reason.clone(),
+                    anchor: index.anchor(&algorithm.id),
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let not_run = with_verdict(Verdict::NotRun);
+    let unknown = with_verdict(Verdict::Unknown);
     let edge_area = |id: &str| {
         index
             .nodes
@@ -1590,12 +1606,14 @@ pub fn unexercised(
     let edges = if include_edges {
         area_edges
             .iter()
-            .filter(|edge| !edge.exercised)
+            .filter(|edge| edge.verdict != Verdict::Ran)
             .map(|edge| UnexercisedEdge {
                 kind: edge.kind.clone(),
                 from: edge.from.clone(),
                 to: edge.to.clone(),
                 provenance: edge.provenance.clone(),
+                verdict: edge.verdict,
+                evidence: edge.evidence.clone(),
                 anchor: [edge.from.as_str(), edge.to.as_str()]
                     .into_iter()
                     .find(|id| matches!(index.kind(id).as_str(), "algorithm" | "contract"))
@@ -1609,113 +1627,99 @@ pub fn unexercised(
         run: run_identity(join),
         area: area.map(ToOwned::to_owned),
         declared_algorithms: declared.len(),
-        rule: "an algorithm is exercised when it has a span invocation or a counter its card declares is nonzero; span policy and counters are those of the receipt's commit".to_owned(),
+        rule: join.verdict_rule.clone(),
         edges_listed: include_edges,
-        algorithms,
+        not_run,
+        unknown,
         edge_totals,
         edges,
     })
 }
 
-/// The join's rule for each edge kind, stated for the reader.
-fn edge_rule(kind: &str) -> &'static str {
-    match kind {
-        "contains" => "exercised when the algorithm's span ran inside the phase's span",
-        "follows" => "exercised when the later phase span started after the earlier one",
-        "measured-by" => {
-            "exercised when the counter moved inside the algorithm's spans; a counter-only algorithm never exercises it"
-        }
-        "consumes" | "produces" => "exercised when either endpoint was exercised",
-        _ => {
-            "exercised when both endpoints were exercised; this is not evidence that the relation itself was used"
-        }
-    }
-}
-
 impl Answer for UnexercisedAnswer {
     fn text(&self) -> String {
         let mut out = String::new();
-        let observable = self
-            .algorithms
-            .iter()
-            .filter(|algorithm| algorithm.observable)
-            .collect::<Vec<_>>();
-        let invisible = self
-            .algorithms
-            .iter()
-            .filter(|algorithm| !algorithm.observable)
-            .collect::<Vec<_>>();
         line(
             &mut out,
             format!(
-                "unexercised in {}{}: {} of {} declared algorithms, {}; {}.",
+                "not shown running in {}{}: {} of {} declared algorithms ({} not-run, {} unknown), {}.",
                 run_text(&self.run),
                 self.area
                     .as_deref()
                     .map(|area| format!(", area {area}"))
                     .unwrap_or_default(),
-                self.algorithms.len(),
+                self.not_run.len() + self.unknown.len(),
                 self.declared_algorithms,
+                self.not_run.len(),
+                self.unknown.len(),
                 if self.edges_listed {
                     format!("{} edges", self.edges.len())
                 } else {
                     "edges not listed".to_owned()
                 },
-                self.rule
             ),
         );
+        line(&mut out, format!("rule: {}", self.rule));
         line(
             &mut out,
             format!(
-                "not run ({}; observable by a span or a declared counter, and nothing was recorded):",
-                observable.len()
+                "not-run ({}; the instrumentation would have recorded them and recorded nothing):",
+                self.not_run.len()
             ),
         );
-        for algorithm in &observable {
+        for algorithm in &self.not_run {
             unexercised_line(&mut out, algorithm);
         }
         line(
             &mut out,
             format!(
-                "not observable ({}; no span and no counter, so this run cannot tell whether they ran):",
-                invisible.len()
+                "unknown ({}; this run's evidence cannot tell whether they ran):",
+                self.unknown.len()
             ),
         );
-        for algorithm in &invisible {
+        for algorithm in &self.unknown {
             unexercised_line(&mut out, algorithm);
         }
-        let mut kinds = BTreeMap::<&str, Vec<&UnexercisedEdge>>::new();
+        let mut kinds = BTreeMap::<(&str, Verdict), Vec<&UnexercisedEdge>>::new();
         for edge in &self.edges {
-            kinds.entry(edge.kind.as_str()).or_default().push(edge);
+            kinds
+                .entry((edge.kind.as_str(), edge.verdict))
+                .or_default()
+                .push(edge);
         }
-        for (kind, edges) in kinds {
+        let mut rules_stated = BTreeSet::new();
+        for ((kind, verdict), edges) in kinds {
             let total = self.edge_totals.get(kind).copied().unwrap_or(edges.len());
-            if edges.len() == total && total > 5 {
+            if rules_stated.insert(kind) {
+                line(
+                    &mut out,
+                    format!("edges {kind}: {}", edge_verdict_rule(kind)),
+                );
+            }
+            if edges.len() > 5 {
                 line(
                     &mut out,
                     format!(
-                        "edges {kind} not exercised: all {total} ({}); listed in --format toml",
-                        edge_rule(kind)
+                        "  {}: {} of {total}; listed in --format toml",
+                        verdict.as_str(),
+                        edges.len()
                     ),
                 );
                 continue;
             }
             line(
                 &mut out,
-                format!(
-                    "edges {kind} not exercised: {} of {total} ({}):",
-                    edges.len(),
-                    edge_rule(kind)
-                ),
+                format!("  {}: {} of {total}:", verdict.as_str(), edges.len()),
             );
             for edge in edges {
                 line(
                     &mut out,
                     format!(
-                        "  {} -> {} [{}]{}",
+                        "    {} -> {} [{}] {}{}",
                         edge.from,
                         edge.to,
                         edge.provenance,
+                        edge.evidence,
                         edge.anchor
                             .as_ref()
                             .map(|anchor| format!("  {}", anchor_text(anchor)))
@@ -1732,8 +1736,9 @@ fn unexercised_line(out: &mut String, algorithm: &UnexercisedAlgorithm) {
     line(
         out,
         format!(
-            "  {}  span={} counters={}  {}",
+            "  {}  {}  span={} counters={}  {}",
             algorithm.id,
+            algorithm.evidence,
             algorithm.span,
             if algorithm.declared_counters.is_empty() {
                 "none".to_owned()
@@ -2617,6 +2622,7 @@ mod tests {
         Join {
             schema_version: crate::JOIN_SCHEMA_VERSION,
             aggregation_rule: crate::AGGREGATION_RULE.to_owned(),
+            verdict_rule: crate::VERDICT_RULE.to_owned(),
             receipt: Receipt {
                 directory: "evidence/w/c".to_owned(),
                 workload: "w".to_owned(),
@@ -2639,8 +2645,11 @@ mod tests {
                 largest_self_time_algorithm: None,
                 largest_self_seconds: 0.0,
                 declared_algorithms: algorithms.len(),
-                exercised_algorithms: 0,
-                unexercised_backend_algorithms: Vec::new(),
+                ran_algorithms: 0,
+                not_run_algorithms: 0,
+                unknown_algorithms: 0,
+                not_run_backend_algorithms: Vec::new(),
+                unknown_backend_algorithms: Vec::new(),
             },
             algorithms,
             phases: Vec::new(),
@@ -2677,13 +2686,13 @@ mod tests {
         }
     }
 
-    fn node_run(id: &str, exercised: bool, by: Option<&str>) -> NodeRun {
+    fn node_run(id: &str, verdict: Verdict, evidence: &str) -> NodeRun {
         NodeRun {
             kind: "algorithm".to_owned(),
             id: id.to_owned(),
-            exercised,
-            evidence: "algorithm-span".to_owned(),
-            exercised_by: by.map(ToOwned::to_owned),
+            verdict,
+            evidence: evidence.to_owned(),
+            reason: format!("{evidence} reason"),
         }
     }
 
@@ -2704,7 +2713,7 @@ mod tests {
                 run("t.d", 0, 0.0, 0.0),
                 run("zz.unknown", 2, 0.01, 0.01),
             ],
-            vec![node_run("t.e", true, Some("counters"))],
+            vec![node_run("t.e", Verdict::Unknown, "counter-moved")],
             Vec::new(),
         );
         let graph = synthetic();
@@ -2736,49 +2745,89 @@ mod tests {
     }
 
     #[test]
-    fn unexercised_separates_unobservable_algorithms_and_filters_by_area() {
-        let mut spanned = run("t.a", 0, 0.0, 0.0);
-        spanned.span_policy = Some("per call".to_owned());
-        let mut counted = run("t.b", 0, 0.0, 0.0);
-        counted.counters = vec![observed("t.counter_b", true, 0, 0)];
-        let invisible = run("t.c", 0, 0.0, 0.0);
-        let exercised_by_counter = run("t.d", 0, 0.0, 0.0);
-        let other_area = run("u.x", 0, 0.0, 0.0);
-        let edge_run = |kind: &str, from: &str, to: &str, exercised: bool| EdgeRun {
+    fn unexercised_lists_the_join_verdicts_and_filters_by_area() {
+        let edge_run = |kind: &str, from: &str, to: &str, verdict: Verdict| EdgeRun {
             kind: kind.to_owned(),
             from: from.to_owned(),
             to: to.to_owned(),
             provenance: "declared".to_owned(),
             detail: None,
             order: None,
-            exercised,
+            verdict,
+            evidence: match verdict {
+                Verdict::Ran => "observed",
+                Verdict::NotRun => "endpoint-not-run",
+                Verdict::Unknown => "unobserved",
+            }
+            .to_owned(),
         };
+        let mut spanned = run("t.a", 0, 0.0, 0.0);
+        spanned.span_policy = Some("per call".to_owned());
+        let mut counted = run("t.b", 0, 0.0, 0.0);
+        counted.counters = vec![observed("t.counter_b", true, 0, 0)];
         let joined = join(
             vec![
                 spanned,
                 counted,
-                invisible,
-                exercised_by_counter,
-                other_area,
+                run("t.c", 0, 0.0, 0.0),
+                run("t.d", 3, 0.1, 0.1),
+                run("u.x", 0, 0.0, 0.0),
             ],
-            vec![node_run("t.d", true, Some("counters"))],
             vec![
-                edge_run("constrains", "t.b", "t.c", false),
-                edge_run("constrains", "u.x", "u.y", false),
-                edge_run("produces", "t.a", "crate::R [role]", true),
+                node_run("t.a", Verdict::Unknown, "zero-span"),
+                node_run("t.b", Verdict::NotRun, "synthetic"),
+                node_run("t.c", Verdict::Unknown, "unobservable"),
+                node_run("t.d", Verdict::Ran, "span"),
+                node_run("u.x", Verdict::Unknown, "unobservable"),
+            ],
+            vec![
+                edge_run("constrains", "t.b", "t.c", Verdict::Unknown),
+                edge_run("constrains", "t.c", "t.b", Verdict::NotRun),
+                edge_run("constrains", "u.x", "u.y", Verdict::Unknown),
+                edge_run("produces", "t.a", "crate::R [role]", Verdict::Ran),
             ],
         );
         let answer = unexercised(&synthetic(), &joined, Some("t"), true).unwrap();
-        let ids = answer
-            .algorithms
-            .iter()
-            .map(|algorithm| (algorithm.id.as_str(), algorithm.observable))
-            .collect::<Vec<_>>();
-        assert_eq!(ids, [("t.a", true), ("t.b", true), ("t.c", false)]);
+        let ids = |algorithms: &[UnexercisedAlgorithm]| {
+            algorithms
+                .iter()
+                .map(|algorithm| (algorithm.id.clone(), algorithm.evidence.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids(&answer.not_run),
+            [("t.b".to_owned(), "synthetic".to_owned())]
+        );
+        assert_eq!(
+            ids(&answer.unknown),
+            [
+                ("t.a".to_owned(), "zero-span".to_owned()),
+                ("t.c".to_owned(), "unobservable".to_owned())
+            ]
+        );
+        assert_eq!(answer.not_run[0].declared_counters, ["t.counter_b"]);
         assert_eq!(answer.declared_algorithms, 4);
-        assert_eq!(answer.edges.len(), 1);
-        assert_eq!(answer.edges[0].from, "t.b");
-        assert_eq!(answer.edge_totals.get("constrains"), Some(&1));
+        assert_eq!(answer.rule, crate::VERDICT_RULE);
+        assert_eq!(answer.edges.len(), 2);
+        assert_eq!(answer.edges[0].verdict, Verdict::Unknown);
+        assert_eq!(answer.edges[1].verdict, Verdict::NotRun);
+        assert_eq!(answer.edge_totals.get("constrains"), Some(&2));
+        let text = answer.text();
+        assert!(
+            text.contains("3 of 4 declared algorithms (1 not-run, 2 unknown)"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!("rule: {}", crate::VERDICT_RULE)),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "edges constrains: {}",
+                edge_verdict_rule("constrains")
+            )),
+            "{text}"
+        );
         assert!(
             unexercised(&synthetic(), &joined, None, false)
                 .unwrap()
@@ -2858,7 +2907,17 @@ mod tests {
                 }
             })
             .collect::<Vec<_>>();
-        let joined = join(algorithms, Vec::new(), Vec::new());
+        let nodes = algorithms
+            .iter()
+            .map(|algorithm| {
+                if algorithm.count > 0 {
+                    node_run(&algorithm.id, Verdict::Ran, "span")
+                } else {
+                    node_run(&algorithm.id, Verdict::Unknown, "zero-span")
+                }
+            })
+            .collect();
+        let joined = join(algorithms, nodes, Vec::new());
         let text = check(&|| {
             let answer = hot(&graph, &joined, HotOrder::SelfSeconds, 10);
             (answer.text(), answer.toml().unwrap())
