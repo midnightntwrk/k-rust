@@ -16,6 +16,7 @@ provenance.link_dedup_probes = 34513
 provenance.receipt_renders = 6
 kompile.sentence_copies = 33989
 kompile.production_identity_digests = 42198
+parser.completed_nodes_invalidated = 57677
 parser.parse_attempts = 202
 parser.prediction_analysis_builds = 29
 parser.chart_prediction_attempts = 161643

@@ -60,6 +60,8 @@ pub enum Counter {
     KompileSentenceCopies,
     /// Production identity digests computed while building catalogs.
     KompileProductionIdentityDigests,
+    /// Completed-node memo entries invalidated after chart state changes.
+    ParserCompletedNodesInvalidated,
     // parser (frontend)
     /// Earley parse entries; the filtered/unfiltered prediction retry doubles it.
     ParserParseAttempts,
@@ -152,7 +154,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 60;
+    pub const COUNT: usize = 61;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -173,6 +175,7 @@ impl Counter {
         Counter::ProvenanceReceiptRenders,
         Counter::KompileSentenceCopies,
         Counter::KompileProductionIdentityDigests,
+        Counter::ParserCompletedNodesInvalidated,
         Counter::ParserParseAttempts,
         Counter::ParserPredictionAnalysisBuilds,
         Counter::ParserChartPredictionAttempts,
@@ -238,6 +241,7 @@ impl Counter {
             Counter::ProvenanceReceiptRenders => "provenance.receipt_renders",
             Counter::KompileSentenceCopies => "kompile.sentence_copies",
             Counter::KompileProductionIdentityDigests => "kompile.production_identity_digests",
+            Counter::ParserCompletedNodesInvalidated => "parser.completed_nodes_invalidated",
             Counter::ParserParseAttempts => "parser.parse_attempts",
             Counter::ParserPredictionAnalysisBuilds => "parser.prediction_analysis_builds",
             Counter::ParserChartPredictionAttempts => "parser.chart_prediction_attempts",
