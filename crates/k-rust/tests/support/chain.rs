@@ -16,14 +16,14 @@ pub fn definition(modules: usize, shape: Shape) -> String {
     const RULES_PER_MODULE: usize = 12;
     let mut text = String::new();
     for module in 0..modules {
-        text.push_str(&format!("module GRAPH-{module}\n"));
+        text.push_str(&format!("module CHAIN-{module}\n"));
         if module == 0 {
             text.push_str("  imports INT\n");
             text.push_str("  syntax Pgm ::= \"start\"\n");
             text.push_str("  configuration <k> $PGM:Pgm </k> <n> 0 </n>\n");
         } else {
             match shape {
-                Shape::Chain => text.push_str(&format!("  imports GRAPH-{}\n", module - 1)),
+                Shape::Chain => text.push_str(&format!("  imports CHAIN-{}\n", module - 1)),
                 Shape::FanIn => {
                     for imported in 0..module {
                         text.push_str(&format!("  imports GRAPH-{imported}\n"));
@@ -49,5 +49,5 @@ pub fn definition(modules: usize, shape: Shape) -> String {
 
 /// Return the generated main-module name.
 pub fn main_module(modules: usize) -> String {
-    format!("GRAPH-{}", modules - 1)
+    format!("CHAIN-{}", modules - 1)
 }
