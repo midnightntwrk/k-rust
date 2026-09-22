@@ -40,7 +40,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
             },
         ),
         production: Some(
-            3,
+            "97976ce44b176b8799308b27030424c7",
         ),
     },
     MetadataSummary {
@@ -61,7 +61,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
             },
         ),
         production: Some(
-            3,
+            "97976ce44b176b8799308b27030424c7",
         ),
     },
     MetadataSummary {
@@ -82,7 +82,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
             },
         ),
         production: Some(
-            2,
+            "8663ece228d3d9193b08159bd8cc5114",
         ),
     },
     MetadataSummary {
@@ -103,7 +103,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
             },
         ),
         production: Some(
-            0,
+            "a29c5967a3ed80dd5692576be1a9e91b",
         ),
     },
     MetadataSummary {
@@ -124,7 +124,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
             },
         ),
         production: Some(
-            0,
+            "a29c5967a3ed80dd5692576be1a9e91b",
         ),
     },
     MetadataSummary {
@@ -145,7 +145,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
             },
         ),
         production: Some(
-            3,
+            "97976ce44b176b8799308b27030424c7",
         ),
     },
     MetadataSummary {
@@ -166,7 +166,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
             },
         ),
         production: Some(
-            0,
+            "a29c5967a3ed80dd5692576be1a9e91b",
         ),
     },
 ]

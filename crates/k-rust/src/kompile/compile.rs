@@ -993,9 +993,9 @@ mod tests {
         .unwrap();
         let options = CompileOptions::default();
 
-        let (_, first, _, _) =
+        let (_, first, _) =
             transform_loaded_definition(&loaded, &options, &mut PhaseTimings::default()).unwrap();
-        let (_, second, _, _) =
+        let (_, second, _) =
             transform_loaded_definition(&loaded, &options, &mut PhaseTimings::default()).unwrap();
         let first = origin_receipts(&first);
         let second = origin_receipts(&second);
