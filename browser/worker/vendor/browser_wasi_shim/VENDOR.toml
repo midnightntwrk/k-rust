@@ -1,0 +1,37 @@
+# Vendored browser_wasi_shim (IR-15).
+#
+# The JavaScript files are the minified copy that Weblings vendors, staged by
+# BL-001, plus the IR-12 path_readlink patch (../browser_wasi_shim-readlink.patch).
+# index.d.ts is written for this package and declares only the surface it uses.
+
+schema = 1
+name = "browser_wasi_shim"
+upstream = "@bjorn3/browser_wasi_shim (no version marker in the vendored copy)"
+source_repository = "https://github.com/AngelOnFira/weblings"
+source_revision = "d0cd7a9f3af7d8249b3948ac0e19d2afc0d01633"
+source_path = "app/public/vendor/browser_wasi_shim/"
+staged_from = "/var/tmp/krs-browser-lessons-bl001-run-1/weblings-source (BL-001 stage-approved-assets.sh)"
+patch = "../browser_wasi_shim-readlink.patch (IR-12; OpenDirectory.path_readlink returns EINVAL for an existing non-link, the lookup errno otherwise)"
+patched_files = ["fs_mem.js"]
+
+[license]
+# The Weblings copy ships no license file for the shim; the upstream package is
+# dual-licensed MIT OR Apache-2.0 (inference: upstream package metadata, not
+# verifiable offline on this host). LICENSE-weblings is the Weblings repository
+# license (MIT). IR-21 must add the upstream license text before distribution.
+upstream_spdx = "MIT OR Apache-2.0"
+upstream_text_present = false
+container_license = "LICENSE-weblings"
+
+[original]
+"fs_mem.js" = "5da0ed519d51250e994e0302852d5b83e9b36638aec4eb0b544f0bd379229dc3"
+
+[sha256]
+"debug.js" = "6ff1f0141eddf67f7804695c2bb5cc9fb53dfc6d7cedee8411a90f5e1b7ac812"
+"fd.js" = "8f7137a82e545ea927bff75c7ff46d0bb706272f890fdd4b98d714dace168d4a"
+"fs_mem.js" = "78680b43347cc1dcc51cf892bf8dcd731f5fc831d1276129fd588e2bf84361f7"
+"fs_opfs.js" = "b7a073b07cd8776d94a25adbf8db6e8e022de21c4cf3e764679d4113e3c6968d"
+"index.js" = "7e2fd52ee3f728bb0b1d6e449724e0f13e3d586bb25bde6e02a66366175b5605"
+"strace.js" = "3680017aab611e0abce363a12ca5e9ab3de65ef9d6440fd4be9e19eacc383ad8"
+"wasi.js" = "d67aa25728d970dc3a5f532d0261cd92880b64d07dab8f219ab2fc7110abbf64"
+"wasi_defs.js" = "6ba329fa1193f838950f15fdbb6f066a99581c9d087fb761cc4e01a73712005c"
