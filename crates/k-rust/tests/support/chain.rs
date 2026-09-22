@@ -26,7 +26,7 @@ pub fn definition(modules: usize, shape: Shape) -> String {
                 Shape::Chain => text.push_str(&format!("  imports CHAIN-{}\n", module - 1)),
                 Shape::FanIn => {
                     for imported in 0..module {
-                        text.push_str(&format!("  imports GRAPH-{imported}\n"));
+                        text.push_str(&format!("  imports CHAIN-{imported}\n"));
                     }
                 }
             }
