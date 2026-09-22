@@ -63,6 +63,7 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
             .expect("resolved definition contains every source module");
         let productions = views.production_catalog(module_id);
         let sorts = views.sort_catalog(module_id);
+        // Invariant: every heat or cool rule or context of `module.local_sentences` before `sentence` has its `requires` conjoined with its result predicate on `HOLE` (negated for heat), and `diagnostics` holds one error for each such sentence whose predicate is missing; each iteration consumes one sentence.
         for sentence in &mut module.local_sentences {
             let sentence = crate::definition::sentence_mut(sentence);
             let attributes = sentence.attributes();
@@ -82,7 +83,6 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
                 .string(AttributeKey::Result)
                 .unwrap_or(FrontendSort::KResult.as_str());
             let predicate_label = Label::sort_predicate(&Sort::new(result_sort)).name;
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             let predicate_exists = !productions
                 .productions_for(&LabelHead::new(predicate_label.clone()))
                 .is_empty()

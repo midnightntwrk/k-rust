@@ -78,7 +78,7 @@ pub(crate) fn remove_unit_pass(
     Ok(output)
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each call rebuilds an application of a label with a `unit` attribute as a left-nested binary chain of its flattened non-unit operands (the unit itself when none remain), and otherwise recurses into the immediate subterms of `term`; the finite `term` bounds the recursion.
 fn transform(
     term: &Term,
     productions: &crate::definition::ProductionCatalog<'_>,
@@ -165,7 +165,7 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
     }
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `output` holds, in order, every non-unit operand reached so far from `terms` through nested applications of `label`; each iteration consumes one element of `terms`, and each recursive call descends into the `arguments` of one nested `label` application.
 fn flatten(label: &crate::kast::Label, unit: &str, terms: &[Term], output: &mut Vec<Term>) {
     for term in terms {
         match term.unannotated() {

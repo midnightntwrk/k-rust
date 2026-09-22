@@ -91,6 +91,7 @@ pub(crate) fn resolve_function_with_config_pass(
         let mut changed_production = false;
         let mut sentences = Vec::with_capacity(module.local_sentences.len() + 1);
 
+        // Invariant: `sentences` holds, without duplicates, the transformed form of every sentence of `module.local_sentences` before `sentence`, `replacements` their changed production identities, and `changed_production` whether one of them was a production in `with_config`; each iteration consumes one sentence, and `sentences.contains` makes the loop quadratic in the module's sentence count.
         for sentence in &module.local_sentences {
             let transformed = match &**sentence {
                 Sentence::Rule {
@@ -185,7 +186,6 @@ pub(crate) fn resolve_function_with_config_pass(
             {
                 replacements.insert(before, after);
             }
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             if !sentences.contains(&transformed) {
                 sentences.push(transformed);
             }
@@ -433,7 +433,7 @@ fn resolve_with_config_body(
     }
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each call rebuilds `term` from its transformed immediate subterms and appends the configuration variable to an application whose label is in `with_config` and whose last argument is not already a configuration argument; the finite `term` bounds the recursion.
 fn transform_term(term: Term, with_config: &BTreeSet<LabelHead>) -> Term {
     match term {
         Term::Annotated { term, metadata } => {

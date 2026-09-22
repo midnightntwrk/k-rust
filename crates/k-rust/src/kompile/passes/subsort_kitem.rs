@@ -54,7 +54,7 @@ pub(crate) fn subsort_kitem_pass(
         let sorts = views.sort_catalog(module_id);
         let visible = resolved.sentences(module_id);
         let mut generated = Vec::new();
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `generated` holds a `KItem ::= Sort` subsort production for every non-parser sort of `sorts.all_sorts()` before `sort`; each iteration consumes one sort.
         for sort in sorts.all_sorts() {
             if is_parser_sort(sort) {
                 continue;

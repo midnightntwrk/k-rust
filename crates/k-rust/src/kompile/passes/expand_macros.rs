@@ -262,7 +262,6 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let overloads = views
             .overloads(term_module)
             .map_err(|error| plain_error(error.to_string()))?;
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let all = definition
             .sentences(macro_module)
             .into_iter()
@@ -280,6 +279,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         all.sort_by_key(|(_, priority)| *priority);
         let mut macros = BTreeMap::<Label, Vec<MacroRule>>::new();
         let mut token_macros = BTreeMap::<Sort, Vec<MacroRule>>::new();
+        // Invariant: `macros` and `token_macros` hold, in ascending priority order, every rule of `all` before `rule` whose left side is an application, a token, or a sorted variable; each iteration consumes one entry of `all`.
         for (rule, _) in all {
             match rule.left.unannotated() {
                 Term::Apply { label, .. } => macros.entry(label.clone()).or_default().push(rule),
@@ -419,7 +419,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let Some(rules) = rules else {
             return Ok(subject);
         };
-        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+        // Invariant: no rule of `rules` before `rule` both matched `subject` and was recursive or absent from `applied`; each iteration consumes one element of the finite slice `rules`, and the first applicable rule returns the expansion of its substituted right side with its id added to `applied`.
         for rule in rules {
             let Sentence::Rule { requires, .. } = &rule.sentence else {
                 unreachable!()

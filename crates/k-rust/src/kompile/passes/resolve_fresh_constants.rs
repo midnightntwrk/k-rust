@@ -140,7 +140,7 @@ pub(crate) fn resolve_fresh_constants_pass(
                 None
             };
         if let Some(configuration) = configuration {
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+            // Invariant: `module.local_sentences` contains each helper of `counter_helpers()` before `sentence`; each iteration consumes one of the two helpers and scans `module.local_sentences` once.
             for sentence in counter_helpers() {
                 if !module
                     .local_sentences
@@ -595,7 +595,7 @@ fn root_cell_sort(
         .subsorts(module)
         .map_err(|error| error.to_string())?;
     let mut children = BTreeSet::new();
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `children` holds every cell sort that is a direct child, as a cell nonterminal or as a cell directly below a cell-collection nonterminal, of a cell production of `productions` before this one; each iteration consumes one production.
     for (_, production) in productions.productions() {
         let Sentence::Production {
             sort,
@@ -609,6 +609,7 @@ fn root_cell_sort(
         if !attributes.has(AttributeKey::Cell) || !cells.contains(sort) {
             continue;
         }
+        // Invariant: `children` has gained the sort of every earlier nonterminal of `items` that is in `cells`, and each cell of `cells` directly below every earlier nonterminal in `collections`; each iteration consumes one item, and the collection case scans `cells`.
         for item in items {
             let ProductionItem::NonTerminal { sort, .. } = item else {
                 continue;
@@ -616,7 +617,6 @@ fn root_cell_sort(
             if cells.contains(sort) {
                 children.insert(sort.clone());
             } else if collections.contains(sort) {
-                // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                 children.extend(
                     cells
                         .iter()

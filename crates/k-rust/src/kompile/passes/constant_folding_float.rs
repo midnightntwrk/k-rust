@@ -485,7 +485,7 @@ fn validate_mpfr_format(format: &str) -> Result<(), String> {
     let bytes = format.as_bytes();
     let mut index = 0;
     let mut conversions = 0;
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `bytes[..index]` has been validated and `conversions` counts its completed conversion specifications (at most one); every iteration advances `index` or returns, so `bytes.len()` bounds the loop.
     while index < bytes.len() {
         if bytes[index] != b'%' {
             index += 1;
@@ -498,7 +498,7 @@ fn validate_mpfr_format(format: &str) -> Result<(), String> {
         }
         let mut is_mpfr = false;
         let mut completed = false;
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `bytes[index]` is the next byte of the current `%` specification, `is_mpfr` records whether it has shown an `R` modifier, and `completed` is false; each iteration advances `index` by one or leaves the loop.
         while let Some(&byte) = bytes.get(index) {
             if byte == b'*' || byte == b'$' {
                 return Err("MPFR Float formats cannot use dynamic or positional arguments".into());

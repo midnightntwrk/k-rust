@@ -72,7 +72,7 @@ fn resolve_anon_vars_in_sentence_mut(
     generated
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: every anonymous variable (`_`, `?_`, `!_`, `@_`) visited so far has a fresh `_Gen` name recorded in `generated`; each call recurses into the immediate subterms of `term`, so the finite `term` bounds the recursion.
 fn transform(
     term: Term,
     fresh: &mut FreshNames,

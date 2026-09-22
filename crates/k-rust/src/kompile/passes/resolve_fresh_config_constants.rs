@@ -89,7 +89,7 @@ pub(crate) fn resolve_fresh_config_constants_pass(
     }
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `*counter` is the next unused fresh value, `named` maps each named `!` variable met so far on a right side to its value, and each `!_Gen` occurrence takes a new value; each call recurses into the immediate subterms of `term`, leaving rewrite left sides unchanged.
 fn transform(
     term: Term,
     on_rhs: bool,

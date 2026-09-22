@@ -77,12 +77,13 @@ pub(crate) fn resolve_strict_pass(
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
 
+    // Invariant: every module of `output.modules` before `module` has lost its context aliases and gained its generated strictness contexts, and `diagnostics` holds their errors; each iteration consumes one module.
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
         let mut generated = Vec::new();
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `generated` holds, without duplicates, the contexts resolved from every `strict` or `seqstrict` production of `module.local_sentences` before `sentence`, and `diagnostics` their errors; each iteration consumes one sentence.
         for sentence in &module.local_sentences {
             let Sentence::Production { attributes, .. } = &**sentence else {
                 continue;
@@ -105,7 +106,6 @@ pub(crate) fn resolve_strict_pass(
             .local_sentences
             .retain(|sentence| !matches!(&**sentence, Sentence::ContextAlias { .. }));
         if !generated.is_empty() {
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             let imports_bool = bool_module.is_some_and(|bool_module| {
                 resolved
                     .transitive_imports(module_id)
@@ -138,7 +138,6 @@ pub(crate) fn resolve_strict_pass(
     }
 
     if diagnostics.is_empty() {
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         Ok(output)
     } else {
         diagnostics.sort();
@@ -309,7 +308,7 @@ fn generate_contexts(
     production_attributes: &Attributes,
     module_name: &str,
 ) -> Result<(), Vec<Diagnostic>> {
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `generated` holds, for every position of `positions` before `position_index`, one context per alias of `aliases`; each iteration consumes one position, and the inner loop over `aliases` makes the work O(`positions` * `aliases`).
     for (position_index, position) in positions.iter().copied().enumerate() {
         let strict_index = position - 1;
         let base_arguments = nonterminals
@@ -319,7 +318,7 @@ fn generate_contexts(
             .collect::<Vec<_>>();
         let hole = semantic_cast(&nonterminals[strict_index], Term::variable("HOLE"));
 
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        // Invariant: `generated` has gained one context at the strict position `position` for each alias of `aliases` before `alias`; each iteration consumes one alias.
         for alias in aliases {
             let mut arguments = base_arguments.clone();
             let mut this_hole = hole.clone();
@@ -343,7 +342,6 @@ fn generate_contexts(
                     &alias.attributes,
                 )]
             })?;
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             let prior_positions = all_positions
                 .iter()
                 .chain(positions[..position_index].iter())
@@ -411,7 +409,7 @@ fn resolve_aliases(
     labeled: &BTreeMap<String, Vec<&Sentence>>,
 ) -> Result<Vec<Alias>, Vec<Diagnostic>> {
     let mut aliases = Vec::new();
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+    // Invariant: `aliases` holds, without duplicates and in order, the context aliases named by every label of `text` before `raw_label`; each iteration consumes one comma-separated label, and the inner loop over its `sentences` checks each alias against `aliases`, quadratic in the number of aliases.
     for raw_label in java_split(text, ',') {
         let label = raw_label.trim();
         let Some(sentences) = labeled.get(label) else {
@@ -541,7 +539,7 @@ fn attribute_text(attributes: &Attributes, key: AttributeKey) -> Option<String> 
 
 fn java_split(text: &str, delimiter: char) -> Vec<&str> {
     let mut values = text.split(delimiter).collect::<Vec<_>>();
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+    // Invariant: `values` is `text` split at `delimiter` with some trailing empty strings removed, and keeps at least one element; each iteration pops one element.
     while values.len() > 1 && values.last() == Some(&"") {
         values.pop();
     }
@@ -556,7 +554,7 @@ fn bool_token(value: bool) -> Term {
 }
 
 fn extend_unique(target: &mut Vec<Sentence>, additions: impl IntoIterator<Item = Sentence>) {
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+    // Invariant: `target` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `target.contains` makes the loop O(`additions` * `target`).
     for sentence in additions {
         if !target.contains(&sentence) {
             target.push(sentence);

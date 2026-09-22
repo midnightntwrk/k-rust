@@ -82,7 +82,7 @@ fn resolve_semantic_casts_in_sentence_mut(sentence: &mut Sentence, add_predicate
 
     let mut casts = BTreeSet::new();
     let mut typed_variables = BTreeMap::<String, Sort>::new();
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `casts` holds the unary semantic-cast applications, and `typed_variables` a sort for each variable one of them wraps directly, found in every element of `roots` before `root`; each iteration walks one root in preorder.
     for root in &roots {
         root.visit_preorder(&mut |term| {
             let Term::Apply { label, arguments } = term.unannotated() else {
@@ -162,7 +162,7 @@ fn is_true(term: &Term) -> bool {
     )
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each call replaces an application in `casts` by its transformed argument carrying the cast sort, gives a variable its sort from `typed_variables`, and otherwise recurses into the immediate subterms of `term`; the finite `term` bounds the recursion.
 fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<String, Sort>) -> Term {
     let source_metadata = term.metadata().cloned();
     if casts.contains(term.unannotated()) {

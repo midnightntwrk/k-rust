@@ -82,7 +82,7 @@ pub(crate) fn resolve_fun_pass(
         })
         .collect::<BTreeSet<_>>();
 
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+    // Invariant: every module of `output.modules` before `module` has its sentences transformed and its generated lambda productions and rules appended without duplicates, `labels` holds every label name taken so far, and `diagnostics` their errors; each iteration consumes one module.
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
@@ -102,7 +102,7 @@ pub(crate) fn resolve_fun_pass(
             diagnostics: &mut diagnostics,
         };
         let mut sentences = Vec::with_capacity(module.local_sentences.len());
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `sentences` holds the transformed form of every sentence of `module.local_sentences` before `sentence`, and `resolver.productions` and `resolver.rules` the lambdas generated from them; each iteration consumes one sentence.
         for sentence in &module.local_sentences {
             sentences.push(resolver.transform_sentence((**sentence).clone()));
         }
@@ -382,7 +382,7 @@ impl Resolver<'_, '_, '_> {
 
     fn unique_lambda(&mut self, hint1: &str, hint2: &str) -> Label {
         let mut attempt = 0usize;
-        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+        // Invariant: every lambda label for `hint1` and `hint2` with a suffix tried so far is already in `self.labels`, and `attempt` counts those attempts; each iteration tries a new suffix, so the finite `self.labels` bounds the loop to `self.labels.len() + 1` iterations.
         loop {
             let suffix = if attempt == 0 {
                 String::new()
@@ -456,7 +456,7 @@ fn closure_variables(term: &Term) -> Vec<ClosureVariable> {
     result
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `bound` holds every non-anonymous variable visited so far with `in_lhs` set, which holds on rewrite left sides and on the first argument of `Fun3` and `Let` applications; each call recurses into the immediate subterms of `term`.
 fn collect_lhs_variables(term: &Term, in_lhs: bool, bound: &mut BTreeSet<String>) {
     match term.unannotated() {
         Term::Variable { name, .. } if in_lhs && !is_anonymous(name) => {
@@ -559,7 +559,7 @@ impl Position {
     }
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `visitor` has received every variable visited so far for which `position.reports` holds, with the sort of its nearest enclosing semantic cast when there is one; each call recurses into the immediate subterms of `term`, updating `position` at rewrites and at `Fun3`, `Fun2`, `Let`, and equality applications.
 fn collect_rhs_variables(
     term: &Term,
     context: Option<&Sort>,
@@ -799,7 +799,7 @@ fn is_anonymous(name: &str) -> bool {
 }
 
 fn extend_unique(sentences: &mut Vec<Sentence>, additions: Vec<Sentence>) {
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+    // Invariant: `sentences` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `sentences.contains` makes the loop O(`additions` * `sentences`).
     for sentence in additions {
         if !sentences.contains(&sentence) {
             sentences.push(sentence);

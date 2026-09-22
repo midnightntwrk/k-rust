@@ -77,6 +77,7 @@ pub(crate) fn resolve_io_pass(
     let mut output = definition.clone();
     let mut diagnostics = Vec::new();
 
+    // Invariant: every module of `output.modules` before `module_index` has its stream initializers, stdin unblocking rules, stream module sentences, and implicit imports resolved, and `diagnostics` holds their stream errors; each iteration advances `module_index`.
     for module_index in 0..output.modules.len() {
         let module_name = output.modules[module_index].name.clone();
         if [WellKnownModule::StdinStream, WellKnownModule::StdoutStream]
@@ -93,7 +94,6 @@ pub(crate) fn resolve_io_pass(
             continue;
         }
 
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let local_has_stream = output.modules[module_index]
             .local_sentences
             .iter()
@@ -104,7 +104,7 @@ pub(crate) fn resolve_io_pass(
             .map(|sentence| (**sentence).clone())
             .collect::<Vec<_>>();
 
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        // Invariant: `sentences` has had the builtin initializer of every stream of `streams` before `stream` substituted into its cell initializers; each iteration consumes one stream and maps every sentence, O(`streams` * `sentences`).
         for stream in &streams {
             let Some(contents) = builtin_initializer_contents(definition, stream, &mut diagnostics)
             else {
@@ -116,7 +116,7 @@ pub(crate) fn resolve_io_pass(
                 .collect();
         }
 
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `sentences` contains the stdin unblocking rules generated for every `stdin` stream of `streams` before `stream`; each iteration consumes one such stream.
         for stream in streams.iter().filter(|stream| stream.stream == "stdin") {
             let generated =
                 stdin_unblocking_rules(definition, stream, &sentences, &mut diagnostics);
@@ -124,7 +124,7 @@ pub(crate) fn resolve_io_pass(
         }
 
         if local_has_stream {
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+            // Invariant: `sentences` contains, without duplicates, the stream module sentences of every stream of `streams` before `stream`; each iteration consumes one stream, and `extend_unique` scans `sentences` once per imported sentence.
             for stream in &streams {
                 let imported = stream_module_sentences(definition, stream, &mut diagnostics);
                 extend_unique(&mut sentences, imported);
@@ -181,6 +181,7 @@ fn stream_productions(
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<StreamProduction> {
     let mut streams = Vec::new();
+    // Invariant: `streams` holds one entry per distinct stream name and label among the valid stream cell productions of `sentences` before `sentence`, and `diagnostics` the errors of the invalid ones; each iteration consumes one sentence, and the `streams.iter().any` check makes the loop O(`sentences` * `streams`).
     for sentence in sentences {
         let Sentence::Production {
             label,
@@ -218,7 +219,6 @@ fn stream_productions(
             stream: stream.into(),
             sentence: sentence.clone(),
         };
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         if !streams.iter().any(|existing: &StreamProduction| {
             existing.stream == stream.stream
                 && LabelHead::from(&existing.label) == LabelHead::from(&stream.label)
@@ -385,7 +385,7 @@ fn stdin_unblocking_rules(
         return Vec::new();
     };
     let mut generated = Vec::new();
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: `generated` holds one unblocking rule for every rule of `sentences` before `sentence` whose body matches the cell of `stream` exactly once; each iteration consumes one sentence.
     for sentence in sentences {
         let Sentence::Rule {
             body,
@@ -746,7 +746,7 @@ fn stream_module<'a>(
 }
 
 fn extend_unique(sentences: &mut Vec<Sentence>, additions: Vec<Sentence>) {
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+    // Invariant: `sentences` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `sentences.contains` makes the loop O(`additions` * `sentences`).
     for sentence in additions {
         if !sentences.contains(&sentence) {
             sentences.push(sentence);

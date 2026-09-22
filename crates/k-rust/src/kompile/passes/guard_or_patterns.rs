@@ -97,7 +97,7 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
     }
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each call rewrites an internal `Or` application into an `As` pattern with a fresh `_Gen` alias, returns `As` and `Rewrite` terms unchanged, and otherwise recurses into `Apply` arguments and `Sequence` items; the finite depth of `term` bounds the recursion.
 fn transform(
     term: Term,
     injector: &SortInjector<'_, '_>,

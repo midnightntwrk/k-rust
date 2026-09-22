@@ -81,7 +81,7 @@ fn generate_sort_predicate_syntax_from_resolved(
                 attributes,
             });
         }
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `generated` holds the optional `Bool` token sort and the sort predicate production of every sort of `sorts.local_sorts()` before `sort`; each iteration consumes one sort.
         for sort in sorts.local_sorts() {
             let label = Label::sort_predicate(sort);
             let production = Sentence::Production {
@@ -212,7 +212,7 @@ pub(crate) fn generate_sort_projections_pass(
             .map(|(_, production)| production.clone())
             .collect::<Vec<_>>();
         let mut generated = Vec::new();
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `generated` holds the projection production and rule of every sort of `sorts.all_sorts()` before `sort` that is not a parser sort (`K` and `KItem` excepted) and whose projection label is not in `defined_labels`; each iteration consumes one sort.
         for sort in sorts.all_sorts() {
             if is_parser_sort(sort)
                 && sort.name != BuiltinSort::K.k_name()
@@ -226,7 +226,7 @@ pub(crate) fn generate_sort_projections_pass(
             }
             generated.extend(sort_projection(sort, label));
         }
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `generated` also holds the named field projections of every production of `local_productions` before `production`; each iteration consumes one production.
         for production in &local_productions {
             generated.extend(named_projections(
                 production,
@@ -324,7 +324,6 @@ fn named_projections(
     {
         return Vec::new();
     }
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     let total = main_productions
         .productions_for_sort(&SortHead::from(sort))
         .iter()
@@ -346,7 +345,7 @@ fn named_projections(
         })
         .collect::<Vec<_>>();
     let mut generated = Vec::new();
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `generated` holds the projection production and rule of every named nonterminal of `nonterminals` before `index`; each iteration consumes one nonterminal.
     for (index, (field_sort, field_name)) in nonterminals.iter().enumerate() {
         let Some(field_name) = field_name else {
             continue;

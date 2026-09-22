@@ -135,7 +135,7 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
         }
     }
 
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: `self.cache` maps each left-position subterm visited so far that is not the root, a variable, or `true`, and is not under `in_bad`, to a fresh variable; each call recurses into the immediate subterms of `term` except below blocked collection hooks and `Or`, so the finite `term` bounds the visit.
     fn gather_terms(
         &mut self,
         term: &Term,
@@ -196,7 +196,7 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
         Ok(())
     }
 
-    // Invariant: each recursive call consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining calls.
+    // Invariant: `self.used_on_rhs` holds every right-position subterm visited so far that is a key of `self.cache`; the recursion stops at such a subterm and otherwise descends into the immediate subterms of `term`, so the finite `term` bounds the calls.
     fn filter_rhs(&mut self, term: &Term, position: Position) {
         let term = term.unannotated();
         if position == Position::Right && self.cache.contains_key(term) {
@@ -225,7 +225,7 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
         }
     }
 
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: a right-position `term` that is a key of `self.cache` becomes its variable without descending; otherwise each call rebuilds `term` from its transformed immediate subterms, so the finite `term` bounds the recursion.
     fn transform(&self, term: &Term, position: Position, in_bad: bool) -> Term {
         if position == Position::Right
             && let Some(variable) = self.cache.get(term)

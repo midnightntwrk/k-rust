@@ -58,7 +58,7 @@ pub(crate) fn add_semantics_module_pass(
     .into_iter()
     .flatten()
     .filter(|name| available.contains(name))
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `imports` lists, once each and in candidate order, every available module name folded so far; each step consumes one name of the four-element candidate list.
     .fold(Vec::<FlatImport>::new(), |mut imports, name| {
         if !imports.iter().any(|import| import.name == name) {
             imports.push(FlatImport {
@@ -153,7 +153,7 @@ pub(crate) fn generate_sort_predicate_rules_pass(
             })
             .collect::<BTreeSet<_>>();
         let mut generated = Vec::new();
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `generated` holds the predicate rules of every `(predicate, sort)` pair of `predicates` before this one, one rule for the `K` sort and two otherwise; each iteration consumes one pair of the finite set `predicates`.
         for (predicate, sort) in predicates {
             if sort.is_builtin(BuiltinSort::K) {
                 generated.push(predicate_rule(
@@ -211,7 +211,7 @@ fn sort_from_json(value: &Value) -> Option<Sort> {
     ))
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: the result is true when `term` or a subterm is a `Maincell` application whose first argument is a sequence of at least two items starting with a variable; each call recurses into the immediate subterms of `term` and stops at the first match.
 fn contains_cool_like(term: &Term, productions: &crate::definition::ProductionCatalog<'_>) -> bool {
     match term.unannotated() {
         Term::Apply { label, arguments } => {

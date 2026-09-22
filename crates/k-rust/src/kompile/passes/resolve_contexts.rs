@@ -99,7 +99,7 @@ pub(crate) fn resolve_contexts_pass(
         .collect::<BTreeMap<_, _>>();
     let mut generated = Vec::new();
     let mut diagnostics = Vec::new();
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `generated` holds, without duplicates, the sentences resolved from every context of `contexts` before `context`, `labels` every freezer label taken so far, and `diagnostics` their errors; each iteration consumes one context.
     for context in contexts {
         match resolve_context(context, productions, &sentence_labels, &mut labels) {
             Ok(sentences) => extend_unique(&mut generated, sentences),
@@ -133,7 +133,6 @@ pub(crate) fn resolve_contexts_pass(
         main.local_sentences
             .extend(generated.into_iter().map(Arc::new));
     }
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     Ok(output)
 }
 
@@ -260,7 +259,7 @@ struct HeatScan<'a, 'definition> {
 }
 
 impl HeatScan<'_, '_> {
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: `self.variables` and `self.current_hole_position` record the non-`HOLE` variables visited so far in preorder where `self.in_main_cell || !self.has_main_cell` holds, and `self.hole` the last `HOLE` found there; each call recurses into the immediate subterms of `term`.
     fn visit(&mut self, term: &Term) {
         match term.unannotated() {
             Term::Rewrite { left, right } => {
@@ -309,7 +308,7 @@ impl HeatScan<'_, '_> {
 fn validate_context(body: &Term, attributes: &Attributes) -> Result<(), Vec<Diagnostic>> {
     let mut holes = BTreeSet::new();
     let mut rewrites = Vec::new();
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `holes` holds every `HOLE` variable and `rewrites` every distinct rewrite among the subterms of `body` visited so far in preorder; the finite `body` bounds the visit, and `rewrites.contains` scans one entry per distinct rewrite.
     body.visit_preorder(&mut |term| match term.unannotated() {
         Term::Variable { name, .. } if name == "HOLE" => {
             holes.insert(term.clone());
@@ -378,7 +377,7 @@ fn is_main_cell(label: &Label, productions: &ProductionCatalog<'_>) -> bool {
 }
 
 fn find_cooled(term: &Term, productions: &ProductionCatalog<'_>) -> Option<Term> {
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: `cooled` holds the second argument of the last main-cell application visited so far in preorder; each call recurses into the immediate subterms of `term`, so the finite `term` bounds the visit.
     fn visit(term: &Term, productions: &ProductionCatalog<'_>, cooled: &mut Option<Term>) {
         match term.unannotated() {
             Term::Apply { label, arguments } => {
@@ -437,7 +436,7 @@ fn freezer_hint(cooled: &Term, hole_position: usize) -> String {
 
 fn unique_freezer_label(labels: &mut BTreeSet<Label>, hint: &str) -> Label {
     let mut attempt = 0usize;
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: every freezer label for `hint` with a suffix tried so far is already in `labels`, and `attempt` counts those attempts; each iteration tries a new suffix, so the finite `labels` bounds the loop to `labels.len() + 1` iterations.
     loop {
         let suffix = if attempt == 0 {
             String::new()
@@ -473,7 +472,7 @@ fn insert(term: Term, rewrite: Term, productions: &ProductionCatalog<'_>) -> (Te
     }
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each call stops at a main-cell application or recurses into the immediate subterms of `term`; the returned flag is true exactly when a three-argument main cell below `term` had its middle argument replaced by `rewrite`.
 fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>) -> (Term, bool) {
     match term {
         Term::Annotated { term, metadata } => {
@@ -592,7 +591,7 @@ fn bool_token(value: bool) -> Term {
 }
 
 fn extend_unique(target: &mut Vec<Sentence>, additions: impl IntoIterator<Item = Sentence>) {
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+    // Invariant: `target` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `target.contains` makes the loop O(`additions` * `target`).
     for sentence in additions {
         if !target.contains(&sentence) {
             target.push(sentence);
