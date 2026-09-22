@@ -883,10 +883,12 @@ fn add_implicit_configuration_imports(
     }
 
     if has_map {
+        // Invariant: every entry of `definition.modules` before `module` that has a local configuration sentence imports `MAP`; each iteration consumes one module and scans its `local_sentences` and `imports` once.
         for module in &mut definition.modules {
-            let has_local_configuration =
-                // Invariant: the sentences of `module.local_sentences` before the current one are not configuration sentences; `any` scans them in order and stops at the first configuration sentence, so each module costs O(|local_sentences|).
-                module.local_sentences.iter().any(|sentence| is_configuration_sentence(sentence));
+            let has_local_configuration = module
+                .local_sentences
+                .iter()
+                .any(|sentence| is_configuration_sentence(sentence));
             if has_local_configuration
                 && !module
                     .imports
@@ -914,6 +916,7 @@ fn definition_has_visible_configuration(definition: &Definition, module: &str) -
     modules.get(module)?;
     let mut pending = vec![module];
     let mut visited = BTreeSet::new();
+    // Invariant: no module name in `visited` has a local configuration sentence, and every module reachable by imports from `module` is in `visited` or reachable from a name in `pending`; each name enters `visited` at most once, so the imports of the named modules bound the pushes.
     while let Some(name) = pending.pop() {
         if !visited.insert(name) {
             continue;

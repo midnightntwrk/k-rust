@@ -961,6 +961,7 @@ fn reverse_reachable(graph: &DiGraph<ResolvedModule, Import>, roots: &[bool]) ->
         .enumerate()
         .filter_map(|(index, root)| root.then_some(NodeIndex::new(index)))
         .collect::<Vec<_>>();
+    // Invariant: every node of `pending` is marked in `reached`, and every marked node not in `pending` has all its importers marked; a node is pushed only when it is first marked, so each node is popped at most once and each import edge is scanned at most once.
     while let Some(node) = pending.pop() {
         for importer in graph.neighbors_directed(node, Incoming) {
             if !reached[importer.index()] {
