@@ -1,0 +1,14 @@
+schema = 1
+id = "B06-integer-narrowing"
+behavior = "Every ireduce pair with wrapping and negative inputs, plus the inverse extensions and narrow-type arithmetic."
+basis = "BL-003 backend-control/ireduce-i16-i8.rs; clif2wasm ops.rs ireduce lowering (IR-02, ff3bf837)"
+expected_status = "pass"
+
+[[crate]]
+name = "b06_integer_narrowing"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b06_integer_narrowing"

@@ -1,0 +1,15 @@
+schema = 1
+id = "B21-i128-icmp-imm"
+behavior = "icmp_imm on i128."
+basis = "found by IR-16 (B10 i128 checked_sub/checked_div/checked_mul/signum)"
+gap = { class = "backend", summary = "clif2wasm: `lowering icmp_imm.i128 slt v, 0: clif2wasm: unsupported CLIF type i128` at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff IntCompareImm arm (line 818) calls map_type on the i128 operand (lib.rs:209 rejects I128); the register-register icmp has an i128 pair path (i128_lower::icmp) that icmp_imm does not use" }
+expected_status = "known-gap"
+
+[[crate]]
+name = "b21_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b21_repro"

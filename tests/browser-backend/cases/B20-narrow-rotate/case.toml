@@ -1,0 +1,15 @@
+schema = 1
+id = "B20-narrow-rotate"
+behavior = "rotl/rotr on i8 and i16."
+basis = "found by IR-16 (operation sweep)"
+gap = { class = "backend", summary = "clif2wasm: `lowering rotl.i8: narrow-int rotate (i8) unimplemented` (and i16) at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Binary arm (lines 207-213): an explicit ensure! rejects narrow rotates" }
+expected_status = "known-gap"
+
+[[crate]]
+name = "b20_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b20_repro"

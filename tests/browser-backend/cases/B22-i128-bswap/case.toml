@@ -1,0 +1,15 @@
+schema = 1
+id = "B22-i128-bswap"
+behavior = "bswap on i128."
+basis = "found by IR-16 (B10 u128 swap_bytes)"
+gap = { class = "backend", summary = "clif2wasm: `lowering bswap.i128: i128 value used where a single wasm value is required` at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Bswap arm (line 1118) takes one wasm value (bridge.rs:117 rejects the i128 pair)" }
+expected_status = "known-gap"
+
+[[crate]]
+name = "b22_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b22_repro"
