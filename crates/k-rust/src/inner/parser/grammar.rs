@@ -563,6 +563,14 @@ impl Grammar {
         }
         let items = compiled_items;
         let index = self.productions.len();
+        let result_id = self.intern_sort(&result);
+        let item_sort_ids = items
+            .iter()
+            .map(|item| match item {
+                Item::NonTerminal(sort) => Some(self.intern_sort(sort)),
+                Item::Terminal(_) | Item::Regex { .. } => None,
+            })
+            .collect::<Vec<_>>();
         // Java's `Production.isSyntacticSubsort` is purely shape-based; unlike `isSubsort`,
         // it does not require the production to be unlabeled. Priority filtering uses the
         // former, while the semantic subsort relation uses the latter.
@@ -598,8 +606,10 @@ impl Grammar {
         }
         self.productions.push(Production {
             result: result.clone(),
+            result_id,
             declared_items,
             items,
+            item_sort_ids,
             label,
             token: options.token,
             transparent: options.transparent,
@@ -621,7 +631,7 @@ impl Grammar {
             term_production: None,
             hook: options.hook.map(str::to_owned),
         });
-        self.by_result.entry(result).or_default().push(index);
+        self.by_result[result_id].push(index);
         Ok(())
     }
 }

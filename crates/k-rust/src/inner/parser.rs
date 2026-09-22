@@ -376,8 +376,10 @@ impl std::error::Error for ParseError {}
 #[derive(Clone, Debug)]
 struct Production {
     result: Sort,
+    result_id: usize,
     declared_items: Vec<ProductionItem>,
     items: Vec<Item>,
+    item_sort_ids: Vec<Option<usize>>,
     label: Option<Label>,
     token: bool,
     transparent: bool,
@@ -560,7 +562,9 @@ fn chart_completion_candidates() -> usize {
 pub struct Grammar {
     generation: u64,
     productions: Vec<Production>,
-    by_result: BTreeMap<Sort, Vec<usize>>,
+    sorts: Vec<Sort>,
+    sort_ids: BTreeMap<Sort, usize>,
+    by_result: Vec<Vec<usize>>,
     scanner: Scanner,
     prediction_analysis: OnceLock<PredictionAnalysis>,
     source_production_texts: BTreeMap<ProductionIdentity, String>,
@@ -587,7 +591,9 @@ impl Default for Grammar {
         Self {
             generation: next_grammar_generation(),
             productions: Vec::new(),
-            by_result: BTreeMap::new(),
+            sorts: Vec::new(),
+            sort_ids: BTreeMap::new(),
+            by_result: Vec::new(),
             scanner: Scanner::default(),
             prediction_analysis: OnceLock::new(),
             source_production_texts: BTreeMap::new(),
@@ -617,15 +623,25 @@ impl Grammar {
         derivations: impl IntoIterator<Item = Derivation>,
     ) -> Result<bool, ParseError> {
         let production = &self.productions[state.production];
-        let new_state = !chart.states.contains_key(&state);
-        let changed = chart.add(state, derivations)?;
+        let (changed, new_state) = chart.add_with_status(state, derivations)?;
+        if changed && state.dot == production.items.len() {
+            chart.invalidate_completed_node(production.result_id, state.origin);
+        }
         if changed && new_state {
-            if let Some(Item::NonTerminal(sort)) = production.items.get(state.dot) {
-                chart.waiting.entry(sort.clone()).or_default().push(state);
+            if production
+                .item_sort_ids
+                .get(state.dot)
+                .copied()
+                .flatten()
+                .is_some()
+            {
+                let sort_id =
+                    production.item_sort_ids[state.dot].expect("nonterminal has a sort id");
+                chart.waiting.entry(sort_id).or_default().push(state);
             } else if state.dot == production.items.len() {
                 chart
                     .completed
-                    .entry(production.result.clone())
+                    .entry(production.result_id)
                     .or_default()
                     .push(state);
             }
@@ -754,11 +770,20 @@ impl Grammar {
                 .get_or_init(|| PredictionAnalysis::new(self))
         });
         let mut charts = (0..=input.len())
-            .map(|_| Chart::default())
+            .map(|_| Chart::new(self.sorts.len()))
             .collect::<Vec<_>>();
         let mut scanner_cache = vec![None; input.len() + 1];
         let start_position = self.canonical_position(input, 0, &mut scanner_cache);
-        for production in self.productions_for(start) {
+        let Some(start_id) = self.sort_id(start) else {
+            return Err(self.no_parse(
+                input,
+                provenance,
+                diagnostic_provenance,
+                &charts,
+                &mut scanner_cache,
+            ));
+        };
+        for production in self.productions_for_id(start_id) {
             self.add_chart_state(
                 &mut charts[start_position],
                 State {
@@ -769,7 +794,7 @@ impl Grammar {
                 [Vec::new()],
             )?;
         }
-        charts[start_position].predicted.insert(start.clone());
+        charts[start_position].predicted[start_id] = true;
         let mut first_violation = None;
 
         // Recognition phase: saturate each position's agenda before moving to the next byte.
@@ -823,14 +848,17 @@ impl Grammar {
                 }
 
                 match production.items.get(state.dot) {
-                    Some(Item::NonTerminal(sort)) => {
+                    Some(Item::NonTerminal(_sort)) => {
+                        let sort_id = production.item_sort_ids[state.dot]
+                            .expect("nonterminal item has a sort id");
                         #[cfg(test)]
                         record_chart_dispatch(
                             ChartDispatchKind::Nonterminal,
                             derivation_count,
                             revisit,
                         );
-                        if charts[position].predicted.insert(sort.clone()) {
+                        if !charts[position].predicted[sort_id] {
+                            charts[position].predicted[sort_id] = true;
                             let winner = prediction_analysis.and_then(|_| {
                                 self.scanner
                                     .winner(
@@ -846,14 +874,11 @@ impl Grammar {
                             });
                             let (candidates, excluded): (Box<dyn Iterator<Item = usize> + '_>, _) =
                                 if let Some(analysis) = prediction_analysis {
-                                    let sort_id = analysis
-                                        .sort_id(sort)
-                                        .expect("every predicted result sort is analyzed");
                                     let (candidates, excluded) =
                                         analysis.candidates(sort_id, winner);
                                     (Box::new(candidates), excluded)
                                 } else {
-                                    (Box::new(self.productions_for(sort)), 0)
+                                    (Box::new(self.productions_for_id(sort_id)), 0)
                                 };
                             if excluded != 0 {
                                 measure::add(
@@ -893,7 +918,7 @@ impl Grammar {
                         let (completed, violation) = completed_nodes(
                             &charts[position],
                             self,
-                            sort,
+                            sort_id,
                             position,
                             position,
                             input,
@@ -983,7 +1008,7 @@ impl Grammar {
                         }
                         let callers = charts[state.origin]
                             .waiting
-                            .get(&production.result)
+                            .get(&production.result_id)
                             .into_iter()
                             .flatten()
                             .filter_map(|caller| {
@@ -1033,7 +1058,7 @@ impl Grammar {
             let (completed, violation) = completed_nodes(
                 chart,
                 self,
-                start,
+                start_id,
                 start_position,
                 position,
                 input,
@@ -1147,8 +1172,29 @@ impl Grammar {
             .unpack())
     }
 
+    fn intern_sort(&mut self, sort: &Sort) -> usize {
+        if let Some(id) = self.sort_ids.get(sort).copied() {
+            return id;
+        }
+        let id = self.sorts.len();
+        self.sorts.push(sort.clone());
+        self.sort_ids.insert(sort.clone(), id);
+        self.by_result.push(Vec::new());
+        id
+    }
+
+    pub(super) fn sort_id(&self, sort: &Sort) -> Option<usize> {
+        self.sort_ids.get(sort).copied()
+    }
+
+    fn productions_for_id(&self, sort_id: usize) -> impl Iterator<Item = usize> + '_ {
+        self.by_result.get(sort_id).into_iter().flatten().copied()
+    }
+
     fn productions_for(&self, sort: &Sort) -> impl Iterator<Item = usize> + '_ {
-        self.by_result.get(sort).into_iter().flatten().copied()
+        self.sort_id(sort)
+            .into_iter()
+            .flat_map(|sort_id| self.productions_for_id(sort_id))
     }
 
     fn canonical_position(
@@ -3390,7 +3436,8 @@ mod chart_tests {
                 .add_chart_state(&mut chart, waiting, [Vec::new()])
                 .unwrap()
         );
-        assert_eq!(chart.waiting[&child], vec![waiting]);
+        let child_id = grammar.sort_id(&child).unwrap();
+        assert_eq!(chart.waiting[&child_id], vec![waiting]);
 
         assert!(
             grammar
@@ -3402,7 +3449,8 @@ mod chart_tests {
                 .add_chart_state(&mut chart, completed, [derivation(variable("A"))])
                 .unwrap()
         );
-        assert_eq!(chart.completed[&parent], vec![completed]);
+        let parent_id = grammar.sort_id(&parent).unwrap();
+        assert_eq!(chart.completed[&parent_id], vec![completed]);
     }
 
     #[test]

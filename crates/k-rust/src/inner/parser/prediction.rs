@@ -9,7 +9,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use k_rust_kore::measure::{self, Counter};
 
-use super::{Grammar, Item, Sort};
+#[cfg(test)]
+use super::Sort;
+use super::{Grammar, Item};
 
 #[derive(Clone, Copy, Debug)]
 enum Symbol {
@@ -48,7 +50,6 @@ impl Iterator for PredictionCandidates<'_> {
 
 #[derive(Clone, Debug)]
 pub(super) struct PredictionAnalysis {
-    sorts: Vec<Sort>,
     first_items: Vec<Option<Symbol>>,
     epsilon: Vec<bool>,
     first: Vec<BTreeSet<usize>>,
@@ -60,32 +61,10 @@ impl PredictionAnalysis {
         measure::bump(Counter::ParserPredictionAnalysisBuilds);
         // Hidden program-list descriptors still exist in `productions` for reconstruction.
         // Only the predictor's active buckets participate in recognition.
-        let sorts = grammar
-            .by_result
-            .keys()
-            .cloned()
-            .chain(grammar.by_result.values().flatten().flat_map(|index| {
-                grammar.productions[*index]
-                    .items
-                    .iter()
-                    .filter_map(|item| match item {
-                        Item::NonTerminal(sort) => Some(sort.clone()),
-                        _ => None,
-                    })
-            }))
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let sort_ids = sorts
-            .iter()
-            .cloned()
-            .enumerate()
-            .map(|(index, sort)| (sort, index))
-            .collect::<BTreeMap<_, _>>();
         let mut first_items = vec![None; grammar.productions.len()];
         let productions = grammar
             .by_result
-            .values()
+            .iter()
             .flatten()
             .map(|index| {
                 let production = &grammar.productions[*index];
@@ -93,17 +72,19 @@ impl PredictionAnalysis {
                     .items
                     .iter()
                     .map(|item| match item {
-                        Item::NonTerminal(sort) => Symbol::NonTerminal(sort_ids[sort]),
+                        Item::NonTerminal(sort) => {
+                            Symbol::NonTerminal(grammar.sort_id(sort).expect("grammar sort exists"))
+                        }
                         _ => Symbol::Lexical(grammar.scanner.lexeme_id(item)),
                     })
                     .collect::<Vec<_>>();
                 first_items[*index] = items.first().copied();
-                (sort_ids[&production.result], items)
+                (production.result_id, items)
             })
             .collect::<Vec<_>>();
-        let mut buckets = vec![PredictionBucket::default(); sorts.len()];
-        for (sort, indexes) in &grammar.by_result {
-            let bucket = &mut buckets[sort_ids[sort]];
+        let mut buckets = vec![PredictionBucket::default(); grammar.sorts.len()];
+        for (sort_id, indexes) in grammar.by_result.iter().enumerate() {
+            let bucket = &mut buckets[sort_id];
             for index in indexes {
                 match first_items[*index] {
                     Some(Symbol::Lexical(Some(lexeme))) => {
@@ -123,9 +104,9 @@ impl PredictionAnalysis {
         // Adapt Java EarleyParser.markNullable: a newly nullable sort wakes its callers.
         // Each nonterminal occurrence counts separately (e.g. S ::= N N).
         // Regexes, including zero-width regexes, are mandatory scanner transitions, not epsilon.
-        let mut epsilon = vec![false; sorts.len()];
+        let mut epsilon = vec![false; grammar.sorts.len()];
         let mut remaining = vec![None; productions.len()];
-        let mut callers = vec![Vec::new(); sorts.len()];
+        let mut callers = vec![Vec::new(); grammar.sorts.len()];
         let mut pending = VecDeque::new();
         for (index, (result, items)) in productions.iter().enumerate() {
             if items.iter().any(|item| matches!(item, Symbol::Lexical(_))) {
@@ -160,8 +141,8 @@ impl PredictionAnalysis {
         }
 
         // Java computeFirstSet's monotone unions, scheduled only for changed child sorts.
-        let mut first = vec![BTreeSet::new(); sorts.len()];
-        let mut dependents = vec![BTreeSet::new(); sorts.len()];
+        let mut first = vec![BTreeSet::new(); grammar.sorts.len()];
+        let mut dependents = vec![BTreeSet::new(); grammar.sorts.len()];
         for (result, items) in &productions {
             for item in items {
                 match item {
@@ -201,16 +182,11 @@ impl PredictionAnalysis {
             }
         }
         Self {
-            sorts,
             first_items,
             epsilon,
             first,
             buckets,
         }
-    }
-
-    pub(super) fn sort_id(&self, sort: &Sort) -> Option<usize> {
-        self.sorts.binary_search(sort).ok()
     }
 
     pub(super) fn candidates(
@@ -231,13 +207,13 @@ impl PredictionAnalysis {
         )
     }
 
-    pub(super) fn can_filter(&self, production: usize, predicted: &BTreeSet<Sort>) -> bool {
+    pub(super) fn can_filter(&self, production: usize, predicted: &[bool]) -> bool {
         match self.first_items[production] {
             Some(Symbol::Lexical(_)) => true,
             Some(Symbol::NonTerminal(child)) => {
                 // Without this marker, the caller would expand descendants and invalidate
                 // snapshots later. Preserve that scheduling even when FIRST proves it dead.
-                !self.epsilon[child] && predicted.contains(&self.sorts[child])
+                !self.epsilon[child] && predicted[child]
             }
             None => false,
         }
@@ -259,7 +235,7 @@ impl PredictionAnalysis {
         grammar: &Grammar,
         sort: &Sort,
         winner: Option<usize>,
-        predicted: &BTreeSet<Sort>,
+        predicted: &[bool],
     ) -> (Vec<usize>, usize, usize) {
         let mut candidates = Vec::new();
         let mut terminal_skipped = 0;
@@ -445,7 +421,7 @@ mod tests {
 
             let analysis = PredictionAnalysis::new(&grammar);
             for (index, sort) in sorts.iter().enumerate() {
-                if let Ok(actual) = analysis.sorts.binary_search(sort) {
+                if let Some(actual) = grammar.sort_id(sort) {
                     prop_assert_eq!(analysis.epsilon[actual], nullable[index]);
                     prop_assert_eq!(&analysis.first[actual], &first[index]);
                 } else {
@@ -469,7 +445,7 @@ mod tests {
         .unwrap();
         let analysis = PredictionAnalysis::new(&grammar);
         let sort = Sort::new("Choice");
-        let sort_id = analysis.sort_id(&sort).unwrap();
+        let sort_id = grammar.sort_id(&sort).unwrap();
         let winners = [
             None,
             grammar.scanner.lexeme_id(&Item::Terminal("a".into())),
@@ -523,13 +499,14 @@ mod tests {
                 2 => grammar.scanner.lexeme_id(&Item::Terminal("b".into())),
                 _ => grammar.scanner.lexeme_id(&Item::Terminal("c".into())),
             };
-            let mut predicted = BTreeSet::from([sort.clone()]);
+            let mut predicted = vec![false; grammar.sorts.len()];
+            predicted[grammar.sort_id(&sort).unwrap()] = true;
             if child_already_predicted {
-                predicted.insert(Sort::new("Child"));
+                predicted[grammar.sort_id(&Sort::new("Child")).unwrap()] = true;
             }
             let (expected, terminal_skipped, nonterminal_skipped) =
                 analysis.candidates_by_iteration(&grammar, &sort, winner, &predicted);
-            let (indexed, excluded) = analysis.candidates(analysis.sort_id(&sort).unwrap(), winner);
+            let (indexed, excluded) = analysis.candidates(grammar.sort_id(&sort).unwrap(), winner);
             let mut actual = Vec::new();
             let mut indexed_nonterminal_skipped = 0;
             for production in indexed {
@@ -673,7 +650,7 @@ mod tests {
                 .unwrap();
         }
         let analysis = PredictionAnalysis::new(&grammar);
-        let id = |sort: &Sort| analysis.sorts.binary_search(sort).unwrap();
+        let id = |sort: &Sort| grammar.sort_id(sort).unwrap();
         let token = |text: &str| {
             grammar
                 .scanner
@@ -811,7 +788,7 @@ mod tests {
                     && production.items.is_empty())
         );
         let analysis = PredictionAnalysis::new(&grammar);
-        let index = analysis.sorts.binary_search(&Sort::new("List")).unwrap();
+        let index = grammar.sort_id(&Sort::new("List")).unwrap();
         assert!(!analysis.epsilon[index]);
         assert_eq!(
             analysis.first[index],

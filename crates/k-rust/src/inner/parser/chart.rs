@@ -12,8 +12,7 @@ use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Counter};
 
-use crate::kast::{Sort, TermSpan};
-use crate::provenance::SourceId;
+use crate::kast::TermSpan;
 
 use super::disambiguation::PackedPriorityMemos;
 use super::forest::{
@@ -148,7 +147,7 @@ pub(super) struct State {
     pub(super) origin: usize,
 }
 
-type CompletedNodeKey = (Sort, usize, usize, SourceId, usize);
+type CompletedNodeKey = (usize, usize);
 type CompletedNodeResult = (BTreeSet<Rc<PackedTerm>>, Option<ParseError>);
 
 #[derive(Clone, Debug)]
@@ -157,24 +156,29 @@ pub(super) struct Chart {
     // Each bucket is considered once at this position. Its marker also permits omission of
     // impossible callers that would not expand the same bucket again. Caller-specific nullable
     // completion must still run on every request.
-    pub(super) predicted: BTreeSet<Sort>,
-    pub(super) waiting: BTreeMap<Sort, Vec<State>>,
-    pub(super) completed: BTreeMap<Sort, Vec<State>>,
+    pub(super) predicted: Vec<bool>,
+    pub(super) waiting: BTreeMap<usize, Vec<State>>,
+    pub(super) completed: BTreeMap<usize, Vec<State>>,
     pub(super) agenda: VecDeque<State>,
     // Revisit accounting (`parser.chart_revisit_pops`) needs the set of states popped so far;
     // it is kept only where something reads it.
     #[cfg(any(test, feature = "measure"))]
     pub(super) popped: BTreeSet<State>,
-    // Java exposes one completed node for each stable (sort, origin, end) chart boundary. Retain
-    // that identity until the chart changes; `add` invalidates this snapshot before reprocessing.
+    // Java exposes one completed node for each stable (sort, origin, end) chart boundary.
     pub(super) completed_nodes: RefCell<BTreeMap<CompletedNodeKey, CompletedNodeResult>>,
 }
 
 impl Default for Chart {
     fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl Chart {
+    pub(super) fn new(sort_count: usize) -> Self {
         Self {
             states: BTreeMap::new(),
-            predicted: BTreeSet::new(),
+            predicted: vec![false; sort_count],
             waiting: BTreeMap::new(),
             completed: BTreeMap::new(),
             agenda: VecDeque::new(),
@@ -330,20 +334,43 @@ impl Chart {
         completed_nodes.clear();
     }
 
+    pub(super) fn invalidate_completed_node(&mut self, sort_id: usize, origin: usize) {
+        let removed = self.completed_nodes.get_mut().remove(&(sort_id, origin));
+        measure::add(
+            Counter::ParserCompletedNodesInvalidated,
+            u64::from(removed.is_some()),
+        );
+        #[cfg(test)]
+        if removed.is_some() {
+            update_chart_work_counters(|counters| {
+                counters.completed_nodes_invalidation_entries += 1;
+            });
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn add(
         &mut self,
         state: State,
         derivations: impl IntoIterator<Item = Derivation>,
     ) -> Result<bool, ParseError> {
+        self.add_with_status(state, derivations)
+            .map(|(changed, _new_state)| changed)
+    }
+
+    pub(super) fn add_with_status(
+        &mut self,
+        state: State,
+        derivations: impl IntoIterator<Item = Derivation>,
+    ) -> Result<(bool, bool), ParseError> {
         measure::bump(Counter::ParserChartAddCalls);
         #[cfg(test)]
         update_chart_work_counters(|counters| counters.add_calls += 1);
         let mut derivations = derivations.into_iter().peekable();
-        if derivations.peek().is_none() {
-            return Ok(false);
-        }
-        #[cfg(test)]
         let new_state = !self.states.contains_key(&state);
+        if derivations.peek().is_none() {
+            return Ok((false, new_state));
+        }
         let stored = self.states.entry(state).or_default();
         let mut changed = false;
         // Invariant: `stored` is an antichain under derivation coverage after every insertion;
@@ -352,7 +379,7 @@ impl Chart {
             changed |= stored.insert(derivation);
         }
         if !changed {
-            return Ok(false);
+            return Ok((false, new_state));
         }
         measure::bump(Counter::ParserChartStateChanges);
         #[cfg(test)]
@@ -364,9 +391,8 @@ impl Chart {
             }
             counters.agenda_enqueues += 1;
         });
-        self.invalidate_completed_nodes();
         self.agenda.push_back(state);
-        Ok(true)
+        Ok((true, new_state))
     }
 }
 
@@ -462,10 +488,15 @@ fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Returns one canonical set of packed terms per version of a `(sort_id, origin)` boundary.
+///
+/// Repeated requests reuse the same `Rc` allocations until a completed state or derivation for
+/// that boundary changes. The chart fixes `end` and the parse attempt fixes `provenance`, so neither
+/// belongs in the memo key.
 pub(super) fn completed_nodes(
     chart: &Chart,
     grammar: &Grammar,
-    sort: &Sort,
+    sort_id: usize,
     origin: usize,
     end: usize,
     input: &str,
@@ -476,13 +507,7 @@ pub(super) fn completed_nodes(
     // derivation once; the memo is populated only with the complete packed result and first error.
     #[cfg(test)]
     update_chart_work_counters(|counters| counters.completed_nodes_calls += 1);
-    let key = (
-        sort.clone(),
-        origin,
-        end,
-        provenance.source,
-        provenance.base_offset,
-    );
+    let key = (sort_id, origin);
     if let Some(completed) = chart.completed_nodes.borrow().get(&key) {
         measure::bump(Counter::ParserCompletedNodesHits);
         #[cfg(test)]
@@ -494,7 +519,7 @@ pub(super) fn completed_nodes(
     update_chart_work_counters(|counters| counters.completed_nodes_misses += 1);
     let mut nodes = BTreeSet::new();
     let mut invalid = Vec::new();
-    for state in chart.completed.get(sort).into_iter().flatten() {
+    for state in chart.completed.get(&sort_id).into_iter().flatten() {
         if state.origin != origin {
             continue;
         }
@@ -697,7 +722,10 @@ mod tests {
         grammar
             .add(
                 Sort::new("S"),
-                Vec::new(),
+                vec![ProductionItem::NonTerminal {
+                    sort: Sort::new("Child"),
+                    name: None,
+                }],
                 Some(Label::new("unit")),
                 false,
                 false,
@@ -705,48 +733,52 @@ mod tests {
             .unwrap();
         let state = State {
             production: 0,
-            dot: 0,
+            dot: 1,
             origin: 0,
         };
-        let mut chart = Chart::default();
-        chart.add(state, [Vec::new()]).unwrap();
-        chart
-            .completed
-            .entry(Sort::new("S"))
-            .or_default()
-            .push(state);
+        let mut chart = Chart::new(grammar.sorts.len());
+        grammar
+            .add_chart_state(&mut chart, state, [derivation(variable("A"))])
+            .unwrap();
+        let sort_id = grammar.sort_id(&Sort::new("S")).unwrap();
         let provenance = ParseProvenance {
             source: SourceId(0),
             base_offset: 0,
         };
 
         let memos = RefCell::new(PackedPriorityMemos::default());
-        let mut first = completed_nodes(
-            &chart,
-            &grammar,
-            &Sort::new("S"),
-            0,
-            0,
-            "",
-            provenance,
-            &memos,
-        )
-        .0;
-        let mut second = completed_nodes(
-            &chart,
-            &grammar,
-            &Sort::new("S"),
-            0,
-            0,
-            "",
-            provenance,
-            &memos,
-        )
-        .0;
+        let mut first = completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos).0;
+        let mut second = completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos).0;
         let first = first.pop_first().expect("first completed node exists");
         let second = second.pop_first().expect("second completed node exists");
 
         assert!(Rc::ptr_eq(&first, &second));
+
+        grammar
+            .add_chart_state(
+                &mut chart,
+                State { origin: 1, ..state },
+                [derivation(variable("A"))],
+            )
+            .unwrap();
+        let mut after_other_boundary =
+            completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos).0;
+        let after_other_boundary = after_other_boundary
+            .pop_first()
+            .expect("completed node survives another boundary change");
+        assert!(Rc::ptr_eq(&first, &after_other_boundary));
+
+        grammar
+            .add_chart_state(&mut chart, state, [derivation(variable("B"))])
+            .unwrap();
+        let after_same_boundary =
+            completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos).0;
+        assert_eq!(after_same_boundary.len(), 2);
+        assert!(
+            after_same_boundary
+                .iter()
+                .all(|completed| !Rc::ptr_eq(&first, completed))
+        );
     }
 
     #[test]

@@ -117,7 +117,10 @@ impl Grammar {
         // but `NeList` must not retain that `Sort ::= ""` alternative. Keep its production
         // identity for list reconstruction while removing it from the parse index.
         for (sort, terminator) in nonempty_terminators {
-            if let Some(indices) = self.by_result.get_mut(&sort) {
+            if let Some(indices) = self
+                .sort_id(&sort)
+                .and_then(|id| self.by_result.get_mut(id))
+            {
                 indices.retain(|index| *index != terminator);
             }
         }
@@ -179,7 +182,7 @@ impl Grammar {
             .collect::<Result<Vec<_>, _>>()?;
 
         // The source production no longer parses directly; only its `Ne#` variant does.
-        if let Some(indices) = self.by_result.get_mut(sort) {
+        if let Some(indices) = self.sort_id(sort).and_then(|id| self.by_result.get_mut(id)) {
             indices.retain(|index| *index != list.list_production);
         }
         let split = self.productions.len();
