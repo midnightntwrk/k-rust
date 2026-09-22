@@ -10,6 +10,21 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return out;
 }
 
+/** pack_id rule of the IR-14 format: SHA-256 of the sorted "<sha256>  <path>\n" lines of every artifact. */
+export async function ir14PackId(artifacts: Array<{ path: string; sha256: string }>): Promise<string> {
+  const lines = artifacts.map((a) => `${a.sha256}  ${a.path}\n`).sort();
+  return `sha256:${await sha256Hex(new TextEncoder().encode(lines.join("")))}`;
+}
+
+/** Recomputes pack_id from the pack's own assets (everything under integrity.root). */
+export async function recomputePackId(pack: PackManifest): Promise<string> {
+  const prefix = `${pack.integrity.root}/`;
+  const own = packAssets(pack)
+    .filter((a) => a.path.startsWith(prefix))
+    .map((a) => ({ path: a.path.slice(prefix.length), sha256: a.sha256 }));
+  return ir14PackId(own);
+}
+
 /** Every asset the worker needs, keyed by its pack-relative path. */
 export function packAssets(pack: PackManifest): PackAsset[] {
   return [
@@ -31,8 +46,8 @@ export class PackIntegrityError extends Error {
 
 /**
  * Reads every asset through `read`, checks size and SHA-256 against the
- * manifest, and compiles the three Wasm modules once. Any mismatch throws
- * PackIntegrityError before a module is compiled.
+ * manifest, recomputes the IR-14 pack_id, and compiles the three Wasm modules
+ * once. Any mismatch throws PackIntegrityError before a module is compiled.
  */
 export async function loadVerifiedAssets(
   pack: PackManifest,
@@ -52,6 +67,8 @@ export async function loadVerifiedAssets(
     bytesByPath.set(asset.path, bytes);
     verified[asset.path] = digest;
   }));
+  const packId = await recomputePackId(pack);
+  if (packId !== pack.pack_id) throw new PackIntegrityError(`pack_id ${pack.pack_id} does not match the verified artifacts (${packId})`);
   const take = (asset: PackAsset): Uint8Array => bytesByPath.get(asset.path)!;
   const compile = (asset: PackAsset) => WebAssembly.compile(take(asset) as Uint8Array<ArrayBuffer>);
   const [rustc, policy, expander] = await Promise.all([

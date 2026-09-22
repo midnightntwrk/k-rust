@@ -5,7 +5,6 @@
 
 import type { FailureCode, LessonManifest, PackManifest } from "./protocol.ts";
 
-export const TARGET = "wasm32-wasip1";
 export const OUT_DIR = "/work/out";
 export const COLLECTOR_MAIN = "/work/collector/main.rs";
 export const COLLECTOR_OUT = `${OUT_DIR}/collector.wasm`;
@@ -26,8 +25,9 @@ export function lessonRlibPath(lesson: LessonManifest): string {
   return `${OUT_DIR}/lib${lesson.package.crate_name}.rlib`;
 }
 
-function common(pack: PackManifest, edition: string): string[] {
-  const args = ["--edition", edition, "--target", TARGET, "--sysroot", "/sysroot", ...pack.direct_rustc.common_flags];
+function common(pack: PackManifest): string[] {
+  const d = pack.direct_rustc;
+  const args = ["--edition", d.edition, "--target", d.target, "--sysroot", d.sysroot, ...d.common_flags];
   for (const dir of pack.direct_rustc.library_dirs) args.push("-L", `dependency=${dir}`);
   return args;
 }
@@ -48,7 +48,7 @@ export function lessonInvocation(pack: PackManifest, lesson: LessonManifest): In
       lesson.package.crate_name,
       "--crate-type",
       "rlib",
-      ...common(pack, lesson.package.edition),
+      ...common(pack),
       "--extern",
       `${lesson.facade.alias}=${pack.externs.facade}`,
       "--error-format=json",
@@ -77,7 +77,7 @@ export function collectorInvocation(pack: PackManifest, lesson: LessonManifest):
       COLLECTOR_CRATE,
       "--crate-type",
       "bin",
-      ...common(pack, lesson.package.edition),
+      ...common(pack),
       ...pack.direct_rustc.collector_flags,
       "--extern",
       `${lesson.package.crate_name}=${lessonRlibPath(lesson)}`,

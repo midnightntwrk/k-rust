@@ -5,7 +5,7 @@
 //   -> rustc-collector (riwl links in-process) -> collect (WASI) -> bundle
 //
 // VFS for rustc.wasm (one preopen per layer):
-//   /sysroot    immutable  sysroot bundle (RIWB1)
+//   /sysroot    immutable  sysroot bundle (RIWB1), at the pack's sysroot.mount
 //   /pack       immutable  deps/ (target rlibs, sysroot supplement), proc-macro-meta/
 //   /krs        immutable  framework sources (IR-12)
 //   /workspace  per build  <lesson>/Cargo.toml, <lesson>/<display_file> (authored)
@@ -163,7 +163,7 @@ function writeWork(build: Build, absolute: string, bytes: Uint8Array): void {
 function rustcPreopens(build: Build): PreopenDirectory[] {
   const { layers } = build.ctx;
   return [
-    preopen("/sysroot", layers.sysroot),
+    preopen(build.ctx.pack.direct_rustc.sysroot, layers.sysroot),
     preopen("/pack", layers.pack),
     preopen("/krs", layers.krs),
     preopen("/workspace", build.workspace),
@@ -188,6 +188,9 @@ export function stageAssets(build: Build): void {
   if (lesson.schema !== 1) throw new StageFailure("assets", "protocol-mismatch", `lesson manifest schema ${String(lesson.schema)} is not 1`);
   if (lesson.pack_id !== ctx.pack.pack_id) {
     throw new StageFailure("assets", "pack-integrity", `lesson ${lesson.lesson} requires pack ${lesson.pack_id}, the worker holds ${ctx.pack.pack_id}`);
+  }
+  if (lesson.package.edition !== ctx.pack.direct_rustc.edition) {
+    throw new StageFailure("assets", "protocol-mismatch", `lesson edition ${lesson.package.edition} differs from the pack's ${ctx.pack.direct_rustc.edition}`);
   }
   if (lesson.expansion !== "krs-expander") {
     throw new StageFailure("assets", "protocol-mismatch", `expansion mode ${lesson.expansion} is not supported (G1 selected path C)`);

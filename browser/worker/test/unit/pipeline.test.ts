@@ -8,8 +8,8 @@ import { renderCollectorMain } from "../../src/collector-template.ts";
 import { fromExpander, fromPolicy, fromRustc, lookupRanges } from "../../src/diagnostics.ts";
 import type { ExpandResponse, LookupResponse, PolicyResponse } from "../../src/modules.ts";
 import { runExpander, runLookup, runPolicy } from "../../src/modules.ts";
-import { packFromIr06, type Ir06PackManifest } from "../../src/pack-ir06.ts";
-import { checkActivation, sha256Hex } from "../../src/pack.ts";
+import { packFromIr14, type Ir14PackManifest } from "../../src/pack-ir14.ts";
+import { checkActivation, recomputePackId, sha256Hex } from "../../src/pack.ts";
 import { createBuild, runBuild, stagePolicy, StageFailure } from "../../src/pipeline.ts";
 import type { CompileEvent, LessonManifest, PackManifest, VerifiedAssets } from "../../src/protocol.ts";
 import { classifyRustc, collectorInvocation, lessonInvocation, parseStderr, reportable } from "../../src/rustc.ts";
@@ -41,19 +41,20 @@ const lesson: LessonManifest = {
   rustc_lint_flags: ["-D", "warnings"],
 };
 
-async function ir06Pack(): Promise<PackManifest> {
-  const source = Bun.TOML.parse(fixture("ir06-cell2-pack-manifest.toml")) as unknown as Ir06PackManifest;
-  const asset = (path: string, sha256: string) => ({ path, sha256, bytes: 1 });
-  return packFromIr06(source, {
-    sourcePath: "ir06-cell2-pack-manifest.toml",
-    sourceSha256: "0".repeat(64),
-    rustc: asset("rustc/rustc.wasm", "15f3773c37608b39f644dce668855e74d2748d1ebc9021eeb07399582cf1c5ca"),
-    sysrootBundle: asset("rustc/sysroot-wasip1.bundle", "6b5b4bde18b0a92e15ae2dc90076d3852bf8f946bd6a0e62f9205c3ba1d4ce38"),
-    policy: asset("modules/p.wasm", "1".repeat(64)),
-    expander: asset("modules/e.wasm", "2".repeat(64)),
-    frameworkSources: [{ ...asset("krs/crates/krs/src/lib.rs", "3".repeat(64)), mount: "/krs/crates/krs/src/lib.rs" }],
-    protocolVersion: 35,
+const CRATES_TREE = "199c07cfc38861110966d0ce99805035602b0a91";
+const ir14Source = () => Bun.TOML.parse(fixture("ir14-pack-manifest.toml")) as unknown as Ir14PackManifest;
+const moduleAsset = (path: string) => ({ path, sha256: "1".repeat(64), bytes: 1 });
+
+async function ir14Pack(source = ir14Source(), cratesTree = CRATES_TREE): Promise<PackManifest> {
+  return packFromIr14(source, {
     packDir: "pack",
+    sourcePath: "ir14-pack-manifest.toml",
+    sourceSha256: "0".repeat(64),
+    policy: moduleAsset("modules/p.wasm"),
+    expander: moduleAsset("modules/e.wasm"),
+    modulesKrsRevision: "3501f86cf5c219c300107302ab76c1b2854464c4",
+    modulesCratesTree: cratesTree,
+    protocolVersion: 35,
   });
 }
 
@@ -63,41 +64,39 @@ describe("collector template", () => {
   });
 });
 
-describe("pack adapter (IR-06 cell 2)", () => {
-  test("maps roles to mounts and externs", async () => {
-    const pack = await ir06Pack();
+describe("pack adapter (IR-14 manifest, schema_version 2)", () => {
+  test("maps roles to mounts, externs, and [direct_rustc]", async () => {
+    const pack = await ir14Pack();
+    expect(pack.pack_id).toBe("sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117");
     expect(pack.artifacts.length).toBe(28);
-    expect(pack.externs.facade).toBe("/pack/deps/libkrs-333e085ddf360cf6.rlib");
-    expect(pack.externs.compiler_runtime).toBe("/pack/deps/libkrs_compiler-0c7352c8d204e6e1.rlib");
-    const meta = pack.artifacts.filter((a) => a.role === "proc-macro-metadata").map((a) => a.mount);
-    expect(meta).toEqual([
-      "/pack/proc-macro-meta/libkrs_macros-21ac8a1e3c833440.rmeta",
+    expect(pack.externs.facade).toBe("/pack/deps/libkrs-add96ba03f57c1b6.rlib");
+    expect(pack.externs.compiler_runtime).toBe("/pack/deps/libkrs_compiler-cb1260d0465cc762.rlib");
+    expect(pack.artifacts.filter((a) => a.role === "proc-macro-metadata").map((a) => a.mount)).toEqual([
+      "/pack/proc-macro-meta/libkrs_macros-e5fa7b53b7bfa6e3.rmeta",
       "/pack/proc-macro-meta/libserde_derive-34455017fa8b0d0c.rmeta",
     ]);
-    expect(pack.pack_id).toMatch(/^krs-pack-[0-9a-f]{64}$/);
-    expect(pack.krs_revision).toBe("3501f86cf5c219c300107302ab76c1b2854464c4");
+    expect(pack.framework_sources.map((s) => [s.path, s.mount])).toEqual([
+      ["pack/krs/crates/krs/Cargo.toml", "/krs/crates/krs/Cargo.toml"],
+      ["pack/krs/crates/krs/src/lib.rs", "/krs/crates/krs/src/lib.rs"],
+    ]);
+    expect(pack.compiler.rustc.path).toBe("pack/compiler/rustc.wasm");
+    expect(pack.direct_rustc.common_flags).toEqual(["-C", "panic=abort", "-Zproc-macro-metadata-only"]);
+    expect(pack.direct_rustc.library_dirs).toEqual(["/pack/deps", "/pack/proc-macro-meta"]);
+    expect(pack.crates_tree).toBe(CRATES_TREE);
   });
 
-  test("rejects a rustc.wasm the pack was not built for", async () => {
-    const source = Bun.TOML.parse(fixture("ir06-cell2-pack-manifest.toml")) as unknown as Ir06PackManifest;
-    const pack = await ir06Pack();
-    await expect(
-      packFromIr06(source, {
-        sourcePath: "x",
-        sourceSha256: "0".repeat(64),
-        rustc: { path: "r", sha256: "f".repeat(64), bytes: 1 },
-        sysrootBundle: pack.compiler.sysroot_bundle,
-        policy: pack.modules.policy,
-        expander: pack.modules.expander,
-        frameworkSources: [],
-        protocolVersion: 35,
-        packDir: "pack",
-      }),
-    ).rejects.toThrow(/rustc.wasm/);
+  test("rejects a tampered artifact hash (pack_id no longer matches)", async () => {
+    const source = ir14Source();
+    source.artifact[3]!.sha256 = "f".repeat(64);
+    await expect(ir14Pack(source)).rejects.toThrow(/pack_id/);
+  });
+
+  test("rejects modules built from another crates/ tree", async () => {
+    await expect(ir14Pack(ir14Source(), "0".repeat(40))).rejects.toThrow(/crates\/ tree/);
   });
 
   test("activation fails for unverified assets", async () => {
-    const pack = await ir06Pack();
+    const pack = await ir14Pack();
     const problems = checkActivation(pack, {
       packId: pack.pack_id,
       modules: {} as VerifiedAssets["modules"],
@@ -107,11 +106,18 @@ describe("pack adapter (IR-06 cell 2)", () => {
     });
     expect(problems.length).toBeGreaterThan(pack.artifacts.length);
   });
+
+  test("the loader recomputes pack_id over the pack's own assets", async () => {
+    const pack = await ir14Pack();
+    expect(await recomputePackId(pack)).toBe(pack.pack_id);
+    const tampered = { ...pack, artifacts: pack.artifacts.map((a, i) => (i === 0 ? { ...a, sha256: "e".repeat(64) } : a)) };
+    expect(await recomputePackId(tampered)).not.toBe(pack.pack_id);
+  });
 });
 
 describe("rustc invocations", () => {
-  test("lesson and collector arguments follow the IR-06 two-stage shape", async () => {
-    const pack = await ir06Pack();
+  test("lesson and collector arguments follow the IR-14 [consumer] contract (IR-14 smoke-a.toml shape)", async () => {
+    const pack = await ir14Pack();
     const l = lessonInvocation(pack, lesson);
     expect(l.args).toContain("-Zproc-macro-metadata-only");
     expect(l.args.slice(-6)).toEqual(["-A", "non_camel_case_types", "-A", "non_snake_case", "-o", "/work/out/libkrs_tour_minimal.rlib"]);
@@ -218,7 +224,7 @@ describe("vfs", () => {
   });
 
   test("consecutive builds share immutable files but no per-build directory object", async () => {
-    const pack = await ir06Pack();
+    const pack = await ir14Pack();
     const ctx = {
       pack,
       modules: {} as VerifiedAssets["modules"],

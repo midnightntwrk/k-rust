@@ -4,8 +4,9 @@
 //
 //   bun test/verify.ts [--out DIR] [--load-max 40] [--skip-firefox]
 //
-// Prerequisites: bun scripts/stage-assets.ts (staged pack) and the native
-// oracle bundle (default /var/tmp/krs-ir11-parity/oracle/descriptor-bundle.json).
+// Prerequisites: an IR-14 pack (default /var/tmp/krs-ir14-pack-a/pack) staged by
+// bun scripts/stage-assets.ts with the policy and expander modules, and the
+// native oracle bundle (default /var/tmp/krs-ir11-parity/oracle/descriptor-bundle.json).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

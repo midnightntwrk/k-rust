@@ -202,31 +202,43 @@ export interface MountedSource extends PackAsset {
 }
 
 /**
- * Normalized pack manifest consumed by the worker (schema 1).
- * pack-ir06.ts adapts the IR-06 cell-2 pack manifest to this form; an IR-14
- * adapter will produce the same shape.
+ * Normalized pack manifest consumed by the worker (schema 1). pack-ir14.ts
+ * derives it from an IR-14 pack-manifest.toml (schema_version 2) plus the
+ * IR-11/IR-13 modules, which the IR-14 pack does not carry.
  */
 export interface PackManifest {
   schema: 1;
   kind: "krs-browser-worker-pack";
+  /** The IR-14 pack_id ("sha256:<hex>"), recomputed by the loader. */
   pack_id: string;
   source: { format: string; sha256: string; path: string };
+  /** How the loader recomputes pack_id: the IR-14 rule over every asset under `root`. */
+  integrity: { rule: "ir14-sorted-artifact-lines"; root: string };
   krs_revision: string;
+  /** git tree id of crates/ the pack was built from (IR-14 [[input]] "KRS crates/ tree"). */
+  crates_tree: string;
   fork_revision: string;
+  cfg_version: string;
   /** DescriptorBundle protocol version the pack's krs-ir writes. */
   protocol_version: number;
-  compiler: { rustc: PackAsset; sysroot_bundle: PackAsset; host_rustc_vv: string };
-  modules: { policy: PackAsset; expander: PackAsset };
+  compiler: { rustc: PackAsset; sysroot_bundle: PackAsset; host_rustc_vv: string[] };
+  /** IR-13 policy and IR-11 expander modules, built from the same crates/ tree. */
+  modules: { policy: PackAsset; expander: PackAsset; krs_revision: string; crates_tree: string };
   artifacts: PackArtifact[];
   framework_sources: MountedSource[];
+  /** Absolute VFS paths of the extern crates. */
   externs: { facade: string; host_runtime: string; compiler_runtime: string };
   direct_rustc: {
+    edition: string;
+    target: string;
+    sysroot: string;
     /** Flags every rustc stage passes (panic strategy, -Zproc-macro-metadata-only, ...). */
     common_flags: string[];
     /** Additional flags for the collector binary (optimization level). */
     collector_flags: string[];
     /** WASI environment for every rustc.wasm run (CLIF2WASM_OBJECT=1, ...). */
     env: string[];
+    /** Absolute VFS directories passed as -L dependency=<dir>. */
     library_dirs: string[];
   };
 }
