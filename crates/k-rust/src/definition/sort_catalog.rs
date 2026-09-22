@@ -14,7 +14,7 @@
 //! ```
 //!
 //! Sort catalogs group visible declarations and instantiated sort heads in declaration order.
-//! Construction is O(n log n) in visible sort declarations; no dedicated counter.
+//! Construction is O(V log V) in visible sentences V: it scans every visible sentence, since productions also feed the instantiations, defined heads, token sorts, and list sorts, and the log factor comes from the BTree inserts; no dedicated counter.
 //!
 //! Deterministic indexes over the sorts visible from a resolved module.
 

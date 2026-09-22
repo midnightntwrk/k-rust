@@ -18,7 +18,7 @@
 //! ```
 //!
 //! Source loading follows the `requires` DFS, lowers the parsed files, and then runs the ordered load phases that select modules, expand configurations, resolve sorts, and parse rule bubbles.
-//! Complexity: O(F + E + B) over files, require edges, and source bytes.
+//! Complexity: O(F^2 + E x P + B) over files, require edges, provided sources, and source bytes: `SourceTable::intern` finds each visited file by a linear scan of the interned sources, and each require edge scans `provided_sources`.
 //! Each source is visited once and each selection scans reachable modules; phase timings measure the driver.
 //!
 //! Recursive, host-independent loading of outer-syntax source graphs.

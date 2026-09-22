@@ -2,19 +2,19 @@
 //! id = "kore.printer.build"
 //! name = "construction of KORE pretty-print documents"
 //! sites = ["definition_doc", "module_doc", "sentence_doc", "pattern_doc", "syntax_doc", "Printer::print_definition", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "attributes_doc", "declaration_pattern_doc", "delimited", "join"]
-//! variable = "N = KORE syntax nodes; g = Doc::nest and Doc::group calls whose document contains a given op"
+//! variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the definition, module, sentence, sentence-body nest, and attribute-list delimited levels, while patterns, sorts, symbols, and variables are built by the syntax_doc task stack"
 //! counters = []
 //! no_counter = "KORE document construction has no dedicated counter"
 //! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one syntax tree"
-//! bound = "O(N x g), since nest and group insert at the front of the op vector"
+//! bound = "O(N)"
 //! ```
 //!
-//! KORE pretty printing builds a document by an explicit task stack in `syntax_doc`, then renders it through `document::render`, which computes flat widths once and chooses compact or broken layouts in a linear traversal.
-//! Complexity: O(N) over document nodes.
-//! The former quadratic `fits` note is stale after the flat-width cache; no dedicated counter.
+//! KORE pretty printing builds a document of ops, then renders it through `document::render`.
+//! Building is O(N) over KORE syntax nodes: `syntax_doc` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, and the `Doc` combinators that copy ops (`concat`) or shift them (`nest`, `group`) wrap each op only in the fixed structural levels of definition, module, sentence, and attribute list, independent of pattern depth.
+//! Rendering computes flat widths in one pass and then chooses compact or broken layouts in one traversal, linear in ops plus output characters; no dedicated counter.
 //!
 //! Compact and width-aware textual KORE printing.
 
