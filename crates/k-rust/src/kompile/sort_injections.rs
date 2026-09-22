@@ -11,8 +11,7 @@
 //! ```
 //!
 //! Sort injection computes expected sorts, least upper bounds, and explicit KORE injections, with strict rebase-in and lossy localization-out metadata policies.
-//! Work is O(term nodes times production and subsort queries); the retained zero-valued
-//! `KompileRebaseCalls` and `KompileInjectionsInserted` measure its variable work after CQ-12.
+//! Work is O(term nodes times production and subsort queries); `KompileInjectionsInserted` measures its variable work, and the shared pass scaffolding counts resolutions and copied sentences.
 //!
 //! Production-aware insertion of explicit KORE subsort injections.
 

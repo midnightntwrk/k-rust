@@ -4,7 +4,8 @@
 //! sites = ["emit_rule_or_claim", "resolve_equation_production"]
 //! variable = "R = rules; I = sort-injection work; C = term-conversion work"
 //! counters = []
-//! no_counter = "ordinary KORE rule emission has no dedicated counter"
+//! no_counter = "ordinary KORE rule emission has no dedicated counter; the sort injection it calls bumps KompileInjectionsInserted and the owise path bumps KompileOwiseCompetitorScans, each owned by its own card"
+//! consumes = [{ type = "k_rust_kore::kore::ast::Pattern", role = "converted term" }]
 //!
 //! [[cost]]
 //! mode = "one module"
@@ -15,12 +16,12 @@
 //! id = "kompile.kore.owise"
 //! name = "construction of owise competitor predicates"
 //! sites = ["emit_owise_equation"]
-//! variable = "R = module rules; O = owise equations"
+//! variable = "R = module rules; O = owise equations; I = sort-injection work per rule; c = per-competitor refresh, matching and conversion work"
 //! counters = ["KompileOwiseCompetitorScans"]
 //!
 //! [[cost]]
 //! mode = "one module"
-//! bound = "O(O x R)"
+//! bound = "O(O x R x c + R x I)"
 //! ```
 //!
 //! ```toml algorithm-site

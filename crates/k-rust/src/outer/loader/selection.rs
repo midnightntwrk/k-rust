@@ -2,17 +2,17 @@
 //! id = "definition.outer.select_modules"
 //! name = "module selection by import and configuration reachability"
 //! sites = ["select_modules", "has_configuration_after_exclusion"]
-//! variable = "M = modules; E = import edges"
+//! variable = "M = modules; E = import edges; S = local sentences over all modules"
 //! counters = []
 //! no_counter = "module selection has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one resolved definition"
-//! bound = "O(M + E)"
+//! bound = "O(M x (M + E) log M + S)"
 //! ```
 //!
 //! Module selection traverses imports and configuration reachability before backend exclusion.
-//! Work is O(modules + imports); no dedicated counter.
+//! Work is O(modules x (modules + imports) x log modules) because every root runs its own transitive-import traversal; no dedicated counter.
 //!
 //! Module selection for fresh compilation, before backend exclusion and inner parsing.
 

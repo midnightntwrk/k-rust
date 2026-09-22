@@ -2,17 +2,17 @@
 //! id = "kompile.fresh_constants.resolve"
 //! name = "resolution of fresh constants"
 //! sites = ["resolve_fresh_constants", "resolve_fresh_constants_pass", "fresh_variables", "transform_term"]
-//! variable = "N = traversed terms; F = fresh variables"
+//! variable = "N = traversed terms; F = fresh variables; L = local sentences"
 //! counters = []
-//! no_counter = "fresh-constant resolution has no dedicated counter"
+//! no_counter = "fresh-constant resolution has no dedicated counter; its sites bump KompileSentenceCopies and KompileProductionIdentityDigests, and the configuration expansion and retargeting it runs bump ProvenanceLinkDedupProbes, KompileResolveCalls and KompileResolveUpdates"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + F log F)"
+//! bound = "O(N + F log F + L) plus one definition.configuration.expand run and one kompile.metadata.retarget run"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Resolve fresh rule variables through per-sort generators and a counter cell.
 

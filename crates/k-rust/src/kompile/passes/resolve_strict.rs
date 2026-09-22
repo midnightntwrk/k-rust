@@ -2,17 +2,17 @@
 //! id = "kompile.strictness.resolve"
 //! name = "lowering of strictness attributes"
 //! sites = ["resolve_strict", "resolve_strict_pass", "resolve_production", "generate_contexts"]
-//! variable = "P = strict productions; C = generated evaluation contexts"
+//! variable = "L = local sentences; P = strict productions; k = strict positions per production; a = context aliases; C = generated evaluation contexts"
 //! counters = []
 //! no_counter = "strictness lowering has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(P + C)"
+//! bound = "O(L + P x k^2 x a + C^2)"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Generate evaluation contexts from `strict`, `seqstrict`, and `hybrid` productions.
 

@@ -2,18 +2,18 @@
 //! id = "definition.outer.parse"
 //! name = "recursive-descent parsing of outer syntax"
 //! sites = ["parse", "Parser::module", "Parser::sentence", "Parser::production"]
-//! variable = "T = input tokens; C = tried production candidates"
+//! variable = "B = source bytes; u = bytes of one bubble; a = attribute-start candidates in that bubble"
 //! counters = []
 //! no_counter = "outer-syntax parsing has no dedicated counter"
 //! produces = [{ type = "k_rust::outer::ast::SourceFile", role = "parsed source" }]
 //!
 //! [[cost]]
 //! mode = "one source file"
-//! bound = "O(T x C)"
+//! bound = "O(B + sum over bubbles of u x a)"
 //! ```
 //!
 //! Outer syntax uses recursive descent with save-and-restore lookahead over a finite token stream.
-//! Complexity: O(T C) over tokens and tried production candidates.
+//! Complexity: O(B + sum u * a) over source bytes B, with u bytes and a trailing-attribute candidates per bubble.
 //! Parsing is linear in consumed tokens apart from bounded alternatives; no dedicated counter.
 //!
 use std::{error::Error, fmt, rc::Rc, sync::LazyLock};

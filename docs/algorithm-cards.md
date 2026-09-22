@@ -261,10 +261,24 @@ classification = "responsibility-only"
 reason = "pipeline index and re-exports; each parser layer declares its algorithms in its implementation module"
 
 [[without_primary_card]]
+files = ["crates/k-rust/src/native.rs"]
+classification = "responsibility-only"
+reason = "runnable-artifact write and load; the JSON encoding it calls is a site of definition.json.encode"
+
+[[without_primary_card]]
+files = ["crates/k-rust/src/definition/synonyms.rs"]
+classification = "responsibility-only"
+reason = "the apply-sort-synonyms load phase: a resolve, one pass over local productions, and an update, each carried by definition.resolve.imports"
+
+[[without_primary_card]]
+files = ["crates/k-rust/src/outer/mod.rs"]
+classification = "responsibility-only"
+reason = "outer-syntax module index and re-exports; each outer algorithm declares its card in its implementation module"
+
+[[without_primary_card]]
 files = [
   "crates/k-rust/src/definition/ast.rs",
   "crates/k-rust/src/definition/attribute_keys.rs",
-  "crates/k-rust/src/definition/synonyms.rs",
   "crates/k-rust/src/outer/ast.rs",
 ]
 classification = "data-only"
@@ -313,4 +327,92 @@ reason = "stage-table transformations with no independent algorithm identity or 
 files = ["crates/k-rust/src/kompile/passes/constant_folding_float.rs"]
 classification = "responsibility-only"
 reason = "floating-point support for kompile.constant_folding.evaluate, whose primary card is in constant_folding.rs"
+```
+
+Stage-table phases whose transformation is a linear rewrite with no worklist and no counter of its own are phase-only; the pipeline phase node is their only graph presence:
+
+```toml
+[[phase_only_stage]]
+stage = "resolve commutative rules"
+call = "resolve_comm"
+file = "crates/k-rust/src/kompile/passes.rs"
+reason = "duplicates each comm-attributed rule with its arguments swapped; one clone per rule"
+
+[[phase_only_stage]]
+stage = "resolve function configuration"
+call = "resolve_function_with_config"
+file = "crates/k-rust/src/kompile/passes/resolve_function_with_config.rs"
+reason = "threads the generated top-cell configuration through functions that inspect it; one pass over rules"
+
+[[phase_only_stage]]
+stage = "resolve anonymous variables"
+call = "resolve_anon_vars"
+file = "crates/k-rust/src/kompile/passes/resolve_anon_vars.rs"
+reason = "gives every anonymous variable a sentence-local name; one pass over terms with kompile.fresh_names.mint"
+
+[[phase_only_stage]]
+stage = "resolve heat/cool attributes"
+call = "resolve_heat_cool_attributes"
+file = "crates/k-rust/src/kompile/passes/resolve_heat_cool.rs"
+reason = "lowers heat and cool attributes into side conditions; one pass over rules"
+
+[[phase_only_stage]]
+stage = "resolve semantic casts"
+call = "resolve_semantic_casts"
+file = "crates/k-rust/src/kompile/passes/resolve_semantic_casts.rs"
+reason = "removes semantic-cast applications keeping their sorts; one pass over terms"
+
+[[phase_only_stage]]
+stage = "propagate macro attributes"
+call = "propagate_macro_attributes"
+file = "crates/k-rust/src/kompile/passes/propagate_macro.rs"
+reason = "copies production macro kinds onto their rules; one pass over sentences"
+
+[[phase_only_stage]]
+stage = "guard or-patterns"
+call = "guard_or_patterns"
+file = "crates/k-rust/src/kompile/passes/guard_or_patterns.rs"
+reason = "gives matching-logic disjunctions explicit aliases; one pass over rules"
+
+[[phase_only_stage]]
+stage = "resolve fresh configuration constants"
+call = "resolve_fresh_config_constants"
+file = "crates/k-rust/src/kompile/passes/resolve_fresh_config_constants.rs"
+reason = "allocates integer constants for fresh configuration variables; one pass over configuration terms"
+
+[[phase_only_stage]]
+stage = "add implicit computation cell"
+call = "add_implicit_computation_cell"
+file = "crates/k-rust/src/kompile/passes/add_implicit_computation_cell.rs"
+reason = "wraps cell-free sentences in the declared computation cell; one pass over sentences"
+
+[[phase_only_stage]]
+stage = "check simplification rules"
+call = "check_simplification_rules"
+file = "crates/k-rust/src/kompile/passes/check_simplification.rs"
+reason = "validates simplification-rule heads; one pass over rules"
+
+[[phase_only_stage]]
+stage = "add semantics module"
+call = "add_semantics_module"
+file = "crates/k-rust/src/kompile/passes/finalize.rs"
+reason = "module bookkeeping; no traversal of note"
+
+[[phase_only_stage]]
+stage = "resolve configuration variables"
+call = "resolve_config_var"
+file = "crates/k-rust/src/kompile/passes/resolve_function_with_config.rs"
+reason = "one pass over configuration variables"
+
+[[phase_only_stage]]
+stage = "add cool-like attributes"
+call = "add_cool_like_attributes"
+file = "crates/k-rust/src/kompile/passes/finalize.rs"
+reason = "attribute rewrite; one pass over rules"
+
+[[phase_only_stage]]
+stage = "remove units"
+call = "remove_unit"
+file = "crates/k-rust/src/kompile/passes/remove_unit.rs"
+reason = "removes unit applications from associative collections; one pass over sentences"
 ```

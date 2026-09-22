@@ -1,9 +1,9 @@
 //! ```toml algorithm
 //! id = "definition.relations.build"
 //! name = "construction of subsort, overload, priority, and associativity relations"
-//! sites = ["compute_subsorts", "compute_disambiguation_subsorts", "compute_priorities", "compute_associativities", "compute_overloads"]
-//! variable = "P = productions; C = partial-order closure work"
-//! counters = ["KompilePartialOrdersBuilt"]
+//! sites = ["compute_subsorts", "compute_disambiguation_subsorts", "compute_priorities", "compute_associativities", "compute_overloads", "ResolvedDefinition::subsorts", "ResolvedDefinition::overloads", "ResolvedDefinition::priorities"]
+//! variable = "P = productions; C = partial-order closure work; g_i = productions in overload group i; a = production arity; q = PartialOrder::less_than_eq cost; eq = sentence-equivalence cost; t_j = tags in associativity declaration j"
+//! counters = ["KompilePartialOrdersBuilt", "KompileProductionCatalogsBuilt", "KompileSentenceEquivalenceChecks"]
 //! consumes = [
 //!   { type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" },
 //!   { type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" },
@@ -16,6 +16,14 @@
 //! [[cost]]
 //! mode = "one module"
 //! bound = "O(P^2 + C)"
+//!
+//! [[cost]]
+//! mode = "compute_overloads"
+//! bound = "O(sum g_i^2 x (a x q + eq) + C), plus one ProductionCatalog::from_visible"
+//!
+//! [[cost]]
+//! mode = "compute_associativities"
+//! bound = "O(sum t_j^2) tag-pair insertions"
 //! ```
 //!
 //! Five relation builders scan one module's productions and return deterministic partial orders.

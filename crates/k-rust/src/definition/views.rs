@@ -4,7 +4,7 @@
 //! id = "contract.definition.production_catalog_cache"
 //! name = "lazy production-catalog view shared by its consumers"
 //! sites = ["DefinitionViews::production_catalog"]
-//! constrains = [{ id = "definition.catalog.production", site = "DefinitionViews::production_catalog", via = "the per-module OnceLock retains the first ProductionCatalog forced by disambiguation, sort injection, or KORE emission" }]
+//! constrains = [{ id = "definition.catalog.production", site = "DefinitionViews::production_catalog", via = "ResolvedDefinition keeps one ProductionCatalog per module in a OnceLock that ResolvedDefinition::update carries forward while the module's visible syntax is unchanged; DefinitionViews caches an Arc to it" }]
 //! ```
 
 use std::sync::{Arc, OnceLock};

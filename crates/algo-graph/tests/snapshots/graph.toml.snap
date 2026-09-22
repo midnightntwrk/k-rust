@@ -2426,14 +2426,29 @@ id = "definition.catalog.production"
 provenance = "declared"
 area = "definition"
 name = "production-catalog construction"
-variable = "n = visible productions; b = equivalence buckets; eq = sentence-equivalence cost"
+variable = "n = visible productions; l = local productions; k = productions sharing one SentenceKey or ProductionKey bucket; eq = sentence-equivalence cost; p = canonical production payload bytes"
 table = "Algorithm::ALL"
 registry_name = "DefinitionCatalogProduction"
 
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/definition/catalog.rs"
-symbol = "ProductionCatalog"
+symbol = "ResolvedDefinition::production_catalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ResolvedDefinition::production_catalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog::from_deduplicated_arcs"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog::from_arc_productions"
 
 [[node.sites]]
 crate = "k-rust"
@@ -2456,8 +2471,12 @@ file = "crates/k-rust/src/definition/catalog.rs"
 symbol = "build_indexes"
 
 [[node.cost]]
-mode = "one catalog"
-bound = "O(n log n + b x eq)"
+mode = "ResolvedDefinition::production_catalog via from_deduplicated_arcs"
+bound = "O(n x p + n log n + l x (log n + k x eq))"
+
+[[node.cost]]
+mode = "ProductionCatalog::new and from_visible"
+bound = "O(n x k x eq + n x p + n log n + l x (log n + k x eq))"
 
 [[node]]
 kind = "algorithm"
@@ -2504,7 +2523,7 @@ id = "definition.catalog.sort"
 provenance = "declared"
 area = "definition"
 name = "sort-catalog construction"
-variable = "n = visible sort declarations"
+variable = "V = visible sentences"
 no_counter = "sort-catalog construction has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "DefinitionCatalogSort"
@@ -2531,7 +2550,7 @@ symbol = "SortCatalog::from_visible"
 
 [[node.cost]]
 mode = "one catalog"
-bound = "O(n log n)"
+bound = "O(V log V)"
 
 [[node]]
 kind = "algorithm"
@@ -2569,7 +2588,7 @@ id = "definition.configuration.expand"
 provenance = "declared"
 area = "definition"
 name = "expansion of configuration declarations into generated sentences"
-variable = "N = visited configuration-term nodes; G = generated sentences"
+variable = "N = visited configuration-term nodes; G = generated sentences; M = modules; C = modules with a configuration; D = modules and sentence references in the flat definition; k = generated sentences sharing one SentenceKey; eq = sentence-equivalence cost"
 no_counter = "configuration expansion is measured by enclosing resolution and sentence counters"
 table = "Algorithm::ALL"
 registry_name = "DefinitionConfigurationExpand"
@@ -2596,7 +2615,7 @@ symbol = "expand_configurations_inner"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + G^2)"
+bound = "O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus one ResolvedDefinition::resolve and C ResolvedDefinition::update calls"
 
 [[node]]
 kind = "algorithm"
@@ -2604,7 +2623,7 @@ id = "definition.equivalence.deduplicate"
 provenance = "declared"
 area = "definition"
 name = "order-preserving deduplication by sentence equivalence"
-variable = "n = sentences; eq = sentence-equivalence cost"
+variable = "n = sentences; eq = sentence-equivalence cost; k_i = retained sentences in SentenceKey bucket i"
 table = "Algorithm::ALL"
 registry_name = "DefinitionEquivalenceDeduplicate"
 
@@ -2631,6 +2650,10 @@ symbol = "push_if_inequivalent"
 [[node.cost]]
 mode = "one sentence collection"
 bound = "O(n^2 x eq)"
+
+[[node.cost]]
+mode = "one sentence collection, bucketed by SentenceKey"
+bound = "O(n log n + sum k_i^2 x eq)"
 
 [[node]]
 kind = "algorithm"
@@ -2721,7 +2744,7 @@ id = "definition.order.partial"
 provenance = "declared"
 area = "definition"
 name = "finite partial-order construction and closure"
-variable = "V = elements; E = direct relations; C = closure work"
+variable = "V = elements; E = direct relations; C = sum over direct relations (a, b) of 1 + |closure(b)|, the elements cloned and inserted into closure sets"
 table = "Algorithm::ALL"
 registry_name = "DefinitionOrderPartial"
 
@@ -2747,7 +2770,7 @@ symbol = "find_cycle"
 
 [[node.cost]]
 mode = "one partial order"
-bound = "O(V + E + C)"
+bound = "O((V + E) log V + C log V)"
 
 [[node]]
 kind = "algorithm"
@@ -2775,6 +2798,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/outer/checks.rs"
 symbol = "check_brackets"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/checks.rs"
+symbol = "check_user_attributes"
+
 [[node.cost]]
 mode = "one source file"
 bound = "O(N)"
@@ -2785,7 +2813,7 @@ id = "definition.outer.lower"
 provenance = "declared"
 area = "definition"
 name = "lowering of outer syntax into the flat definition model"
-variable = "S = outer sentences; I = production items"
+variable = "S = outer sentences; I = production items; c = distinct temporary cell sorts in one module; g = insert_tag calls; t = labels under one tag"
 no_counter = "outer-syntax lowering has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "OuterLowerDefinition"
@@ -2817,7 +2845,7 @@ symbol = "lower_production"
 
 [[node.cost]]
 mode = "one source set"
-bound = "O(S + I)"
+bound = "O(S + I x c + g x t log t)"
 
 [[node]]
 kind = "algorithm"
@@ -2855,7 +2883,7 @@ id = "definition.outer.parse"
 provenance = "declared"
 area = "definition"
 name = "recursive-descent parsing of outer syntax"
-variable = "T = input tokens; C = tried production candidates"
+variable = "B = source bytes; u = bytes of one bubble; a = attribute-start candidates in that bubble"
 no_counter = "outer-syntax parsing has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "OuterParserParse"
@@ -2887,7 +2915,7 @@ symbol = "Parser::production"
 
 [[node.cost]]
 mode = "one source file"
-bound = "O(T x C)"
+bound = "O(B + sum over bubbles of u x a)"
 
 [[node]]
 kind = "algorithm"
@@ -2895,7 +2923,7 @@ id = "definition.outer.requires"
 provenance = "declared"
 area = "definition"
 name = "source loading by traversal of the require graph"
-variable = "F = source files; E = require edges; B = source bytes"
+variable = "F = source files; E = require edges; B = source bytes; P = provided sources"
 no_counter = "source-require traversal has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "OuterLoaderRequires"
@@ -2917,11 +2945,6 @@ symbol = "load_prepared_manifest"
 
 [[node.sites]]
 crate = "k-rust"
-file = "crates/k-rust/src/native.rs"
-symbol = "load_runnable_artifact"
-
-[[node.sites]]
-crate = "k-rust"
 file = "crates/k-rust/src/outer/loader.rs"
 symbol = "Loader::visit"
 
@@ -2931,8 +2954,12 @@ file = "crates/k-rust/src/outer/loader.rs"
 symbol = "load_impl"
 
 [[node.cost]]
-mode = "one source graph"
-bound = "O(F + E + B)"
+mode = "Loader::visit over the require graph"
+bound = "O(F^2 + E x P + B), plus definition.outer.parse for each file"
+
+[[node.cost]]
+mode = "load_impl"
+bound = "the Loader::visit cost plus lower_files and finish_load, whose phases are bounded by definition.outer.lower, definition.outer.select_modules, definition.configuration.expand, definition.resolve.imports, and parser.bubble.rules"
 
 [[node]]
 kind = "algorithm"
@@ -2940,7 +2967,7 @@ id = "definition.outer.select_modules"
 provenance = "declared"
 area = "definition"
 name = "module selection by import and configuration reachability"
-variable = "M = modules; E = import edges"
+variable = "M = modules; E = import edges; S = local sentences over all modules"
 no_counter = "module selection has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "OuterModulesSelect"
@@ -2962,7 +2989,7 @@ symbol = "has_configuration_after_exclusion"
 
 [[node.cost]]
 mode = "one resolved definition"
-bound = "O(M + E)"
+bound = "O(M x (M + E) log M + S)"
 
 [[node]]
 kind = "algorithm"
@@ -2995,7 +3022,7 @@ id = "definition.provenance.record"
 provenance = "declared"
 area = "definition"
 name = "recording of generation-origin receipts"
-variable = "N = sentences and changed term nodes; k = origin links per visited node"
+variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared"
 table = "Algorithm::ALL"
 registry_name = "DefinitionProvenanceRecord"
 
@@ -3025,8 +3052,8 @@ file = "crates/k-rust/src/provenance.rs"
 symbol = "insert_link"
 
 [[node.cost]]
-mode = "one module and generating pass"
-bound = "O(N log N + sum k)"
+mode = "one generating pass over a definition"
+bound = "O(M^2 + D + N log N + sum k)"
 
 [[node]]
 kind = "algorithm"
@@ -3034,7 +3061,7 @@ id = "definition.provenance.source_identity"
 provenance = "declared"
 area = "definition"
 name = "interning and offset mapping of logical source identities"
-variable = "B = source bytes; S = offset-map segments"
+variable = "B = source bytes; S = offset-map segments; F = sources already in the table"
 no_counter = "logical source interning and offset mapping have no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "DefinitionProvenanceSourceIdentity"
@@ -3062,6 +3089,10 @@ symbol = "SourceOffsetMap::new"
 [[node.cost]]
 mode = "one source"
 bound = "O(B + S)"
+
+[[node.cost]]
+mode = "SourceTable::intern"
+bound = "O(F) LogicalSourceId comparisons"
 
 [[node]]
 kind = "algorithm"
@@ -3099,7 +3130,7 @@ id = "definition.relations.build"
 provenance = "declared"
 area = "definition"
 name = "construction of subsort, overload, priority, and associativity relations"
-variable = "P = productions; C = partial-order closure work"
+variable = "P = productions; C = partial-order closure work; g_i = productions in overload group i; a = production arity; q = PartialOrder::less_than_eq cost; eq = sentence-equivalence cost; t_j = tags in associativity declaration j"
 table = "Algorithm::ALL"
 registry_name = "DefinitionRelationsBuild"
 
@@ -3133,9 +3164,32 @@ crate = "k-rust"
 file = "crates/k-rust/src/definition/relations.rs"
 symbol = "compute_overloads"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "ResolvedDefinition::subsorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "ResolvedDefinition::overloads"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "ResolvedDefinition::priorities"
+
 [[node.cost]]
 mode = "one module"
 bound = "O(P^2 + C)"
+
+[[node.cost]]
+mode = "compute_overloads"
+bound = "O(sum g_i^2 x (a x q + eq) + C), plus one ProductionCatalog::from_visible"
+
+[[node.cost]]
+mode = "compute_associativities"
+bound = "O(sum t_j^2) tag-pair insertions"
 
 [[node]]
 kind = "algorithm"
@@ -3143,7 +3197,7 @@ id = "definition.resolve.imports"
 provenance = "declared"
 area = "definition"
 name = "import-DAG resolution of flat definitions"
-variable = "M = modules; E = import edges"
+variable = "M = modules; E = import edges; l_m = local sentences of module m; k = local sentences sharing one SentenceKey; eq = sentence-equivalence cost; s = cost of one sentences_identical comparison"
 table = "Algorithm::ALL"
 registry_name = "DefinitionResolveImports"
 
@@ -3168,8 +3222,12 @@ file = "crates/k-rust/src/definition/resolve.rs"
 symbol = "find_cycle"
 
 [[node.cost]]
-mode = "one definition"
-bound = "O(M log M + E)"
+mode = "ResolvedDefinition::resolve"
+bound = "O(M log M + E log E + sum l_m^2 + sum l_m x k x eq)"
+
+[[node.cost]]
+mode = "ResolvedDefinition::update with an unchanged module set and imports"
+bound = "O(M log M + E log E + sum l_m x s), plus the ResolvedModule::from rebuild of each changed module"
 
 [[node]]
 kind = "algorithm"
@@ -3177,7 +3235,7 @@ id = "definition.resolve.sentences"
 provenance = "declared"
 area = "definition"
 name = "visible-sentence selection with bucketed equivalence deduplication"
-variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost"
+variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; k = visible sentences sharing one SentenceKey"
 table = "Algorithm::ALL"
 registry_name = "DefinitionResolveSentences"
 
@@ -3192,8 +3250,8 @@ file = "crates/k-rust/src/definition/resolve.rs"
 symbol = "ResolvedDefinition::select_sentence_locations"
 
 [[node.cost]]
-mode = "all resolved modules"
-bound = "O(sum n_m^2 x eq)"
+mode = "one module's first sentences or sentence_arcs call"
+bound = "O((M + E) log M + n_m log n_m + n_m x k x eq)"
 
 [[node]]
 kind = "phase"
@@ -3498,20 +3556,6 @@ symbol = "Term"
 
 [[node]]
 kind = "representation"
-id = "k_rust::kompile::CompiledKoreArtifacts [compiled artifacts]"
-provenance = "declared"
-area = "kompile"
-name = "k_rust::kompile::CompiledKoreArtifacts"
-type_path = "k_rust::kompile::CompiledKoreArtifacts"
-role = "compiled artifacts"
-
-[node.anchor]
-crate = "k-rust"
-file = "crates/k-rust/src/kompile/compile.rs"
-symbol = "CompiledKoreArtifacts"
-
-[[node]]
-kind = "representation"
 id = "k_rust::kompile::DeclarationModules [KORE declaration modules]"
 provenance = "declared"
 area = "kompile"
@@ -3526,20 +3570,6 @@ symbol = "DeclarationModules"
 
 [[node]]
 kind = "representation"
-id = "k_rust::native::RunnableArtifact [on-disk runnable artifact]"
-provenance = "declared"
-area = "kompile"
-name = "k_rust::native::RunnableArtifact"
-type_path = "k_rust::native::RunnableArtifact"
-role = "on-disk runnable artifact"
-
-[node.anchor]
-crate = "k-rust"
-file = "crates/k-rust/src/native.rs"
-symbol = "RunnableArtifact"
-
-[[node]]
-kind = "representation"
 id = "k_rust::outer::LoadedDefinition [loaded definition]"
 provenance = "declared"
 area = "kompile"
@@ -3551,6 +3581,20 @@ role = "loaded definition"
 crate = "k-rust"
 file = "crates/k-rust/src/outer/loader.rs"
 symbol = "LoadedDefinition"
+
+[[node]]
+kind = "representation"
+id = "k_rust::outer::ResolvedSource [resolved source text]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::outer::ResolvedSource"
+type_path = "k_rust::outer::ResolvedSource"
+role = "resolved source text"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/loader.rs"
+symbol = "ResolvedSource"
 
 [[node]]
 kind = "representation"
@@ -3670,7 +3714,8 @@ id = "kompile.cells.concretize"
 provenance = "declared"
 area = "kompile"
 name = "cell concretization"
-variable = "P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell"
+variable = "M = modules; P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell; r = rewrite items compared pairwise in make_parents"
+no_counter = "cell concretization has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 table = "Algorithm::ALL"
 registry_name = "KompileCellsConcretize"
 
@@ -3700,8 +3745,12 @@ file = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
 symbol = "Concretizer::sentence"
 
 [[node.cost]]
-mode = "one definition"
-bound = "O(P x C + N x D x |children|)"
+mode = "cell model construction (CellModel::new)"
+bound = "O(P + C x |children| + r^2) per module plus the forced views.subsorts, once per module and once more per non-main module on the early-exit check"
+
+[[node.cost]]
+mode = "sentence concretization"
+bound = "O(N x D x |children|)"
 
 [[node]]
 kind = "algorithm"
@@ -3709,7 +3758,8 @@ id = "kompile.constant_folding.evaluate"
 provenance = "declared"
 area = "kompile"
 name = "bottom-up evaluation of constant hooked operations"
-variable = "N = visited term nodes"
+variable = "N = visited term nodes; h = term height"
+no_counter = "constant folding has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 table = "Algorithm::ALL"
 registry_name = "KompileConstantFoldingEvaluate"
 
@@ -3750,7 +3800,7 @@ symbol = "KFloat::parse"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N) per sentence plus hook-specific arithmetic cost"
+bound = "O(N x h) plus hook-specific arithmetic cost"
 
 [[node]]
 kind = "algorithm"
@@ -3758,7 +3808,7 @@ id = "kompile.contexts.resolve"
 provenance = "declared"
 area = "kompile"
 name = "lowering of evaluation contexts"
-variable = "N = context and term nodes; C = generated rules and productions"
+variable = "N = context and term nodes; C = generated rules and productions; P = visible productions; V = visible sentences; s = compared sentence size"
 no_counter = "context lowering has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileContextsResolve"
@@ -3785,7 +3835,7 @@ symbol = "resolve_context"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + C)"
+bound = "O(N + V + P log P + C^2 x s)"
 
 [[node]]
 kind = "algorithm"
@@ -3793,8 +3843,8 @@ id = "kompile.fresh_constants.resolve"
 provenance = "declared"
 area = "kompile"
 name = "resolution of fresh constants"
-variable = "N = traversed terms; F = fresh variables"
-no_counter = "fresh-constant resolution has no dedicated counter"
+variable = "N = traversed terms; F = fresh variables; L = local sentences"
+no_counter = "fresh-constant resolution has no dedicated counter; its sites bump KompileSentenceCopies and KompileProductionIdentityDigests, and the configuration expansion and retargeting it runs bump ProvenanceLinkDedupProbes, KompileResolveCalls and KompileResolveUpdates"
 table = "Algorithm::ALL"
 registry_name = "KompileFreshConstantsResolve"
 
@@ -3825,7 +3875,7 @@ symbol = "transform_term"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + F log F)"
+bound = "O(N + F log F + L) plus one definition.configuration.expand run and one kompile.metadata.retarget run"
 
 [[node]]
 kind = "algorithm"
@@ -3869,8 +3919,12 @@ file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
 symbol = "refresh_variables"
 
 [[node.cost]]
+mode = "reservation by for_terms or for_sentence"
+bound = "O(R log R)"
+
+[[node.cost]]
 mode = "one name"
-bound = "O(R + C)"
+bound = "O((C + 1) x log R)"
 
 [[node]]
 kind = "algorithm"
@@ -3878,8 +3932,8 @@ id = "kompile.functions.lift"
 provenance = "declared"
 area = "kompile"
 name = "lifting of local functions into generated productions and rules"
-variable = "N = traversed term nodes; G = generated sentences"
-no_counter = "local-function lifting has no dedicated counter"
+variable = "N = traversed term nodes; G = generated sentences; L = local sentences per module"
+no_counter = "local-function lifting has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 table = "Algorithm::ALL"
 registry_name = "KompileFunctionsLift"
 
@@ -3905,7 +3959,7 @@ symbol = "closure_variables"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + G^2)"
+bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module"
 
 [[node]]
 kind = "algorithm"
@@ -3913,7 +3967,7 @@ id = "kompile.kore.axioms"
 provenance = "declared"
 area = "kompile"
 name = "generated KORE axiom emission"
-variable = "P = productions; S = sorts; O = overloads"
+variable = "P = productions; S = sorts; O = overloads; R = rules"
 no_counter = "generated-axiom emission has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileKoreAxioms"
@@ -3935,7 +3989,7 @@ symbol = "constructor_productions"
 
 [[node.cost]]
 mode = "one module"
-bound = "O(P^2 + S x (P + S log S) + O^2)"
+bound = "O(P^2 + S x (P + S log S) + O^2 + R)"
 
 [[node]]
 kind = "algorithm"
@@ -3944,7 +3998,6 @@ provenance = "declared"
 area = "kompile"
 name = "conversion of KAST terms into KORE patterns"
 variable = "N = term nodes; O = overload candidates per label"
-no_counter = "KAST-to-KORE conversion has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileKoreConvertTerm"
 
@@ -3977,14 +4030,17 @@ symbol = "term_to_kore_from_resolved"
 mode = "one term"
 bound = "O(N x O)"
 
+[[node.cost]]
+mode = "term_to_kore on a flat definition"
+bound = "one definition.resolve.imports run plus one sort catalog and subsort order, then O(N x O)"
+
 [[node]]
 kind = "algorithm"
 id = "kompile.kore.declarations"
 provenance = "declared"
 area = "kompile"
 name = "KORE declaration emission"
-variable = "P = productions; A = declaration attributes"
-no_counter = "KORE declaration emission has no dedicated counter"
+variable = "P = productions; A = declaration attributes; V = visible sentences; R = rules; S_c = collection-hooked sorts"
 table = "Algorithm::ALL"
 registry_name = "KompileKoreDeclarations"
 
@@ -3992,11 +4048,6 @@ registry_name = "KompileKoreDeclarations"
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/module_to_kore.rs"
 symbol = "declaration_modules"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/kompile/compile.rs"
-symbol = "compile_loaded_definition_timed"
 
 [[node.sites]]
 crate = "k-rust"
@@ -4020,12 +4071,17 @@ symbol = "DeclarationModules::semantics_definition"
 
 [[node.sites]]
 crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore.rs"
+symbol = "module_to_kore_from_resolved_with_options"
+
+[[node.sites]]
+crate = "k-rust"
 file = "crates/k-rust/src/main.rs"
 symbol = "kcompile"
 
 [[node.cost]]
 mode = "one module"
-bound = "O(P x A)"
+bound = "O(P x A + V x A + R + S_c x P) plus one kompile.labels.backward_closure build and closure"
 
 [[node]]
 kind = "algorithm"
@@ -4033,7 +4089,7 @@ id = "kompile.kore.owise"
 provenance = "declared"
 area = "kompile"
 name = "construction of owise competitor predicates"
-variable = "R = module rules; O = owise equations"
+variable = "R = module rules; O = owise equations; I = sort-injection work per rule; c = per-competitor refresh, matching and conversion work"
 table = "Algorithm::ALL"
 registry_name = "KompileKoreOwise"
 
@@ -4049,7 +4105,7 @@ symbol = "emit_owise_equation"
 
 [[node.cost]]
 mode = "one module"
-bound = "O(O x R)"
+bound = "O(O x R x c + R x I)"
 
 [[node]]
 kind = "algorithm"
@@ -4058,7 +4114,7 @@ provenance = "declared"
 area = "kompile"
 name = "KORE rule, claim, and equation emission"
 variable = "R = rules; I = sort-injection work; C = term-conversion work"
-no_counter = "ordinary KORE rule emission has no dedicated counter"
+no_counter = "ordinary KORE rule emission has no dedicated counter; the sort injection it calls bumps KompileInjectionsInserted and the owise path bumps KompileOwiseCompetitorScans, each owned by its own card"
 table = "Algorithm::ALL"
 registry_name = "KompileKoreRules"
 
@@ -4087,7 +4143,7 @@ id = "kompile.labels.backward_closure"
 provenance = "declared"
 area = "kompile"
 name = "backward closure over the label-dependency graph"
-variable = "V = function labels; E = rule dependency edges"
+variable = "V = function labels; E = rule dependency edges; R = rules; N_f = term nodes of function rules"
 no_counter = "label-dependency closure has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileLabelsBackwardClosure"
@@ -4108,8 +4164,12 @@ file = "crates/k-rust/src/kompile/label_graph.rs"
 symbol = "LabelDependencyGraph::backward_closure"
 
 [[node.cost]]
-mode = "graph construction and one closure"
-bound = "O(V + E)"
+mode = "graph construction"
+bound = "O((R + N_f) log V + E)"
+
+[[node.cost]]
+mode = "one closure"
+bound = "O((V + E) log V)"
 
 [[node]]
 kind = "algorithm"
@@ -4117,7 +4177,7 @@ id = "kompile.macros.expand"
 provenance = "declared"
 area = "kompile"
 name = "macro expansion by indexed structural matching"
-variable = "N = sentence term nodes; R = macro rules under the head label; A = macro applications"
+variable = "N = sentence term nodes; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module"
 table = "Algorithm::ALL"
 registry_name = "KompileMacrosExpand"
 
@@ -4150,6 +4210,10 @@ symbol = "Expander::expand_term"
 mode = "one sentence"
 bound = "O(N x R) plus recursive expansion of substituted results"
 
+[[node.cost]]
+mode = "Expander construction per module"
+bound = "O(V + Q log Q) plus the forced module views"
+
 [[node]]
 kind = "algorithm"
 id = "kompile.metadata.retarget"
@@ -4157,7 +4221,6 @@ provenance = "declared"
 area = "kompile"
 name = "production-metadata retargeting after deliberate identity changes"
 variable = "N = definition-local term nodes; R = replacement identities"
-no_counter = "the former rebase counter is retained at zero after positional rebasing was removed"
 table = "Algorithm::ALL"
 registry_name = "KompileMetadataRetarget"
 
@@ -4191,7 +4254,7 @@ id = "kompile.modules.rewrite_order"
 provenance = "declared"
 area = "kompile"
 name = "collection of execution rewrite order through imports"
-variable = "M = modules; E = import edges; R = rewrite sentences"
+variable = "M = modules; E = import edges; R = rewrite sentences; d = import depth; u = repeated UNIQUE_ID occurrences; s = normalized sentence size"
 no_counter = "execution rewrite-order collection has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileModulesRewriteOrder"
@@ -4208,7 +4271,7 @@ symbol = "collect_execution_rewrite_order"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(M + E + R)"
+bound = "O((M + E) x (d + log M) + R log R + u x s)"
 
 [[node]]
 kind = "algorithm"
@@ -4216,8 +4279,7 @@ id = "kompile.sentences.number"
 provenance = "declared"
 area = "kompile"
 name = "stable numbering of sentences by normalized digest"
-variable = "N = normalized sentence and term nodes"
-no_counter = "sentence numbering has no dedicated counter"
+variable = "N = normalized sentence and term nodes; h = term height"
 table = "Algorithm::ALL"
 registry_name = "KompileSentencesNumber"
 
@@ -4248,7 +4310,7 @@ symbol = "unique_id_text"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N)"
+bound = "O(N x h)"
 
 [[node]]
 kind = "algorithm"
@@ -4257,6 +4319,7 @@ provenance = "declared"
 area = "kompile"
 name = "generation of sort predicates, projections, and helper rules"
 variable = "M = modules; S = visible sorts; V = visible sentences"
+no_counter = "sort-helper generation has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 table = "Algorithm::ALL"
 registry_name = "KompileSortHelpersGenerate"
 
@@ -4302,7 +4365,7 @@ symbol = "subsort_kitem_pass"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(M x S x V)"
+bound = "O(M x (S + V log V))"
 
 [[node]]
 kind = "algorithm"
@@ -4349,7 +4412,7 @@ id = "kompile.streams.resolve"
 provenance = "declared"
 area = "kompile"
 name = "resolution of stream cells and templates"
-variable = "N = visited sentences and term nodes; S = stream declarations"
+variable = "N = visited sentences and term nodes; S = stream declarations; M = modules; V = visible sentences per module; L = local sentences per module; g = generated or imported stream sentences"
 no_counter = "stream resolution has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileStreamsResolve"
@@ -4381,7 +4444,7 @@ symbol = "collect_stream_patterns"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + S)"
+bound = "O(M x V + S x N + (L + g) x g)"
 
 [[node]]
 kind = "algorithm"
@@ -4389,7 +4452,7 @@ id = "kompile.strictness.resolve"
 provenance = "declared"
 area = "kompile"
 name = "lowering of strictness attributes"
-variable = "P = strict productions; C = generated evaluation contexts"
+variable = "L = local sentences; P = strict productions; k = strict positions per production; a = context aliases; C = generated evaluation contexts"
 no_counter = "strictness lowering has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileStrictnessResolve"
@@ -4421,7 +4484,7 @@ symbol = "generate_contexts"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(P + C)"
+bound = "O(L + P x k^2 x a + C^2)"
 
 [[node]]
 kind = "algorithm"
@@ -4429,7 +4492,8 @@ id = "kompile.terms.minimize"
 provenance = "declared"
 area = "kompile"
 name = "minimization of repeated term construction"
-variable = "N = rule term nodes"
+variable = "N = rule term nodes; h = term height"
+no_counter = "term-construction minimization has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 table = "Algorithm::ALL"
 registry_name = "KompileTermsMinimize"
 
@@ -4459,8 +4523,8 @@ file = "crates/k-rust/src/kompile/passes/minimize_term_construction.rs"
 symbol = "Minimizer::transform"
 
 [[node.cost]]
-mode = "one definition"
-bound = "O(N log N) per rule"
+mode = "one rule"
+bound = "O(N x h) subtree clones plus O(N log N) ordered-map probes keyed by whole subterms"
 
 [[node]]
 kind = "algorithm"
@@ -6645,7 +6709,7 @@ kind = "constrains"
 from = "definition.catalog.production"
 to = "contract.definition.production_catalog_cache"
 provenance = "declared"
-detail = "the per-module OnceLock retains the first ProductionCatalog forced by disambiguation, sort injection, or KORE emission"
+detail = "ResolvedDefinition keeps one ProductionCatalog per module in a OnceLock that ResolvedDefinition::update carries forward while the module's visible syntax is unchanged; DefinitionViews caches an Arc to it"
 
 [edge.consumer_site]
 crate = "k-rust"
@@ -6661,13 +6725,19 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "definition.catalog.production"
-to = "KompileCatalogSentenceClones"
+to = "KompileProductionCatalogsBuilt"
 provenance = "declared"
 
 [[edge]]
 kind = "measured-by"
 from = "definition.catalog.production"
-to = "KompileProductionCatalogsBuilt"
+to = "KompileProductionIdentityDigests"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.catalog.production"
+to = "KompileSentenceEquivalenceChecks"
 provenance = "declared"
 
 [[edge]]
@@ -6719,12 +6789,6 @@ to = "ProvenanceReceiptRenders"
 provenance = "declared"
 
 [[edge]]
-kind = "produces"
-from = "definition.json.encode"
-to = "k_rust::native::RunnableArtifact [on-disk runnable artifact]"
-provenance = "declared"
-
-[[edge]]
 kind = "measured-by"
 from = "definition.order.partial"
 to = "KompilePartialOrdersBuilt"
@@ -6757,13 +6821,7 @@ provenance = "declared"
 [[edge]]
 kind = "consumes"
 from = "definition.outer.requires"
-to = "k_rust::definition::Definition [lowered source]"
-provenance = "declared"
-
-[[edge]]
-kind = "consumes"
-from = "definition.outer.requires"
-to = "k_rust::native::RunnableArtifact [on-disk runnable artifact]"
+to = "k_rust::outer::ResolvedSource [resolved source text]"
 provenance = "declared"
 
 [[edge]]
@@ -6787,13 +6845,13 @@ symbol = "serialize_provenance"
 [[edge]]
 kind = "measured-by"
 from = "definition.provenance.record"
-to = "ProvenanceLinkDedupProbes"
+to = "KompileSentenceCopies"
 provenance = "declared"
 
 [[edge]]
 kind = "measured-by"
 from = "definition.provenance.record"
-to = "ProvenanceReceiptRenders"
+to = "ProvenanceLinkDedupProbes"
 provenance = "declared"
 
 [[edge]]
@@ -6812,6 +6870,18 @@ provenance = "declared"
 kind = "measured-by"
 from = "definition.relations.build"
 to = "KompilePartialOrdersBuilt"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.relations.build"
+to = "KompileProductionCatalogsBuilt"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.relations.build"
+to = "KompileSentenceEquivalenceChecks"
 provenance = "declared"
 
 [[edge]]
@@ -6859,19 +6929,25 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "definition.resolve.imports"
+to = "KompileResolveUpdateSentenceVisits"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.resolve.imports"
 to = "KompileResolveUpdates"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.resolve.imports"
+to = "KompileSentenceEquivalenceChecks"
 provenance = "declared"
 
 [[edge]]
 kind = "produces"
 from = "definition.resolve.imports"
 to = "k_rust::definition::ResolvedDefinition [resolved definition]"
-provenance = "declared"
-
-[[edge]]
-kind = "measured-by"
-from = "definition.resolve.sentences"
-to = "KompileResolveUpdateSentenceVisits"
 provenance = "declared"
 
 [[edge]]
@@ -6966,18 +7042,6 @@ provenance = "table"
 order = 31
 
 [[edge]]
-kind = "measured-by"
-from = "kompile.cells.concretize"
-to = "KompileSentencesTransformed"
-provenance = "declared"
-
-[[edge]]
-kind = "measured-by"
-from = "kompile.constant_folding.evaluate"
-to = "KompileSentencesTransformed"
-provenance = "declared"
-
-[[edge]]
 kind = "consumes"
 from = "kompile.kore.convert_term"
 to = "k_rust::definition::PartialOrder<k_rust::kast::Sort> [subsort order]"
@@ -6999,6 +7063,12 @@ provenance = "declared"
 kind = "consumes"
 from = "kompile.kore.convert_term"
 to = "k_rust::kast::Term [parsed term]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.kore.convert_term"
+to = "KompileResolveCalls"
 provenance = "declared"
 
 [[edge]]
@@ -7044,21 +7114,15 @@ to = "k_rust::definition::SortCatalog<'a> [sort lookup]"
 provenance = "declared"
 
 [[edge]]
-kind = "consumes"
+kind = "measured-by"
 from = "kompile.kore.declarations"
-to = "k_rust::outer::LoadedDefinition [loaded definition]"
+to = "KompileResolveCalls"
 provenance = "declared"
 
 [[edge]]
 kind = "produces"
 from = "kompile.kore.declarations"
 to = "k_rust::PreparedDefinitionManifest [prepared definition manifest]"
-provenance = "declared"
-
-[[edge]]
-kind = "produces"
-from = "kompile.kore.declarations"
-to = "k_rust::kompile::CompiledKoreArtifacts [compiled artifacts]"
 provenance = "declared"
 
 [[edge]]
@@ -7080,9 +7144,21 @@ to = "KompileOwiseCompetitorScans"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "kompile.kore.rules"
+to = "k_rust_kore::kore::ast::Pattern [converted term]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "kompile.macros.expand"
 to = "KompileMacroApplications"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.metadata.retarget"
+to = "KompileSentenceCopies"
 provenance = "declared"
 
 [[edge]]
@@ -7098,21 +7174,27 @@ file = "crates/k-rust-backend/src/definition.rs"
 symbol = "BackendDefinition::internalize_for_source_execution"
 
 [[edge]]
+kind = "constrains"
+from = "kompile.sentences.number"
+to = "kompile.modules.rewrite_order"
+provenance = "declared"
+detail = "the UNIQUE_ID attribute set by number_sentences"
+
+[edge.consumer_site]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/compile.rs"
+symbol = "collect_execution_rewrite_order"
+
+[[edge]]
 kind = "measured-by"
-from = "kompile.sort_helpers.generate"
-to = "KompileSentencesTransformed"
+from = "kompile.sentences.number"
+to = "KompileSentenceCopies"
 provenance = "declared"
 
 [[edge]]
 kind = "measured-by"
 from = "kompile.sort_injections.insert"
 to = "KompileInjectionsInserted"
-provenance = "declared"
-
-[[edge]]
-kind = "measured-by"
-from = "kompile.terms.minimize"
-to = "KompileSentencesTransformed"
 provenance = "declared"
 
 [[edge]]

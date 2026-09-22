@@ -2,17 +2,17 @@
 //! id = "kompile.functions.lift"
 //! name = "lifting of local functions into generated productions and rules"
 //! sites = ["resolve_fun", "resolve_fun_pass", "closure_variables"]
-//! variable = "N = traversed term nodes; G = generated sentences"
+//! variable = "N = traversed term nodes; G = generated sentences; L = local sentences per module"
 //! counters = []
-//! no_counter = "local-function lifting has no dedicated counter"
+//! no_counter = "local-function lifting has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + G^2)"
+//! bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Lower local `#fun`, `#let`, and K-matching expressions into generated functions.
 

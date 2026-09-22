@@ -11,7 +11,7 @@
 //! ```
 //!
 //! Rule catalogs collect unique rule-like sentences and build declaration-order views by kind and label.
-//! Construction costs O(n^2 * eq + n log n); no dedicated counter before CQ-12.
+//! Construction costs O(n^2 * eq + n log n); `Counter::KompileSentenceEquivalenceChecks` counts its equivalence calls.
 //!
 //! Deterministic rule, claim, and context views for a resolved module.
 

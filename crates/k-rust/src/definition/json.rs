@@ -13,7 +13,7 @@
 //!
 //! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
 //! Complexity: O(N) over encoded definition nodes.
-//! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
+//! Cost is linear in visited syntax unless its local documentation states another bound; `ProvenanceReceiptRenders` counts origin receipts rendered during provenance encoding.
 //!
 //! KAST JSON version 4 serialization for flat K definitions.
 

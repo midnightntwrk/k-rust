@@ -2,16 +2,17 @@
 //! id = "kompile.terms.minimize"
 //! name = "minimization of repeated term construction"
 //! sites = ["minimize_term_construction", "minimize_term_construction_pass", "Minimizer::gather_terms", "Minimizer::transform"]
-//! variable = "N = rule term nodes"
-//! counters = ["KompileSentencesTransformed"]
+//! variable = "N = rule term nodes; h = term height"
+//! counters = []
+//! no_counter = "term-construction minimization has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
-//! mode = "one definition"
-//! bound = "O(N log N) per rule"
+//! mode = "one rule"
+//! bound = "O(N x h) subtree clones plus O(N log N) ordered-map probes keyed by whole subterms"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Reuse LHS subterms that also occur on a rule RHS through `#as` aliases.
 

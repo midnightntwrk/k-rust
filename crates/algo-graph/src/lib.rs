@@ -1299,6 +1299,11 @@ mod tests {
                     "backend.definition.internalize",
                     Some("BackendDefinition::internalize_for_source_execution"),
                 ),
+                (
+                    "kompile.sentences.number",
+                    "kompile.modules.rewrite_order",
+                    Some("collect_execution_rewrite_order"),
+                ),
             ])
         );
         assert!(
@@ -1334,7 +1339,7 @@ mod tests {
                         "contract.definition.production_catalog_cache",
                     ),
                     Some(
-                        "the per-module OnceLock retains the first ProductionCatalog forced by disambiguation, sort injection, or KORE emission",
+                        "ResolvedDefinition keeps one ProductionCatalog per module in a OnceLock that ResolvedDefinition::update carries forward while the module's visible syntax is unchanged; DefinitionViews caches an Arc to it",
                     ),
                 ),
                 (
@@ -1363,6 +1368,10 @@ mod tests {
                     Some(
                         "the UNIQUE_ID attribute survives KORE emission and determines source rewrite order",
                     ),
+                ),
+                (
+                    ("kompile.sentences.number", "kompile.modules.rewrite_order"),
+                    Some("the UNIQUE_ID attribute set by number_sentences"),
                 ),
             ])
         );

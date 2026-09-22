@@ -2,12 +2,12 @@
 //! id = "definition.order.partial"
 //! name = "finite partial-order construction and closure"
 //! sites = ["PartialOrder", "PartialOrder::new", "find_cycle"]
-//! variable = "V = elements; E = direct relations; C = closure work"
+//! variable = "V = elements; E = direct relations; C = sum over direct relations (a, b) of 1 + |closure(b)|, the elements cloned and inserted into closure sets"
 //! counters = ["KompilePartialOrdersBuilt"]
 //!
 //! [[cost]]
 //! mode = "one partial order"
-//! bound = "O(V + E + C)"
+//! bound = "O((V + E) log V + C log V)"
 //! ```
 //!
 //! Finite partial orders use Kahn topological sorting, reverse-order transitive closure, and set-intersection bounds.
@@ -70,23 +70,19 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .flat_map(|(lesser, greater)| [lesser.clone(), greater.clone()])
             .collect::<BTreeSet<_>>();
 
-        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut graph = DiGraph::<T, ()>::new();
         let nodes = elements
             .iter()
             .cloned()
             .map(|element| {
-                // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
                 let node = graph.add_node(element.clone());
                 (element, node)
             })
             .collect::<BTreeMap<_, _>>();
         for (lesser, greater) in &direct {
-            // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
             graph.add_edge(nodes[lesser], nodes[greater], ());
         }
 
-        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         if toposort(&graph, None).is_err() {
             return Err(Cycle {
                 path: find_cycle(&graph).expect("toposort reported a cycle"),
@@ -95,18 +91,15 @@ impl<T: Clone + Ord> PartialOrder<T> {
 
         // Kahn's algorithm with an ordered ready set makes unrelated elements
         // deterministic without changing the lesser-to-greater edge direction.
-        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut indegree = graph
             .node_indices()
             .map(|node| (node, graph.neighbors_directed(node, Incoming).count()))
             .collect::<BTreeMap<_, _>>();
-        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut ready = graph
             .node_indices()
             .filter(|node| indegree[node] == 0)
             .map(|node| (graph[node].clone(), node))
             .collect::<BTreeSet<_>>();
-        // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
         let mut order = Vec::with_capacity(graph.node_count());
         // Invariant: `ready` contains exactly the unprocessed zero-indegree nodes and `order` is
         // a prefix of a linear extension; each pop permanently appends one node.

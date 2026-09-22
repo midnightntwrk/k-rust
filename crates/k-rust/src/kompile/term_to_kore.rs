@@ -3,8 +3,7 @@
 //! name = "conversion of KAST terms into KORE patterns"
 //! sites = ["TermConverter::convert", "term_to_kore", "term_to_kore_from_resolved"]
 //! variable = "N = term nodes; O = overload candidates per label"
-//! counters = []
-//! no_counter = "KAST-to-KORE conversion has no dedicated counter"
+//! counters = ["KompileResolveCalls"]
 //! consumes = [
 //!   { type = "k_rust::kast::Term", role = "parsed term" },
 //!   { type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" },
@@ -16,6 +15,10 @@
 //! [[cost]]
 //! mode = "one term"
 //! bound = "O(N x O)"
+//!
+//! [[cost]]
+//! mode = "term_to_kore on a flat definition"
+//! bound = "one definition.resolve.imports run plus one sort catalog and subsort order, then O(N x O)"
 //! ```
 //!
 //! Term conversion recursively lowers K terms to typed KORE and resolves overloads against production catalogs.

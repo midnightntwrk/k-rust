@@ -2,13 +2,17 @@
 //! id = "kompile.labels.backward_closure"
 //! name = "backward closure over the label-dependency graph"
 //! sites = ["LabelDependencyGraph::build", "LabelDependencyGraph::backward_closure"]
-//! variable = "V = function labels; E = rule dependency edges"
+//! variable = "V = function labels; E = rule dependency edges; R = rules; N_f = term nodes of function rules"
 //! counters = []
 //! no_counter = "label-dependency closure has no dedicated counter"
 //!
 //! [[cost]]
-//! mode = "graph construction and one closure"
-//! bound = "O(V + E)"
+//! mode = "graph construction"
+//! bound = "O((R + N_f) log V + E)"
+//!
+//! [[cost]]
+//! mode = "one closure"
+//! bound = "O((V + E) log V)"
 //! ```
 //!
 //! Backward dependency closure over function and non-macro anywhere labels.

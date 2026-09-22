@@ -7,8 +7,12 @@
 //! no_counter = "sentence-local fresh-name generation has no dedicated counter"
 //!
 //! [[cost]]
+//! mode = "reservation by for_terms or for_sentence"
+//! bound = "O(R log R)"
+//!
+//! [[cost]]
 //! mode = "one name"
-//! bound = "O(R + C)"
+//! bound = "O((C + 1) x log R)"
 //! ```
 //!
 //! Fresh-name generation reserves existing names and retries monotonically increasing suffixes.

@@ -2,17 +2,17 @@
 //! id = "kompile.contexts.resolve"
 //! name = "lowering of evaluation contexts"
 //! sites = ["resolve_contexts", "resolve_contexts_pass", "resolve_context"]
-//! variable = "N = context and term nodes; C = generated rules and productions"
+//! variable = "N = context and term nodes; C = generated rules and productions; P = visible productions; V = visible sentences; s = compared sentence size"
 //! counters = []
 //! no_counter = "context lowering has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + C)"
+//! bound = "O(N + V + P log P + C^2 x s)"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Lower evaluation contexts into heat/cool rules and freezer productions.
 

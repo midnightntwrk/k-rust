@@ -1,10 +1,9 @@
 //! ```toml algorithm
 //! id = "kompile.kore.declarations"
 //! name = "KORE declaration emission"
-//! sites = ["declaration_modules", "declaration_modules_from_resolved", "declaration_modules_from_resolved_with_options", "DeclarationModules::semantics_definition"]
-//! variable = "P = productions; A = declaration attributes"
-//! counters = []
-//! no_counter = "KORE declaration emission has no dedicated counter"
+//! sites = ["declaration_modules", "declaration_modules_from_resolved", "declaration_modules_from_resolved_with_options", "DeclarationModules::semantics_definition", "module_to_kore_from_resolved_with_options"]
+//! variable = "P = productions; A = declaration attributes; V = visible sentences; R = rules; S_c = collection-hooked sorts"
+//! counters = ["KompileResolveCalls"]
 //! consumes = [
 //!   { type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" },
 //!   { type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" },
@@ -18,11 +17,11 @@
 //!
 //! [[cost]]
 //! mode = "one module"
-//! bound = "O(P x A)"
+//! bound = "O(P x A + V x A + R + S_c x P) plus one kompile.labels.backward_closure build and closure"
 //! ```
 //!
 //! KORE emission builds declarations and generated axioms, then emits rules and equations with an owise competitor predicate.
-//! Complexity: O(P² + R²) over catalog products and owise rule scans.
+//! Complexity: the declaration, axiom, rule, and owise cards state the bounds of their parts.
 //! Catalog products and per-rule scans dominate; `KompileOwiseCompetitorScans` measures the competitor loop after CQ-12, and label dependency closure has a shared home.
 //!
 //! The declaration-producing prefix of Java's `ModuleToKORE`.

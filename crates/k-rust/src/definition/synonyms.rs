@@ -1,5 +1,5 @@
 //! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
-//! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
+//! Cost is one `ResolvedDefinition::resolve`, one pass over local production sorts, and one `ResolvedDefinition::update`; `KompileResolveCalls`, `KompileResolveUpdates`, and `KompileSentenceCopies` count that work.
 //!
 //! Java-compatible application of visible sort synonyms to productions.
 

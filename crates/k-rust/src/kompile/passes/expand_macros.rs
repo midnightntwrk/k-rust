@@ -2,16 +2,20 @@
 //! id = "kompile.macros.expand"
 //! name = "macro expansion by indexed structural matching"
 //! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term"]
-//! variable = "N = sentence term nodes; R = macro rules under the head label; A = macro applications"
+//! variable = "N = sentence term nodes; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module"
 //! counters = ["KompileMacroApplications"]
 //!
 //! [[cost]]
 //! mode = "one sentence"
 //! bound = "O(N x R) plus recursive expansion of substituted results"
+//!
+//! [[cost]]
+//! mode = "Expander construction per module"
+//! bound = "O(V + Q log Q) plus the forced module views"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Expand compile-time macro and alias rules by structural matching.
 

@@ -2,13 +2,13 @@
 //! id = "definition.configuration.expand"
 //! name = "expansion of configuration declarations into generated sentences"
 //! sites = ["expand_configurations", "expand_configurations_with_diagnostics", "expand_configurations_inner"]
-//! variable = "N = visited configuration-term nodes; G = generated sentences"
+//! variable = "N = visited configuration-term nodes; G = generated sentences; M = modules; C = modules with a configuration; D = modules and sentence references in the flat definition; k = generated sentences sharing one SentenceKey; eq = sentence-equivalence cost"
 //! counters = []
 //! no_counter = "configuration expansion is measured by enclosing resolution and sentence counters"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + G^2)"
+//! bound = "O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus one ResolvedDefinition::resolve and C ResolvedDefinition::update calls"
 //! ```
 //!
 //! Configuration expansion recursively generates cells, initializers, and top-cell syntax while resolving newly generated views.

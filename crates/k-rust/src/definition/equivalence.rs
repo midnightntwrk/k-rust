@@ -14,12 +14,16 @@
 //! id = "definition.equivalence.deduplicate"
 //! name = "order-preserving deduplication by sentence equivalence"
 //! sites = ["dedup_by_equivalence", "EquivalenceAccumulator", "push_if_inequivalent"]
-//! variable = "n = sentences; eq = sentence-equivalence cost"
+//! variable = "n = sentences; eq = sentence-equivalence cost; k_i = retained sentences in SentenceKey bucket i"
 //! counters = ["KompileSentenceEquivalenceChecks"]
 //!
 //! [[cost]]
 //! mode = "one sentence collection"
 //! bound = "O(n^2 x eq)"
+//!
+//! [[cost]]
+//! mode = "one sentence collection, bucketed by SentenceKey"
+//! bound = "O(n log n + sum k_i^2 x eq)"
 //! ```
 //!
 //! Structural sentence and term equivalence powers declaration-order deduplication.

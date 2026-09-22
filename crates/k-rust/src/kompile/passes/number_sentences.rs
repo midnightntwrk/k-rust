@@ -2,17 +2,16 @@
 //! id = "kompile.sentences.number"
 //! name = "stable numbering of sentences by normalized digest"
 //! sites = ["number_sentences", "number_sentences_pass", "number_sentence", "unique_id_text"]
-//! variable = "N = normalized sentence and term nodes"
-//! counters = []
-//! no_counter = "sentence numbering has no dedicated counter"
+//! variable = "N = normalized sentence and term nodes; h = term height"
+//! counters = ["KompileSentenceCopies"]
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N)"
+//! bound = "O(N x h)"
 //! ```
 //!
-//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! This transformation pass assigns UNIQUE_ID attributes to rules and claims and records no origins.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Assign Java-compatible stable identifiers to rules and claims.
 

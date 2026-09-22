@@ -2,16 +2,21 @@
 //! id = "kompile.cells.concretize"
 //! name = "cell concretization"
 //! sites = ["concretize_cells", "concretize_cells_pass", "CellModel::new", "Concretizer::sentence"]
-//! variable = "P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell"
-//! counters = ["KompileSentencesTransformed"]
+//! variable = "M = modules; P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell; r = rewrite items compared pairwise in make_parents"
+//! counters = []
+//! no_counter = "cell concretization has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
-//! mode = "one definition"
-//! bound = "O(P x C + N x D x |children|)"
+//! mode = "cell model construction (CellModel::new)"
+//! bound = "O(P + C x |children| + r^2) per module plus the forced views.subsorts, once per module and once more per non-main module on the early-exit check"
+//!
+//! [[cost]]
+//! mode = "sentence concretization"
+//! bound = "O(N x D x |children|)"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Complete configuration abstractions into fixed-arity cell applications.
 

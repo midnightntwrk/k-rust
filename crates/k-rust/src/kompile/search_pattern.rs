@@ -11,7 +11,7 @@
 //! ```
 //!
 //! Search-pattern compilation applies sort injection and term-to-KORE conversion to one pattern.
-//! Complexity: O(N + P) over pattern nodes and production candidates.
+//! Complexity: the sort-injection and term-conversion cards state the cost of the enclosed algorithms.
 //! It adds no worklist of its own; the enclosed algorithms determine its cost.
 //!
 //! Compilation of one surface K search pattern into a verified-shape KORE target.

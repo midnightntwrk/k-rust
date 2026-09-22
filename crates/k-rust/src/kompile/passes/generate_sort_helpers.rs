@@ -3,15 +3,16 @@
 //! name = "generation of sort predicates, projections, and helper rules"
 //! sites = ["generate_sort_predicate_syntax", "regenerate_sort_predicate_syntax", "generate_sort_projections"]
 //! variable = "M = modules; S = visible sorts; V = visible sentences"
-//! counters = ["KompileSentencesTransformed"]
+//! counters = []
+//! no_counter = "sort-helper generation has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(M x S x V)"
+//! bound = "O(M x (S + V log V))"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Generate sort predicates and projection functions consumed by later backend passes.
 

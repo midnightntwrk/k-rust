@@ -1,8 +1,8 @@
 //! Definition algorithms are layered from syntax and equivalence through import resolution and derived catalogs (D1-D9).
 //! `DefinitionViews` memoises derived catalogs and relations for one resolution; one-shot public
 //! helpers remain available for callers that need a single view.
-//! `KompileResolveCalls`, the retained zero-valued `KompileRebaseCalls`,
-//! `KompileRuleBubblesParsed`, and `KompileSentencesTransformed` measure the enclosing compilation work.
+//! `KompileResolveCalls`, `KompileResolveUpdates`, `KompileSentenceEquivalenceChecks`,
+//! `KompileProductionCatalogsBuilt`, and `KompilePartialOrdersBuilt` count definition-layer work.
 //!
 //! K definition syntax and KAST JSON interchange.
 

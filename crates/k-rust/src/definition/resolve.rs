@@ -2,8 +2,8 @@
 //! id = "definition.resolve.imports"
 //! name = "import-DAG resolution of flat definitions"
 //! sites = ["ResolvedDefinition::resolve", "ResolvedDefinition::update", "find_cycle"]
-//! variable = "M = modules; E = import edges"
-//! counters = ["KompileResolveCalls", "KompileResolveUpdates"]
+//! variable = "M = modules; E = import edges; l_m = local sentences of module m; k = local sentences sharing one SentenceKey; eq = sentence-equivalence cost; s = cost of one sentences_identical comparison"
+//! counters = ["KompileResolveCalls", "KompileResolveUpdates", "KompileResolveUpdateSentenceVisits", "KompileSentenceEquivalenceChecks"]
 //! consumes = [
 //!   { type = "k_rust::definition::Definition", role = "lowered source" },
 //!   { type = "k_rust::definition::Definition", role = "parsed bubbles" },
@@ -11,24 +11,28 @@
 //! produces = [{ type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" }]
 //!
 //! [[cost]]
-//! mode = "one definition"
-//! bound = "O(M log M + E)"
+//! mode = "ResolvedDefinition::resolve"
+//! bound = "O(M log M + E log E + sum l_m^2 + sum l_m x k x eq)"
+//!
+//! [[cost]]
+//! mode = "ResolvedDefinition::update with an unchanged module set and imports"
+//! bound = "O(M log M + E log E + sum l_m x s), plus the ResolvedModule::from rebuild of each changed module"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "definition.resolve.sentences"
 //! name = "visible-sentence selection with bucketed equivalence deduplication"
 //! sites = ["ResolvedDefinition::select_sentence_locations"]
-//! variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost"
-//! counters = ["KompileResolveUpdateSentenceVisits", "KompileSentenceEquivalenceChecks"]
+//! variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; k = visible sentences sharing one SentenceKey"
+//! counters = ["KompileSentenceEquivalenceChecks"]
 //!
 //! [[cost]]
-//! mode = "all resolved modules"
-//! bound = "O(sum n_m^2 x eq)"
+//! mode = "one module's first sentences or sentence_arcs call"
+//! bound = "O((M + E) log M + n_m log n_m + n_m x k x eq)"
 //! ```
 //!
 //! Import-DAG resolution uses petgraph topological order and a colouring DFS for cycle reports.
-//! A resolve costs O(M log M + E + sum n_m^2 * eq); visible sentences use bucketed equivalence dedup and signatures use O(S^2 * eq) dedup.
+//! A resolve costs O(M log M + E + sum l_m^2 * eq) over local sentences l_m; visible sentences are selected lazily per module with bucketed equivalence dedup, and `signature_sentences` uses O(S^2 * eq) dedup.
 //! `Counter::KompileResolveCalls` counts invocations.
 //!
 //! Resolution of flat, name-based modules into an import graph.

@@ -4,8 +4,8 @@
 //! sites = ["evaluate", "KFloat::parse"]
 //! ```
 //!
-//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! This helper module evaluates the FLOAT hooks of kompile.constant_folding.evaluate.
+//! Its cost is measured by the constant folding `--timings` phase; it bumps no counter.
 //!
 //! MPFR-backed implementation of K's `FLOAT` constant-folding hooks.
 

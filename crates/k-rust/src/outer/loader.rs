@@ -2,18 +2,22 @@
 //! id = "definition.outer.requires"
 //! name = "source loading by traversal of the require graph"
 //! sites = ["Loader::visit", "load_impl"]
-//! variable = "F = source files; E = require edges; B = source bytes"
+//! variable = "F = source files; E = require edges; B = source bytes; P = provided sources"
 //! counters = []
 //! no_counter = "source-require traversal has no dedicated counter"
-//! consumes = [{ type = "k_rust::definition::Definition", role = "lowered source" }]
+//! consumes = [{ type = "k_rust::outer::ResolvedSource", role = "resolved source text" }]
 //! produces = [{ type = "k_rust::outer::LoadedDefinition", role = "loaded definition" }]
 //!
 //! [[cost]]
-//! mode = "one source graph"
-//! bound = "O(F + E + B)"
+//! mode = "Loader::visit over the require graph"
+//! bound = "O(F^2 + E x P + B), plus definition.outer.parse for each file"
+//!
+//! [[cost]]
+//! mode = "load_impl"
+//! bound = "the Loader::visit cost plus lower_files and finish_load, whose phases are bounded by definition.outer.lower, definition.outer.select_modules, definition.configuration.expand, definition.resolve.imports, and parser.bubble.rules"
 //! ```
 //!
-//! Source loading follows the `requires` DFS, selects modules, and runs the ordered load phases before lowering.
+//! Source loading follows the `requires` DFS, lowers the parsed files, and then runs the ordered load phases that select modules, expand configurations, resolve sorts, and parse rule bubbles.
 //! Complexity: O(F + E + B) over files, require edges, and source bytes.
 //! Each source is visited once and each selection scans reachable modules; phase timings measure the driver.
 //!

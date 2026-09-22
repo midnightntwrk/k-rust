@@ -2,7 +2,7 @@
 //! id = "definition.outer.lower"
 //! name = "lowering of outer syntax into the flat definition model"
 //! sites = ["lower", "lower_module", "lower_sentence", "lower_production"]
-//! variable = "S = outer sentences; I = production items"
+//! variable = "S = outer sentences; I = production items; c = distinct temporary cell sorts in one module; g = insert_tag calls; t = labels under one tag"
 //! counters = []
 //! no_counter = "outer-syntax lowering has no dedicated counter"
 //! consumes = [{ type = "k_rust::outer::ast::SourceFile", role = "parsed source" }]
@@ -10,7 +10,7 @@
 //!
 //! [[cost]]
 //! mode = "one source set"
-//! bound = "O(S + I)"
+//! bound = "O(S + I x c + g x t log t)"
 //! ```
 //!
 //! Outer lowering maps tag-indexed syntax nodes into the flat definition model.

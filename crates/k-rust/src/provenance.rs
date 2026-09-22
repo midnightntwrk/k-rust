@@ -2,31 +2,35 @@
 //! id = "definition.provenance.record"
 //! name = "recording of generation-origin receipts"
 //! sites = ["record_generated_origins", "sentence_counterparts", "annotate_term", "insert_link"]
-//! variable = "N = sentences and changed term nodes; k = origin links per visited node"
-//! counters = ["ProvenanceLinkDedupProbes", "ProvenanceReceiptRenders"]
+//! variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared"
+//! counters = ["ProvenanceLinkDedupProbes", "KompileSentenceCopies"]
 //!
 //! [[cost]]
-//! mode = "one module and generating pass"
-//! bound = "O(N log N + sum k)"
+//! mode = "one generating pass over a definition"
+//! bound = "O(M^2 + D + N log N + sum k)"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "definition.provenance.source_identity"
 //! name = "interning and offset mapping of logical source identities"
 //! sites = ["LogicalSourceId::new", "SourceTable::intern", "SourceOffsetMap::new"]
-//! variable = "B = source bytes; S = offset-map segments"
+//! variable = "B = source bytes; S = offset-map segments; F = sources already in the table"
 //! counters = []
 //! no_counter = "logical source interning and offset mapping have no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one source"
 //! bound = "O(B + S)"
+//!
+//! [[cost]]
+//! mode = "SourceTable::intern"
+//! bound = "O(F) LogicalSourceId comparisons"
 //! ```
 //!
 //! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions.
 //! Complexity: receipt diff O(N log N) per module per pass; origin unions O(k) expected per visited node after CQ-12b.
 //! Annotation is linear in visited nodes and link insertions; `ProvenanceLinkDedupProbes` measures those insertions.
-//! The former linear `push_unique` union was the largest KEVM self frame at the audit base.
+//! The former linear `push_unique` union was the largest KEVM self frame at the audit base. Source identities hash each source once, intern it by a linear scan of the table, and validate offset-map segments in one pass.
 //!
 //! Stable source identities and provenance shared by the semantic frontend.
 

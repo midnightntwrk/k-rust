@@ -2,13 +2,13 @@
 //! id = "kompile.kore.axioms"
 //! name = "generated KORE axiom emission"
 //! sites = ["generated_axioms", "constructor_productions"]
-//! variable = "P = productions; S = sorts; O = overloads"
+//! variable = "P = productions; S = sorts; O = overloads; R = rules"
 //! counters = []
 //! no_counter = "generated-axiom emission has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one module"
-//! bound = "O(P^2 + S x (P + S log S) + O^2)"
+//! bound = "O(P^2 + S x (P + S log S) + O^2 + R)"
 //! ```
 //!
 //! Generated KORE syntax and semantic axiom families.

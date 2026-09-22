@@ -2,24 +2,19 @@
 //! id = "kompile.modules.rewrite_order"
 //! name = "collection of execution rewrite order through imports"
 //! sites = ["collect_execution_rewrite_order"]
-//! variable = "M = modules; E = import edges; R = rewrite sentences"
+//! variable = "M = modules; E = import edges; R = rewrite sentences; d = import depth; u = repeated UNIQUE_ID occurrences; s = normalized sentence size"
 //! counters = []
 //! no_counter = "execution rewrite-order collection has no dedicated counter"
+//! constrains = [
+//!   { id = "kompile.sentences.number", site = "collect_execution_rewrite_order", via = "the UNIQUE_ID attribute set by number_sentences" },
+//! ]
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(M + E + R)"
+//! bound = "O((M + E) x (d + log M) + R log R + u x s)"
 //! ```
 //!
-//! ```toml algorithm-site
-//! id = "kompile.kore.declarations"
-//! role = "part"
-//! sites = ["compile_loaded_definition_timed"]
-//! consumes = [{ type = "k_rust::outer::LoadedDefinition", role = "loaded definition" }]
-//! produces = [{ type = "k_rust::kompile::CompiledKoreArtifacts", role = "compiled artifacts" }]
-//! ```
-//!
-//! The host-independent pass driver applies 39 named stages and preserves two checked-definition checkpoints.
+//! The host-independent pass driver applies 34 named stages and preserves two checked-definition checkpoints.
 //! Complexity: O(sum of the named stage work).
 //! `tests/phase_timings.rs` pins stage names and `tests/provenance_manifest.rs` pins the transformation source; `KompileSentencesTransformed` measures output volume.
 //!

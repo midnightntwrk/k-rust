@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "definition.outer.checks"
 //! name = "validation of outer-syntax declarations"
-//! sites = ["check_list_declarations", "check_brackets"]
+//! sites = ["check_list_declarations", "check_brackets", "check_user_attributes"]
 //! variable = "N = outer syntax nodes"
 //! counters = []
 //! no_counter = "outer-syntax checks have no dedicated counter"
@@ -223,7 +223,6 @@ fn check_production(
         ));
         return;
     }
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     for element_sort in lists {
         if BASE_SORTS.contains(&list_sort.name.as_str()) {
             diagnostics.push(error(

@@ -1,15 +1,19 @@
 //! ```toml algorithm
 //! id = "definition.catalog.production"
 //! name = "production-catalog construction"
-//! sites = ["ProductionCatalog", "ProductionCatalog::new", "ProductionCatalog::from_visible", "build_indexes"]
-//! variable = "n = visible productions; b = equivalence buckets; eq = sentence-equivalence cost"
-//! counters = ["KompileProductionCatalogsBuilt", "KompileCatalogSentenceClones"]
+//! sites = ["ResolvedDefinition::production_catalog", "ProductionCatalog::from_deduplicated_arcs", "ProductionCatalog::from_arc_productions", "ProductionCatalog", "ProductionCatalog::new", "ProductionCatalog::from_visible", "build_indexes"]
+//! variable = "n = visible productions; l = local productions; k = productions sharing one SentenceKey or ProductionKey bucket; eq = sentence-equivalence cost; p = canonical production payload bytes"
+//! counters = ["KompileProductionCatalogsBuilt", "KompileProductionIdentityDigests", "KompileSentenceEquivalenceChecks"]
 //! consumes = [{ type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" }]
 //! produces = [{ type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" }]
 //!
 //! [[cost]]
-//! mode = "one catalog"
-//! bound = "O(n log n + b x eq)"
+//! mode = "ResolvedDefinition::production_catalog via from_deduplicated_arcs"
+//! bound = "O(n x p + n log n + l x (log n + k x eq))"
+//!
+//! [[cost]]
+//! mode = "ProductionCatalog::new and from_visible"
+//! bound = "O(n x k x eq + n x p + n log n + l x (log n + k x eq))"
 //! ```
 //!
 //! Production catalogs group visible productions and build label, sort, hook, and identity indexes in declaration order.

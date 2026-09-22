@@ -2,16 +2,17 @@
 //! id = "kompile.constant_folding.evaluate"
 //! name = "bottom-up evaluation of constant hooked operations"
 //! sites = ["constant_fold", "constant_fold_pass", "Folder::fold", "Folder::evaluate"]
-//! variable = "N = visited term nodes"
-//! counters = ["KompileSentencesTransformed"]
+//! variable = "N = visited term nodes; h = term height"
+//! counters = []
+//! no_counter = "constant folding has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N) per sentence plus hook-specific arithmetic cost"
+//! bound = "O(N x h) plus hook-specific arithmetic cost"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
-//! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
+//! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Compile-time evaluation of pure Boolean, integer, and string hooks.
 

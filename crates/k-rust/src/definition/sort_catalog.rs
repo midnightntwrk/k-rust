@@ -2,7 +2,7 @@
 //! id = "definition.catalog.sort"
 //! name = "sort-catalog construction"
 //! sites = ["SortCatalog", "SortCatalog::new", "SortCatalog::from_visible"]
-//! variable = "n = visible sort declarations"
+//! variable = "V = visible sentences"
 //! counters = []
 //! no_counter = "sort-catalog construction has no dedicated counter"
 //! consumes = [{ type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" }]
@@ -10,7 +10,7 @@
 //!
 //! [[cost]]
 //! mode = "one catalog"
-//! bound = "O(n log n)"
+//! bound = "O(V log V)"
 //! ```
 //!
 //! Sort catalogs group visible declarations and instantiated sort heads in declaration order.
