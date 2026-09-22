@@ -207,14 +207,10 @@ impl PredictionAnalysis {
         )
     }
 
-    pub(super) fn can_filter(&self, production: usize, predicted: &[bool]) -> bool {
+    pub(super) fn can_filter(&self, production: usize) -> bool {
         match self.first_items[production] {
             Some(Symbol::Lexical(_)) => true,
-            Some(Symbol::NonTerminal(child)) => {
-                // Without this marker, the caller would expand descendants and invalidate
-                // snapshots later. Preserve that scheduling even when FIRST proves it dead.
-                !self.epsilon[child] && predicted[child]
-            }
+            Some(Symbol::NonTerminal(child)) => !self.epsilon[child],
             None => false,
         }
     }
@@ -235,13 +231,12 @@ impl PredictionAnalysis {
         grammar: &Grammar,
         sort: &Sort,
         winner: Option<usize>,
-        predicted: &[bool],
     ) -> (Vec<usize>, usize, usize) {
         let mut candidates = Vec::new();
         let mut terminal_skipped = 0;
         let mut nonterminal_skipped = 0;
         for production in grammar.productions_for(sort) {
-            if self.can_filter(production, predicted) && self.cannot_start(production, winner) {
+            if self.can_filter(production) && self.cannot_start(production, winner) {
                 if matches!(self.first_items[production], Some(Symbol::NonTerminal(_))) {
                     nonterminal_skipped += 1;
                 } else {
@@ -488,7 +483,6 @@ mod tests {
         fn indexed_candidates_match_the_iteration_oracle(
             kinds in prop::collection::vec(0u8..10, 1..20),
             winner_choice in 0u8..4,
-            child_already_predicted in any::<bool>(),
         ) {
             let grammar = indexed_grammar(&kinds);
             let analysis = PredictionAnalysis::new(&grammar);
@@ -499,19 +493,13 @@ mod tests {
                 2 => grammar.scanner.lexeme_id(&Item::Terminal("b".into())),
                 _ => grammar.scanner.lexeme_id(&Item::Terminal("c".into())),
             };
-            let mut predicted = vec![false; grammar.sorts.len()];
-            predicted[grammar.sort_id(&sort).unwrap()] = true;
-            if child_already_predicted {
-                predicted[grammar.sort_id(&Sort::new("Child")).unwrap()] = true;
-            }
             let (expected, terminal_skipped, nonterminal_skipped) =
-                analysis.candidates_by_iteration(&grammar, &sort, winner, &predicted);
+                analysis.candidates_by_iteration(&grammar, &sort, winner);
             let (indexed, excluded) = analysis.candidates(grammar.sort_id(&sort).unwrap(), winner);
             let mut actual = Vec::new();
             let mut indexed_nonterminal_skipped = 0;
             for production in indexed {
-                if analysis.can_filter(production, &predicted)
-                    && analysis.cannot_start(production, winner)
+                if analysis.can_filter(production) && analysis.cannot_start(production, winner)
                 {
                     indexed_nonterminal_skipped += 1;
                 } else {
@@ -534,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn omits_only_already_considered_impossible_waiters() {
+    fn filters_impossible_waiters_without_a_prior_caller() {
         let mut sentences = vec![
             production("Start", vec![nt("Dead"), terminal("bad")], "bad"),
             production("Start", vec![nt("Wide")], "start"),
@@ -577,12 +565,15 @@ mod tests {
         assert_eq!(NONTERMINAL_PREDICTIONS_SKIPPED.get(), 32);
         assert_eq!(PARSE_ATTEMPTS.get(), 1);
 
-        // Without the earlier caller, the Wide states must remain to initiate Dead's work.
+        // Filtering remains equivalent even when no earlier caller has populated the bucket.
         sentences.remove(0);
         let grammar = Grammar::from_sentences(&sentences).unwrap();
         NONTERMINAL_PREDICTIONS_SKIPPED.set(0);
-        assert!(filtered(&grammar, "é").is_ok());
-        assert_eq!(NONTERMINAL_PREDICTIONS_SKIPPED.get(), 0);
+        let baseline = unfiltered(&grammar, "é").unwrap();
+        let parsed = filtered(&grammar, "é").unwrap();
+        assert_eq!(parsed, baseline);
+        assert_eq!(metadata(&parsed), metadata(&baseline));
+        assert_eq!(NONTERMINAL_PREDICTIONS_SKIPPED.get(), 32);
     }
 
     #[test]

@@ -321,19 +321,6 @@ impl IntoIterator for Derivations {
 }
 
 impl Chart {
-    pub(super) fn invalidate_completed_nodes(&mut self) {
-        let completed_nodes = self.completed_nodes.get_mut();
-        measure::add(
-            Counter::ParserCompletedNodesInvalidated,
-            completed_nodes.len() as u64,
-        );
-        #[cfg(test)]
-        update_chart_work_counters(|counters| {
-            counters.completed_nodes_invalidation_entries += completed_nodes.len();
-        });
-        completed_nodes.clear();
-    }
-
     pub(super) fn invalidate_completed_node(&mut self, sort_id: usize, origin: usize) {
         let removed = self.completed_nodes.get_mut().remove(&(sort_id, origin));
         measure::add(

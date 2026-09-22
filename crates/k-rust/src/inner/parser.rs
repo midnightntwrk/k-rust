@@ -885,18 +885,16 @@ impl Grammar {
                                     Counter::ParserTerminalPredictionsSkipped,
                                     excluded as u64,
                                 );
-                                charts[position].invalidate_completed_nodes();
                                 *pruned = true;
                             }
                             // Invariant: each indexed survivor in this newly predicted sort bucket
                             // is either inserted once or conservatively filtered as nonterminal-first.
                             for predicted in candidates {
                                 if let Some(analysis) = prediction_analysis
-                                    && analysis.can_filter(predicted, &charts[position].predicted)
+                                    && analysis.can_filter(predicted)
                                     && analysis.cannot_start(predicted, winner)
                                 {
                                     measure::bump(Counter::ParserNonterminalPredictionsSkipped);
-                                    charts[position].invalidate_completed_nodes();
                                     *pruned = true;
                                     continue;
                                 }
