@@ -40,7 +40,7 @@ pub fn sorts(input: TokenStream) -> TokenStream {
 #[doc(hidden)]
 #[proc_macro]
 pub fn __framework_sorts(input: TokenStream) -> TokenStream {
-    finish(expand::framework_sorts(input.into()))
+    finish(expand::framework_sorts(&ProcMacroEnvironment, input.into()))
 }
 
 /// Pins the stable public identity of a symbol-bearing declaration.

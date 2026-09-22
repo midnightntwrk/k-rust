@@ -75,7 +75,9 @@
 //!
 //! - KRS entries: [`ATTRIBUTE_ENTRIES`] and [`FUNCTION_ENTRIES`], exactly the
 //!   `#[proc_macro_attribute]` and `#[proc_macro]` functions of
-//!   `crates/krs-macros/src/lib.rs`.
+//!   `crates/krs-macros/src/lib.rs` whose names do not start with `__`. A
+//!   `__`-prefixed entry point, such as `__framework_sorts`, is
+//!   facade-internal and is rejected as `krs::policy::reserved-facade-item`.
 //! - Inert attributes: [`INERT_ATTRIBUTES`], as single-segment paths.
 //! - Built-in derives: [`BUILTIN_DERIVES`], bare or as
 //!   `[::]core::<module>::<Name>` or `[::]std::<module>::<Name>`.
@@ -167,7 +169,8 @@ pub const ATTRIBUTE_ENTRIES: &[&str] = &[
     "ensures",
 ];
 
-/// The `#[proc_macro]` functions of `krs-macros`, in source order.
+/// The `#[proc_macro]` functions of `krs-macros` not starting with `__`, in
+/// source order.
 pub const FUNCTION_ENTRIES: &[&str] = &[
     "sorts",
     "rules",

@@ -330,9 +330,12 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Resu
 /// collector without linker-section registration can still obtain the
 /// framework descriptors. A procedural macro sees only its own invocation;
 /// this per-invocation table is the only registration table it can write.
-pub(crate) fn framework_sorts(input: TokenStream) -> syn::Result<TokenStream> {
-    let facade = facade_path()?;
-    let expansion = sorts(input)?;
+pub(crate) fn framework_sorts(
+    env: &dyn MacroEnvironment,
+    input: TokenStream,
+) -> syn::Result<TokenStream> {
+    let facade = env.facade_path()?;
+    let expansion = sorts(env, input)?;
     let factories = registered_factories(&expansion);
     if factories.is_empty() {
         return Err(syn::Error::new(

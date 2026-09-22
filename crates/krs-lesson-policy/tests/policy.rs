@@ -292,34 +292,84 @@ fn json_protocol_rejects_malformed_requests() {
     }
 }
 
-/// Collects `(name, kind)` for every `#[proc_macro]` and
-/// `#[proc_macro_attribute]` function of `krs-macros`.
-fn krs_macro_entries() -> (Vec<String>, Vec<String>) {
+/// The `#[proc_macro]` and `#[proc_macro_attribute]` functions of
+/// `krs-macros`, split by kind, and the reserved (`__`-prefixed) ones.
+struct KrsMacroEntries {
+    attributes: Vec<String>,
+    functions: Vec<String>,
+    reserved: Vec<(String, bool)>,
+}
+
+/// Collects every `#[proc_macro]` and `#[proc_macro_attribute]` function of
+/// `krs-macros`. A function whose name starts with `__` is facade-internal
+/// and goes to `reserved` with whether it is `#[doc(hidden)]`.
+fn krs_macro_entries() -> KrsMacroEntries {
     let file = syn::parse_file(include_str!("../../krs-macros/src/lib.rs"))
         .expect("krs-macros/src/lib.rs parses");
-    let mut attributes = Vec::new();
-    let mut functions = Vec::new();
+    let mut entries = KrsMacroEntries {
+        attributes: Vec::new(),
+        functions: Vec::new(),
+        reserved: Vec::new(),
+    };
     for item in file.items {
         let syn::Item::Fn(function) = item else {
             continue;
         };
         let name = function.sig.ident.to_string();
+        let is_entry = function.attrs.iter().any(|attribute| {
+            attribute.path().is_ident("proc_macro_attribute")
+                || attribute.path().is_ident("proc_macro")
+        });
+        if name.starts_with("__") {
+            if is_entry {
+                let hidden = function.attrs.iter().any(|attribute| {
+                    attribute.path().is_ident("doc")
+                        && attribute
+                            .parse_args::<syn::Ident>()
+                            .is_ok_and(|argument| argument == "hidden")
+                });
+                entries.reserved.push((name, hidden));
+            }
+            continue;
+        }
         for attribute in &function.attrs {
             if attribute.path().is_ident("proc_macro_attribute") {
-                attributes.push(name.clone());
+                entries.attributes.push(name.clone());
             } else if attribute.path().is_ident("proc_macro") {
-                functions.push(name.clone());
+                entries.functions.push(name.clone());
             }
         }
     }
-    (attributes, functions)
+    entries
 }
 
 #[test]
 fn krs_entry_allowlists_equal_the_krs_macros_entry_points() {
-    let (attributes, functions) = krs_macro_entries();
-    assert_eq!(attributes, v1::ATTRIBUTE_ENTRIES);
-    assert_eq!(functions, v1::FUNCTION_ENTRIES);
+    let entries = krs_macro_entries();
+    assert_eq!(entries.attributes, v1::ATTRIBUTE_ENTRIES);
+    assert_eq!(entries.functions, v1::FUNCTION_ENTRIES);
+}
+
+#[test]
+fn reserved_krs_macros_entry_points_are_hidden_and_rejected() {
+    for (name, hidden) in krs_macro_entries().reserved {
+        assert!(
+            hidden,
+            "reserved entry point `{name}` must be #[doc(hidden)]"
+        );
+        for source in [
+            format!("k::{name}! {{}}\n"),
+            format!("#[k::{name}]\npub struct S;\n"),
+        ] {
+            let diagnostics = check(&source, "src/lib.rs", &LessonPolicy::single_file_v1());
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == v1::RESERVED_FACADE_ITEM),
+                "`{name}` is not rejected as a reserved facade item in {source:?}: {diagnostics:?}"
+            );
+        }
+    }
 }
 
 #[test]
