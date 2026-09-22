@@ -3,12 +3,10 @@
 use std::{
     collections::BTreeSet,
     fs,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Output, Stdio},
+    process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
-    thread,
-    time::{Duration, Instant},
 };
 
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
@@ -335,29 +333,6 @@ fn pattern_binding<'a>(pattern: &'a Pattern, variable_name: &str) -> Option<&'a 
             .find_map(|argument| pattern_binding(argument, variable_name)),
         _ => None,
     }
-}
-
-fn wait_with_stderr(mut child: Child, timeout: Duration) -> (ExitStatus, Vec<u8>) {
-    let mut stderr = child.stderr.take().unwrap();
-    let reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stderr.read_to_end(&mut bytes).unwrap();
-        bytes
-    });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            child.kill().unwrap();
-            child.wait().unwrap();
-            let _ = reader.join();
-            panic!("child did not exit within {timeout:?}");
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    (status, reader.join().unwrap())
 }
 
 fn exit_reference_fixtures() -> PathBuf {
@@ -4571,18 +4546,44 @@ fn kprove_proves_a_modal_claim_in_process() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The modal claim fixture prepared once with `kcompile --for-proving`, so that a `kprove`
+/// child loads the compiled KORE instead of compiling the definition and its prelude.
+fn compiled_modal_claim_fixture() -> (PathBuf, PathBuf) {
+    let (root, definition, _) = modal_claim_fixture();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--output-directory",
+            compiled.to_str().unwrap(),
+            "--for-proving",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    (root, compiled)
+}
+
 #[test]
 fn kprove_reports_closed_stdout_as_io_error() {
-    let (root, definition, _) = modal_claim_fixture();
-    // Exercise trusted reporting, an executed proof, and an unproven result.
+    let (root, compiled) = compiled_modal_claim_fixture();
+    // Exercise trusted reporting, an executed proof, and an unproven result. Each child reaches
+    // its first report line, where the closed pipe surfaces, after loading the compiled
+    // definition; nothing is compiled behind the dead stdout.
     for options in [
         ["--trusted", "reaches-b-or-c"],
         ["--depth", "10"],
         ["--depth", "0"],
     ] {
         let mut child = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .arg("kprove")
-            .arg(&definition)
+            .args(["kprove", "--compiled-definition", compiled.to_str().unwrap()])
             .args(["--main-module", "MAIN", "--claim", "reaches-b-or-c"])
             .args(options)
             .stdout(Stdio::piped())
@@ -4591,9 +4592,11 @@ fn kprove_reports_closed_stdout_as_io_error() {
             .unwrap();
         drop(child.stdout.take().unwrap());
 
-        let (status, stderr) = wait_with_stderr(child, Duration::from_secs(45));
-        let stderr = String::from_utf8(stderr).unwrap();
-        assert_eq!(status.code(), Some(1), "{options:?}: {stderr}");
+        // The child holds no pipe it could block on: stdout is closed and stderr is drained
+        // here, so the wait has no deadline.
+        let output = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(1), "{options:?}: {stderr}");
         assert!(stderr.contains("error:"), "{options:?}: {stderr}");
         assert!(
             stderr.to_lowercase().contains("pipe"),
