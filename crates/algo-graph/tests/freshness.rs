@@ -1,12 +1,17 @@
-use algo_graph::{build_graph, canonical_toml, workspace_root};
+//! The workspace freshness gate. It runs without the libtest harness (`harness = false` in
+//! Cargo.toml) so that its report summary is printed by a plain `cargo test`; a failure panics
+//! and exits nonzero.
 
-#[test]
-fn workspace_algorithm_graph_is_fresh() {
-    let build = build_graph(&workspace_root()).expect("the workspace graph should build");
+use algo_graph::{build_graph, canonical_toml, workspace_root, write_report};
 
-    for finding in &build.report {
-        eprintln!("algo-graph report: {finding}");
-    }
+fn main() {
+    let root = workspace_root();
+    let build = build_graph(&root).expect("the workspace graph should build");
+
+    println!(
+        "{}",
+        write_report(&root, &build).expect("the report should be written")
+    );
 
     assert!(
         build.failures.is_empty(),
@@ -18,4 +23,5 @@ fn workspace_algorithm_graph_is_fresh() {
     let mut settings = insta::Settings::clone_current();
     settings.set_prepend_module_to_snapshot(false);
     settings.bind(|| insta::assert_snapshot!("graph.toml", canonical));
+    println!("workspace_algorithm_graph_is_fresh ... ok");
 }

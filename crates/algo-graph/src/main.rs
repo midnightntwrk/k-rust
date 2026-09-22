@@ -3,14 +3,15 @@ use std::path::{Path, PathBuf};
 use algo_graph::{
     Filters, build_graph, canonical_join_toml, canonical_toml, drift, join_files,
     render_composition, render_composition_focus, render_drift, render_module_map, render_pipeline,
-    render_run_overlay, workspace_root, write_output,
+    render_run_overlay, workspace_root, write_output, write_report,
 };
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(about = "Build and render the k-rust algorithm graph")]
 struct Cli {
-    /// Repository root. Defaults to the workspace that built this binary.
+    /// Repository root. Defaults to the nearest ancestor of the current directory whose
+    /// Cargo.toml declares [workspace], else the workspace that built this binary.
     #[arg(long, global = true)]
     root: Option<PathBuf>,
     #[command(subcommand)]
@@ -114,6 +115,7 @@ fn main() -> Result<(), algo_graph::Error> {
     match cli.command {
         Command::Graph { output } => {
             let build = report_build(build_graph(&root)?);
+            eprintln!("{}", write_report(&root, &build)?);
             let output = output.unwrap_or_else(|| default_output(&root, "graph.toml"));
             write_output(&output, &canonical_toml(&build.graph)?)?;
             println!("wrote {}", output.display());
@@ -139,10 +141,10 @@ fn main() -> Result<(), algo_graph::Error> {
                     .clone()
                     .unwrap_or_else(|| default_output(&root, "composition.mmd"));
                 let filters = arguments.render.filters();
-                let rendered = arguments.focus.as_deref().map_or_else(
-                    || render_composition(&build.graph, &filters),
-                    |focus| render_composition_focus(&build.graph, &filters, focus),
-                );
+                let rendered = match arguments.focus.as_deref() {
+                    None => render_composition(&build.graph, &filters),
+                    Some(focus) => render_composition_focus(&build.graph, &filters, focus)?,
+                };
                 write_output(&output, &rendered)?;
                 println!("wrote {}", output.display());
             }
@@ -156,7 +158,12 @@ fn main() -> Result<(), algo_graph::Error> {
             }
         },
         Command::Join(arguments) => {
-            let (graph, join) = join_files(&arguments.graph, &arguments.trace, &arguments.receipt)?;
+            let (graph, join) = join_files(
+                &root,
+                &arguments.graph,
+                &arguments.trace,
+                &arguments.receipt,
+            )?;
             let output = arguments
                 .output
                 .unwrap_or_else(|| default_output(&root, "join.toml"));

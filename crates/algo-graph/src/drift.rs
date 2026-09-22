@@ -6,7 +6,7 @@ use std::{
     process::{Command, Output},
 };
 
-use proc_macro2::LineColumn;
+use proc_macro2::{Delimiter, Group, LineColumn, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::{
     spanned::Spanned,
@@ -81,6 +81,7 @@ fn git_diff(root: &Path, since: &str, until: Option<&str>) -> Result<String, Err
         "--no-ext-diff",
         "--no-color",
         "--no-renames",
+        "--no-prefix",
         "--unified=0",
         since,
     ];
@@ -184,8 +185,10 @@ fn parse_patch(patch: &str) -> Result<Vec<FileDiff>, Error> {
             }
             continue;
         }
-        if let Some(path) = line.strip_prefix("+++ b/") {
-            current_file = Some(FileDiff {
+        // `git diff --no-prefix` prints the new path without an `a/`, `b/`, or mnemonic
+        // prefix, whatever diff.noprefix, diff.mnemonicPrefix, or diff.dstPrefix say.
+        if let Some(path) = line.strip_prefix("+++ ") {
+            current_file = (path != "/dev/null").then(|| FileDiff {
                 file: path.to_owned(),
                 hunks: Vec::new(),
             });
@@ -359,7 +362,7 @@ impl SourceVisitor {
     fn add_item<T: ToTokens + Spanned>(&mut self, symbol: String, item: &T) {
         self.items.entry(symbol).or_default().push(LocatedItem {
             range: span_range(item.span()),
-            tokens: item.to_token_stream().to_string(),
+            tokens: strip_doc_attributes(item.to_token_stream()).to_string(),
         });
     }
 }
@@ -432,6 +435,46 @@ impl<'ast> Visit<'ast> for SourceVisitor {
         }
         visit::visit_item_impl(self, item);
     }
+}
+
+/// Remove `#[doc = ..]` and `#![doc = ..]` attributes, so that a doc-comment edit compares equal.
+fn strip_doc_attributes(tokens: TokenStream) -> TokenStream {
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    let mut output = Vec::with_capacity(tokens.len());
+    let mut index = 0;
+    while index < tokens.len() {
+        if let TokenTree::Punct(pound) = &tokens[index]
+            && pound.as_char() == '#'
+        {
+            let bang = matches!(
+                tokens.get(index + 1),
+                Some(TokenTree::Punct(bang)) if bang.as_char() == '!'
+            );
+            let group_index = index + 1 + usize::from(bang);
+            if let Some(TokenTree::Group(group)) = tokens.get(group_index)
+                && group.delimiter() == Delimiter::Bracket
+                && group
+                    .stream()
+                    .into_iter()
+                    .next()
+                    .is_some_and(|first| matches!(first, TokenTree::Ident(ident) if ident == "doc"))
+            {
+                index = group_index + 1;
+                continue;
+            }
+        }
+        output.push(match &tokens[index] {
+            TokenTree::Group(group) => {
+                let mut stripped =
+                    Group::new(group.delimiter(), strip_doc_attributes(group.stream()));
+                stripped.set_span(group.span());
+                TokenTree::Group(stripped)
+            }
+            token => token.clone(),
+        });
+        index += 1;
+    }
+    output.into_iter().collect()
 }
 
 fn span_range(span: proc_macro2::Span) -> ItemRange {
@@ -545,9 +588,52 @@ fn run() -> usize {
 "#;
 
     #[test]
+    fn parses_paths_without_a_prefix() {
+        let files = parse_patch(
+            "diff --git crates/a/src/lib.rs crates/a/src/lib.rs\n--- crates/a/src/lib.rs\n+++ crates/a/src/lib.rs\n@@ -1 +1 @@\n-a\n+b\ndiff --git crates/a/src/gone.rs crates/a/src/gone.rs\n--- crates/a/src/gone.rs\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\n",
+        )
+        .unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file, "crates/a/src/lib.rs");
+        assert_eq!(files[0].hunks.len(), 1);
+    }
+
+    #[test]
+    fn doc_attributes_are_stripped_before_comparison() {
+        let tokens = |source: &str| {
+            let item = syn::parse_str::<syn::Item>(source).unwrap();
+            strip_doc_attributes(item.to_token_stream()).to_string()
+        };
+        assert_eq!(
+            tokens("/// Runs it.\nfn run() { //! inner\n 1 }"),
+            tokens("/// Runs the thing.\n#[doc = \"more\"]\nfn run() { 1 }")
+        );
+        assert_ne!(tokens("#[inline] fn run() { 1 }"), tokens("fn run() { 1 }"));
+    }
+
+    #[test]
+    fn ignores_a_doc_comment_only_change() {
+        let Some(repository) = TestRepository::new() else {
+            return;
+        };
+        let documented = ORIGINAL.replace("fn run()", "/// Runs it.\nfn run()");
+        if !repository.commit_source(&documented) {
+            return;
+        }
+        repository.write_source(&documented.replace("/// Runs it.", "/// Runs the thing."));
+
+        let report = drift(&repository.path, "HEAD", None).unwrap();
+        assert!(report.findings.is_empty(), "{report:?}");
+    }
+
+    #[test]
     fn reports_a_site_body_change() {
-        let repository = TestRepository::new();
-        repository.commit_source(ORIGINAL);
+        let Some(repository) = TestRepository::new() else {
+            return;
+        };
+        if !repository.commit_source(ORIGINAL) {
+            return;
+        }
         repository.write_source(&ORIGINAL.replace("    1", "    2"));
 
         let report = drift(&repository.path, "HEAD", None).unwrap();
@@ -560,8 +646,12 @@ fn run() -> usize {
 
     #[test]
     fn ignores_comment_and_format_only_changes() {
-        let repository = TestRepository::new();
-        repository.commit_source(ORIGINAL);
+        let Some(repository) = TestRepository::new() else {
+            return;
+        };
+        if !repository.commit_source(ORIGINAL) {
+            return;
+        }
         repository.write_source(&ORIGINAL.replace(
             "fn run() -> usize {\n    1\n}",
             "fn run( ) -> usize\n{\n    // An explanatory comment.\n    1\n}",
@@ -573,8 +663,12 @@ fn run() -> usize {
 
     #[test]
     fn ignores_a_site_change_when_its_card_changes_too() {
-        let repository = TestRepository::new();
-        repository.commit_source(ORIGINAL);
+        let Some(repository) = TestRepository::new() else {
+            return;
+        };
+        if !repository.commit_source(ORIGINAL) {
+            return;
+        }
         let changed = ORIGINAL
             .replace("name = \"example\"", "name = \"revised example\"")
             .replace("    1", "    2");
@@ -589,7 +683,8 @@ fn run() -> usize {
     }
 
     impl TestRepository {
-        fn new() -> Self {
+        /// A fresh repository, or `None` (with a message) when `git` is absent or fails.
+        fn new() -> Option<Self> {
             let nonce = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -597,30 +692,34 @@ fn run() -> usize {
             let path = std::env::temp_dir()
                 .join(format!("algo-graph-drift-{}-{nonce}", std::process::id()));
             fs::create_dir_all(path.join("crates/example/src")).unwrap();
-            git(&path, &["init", "--quiet"]);
-            Self { path }
+            let repository = Self { path };
+            git(&repository.path, &["init", "--quiet"]).then_some(repository)
         }
 
         fn write_source(&self, source: &str) {
             fs::write(self.path.join("crates/example/src/lib.rs"), source).unwrap();
         }
 
-        fn commit_source(&self, source: &str) {
+        /// Commit `source`; `false` (with a message) when `git` refuses to commit.
+        fn commit_source(&self, source: &str) -> bool {
             self.write_source(source);
-            git(&self.path, &["add", "."]);
-            git(
-                &self.path,
-                &[
-                    "-c",
-                    "user.name=Algorithm Graph Test",
-                    "-c",
-                    "user.email=algorithm-graph@example.invalid",
-                    "commit",
-                    "--quiet",
-                    "-m",
-                    "fixture",
-                ],
-            );
+            git(&self.path, &["add", "."])
+                && git(
+                    &self.path,
+                    &[
+                        "-c",
+                        "user.name=Algorithm Graph Test",
+                        "-c",
+                        "user.email=algorithm-graph@example.invalid",
+                        "-c",
+                        "commit.gpgsign=false",
+                        "commit",
+                        "--quiet",
+                        "--no-verify",
+                        "-m",
+                        "fixture",
+                    ],
+                )
         }
     }
 
@@ -630,18 +729,27 @@ fn run() -> usize {
         }
     }
 
-    fn git(root: &Path, arguments: &[&str]) {
-        let output = Command::new("git")
+    /// Run `git`; on a missing binary or a failure, print why the test is skipped.
+    fn git(root: &Path, arguments: &[&str]) -> bool {
+        match Command::new("git")
             .arg("-C")
             .arg(root)
             .args(arguments)
             .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "git {} failed: {}",
-            arguments.join(" "),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        {
+            Ok(output) if output.status.success() => true,
+            Ok(output) => {
+                eprintln!(
+                    "skipping drift test: git {} failed: {}",
+                    arguments.join(" "),
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+                false
+            }
+            Err(error) => {
+                eprintln!("skipping drift test: git is not runnable: {error}");
+                false
+            }
+        }
     }
 }

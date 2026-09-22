@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::Path,
+    path::{Component, Path},
 };
 
 use k_rust_kore::measure::COUNTER_SCHEMA_VERSION;
@@ -14,7 +14,7 @@ use crate::{Cost, Edge, Error, Graph};
 pub const JOIN_SCHEMA_VERSION: u32 = 1;
 
 /// The exact rule used to aggregate span observations by algorithm id.
-pub const AGGREGATION_RULE: &str = "per algorithm id: invocation count; total duration is the sum of inclusive invocation durations; self duration subtracts direct nested algorithm durations; counter totals are summed across invocations and self counters subtract direct nested algorithm deltas";
+pub const AGGREGATION_RULE: &str = "per algorithm id: invocation count; total duration is the sum of inclusive invocation durations, where an invocation nested inside an open invocation of the same id (recursion) adds nothing because the outermost one already includes it; self duration subtracts direct nested algorithm durations; counter totals are summed across invocations with the same recursion rule and self counters subtract direct nested algorithm deltas; an algorithm node is exercised by spans when it has an invocation and by counters when a counter its card declares is nonzero in the receipt or in any span";
 
 /// A static graph joined to one trace and its receipt.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -170,6 +170,9 @@ pub struct NodeRun {
     pub id: String,
     pub exercised: bool,
     pub evidence: String,
+    /// For an exercised algorithm node: `spans`, `counters`, or `both`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exercised_by: Option<String>,
 }
 
 /// Exercise status for every static graph edge.
@@ -206,6 +209,7 @@ enum FrameKind {
     },
     Phase {
         name: String,
+        serial: usize,
     },
     Other,
 }
@@ -233,12 +237,20 @@ struct CounterDump {
 }
 
 /// Read the three inputs and project one run onto the static graph.
-pub fn join_files(graph: &Path, trace: &Path, receipt: &Path) -> Result<(Graph, Join), Error> {
+///
+/// `root` is the workspace root; the receipt directory is recorded relative to it.
+pub fn join_files(
+    root: &Path,
+    graph: &Path,
+    trace: &Path,
+    receipt: &Path,
+) -> Result<(Graph, Join), Error> {
     let mut graph: Graph = toml::from_str(&fs::read_to_string(graph)?)?;
     graph.sort();
     let events: Value = serde_json::from_str(&fs::read_to_string(trace)?)?;
     let observations = parse_trace(&events)?;
-    let (receipt_info, receipt_counters) = read_receipt(receipt)?;
+    let (mut receipt_info, receipt_counters) = read_receipt(receipt)?;
+    receipt_info.directory = receipt_directory(root, receipt);
     let joined = project(&graph, observations, receipt_info, receipt_counters);
     Ok((graph, joined))
 }
@@ -267,7 +279,8 @@ fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
     };
     let mut result = TraceObservations::default();
     let mut stacks = BTreeMap::<(String, String), Vec<Frame>>::new();
-    let mut phase_sequences = BTreeMap::<(String, String, usize), Vec<String>>::new();
+    // Sibling phases are sequenced under their enclosing phase instance (None at top level).
+    let mut phase_sequences = BTreeMap::<(String, String, Option<usize>), Vec<String>>::new();
 
     for (index, event) in events.iter().enumerate() {
         let Some(event) = event.as_object() else {
@@ -310,7 +323,7 @@ fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
                         _ => None,
                     });
                     let phase = stack.iter().rev().find_map(|frame| match &frame.kind {
-                        FrameKind::Phase { name } => Some(name.clone()),
+                        FrameKind::Phase { name, .. } => Some(name.clone()),
                         _ => None,
                     });
                     if let Some(parent) = &parent {
@@ -326,15 +339,18 @@ fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
                 }
                 "phase" => {
                     let phase = string_arg(&args, "name", index)?;
-                    let depth = stack
-                        .iter()
-                        .filter(|frame| matches!(frame.kind, FrameKind::Phase { .. }))
-                        .count();
+                    let parent = stack.iter().rev().find_map(|frame| match &frame.kind {
+                        FrameKind::Phase { serial, .. } => Some(*serial),
+                        _ => None,
+                    });
                     phase_sequences
-                        .entry((key.0.clone(), key.1.clone(), depth))
+                        .entry((key.0.clone(), key.1.clone(), parent))
                         .or_default()
                         .push(phase.clone());
-                    FrameKind::Phase { name: phase }
+                    FrameKind::Phase {
+                        name: phase,
+                        serial: index,
+                    }
                 }
                 _ => FrameKind::Other,
             };
@@ -371,14 +387,28 @@ fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
                 child_counters,
             } => {
                 let counters = parse_counter_args(&args, index)?;
+                // A recursive invocation lies inside an open invocation of the same id, whose
+                // inclusive duration and counter delta already contain it.
+                let recursive = stack.iter().any(|open| {
+                    matches!(&open.kind, FrameKind::Algorithm { id: open_id, .. } if open_id == id)
+                });
+                let recursive_in_phase = stack.iter().any(|open| {
+                    matches!(
+                        &open.kind,
+                        FrameKind::Algorithm { id: open_id, phase: open_phase, .. }
+                            if open_id == id && open_phase == phase
+                    )
+                });
                 let aggregate = result.algorithms.entry(id.clone()).or_default();
                 aggregate.count = aggregate
                     .count
                     .checked_add(1)
                     .ok_or_else(|| Error::Invalid("algorithm count overflow".to_owned()))?;
-                aggregate.total_micros += duration;
+                if !recursive {
+                    aggregate.total_micros += duration;
+                    add_counters(&mut aggregate.counters, &counters)?;
+                }
                 aggregate.self_micros += (duration - *child_micros).max(0.0);
-                add_counters(&mut aggregate.counters, &counters)?;
                 for (name, value) in &counters {
                     let child = child_counters.get(name).copied().unwrap_or(0);
                     checked_add(
@@ -396,7 +426,9 @@ fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
                         .count
                         .checked_add(1)
                         .ok_or_else(|| Error::Invalid("containment count overflow".to_owned()))?;
-                    contained.total_micros += duration;
+                    if !recursive_in_phase {
+                        contained.total_micros += duration;
+                    }
                     contained.self_micros += (duration - *child_micros).max(0.0);
                 }
                 if let Some(parent) = parent
@@ -418,7 +450,7 @@ fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
                 }
                 let _ = phase;
             }
-            FrameKind::Phase { name } => {
+            FrameKind::Phase { name, .. } => {
                 let aggregate = result.phases.entry(name.clone()).or_default();
                 aggregate.count = aggregate
                     .count
@@ -584,6 +616,38 @@ fn read_receipt(receipt: &Path) -> Result<(Receipt, BTreeMap<String, u64>), Erro
     Ok((info, counters))
 }
 
+/// The receipt directory relative to the workspace root, or its last two components (the
+/// `evidence/<workload>/<commit>` shape) when it lies outside the root; never an absolute path.
+fn receipt_directory(root: &Path, receipt: &Path) -> String {
+    let absolute = if receipt.is_absolute() {
+        receipt.to_owned()
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(receipt))
+            .unwrap_or_else(|_| receipt.to_owned())
+    };
+    let absolute = fs::canonicalize(&absolute).unwrap_or(absolute);
+    let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_owned());
+    let normal = |path: &Path| {
+        path.components()
+            .filter_map(|component| match component {
+                Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    if let Ok(relative) = absolute.strip_prefix(&root) {
+        let parts = normal(relative);
+        return if parts.is_empty() {
+            ".".to_owned()
+        } else {
+            parts.join("/")
+        };
+    }
+    let parts = normal(&absolute);
+    parts[parts.len().saturating_sub(2)..].join("/")
+}
+
 fn schema_label(version: Option<&Value>, absent: &str) -> Result<String, Error> {
     match version {
         None | Some(Value::Null) => Ok(absent.to_owned()),
@@ -743,22 +807,47 @@ fn project(
             declared_in_graph: observation_names.values().any(|declared| declared == name),
         })
         .collect::<Vec<_>>();
+    let counter_moved = |name: &str| {
+        receipt_counter_values
+            .get(name)
+            .is_some_and(|value| *value > 0)
+            || observations
+                .algorithms
+                .values()
+                .any(|aggregate| aggregate.counters.get(name).is_some_and(|value| *value > 0))
+    };
+    let mut exercised_by = BTreeMap::<String, &str>::new();
     let base_exercised = graph
         .nodes
         .iter()
         .map(|node| {
             let (exercised, evidence) = match node.kind.as_str() {
-                "algorithm" => (
-                    observations
+                "algorithm" => {
+                    let spans = observations
                         .algorithms
                         .get(&node.id)
-                        .is_some_and(|aggregate| aggregate.count > 0),
-                    if node.span.as_deref() == Some("none") {
-                        "no-span-policy"
-                    } else {
-                        "algorithm-span"
-                    },
-                ),
+                        .is_some_and(|aggregate| aggregate.count > 0);
+                    let counters = declared_counters.get(&node.id).is_some_and(|declared| {
+                        declared.iter().any(|(_, name)| counter_moved(name))
+                    });
+                    let signal = match (spans, counters) {
+                        (true, true) => Some("both"),
+                        (true, false) => Some("spans"),
+                        (false, true) => Some("counters"),
+                        (false, false) => None,
+                    };
+                    if let Some(signal) = signal {
+                        exercised_by.insert(node.id.clone(), signal);
+                    }
+                    (
+                        spans || counters,
+                        if node.span.as_deref() == Some("none") {
+                            "no-span-policy"
+                        } else {
+                            "algorithm-span"
+                        },
+                    )
+                }
                 "phase" => (
                     observations
                         .phases
@@ -767,14 +856,7 @@ fn project(
                     "phase-span",
                 ),
                 "observation" => (
-                    node.registry_name.as_ref().is_some_and(|name| {
-                        receipt_counter_values
-                            .get(name)
-                            .is_some_and(|value| *value > 0)
-                            || observations.algorithms.values().any(|aggregate| {
-                                aggregate.counters.get(name).is_some_and(|value| *value > 0)
-                            })
-                    }),
+                    node.registry_name.as_deref().is_some_and(&counter_moved),
                     "counter",
                 ),
                 _ => (false, "none"),
@@ -807,6 +889,13 @@ fn project(
                 id: node.id.clone(),
                 exercised,
                 evidence,
+                exercised_by: (node.kind == "algorithm")
+                    .then(|| {
+                        exercised_by
+                            .get(&node.id)
+                            .map(|signal| (*signal).to_owned())
+                    })
+                    .flatten(),
             }
         })
         .collect::<Vec<_>>();
@@ -845,13 +934,13 @@ fn project(
             .count(),
         exercised_algorithms: algorithms
             .iter()
-            .filter(|algorithm| algorithm.count > 0)
+            .filter(|algorithm| algorithm.count > 0 || exercised_by.contains_key(&algorithm.id))
             .count(),
         unexercised_backend_algorithms: algorithms
             .iter()
             .filter(|algorithm| algorithm.declared)
             .filter(|algorithm| algorithm.area.as_deref() == Some("backend"))
-            .filter(|algorithm| algorithm.count == 0)
+            .filter(|algorithm| algorithm.count == 0 && !exercised_by.contains_key(&algorithm.id))
             .map(|algorithm| algorithm.id.clone())
             .collect(),
     };
@@ -1252,7 +1341,8 @@ provenance = "declared"
         )
         .unwrap();
 
-        let (graph, join) = join_files(&graph_path, &trace_path, &receipt).unwrap();
+        let (graph, join) = join_files(&root, &graph_path, &trace_path, &receipt).unwrap();
+        assert_eq!(join.receipt.directory, "receipt");
         assert_eq!(join.receipt.timings_schema, "pre-versioned");
         assert!(join.receipt.timings_partial);
         assert_eq!(
@@ -1309,6 +1399,159 @@ provenance = "declared"
         assert!(overlay.contains("unexercised"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn counts_a_recursive_invocation_once_in_totals() {
+        let observations = parse_trace(&serde_json::json!([
+            {"ph":"B","name":"phase","ts":0,"pid":1,"tid":1,"args":{"name":"proof"}},
+            {"ph":"B","name":"algo","ts":0,"pid":1,"tid":1,"args":{"id":"backend.a"}},
+            {"ph":"B","name":"algo","ts":10,"pid":1,"tid":1,"args":{"id":"backend.a"}},
+            {"ph":"E","name":"algo","ts":20,"pid":1,"tid":1,"args":{"counters":{"c":3}}},
+            {"ph":"E","name":"algo","ts":30,"pid":1,"tid":1,"args":{"counters":{"c":3}}},
+            {"ph":"E","name":"phase","ts":30,"pid":1,"tid":1}
+        ]))
+        .unwrap();
+        let a = &observations.algorithms["backend.a"];
+        assert_eq!(a.count, 2);
+        assert_eq!(a.total_micros, 30.0);
+        assert_eq!(a.self_micros, 30.0);
+        assert_eq!(a.counters["c"], 3);
+        let contained = &observations.contains[&("proof".to_owned(), "backend.a".to_owned())];
+        assert_eq!(contained.count, 2);
+        assert_eq!(contained.total_micros, 30.0);
+    }
+
+    #[test]
+    fn keys_phase_follows_by_parent_phase() {
+        let observations = parse_trace(&serde_json::json!([
+            {"ph":"B","name":"phase","ts":0,"pid":1,"tid":1,"args":{"name":"P"}},
+            {"ph":"B","name":"phase","ts":0,"pid":1,"tid":1,"args":{"name":"a"}},
+            {"ph":"E","name":"phase","ts":1,"pid":1,"tid":1},
+            {"ph":"B","name":"phase","ts":1,"pid":1,"tid":1,"args":{"name":"b"}},
+            {"ph":"E","name":"phase","ts":2,"pid":1,"tid":1},
+            {"ph":"E","name":"phase","ts":2,"pid":1,"tid":1},
+            {"ph":"B","name":"phase","ts":2,"pid":1,"tid":1,"args":{"name":"Q"}},
+            {"ph":"B","name":"phase","ts":2,"pid":1,"tid":1,"args":{"name":"c"}},
+            {"ph":"E","name":"phase","ts":3,"pid":1,"tid":1},
+            {"ph":"B","name":"phase","ts":3,"pid":1,"tid":1,"args":{"name":"d"}},
+            {"ph":"E","name":"phase","ts":4,"pid":1,"tid":1},
+            {"ph":"E","name":"phase","ts":4,"pid":1,"tid":1}
+        ]))
+        .unwrap();
+        let pairs = |from: &str, to: &str| (from.to_owned(), to.to_owned());
+        assert_eq!(
+            observations.follows,
+            BTreeSet::from([pairs("P", "Q"), pairs("a", "b"), pairs("c", "d")])
+        );
+    }
+
+    #[test]
+    fn declared_counters_exercise_a_span_less_algorithm() {
+        let graph: Graph = toml::from_str(
+            r#"
+[[node]]
+kind = "algorithm"
+id = "kompile.counted"
+provenance = "declared"
+span = "none"
+[node.anchor]
+crate = "demo"
+file = "a.rs"
+symbol = "a"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.both"
+provenance = "declared"
+span = "per call"
+[node.anchor]
+crate = "demo"
+file = "b.rs"
+symbol = "b"
+
+[[node]]
+kind = "observation"
+id = "CounterA"
+provenance = "table"
+registry_name = "work.a"
+[node.anchor]
+crate = "demo"
+file = "measure.rs"
+symbol = "Counter::A"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.counted"
+to = "CounterA"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.both"
+to = "CounterA"
+provenance = "declared"
+"#,
+        )
+        .unwrap();
+        let observations = parse_trace(&serde_json::json!([
+            {"ph":"B","name":"algo","ts":0,"pid":1,"tid":1,"args":{"id":"kompile.both"}},
+            {"ph":"E","name":"algo","ts":1,"pid":1,"tid":1}
+        ]))
+        .unwrap();
+        let receipt = Receipt {
+            directory: "evidence/demo".to_owned(),
+            workload: "demo".to_owned(),
+            claim: None,
+            timestamp: None,
+            krust_revision: None,
+            binary_sha256: None,
+            metadata_schema: "1".to_owned(),
+            timings_schema: "1".to_owned(),
+            current_timings_schema: 1,
+            timings_partial: false,
+            counter_schema: "1".to_owned(),
+            current_counter_schema: 1,
+            counters_partial: false,
+            trace_schema: "chrome-trace-event-B/E".to_owned(),
+            tools: Vec::new(),
+            revisions: Vec::new(),
+        };
+        let join = project(
+            &graph,
+            observations,
+            receipt,
+            BTreeMap::from([("work.a".to_owned(), 4)]),
+        );
+        let signal = |id: &str| {
+            let node = join.nodes.iter().find(|node| node.id == id).unwrap();
+            (node.exercised, node.exercised_by.clone())
+        };
+        assert_eq!(
+            signal("kompile.counted"),
+            (true, Some("counters".to_owned()))
+        );
+        assert_eq!(signal("kompile.both"), (true, Some("both".to_owned())));
+        assert_eq!(join.summary.exercised_algorithms, 2);
+    }
+
+    #[test]
+    fn receipt_directory_is_never_absolute() {
+        let root = fixture();
+        let inside = root.join("draft/evidence/imp-prove/working-tree");
+        fs::create_dir_all(&inside).unwrap();
+        assert_eq!(
+            receipt_directory(&root, &inside),
+            "draft/evidence/imp-prove/working-tree"
+        );
+        let outside = fixture().join("imp-prove/working-tree");
+        fs::create_dir_all(&outside).unwrap();
+        assert_eq!(
+            receipt_directory(&root.join("draft"), &outside),
+            "imp-prove/working-tree"
+        );
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside.parent().unwrap().parent().unwrap()).unwrap();
     }
 
     #[test]

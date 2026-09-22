@@ -1,4 +1,14 @@
 //! Deterministic construction and rendering of the workspace algorithm graph.
+//!
+//! Known limits (review of ce7bb649, not fixed by AG-20):
+//!
+//! - Finding 5: a card fence that is never closed is dropped without a failure or a report line.
+//! - Finding 6: only line doc comments hold cards; `/** */`, `/*! */`, and `#[doc = include_str!(..)]` cards are ignored silently.
+//! - Finding 7: an `impl Name` or `Name::method` site counts trait impls too, so it is ambiguous when `Name` also has trait impls.
+//! - Finding 8: a type path resolves by crate and last segment only; the module path is ignored and function-local types are indexed.
+//! - Finding 13: the raw-span rule matches only `info_span!("algo", ..)`; `info_span!(target: .., "algo", ..)` and `span!(Level::INFO, "algo", ..)` pass the gate.
+//! - Finding 17: a stage `call` matches the last `::` segment of any site in any crate, so an unrelated `Foo::call` site gets a `contains` edge.
+//! - Finding 19: drift aborts on one invalid card or unparsable changed file, never checks `algorithm-contract` cards, and compares only the first item of a repeated site name.
 
 mod cards;
 mod drift;
@@ -96,13 +106,30 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-/// Return the repository root encoded by this workspace build.
+/// Return the workspace root: the nearest ancestor of the current directory whose `Cargo.toml`
+/// declares `[workspace]`, or else the workspace that built this binary.
 pub fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("algo-graph is under crates/algo-graph")
-        .to_owned()
+    std::env::current_dir()
+        .ok()
+        .and_then(|directory| find_workspace_root(&directory))
+        .or_else(|| find_workspace_root(Path::new(env!("CARGO_MANIFEST_DIR"))))
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .and_then(Path::parent)
+                .expect("algo-graph is under crates/algo-graph")
+                .to_owned()
+        })
+}
+
+fn find_workspace_root(start: &Path) -> Option<PathBuf> {
+    start.ancestors().find_map(|directory| {
+        let manifest = fs::read_to_string(directory.join("Cargo.toml")).ok()?;
+        let manifest = toml::from_str::<toml::Table>(&manifest).ok()?;
+        manifest
+            .contains_key("workspace")
+            .then(|| directory.to_owned())
+    })
 }
 
 /// Build the static graph from source cards and linked registries.
@@ -334,6 +361,25 @@ pub fn canonical_toml(graph: &Graph) -> Result<String, Error> {
     Ok(output)
 }
 
+/// Workspace-relative path of the gate's advisory report.
+pub const REPORT_PATH: &str = "target/algo/report.txt";
+
+/// Write the build's advisory report lines to [`REPORT_PATH`] below `root` and return the line
+/// that names the file and its line count.
+pub fn write_report(root: &Path, build: &Build) -> Result<String, Error> {
+    let path = root.join(REPORT_PATH);
+    let mut contents = build.report.join("\n");
+    if !contents.is_empty() {
+        contents.push('\n');
+    }
+    write_output(&path, &contents)?;
+    Ok(format!(
+        "algo-graph report: {} lines written to {}",
+        build.report.len(),
+        path.display()
+    ))
+}
+
 /// Write text after creating its parent directory.
 pub fn write_output(path: &Path, contents: &str) -> Result<(), Error> {
     if let Some(parent) = path
@@ -432,10 +478,13 @@ fn validate_card(
             ));
         }
     }
+    if card.kind == CardKind::Primary {
+        validate_primary_contract(card, failures);
+    }
     for test in &card.body.tests {
-        if !root.join(test).exists() {
+        if !is_workspace_file(root, test) {
             failures.push(format!(
-                "{}: test path {test} does not resolve for {}",
+                "{}: test path {test} is not a file under the workspace root for {}",
                 card_location(card),
                 card.body.id
             ));
@@ -494,6 +543,62 @@ fn validate_card(
             ));
         }
     }
+}
+
+/// Enforce the minimum primary-card contract of design section 3.2.
+fn validate_primary_contract(card: &Card, failures: &mut Vec<String>) {
+    let location = card_location(card);
+    let id = &card.body.id;
+    if card.body.name.as_deref().is_none_or(str::is_empty) {
+        failures.push(format!("{location}: primary card {id} has no name"));
+    }
+    if card.body.sites.is_empty() {
+        failures.push(format!("{location}: primary card {id} has no sites"));
+    }
+    if card.body.cost.is_empty() {
+        failures.push(format!("{location}: primary card {id} has no [[cost]]"));
+    }
+    if card.body.variable.as_deref().is_none_or(str::is_empty)
+        && let Some(cost) = card
+            .body
+            .cost
+            .iter()
+            .find(|cost| bound_names_variable(&cost.bound))
+    {
+        failures.push(format!(
+            "{location}: primary card {id} has no variable although cost bound {:?} names one",
+            cost.bound
+        ));
+    }
+    if card.body.counters.is_empty() && card.body.no_counter.as_deref().is_none_or(str::is_empty) {
+        failures.push(format!(
+            "{location}: primary card {id} has no counters and no no_counter reason"
+        ));
+    }
+}
+
+/// A bound names a variable when one of its words is a single letter other than `O` (the
+/// asymptotic operator) and `x` (the multiplication sign cards write).
+fn bound_names_variable(bound: &str) -> bool {
+    bound
+        .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        .any(|word| {
+            let mut characters = word.chars();
+            matches!(
+                (characters.next(), characters.next()),
+                (Some(letter), None) if letter.is_ascii_alphabetic() && letter != 'O' && letter != 'x'
+            ) || word.split_once('_').is_some_and(|(head, _)| {
+                head.len() == 1 && head.chars().all(|letter| letter.is_ascii_alphabetic())
+            })
+        })
+}
+
+/// A `tests` entry must be a relative path, without `..`, to a file under the workspace root.
+fn is_workspace_file(root: &Path, test: &str) -> bool {
+    let path = Path::new(test);
+    path.components()
+        .all(|component| matches!(component, std::path::Component::Normal(_)))
+        && root.join(path).is_file()
 }
 
 fn apply_primary_card(nodes: &mut BTreeMap<(String, String), Node>, card: &Card) {
@@ -1039,6 +1144,85 @@ mod tests {
             representation_parts("k_rust::definition::ProductionCatalog<'a>"),
             Some(("k-rust".to_owned(), "ProductionCatalog".to_owned()))
         );
+    }
+
+    fn primary_card(source: &str) -> Card {
+        Card {
+            kind: CardKind::Primary,
+            body: toml::from_str(source).unwrap(),
+            crate_name: "k-rust-backend".to_owned(),
+            file: "crates/k-rust-backend/src/example.rs".to_owned(),
+            source: source.to_owned(),
+        }
+    }
+
+    #[test]
+    fn primary_cards_must_meet_the_minimum_contract() {
+        let mut failures = Vec::new();
+        validate_primary_contract(&primary_card("id = \"backend.x\"\n"), &mut failures);
+        assert_eq!(failures.len(), 4, "{failures:?}");
+        for (failure, missing) in failures.iter().zip([
+            "has no name",
+            "has no sites",
+            "has no [[cost]]",
+            "has no counters and no no_counter reason",
+        ]) {
+            assert!(
+                failure.starts_with(
+                    "crates/k-rust-backend/src/example.rs:<card>: primary card backend.x "
+                ) && failure.ends_with(missing),
+                "{failure}"
+            );
+        }
+
+        let mut failures = Vec::new();
+        validate_primary_contract(
+            &primary_card(
+                "id = \"backend.x\"\nname = \"x\"\nsites = [\"run\"]\ncounters = [\"MatchingPairs\"]\n[[cost]]\nmode = \"m\"\nbound = \"O(p x a)\"\n",
+            ),
+            &mut failures,
+        );
+        assert_eq!(
+            failures,
+            [
+                "crates/k-rust-backend/src/example.rs:run: primary card backend.x has no variable although cost bound \"O(p x a)\" names one"
+            ]
+        );
+
+        let mut failures = Vec::new();
+        validate_primary_contract(
+            &primary_card(
+                "id = \"backend.x\"\nname = \"x\"\nsites = [\"run\"]\ncounters = []\nno_counter = \"once\"\n[[cost]]\nmode = \"m\"\nbound = \"O(1) per call\"\n",
+            ),
+            &mut failures,
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    #[test]
+    fn bound_variables_are_single_letters_other_than_the_operators() {
+        assert!(bound_names_variable("O(p x a)"));
+        assert!(bound_names_variable("O(sum n_m^2 x eq)"));
+        assert!(bound_names_variable("at most h rounds"));
+        assert!(!bound_names_variable("O(1)"));
+        assert!(!bound_names_variable(
+            "one matching problem and up to three SMT calls"
+        ));
+    }
+
+    #[test]
+    fn tests_entries_must_be_files_under_the_root() {
+        let root = workspace_root();
+        assert!(is_workspace_file(
+            &root,
+            "crates/algo-graph/tests/freshness.rs"
+        ));
+        assert!(!is_workspace_file(&root, "crates/algo-graph/tests"));
+        assert!(!is_workspace_file(&root, "/etc/hosts"));
+        assert!(!is_workspace_file(
+            &root,
+            "crates/../crates/algo-graph/tests/freshness.rs"
+        ));
     }
 
     #[test]

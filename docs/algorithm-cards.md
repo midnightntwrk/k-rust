@@ -42,7 +42,7 @@ The optional primary-card keys are:
 - `span`, for the runtime instrumentation policy; and
 - `tests`, for repository-relative test paths.
 
-Every `tests` entry must resolve to an existing repository-relative path.
+Every `tests` entry must be a relative path, without `..`, to a file under the workspace root.
 
 `span` is either `"per problem"`, `"per call"`, or `"none"`.
 The key may be absent until the ticket responsible for instrumentation chooses the policy.
@@ -85,6 +85,13 @@ constrains = [
 
 The generator resolves the referenced identity and the consumer site.
 It does not infer a constraint from prose or from a call graph.
+
+## Reading the gate report
+
+The freshness gate is `crates/algo-graph/tests/freshness.rs`; it runs under `cargo test` and fails on any card-contract violation.
+Its advisory findings (uncovered phases, unclaimed counters, runtime-invisible algorithms, and worklists without a card) never fail it.
+The gate writes them, one per line, to `target/algo/report.txt` below the workspace root and prints `algo-graph report: <n> lines written to <path>` in a plain `cargo test` run, without `--nocapture`.
+`cargo run -p algo-graph -- graph` prints each finding and the same summary line to standard error and rewrites the same file.
 
 ## Reviewing card drift
 

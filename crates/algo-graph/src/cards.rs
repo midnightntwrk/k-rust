@@ -13,25 +13,30 @@ use crate::model::{Anchor, Cost};
 #[serde(untagged)]
 pub(crate) enum Representation {
     Path(String),
-    WithRole {
-        #[serde(rename = "type")]
-        type_path: String,
-        role: String,
-    },
+    WithRole(RoleRepresentation),
+}
+
+/// A `{ type, role }` representation table; unknown keys are rejected.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RoleRepresentation {
+    #[serde(rename = "type")]
+    type_path: String,
+    role: String,
 }
 
 impl Representation {
     pub(crate) fn type_path(&self) -> &str {
         match self {
             Self::Path(path) => path,
-            Self::WithRole { type_path, .. } => type_path,
+            Self::WithRole(representation) => &representation.type_path,
         }
     }
 
     pub(crate) fn role(&self) -> Option<&str> {
         match self {
             Self::Path(_) => None,
-            Self::WithRole { role, .. } => Some(role),
+            Self::WithRole(representation) => Some(&representation.role),
         }
     }
 
@@ -44,6 +49,7 @@ impl Representation {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Constraint {
     pub id: String,
     pub site: String,
@@ -51,6 +57,7 @@ pub(crate) struct Constraint {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CardCost {
     pub mode: String,
     pub bound: String,
@@ -493,6 +500,40 @@ feeds = ["backend.other"]
         )
         .unwrap_err();
         assert!(error.to_string().contains("unknown field `feeds`"));
+    }
+
+    #[test]
+    fn rejects_unknown_keys_in_nested_tables() {
+        for (nested, key) in [
+            (
+                "[[cost]]\nmode = \"m\"\nbound = \"O(p)\"\nvarible = \"p\"\n",
+                "varible",
+            ),
+            (
+                "constrains = [{ id = \"a.b\", site = \"run\", via = \"v\", sit = \"x\" }]\n",
+                "sit",
+            ),
+        ] {
+            let error = toml::from_str::<CardBody>(&format!("id = \"backend.example\"\n{nested}"))
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("unknown field `{key}`")),
+                "{error}"
+            );
+        }
+        assert!(
+            toml::from_str::<CardBody>(
+                "id = \"backend.example\"\nconsumes = [{ type = \"k_rust::A\", role = \"r\", rol = \"x\" }]\n"
+            )
+            .is_err()
+        );
+        let accepted = toml::from_str::<CardBody>(
+            "id = \"backend.example\"\nconsumes = [\"k_rust::A\", { type = \"k_rust::B\", role = \"r\" }]\n",
+        )
+        .unwrap();
+        assert_eq!(accepted.consumes[1].id(), "k_rust::B [r]");
     }
 
     #[test]

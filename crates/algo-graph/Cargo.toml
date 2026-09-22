@@ -22,3 +22,7 @@ toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+
+[[test]]
+name = "freshness"
+harness = false

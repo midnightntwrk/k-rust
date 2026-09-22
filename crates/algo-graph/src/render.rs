@@ -105,7 +105,7 @@ pub fn render_pipeline(graph: &Graph, filters: &Filters) -> String {
     for edge in contains {
         output.push_str(&format!(
             "  {} -.->|\"contains [{}]\"| {}\n",
-            mermaid_ids[&edge.from], mermaid_ids[&edge.to], edge.provenance
+            mermaid_ids[&edge.from], edge.provenance, mermaid_ids[&edge.to]
         ));
     }
     output.push_str("  classDef phase fill:#eef4ff,stroke:#496a9f\n");
@@ -209,8 +209,34 @@ pub fn render_composition(graph: &Graph, filters: &Filters) -> String {
 /// The closure follows derived `feeds` edges and declared `constrains` edges. Measurements of
 /// every algorithm in the closure are retained as leaves. `feeds` edges exist only in this
 /// projection: the canonical graph continues to store the local `produces` and `consumes` halves.
-pub fn render_composition_focus(graph: &Graph, filters: &Filters, focus: &str) -> String {
-    render_composition_with_focus(graph, filters, Some(focus))
+///
+/// A focus id that is not an algorithm of the graph, or that the filters remove, is an error.
+pub fn render_composition_focus(
+    graph: &Graph,
+    filters: &Filters,
+    focus: &str,
+) -> Result<String, crate::Error> {
+    let node_by_id = node_map(graph);
+    match node_by_id.get(focus) {
+        None => {
+            return Err(crate::Error::Invalid(format!(
+                "--focus {focus}: no node with this id in the graph"
+            )));
+        }
+        Some(node) if node.kind != "algorithm" => {
+            return Err(crate::Error::Invalid(format!(
+                "--focus {focus}: the node is a {}, not an algorithm",
+                node.kind
+            )));
+        }
+        Some(_) => {}
+    }
+    if !selected_algorithms(graph, filters, &node_by_id).contains(focus) {
+        return Err(crate::Error::Invalid(format!(
+            "--focus {focus}: the algorithm is removed by the --area, --phase, or --counter filters"
+        )));
+    }
+    Ok(render_composition_with_focus(graph, filters, Some(focus)))
 }
 
 fn render_composition_with_focus(graph: &Graph, filters: &Filters, focus: Option<&str>) -> String {
@@ -550,7 +576,8 @@ mod tests {
     #[test]
     fn parser_focus_reaches_kompile_backend_and_their_counters() {
         let graph = build_graph(&workspace_root()).unwrap().graph;
-        let rendered = render_composition_focus(&graph, &Filters::default(), "parser.bubble.rules");
+        let rendered =
+            render_composition_focus(&graph, &Filters::default(), "parser.bubble.rules").unwrap();
         assert!(rendered.contains("kompile.kore.declarations"));
         assert!(rendered.contains("backend.definition.internalize"));
         assert!(rendered.contains("backend.rewrite.execute"));
@@ -603,7 +630,7 @@ mod tests {
             ],
         };
 
-        let rendered = render_composition_focus(&graph, &Filters::default(), "parser");
+        let rendered = render_composition_focus(&graph, &Filters::default(), "parser").unwrap();
         assert!(rendered.contains("parser"));
         assert!(rendered.contains("kompile"));
         assert!(rendered.contains("backend"));
@@ -611,6 +638,49 @@ mod tests {
         assert!(rendered.contains("feeds [derived]"));
         assert!(!rendered.contains("wrong-role"));
         assert!(!rendered.contains("crate::Term [predicate]"));
+    }
+
+    #[test]
+    fn focus_rejects_unknown_non_algorithm_and_filtered_ids() {
+        let graph = Graph {
+            nodes: vec![
+                node("algorithm", "parser.a", Some("parser")),
+                node("observation", "counter.a", None),
+            ],
+            edges: Vec::new(),
+        };
+        for (focus, filters) in [
+            ("parser.missing", Filters::default()),
+            ("counter.a", Filters::default()),
+            (
+                "parser.a",
+                Filters {
+                    areas: vec!["backend".to_owned()],
+                    ..Filters::default()
+                },
+            ),
+        ] {
+            let error = render_composition_focus(&graph, &filters, focus).unwrap_err();
+            assert!(error.to_string().contains(focus), "{error}");
+        }
+    }
+
+    #[test]
+    fn pipeline_contains_edges_point_at_the_algorithm_with_provenance_in_the_label() {
+        let mut phase = node("phase", "stage", Some("kompile"));
+        phase.call = Some("run".to_owned());
+        phase.sequence = Some(0);
+        let mut contains = relation("contains", "stage", "kompile.a");
+        contains.provenance = "derived".to_owned();
+        let graph = Graph {
+            nodes: vec![phase, node("algorithm", "kompile.a", Some("kompile"))],
+            edges: vec![contains],
+        };
+        let rendered = render_pipeline(&graph, &Filters::default());
+        assert!(
+            rendered.contains("  n0001 -.->|\"contains [derived]\"| n0000\n"),
+            "{rendered}"
+        );
     }
 
     #[test]
