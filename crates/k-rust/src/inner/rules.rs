@@ -11,6 +11,7 @@
 //! constrains = [
 //!   { id = "definition.catalog.production", site = "resolve_rule_bubbles_with_resolved", via = "the per-module ProductionCatalog that rule_grammar reads from ResolvedDefinition::production_catalog" },
 //! ]
+//! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one definition"
@@ -26,7 +27,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 use web_time::Instant;
 
 use crate::definition::AttributeKey;
@@ -169,6 +170,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
     resolved: &ResolvedDefinition,
     timings: Option<&mut PhaseTimings>,
 ) -> Result<(Definition, ResolvedDefinition), RuleError> {
+    let _span = measure::algorithm_span(Algorithm::ParserBubbleRules);
     let mut grammar_seconds = 0.0;
     let mut parse_seconds = 0.0;
     let mut transformed = definition.clone();

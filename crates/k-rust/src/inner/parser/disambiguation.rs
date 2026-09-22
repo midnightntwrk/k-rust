@@ -4,6 +4,7 @@
 //! sites = ["Grammar::filter_packed_priority", "Grammar::filter_or_defer_packed_priority"]
 //! variable = "N = packed nodes per memo lifetime"
 //! counters = ["ParserPackedPriorityComputations"]
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parse forest"
@@ -20,6 +21,7 @@
 //! sites = ["Grammar::resolve_packed_applications"]
 //! variable = "N = application nodes; R = productions in the grammar; a = flattened argument lists of one application, the product of the alternatives of its KList nodes"
 //! counters = ["ParserPackedApplicationResolutions"]
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parse forest"
@@ -33,6 +35,7 @@
 //! variable = "N = packed nodes; A = ambiguity alternatives"
 //! counters = []
 //! no_counter = "packed-ambiguity factoring has no dedicated counter"
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parse forest"
@@ -46,6 +49,7 @@
 //! variable = "N = packed or owned nodes"
 //! counters = []
 //! no_counter = "top-LHS ambiguity lifting has no dedicated counter"
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parse forest"
@@ -55,10 +59,11 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.resolve_terminators"
 //! name = "resolution of overloaded list terminators"
-//! sites = ["Grammar::resolve_overloaded_terminators"]
+//! sites = ["Grammar::resolve_overloaded_terminators", "Grammar::resolve_overloaded_terminators_node"]
 //! variable = "N = owned nodes; L = user lists; R = productions in the grammar; K = nullary nodes whose source production is overloaded"
 //! counters = []
 //! no_counter = "overloaded-terminator resolution has no dedicated counter"
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
@@ -68,10 +73,11 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.filter_overloads"
 //! name = "overload and prefer-or-avoid filtering"
-//! sites = ["Grammar::filter_overloads_prefer_avoid"]
+//! sites = ["Grammar::filter_overloads_prefer_avoid", "Grammar::filter_overloads_prefer_avoid_node"]
 //! variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call"
 //! counters = []
 //! no_counter = "overload and preference filtering has no dedicated counter"
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
@@ -81,10 +87,11 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.remove_brackets_casts"
 //! name = "removal of brackets and syntactic casts"
-//! sites = ["Grammar::remove_brackets_and_syntactic_casts"]
+//! sites = ["Grammar::remove_brackets_and_syntactic_casts", "Grammar::remove_brackets_and_syntactic_casts_node"]
 //! variable = "N = owned nodes"
 //! counters = []
 //! no_counter = "bracket and syntactic-cast removal has no dedicated counter"
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
@@ -94,11 +101,12 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.resolve_ambiguity"
 //! name = "resolution and reporting of remaining ambiguity"
-//! sites = ["Grammar::resolve_ambiguities", "Grammar::factor_ambiguities"]
+//! sites = ["Grammar::resolve_ambiguities", "Grammar::resolve_ambiguities_node", "Grammar::factor_ambiguities"]
 //! variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
@@ -128,7 +136,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use super::{
     AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
@@ -198,6 +206,7 @@ impl Grammar {
         &self,
         term: Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationFactorPacked);
         self.factor_packed_ambiguities(term, &mut HashMap::new())
     }
 
@@ -461,6 +470,7 @@ impl Grammar {
         term: Rc<PackedTerm>,
         memos: &RefCell<PackedPriorityMemos>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationPriority);
         let mut memos = memos.borrow_mut();
         let PackedPriorityMemos { nodes, children } = &mut *memos;
         self.filter_packed_priority_memo(term, nodes, children)
@@ -971,12 +981,17 @@ impl Grammar {
         None
     }
 
+    pub(super) fn resolve_ambiguities(&self, term: ParsedTerm) -> Result<Term, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveAmbiguity);
+        self.resolve_ambiguities_node(term)
+    }
+
     /// ```toml algorithm-site
     /// id = "parser.diagnostic.ambiguity"
     /// role = "part"
-    /// sites = ["Grammar::resolve_ambiguities"]
+    /// sites = ["Grammar::resolve_ambiguities_node"]
     /// ```
-    pub(super) fn resolve_ambiguities(&self, term: ParsedTerm) -> Result<Term, ParseError> {
+    fn resolve_ambiguities_node(&self, term: ParsedTerm) -> Result<Term, ParseError> {
         match term {
             ParsedTerm::Term(term) => Ok(term),
             ParsedTerm::Production {
@@ -986,7 +1001,7 @@ impl Grammar {
             } => {
                 let children = children
                     .into_iter()
-                    .map(|child| self.resolve_ambiguities(child))
+                    .map(|child| self.resolve_ambiguities_node(child))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(self.lower_production(production, None, children, metadata))
             }
@@ -998,7 +1013,7 @@ impl Grammar {
             } => {
                 let children = children
                     .into_iter()
-                    .map(|child| self.resolve_ambiguities(child))
+                    .map(|child| self.resolve_ambiguities_node(child))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(self.lower_production(production, Some(&parameters), children, metadata))
             }
@@ -1011,7 +1026,7 @@ impl Grammar {
                 let mut lowered = Vec::new();
                 for alternative in alternatives {
                     let production = self.reported_production(&alternative);
-                    let term = self.resolve_ambiguities(alternative)?;
+                    let term = self.resolve_ambiguities_node(alternative)?;
                     if seen.insert(term.clone()) {
                         lowered.push((term, production));
                     }
@@ -1076,12 +1091,17 @@ impl Grammar {
     /// Remove the concrete grouping nodes discarded by Scala's final
     /// `RemoveBracketVisitor`, while retaining semantic and outer casts.
     pub(super) fn remove_brackets_and_syntactic_casts(&self, term: ParsedTerm) -> ParsedTerm {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationRemoveBracketsCasts);
+        self.remove_brackets_and_syntactic_casts_node(term)
+    }
+
+    fn remove_brackets_and_syntactic_casts_node(&self, term: ParsedTerm) -> ParsedTerm {
         match term {
             ParsedTerm::Term(_) => term,
             ParsedTerm::Ambiguity(alternatives) => ParsedTerm::Ambiguity(
                 alternatives
                     .into_iter()
-                    .map(|alternative| self.remove_brackets_and_syntactic_casts(alternative))
+                    .map(|alternative| self.remove_brackets_and_syntactic_casts_node(alternative))
                     .collect(),
             ),
             ParsedTerm::Production {
@@ -1099,14 +1119,14 @@ impl Grammar {
                     .any(|cast| label.is(*cast))
                 });
                 if (descriptor.bracket || syntactic_cast) && children.len() == 1 {
-                    return self.remove_brackets_and_syntactic_casts(children.remove(0));
+                    return self.remove_brackets_and_syntactic_casts_node(children.remove(0));
                 }
                 ParsedTerm::Production {
                     production,
                     metadata,
                     children: children
                         .into_iter()
-                        .map(|child| self.remove_brackets_and_syntactic_casts(child))
+                        .map(|child| self.remove_brackets_and_syntactic_casts_node(child))
                         .collect(),
                 }
             }
@@ -1126,7 +1146,7 @@ impl Grammar {
                     .any(|cast| label.is(*cast))
                 });
                 if (descriptor.bracket || syntactic_cast) && children.len() == 1 {
-                    return self.remove_brackets_and_syntactic_casts(children.remove(0));
+                    return self.remove_brackets_and_syntactic_casts_node(children.remove(0));
                 }
                 ParsedTerm::InstantiatedProduction {
                     production,
@@ -1134,7 +1154,7 @@ impl Grammar {
                     metadata,
                     children: children
                         .into_iter()
-                        .map(|child| self.remove_brackets_and_syntactic_casts(child))
+                        .map(|child| self.remove_brackets_and_syntactic_casts_node(child))
                         .collect(),
                 }
             }
@@ -1146,6 +1166,7 @@ impl Grammar {
         &self,
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveApplications);
         self.resolve_packed_applications_memo(term, &mut HashMap::new())
     }
 
@@ -1634,12 +1655,20 @@ impl Grammar {
         &self,
         term: ParsedTerm,
     ) -> Result<ParsedTerm, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveTerminators);
+        self.resolve_overloaded_terminators_node(term)
+    }
+
+    fn resolve_overloaded_terminators_node(
+        &self,
+        term: ParsedTerm,
+    ) -> Result<ParsedTerm, ParseError> {
         match term {
             ParsedTerm::Term(_) => Ok(term),
             ParsedTerm::Ambiguity(alternatives) => Ok(ParsedTerm::Ambiguity(
                 alternatives
                     .into_iter()
-                    .map(|alternative| self.resolve_overloaded_terminators(alternative))
+                    .map(|alternative| self.resolve_overloaded_terminators_node(alternative))
                     .collect::<Result<_, _>>()?,
             )),
             ParsedTerm::Production {
@@ -1656,7 +1685,7 @@ impl Grammar {
                         {
                             Ok(terminator)
                         } else {
-                            self.resolve_overloaded_terminators(child)
+                            self.resolve_overloaded_terminators_node(child)
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -1732,7 +1761,7 @@ impl Grammar {
                 metadata,
                 children: children
                     .into_iter()
-                    .map(|child| self.resolve_overloaded_terminators(child))
+                    .map(|child| self.resolve_overloaded_terminators_node(child))
                     .collect::<Result<_, _>>()?,
             }),
         }
@@ -1741,6 +1770,11 @@ impl Grammar {
     /// Apply Scala's post-inference overload and `prefer`/`avoid` selection,
     /// then push shared-production ambiguity into its one differing child.
     pub(super) fn filter_overloads_prefer_avoid(&self, term: ParsedTerm) -> ParsedTerm {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationFilterOverloads);
+        self.filter_overloads_prefer_avoid_node(term)
+    }
+
+    fn filter_overloads_prefer_avoid_node(&self, term: ParsedTerm) -> ParsedTerm {
         // Invariant: recursion strictly descends the owned tree and retains exactly the maximal
         // overload choices after prefer/avoid classification.
         match term {
@@ -1754,7 +1788,7 @@ impl Grammar {
                 metadata,
                 children: children
                     .into_iter()
-                    .map(|child| self.filter_overloads_prefer_avoid(child))
+                    .map(|child| self.filter_overloads_prefer_avoid_node(child))
                     .collect(),
             },
             ParsedTerm::InstantiatedProduction {
@@ -1768,19 +1802,19 @@ impl Grammar {
                 metadata,
                 children: children
                     .into_iter()
-                    .map(|child| self.filter_overloads_prefer_avoid(child))
+                    .map(|child| self.filter_overloads_prefer_avoid_node(child))
                     .collect(),
             },
             ParsedTerm::Ambiguity(mut alternatives) => {
                 if alternatives.len() == 1 {
-                    return self.filter_overloads_prefer_avoid(
+                    return self.filter_overloads_prefer_avoid_node(
                         alternatives.pop_first().expect("length was one"),
                     );
                 }
 
                 alternatives = self.remove_overloads(alternatives);
                 if alternatives.len() == 1 {
-                    return self.filter_overloads_prefer_avoid(
+                    return self.filter_overloads_prefer_avoid_node(
                         alternatives.pop_first().expect("length was one"),
                     );
                 }
@@ -1805,7 +1839,7 @@ impl Grammar {
 
                 let alternatives = alternatives
                     .into_iter()
-                    .map(|alternative| self.filter_overloads_prefer_avoid(alternative))
+                    .map(|alternative| self.filter_overloads_prefer_avoid_node(alternative))
                     .collect::<BTreeSet<_>>();
                 if alternatives.len() == 1 {
                     return alternatives.into_iter().next().expect("length was one");
@@ -1815,7 +1849,7 @@ impl Grammar {
                 if factored == ambiguity {
                     ambiguity
                 } else {
-                    self.filter_overloads_prefer_avoid(factored)
+                    self.filter_overloads_prefer_avoid_node(factored)
                 }
             }
         }
@@ -1952,6 +1986,7 @@ impl Grammar {
 
     /// Lift ambiguity in a top-level rewrite LHS above its `#RuleContent` wrapper.
     pub(super) fn push_top_lhs_packed_ambiguity_up(&self, term: Rc<PackedTerm>) -> Rc<PackedTerm> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationLiftTopLhs);
         self.push_top_lhs_packed_ambiguity_up_memo(term, &mut HashMap::new())
     }
 

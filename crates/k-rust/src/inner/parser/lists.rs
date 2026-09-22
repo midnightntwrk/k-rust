@@ -22,6 +22,7 @@
 //! variable = "N = tree nodes; C = candidate list instantiations"
 //! counters = []
 //! no_counter = "empty-list insertion has no dedicated counter"
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
@@ -34,6 +35,8 @@
 //! is O(nodes * candidate instantiations) and recursively preserves declared child sorts.
 
 use std::collections::{BTreeMap, BTreeSet};
+
+use k_rust_kore::measure::{self, Algorithm};
 
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term};
@@ -336,6 +339,7 @@ impl Grammar {
         term: ParsedTerm,
         expected: &Sort,
     ) -> Result<ParsedTerm, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationInsertEmptyLists);
         let subsorts = PartialOrder::new(self.subsort_relations.iter().cloned())
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         self.add_empty_lists_with_order(term, expected, &subsorts)

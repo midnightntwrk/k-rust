@@ -836,12 +836,12 @@ impl Grammar {
         prediction_mode: PredictionMode,
         pruned: &mut bool,
     ) -> Result<Term, ParseError> {
-        let _span = measure::algorithm_span(Algorithm::ParserEarleyRecognize);
         let ParseContext {
             is_anywhere,
             provenance,
             diagnostic_provenance,
         } = context;
+        let _span = measure::algorithm_span(Algorithm::ParserEarleyRecognize);
         measure::bump(Counter::ParserParseAttempts);
         let priority_memos = RefCell::new(PackedPriorityMemos::default());
         let prediction_analysis = (prediction_mode == PredictionMode::Filtered).then(|| {
@@ -1163,6 +1163,7 @@ impl Grammar {
         // share their descendants. In particular, do not expand losing non-rewrite parses before
         // Java's root rewrite/sequence/let preference has selected the corresponding sibling.
         drop(charts);
+        drop(_span);
         // Packed normalization and inference phase: preserve sharing until losing alternatives
         // are removed, then materialize exactly the retained inferred trees.
         // Java applies `PriorityVisitor` to the packed root ambiguity. Its rewrite/sequence/let

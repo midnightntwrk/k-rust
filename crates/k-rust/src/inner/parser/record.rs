@@ -18,6 +18,7 @@
 //! variable = "N = packed nodes; F = record fields; X = field maps produced by collect_packed_record_fields, the product of the prefix and item alternatives"
 //! counters = []
 //! no_counter = "record collapse has no dedicated counter"
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parse forest"
@@ -32,6 +33,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
+
+use k_rust_kore::measure::{self, Algorithm};
 
 use crate::definition::ProductionItem;
 use crate::kast::{Sort, Term, TermSpan};
@@ -227,6 +230,7 @@ impl Grammar {
         term: Rc<PackedTerm>,
         mut names: BTreeSet<String>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserDisambiguationCollapseRecords);
         let mut generated = BTreeMap::new();
         let mut next = 0;
         let mut memo = HashMap::new();

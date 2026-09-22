@@ -38,6 +38,7 @@
 //! variable = "N = packed nodes"
 //! counters = []
 //! no_counter = "variable-name reservation has no dedicated counter"
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one packed forest"
@@ -54,7 +55,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::rc::Rc;
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::kast::{FrontendSort, Sort, Term, TermMetadata};
 
@@ -352,6 +353,7 @@ pub(super) fn packed_terms_in_structural_order(
 }
 
 pub(super) fn packed_variable_names(root: &Rc<PackedTerm>) -> BTreeSet<String> {
+    let _span = measure::algorithm_span(Algorithm::ParserDisambiguationReserveNames);
     let mut names = BTreeSet::new();
     let mut visited = HashSet::new();
     let mut pending = vec![Rc::clone(root)];

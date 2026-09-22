@@ -6,6 +6,7 @@
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "encoding construction"
@@ -33,7 +34,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 use z3::ast::{Ast, Bool, Datatype};
 use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solver};
 
@@ -159,6 +160,7 @@ impl Grammar {
         top_sort: &Sort,
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserInferenceZ3);
         let anywhere = explicitly_anywhere || self.packed_lhs_is_function_or_macro(&term);
         let mut encoding = Encoding::new_packed(self, &term, top_sort, anywhere)?;
         encoding.top_rewrite_ids = packed_top_rewrites(self, &term);
@@ -368,6 +370,7 @@ impl Grammar {
         top_sort: &Sort,
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserInferenceZ3);
         let anywhere = explicitly_anywhere || self.lhs_is_function_or_macro(&term);
         let mut encoding = Encoding::new(self, &term, top_sort, anywhere)?;
         encoding.top_rewrite_paths = top_rewrite_paths(self, &term);

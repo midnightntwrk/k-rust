@@ -5030,6 +5030,7 @@ provenance = "declared"
 area = "parser"
 name = "parsing and reconstruction of rule bubbles"
 variable = "b = rule bubbles; g = grammar construction work; p = parse work"
+span = "per call"
 table = "Algorithm::ALL"
 registry_name = "ParserBubbleRules"
 
@@ -5138,7 +5139,7 @@ symbol = "AmbiguousParse"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::resolve_ambiguities"
+symbol = "Grammar::resolve_ambiguities_node"
 
 [[node.sites]]
 crate = "k-rust"
@@ -5182,6 +5183,7 @@ area = "parser"
 name = "collapse of generated record syntax"
 variable = "N = packed nodes; F = record fields; X = field maps produced by collect_packed_record_fields, the product of the prefix and item alternatives"
 no_counter = "record collapse has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationCollapseRecords"
 
@@ -5207,6 +5209,7 @@ area = "parser"
 name = "factoring of packed ambiguities"
 variable = "N = packed nodes; A = ambiguity alternatives"
 no_counter = "packed-ambiguity factoring has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationFactorPacked"
 
@@ -5232,6 +5235,7 @@ area = "parser"
 name = "overload and prefer-or-avoid filtering"
 variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call"
 no_counter = "overload and preference filtering has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationFilterOverloads"
 
@@ -5245,6 +5249,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::filter_overloads_prefer_avoid"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::filter_overloads_prefer_avoid_node"
+
 [[node.cost]]
 mode = "one parsed tree"
 bound = "O(N + t x R) plus one clone, f and one equality test per ambiguity with more than one surviving alternative, and a further pass when factoring changed it"
@@ -5257,6 +5266,7 @@ area = "parser"
 name = "insertion of implicit empty user lists"
 variable = "N = tree nodes; C = candidate list instantiations"
 no_counter = "empty-list insertion has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationInsertEmptyLists"
 
@@ -5287,6 +5297,7 @@ area = "parser"
 name = "lifting of top-level left-hand-side ambiguities"
 variable = "N = packed or owned nodes"
 no_counter = "top-LHS ambiguity lifting has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationLiftTopLhs"
 
@@ -5311,6 +5322,7 @@ provenance = "declared"
 area = "parser"
 name = "priority and associativity filtering of packed terms"
 variable = "N = packed nodes per memo lifetime"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationPriority"
 
@@ -5345,6 +5357,7 @@ area = "parser"
 name = "removal of brackets and syntactic casts"
 variable = "N = owned nodes"
 no_counter = "bracket and syntactic-cast removal has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationRemoveBracketsCasts"
 
@@ -5358,6 +5371,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::remove_brackets_and_syntactic_casts"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::remove_brackets_and_syntactic_casts_node"
+
 [[node.cost]]
 mode = "one parsed tree"
 bound = "O(N)"
@@ -5370,6 +5388,7 @@ area = "parser"
 name = "reservation of variable names before record collapse"
 variable = "N = packed nodes"
 no_counter = "variable-name reservation has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationReserveNames"
 
@@ -5395,6 +5414,7 @@ area = "parser"
 name = "resolution and reporting of remaining ambiguity"
 variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
 no_counter = "final ambiguity resolution has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationResolveAmbiguity"
 
@@ -5407,6 +5427,11 @@ symbol = "Grammar::resolve_ambiguities"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::resolve_ambiguities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_ambiguities_node"
 
 [[node.sites]]
 crate = "k-rust"
@@ -5424,6 +5449,7 @@ provenance = "declared"
 area = "parser"
 name = "resolution of application nodes against visible productions"
 variable = "N = application nodes; R = productions in the grammar; a = flattened argument lists of one application, the product of the alternatives of its KList nodes"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationResolveApplications"
 
@@ -5449,6 +5475,7 @@ area = "parser"
 name = "resolution of overloaded list terminators"
 variable = "N = owned nodes; L = user lists; R = productions in the grammar; K = nullary nodes whose source production is overloaded"
 no_counter = "overloaded-terminator resolution has no dedicated counter"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationResolveTerminators"
 
@@ -5461,6 +5488,11 @@ symbol = "Grammar::resolve_overloaded_terminators"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::resolve_overloaded_terminators"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_overloaded_terminators_node"
 
 [[node.cost]]
 mode = "one parsed tree"
@@ -5801,6 +5833,7 @@ provenance = "declared"
 area = "parser"
 name = "portable sort inference by bound propagation"
 variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferencePortable"
 
@@ -5839,6 +5872,7 @@ provenance = "declared"
 area = "parser"
 name = "Z3-backed maximal-model sort inference"
 variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks"
+span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferenceZ3"
 

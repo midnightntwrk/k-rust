@@ -7,6 +7,7 @@
 //! falls_back_to = ["parser.inference.z3"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
+//! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one tree"
@@ -26,7 +27,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::rc::Rc;
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
@@ -204,6 +205,7 @@ impl Grammar {
         top_sort: &Sort,
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserInferencePortable);
         measure::bump(Counter::ParserPortableInferences);
         let order = PartialOrder::new(self.subsort_relations.iter().cloned()).map_err(|cycle| {
             inference_error(format!(
