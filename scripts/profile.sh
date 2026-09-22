@@ -22,6 +22,12 @@ Usage: scripts/profile.sh --workload imp-compile|imp-prove|kevm-compile [OPTIONS
 
 Record a sampling profile of one krust workload with samply.
 
+On this native host, run the script from a plain host shell with the machine's
+perf affinity mask: `taskset -c 0-15 scripts/profile.sh ...`. The host has more
+logical CPUs than its perf ring-buffer lock budget supports; without the mask,
+samply eventually reports `mmap failed`. An agent-N sandbox cannot record at all
+because its seccomp policy denies perf_event_open.
+
 Options:
   --output DIR          Result directory (default: target/profiles/TIMESTAMP-WORKLOAD)
   --claim LABEL         imp-prove only (default: IMP-SIMPLE-SPEC.sum-loop)
@@ -54,10 +60,11 @@ is refused (the agent-N sandbox's seccomp filter does that; the script
 then fails with samply's message). The unprofiled run, its wall time
 and peak RSS, timings.json, and counters.json are still recorded.
 
-kevm-compile is a host-UID workload: it needs gigabytes of memory and a
-memory scope (scripts/reference-memory-guard.sh or systemd-run --user
---scope -p MemoryMax=16G). As an agent-N user the script prints the
-command and exits 3 unless --allow-sandbox-kevm is given.
+kevm-compile is a host-UID workload and needs gigabytes of memory. Its
+unprofiled or --skip-profile run may use scripts/reference-memory-guard.sh or
+systemd-run --user --scope -p MemoryMax=16G, but do not put samply itself under
+that cgroup for the first profile attempt. As an agent-N user the script prints
+the command and exits 3 unless --allow-sandbox-kevm is given.
 EOF
 }
 
@@ -236,6 +243,10 @@ measured_or_fail() {
   if ! measured "$log" "$@"; then
     echo "error: $what failed (exit $(measure_field "$log" exit_code)); $log.stderr ends with:" >&2
     tail -n 5 "$log.stderr" >&2
+    if [[ "$what" == "samply record" ]] && grep -q 'mmap failed' "$log.stderr"; then
+      echo "hint: on this host rerun from a plain host shell as: taskset -c 0-15 scripts/profile.sh ..." >&2
+      echo "hint: do not put samply under systemd-run --user --scope -p MemoryMax=...; see benchmarks/README.md, Profiling" >&2
+    fi
     exit 1
   fi
 }

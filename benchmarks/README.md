@@ -109,9 +109,36 @@ cargo build --profile profiling -p k-rust --bin krust --locked
 Record a workload:
 
 ```sh
-scripts/profile.sh --workload imp-compile
-scripts/profile.sh --workload imp-prove --claim IMP-SIMPLE-SPEC.sum-loop
-scripts/profile.sh --workload kevm-compile --dry-run
+taskset -c 0-15 scripts/profile.sh --workload imp-compile
+taskset -c 0-15 scripts/profile.sh --workload imp-prove --claim IMP-SIMPLE-SPEC.sum-loop
+taskset -c 0-15 scripts/profile.sh --workload kevm-compile --dry-run
+```
+
+### Native-host samply setup
+
+Sampling is host-only on this machine. An `agent-N` sandbox is deliberately denied
+`perf_event_open` by its seccomp policy, so it must not try to record a profile.
+The host UID must also use the machine's CPU-affinity workaround:
+
+```sh
+taskset -c 0-15 scripts/profile.sh --workload kevm-compile
+```
+
+The native host exposes 32 logical CPUs, while `kernel.perf_event_mlock_kb = 516`
+does not permit samply's approximately 1 MiB perf ring buffer on every CPU.
+Without the affinity mask, the ring-buffer `mmap` eventually returns `EPERM` and
+samply reports only `mmap failed`. The `0-15` mask is the machine's documented
+configuration and is sufficient for these single-threaded workloads.
+
+Run the first profile attempt from a plain host shell. Do not put samply itself
+inside `systemd-run --user --scope -p MemoryMax=...`; that is a cgroup resource
+limit, not a sandbox, but it can confound profiler-startup failures. If the
+workload needs a memory guard, use a separately recorded `--skip-profile` run for
+timings, RSS, and counters. A minimal smoke test is:
+
+```sh
+taskset -c 0-15 samply record --save-only --rate 100 \
+  --output /tmp/samply-smoke.json.gz -- true
 ```
 
 The workloads are the benchmark's own commands: `imp-compile` and `kevm-compile` are the `compile` phase's krust command, `imp-prove` is the `execute` phase's `kprove` on a prepared bundle (default claim `IMP-SIMPLE-SPEC.sum-loop`).
@@ -129,9 +156,9 @@ Each run writes `target/profiles/<timestamp>-<workload>/` (or `--output DIR`) wi
 The workload runs twice: once unprofiled, for the baseline wall time and peak RSS, and once under `samply record`.
 The profiled run's numbers are also recorded but include samply's own work, so quote the unprofiled ones.
 The script fails when the profile holds zero samples; the first run on a new host is the check that `perf_event` delivers software-clock samples there.
-Where `perf_event_open` is refused outright (the agent sandbox on this machine filters the syscall with seccomp, so `samply record` fails with `Operation not permitted`), `--skip-profile` records everything except the profile.
+Where profiling is unavailable, `--skip-profile` records everything except the profile. On this machine that fallback is for sandbox runs or for a host that has not been given the documented affinity; it does not mean the K-Rust workload failed.
 
-`kevm-compile` needs gigabytes of memory and a memory scope such as `scripts/reference-memory-guard.sh` or `systemd-run --user --scope -p MemoryMax=16G`.
+`kevm-compile` needs gigabytes of memory. Its unprofiled and `--skip-profile` runs may use `scripts/reference-memory-guard.sh` or `systemd-run --user --scope -p MemoryMax=16G`; do not apply that wrapper to the first samply attempt.
 As an `agent-N` user the script prints the resolved command and exits 3 unless `--allow-sandbox-kevm` is given, so an agent does not start it by accident.
 
 Profiles are machine-local artifacts like benchmark results: they live under the ignored `target/` tree, `cargo clean` removes them, and a profile worth keeping is copied elsewhere together with its `metadata.json`.
