@@ -409,9 +409,10 @@ impl Generator<'_, '_> {
         };
         let stream = properties.has(AttributeKey::Stream);
         let children = self.generate(contents, None)?;
-        let has_variables = children.initializer_takes_map
-            || has_configuration_or_regular_variable(contents)
-            || contains_external_map_initializer(contents, self.catalog, self.generated);
+        // The initializer rule reads `Init` exactly when its right-hand side does: a leaf that
+        // holds a configuration or regular variable, or a child cell whose initializer takes
+        // `Init`. `generate` reports both through `initializer_takes_map`.
+        let has_variables = children.initializer_takes_map;
         self.compute_cell(
             start,
             properties,
@@ -961,37 +962,6 @@ fn flatten_cells<'a>(terms: &'a [Term], output: &mut Vec<&'a Term>) {
     }
 }
 
-fn contains_external_map_initializer(
-    term: &Term,
-    catalog: &ProductionCatalog<'_>,
-    generated: &[Sentence],
-) -> bool {
-    let mut found = false;
-    term.visit_preorder(&mut |term| {
-        let Term::Apply { label, arguments } = term else {
-            return;
-        };
-        if !label.is(InternalLabel::ExternalCell) {
-            return;
-        }
-        let Some(name) = arguments.first().and_then(expect_cell_name) else {
-            return;
-        };
-        let init = init_label(&Sort::new(cell_sort_name(name)));
-        // Invariant: `found` records whether the `init` label of the last external cell visited has a four-item production in `catalog` or in `generated`; each visited external cell scans both collections once.
-        found = catalog
-            .productions_for(&LabelHead::new(&init))
-            .iter()
-            .any(|id| matches!(catalog.production(*id), Sentence::Production { items, .. } if items.len() == 4))
-            || generated.iter().any(|sentence| matches!(
-                sentence,
-                Sentence::Production { label: Some(label), items, .. }
-                    if label.name == init && items.len() == 4
-            ));
-    });
-    found
-}
-
 fn has_configuration_or_regular_variable(term: &Term) -> bool {
     let mut found = false;
     term.visit_preorder(&mut |term| match term {
@@ -1314,5 +1284,80 @@ mod tests {
         }
         let expanded = expand_configurations(&definition).unwrap();
         assert_eq!(cell_content_sort(&expanded, "<cell>"), parametric);
+    }
+
+    /// Every generated initializer rule `init<C>(..) => RHS` takes `Init` exactly when `RHS`
+    /// reads it: an unused parameter or an unbound variable would both be wrong.
+    fn assert_initializers_take_init_exactly_when_read(definition: &Definition) {
+        let expanded = expand_configurations(definition).unwrap();
+        let init = init_variable();
+        let mut rules = 0;
+        for module in &expanded.modules {
+            for sentence in &module.local_sentences {
+                let Sentence::Rule {
+                    body, attributes, ..
+                } = &**sentence
+                else {
+                    continue;
+                };
+                if !attributes.has(AttributeKey::Initializer) {
+                    continue;
+                }
+                let Term::Rewrite { left, right } = body.unannotated() else {
+                    panic!("initializer body is not a rewrite: {body:?}");
+                };
+                let Term::Apply { label, arguments } = left.unannotated() else {
+                    panic!("initializer left side is not an application: {left:?}");
+                };
+                let mut reads = false;
+                right.visit_preorder(&mut |term| reads |= *term == init);
+                assert_eq!(
+                    !arguments.is_empty(),
+                    reads,
+                    "{} in {}: takes Init = {}, reads Init = {reads}",
+                    label.name,
+                    module.name,
+                    !arguments.is_empty()
+                );
+                rules += 1;
+            }
+        }
+        assert!(rules > 0, "no initializer rules were generated");
+    }
+
+    #[test]
+    fn initializers_take_init_exactly_when_their_right_side_reads_it() {
+        for source in [
+            indoc! {r#"
+                module MAIN
+                  syntax Int ::= r"[0-9]+" [token]
+                  configuration <top> <k> $PGM:Int </k> <env> 0 </env> </top>
+                endmodule
+            "#},
+            indoc! {r#"
+                module MAIN
+                  syntax Int ::= r"[0-9]+" [token]
+                  configuration <top> <outer> <inner> $X:Int </inner> </outer> <plain> 0 </plain> </top>
+                endmodule
+            "#},
+            indoc! {r#"
+                module MAIN
+                  syntax Int ::= r"[0-9]+" [token]
+                  configuration <top> <items> <item multiplicity="*" type="Map"> <key> 0 </key> </item> </items> </top>
+                endmodule
+            "#},
+            indoc! {r#"
+                module BASE
+                  syntax Int ::= r"[0-9]+" [token]
+                  configuration <a> $A:Int </a> <b> 0 </b>
+                endmodule
+                module MAIN
+                  imports BASE
+                  configuration <top> <a/> <b/> </top> <other> <b/> <a/> </other> <none> <b/> </none>
+                endmodule
+            "#},
+        ] {
+            assert_initializers_take_init_exactly_when_read(&parsed(source));
+        }
     }
 }
