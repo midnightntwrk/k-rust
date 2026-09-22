@@ -81,12 +81,15 @@ fn run_scaling_case(
     let log = workspace.root.join("measure");
     fs::write(&source, definition(modules, shape)).unwrap();
 
+    let krust = std::env::var_os("KRUST_SCALING_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_krust")));
     let output = Command::new("python3")
         .arg(repository.join("scripts/conformance/measure.py"))
         .arg("--log")
         .arg(&log)
         .args(["--timeout", "900", "--"])
-        .arg(env!("CARGO_BIN_EXE_krust"))
+        .arg(&krust)
         .args(["kcompile", source.to_str().unwrap()])
         .args(["--main-module", &main_module(modules)])
         .args(["--backend", "llvm"])
