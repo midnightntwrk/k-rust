@@ -86,7 +86,7 @@ pub fn extract_fenced_k_code_with_map(
     let mut offset = 0;
     let mut open: Option<(char, usize, usize, bool)> = None;
 
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: `offset` is the byte offset of `line` in `input`, `open` holds the fence opened by an earlier line and not yet closed, and `selected` holds the content range of every closed fence before `offset` whose tags satisfy `selector`; each iteration consumes one line of `input`.
     for line in input.split_inclusive('\n') {
         let line_end = offset + line.len();
         if let Some((marker, width, content_start, keep)) = open {
@@ -114,7 +114,7 @@ pub fn extract_fenced_k_code_with_map(
     let mut output = String::new();
     let mut segments = Vec::<SourceOffsetSegment>::new();
     let mut ranges = selected.into_iter().peekable();
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `output` holds the characters of `input` before `index` that lie in a selected range or are whitespace, `segments` maps them back to `input` with contiguous runs merged, and `ranges` has dropped every range ending at or before `index`; each iteration consumes one character and `ranges` only advances, so the pass is O(|input| + |selected|).
     for (index, character) in input.char_indices() {
         while ranges.peek().is_some_and(|(_, end)| index >= *end) {
             ranges.next();

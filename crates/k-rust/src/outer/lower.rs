@@ -121,6 +121,7 @@ fn lower_module(
     }
 
     let mut temporary_cell_sorts = Vec::new();
+    // Invariant: `temporary_cell_sorts` holds, without duplicates and in first-occurrence order, every `…Cell` or `…CellFragment` non-terminal sort of the productions before `sentence`; each item is checked by a linear `contains` on `temporary_cell_sorts`, so the pass is O(non-terminals of `local_sentences` x cell sorts).
     for sentence in &local_sentences {
         let FlatSentence::Production { items, .. } = sentence else {
             continue;
@@ -131,7 +132,6 @@ fn lower_module(
             };
             // Cell sorts are recognised by the `…Cell`/`…CellFragment` naming convention of the outer lowering.
             if (sort.name.ends_with("Cell") || sort.name.ends_with("CellFragment"))
-                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 && !temporary_cell_sorts.contains(sort)
             {
                 temporary_cell_sorts.push(sort.clone());
@@ -302,7 +302,7 @@ fn lower_production(
         attributes,
     });
 
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `output` holds one `SyntaxAssociativity` sentence for each earlier key of the fixed `Left`, `Right`, `NonAssoc` list that `production` carries and that has an effective label.
     for (key, associativity) in [
         (AttributeKey::Left, FlatAssociativity::Left),
         (AttributeKey::Right, FlatAssociativity::Right),
@@ -559,7 +559,6 @@ fn tag_key(module: &Module, production: &Production) -> Option<String> {
 
 fn insert_tag(index: &mut TagIndex, source: String, compiled: String) {
     let labels = index.entry(source).or_default();
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     if !labels.contains(&compiled) {
         labels.push(compiled);
         labels.sort();

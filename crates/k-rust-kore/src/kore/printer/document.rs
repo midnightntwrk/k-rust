@@ -88,7 +88,6 @@ impl Doc {
         document
     }
 
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     pub(super) fn nest(mut self, amount: usize) -> Self {
         if !self.ops.is_empty() {
             self.ops.insert(0, Op::NestStart(amount));
@@ -97,7 +96,6 @@ impl Doc {
         self
     }
 
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
     pub(super) fn group(mut self) -> Self {
         if !self.ops.is_empty() {
             self.ops.insert(0, Op::GroupStart);

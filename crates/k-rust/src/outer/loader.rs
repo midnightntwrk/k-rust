@@ -553,7 +553,7 @@ fn load_impl(
             .iter()
             .map(|module| module.name.as_str())
             .collect::<std::collections::BTreeSet<_>>();
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: the modules of `definition.modules` already decided are kept exactly when they are not both named in `base_modules` and sourced from one of `provided_sources`; each closure call decides one module with a `base_modules` lookup and a linear scan of `provided_sources`.
         definition.modules.retain(|module| {
             !base_modules.contains(module.name.as_str())
                 || !module.attributes.source().is_some_and(|source| {
@@ -816,7 +816,7 @@ fn exclude_modules_by_attributes(
         .modules
         .iter()
         .filter(|module| {
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+            // Invariant: `module` enters `excluded_names` exactly when it carries some attribute of `excluded_attributes`; the filter visits each module of `definition.modules` once and `any` scans `excluded_attributes`, so the pass is O(modules x excluded attributes).
             excluded_attributes
                 .iter()
                 .any(|attribute| module.attributes.get(attribute).is_some())
@@ -885,7 +885,7 @@ fn add_implicit_configuration_imports(
     if has_map {
         for module in &mut definition.modules {
             let has_local_configuration =
-                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+                // Invariant: the sentences of `module.local_sentences` before the current one are not configuration sentences; `any` scans them in order and stops at the first configuration sentence, so each module costs O(|local_sentences|).
                 module.local_sentences.iter().any(|sentence| is_configuration_sentence(sentence));
             if has_local_configuration
                 && !module
@@ -956,7 +956,7 @@ struct Loader<'a, R> {
 }
 
 impl<R: SourceResolver> Loader<'_, R> {
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+    // Invariant: on entry `states` marks every source whose visit has started (`Visiting`) or finished (`Complete`), and `files` holds the parsed sources of finished visits in post-order; a source already in `states` returns at once, so each resolvable source is parsed once and each require edge makes at most one call.
     fn visit(&mut self, source: ResolvedSource) -> Result<(), LoadError> {
         match self.states.get(&source.source) {
             Some(VisitState::Complete | VisitState::Visiting) => return Ok(()),
@@ -1005,6 +1005,7 @@ impl<R: SourceResolver> Loader<'_, R> {
         })?;
         parsed.source_id = source_id;
 
+        // Invariant: the requirements of `parsed` before `requirement` have been resolved, each was visited unless it names a provided source with empty text, and each provided one with text is in `required_prepared_sources`; each iteration handles one require edge, and its `provided_sources.contains` check scans `provided_sources`.
         for requirement in &parsed.requires {
             let (required_name, legacy) = builtin::source_name_with_flag(&requirement.path);
             if legacy {
@@ -1027,7 +1028,6 @@ impl<R: SourceResolver> Loader<'_, R> {
                     span: requirement.span,
                     message,
                 })?;
-            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             if self.provided_sources.contains(&required.source) {
                 if required.text.is_empty() {
                     continue;
@@ -1152,7 +1152,7 @@ fn validate_prepared_modules(
 fn validate_and_select_modules(files: &[SourceFile]) -> Result<Option<Vec<SourceFile>>, LoadError> {
     let mut modules = BTreeMap::<&str, FirstModule<'_>>::new();
     let mut equivalent_duplicates = BTreeSet::new();
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+    // Invariant: `modules` maps each module name to its first declaration in the files before `file`, and `equivalent_duplicates` holds the `(file_index, module_index)` of every later declaration equivalent to that first one; each iteration consumes one file of `files`, and a non-equivalent repeated name returns `DuplicateModule`.
     for (file_index, file) in files.iter().enumerate() {
         let basename = Path::new(&file.source).file_name();
         for (module_index, module) in file.modules.iter().enumerate() {

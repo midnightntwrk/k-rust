@@ -120,7 +120,7 @@ pub(super) fn select_modules(
     // Bubble visibility follows all imports, including private imports, before tag filtering.
     // Dependency-first propagation avoids materializing and deduplicating visible sentences.
     let mut with_bubbles = BTreeSet::new();
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+    // Invariant: every module before `id` in `resolved.dependency_order()`, which places imports before their importers, is in `with_bubbles` exactly when it or a module it imports has a local `Bubble` sentence, and is otherwise in `roots`; each iteration decides one module from its `local_sentences` and the membership of its direct imports.
     for &id in resolved.dependency_order() {
         if resolved
             .module(id)
@@ -149,8 +149,8 @@ pub(super) fn select_modules(
     {
         roots.insert(default);
     }
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     let mut retained = BTreeSet::new();
+    // Invariant: `retained` holds every root taken from `roots` so far together with its `transitive_imports`; each iteration consumes one root and recomputes that root's import closure.
     for root in roots {
         retained.insert(root);
         retained.extend(resolved.transitive_imports(root));
@@ -174,7 +174,7 @@ fn has_configuration_after_exclusion(
 ) -> bool {
     let mut visited = BTreeSet::new();
     let mut pending = vec![root];
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+    // Invariant: `visited` holds every module popped so far, and no popped module that lacks the `excluded_module_attributes` has a local configuration sentence; `pending` holds the direct imports of those modules not yet popped, and each pop either skips a visited module or adds one to the finite `visited`.
     while let Some(id) = pending.pop() {
         if !visited.insert(id) {
             continue;

@@ -208,7 +208,7 @@ pub struct SourceTable {
 
 impl SourceTable {
     pub fn intern(&mut self, source: LogicalSourceId) -> SourceId {
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `self.sources` holds pairwise distinct sources indexed by `SourceId`; `position` compares `source` against the entries of `self.sources` in order, so one call is O(|sources|) and interning F sources is O(F^2).
         if let Some(index) = self
             .sources
             .iter()
@@ -520,8 +520,8 @@ fn record_generated_origins_inner(
     pass: GeneratingPass,
     skip_unchanged: bool,
 ) -> Definition {
+    // Invariant: every module of `after.modules` before `module` has had its generated sentences stamped with `pass` origin records and its terms annotated, unless it was skipped as unchanged under `skip_unchanged`; each iteration handles one module, and its counterpart lookup is a linear `find` over `before.modules`, so the lookups cost O(modules^2) name comparisons.
     for module in &mut after.modules {
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let before_sentences = before
             .modules
             .iter()

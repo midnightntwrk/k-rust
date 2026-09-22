@@ -59,7 +59,7 @@ pub fn parse(source: impl Into<String>, input: &str) -> Result<SourceFile, Parse
     let mut parser = Parser::new(input, 0, input.len());
     let mut requires = Vec::new();
     let mut modules = Vec::new();
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `requires` and `modules` hold, in source order, the declarations parsed before `parser.offset`; each iteration that neither breaks nor returns consumes one `requires` or `module` declaration, so `parser.offset` increases toward the end of `input`.
     while !parser.done() {
         parser.skip_trivia()?;
         if parser.done() {
@@ -136,7 +136,7 @@ impl<'a> Parser<'a> {
             .any(|attribute| attribute.key == AttributeKey::Private.as_str());
         let mut imports = Vec::new();
         let mut sentences = Vec::new();
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `imports` and `sentences` hold, in source order, the declarations of this module parsed before `self.offset`; each iteration that does not return consumes one import or sentence, so `self.offset` increases toward `self.end`.
         loop {
             self.skip_trivia()?;
             if self.consume_word("endmodule") {
@@ -274,7 +274,7 @@ impl<'a> Parser<'a> {
 
     fn priority_blocks(&mut self) -> Result<Vec<PriorityBlock>, ParseError> {
         let mut blocks = Vec::new();
-        // Invariant: the current prefix satisfies every choice already made, and each iteration advances a candidate or backtracks one level in the finite search tree.
+        // Invariant: `blocks` holds the `>`-separated priority blocks parsed before `self.offset`; each iteration that continues consumes one block and its `>` separator, so `self.offset` increases.
         loop {
             self.skip_trivia()?;
             let start = self.offset;
@@ -288,7 +288,7 @@ impl<'a> Parser<'a> {
                 self.offset = saved;
             }
             let mut productions = Vec::new();
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+            // Invariant: `productions` holds the `|`-separated productions of the current block parsed before `self.offset`; each iteration that continues consumes one production and its `|` separator.
             loop {
                 productions.push(self.production()?);
                 if self.peek_char_after_trivia()? == Some('|') {
@@ -316,11 +316,10 @@ impl<'a> Parser<'a> {
         let start = self.offset;
         let mut items = Vec::new();
         let mut function_style = false;
-        // Invariant: the current prefix satisfies every choice already made, and each iteration advances a candidate or backtracks one level in the finite search tree.
+        // Invariant: `items` holds the production items parsed from `start` to `self.offset`, and `function_style` records whether they form a function-style production; each iteration that neither breaks nor returns consumes at least one item, so `self.offset` increases toward `self.end`.
         while !self.done() {
             let before_trivia = self.offset;
             self.skip_trivia()?;
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             if self.at_default_sentence_boundary() {
                 self.offset = before_trivia;
                 break;
@@ -461,7 +460,7 @@ impl<'a> Parser<'a> {
         };
         let mut content_start = None;
         let mut content_end = self.offset;
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `content_start` is the start of the first run consumed after the sentence keyword and `content_end` the end of the last one, which is `self.offset` once a run is consumed; each iteration consumes one run until a `BUBBLE_TERMINATORS` word or the end of input.
         while let Some((run, start, end)) = self.peek_run() {
             if BUBBLE_TERMINATORS.contains(&run) {
                 break;
@@ -492,7 +491,7 @@ impl<'a> Parser<'a> {
         raw: &str,
         raw_start: usize,
     ) -> Result<(String, Vec<Attribute>, usize), ParseError> {
-        // Invariant: the current prefix satisfies every choice already made, and each iteration advances a candidate or backtracks one level in the finite search tree.
+        // Invariant: no `[` offset of `attribute_starts(raw)` after `index` begins an attribute list that parses to the end of `raw`; each iteration tries one candidate, from the last offset to the first, and the first success returns.
         for index in attribute_starts(raw).into_iter().rev() {
             let mut parser = self.subparser(raw_start + index, raw_start + raw.len());
             match parser.attributes() {
@@ -516,7 +515,7 @@ impl<'a> Parser<'a> {
     fn attributes(&mut self) -> Result<Vec<Attribute>, ParseError> {
         self.expect_char('[')?;
         let mut attributes = Vec::new();
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `attributes` holds the attributes parsed after `[`, with pairwise distinct keys; each iteration that continues consumes one attribute and its `,`, and the duplicate check scans `attributes`, so a list of a attributes costs O(a^2) key comparisons.
         loop {
             self.skip_trivia()?;
             if self.consume("]") {
@@ -722,7 +721,7 @@ impl<'a> Parser<'a> {
     fn raw_groups(&mut self, separator: char) -> Result<(Vec<Vec<String>>, usize), ParseError> {
         let mut groups = vec![Vec::new()];
         let mut last_end = self.offset;
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `groups` holds the runs consumed so far, split into a new group at each `separator` run, and `last_end` is the end of the last consumed run; each iteration consumes one run until a `BUBBLE_TERMINATORS` word or the end of input.
         while let Some((run, _, end)) = self.peek_run() {
             if BUBBLE_TERMINATORS.contains(&run) {
                 break;
@@ -741,7 +740,7 @@ impl<'a> Parser<'a> {
     fn raw_words(&mut self) -> Result<(Vec<String>, usize), ParseError> {
         let mut words = Vec::new();
         let mut last_end = self.offset;
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `words` holds, in order, the runs consumed so far and `last_end` is the end of the last one; each iteration consumes one run until a `BUBBLE_TERMINATORS` word or the end of input.
         while let Some((run, _, end)) = self.peek_run() {
             if BUBBLE_TERMINATORS.contains(&run) {
                 break;
@@ -778,7 +777,7 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_bubble_trivia(&mut self) {
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: the text skipped before `self.offset` is whitespace and comments; each iteration that continues skips one comment longer than the run at `self.offset`, so `self.offset` increases toward `self.end`.
         loop {
             while self.offset < self.end
                 && matches!(
@@ -886,7 +885,7 @@ impl<'a> Parser<'a> {
     fn unrestricted_word(&mut self) -> Result<String, ParseError> {
         self.skip_trivia()?;
         let start = self.offset;
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `self.input[start..self.offset]` contains no word boundary; each iteration consumes one character until a word boundary or the end of input.
         while self.peek_char().is_some() {
             if self.at_word_boundary(self.offset) {
                 break;
@@ -985,7 +984,7 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_trivia(&mut self) -> Result<(), ParseError> {
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        // Invariant: the text skipped before `self.offset` is whitespace and complete comments; each iteration that continues skips one comment of positive length, so `self.offset` increases toward `self.end`.
         loop {
             while self.peek_char().is_some_and(char::is_whitespace) {
                 self.bump();
@@ -1138,7 +1137,7 @@ fn attribute_starts(raw: &str) -> Vec<usize> {
     let mut state = State::Code;
     let mut offsets = Vec::new();
     let mut index = 0;
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: `state` is the lexical state of `raw` at `index`, and `offsets` holds, in increasing order, every `[` before `index` that lies in `State::Code`; each iteration advances `index` by at least one byte.
     while index < bytes.len() {
         match state {
             State::Code if bytes[index..].starts_with(b"//") => {
