@@ -388,10 +388,7 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
                     .joins
                     .iter()
                     .map(|path| {
-                        let read = || -> Result<algo_graph::Join, algo_graph::Error> {
-                            Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
-                        };
-                        read().map_err(|error| {
+                        query::read_join(path).map_err(|error| {
                             algo_graph::Error::Invalid(format!(
                                 "--join {}: {error}",
                                 path.display()
