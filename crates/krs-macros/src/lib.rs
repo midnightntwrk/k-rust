@@ -25,6 +25,17 @@ pub fn sorts(input: TokenStream) -> TokenStream {
     finish(expand::sorts(input.into()))
 }
 
+/// Expands like [`sorts!`] and also emits the invocation's factory table.
+///
+/// This is the `krs` facade's framework `KItem`/`KResult` block. Authors use
+/// [`sorts!`]; the extra `FRAMEWORK_FACTORIES` table serves collectors that
+/// enumerate explicit registration tables instead of linker sections.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __framework_sorts(input: TokenStream) -> TokenStream {
+    finish(expand::framework_sorts(input.into()))
+}
+
 /// Pins the stable public identity of a symbol-bearing declaration.
 ///
 /// This ordinary attribute must precede `#[k::sort]` or

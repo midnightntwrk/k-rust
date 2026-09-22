@@ -1,4 +1,4 @@
-use crate::plan::{CollectorPlan, KrsCfg, manifest_directory};
+use crate::plan::{CollectorPlan, KrsCfg, RegistrationMode, manifest_directory};
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fmt;
@@ -135,12 +135,14 @@ fn render_manifest(plan: &CollectorPlan, package_name: &str) -> Result<String, G
             "__krs_host_runtime",
             "krs",
             &runtime.host_manifest,
+            plan.registration() == RegistrationMode::Explicit,
         )?;
         render_runtime_dependency(
             &mut output,
             "__krs_compiler_runtime",
             "krs-compiler",
             &runtime.compiler_manifest,
+            false,
         )?;
     }
     output.push_str("\n[workspace]\n");
@@ -152,6 +154,7 @@ fn render_runtime_dependency(
     alias: &str,
     package: &str,
     manifest: &Path,
+    no_default_features: bool,
 ) -> Result<(), GenerationError> {
     let directory = manifest_directory(manifest).map_err(GenerationError::InvalidPlan)?;
     output.push_str(alias);
@@ -159,6 +162,9 @@ fn render_runtime_dependency(
     output.push_str(&toml_string(package));
     output.push_str(", path = ");
     output.push_str(&toml_string(&directory.to_string_lossy()));
+    if no_default_features {
+        output.push_str(", default-features = false");
+    }
     output.push_str(" }\n");
     Ok(())
 }
@@ -237,8 +243,32 @@ fn render_production_main(plan: &CollectorPlan, mut output: String) -> String {
         output.push_str(&rust_string(&facet.manifest_path.to_string_lossy()));
         output.push_str("))?,\n");
     }
+    output.push_str("    ];\n");
+    let descriptors = match plan.registration() {
+        RegistrationMode::Inventory => "__krs_host_runtime::host_descriptors()",
+        RegistrationMode::Explicit => {
+            output.push_str(
+                "    let tables: &[&__krs_host_runtime::__private::RegistrationTable] = &[\n",
+            );
+            for dependency in plan
+                .dependencies
+                .iter()
+                .filter(|dependency| dependency.semantics)
+            {
+                output.push_str("        &");
+                output.push_str(&dependency.alias);
+                output.push_str("::__KRS_REGISTRATIONS,\n");
+            }
+            output.push_str("    ];\n");
+            "__krs_host_runtime::host_descriptors_from(tables)"
+        }
+    };
     output.push_str(
-        "    ];\n    let builtins = __krs_host_runtime::builtin_registry();\n    let bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(\n        contexts,\n        __krs_host_runtime::host_descriptors(),\n        &builtins,\n    )?;\n    use std::io::Write as _;\n    std::io::stdout().lock().write_all(bundle.to_canonical_json()?.as_bytes())?;\n    Ok(())\n}\n",
+        "    let builtins = __krs_host_runtime::builtin_registry();\n    let bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(\n        contexts,\n        ",
+    );
+    output.push_str(descriptors);
+    output.push_str(
+        ",\n        &builtins,\n    )?;\n    use std::io::Write as _;\n    std::io::stdout().lock().write_all(bundle.to_canonical_json()?.as_bytes())?;\n    Ok(())\n}\n",
     );
     output
 }

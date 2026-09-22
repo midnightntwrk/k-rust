@@ -1,10 +1,13 @@
 //! Author-facing Rust host types and registration for KRS definitions.
 //!
 //! Procedural macros eventually generate ordinary Rust declarations plus a
-//! small host-descriptor factory. The factory is registered through
-//! [`__register_host_descriptor!`], and a generated host collector obtains
-//! freshly owned descriptors from [`host_descriptors`]. Registration order is
-//! deliberately unspecified and has no semantic meaning.
+//! small host-descriptor factory. With the default `inventory` feature, the
+//! factory is registered through [`__register_host_descriptor!`], and a
+//! generated host collector obtains freshly owned descriptors from
+//! `host_descriptors`. Without it, a whole-crate step writes an explicit
+//! registration table per semantics crate, and the collector passes those
+//! tables to [`host_descriptors_from`]. Registration order is deliberately
+//! unspecified and has no semantic meaning.
 //!
 //! This crate exposes the process-local descriptor layer, not the stable
 //! compiler protocol. In particular, compiler input is not obtainable here:
@@ -113,8 +116,14 @@ where
 }
 
 // Framework identities are ordinary readable sorts, requested lazily by a
-// definition whose sort graph names either one.
-krs_macros::sorts! {
+// definition whose sort graph names either one. The invocation also emits
+// `FRAMEWORK_FACTORIES` for explicit registration. Collection reparses this
+// file and recognizes readable sort blocks by the final path segment `sorts`,
+// so the framework variant is invoked under that name.
+mod framework {
+    pub(crate) use krs_macros::__framework_sorts as sorts;
+}
+framework::sorts! {
     KItem;
     KResult: KItem;
 }
@@ -926,6 +935,11 @@ pub struct Term<S: ?Sized> {
 /// the registration mechanism's unspecified enumeration order. Collectors
 /// must resolve and deterministically order descriptors by stable identity
 /// before producing compiler input.
+///
+/// This entry point requires the default `inventory` feature. Collectors
+/// built without it enumerate generated tables through
+/// [`host_descriptors_from`].
+#[cfg(feature = "inventory")]
 pub fn host_descriptors() -> impl Iterator<Item = HostDescriptor> {
     let framework_requested = inventory::iter::<__private::FrameworkSortRequest>
         .into_iter()
@@ -938,6 +952,41 @@ pub fn host_descriptors() -> impl Iterator<Item = HostDescriptor> {
         .into_iter()
 }
 
+/// Returns the host descriptors listed by explicit registration tables.
+///
+/// Each table belongs to one semantics crate and is written by a whole-crate
+/// step, because a procedural macro invocation cannot enumerate its sibling
+/// invocations. The framework `KItem`/`KResult` descriptors are included when
+/// some table from a crate other than `krs` requests them, matching
+/// [`host_descriptors`]. As with that entry point, the enumeration order has
+/// no semantic meaning; collectors order descriptors by stable identity.
+///
+/// This entry point needs no linker-section support and is available whether
+/// or not the `inventory` feature is enabled.
+pub fn host_descriptors_from(
+    tables: &[&__private::RegistrationTable],
+) -> impl Iterator<Item = HostDescriptor> {
+    let framework_requested = tables
+        .iter()
+        .any(|table| table.requests_framework && table.manifest_dir != env!("CARGO_MANIFEST_DIR"));
+    let mut registrar = __private::Registrar::default();
+    if framework_requested {
+        for factory in FRAMEWORK_FACTORIES {
+            registrar.factory(*factory);
+        }
+    }
+    for table in tables {
+        (table.register)(&mut registrar);
+    }
+    registrar
+        .into_factories()
+        .into_iter()
+        .map(|factory| factory())
+        .collect::<Vec<_>>()
+        .into_iter()
+}
+
+#[cfg(feature = "inventory")]
 fn is_framework_sort_descriptor(descriptor: &HostDescriptor) -> bool {
     descriptor.id.package().cargo_name() == env!("CARGO_PKG_NAME")
         && descriptor.id.package().cargo_version() == env!("CARGO_PKG_VERSION")
@@ -954,13 +1003,35 @@ fn is_framework_sort_descriptor(descriptor: &HostDescriptor) -> bool {
 /// should not call it directly. Macro expansion should resolve the actual
 /// facade dependency name and invoke this macro through that path; `$crate`
 /// then keeps the concrete linker-registration mechanism rename-safe.
+///
+/// The recorded factory path is census data for explicit-table generation;
+/// it never enters a descriptor.
+#[cfg(feature = "inventory")]
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __register_host_descriptor {
     ($factory:path $(,)?) => {
         $crate::__private::inventory::submit! {
-            $crate::__private::HostRegistration::new($factory)
+            $crate::__private::HostRegistration::new(
+                $factory,
+                ::core::concat!(::core::module_path!(), "::", ::core::stringify!($factory)),
+                ::core::env!("CARGO_MANIFEST_DIR"),
+            )
         }
+    };
+}
+
+/// Type-checks a host-descriptor factory without registering it.
+///
+/// Without the `inventory` feature, the crate's explicit registration table
+/// lists the factory instead. This expansion keeps the factory used, so a
+/// table and the macro output agree on which factories exist.
+#[cfg(not(feature = "inventory"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __register_host_descriptor {
+    ($factory:path $(,)?) => {
+        const _: fn() -> $crate::HostDescriptor = $factory;
     };
 }
 
@@ -968,6 +1039,7 @@ macro_rules! __register_host_descriptor {
 ///
 /// This is an expansion boundary; authors use it indirectly through
 /// `sorts!` whenever a parent or membership line names a framework sort.
+#[cfg(feature = "inventory")]
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __request_framework_sorts {
@@ -975,6 +1047,19 @@ macro_rules! __request_framework_sorts {
         $crate::__private::inventory::submit! {
             $crate::__private::FrameworkSortRequest::new(env!("CARGO_MANIFEST_DIR"))
         }
+    };
+}
+
+/// Accepts a framework-sort request without registering it.
+///
+/// Without the `inventory` feature, the request is recorded by the crate's
+/// explicit registration table instead.
+#[cfg(not(feature = "inventory"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __request_framework_sorts {
+    () => {
+        const _: () = ();
     };
 }
 
@@ -986,21 +1071,70 @@ macro_rules! __request_framework_sorts {
 pub mod __private {
     use super::HostDescriptor;
 
+    #[cfg(feature = "inventory")]
     #[doc(hidden)]
     pub use inventory;
 
+    /// One semantics crate's explicit registration table.
+    ///
+    /// A whole-crate step emits this as the crate-root
+    /// `__KRS_REGISTRATIONS` static. `register` pushes every factory under
+    /// the `#[cfg]` attributes of the item that defines it.
+    #[doc(hidden)]
+    pub struct RegistrationTable {
+        /// `CARGO_MANIFEST_DIR` of the registering crate.
+        pub manifest_dir: &'static str,
+        /// Whether any `sorts!` in the crate names `KItem` or `KResult`.
+        pub requests_framework: bool,
+        /// Pushes each descriptor factory of the crate.
+        pub register: fn(&mut Registrar),
+    }
+
+    /// Accumulates descriptor factories from explicit registration tables.
+    #[doc(hidden)]
+    #[derive(Default)]
+    pub struct Registrar {
+        factories: Vec<fn() -> HostDescriptor>,
+    }
+
+    impl Registrar {
+        /// Records one descriptor factory.
+        #[doc(hidden)]
+        pub fn factory(&mut self, factory: fn() -> HostDescriptor) {
+            self.factories.push(factory);
+        }
+
+        pub(crate) fn into_factories(self) -> Vec<fn() -> HostDescriptor> {
+            self.factories
+        }
+    }
+
     /// One process-local registration entry.
+    #[cfg(feature = "inventory")]
     #[doc(hidden)]
     pub struct HostRegistration {
         factory: fn() -> HostDescriptor,
+        path: &'static str,
+        manifest_dir: &'static str,
     }
 
+    #[cfg(feature = "inventory")]
     impl HostRegistration {
-        /// Creates an entry around a descriptor factory.
+        /// Creates an entry around a descriptor factory, its
+        /// `module_path!()`-qualified path, and its crate's manifest
+        /// directory.
         #[doc(hidden)]
         #[must_use]
-        pub const fn new(factory: fn() -> HostDescriptor) -> Self {
-            Self { factory }
+        pub const fn new(
+            factory: fn() -> HostDescriptor,
+            path: &'static str,
+            manifest_dir: &'static str,
+        ) -> Self {
+            Self {
+                factory,
+                path,
+                manifest_dir,
+            }
         }
 
         pub(crate) fn make(&self) -> HostDescriptor {
@@ -1009,11 +1143,13 @@ pub mod __private {
     }
 
     /// One downstream request for the framework sort descriptor pair.
+    #[cfg(feature = "inventory")]
     #[doc(hidden)]
     pub struct FrameworkSortRequest {
         manifest_dir: &'static str,
     }
 
+    #[cfg(feature = "inventory")]
     impl FrameworkSortRequest {
         /// Captures the requesting definition's manifest directory.
         #[doc(hidden)]
@@ -1027,7 +1163,60 @@ pub mod __private {
         }
     }
 
+    /// One linked factory as recorded by the inventory registration.
+    #[cfg(feature = "inventory")]
+    #[doc(hidden)]
+    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    pub struct CensusRegistration {
+        /// `module_path!()`-qualified factory path.
+        pub path: &'static str,
+        /// `CARGO_MANIFEST_DIR` of the registering crate.
+        pub manifest_dir: &'static str,
+    }
+
+    /// Every inventory registration linked into this process.
+    ///
+    /// This is test support for generating and checking explicit
+    /// registration tables; it never enters a descriptor bundle.
+    #[cfg(feature = "inventory")]
+    #[doc(hidden)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct RegistrationCensus {
+        /// Registered factories, sorted.
+        pub registrations: Vec<CensusRegistration>,
+        /// Manifest directories that requested the framework sorts, sorted
+        /// and deduplicated.
+        pub framework_requests: Vec<&'static str>,
+    }
+
+    /// Lists every linked registration and framework-sort request.
+    #[cfg(feature = "inventory")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn registration_census() -> RegistrationCensus {
+        let mut registrations = inventory::iter::<HostRegistration>
+            .into_iter()
+            .map(|registration| CensusRegistration {
+                path: registration.path,
+                manifest_dir: registration.manifest_dir,
+            })
+            .collect::<Vec<_>>();
+        registrations.sort_unstable();
+        let mut framework_requests = inventory::iter::<FrameworkSortRequest>
+            .into_iter()
+            .map(FrameworkSortRequest::manifest_dir)
+            .collect::<Vec<_>>();
+        framework_requests.sort_unstable();
+        framework_requests.dedup();
+        RegistrationCensus {
+            registrations,
+            framework_requests,
+        }
+    }
+
+    #[cfg(feature = "inventory")]
     inventory::collect!(HostRegistration);
+    #[cfg(feature = "inventory")]
     inventory::collect!(FrameworkSortRequest);
 }
 
@@ -1042,7 +1231,7 @@ mod tests {
     mod nested {
         use super::*;
 
-        fn descriptor() -> HostDescriptor {
+        pub(super) fn descriptor() -> HostDescriptor {
             test_descriptor(module_path!(), "NestedSort")
         }
 
@@ -1424,6 +1613,115 @@ mod tests {
         );
     }
 
+    fn register_nested(registrar: &mut __private::Registrar) {
+        registrar.factory(nested::descriptor);
+    }
+
+    fn table(manifest_dir: &'static str, requests_framework: bool) -> __private::RegistrationTable {
+        __private::RegistrationTable {
+            manifest_dir,
+            requests_framework,
+            register: register_nested,
+        }
+    }
+
+    #[cfg(feature = "inventory")]
+    fn item_ids(descriptors: impl Iterator<Item = HostDescriptor>) -> Vec<HostItemId> {
+        let mut ids = descriptors
+            .map(|descriptor| descriptor.id)
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
+    fn item_names(descriptors: impl Iterator<Item = HostDescriptor>) -> Vec<String> {
+        let mut names = descriptors
+            .map(|descriptor| descriptor.id.item_name().to_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn explicit_tables_without_a_framework_request_omit_the_framework_pair() {
+        let downstream = table("/definitions/downstream", false);
+        assert_eq!(
+            item_names(host_descriptors_from(&[&downstream])),
+            ["NestedSort"]
+        );
+        assert!(host_descriptors_from(&[]).next().is_none());
+    }
+
+    #[test]
+    fn explicit_downstream_framework_request_includes_the_framework_pair() {
+        let downstream = table("/definitions/downstream", true);
+        let unrequested = table("/definitions/other", false);
+        assert_eq!(
+            item_names(host_descriptors_from(&[&unrequested, &downstream])),
+            ["KItem", "KResult", "NestedSort", "NestedSort"]
+        );
+        let framework = host_descriptors_from(&[&downstream])
+            .filter(|descriptor| descriptor.id.item_name() != "NestedSort")
+            .collect::<Vec<_>>();
+        assert_eq!(framework.len(), FRAMEWORK_FACTORIES.len());
+        for descriptor in &framework {
+            assert_eq!(descriptor.id.item_kind(), ItemKind::Sort);
+            assert_eq!(descriptor.id.rust_module_path(), [env!("CARGO_CRATE_NAME")]);
+            assert_eq!(
+                descriptor.id.package().manifest_dir(),
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_framework_request_from_krs_itself_is_ignored() {
+        let facade = table(env!("CARGO_MANIFEST_DIR"), true);
+        assert_eq!(
+            item_names(host_descriptors_from(&[&facade])),
+            ["NestedSort"]
+        );
+    }
+
+    #[cfg(feature = "inventory")]
+    #[test]
+    fn framework_factory_table_matches_inventory_framework_registrations() {
+        let from_inventory = item_ids(
+            inventory::iter::<__private::HostRegistration>
+                .into_iter()
+                .map(__private::HostRegistration::make)
+                .filter(is_framework_sort_descriptor),
+        );
+        let from_table = item_ids(FRAMEWORK_FACTORIES.iter().map(|factory| factory()));
+        assert_eq!(from_inventory.len(), 2);
+        assert_eq!(from_table, from_inventory);
+    }
+
+    #[cfg(feature = "inventory")]
+    #[test]
+    fn census_table_matches_inventory_enumeration() {
+        let census = __private::registration_census();
+        let own = census
+            .registrations
+            .iter()
+            .filter(|registration| registration.manifest_dir == env!("CARGO_MANIFEST_DIR"))
+            .map(|registration| registration.path)
+            .filter(|path| !path.starts_with("krs::__krs_sort_descriptor_"))
+            .collect::<Vec<_>>();
+        assert_eq!(own, ["krs::tests::nested::descriptor"]);
+        assert_eq!(census.framework_requests, [env!("CARGO_MANIFEST_DIR")]);
+
+        let requests_framework = census
+            .framework_requests
+            .contains(&env!("CARGO_MANIFEST_DIR"));
+        let explicit = table(env!("CARGO_MANIFEST_DIR"), requests_framework);
+        assert_eq!(
+            item_ids(host_descriptors_from(&[&explicit])),
+            item_ids(host_descriptors())
+        );
+    }
+
+    #[cfg(feature = "inventory")]
     #[test]
     fn enumeration_invokes_factories_for_fresh_owned_values() {
         let mut first = host_descriptors()
