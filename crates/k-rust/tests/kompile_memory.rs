@@ -18,47 +18,13 @@ use std::{
 
 use toml::Value;
 
-/// Number of chained modules; module `n` imports module `n - 1`.
+mod support;
+use support::chain::{Shape, definition as generated_definition, main_module};
+
+/// Number of chained modules in the reduced memory pin.
 const MODULES: usize = 10;
-/// Sorts declared per module, each with one constant and one function production.
-const SORTS_PER_MODULE: usize = 8;
-/// Function rules per module, parsed before sentence numbering.
-const RULES_PER_MODULE: usize = 12;
-
 /// Peak RSS ceiling for the chain compile.
-///
-/// The release `krust` built at 747eafc (before the provenance-receipt memory regression) compiled
-/// this definition at 324 MiB peak RSS; the ceiling keeps a tolerance of about 20 percent above
-/// that pre-regression level so the pin is stable across allocators and build profiles while
-/// still rejecting the receipts that later grew the same compile past 560 MiB.
 const PEAK_RSS_LIMIT_KIB: u64 = 400 * 1024;
-
-fn chain_definition() -> String {
-    let mut text = String::new();
-    for module in 0..MODULES {
-        text.push_str(&format!("module CHAIN-{module}\n"));
-        if module == 0 {
-            text.push_str("  imports INT\n");
-            text.push_str("  syntax Pgm ::= \"start\"\n");
-            text.push_str("  configuration <k> $PGM:Pgm </k> <n> 0 </n>\n");
-        } else {
-            text.push_str(&format!("  imports CHAIN-{}\n", module - 1));
-        }
-        for sort in 0..SORTS_PER_MODULE {
-            text.push_str(&format!(
-                "  syntax S{module}x{sort} ::= \"c{module}x{sort}\" | f{module}x{sort}(S{module}x{sort}, Int) [function]\n"
-            ));
-        }
-        for rule in 0..RULES_PER_MODULE {
-            let sort = rule % SORTS_PER_MODULE;
-            text.push_str(&format!(
-                "  rule f{module}x{sort}(c{module}x{sort}, N:Int) => c{module}x{sort} requires N ==Int {rule}\n"
-            ));
-        }
-        text.push_str("endmodule\n\n");
-    }
-    text
-}
 
 struct Workspace {
     root: PathBuf,
@@ -95,7 +61,7 @@ fn module_chain_compile_stays_under_the_pre_regression_peak_rss() {
     let measure = repository.join("scripts/conformance/measure.py");
     let workspace = Workspace::new();
     let definition = workspace.root.join("chain.k");
-    fs::write(&definition, chain_definition()).unwrap();
+    fs::write(&definition, generated_definition(MODULES, Shape::Chain)).unwrap();
     let log = workspace.root.join("measure");
 
     let output = Command::new("python3")
@@ -106,7 +72,7 @@ fn module_chain_compile_stays_under_the_pre_regression_peak_rss() {
         .arg(env!("CARGO_BIN_EXE_krust"))
         .arg("kcompile")
         .arg(&definition)
-        .args(["--main-module", &format!("CHAIN-{}", MODULES - 1)])
+        .args(["--main-module", &main_module(MODULES)])
         .args(["--backend", "llvm"])
         .arg("--output-directory")
         .arg(workspace.root.join("output"))
