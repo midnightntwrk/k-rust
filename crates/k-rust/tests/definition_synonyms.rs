@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolveError, Sentence,
     apply_sort_synonyms,
@@ -15,7 +17,7 @@ fn module(name: &str, imports: &[&str], sentences: Vec<Sentence>) -> FlatModule 
                 public: true,
             })
             .collect(),
-        local_sentences: sentences,
+        local_sentences: sentences.into_iter().map(Arc::new).collect(),
         attributes: Attributes::default(),
     }
 }
@@ -82,7 +84,7 @@ fn applies_visible_synonyms_once_to_only_production_sorts() {
         sort,
         items,
         attributes,
-    } = &main.local_sentences[0]
+    } = &*main.local_sentences[0]
     else {
         panic!("expected production")
     };
@@ -149,7 +151,7 @@ fn matches_only_the_entire_parameterized_sort() {
     };
 
     let transformed = apply_sort_synonyms(&definition).unwrap();
-    let Sentence::Production { sort, items, .. } = &transformed.modules[0].local_sentences[1]
+    let Sentence::Production { sort, items, .. } = &*transformed.modules[0].local_sentences[1]
     else {
         panic!("expected production")
     };
@@ -196,7 +198,7 @@ fn does_not_apply_synonyms_from_modules_outside_the_import_closure() {
     };
 
     let transformed = apply_sort_synonyms(&definition).unwrap();
-    let Sentence::Production { sort, .. } = &transformed.main_module().unwrap().local_sentences[0]
+    let Sentence::Production { sort, .. } = &*transformed.main_module().unwrap().local_sentences[0]
     else {
         panic!("expected production")
     };
@@ -267,12 +269,12 @@ proptest! {
             sort,
             items,
             ..
-        } = &transformed.modules[0].local_sentences[1]
+        } = &*transformed.modules[0].local_sentences[1]
         else {
             panic!("expected production")
         };
         prop_assert_eq!(sort, &target);
-        prop_assert_eq!(parameters, match &definition.modules[0].local_sentences[1] {
+        prop_assert_eq!(parameters, match &*definition.modules[0].local_sentences[1] {
             Sentence::Production { parameters, .. } => parameters,
             _ => unreachable!(),
         });

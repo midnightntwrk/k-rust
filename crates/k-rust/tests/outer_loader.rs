@@ -56,7 +56,7 @@ endmodule
                 .local_sentences
                 .iter()
                 .find(|sentence| {
-                    matches!(sentence, Sentence::Production { items, attributes, .. }
+                    matches!(&***sentence, Sentence::Production { items, attributes, .. }
                         if attributes.get_str("userList") == Some("+")
                             && items.iter().filter(|item| matches!(item, ProductionItem::NonTerminal { .. })).count() == 2)
                 })
@@ -71,7 +71,7 @@ endmodule
             items: default_items,
             attributes: default_attributes,
             ..
-        } = default
+        } = &*default
         else {
             unreachable!()
         };
@@ -81,7 +81,7 @@ endmodule
             items: bison_items,
             attributes: bison_attributes,
             ..
-        } = bison
+        } = &*bison
         else {
             unreachable!()
         };
@@ -95,8 +95,11 @@ endmodule
                 .collect::<Vec<_>>()
         };
 
-        assert_eq!(nonterminals(default_items), ["Element", "Elements"]);
-        assert_eq!(nonterminals(bison_items), ["Elements", "Element"]);
+        assert_eq!(
+            nonterminals(default_items.to_vec()),
+            ["Element", "Elements"]
+        );
+        assert_eq!(nonterminals(bison_items.to_vec()), ["Elements", "Element"]);
         assert_eq!(bison_label, default_label);
         assert_eq!(bison_parameters, default_parameters);
         assert_eq!(bison_attributes, default_attributes);
@@ -798,7 +801,7 @@ fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
     .unwrap();
 
     let flat_main = loaded.definition.main_module().unwrap();
-    let Sentence::Production { sort, items, .. } = &flat_main.local_sentences[0] else {
+    let Sentence::Production { sort, items, .. } = &*flat_main.local_sentences[0] else {
         panic!("expected production")
     };
     assert_eq!(sort, &k_rust::kast::Sort::new("Exp"));
@@ -832,11 +835,11 @@ fn parses_and_expands_configurations_with_visible_user_syntax() {
     assert!(
         !sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
     );
     let labels = sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label), ..
             } => Some(label.name.as_str()),
@@ -902,8 +905,8 @@ fn imports_the_default_configuration_and_map_module_implicitly() {
             .any(|import| import.name == "MAP" && import.public)
     );
     assert!(!default_configuration.local_sentences.iter().any(|sentence| {
-        matches!(sentence, Sentence::Configuration { .. })
-            || matches!(sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
+        matches!(&**sentence, Sentence::Configuration { .. })
+            || matches!(&**sentence, Sentence::Bubble { sentence_type, .. } if sentence_type == "config")
     }));
 }
 
@@ -1154,7 +1157,7 @@ fn temporary_cell_sort_declarations_are_removed_after_expansion() {
 
     assert!(loaded.definition.modules.iter().all(|module| {
         module.local_sentences.iter().all(|sentence| {
-            !matches!(sentence, Sentence::SyntaxSort { attributes, .. }
+            !matches!(&**sentence, Sentence::SyntaxSort { attributes, .. }
                 if attributes.get("temporary-cell-sort-decl").is_some())
         })
     }));

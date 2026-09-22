@@ -51,6 +51,7 @@ pub(crate) fn minimize_term_construction_pass(
         let productions = views.production_catalog(module_id);
         let converter = TermConverter::with_views(&views, module_id)?;
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
                 body,
                 requires,

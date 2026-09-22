@@ -94,7 +94,7 @@ pub fn write_runnable_artifact(
         // does not consume them.
         module
             .local_sentences
-            .retain(|sentence| !matches!(sentence, Sentence::ContextAlias { .. }));
+            .retain(|sentence| !matches!(&**sentence, Sentence::ContextAlias { .. }));
     }
     let mut runtime_execution = execution_definition.clone();
     retain_pattern_sentences(&mut runtime_execution);
@@ -132,7 +132,7 @@ fn retain_pattern_sentences(definition: &mut Definition) {
     for module in &mut definition.modules {
         module.local_sentences.retain(|sentence| {
             matches!(
-                sentence,
+                &**sentence,
                 Sentence::SyntaxSort { .. }
                     | Sentence::SortSynonym { .. }
                     | Sentence::SyntaxLexical { .. }
@@ -140,7 +140,7 @@ fn retain_pattern_sentences(definition: &mut Definition) {
                     | Sentence::SyntaxAssociativity { .. }
                     | Sentence::SyntaxPriority { .. }
             ) || matches!(
-                sentence,
+                &**sentence,
                 Sentence::Rule { attributes, .. }
                     if attributes.has_any(&AttributeKey::MACRO_LIKE)
             )

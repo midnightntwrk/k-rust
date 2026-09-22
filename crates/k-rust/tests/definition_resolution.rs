@@ -41,7 +41,7 @@ fn module(name: &str, imports: &[(&str, bool)]) -> FlatModule {
                 public: *public,
             })
             .collect(),
-        local_sentences: vec![marker(name)],
+        local_sentences: vec![Arc::new(marker(name))],
         attributes: Attributes::default(),
     }
 }
@@ -182,7 +182,10 @@ fn applies_scala_public_sentence_rules() {
 
     let mut private_module = module("A", &[]);
     private_module.attributes = attrs(&[("private", "")]);
-    private_module.local_sentences = vec![marker("ordinary"), public.clone(), private.clone()];
+    private_module.local_sentences = vec![marker("ordinary"), public.clone(), private.clone()]
+        .into_iter()
+        .map(Arc::new)
+        .collect();
     let resolved = ResolvedDefinition::resolve(&definition(vec![private_module])).unwrap();
     assert_eq!(
         resolved.public_sentences(resolved.main_module_id()),
@@ -190,7 +193,10 @@ fn applies_scala_public_sentence_rules() {
     );
 
     let mut ordinary_module = module("A", &[]);
-    ordinary_module.local_sentences = vec![marker("ordinary"), public, private];
+    ordinary_module.local_sentences = vec![marker("ordinary"), public, private]
+        .into_iter()
+        .map(Arc::new)
+        .collect();
     let resolved = ResolvedDefinition::resolve(&definition(vec![ordinary_module])).unwrap();
     assert_eq!(
         resolved.public_sentences(resolved.main_module_id()).len(),
@@ -255,7 +261,10 @@ fn signature_sentences_apply_public_sentences_of_private_modules() {
     *hidden.attributes_mut() = attrs(&[("private", "")]);
     let mut private = module("B", &[]);
     private.attributes = attrs(&[("private", "")]);
-    private.local_sentences = vec![marker("ordinary"), exported, hidden];
+    private.local_sentences = vec![marker("ordinary"), exported, hidden]
+        .into_iter()
+        .map(Arc::new)
+        .collect();
     let resolved =
         ResolvedDefinition::resolve(&definition(vec![module("A", &[("B", true)]), private]))
             .unwrap();
@@ -274,9 +283,12 @@ fn signature_sentences_apply_public_sentences_of_private_modules() {
 fn deduplicates_flat_sets_only_during_resolution() {
     let repeated = marker("same");
     let mut a = module("A", &[("B", true), ("B", true)]);
-    a.local_sentences = vec![repeated.clone(), repeated.clone()];
+    a.local_sentences = vec![repeated.clone(), repeated.clone()]
+        .into_iter()
+        .map(Arc::new)
+        .collect();
     let mut b = module("B", &[]);
-    b.local_sentences = vec![repeated];
+    b.local_sentences = vec![repeated].into_iter().map(Arc::new).collect();
     let definition = definition(vec![a, b]);
 
     assert_eq!(definition.modules[0].local_sentences.len(), 2);
@@ -300,7 +312,10 @@ fn deduplicates_productions_using_scala_equality() {
         )])),
     };
     let mut a = module("A", &[]);
-    a.local_sentences = vec![production(1), production(2)];
+    a.local_sentences = vec![production(1), production(2)]
+        .into_iter()
+        .map(Arc::new)
+        .collect();
     let resolved = ResolvedDefinition::resolve(&definition(vec![a])).unwrap();
     assert_eq!(resolved.main_module().local_sentences.len(), 1);
 }
@@ -413,11 +428,14 @@ fn cached_productions_keep_first_metadata_representative_and_distinct_semantics(
     let mut a = module("A", &[("B", true), ("C", true)]);
     a.local_sentences.clear();
     let mut b = module("B", &[("D", true)]);
-    b.local_sentences = vec![duplicate, function, symbol];
+    b.local_sentences = vec![duplicate, function, symbol]
+        .into_iter()
+        .map(Arc::new)
+        .collect();
     let mut c = module("C", &[("D", true)]);
     c.local_sentences.clear();
     let mut d = module("D", &[]);
-    d.local_sentences = vec![first];
+    d.local_sentences = vec![first].into_iter().map(Arc::new).collect();
     let resolved = ResolvedDefinition::resolve(&definition(vec![a, b, c, d])).unwrap();
     for _ in 0..3 {
         let sentences = resolved.sentences(resolved.main_module_id());
@@ -440,7 +458,7 @@ fn visible_provenance(resolved: &ResolvedDefinition, sources: &SourceTable) -> S
     visible.local_sentences = resolved
         .sentences(resolved.main_module_id())
         .into_iter()
-        .cloned()
+        .map(|sentence| Arc::new(sentence.clone()))
         .collect();
     k_rust::definition::json::to_provenance_string_pretty(&definition(vec![visible]), sources)
         .unwrap()
@@ -492,7 +510,10 @@ fn cached_clones_borrow_their_own_graph_and_outlive_the_original_with_metadata()
                 origin.to_value(),
             )])),
         },
-    ];
+    ]
+    .into_iter()
+    .map(Arc::new)
+    .collect();
     let original = ResolvedDefinition::resolve(&definition(vec![a, b])).unwrap();
     let cold_clone = original.clone();
     let expected = visible_provenance(&original, &sources);
@@ -530,7 +551,7 @@ fn cached_visibility_is_not_reused_for_a_new_graph_with_matching_indices() {
         ["B", "A"]
     );
     input.modules[0].imports[0].name = "C".into();
-    input.modules[2].local_sentences[0] = marker("changed-C");
+    input.modules[2].local_sentences[0] = Arc::new(marker("changed-C"));
     let new = ResolvedDefinition::resolve(&input).unwrap();
     assert_eq!(old.main_module_id(), new.main_module_id());
     for _ in 0..2 {
@@ -630,7 +651,7 @@ fn assert_bucket_sequence(sentences: Vec<Sentence>, expected_indices: &[usize]) 
                 public: index % 2 == 0,
             });
         }
-        owner.local_sentences = vec![sentence];
+        owner.local_sentences = vec![Arc::new(sentence)];
         modules.push(owner);
     }
     let mut main = module("A", &[]);

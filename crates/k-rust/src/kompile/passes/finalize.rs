@@ -3,7 +3,7 @@
 //!
 //! Final definition-wide transformations before KORE emission.
 
-use std::{collections::BTreeSet, convert::Infallible};
+use std::{collections::BTreeSet, convert::Infallible, sync::Arc};
 
 use serde_json::Value;
 
@@ -21,14 +21,14 @@ use crate::{
 ///
 /// Full installations provide all four imports. Standalone `--no-prelude` definitions retain the
 /// same module boundary while importing only modules that actually exist.
-pub fn add_semantics_module(definition: &Definition) -> Result<Definition, String> {
+pub fn add_semantics_module(definition: &Definition) -> Result<Definition, Infallible> {
     super::super::pipeline::run_standalone(definition, add_semantics_module_pass, None)
 }
 
 pub(crate) fn add_semantics_module_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, String> {
+) -> Result<Definition, Infallible> {
     let definition = input.definition;
     if definition
         .modules
@@ -93,6 +93,7 @@ pub(crate) fn add_cool_like_attributes_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let body = match sentence {
                 Sentence::Rule { body, .. }
                 | Sentence::Context { body, .. }
@@ -133,7 +134,7 @@ pub(crate) fn generate_sort_predicate_rules_pass(
         let predicates = module
             .local_sentences
             .iter()
-            .filter_map(|sentence| match sentence {
+            .filter_map(|sentence| match &**sentence {
                 Sentence::Production {
                     label: Some(label),
                     attributes,
@@ -179,8 +180,11 @@ pub(crate) fn generate_sort_predicate_rules_pass(
                 ));
             }
         }
-        let generated = retain_new_sentences(module.local_sentences.iter(), generated);
-        module.local_sentences.extend(generated);
+        let generated =
+            retain_new_sentences(module.local_sentences.iter().map(Arc::as_ref), generated);
+        module
+            .local_sentences
+            .extend(generated.into_iter().map(Arc::new));
     }
     Ok(output)
 }

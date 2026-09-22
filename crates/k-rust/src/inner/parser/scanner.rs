@@ -620,7 +620,7 @@ mod tests {
 endmodule"#;
         let file = outer::parse("string.k", source).unwrap();
         let definition = outer::lower(&file, "STRING-SYNTAX").unwrap();
-        let Sentence::Production { items, .. } = &definition.modules[0].local_sentences[0] else {
+        let Sentence::Production { items, .. } = &*definition.modules[0].local_sentences[0] else {
             panic!("expected production")
         };
         let item = compile_item(&items[0], &BTreeMap::new()).unwrap();

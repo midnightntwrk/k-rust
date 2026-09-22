@@ -59,6 +59,7 @@ pub(crate) fn resolve_fresh_config_constants_pass(
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
                 body, attributes, ..
             } = sentence

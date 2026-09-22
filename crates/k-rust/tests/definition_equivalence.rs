@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
@@ -344,7 +346,7 @@ fn visible_rule_count(imported: Term, local: Term) -> usize {
     let base = FlatModule {
         name: "BASE".into(),
         imports: Vec::new(),
-        local_sentences: vec![rule(imported)],
+        local_sentences: vec![Arc::new(rule(imported))],
         attributes: Attributes::default(),
     };
     let main = FlatModule {
@@ -353,7 +355,7 @@ fn visible_rule_count(imported: Term, local: Term) -> usize {
             name: "BASE".into(),
             public: true,
         }],
-        local_sentences: vec![rule(local)],
+        local_sentences: vec![Arc::new(rule(local))],
         attributes: Attributes::default(),
     };
     let resolved = ResolvedDefinition::resolve(&Definition {
@@ -371,7 +373,7 @@ fn visible_sentence_count(first: Sentence, second: Sentence) -> usize {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![first, second],
+            local_sentences: vec![Arc::new(first), Arc::new(second)],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),

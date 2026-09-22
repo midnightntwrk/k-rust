@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
@@ -49,17 +51,17 @@ fn fixture() -> ResolvedDefinition {
         name: "BASE".into(),
         imports: Vec::new(),
         local_sentences: vec![
-            syntax_sort(
+            Arc::new(syntax_sort(
                 Vec::new(),
                 int.clone(),
                 attrs(&[("hook", json!("INT.Int")), ("token", json!(""))]),
-            ),
-            production(
+            )),
+            Arc::new(production(
                 Sort::new("TokenFromProduction"),
                 Vec::new(),
                 Vec::new(),
                 attrs(&[("token", json!(""))]),
-            ),
+            )),
         ],
         attributes: Attributes::default(),
     };
@@ -70,33 +72,33 @@ fn fixture() -> ResolvedDefinition {
             public: true,
         }],
         local_sentences: vec![
-            syntax_sort(
+            Arc::new(syntax_sort(
                 vec![variable.clone()],
                 Sort::with_parameters("List", vec![variable.clone()]),
                 Attributes::default(),
-            ),
-            production(
+            )),
+            Arc::new(production(
                 Sort::with_parameters("List", vec![int.clone()]),
                 Vec::new(),
                 vec![int.clone()],
                 attrs(&[("userList", json!(""))]),
-            ),
-            production(
+            )),
+            Arc::new(production(
                 Sort::with_parameters("Map", vec![Sort::new("K"), Sort::new("V")]),
                 vec![Sort::new("K"), Sort::new("V")],
                 Vec::new(),
                 Attributes::default(),
-            ),
-            syntax_sort(
+            )),
+            Arc::new(syntax_sort(
                 Vec::new(),
                 Sort::with_parameters("Vec", vec![Sort::new("3")]),
                 Attributes::default(),
-            ),
-            Sentence::SortSynonym {
+            )),
+            Arc::new(Sentence::SortSynonym {
                 new_sort: Sort::new("Nat"),
                 old_sort: int,
                 attributes: Attributes::default(),
-            },
+            }),
         ],
         attributes: Attributes::default(),
     };

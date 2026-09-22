@@ -27,6 +27,21 @@ pub use ast::{
     FlatModule, LOCATION_ATTRIBUTE, Location, ProductionItem, SENTENCE_END_OFFSET_ATTRIBUTE,
     SENTENCE_START_OFFSET_ATTRIBUTE, SOURCE_ATTRIBUTE, SOURCE_ID_ATTRIBUTE, Sentence,
 };
+
+use std::sync::Arc;
+
+use k_rust_kore::measure::{self, Counter};
+
+/// Obtain mutable access to a sentence in a shared flat definition.
+///
+/// Most stages carry definitions forward unchanged; `Arc::make_mut` keeps those sentences shared
+/// and clones only the sentence that a stage actually rewrites.
+pub fn sentence_mut(sentence: &mut Arc<Sentence>) -> &mut Sentence {
+    if Arc::strong_count(sentence) > 1 {
+        measure::bump(Counter::KompileSentenceCopies);
+    }
+    Arc::make_mut(sentence)
+}
 pub use attribute_keys::AttributeKey;
 pub use catalog::{
     FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,

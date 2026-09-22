@@ -2,7 +2,7 @@
 //! Complexity: O(S + I) over sentences and production items.
 //! It visits each syntax node once; no dedicated counter.
 //!
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use serde_json::{Value, json};
 
@@ -145,7 +145,7 @@ fn lower_module(
                 public: import.public,
             })
             .collect(),
-        local_sentences,
+        local_sentences: local_sentences.into_iter().map(Arc::new).collect(),
         attributes: source_attributes(file, module.span, &module.attributes),
     }
 }
@@ -736,10 +736,9 @@ fn attrs_with_entry(mut attributes: Attributes, key: AttributeKey, value: Value)
 fn without_attribute(attributes: Attributes, key: AttributeKey) -> Attributes {
     Attributes::new(
         attributes
-            .entries()
-            .iter()
-            .filter(|(attribute, _)| attribute.as_str() != key.as_str())
-            .map(|(attribute, value)| (attribute.clone(), value.clone()))
+            .wire_entries()
+            .filter(|(attribute, _)| *attribute != key.as_str())
+            .map(|(attribute, value)| (attribute.to_owned(), value.clone()))
             .collect(),
     )
 }

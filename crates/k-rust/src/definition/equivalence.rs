@@ -71,7 +71,9 @@ pub fn canonical_production_payload(sentence: &Sentence) -> Option<Vec<u8>> {
 /// Equivalent productions have equal identities. Treating the converse as true relies on the
 /// collision resistance of the truncated SHA-256 digest rather than a mathematical guarantee.
 pub fn production_identity(sentence: &Sentence) -> Option<ProductionIdentity> {
-    let digest = Sha256::digest(canonical_production_payload(sentence)?);
+    let payload = canonical_production_payload(sentence)?;
+    measure::bump(Counter::KompileProductionIdentityDigests);
+    let digest = Sha256::digest(payload);
     let mut identity = [0; 16];
     identity.copy_from_slice(&digest[..16]);
     Some(ProductionIdentity::from_digest(identity))

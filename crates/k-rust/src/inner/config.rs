@@ -63,7 +63,7 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
         .modules
         .iter()
         .flat_map(|module| module.local_sentences.iter())
-        .any(is_configuration_bubble)
+        .any(|sentence| is_configuration_bubble(sentence))
     {
         return Ok(definition.clone());
     }
@@ -71,7 +71,11 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
     let mut transformed = definition.clone();
 
     for module in &mut transformed.modules {
-        if !module.local_sentences.iter().any(is_configuration_bubble) {
+        if !module
+            .local_sentences
+            .iter()
+            .any(|sentence| is_configuration_bubble(sentence))
+        {
             continue;
         }
         let module_id = resolved
@@ -90,7 +94,7 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
                 sentence_type,
                 contents,
                 attributes,
-            } = sentence
+            } = &**sentence
             else {
                 continue;
             };
@@ -108,7 +112,8 @@ pub fn resolve_configuration_bubbles(definition: &Definition) -> Result<Definiti
                 grammar.parse(&Sort::new("#RuleContent"), contents)
             }
             .map_err(|error| bubble_error(&module.name, attributes, Some(contents), error))?;
-            *sentence = up_configuration(&module.name, parsed, attributes.clone())?;
+            *crate::definition::sentence_mut(sentence) =
+                up_configuration(&module.name, parsed, attributes.clone())?;
         }
     }
 

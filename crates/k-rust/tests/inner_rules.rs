@@ -147,7 +147,7 @@ fn sentence_summary(sentence: &Sentence) -> Option<SentenceSummary<'_>> {
         kind,
         body: body.to_string(),
         requires: requires.to_string(),
-        ensures: ensures.map(ToString::to_string),
+        ensures: ensures.map(|term| term.to_string()),
         label: attributes.get_str("label"),
     })
 }
@@ -301,7 +301,7 @@ macro_rules! assert_rule_resolution_snapshot {
             .unwrap()
             .local_sentences
             .iter()
-            .filter_map(sentence_summary)
+            .filter_map(|sentence| sentence_summary(&**sentence))
             .collect::<Vec<_>>();
         insta::with_settings!({
             description => format!("K definition:\n\n{source}"),
@@ -349,7 +349,7 @@ fn preserves_nested_term_spans_and_resolved_productions() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -383,7 +383,7 @@ fn rule_parsing_always_includes_default_layout() {
             .unwrap()
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Rule { .. }))
     );
 }
 
@@ -423,7 +423,7 @@ fn rule_synonym_casts_use_the_target_sort_in_production_arguments() {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Rule { body, .. } => Some(body),
                 _ => None,
             })
@@ -476,12 +476,12 @@ fn rule_conditions_can_select_an_overloaded_rewrite_super_sort() {
         endmodule
     "#};
     let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
-    let Sentence::Rule { body, requires, .. } = resolved
+    let Sentence::Rule { body, requires, .. } = &**resolved
         .main_module()
         .unwrap()
         .local_sentences
         .iter()
-        .find(|sentence| matches!(sentence, Sentence::Rule { .. }))
+        .find(|sentence| matches!(&***sentence, Sentence::Rule { .. }))
         .unwrap()
     else {
         unreachable!()
@@ -513,7 +513,7 @@ fn user_list_singletons_participate_in_rule_overload_selection() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -588,7 +588,7 @@ fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -661,7 +661,7 @@ fn a_dominating_typing_still_selects_one_parse() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -788,7 +788,7 @@ fn function_rewrite_siblings_are_selected_by_whole_rule_inference() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -817,7 +817,7 @@ fn keeps_a_valid_concrete_application_when_a_kapply_alternative_is_unknown() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -863,9 +863,9 @@ fn semcast2_is_accepted_end_to_end() {
         .unwrap()
         .local_sentences
         .iter()
-        .find(|sentence| matches!(sentence, Sentence::Rule { .. }))
+        .find(|sentence| matches!(&***sentence, Sentence::Rule { .. }))
         .expect("the rule should be resolved");
-    let Sentence::Rule { body, .. } = sentence else {
+    let Sentence::Rule { body, .. } = &**sentence else {
         unreachable!()
     };
 
@@ -919,7 +919,7 @@ fn reference_canonicalizes_an_eighty_operand_casted_chain_without_truncation() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -1021,7 +1021,7 @@ fn loader_parses_rules_against_generated_rule_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter(|sentence| matches!(sentence, Sentence::Bubble { .. }))
+        .filter(|sentence| matches!(&***sentence, Sentence::Bubble { .. }))
         .count();
     assert_eq!(bubbles, 0);
     let rules = loaded
@@ -1032,12 +1032,12 @@ fn loader_parses_rules_against_generated_rule_cells() {
         .iter()
         .filter(|sentence| {
             matches!(
-                sentence,
+                &***sentence,
                 Sentence::Rule { attributes, .. }
                     if attributes.source() == Some("cells.k")
             )
         })
-        .filter_map(sentence_summary)
+        .filter_map(|sentence| sentence_summary(&**sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1078,7 +1078,7 @@ fn reference_three_sibling_rule_cells_associate_left() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.source() == Some("cell-association.k") => Some(body),
@@ -1125,7 +1125,7 @@ fn loader_parses_parenthesized_sequence_rewrites_before_cell_dots() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(sentence_summary)
+        .filter_map(|sentence| sentence_summary(&**sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1167,7 +1167,7 @@ fn loader_parses_legacy_empty_k_before_cell_dots() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(sentence_summary)
+        .filter_map(|sentence| sentence_summary(&**sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1216,7 +1216,7 @@ fn loader_parses_rewrites_between_bags_inside_collection_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(sentence_summary)
+        .filter_map(|sentence| sentence_summary(&**sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1269,7 +1269,7 @@ fn loader_parses_parenthesized_rewrites_between_bags_before_cell_dots() {
             .unwrap()
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Rule { .. }))
     );
 }
 
@@ -1310,7 +1310,7 @@ fn loader_parses_parenthesized_cell_deletion_inside_collection_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(sentence_summary)
+        .filter_map(|sentence| sentence_summary(&**sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1358,7 +1358,7 @@ fn loader_keeps_unparenthesized_cell_deletion_inside_collection_cell_scope() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } if body.to_string().starts_with("`<accounts>`") => {
                 Some(body.to_string())
             }
@@ -1422,7 +1422,7 @@ fn reference_scan_c_uppercase_identifier_is_a_variable_over_a_prec1_token() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -1450,7 +1450,7 @@ fn reference_scan_a_lowercase_klabel_application_resolves_to_the_user_production
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -1620,7 +1620,7 @@ fn reference_signature_k_reports_six_visibility_errors() {
             .unwrap();
         module.local_sentences.retain(|sentence| {
             !matches!(
-                sentence,
+                &**sentence,
                 Sentence::Bubble {
                     sentence_type,
                     contents,
@@ -1648,7 +1648,7 @@ fn reference_signature_k_reports_six_visibility_errors() {
         .unwrap();
     module.local_sentences.retain(|sentence| {
         !matches!(
-            sentence,
+            &**sentence,
             Sentence::Bubble {
                 sentence_type,
                 contents,
@@ -1746,7 +1746,7 @@ fn parametric_origin_nodes_get_per_node_parameter_variables() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -1844,7 +1844,7 @@ fn bracket_priority_selects_prefix_application_over_a_bracketed_list() {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Rule { body, .. } => Some(body),
                 _ => None,
             })
@@ -1889,7 +1889,7 @@ fn declared_bracket_priority_preserves_parenthesized_rewrite_scope() {
     "#};
     let resolved = resolve_rule_bubbles(&lowered(source)).unwrap();
     assert!(resolved.main_module().unwrap().local_sentences.iter().any(|sentence| {
-        matches!(sentence, Sentence::Rule { body, .. } if matches!(body.unannotated(), Term::Rewrite { .. }))
+        matches!(&**sentence, Sentence::Rule { body, .. } if matches!(body.unannotated(), Term::Rewrite { .. }))
     }));
 }
 
@@ -1914,7 +1914,7 @@ fn implicit_kseq_bracket_priority_selects_the_prefix_application() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -2275,7 +2275,7 @@ fn infers_an_anonymous_cell_variable() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -2459,7 +2459,7 @@ fn ordinary_rules_may_widen_the_rewrite_sort() {
     "#}))
     .unwrap();
     assert!(resolved.main_module().unwrap().local_sentences.iter().any(
-        |sentence| matches!(sentence, Sentence::Rule { body, .. } if body.to_string() == "small(.KList)=>big(.KList)")
+        |sentence| matches!(&**sentence, Sentence::Rule { body, .. } if body.to_string() == "small(.KList)=>big(.KList)")
     ));
 }
 
@@ -2762,7 +2762,7 @@ fn reconstructs_implicit_user_lists_after_sort_inference() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -2793,7 +2793,7 @@ fn wraps_a_single_user_list_element_on_a_function_rhs() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -2831,7 +2831,7 @@ fn infers_empty_user_list_in_a_function_rule() {
             .unwrap()
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Rule { .. }))
     );
 }
 
@@ -2938,7 +2938,7 @@ fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body.to_string()),
             _ => None,
         })
@@ -3012,7 +3012,7 @@ fn rule_like_texts(loaded: &k_rust::outer::LoadedDefinition, name: &str) -> Vec<
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body,
                 requires,
@@ -3425,7 +3425,7 @@ fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
             .local_sentences
             .iter()
             .find_map(|s| {
-                if let Sentence::Claim { body, .. } = s {
+                if let Sentence::Claim { body, .. } = &**s {
                     Some(body)
                 } else {
                     None
@@ -3454,7 +3454,7 @@ fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
         assert_eq!(shared, vec![None, None]);
         assert_eq!(rewrites, expected.len());
         assert!(!loaded.definition.main_module().unwrap().local_sentences.iter().any(|s| {
-            matches!(s, Sentence::Production { sort, .. } if sort.name == "GeneratedCounterCell")
+            matches!(&**s, Sentence::Production { sort, .. } if sort.name == "GeneratedCounterCell")
         }), "the implicit counter production is parse-only");
         let nested = source.replace("<c1> .K => ?C </c1>", "<c1> .K => ?C => ?D </c1>");
         assert!(

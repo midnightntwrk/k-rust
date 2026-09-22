@@ -3,7 +3,7 @@
 //!
 //! Add backend subsort declarations from every user sort to `KItem`.
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use crate::names::BuiltinSort;
 use crate::{
@@ -66,10 +66,15 @@ pub(crate) fn subsort_kitem_pass(
             generated.push(production);
         }
         let generated = retain_new_sentences(
-            visible.iter().copied().chain(module.local_sentences.iter()),
+            visible
+                .iter()
+                .copied()
+                .chain(module.local_sentences.iter().map(Arc::as_ref)),
             generated,
         );
-        module.local_sentences.extend(generated);
+        module
+            .local_sentences
+            .extend(generated.into_iter().map(Arc::new));
     }
     Ok(output)
 }

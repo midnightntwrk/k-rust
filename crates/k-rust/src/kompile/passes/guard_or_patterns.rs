@@ -3,15 +3,35 @@
 //!
 //! Give matching-logic disjunctions explicit aliases.
 
+use std::fmt;
+
 use crate::{
     definition::{Definition, Sentence},
+    diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{InternalLabel, Term},
     kompile::{SortInjector, fresh_names::FreshNames},
     provenance::GeneratingPass,
 };
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuardOrPatternsError {
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl fmt::Display for GuardOrPatternsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "or-pattern guarding produced {} errors",
+            self.diagnostics.len()
+        )
+    }
+}
+
+impl std::error::Error for GuardOrPatternsError {}
+
 /// Apply Java's `GuardOrPatterns` transformation to rules and contexts.
-pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> {
+pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, GuardOrPatternsError> {
     super::super::pipeline::run_standalone(
         definition,
         guard_or_patterns_pass,
@@ -22,8 +42,10 @@ pub fn guard_or_patterns(definition: &Definition) -> Result<Definition, String> 
 pub(crate) fn guard_or_patterns_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, String> {
-    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+) -> Result<Definition, GuardOrPatternsError> {
+    let resolved = input.resolved_raw().map_err(|error| GuardOrPatternsError {
+        diagnostics: vec![plain_error(error.to_string())],
+    })?;
     let views = resolved.views();
     let mut output = input.definition.clone();
     for module in &mut output.modules {
@@ -31,8 +53,12 @@ pub(crate) fn guard_or_patterns_pass(
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
         let injector =
-            SortInjector::with_views(&views, module_id).map_err(|error| error.to_string())?;
+            SortInjector::with_views(&views, module_id).map_err(|error| GuardOrPatternsError {
+                diagnostics: vec![plain_error(error.to_string())],
+            })?;
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
+            let attributes = sentence.attributes().clone();
             let mut fresh = FreshNames::for_sentence(sentence);
             let roots = match sentence {
                 Sentence::Rule {
@@ -46,12 +72,29 @@ pub(crate) fn guard_or_patterns_pass(
             };
             for root in roots {
                 let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
-                *root =
-                    transform(taken, &injector, &mut fresh).map_err(|error| error.to_string())?;
+                *root = transform(taken, &injector, &mut fresh).map_err(|error| {
+                    GuardOrPatternsError {
+                        diagnostics: vec![Diagnostic::error_at(
+                            DiagnosticCode::InvalidOrPattern,
+                            error.to_string(),
+                            &attributes,
+                        )],
+                    }
+                })?;
             }
         }
     }
     Ok(output)
+}
+
+fn plain_error(message: impl Into<String>) -> Diagnostic {
+    Diagnostic {
+        severity: Severity::Error,
+        code: DiagnosticCode::InvalidOrPattern,
+        message: message.into(),
+        source: None,
+        location: None,
+    }
 }
 
 // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.

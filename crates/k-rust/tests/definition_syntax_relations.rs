@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use std::collections::BTreeSet;
 
 use k_rust::definition::{
@@ -100,8 +102,8 @@ fn resolved_relations_include_imported_sentences() {
         name: "BASE".into(),
         imports: Vec::new(),
         local_sentences: vec![
-            priority(&[&["multiply"], &["add"]]),
-            associativity(Associativity::Left, &["add"]),
+            Arc::new(priority(&[&["multiply"], &["add"]])),
+            Arc::new(associativity(Associativity::Left, &["add"])),
         ],
         attributes: Attributes::default(),
     };
@@ -111,7 +113,7 @@ fn resolved_relations_include_imported_sentences() {
             name: "BASE".into(),
             public: true,
         }],
-        local_sentences: vec![associativity(Associativity::Right, &["cons"])],
+        local_sentences: vec![Arc::new(associativity(Associativity::Right, &["cons"]))],
         attributes: Attributes::default(),
     };
     let resolved = ResolvedDefinition::resolve(&Definition {

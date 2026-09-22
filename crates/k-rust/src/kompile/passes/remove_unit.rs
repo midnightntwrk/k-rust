@@ -3,15 +3,35 @@
 //!
 //! Remove unit applications from associative collection terms before KORE emission.
 
+use std::fmt;
+
 use crate::definition::AttributeKey;
 use crate::{
     definition::{Definition, LabelHead, Sentence},
+    diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::Term,
     provenance::GeneratingPass,
 };
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoveUnitError {
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl fmt::Display for RemoveUnitError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "unit removal produced {} errors",
+            self.diagnostics.len()
+        )
+    }
+}
+
+impl std::error::Error for RemoveUnitError {}
+
 /// Apply Java's final `RemoveUnit` transformation to rules.
-pub fn remove_unit(definition: &Definition) -> Result<Definition, String> {
+pub fn remove_unit(definition: &Definition) -> Result<Definition, RemoveUnitError> {
     super::super::pipeline::run_standalone(
         definition,
         remove_unit_pass,
@@ -22,8 +42,10 @@ pub fn remove_unit(definition: &Definition) -> Result<Definition, String> {
 pub(crate) fn remove_unit_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, String> {
-    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+) -> Result<Definition, RemoveUnitError> {
+    let resolved = input.resolved_raw().map_err(|error| RemoveUnitError {
+        diagnostics: vec![plain_error(error.to_string())],
+    })?;
     let views = resolved.views();
     let mut output = input.definition.clone();
     for module in &mut output.modules {
@@ -32,6 +54,7 @@ pub(crate) fn remove_unit_pass(
             .expect("resolved definition contains every source module");
         let productions = views.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
                 body,
                 requires,
@@ -41,9 +64,16 @@ pub(crate) fn remove_unit_pass(
             else {
                 continue;
             };
-            *body = transform(body, &productions)?;
-            *requires = transform(requires, &productions)?;
-            *ensures = transform(ensures, &productions)?;
+            *body = transform(body, &productions).map_err(|diagnostic| RemoveUnitError {
+                diagnostics: vec![diagnostic],
+            })?;
+            *requires =
+                transform(requires, &productions).map_err(|diagnostic| RemoveUnitError {
+                    diagnostics: vec![diagnostic],
+                })?;
+            *ensures = transform(ensures, &productions).map_err(|diagnostic| RemoveUnitError {
+                diagnostics: vec![diagnostic],
+            })?;
         }
     }
     Ok(output)
@@ -53,7 +83,7 @@ pub(crate) fn remove_unit_pass(
 fn transform(
     term: &Term,
     productions: &crate::definition::ProductionCatalog<'_>,
-) -> Result<Term, String> {
+) -> Result<Term, Diagnostic> {
     let metadata = term.metadata().cloned();
     let transformed = match term.unannotated() {
         Term::Apply { label, arguments } => {
@@ -74,9 +104,13 @@ fn transform(
                     attributes.and_then(|attributes| attributes.string(AttributeKey::Unit))
             {
                 if attributes.is_none_or(|attributes| !attributes.has(AttributeKey::Assoc)) {
-                    return Err(format!(
-                        "production for {} has a unit attribute but is not associative",
-                        label.name
+                    return Err(Diagnostic::error_at(
+                        DiagnosticCode::InvalidUnitAttribute,
+                        format!(
+                            "production for {} has a unit attribute but is not associative",
+                            label.name
+                        ),
+                        attributes.expect("unit attribute must be present"),
                     ));
                 }
                 let mut items = Vec::new();
@@ -120,6 +154,16 @@ fn transform(
     Ok(metadata.map_or(transformed.clone(), |metadata| {
         transformed.with_metadata(metadata)
     }))
+}
+
+fn plain_error(message: impl Into<String>) -> Diagnostic {
+    Diagnostic {
+        severity: Severity::Error,
+        code: DiagnosticCode::InvalidUnitAttribute,
+        message: message.into(),
+        source: None,
+        location: None,
+    }
 }
 
 // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.

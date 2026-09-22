@@ -3,7 +3,7 @@
 //!
 //! Java-compatible resolution of configuration cells marked with `stream`.
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -85,7 +85,11 @@ pub(crate) fn resolve_io_pass(
             .local_sentences
             .iter()
             .any(|sentence| stream_name(sentence).is_some());
-        let mut sentences = output.modules[module_index].local_sentences.clone();
+        let mut sentences = output.modules[module_index]
+            .local_sentences
+            .iter()
+            .map(|sentence| (**sentence).clone())
+            .collect::<Vec<_>>();
 
         // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         for stream in &streams {
@@ -114,7 +118,8 @@ pub(crate) fn resolve_io_pass(
             }
         }
 
-        output.modules[module_index].local_sentences = sentences;
+        output.modules[module_index].local_sentences =
+            sentences.into_iter().map(Arc::new).collect();
         // Invariant: each earlier implicit import has been added exactly when its module exists;
         // the two-element candidate list shrinks by one each iteration.
         for import in ["K-IO", WellKnownModule::KReflection.as_str()] {
@@ -227,7 +232,7 @@ fn builtin_initializer_contents(
     let builtin_cell = format!("<{}>", stream.stream);
     let builtin_init = format!("init{}Cell", capitalize(&stream.stream));
     let matches = module.local_sentences.iter().filter_map(|sentence| {
-        let Sentence::Rule { body, .. } = sentence else {
+        let Sentence::Rule { body, .. } = &**sentence else {
             return None;
         };
         rewrite_applications(body).and_then(|(left, right)| {
@@ -330,7 +335,7 @@ fn stream_module_sentences(
     module
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body,
                 requires,
@@ -343,14 +348,14 @@ fn stream_module_sentences(
                 attributes: attributes.clone(),
             }),
             Sentence::Rule { attributes, .. } if attributes.has(AttributeKey::Projection) => {
-                Some(sentence.clone())
+                Some((**sentence).clone())
             }
             Sentence::Production {
                 sort, attributes, ..
             } if sort.is_frontend(FrontendSort::Stream)
                 || attributes.has(AttributeKey::Projection) =>
             {
-                Some(sentence.clone())
+                Some((**sentence).clone())
             }
             _ => None,
         })
@@ -422,7 +427,7 @@ fn stdin_unblock_template(
     let templates = module
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.string(AttributeKey::Label) == Some("STDIN-STREAM.stdinUnblock") => {

@@ -37,7 +37,7 @@ pub(crate) fn number_sentences_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            number_sentence(sentence);
+            number_sentence(crate::definition::sentence_mut(sentence));
         }
     }
     Ok(output)
@@ -189,12 +189,11 @@ fn format_attributes(attributes: &Attributes) -> String {
         return String::new();
     }
     let values = attributes
-        .entries()
-        .iter()
+        .wire_entries()
         .map(|(key, value)| match value {
-            Value::String(value) if value.is_empty() => key.clone(),
+            Value::String(value) if value.is_empty() => key.to_owned(),
             Value::String(value) => format!("{key}({value})"),
-            Value::Null => key.clone(),
+            Value::Null => key.to_owned(),
             value => format!("{key}({value})"),
         })
         .collect::<Vec<_>>();

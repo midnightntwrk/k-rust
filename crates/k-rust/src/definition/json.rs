@@ -378,7 +378,7 @@ fn map_definition_attributes(
     for module in &mut definition.modules {
         map(&mut module.attributes)?;
         for sentence in &mut module.local_sentences {
-            map(sentence.attributes_mut())?;
+            map(crate::definition::sentence_mut(sentence).attributes_mut())?;
         }
     }
     Ok(())
@@ -857,7 +857,7 @@ fn addressed_term_mut<'a>(
         .local_sentences
         .get_mut(usize::try_from(entry.sentence_index).expect("u32 fits usize"))
         .ok_or_else(|| Error::InvalidProvenance("term metadata names no sentence".into()))?;
-    let mut term = sentence_term_mut(sentence, entry.field)
+    let mut term = sentence_term_mut(crate::definition::sentence_mut(sentence), entry.field)
         .ok_or_else(|| Error::InvalidProvenance("term metadata names no sentence field".into()))?;
     for child in &entry.path {
         term = term_child_mut(term, *child)
@@ -936,7 +936,7 @@ impl From<&Attributes> for JsonAttributes {
     fn from(attributes: &Attributes) -> Self {
         Self {
             node: AttributeNode::KAtt,
-            att: attributes.entries().clone(),
+            att: attributes.wire_map(),
         }
     }
 }
@@ -1020,7 +1020,7 @@ impl TryFrom<&FlatModule> for JsonFlatModule {
             local_sentences: module
                 .local_sentences
                 .iter()
-                .map(TryInto::try_into)
+                .map(|sentence| sentence.as_ref().try_into())
                 .collect::<Result<_, _>>()?,
             att: (&module.attributes).into(),
         })
@@ -1037,13 +1037,9 @@ impl TryFrom<JsonFlatModule> for FlatModule {
             local_sentences: module
                 .local_sentences
                 .into_iter()
-                .filter_map(|sentence| {
-                    if matches!(sentence, JsonSentence::KBadsentence) {
-                        None
-                    } else {
-                        Some(sentence.try_into())
-                    }
-                })
+                .into_iter()
+                .filter(|sentence| !matches!(sentence, JsonSentence::KBadsentence))
+                .map(|sentence| sentence.try_into().map(Arc::new))
                 .collect::<Result<_, _>>()?,
             attributes: module.att.into(),
         })

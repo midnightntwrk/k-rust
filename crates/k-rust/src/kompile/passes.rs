@@ -3,7 +3,7 @@
 //!
 //! Ordered frontend compilation passes that transform flat definitions.
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use crate::definition::AttributeKey;
 use crate::{
@@ -38,8 +38,10 @@ mod resolve_strict;
 mod subsort_kitem;
 
 pub(crate) use super::retarget::retarget_production_identities;
-pub use add_implicit_computation_cell::add_implicit_computation_cell;
 pub(crate) use add_implicit_computation_cell::add_implicit_computation_cell_pass;
+pub use add_implicit_computation_cell::{
+    AddImplicitComputationCellError, add_implicit_computation_cell,
+};
 pub(crate) use check_simplification::check_simplification_rules_pass;
 pub use check_simplification::{CheckSimplificationError, check_simplification_rules};
 pub(crate) use concretize_cells::concretize_cells_pass;
@@ -62,8 +64,8 @@ pub(crate) use generate_sort_helpers::{
     generate_sort_predicate_syntax_pass, generate_sort_projections_pass,
     regenerate_sort_predicate_syntax_pass,
 };
-pub use guard_or_patterns::guard_or_patterns;
 pub(crate) use guard_or_patterns::guard_or_patterns_pass;
+pub use guard_or_patterns::{GuardOrPatternsError, guard_or_patterns};
 pub use minimize_term_construction::minimize_term_construction;
 pub(crate) use minimize_term_construction::minimize_term_construction_pass;
 pub(crate) use number_sentences::number_sentence;
@@ -71,8 +73,8 @@ pub use number_sentences::number_sentences;
 pub(crate) use number_sentences::number_sentences_pass;
 pub use propagate_macro::propagate_macro_attributes;
 pub(crate) use propagate_macro::propagate_macro_attributes_pass;
-pub use remove_unit::remove_unit;
 pub(crate) use remove_unit::remove_unit_pass;
+pub use remove_unit::{RemoveUnitError, remove_unit};
 pub(crate) use resolve_anon_vars::resolve_anon_vars_pass;
 pub use resolve_anon_vars::{resolve_anon_vars, resolve_anon_vars_in_sentence};
 pub(crate) use resolve_contexts::resolve_contexts_pass;
@@ -162,7 +164,7 @@ pub(crate) fn resolve_comm_pass(
                 requires,
                 ensures,
                 attributes,
-            } = sentence
+            } = &**sentence
             else {
                 sentences.push(sentence.clone());
                 continue;
@@ -177,19 +179,19 @@ pub(crate) fn resolve_comm_pass(
             attributes.unset(AttributeKey::Comm);
             let swapped = commute_lhs(body, true, &productions, sentence, &mut diagnostics);
             if swapped != *body {
-                sentences.push(Sentence::Rule {
+                sentences.push(Arc::new(Sentence::Rule {
                     body: swapped,
                     requires: requires.clone(),
                     ensures: ensures.clone(),
                     attributes: attributes.clone(),
-                });
+                }));
             }
-            sentences.push(Sentence::Rule {
+            sentences.push(Arc::new(Sentence::Rule {
                 body: body.clone(),
                 requires: requires.clone(),
                 ensures: ensures.clone(),
                 attributes,
-            });
+            }));
         }
         module.local_sentences = sentences;
     }

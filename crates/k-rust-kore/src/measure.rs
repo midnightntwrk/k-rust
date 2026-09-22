@@ -54,6 +54,12 @@ pub enum Counter {
     KompileOwiseCompetitorScans,
     /// Membership probes used to deduplicate provenance links.
     ProvenanceLinkDedupProbes,
+    /// Structured provenance receipts rendered into their JSON wire form.
+    ProvenanceReceiptRenders,
+    /// Sentence allocations made by copy-on-write mutation of shared flat definitions.
+    KompileSentenceCopies,
+    /// Production identity digests computed while building catalogs.
+    KompileProductionIdentityDigests,
     // parser (frontend)
     /// Earley parse entries; the filtered/unfiltered prediction retry doubles it.
     ParserParseAttempts,
@@ -146,7 +152,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 57;
+    pub const COUNT: usize = 60;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -164,6 +170,9 @@ impl Counter {
         Counter::KompileMacroApplications,
         Counter::KompileOwiseCompetitorScans,
         Counter::ProvenanceLinkDedupProbes,
+        Counter::ProvenanceReceiptRenders,
+        Counter::KompileSentenceCopies,
+        Counter::KompileProductionIdentityDigests,
         Counter::ParserParseAttempts,
         Counter::ParserPredictionAnalysisBuilds,
         Counter::ParserChartPredictionAttempts,
@@ -226,6 +235,9 @@ impl Counter {
             Counter::KompileMacroApplications => "kompile.macro_applications",
             Counter::KompileOwiseCompetitorScans => "kompile.owise_competitor_scans",
             Counter::ProvenanceLinkDedupProbes => "provenance.link_dedup_probes",
+            Counter::ProvenanceReceiptRenders => "provenance.receipt_renders",
+            Counter::KompileSentenceCopies => "kompile.sentence_copies",
+            Counter::KompileProductionIdentityDigests => "kompile.production_identity_digests",
             Counter::ParserParseAttempts => "parser.parse_attempts",
             Counter::ParserPredictionAnalysisBuilds => "parser.prediction_analysis_builds",
             Counter::ParserChartPredictionAttempts => "parser.chart_prediction_attempts",

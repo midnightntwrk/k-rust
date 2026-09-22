@@ -23,7 +23,7 @@ fn cell_content_sort(definition: &k_rust::definition::Definition, cell: &str) ->
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 items,
@@ -49,7 +49,7 @@ fn configuration_projection_preserves_its_parsed_result_sort() {
     assert_eq!(cell_content_sort(&expanded, "<cell>"), "K");
     let mut has_projection = false;
     for sentence in &expanded.main_module().unwrap().local_sentences {
-        if let Sentence::Rule { body, .. } = sentence {
+        if let Sentence::Rule { body, .. } = &**sentence {
             body.visit_preorder(&mut |term| {
                 has_projection |= matches!(term.unannotated(), Term::Apply { label, arguments }
                     if label.name == "project:K" && arguments.len() == 1);
@@ -84,10 +84,12 @@ fn generated_configuration_projection_does_not_trust_stale_metadata() {
     let body = definition.modules[0]
         .local_sentences
         .iter_mut()
-        .find_map(|sentence| match sentence {
-            Sentence::Configuration { body, .. } => Some(body),
-            _ => None,
-        })
+        .find_map(
+            |sentence| match k_rust::definition::sentence_mut(sentence) {
+                Sentence::Configuration { body, .. } => Some(body),
+                _ => None,
+            },
+        )
         .unwrap();
     let Term::Apply {
         label,
@@ -156,10 +158,10 @@ fn attributes(attributes: &Attributes) -> String {
         .join(", ")
 }
 
-fn sentence_summary(sentences: &[Sentence]) -> Vec<String> {
+fn sentence_summary(sentences: &[std::sync::Arc<Sentence>]) -> Vec<String> {
     sentences
         .iter()
-        .map(|sentence| match sentence {
+        .map(|sentence| match &**sentence {
             Sentence::SyntaxSort {
                 sort,
                 attributes: att,
@@ -239,7 +241,7 @@ fn generates_java_cell_fragment_collection_and_initializer_families() {
             .unwrap()
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
     );
     assert_configuration_snapshot!(
         source,
@@ -263,7 +265,7 @@ fn preserves_type_attribute_on_non_collection_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 attributes,
@@ -333,7 +335,7 @@ fn configuration_expansion_emits_origin_records() {
         .iter()
         .enumerate()
         .find(|(_, sentence)| {
-            matches!(sentence, Sentence::Rule { .. })
+            matches!(&***sentence, Sentence::Rule { .. })
                 && sentence.attributes().get("initializer").is_some()
         })
         .expect("configuration expansion emits an initializer rule");
@@ -361,7 +363,7 @@ fn configuration_expansion_emits_origin_records() {
         "generated sentence links to the exact configuration source span: {sentence_origin}",
     );
 
-    let Sentence::Rule { body, .. } = initializer else {
+    let Sentence::Rule { body, .. } = &**initializer else {
         unreachable!("initializer was selected as a rule");
     };
     let origin = body
@@ -419,7 +421,7 @@ fn generated_configuration_projections_discard_replaced_source_sort_metadata() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         });
@@ -493,7 +495,7 @@ fn configuration_initializer_casts_are_lexically_scoped() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -550,7 +552,7 @@ fn wraps_multiple_top_level_cells_in_generated_top() {
             .local_sentences
             .iter()
             .any(|sentence| matches!(
-                sentence,
+                &**sentence,
                 Sentence::Production { label: Some(label), .. }
                     if label.name == "<generatedTop>"
             ))
@@ -580,7 +582,7 @@ fn configuration_parsing_always_includes_default_layout() {
             .unwrap()
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
     );
 }
 

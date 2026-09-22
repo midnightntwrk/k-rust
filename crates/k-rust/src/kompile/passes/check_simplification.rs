@@ -58,7 +58,7 @@ pub(crate) fn check_simplification_rules_pass(
             .expect("resolved definition contains every source module");
         let productions = views.production_catalog(module_id);
         for sentence in &module.local_sentences {
-            if !matches!(sentence, Sentence::Rule { attributes, .. } if attributes.has(AttributeKey::Simplification))
+            if !matches!(&**sentence, Sentence::Rule { attributes, .. } if attributes.has(AttributeKey::Simplification))
             {
                 continue;
             }

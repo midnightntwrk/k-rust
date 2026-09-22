@@ -3,7 +3,7 @@
 //!
 //! Resolve fresh rule variables through per-sort generators and a counter cell.
 
-use std::{collections::BTreeMap, collections::BTreeSet, fmt};
+use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
 
 use serde_json::json;
 
@@ -87,6 +87,7 @@ pub(crate) fn resolve_fresh_constants_pass(
             .contains(&LabelHead::new(GeneratedCell::Top.label()));
 
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
             let original = sentence.clone();
             match transform_sentence(original, &productions, &generators) {
@@ -128,13 +129,18 @@ pub(crate) fn resolve_fresh_constants_pass(
         if let Some(configuration) = configuration {
             // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             for sentence in counter_helpers() {
-                if !module.local_sentences.contains(&sentence) {
-                    module.local_sentences.push(sentence);
+                if !module
+                    .local_sentences
+                    .iter()
+                    .any(|candidate| **candidate == sentence)
+                {
+                    module.local_sentences.push(Arc::new(sentence));
                 }
             }
-            module.local_sentences.push(configuration);
+            module.local_sentences.push(Arc::new(configuration));
         }
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
             fix_generated_top_format(sentence);
             if let (Some(before), Some(after)) = (before_identity, production_identity(sentence))
@@ -155,6 +161,7 @@ pub(crate) fn resolve_fresh_constants_pass(
         .map_err(|error| error_from(error.to_string()))?;
     for module in &mut expanded.modules {
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
             fix_generated_top_format(sentence);
             if let (Some(before), Some(after)) = (before_identity, production_identity(sentence))

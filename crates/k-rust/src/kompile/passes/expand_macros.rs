@@ -78,12 +78,13 @@ pub(crate) fn expand_macros_pass(
             .expect("resolved definition contains every source module");
         let mut expander = match Expander::new(&views, module_id, module_id) {
             Ok(expander) => expander,
-            Err(message) => {
-                diagnostics.push(plain_error(message));
+            Err(diagnostic) => {
+                diagnostics.push(diagnostic);
                 continue;
             }
         };
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             if matches!(sentence, Sentence::Rule { attributes, .. } if attributes.has_any(&AttributeKey::MACRO_LIKE))
             {
                 continue;
@@ -112,11 +113,7 @@ pub(crate) fn expand_macros_pass(
                             ));
                         }
                     }
-                    Err(message) => diagnostics.push(Diagnostic::error(
-                        DiagnosticCode::InvalidMacroExpansion,
-                        message,
-                        sentence,
-                    )),
+                    Err(diagnostic) => diagnostics.push(located_at(diagnostic, sentence)),
                 }
             }
         }
@@ -161,7 +158,8 @@ pub fn expand_macros_in_term_with_scope(
     // removes those wrappers before macro matching, so concrete terms must build their expander
     // from the same rule shape.
     let definition = super::resolve_semantic_casts(definition);
-    let definition = super::propagate_macro_attributes(&definition)?;
+    let definition =
+        super::propagate_macro_attributes(&definition).map_err(|error| error.to_string())?;
     let resolved = ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
     let views = resolved.views();
     let mut expanded = expand_macros_in_terms_from_views_with_scope(
@@ -169,7 +167,8 @@ pub fn expand_macros_in_term_with_scope(
         macro_module,
         macro_module,
         vec![term],
-    )?;
+    )
+    .map_err(|diagnostic| diagnostic.message)?;
     Ok(expanded
         .terms
         .pop()
@@ -190,6 +189,7 @@ pub(crate) fn expand_macros_in_terms_from_resolved(
 ) -> Result<ExpandedMacroTerms, String> {
     let views = definition.views();
     expand_macros_in_terms_from_views_with_scope(&views, module, module, terms)
+        .map_err(|diagnostic| diagnostic.message)
 }
 
 fn expand_macros_in_terms_from_views_with_scope(
@@ -197,14 +197,14 @@ fn expand_macros_in_terms_from_views_with_scope(
     term_module: &str,
     macro_module: &str,
     terms: Vec<Term>,
-) -> Result<ExpandedMacroTerms, String> {
+) -> Result<ExpandedMacroTerms, Diagnostic> {
     let definition = views.definition();
     let term_module = definition
         .module_id(term_module)
-        .ok_or_else(|| format!("unknown module {term_module}"))?;
+        .ok_or_else(|| plain_error(format!("unknown module {term_module}")))?;
     let macro_module = definition
         .module_id(macro_module)
-        .ok_or_else(|| format!("unknown module {macro_module}"))?;
+        .ok_or_else(|| plain_error(format!("unknown module {macro_module}")))?;
     let mut expander = Expander::new(views, term_module, macro_module)?;
     expander.fresh = FreshNames::for_terms(terms.iter());
     let terms = terms
@@ -234,18 +234,18 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         views: &'view DefinitionViews<'definition>,
         term_module: ModuleId,
         macro_module: ModuleId,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Diagnostic> {
         let definition = views.definition();
         let productions = views.production_catalog(term_module);
         let sorts = views.sort_catalog(term_module);
-        let injector =
-            SortInjector::with_views(views, term_module).map_err(|error| error.to_string())?;
+        let injector = SortInjector::with_views(views, term_module)
+            .map_err(|error| plain_error(error.to_string()))?;
         let subsorts = views
             .subsorts(term_module)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| plain_error(error.to_string()))?;
         let overloads = views
             .overloads(term_module)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| plain_error(error.to_string()))?;
         // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         let all = definition
             .sentences(macro_module)
@@ -255,7 +255,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 macro_rule(id, sentence, &productions).map(|rule| (sentence, rule))
             })
             .map(|(_, rule)| Ok(rule))
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
         let priorities = all
             .iter()
             .map(|rule| macro_priority(rule.sentence.attributes()))
@@ -296,7 +296,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         })
     }
 
-    fn expand_sentence(&mut self, sentence: Sentence) -> Result<Sentence, String> {
+    fn expand_sentence(&mut self, sentence: Sentence) -> Result<Sentence, Diagnostic> {
         self.fresh = FreshNames::for_sentence(&sentence);
         self.generated.clear();
         match sentence {
@@ -335,7 +335,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         }
     }
 
-    fn expand_term(&mut self, term: Term, applied: &BTreeSet<usize>) -> Result<Term, String> {
+    fn expand_term(&mut self, term: Term, applied: &BTreeSet<usize>) -> Result<Term, Diagnostic> {
         let metadata = term.metadata().cloned();
         match term.into_unannotated() {
             Term::Apply { label, arguments } => {
@@ -399,7 +399,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         subject: Term,
         rules: Option<&[MacroRule]>,
         applied: &BTreeSet<usize>,
-    ) -> Result<Term, String> {
+    ) -> Result<Term, Diagnostic> {
         let Some(rules) = rules else {
             return Ok(subject);
         };
@@ -409,7 +409,11 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 unreachable!()
             };
             if requires != &truth() {
-                return Err("Cannot compute macros with side conditions.".into());
+                return Err(Diagnostic::error(
+                    DiagnosticCode::InvalidMacroExpansion,
+                    "Cannot compute macros with side conditions.",
+                    &rule.sentence,
+                ));
             }
             let mut substitution = BTreeMap::new();
             let matched = self.matches(&mut substitution, &rule.left, &subject)?;
@@ -429,7 +433,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         substitution: &mut BTreeMap<String, Term>,
         pattern: &Term,
         subject: &Term,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, Diagnostic> {
         let metadata_sort = pattern
             .metadata()
             .and_then(|metadata| metadata.sort.as_ref());
@@ -442,7 +446,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     let subject_sort = self
                         .injector
                         .term_sort(subject, None)
-                        .map_err(|error| error.to_string())?;
+                        .map_err(|error| plain_error(error.to_string()))?;
                     if !self.subsorts.less_than_eq(&subject_sort, pattern_sort) {
                         return Ok(false);
                     }
@@ -484,10 +488,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             {
                 Ok(false)
             }
-            _ => Err(
-                "Cannot compute macros with terms that are not KApply, KToken, or KVariable."
-                    .into(),
-            ),
+            _ => Err(plain_error(
+                "Cannot compute macros with terms that are not KApply, KToken, or KVariable.",
+            )),
         }
     }
 
@@ -663,10 +666,14 @@ fn contains_macro_symbol(sentence: &Sentence, productions: &ProductionCatalog<'_
     found
 }
 
-fn macro_priority(attributes: &Attributes) -> Result<i64, String> {
+fn macro_priority(attributes: &Attributes) -> Result<i64, Diagnostic> {
     if let Some(value) = attributes.string(AttributeKey::Priority) {
         value.parse().map_err(|_| {
-            format!("Invalid value for priority attribute: {value}. Must be an integer.")
+            Diagnostic::error_at(
+                DiagnosticCode::InvalidMacroExpansion,
+                format!("Invalid value for priority attribute: {value}. Must be an integer."),
+                attributes,
+            )
         })
     } else if attributes.has(AttributeKey::Owise) {
         Ok(200)
@@ -694,4 +701,12 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         source: None,
         location: None,
     }
+}
+
+fn located_at(mut diagnostic: Diagnostic, sentence: &Sentence) -> Diagnostic {
+    if diagnostic.source.is_none() && diagnostic.location.is_none() {
+        diagnostic.source = sentence.attributes().source().map(str::to_owned);
+        diagnostic.location = sentence.attributes().location();
+    }
+    diagnostic
 }

@@ -5,6 +5,7 @@ description: casted rule chain parser counters
 kompile.sentence_equivalence_checks = 6
 kompile.production_catalogs_built = 3
 kompile.partial_orders_built = 16
+kompile.production_identity_digests = 24
 parser.parse_attempts = 1
 parser.prediction_analysis_builds = 1
 parser.chart_prediction_attempts = 290

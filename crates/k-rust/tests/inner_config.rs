@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, ProductionItem, Sentence,
 };
@@ -34,12 +36,14 @@ fn definition(contents: &str) -> Definition {
                     sort: Sort::new("Int"),
                     items: vec![ProductionItem::regex("[0-9]+")],
                     attributes: token_attributes,
-                },
+                }
+                .into(),
                 Sentence::Bubble {
                     sentence_type: "config".into(),
                     contents: contents.into(),
                     attributes: Attributes::default(),
-                },
+                }
+                .into(),
             ],
             attributes: Attributes::default(),
         }],
@@ -55,7 +59,7 @@ fn parses_nested_cells_properties_casts_and_ensures() {
 
     assert_config_snapshot!(source, transformed);
     assert!(matches!(
-        transformed.main_module().unwrap().local_sentences[1],
+        *transformed.main_module().unwrap().local_sentences[1],
         Sentence::Configuration { .. }
     ));
 }
@@ -93,7 +97,7 @@ fn bare_configuration_variable_is_cast_to_its_inferred_sort() {
     let source = "<k> $PGM </k>";
     let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
     let Sentence::Configuration { body, .. } =
-        &transformed.main_module().unwrap().local_sentences[1]
+        &*transformed.main_module().unwrap().local_sentences[1]
     else {
         panic!("the bubble should resolve to a configuration");
     };
@@ -111,7 +115,7 @@ fn explicitly_cast_configuration_variable_keeps_its_single_cast() {
     let source = "<k> $PGM:Int </k>";
     let transformed = resolve_configuration_bubbles(&definition(source)).unwrap();
     let Sentence::Configuration { body, .. } =
-        &transformed.main_module().unwrap().local_sentences[1]
+        &*transformed.main_module().unwrap().local_sentences[1]
     else {
         panic!("the bubble should resolve to a configuration");
     };
@@ -127,11 +131,11 @@ fn declared_kconfigvar_does_not_create_a_reflexive_subsort_bridge() {
     let mut input = definition("<k> $PGM:Int </k>");
     input.modules[0].local_sentences.insert(
         0,
-        Sentence::SyntaxSort {
+        Arc::new(Sentence::SyntaxSort {
             parameters: vec![],
             sort: Sort::new("KConfigVar"),
             attributes: Attributes::default(),
-        },
+        }),
     );
 
     resolve_configuration_bubbles(&input).unwrap();
@@ -141,7 +145,7 @@ fn declared_kconfigvar_does_not_create_a_reflexive_subsort_bridge() {
 fn preserves_external_cells() {
     let transformed = resolve_configuration_bubbles(&definition("<shared/>")).unwrap();
     let Sentence::Configuration { body, .. } =
-        &transformed.main_module().unwrap().local_sentences[1]
+        &*transformed.main_module().unwrap().local_sentences[1]
     else {
         panic!("expected configuration")
     };
@@ -200,7 +204,7 @@ fn configuration_synonym_casts_use_the_target_sort() {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Configuration { body, .. } => Some(body),
                 _ => None,
             })
@@ -246,13 +250,13 @@ fn parses_k_sequences_in_configuration_cells() {
     let mut input = definition(source);
     input.modules[0].local_sentences.insert(
         1,
-        Sentence::Production {
+        Arc::new(Sentence::Production {
             label: Some(Label::new("foo")),
             parameters: vec![],
             sort: Sort::new("Foo"),
             items: vec![ProductionItem::Terminal("foo".into())],
             attributes: Attributes::default(),
-        },
+        }),
     );
     let transformed = resolve_configuration_bubbles(&input).unwrap();
 
@@ -268,7 +272,7 @@ fn parses_record_productions_in_configurations() {
     let mut input = definition(source);
     input.modules[0].local_sentences.insert(
         1,
-        Sentence::Production {
+        Arc::new(Sentence::Production {
             label: Some(Label::new("pair")),
             parameters: vec![],
             sort: Sort::new("Pair"),
@@ -287,7 +291,7 @@ fn parses_record_productions_in_configurations() {
                 ProductionItem::Terminal(")".into()),
             ],
             attributes: Attributes::default(),
-        },
+        }),
     );
     let transformed = resolve_configuration_bubbles(&input).unwrap();
 
@@ -303,13 +307,13 @@ fn parses_literal_cell_names_that_are_also_user_terminals() {
     let mut input = definition(source);
     input.modules[0].local_sentences.insert(
         1,
-        Sentence::Production {
+        Arc::new(Sentence::Production {
             label: Some(Label::new("value")),
             parameters: vec![],
             sort: Sort::new("Exp"),
             items: vec![ProductionItem::Terminal("value".into())],
             attributes: Attributes::default(),
-        },
+        }),
     );
     let transformed = resolve_configuration_bubbles(&input).unwrap();
 
@@ -346,13 +350,13 @@ fn configuration_grammar_includes_imported_productions() {
         FlatModule {
             name: "BASE".into(),
             imports: vec![],
-            local_sentences: vec![Sentence::Production {
+            local_sentences: vec![Arc::new(Sentence::Production {
                 label: Some(Label::new("zero")),
                 parameters: vec![],
                 sort: Sort::new("Exp"),
                 items: vec![ProductionItem::Terminal("zero".into())],
                 attributes: Attributes::default(),
-            }],
+            })],
             attributes: Attributes::default(),
         },
     );
@@ -365,7 +369,7 @@ fn configuration_grammar_includes_imported_productions() {
 
     let transformed = resolve_configuration_bubbles(&input).unwrap();
     let Sentence::Configuration { body, .. } =
-        &transformed.main_module().unwrap().local_sentences[1]
+        &*transformed.main_module().unwrap().local_sentences[1]
     else {
         panic!("expected configuration")
     };
@@ -395,7 +399,7 @@ fn configuration_grammar_uses_the_module_signature() {
         FlatModule {
             name: "BASE".into(),
             imports: vec![],
-            local_sentences: vec![foo],
+            local_sentences: vec![Arc::new(foo)],
             attributes: Attributes::default(),
         },
     );
@@ -446,7 +450,7 @@ fn configuration_brackets_preserve_sequence_order_and_scope() {
         let transformed = resolve_configuration_bubbles(&input)
             .expect("the implicit configuration grammar includes KSEQ brackets");
         let Sentence::Configuration { body, .. } =
-            &transformed.main_module().unwrap().local_sentences[1]
+            &*transformed.main_module().unwrap().local_sentences[1]
         else {
             panic!("expected a configuration");
         };
@@ -477,15 +481,15 @@ fn configuration_sequence_seed_preserves_declared_left_associativity() {
     let mut input = definition("<k> 1 ~> 2 ~> 3 </k>");
     input.modules[0]
         .local_sentences
-        .push(Sentence::SyntaxAssociativity {
+        .push(Arc::new(Sentence::SyntaxAssociativity {
             associativity: k_rust::definition::Associativity::Left,
             tags: vec!["#KSequence".into()],
             attributes: Attributes::default(),
-        });
+        }));
     let transformed = resolve_configuration_bubbles(&input)
         .expect("the KSEQ declaration and implicit seed must not prohibit both associations");
     let Sentence::Configuration { body, .. } =
-        &transformed.main_module().unwrap().local_sentences[1]
+        &*transformed.main_module().unwrap().local_sentences[1]
     else {
         panic!("expected a configuration");
     };

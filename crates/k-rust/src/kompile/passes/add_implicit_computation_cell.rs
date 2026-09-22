@@ -5,15 +5,37 @@
 
 use std::collections::BTreeSet;
 
+use std::fmt;
+
 use crate::definition::AttributeKey;
 use crate::{
     definition::{Definition, LabelHead, ProductionCatalog, Sentence},
+    diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{GeneratedCell, InternalLabel, Label, Sort, Term},
     provenance::GeneratingPass,
 };
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AddImplicitComputationCellError {
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl fmt::Display for AddImplicitComputationCellError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "implicit computation cell insertion produced {} errors",
+            self.diagnostics.len()
+        )
+    }
+}
+
+impl std::error::Error for AddImplicitComputationCellError {}
+
 /// Apply Java's `AddImplicitComputationCell` definition transformation.
-pub fn add_implicit_computation_cell(definition: &Definition) -> Result<Definition, String> {
+pub fn add_implicit_computation_cell(
+    definition: &Definition,
+) -> Result<Definition, AddImplicitComputationCellError> {
     super::super::pipeline::run_standalone(
         definition,
         add_implicit_computation_cell_pass,
@@ -24,8 +46,12 @@ pub fn add_implicit_computation_cell(definition: &Definition) -> Result<Definiti
 pub(crate) fn add_implicit_computation_cell_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, String> {
-    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+) -> Result<Definition, AddImplicitComputationCellError> {
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| AddImplicitComputationCellError {
+            diagnostics: vec![plain_error(error.to_string())],
+        })?;
     let views = resolved.views();
     let mut output = input.definition.clone();
     // Java derives configuration and label information once from the definition's main-module
@@ -61,13 +87,20 @@ pub(crate) fn add_implicit_computation_cell_pass(
         let productions = views.production_catalog(module_id);
 
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             if skip_sentence(sentence) {
                 continue;
             }
-            let (body, is_claim) = match sentence {
-                Sentence::Rule { body, .. } => (body, false),
-                Sentence::Claim { body, .. } => (body, true),
-                Sentence::Context { body, .. } => (body, false),
+            let (body, is_claim, attributes) = match sentence {
+                Sentence::Rule {
+                    body, attributes, ..
+                } => (body, false, attributes),
+                Sentence::Claim {
+                    body, attributes, ..
+                } => (body, true, attributes),
+                Sentence::Context {
+                    body, attributes, ..
+                } => (body, false, attributes),
                 _ => continue,
             };
             if is_function(body, &productions) {
@@ -79,7 +112,15 @@ pub(crate) fn add_implicit_computation_cell_pass(
             {
                 continue;
             }
-            let computation = computation_cell(&computation_cells)?;
+            let computation = computation_cell(&computation_cells).map_err(|message| {
+                AddImplicitComputationCellError {
+                    diagnostics: vec![Diagnostic::error_at(
+                        DiagnosticCode::InvalidMainCell,
+                        message,
+                        attributes,
+                    )],
+                }
+            })?;
             *body = incomplete_cell(computation, items[0].clone());
         }
     }
@@ -90,6 +131,16 @@ fn skip_sentence(sentence: &Sentence) -> bool {
     sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
         || sentence.attributes().has(AttributeKey::Anywhere)
         || sentence.attributes().has(AttributeKey::Simplification)
+}
+
+fn plain_error(message: impl Into<String>) -> Diagnostic {
+    Diagnostic {
+        severity: Severity::Error,
+        code: DiagnosticCode::InvalidMainCell,
+        message: message.into(),
+        source: None,
+        location: None,
+    }
 }
 
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {

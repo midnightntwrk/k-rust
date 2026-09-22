@@ -82,7 +82,7 @@ fn loaded_rule_spans_resolve_to_raw_markdown_bytes() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })

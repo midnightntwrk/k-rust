@@ -239,7 +239,7 @@ fn lowering_preserves_bubble_content_offsets() {
     fn content_start_offset(source_name: &str, source: &str) -> usize {
         let lowered = lower(&parse(source_name, source).unwrap(), "MAIN").unwrap();
         let k_rust::definition::Sentence::Bubble { attributes, .. } =
-            &lowered.main_module().unwrap().local_sentences[0]
+            &*lowered.main_module().unwrap().local_sentences[0]
         else {
             panic!("expected a lowered bubble");
         };
@@ -766,7 +766,7 @@ fn attribute_strings_are_decoded_once_with_k_escapes() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             k_rust::definition::Sentence::Production { attributes, .. } => Some(attributes),
             _ => None,
         })
@@ -949,7 +949,7 @@ fn generated_list_terminator_symbols_include_the_syntax_module() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             k_rust::definition::Sentence::Production {
                 label: Some(label),
                 attributes,
@@ -972,7 +972,7 @@ fn generated_list_terminator_symbols_follow_explicit_list_symbols() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             k_rust::definition::Sentence::Production {
                 label: Some(label),
                 attributes,
@@ -1004,7 +1004,7 @@ fn bracket_label_uses_the_declared_symbol() {
     let bracket_label = |opening: &str| {
         sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 k_rust::definition::Sentence::Production {
                     items, attributes, ..
                 } if items.first()
@@ -1040,7 +1040,7 @@ fn bracket_label_uses_the_declared_symbol() {
         })
     );
 
-    let priorities = sentences.iter().find_map(|sentence| match sentence {
+    let priorities = sentences.iter().find_map(|sentence| match &**sentence {
         k_rust::definition::Sentence::SyntaxPriority { priorities, .. } => Some(priorities),
         _ => None,
     });
@@ -1156,7 +1156,7 @@ fn priority_tags_resolve_through_context_tags() {
     let sentences = &definition.main_module().unwrap().local_sentences;
     let priorities = sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             k_rust::definition::Sentence::SyntaxPriority { priorities, .. } => Some(priorities),
             _ => None,
         })
@@ -1173,7 +1173,7 @@ fn priority_tags_resolve_through_context_tags() {
     );
 
     let associativity_tags = |expected| {
-        sentences.iter().find_map(|sentence| match sentence {
+        sentences.iter().find_map(|sentence| match &**sentence {
             k_rust::definition::Sentence::SyntaxAssociativity {
                 associativity,
                 tags,
@@ -1323,6 +1323,7 @@ fn pinned_outer_corpus_families_parse_and_lower() {
     let mut lowered = lower(&parsed, "OUTER-CORPUS").unwrap();
     for module in &mut lowered.modules {
         for sentence in &mut module.local_sentences {
+            let sentence = k_rust::definition::sentence_mut(sentence);
             sentence
                 .attributes_mut()
                 .remove(SENTENCE_START_OFFSET_ATTRIBUTE);

@@ -3,7 +3,7 @@
 //!
 //! Lower evaluation contexts into heat/cool rules and freezer productions.
 
-use std::{collections::BTreeMap, collections::BTreeSet, fmt};
+use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
 
 use serde_json::Value;
 
@@ -107,7 +107,7 @@ pub(crate) fn resolve_contexts_pass(
         .find(|module| module.name == main)
         .expect("definition contains its main module");
     main.local_sentences
-        .retain(|sentence| !matches!(sentence, Sentence::Context { .. }));
+        .retain(|sentence| !matches!(&**sentence, Sentence::Context { .. }));
     if !generated.is_empty() {
         extend_unique(
             &mut generated,
@@ -117,7 +117,8 @@ pub(crate) fn resolve_contexts_pass(
                 attributes: Attributes::default(),
             }],
         );
-        extend_unique(&mut main.local_sentences, generated);
+        main.local_sentences
+            .extend(generated.into_iter().map(Arc::new));
     }
     // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     Ok(output)

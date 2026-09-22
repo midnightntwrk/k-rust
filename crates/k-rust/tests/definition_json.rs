@@ -44,7 +44,7 @@ fn complete_definition(sentences: Vec<Sentence>) -> Definition {
                 name: "PRELUDE".into(),
                 public: true,
             }],
-            local_sentences: sentences,
+            local_sentences: sentences.into_iter().map(std::sync::Arc::new).collect(),
             attributes: empty_attributes(),
         }],
         attributes: empty_attributes(),
@@ -407,7 +407,7 @@ fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
         body: decoded_body,
         attributes: decoded_attributes,
         ..
-    } = &decoded.definition.modules[0].local_sentences[0]
+    } = &*decoded.definition.modules[0].local_sentences[0]
     else {
         panic!("expected a rule")
     };
@@ -415,7 +415,7 @@ fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
         body: expected_body,
         attributes: expected_attributes,
         ..
-    } = &definition.modules[0].local_sentences[0]
+    } = &*definition.modules[0].local_sentences[0]
     else {
         unreachable!()
     };

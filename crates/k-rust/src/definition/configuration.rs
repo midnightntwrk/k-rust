@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::sync::Arc;
 
 use serde_json::{Value, json};
 
@@ -109,7 +110,7 @@ fn expand_configurations_inner(
         if !transformed.modules[module_index]
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
         {
             continue;
         }
@@ -125,7 +126,7 @@ fn expand_configurations_inner(
         let local = transformed.modules[module_index].local_sentences.clone();
         let mut output = local
             .iter()
-            .filter(|sentence| !matches!(sentence, Sentence::Configuration { .. }))
+            .filter(|sentence| !matches!(&***sentence, Sentence::Configuration { .. }))
             .cloned()
             .collect::<Vec<_>>();
         let mut generated = Vec::new();
@@ -136,7 +137,7 @@ fn expand_configurations_inner(
                 body,
                 ensures,
                 attributes,
-            } = sentence
+            } = &**sentence
             else {
                 continue;
             };
@@ -153,7 +154,7 @@ fn expand_configurations_inner(
             generator.generate_top(body, ensures)?;
         }
 
-        output.extend(generated);
+        output.extend(generated.into_iter().map(Arc::new));
         let previous = transformed.clone();
         transformed.modules[module_index].local_sentences = output;
         resolved = resolved
@@ -169,7 +170,7 @@ fn has_structured_configuration(definition: &Definition) -> bool {
         module
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
     })
 }
 
@@ -1242,7 +1243,7 @@ mod tests {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Production {
                     label: Some(label),
                     items,
@@ -1291,7 +1292,8 @@ mod tests {
             .find(|module| module.name == "MAIN")
             .unwrap();
         for sentence in &mut module.local_sentences {
-            if let Sentence::Configuration { body, .. } = sentence {
+            if let Sentence::Configuration { body, .. } = crate::definition::sentence_mut(sentence)
+            {
                 *body = recast(body, &Sort::new("Val"), &parametric);
             }
         }

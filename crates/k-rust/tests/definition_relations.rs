@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
@@ -187,19 +189,19 @@ fn resolved_definition_derives_relations_from_visible_sentences() {
         name: "MAIN".into(),
         imports: Vec::new(),
         local_sentences: vec![
-            production(None, "Number", &["Int"], Attributes::default()),
-            production(
+            Arc::new(production(None, "Number", &["Int"], Attributes::default())),
+            Arc::new(production(
                 Some("intOp"),
                 "Int",
                 &["Int"],
                 attrs(&[("overload", "numeric")]),
-            ),
-            production(
+            )),
+            Arc::new(production(
                 Some("numberOp"),
                 "Number",
                 &["Number"],
                 attrs(&[("overload", "numeric")]),
-            ),
+            )),
         ],
         attributes: Attributes::default(),
     };

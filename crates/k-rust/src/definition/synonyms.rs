@@ -31,7 +31,7 @@ pub(crate) fn apply_sort_synonyms_with_resolved(
         let synonyms = resolved.sort_catalog(module_id).synonym_map().clone();
 
         for sentence in &mut module.local_sentences {
-            apply_to_sentence(sentence, &synonyms);
+            apply_to_sentence(crate::definition::sentence_mut(sentence), &synonyms);
         }
     }
 

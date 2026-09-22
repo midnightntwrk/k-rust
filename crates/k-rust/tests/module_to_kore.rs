@@ -352,7 +352,7 @@ fn bracket_declarations_accept_klabel_objects_and_legacy_strings() {
             .iter_mut()
             .find(|sentence| sentence.attributes().get("bracket").is_some())
             .expect("expected a bracket production");
-        bracket
+        k_rust::definition::sentence_mut(bracket)
             .attributes_mut()
             .insert("bracketLabel", representation);
 
@@ -1284,7 +1284,7 @@ endmodule
         .expect("main module should exist")
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             k_rust::definition::Sentence::SyntaxSort { sort, .. } if sort.name == "#Foo" => {
                 Some(sort)
             }

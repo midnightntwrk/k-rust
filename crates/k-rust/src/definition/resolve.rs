@@ -705,8 +705,8 @@ fn modules_identical(previous: &FlatModule, next: &FlatModule) -> (bool, bool) {
 }
 
 fn iter_identical<'a>(
-    mut left: impl Iterator<Item = &'a Sentence>,
-    mut right: impl Iterator<Item = &'a Sentence>,
+    mut left: impl Iterator<Item = &'a Arc<Sentence>>,
+    mut right: impl Iterator<Item = &'a Arc<Sentence>>,
 ) -> bool {
     loop {
         match (left.next(), right.next()) {
@@ -1027,10 +1027,16 @@ fn is_syntax_sentence(sentence: &Sentence) -> bool {
     )
 }
 
-fn deduplicate_sentences(sentences: &[Sentence]) -> Vec<Arc<Sentence>> {
-    dedup_by_equivalence(sentences)
+fn deduplicate_sentences(sentences: &[Arc<Sentence>]) -> Vec<Arc<Sentence>> {
+    dedup_by_equivalence(sentences.iter().map(Arc::as_ref))
         .into_iter()
-        .map(|sentence| Arc::new(sentence.clone()))
+        .map(|sentence| {
+            sentences
+                .iter()
+                .find(|candidate| std::ptr::eq(candidate.as_ref(), sentence))
+                .map(Arc::clone)
+                .expect("equivalence representative came from input")
+        })
         .collect()
 }
 
@@ -1043,7 +1049,7 @@ mod tests {
         FlatModule {
             name: name.into(),
             imports: Vec::new(),
-            local_sentences: vec![sentence],
+            local_sentences: vec![Arc::new(sentence)],
             attributes: Attributes::default(),
         }
     }
@@ -1068,7 +1074,7 @@ mod tests {
         };
         let base = ResolvedDefinition::resolve(&initial).unwrap();
         let mut next = initial.clone();
-        next.modules[1].local_sentences[0] = sort_sentence("B");
+        next.modules[1].local_sentences[0] = Arc::new(sort_sentence("B"));
         let updated = base.update(&initial, &next).unwrap();
         let resolved = ResolvedDefinition::resolve(&next).unwrap();
         assert_eq!(updated.dependency_order, resolved.dependency_order);

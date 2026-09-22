@@ -29,7 +29,7 @@ pub(crate) fn resolve_anon_vars_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            resolve_anon_vars_in_sentence_mut(sentence);
+            resolve_anon_vars_in_sentence_mut(crate::definition::sentence_mut(sentence));
         }
     }
     Ok(output)

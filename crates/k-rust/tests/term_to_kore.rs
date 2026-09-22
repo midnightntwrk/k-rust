@@ -31,7 +31,7 @@ macro_rules! term_snapshot {
                 .expect("main module should exist")
                 .local_sentences
                 .iter()
-                .filter_map(|sentence| match sentence {
+                .filter_map(|sentence| match &**sentence {
                     Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => Some(body),
                     _ => None,
                 })

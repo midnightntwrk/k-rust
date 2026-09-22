@@ -770,8 +770,7 @@ pub(super) fn render_production(sentence: &Sentence) -> Option<String> {
         .collect::<Vec<_>>()
         .join(" ");
     let attributes = attributes
-        .entries()
-        .iter()
+        .wire_entries()
         .filter(|(key, _)| {
             !matches!(
                 AttributeKey::from_name(key),
@@ -785,8 +784,8 @@ pub(super) fn render_production(sentence: &Sentence) -> Option<String> {
             )
         })
         .map(|(key, value)| match value {
-            serde_json::Value::String(value) if value.is_empty() => key.clone(),
-            serde_json::Value::Null => key.clone(),
+            serde_json::Value::String(value) if value.is_empty() => key.to_owned(),
+            serde_json::Value::Null => key.to_owned(),
             serde_json::Value::String(value) => format!("{key}({value})"),
             value => format!("{key}({value})"),
         })

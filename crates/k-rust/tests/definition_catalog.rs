@@ -61,14 +61,16 @@ fn fixture() -> ResolvedDefinition {
                 Sort::with_parameters("Box", vec![variable.clone()]),
                 vec![variable],
                 Attributes::default(),
-            ),
+            )
+            .into(),
             production(
                 Some(Label::new("token")),
                 Vec::new(),
                 Sort::new("Int"),
                 Vec::new(),
                 attrs(&["token"]),
-            ),
+            )
+            .into(),
         ],
         attributes: Attributes::default(),
     };
@@ -85,21 +87,24 @@ fn fixture() -> ResolvedDefinition {
                 Sort::with_parameters("Box", vec![Sort::new("Int")]),
                 vec![Sort::new("Int")],
                 Attributes::default(),
-            ),
+            )
+            .into(),
             production(
                 Some(Label::new("fresh")),
                 Vec::new(),
                 Sort::new("Int"),
                 vec![Sort::new("Int")],
                 attrs(&["function"]),
-            ),
+            )
+            .into(),
             production(
                 None,
                 Vec::new(),
                 Sort::new("Hidden"),
                 Vec::new(),
                 Attributes::default(),
-            ),
+            )
+            .into(),
         ],
         attributes: Attributes::default(),
     };
@@ -426,7 +431,7 @@ proptest! {
         let base = FlatModule {
             name: "BASE".into(),
             imports: Vec::new(),
-            local_sentences: productions(imported),
+            local_sentences: productions(imported).into_iter().map(std::sync::Arc::new).collect(),
             attributes: Attributes::default(),
         };
         let main = FlatModule {
@@ -435,7 +440,7 @@ proptest! {
                 name: "BASE".into(),
                 public: true,
             }],
-            local_sentences: productions(local),
+            local_sentences: productions(local).into_iter().map(std::sync::Arc::new).collect(),
             attributes: Attributes::default(),
         };
         let resolved = ResolvedDefinition::resolve(&Definition {

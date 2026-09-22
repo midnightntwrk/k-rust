@@ -1194,7 +1194,7 @@ pub(crate) fn add_sort_injections_to_definition_pass(
                     error: Box::new(error),
                 }
             })?;
-            *sentence = injected;
+            *crate::definition::sentence_mut(sentence) = injected;
         }
     }
     Ok(output)

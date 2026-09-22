@@ -166,7 +166,11 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
         .collect::<BTreeSet<_>>();
 
     for module in &mut transformed.modules {
-        if !module.local_sentences.iter().any(is_rule_bubble) {
+        if !module
+            .local_sentences
+            .iter()
+            .any(|sentence| is_rule_bubble(sentence))
+        {
             continue;
         }
         let module_id = resolved
@@ -191,7 +195,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
                 sentence_type,
                 contents,
                 attributes,
-            } = sentence
+            } = &**sentence
             else {
                 continue;
             };
@@ -210,7 +214,7 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
             if let Some(started) = parse_started {
                 parse_seconds += started.elapsed().as_secs_f64();
             }
-            *sentence = parsed?;
+            *crate::definition::sentence_mut(sentence) = parsed?;
         }
     }
 

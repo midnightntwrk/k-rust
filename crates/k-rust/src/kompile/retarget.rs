@@ -19,7 +19,7 @@ pub(crate) fn retarget_production_identities(
     }
     for module in &mut definition.modules {
         for sentence in &mut module.local_sentences {
-            retarget_sentence(sentence, replacements);
+            retarget_sentence(crate::definition::sentence_mut(sentence), replacements);
         }
     }
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use std::collections::BTreeMap;
 
 use k_rust::definition::{
@@ -91,13 +93,13 @@ fn derives_visible_local_sorted_and_grouped_sentence_views() {
         name: "BASE".into(),
         imports: Vec::new(),
         local_sentences: vec![
-            rule(apply(Label::new("base")), Attributes::default()),
-            claim(apply(Label::new("baseClaim"))),
-            Sentence::Context {
+            Arc::new(rule(apply(Label::new("base")), Attributes::default())),
+            Arc::new(claim(apply(Label::new("baseClaim")))),
+            Arc::new(Sentence::Context {
                 body: apply(Label::new("baseContext")),
                 requires: truth(),
                 attributes: Attributes::default(),
-            },
+            }),
         ],
         attributes: Attributes::default(),
     };
@@ -108,19 +110,19 @@ fn derives_visible_local_sorted_and_grouped_sentence_views() {
             public: true,
         }],
         local_sentences: vec![
-            rule(apply(Label::new("local")), Attributes::default()),
-            rule(truth(), Attributes::default()),
-            claim(apply(Label::new("localClaim"))),
-            Sentence::Context {
+            Arc::new(rule(apply(Label::new("local")), Attributes::default())),
+            Arc::new(rule(truth(), Attributes::default())),
+            Arc::new(claim(apply(Label::new("localClaim")))),
+            Arc::new(Sentence::Context {
                 body: apply(Label::new("localContext")),
                 requires: truth(),
                 attributes: Attributes::default(),
-            },
-            Sentence::ContextAlias {
+            }),
+            Arc::new(Sentence::ContextAlias {
                 body: apply(Label::new("aliasContext")),
                 requires: truth(),
                 attributes: Attributes::default(),
-            },
+            }),
         ],
         attributes: Attributes::default(),
     };

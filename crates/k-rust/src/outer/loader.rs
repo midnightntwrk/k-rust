@@ -728,7 +728,7 @@ fn finish_load(
 fn remove_temporary_cell_sort_declarations(definition: &mut Definition) {
     for module in &mut definition.modules {
         module.local_sentences.retain(|sentence| {
-            !matches!(sentence, Sentence::SyntaxSort { attributes, .. }
+            !matches!(&**sentence, Sentence::SyntaxSort { attributes, .. }
                 if attributes.has(AttributeKey::TemporaryCellSortDecl))
         });
     }
@@ -861,7 +861,7 @@ fn add_implicit_configuration_imports(
         for module in &mut definition.modules {
             let has_local_configuration =
                 // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
-                module.local_sentences.iter().any(is_configuration_sentence);
+                module.local_sentences.iter().any(|sentence| is_configuration_sentence(sentence));
             if has_local_configuration
                 && !module
                     .imports
@@ -896,7 +896,11 @@ fn definition_has_visible_configuration(definition: &Definition, module: &str) -
         let Some(module) = modules.get(name) else {
             continue;
         };
-        if module.local_sentences.iter().any(is_configuration_sentence) {
+        if module
+            .local_sentences
+            .iter()
+            .any(|sentence| is_configuration_sentence(sentence))
+        {
             return Some(true);
         }
         pending.extend(module.imports.iter().map(|import| import.name.as_str()));
@@ -1261,6 +1265,7 @@ mod tests {
         definition::{Attributes, FlatImport, FlatModule},
         kast::{Sort, Term},
     };
+    use std::sync::Arc;
 
     fn configuration_fixture(configuration: Sentence) -> Definition {
         Definition {
@@ -1281,7 +1286,7 @@ mod tests {
                 FlatModule {
                     name: "MAIN".into(),
                     imports: vec![],
-                    local_sentences: vec![configuration],
+                    local_sentences: vec![Arc::new(configuration)],
                     attributes: Attributes::default(),
                 },
             ],
@@ -1295,7 +1300,7 @@ mod tests {
                 .expect("the fixture is a valid definition");
         let main = transformed.main_module().expect("MAIN exists");
 
-        assert_eq!(main.local_sentences, [configuration]);
+        assert_eq!(main.local_sentences, [Arc::new(configuration)]);
         assert!(
             !main
                 .imports
@@ -1360,7 +1365,7 @@ mod tests {
                 FlatModule {
                     name: "HELPER".into(),
                     imports: vec![],
-                    local_sentences: vec![configuration],
+                    local_sentences: vec![Arc::new(configuration)],
                     attributes: Attributes::default(),
                 },
                 FlatModule {

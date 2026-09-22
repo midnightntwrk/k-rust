@@ -7,6 +7,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
     fmt,
+    sync::Arc,
 };
 
 use crate::definition::AttributeKey;
@@ -91,7 +92,7 @@ pub(crate) fn resolve_function_with_config_pass(
         let mut sentences = Vec::with_capacity(module.local_sentences.len() + 1);
 
         for sentence in &module.local_sentences {
-            let transformed = match sentence {
+            let transformed = match &**sentence {
                 Sentence::Rule {
                     body,
                     requires,
@@ -175,7 +176,7 @@ pub(crate) fn resolve_function_with_config_pass(
                         attributes: attributes.clone(),
                     }
                 }
-                _ => sentence.clone(),
+                _ => (**sentence).clone(),
             };
             if let (Some(before), Some(after)) = (
                 production_identity(sentence),
@@ -196,7 +197,7 @@ pub(crate) fn resolve_function_with_config_pass(
                 attributes: Attributes::default(),
             });
         }
-        module.local_sentences = sentences;
+        module.local_sentences = sentences.into_iter().map(Arc::new).collect();
     }
 
     if !diagnostics.is_empty() {
@@ -229,6 +230,7 @@ pub(crate) fn resolve_config_var_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let (body, requires, ensures) = match sentence {
                 Sentence::Rule {
                     body,

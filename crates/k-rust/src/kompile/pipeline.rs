@@ -77,6 +77,9 @@ diagnostics_error!(
     super::ResolveFreshConfigConstantsError,
     super::ResolveFreshConstantsError,
     super::ExpandMacrosError,
+    super::AddImplicitComputationCellError,
+    super::RemoveUnitError,
+    super::GuardOrPatternsError,
     super::CheckSimplificationError,
     super::ConcretizeCellsError,
 );

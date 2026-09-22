@@ -64,6 +64,7 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
         let productions = views.production_catalog(module_id);
         let sorts = views.sort_catalog(module_id);
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let attributes = sentence.attributes();
             let heat = attributes.has(AttributeKey::Heat);
             let cool = attributes.has(AttributeKey::Cool);

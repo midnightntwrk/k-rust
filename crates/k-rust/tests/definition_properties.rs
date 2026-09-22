@@ -202,7 +202,10 @@ fn definition() -> impl Strategy<Value = Definition> {
                     name: "PRELUDE".into(),
                     public,
                 }],
-                local_sentences,
+                local_sentences: local_sentences
+                    .into_iter()
+                    .map(std::sync::Arc::new)
+                    .collect(),
                 attributes: Attributes::default(),
             }],
             attributes,

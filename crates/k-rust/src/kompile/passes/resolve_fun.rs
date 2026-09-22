@@ -3,7 +3,7 @@
 //!
 //! Lower local `#fun`, `#let`, and K-matching expressions into generated functions.
 
-use std::{collections::BTreeSet, fmt};
+use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -61,7 +61,7 @@ pub(crate) fn resolve_fun_pass(
         .modules
         .iter()
         .flat_map(|module| &module.local_sentences)
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label), ..
             } => Some(label.name.clone()),
@@ -91,11 +91,11 @@ pub(crate) fn resolve_fun_pass(
         let mut sentences = Vec::with_capacity(module.local_sentences.len());
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sentence in &module.local_sentences {
-            sentences.push(resolver.transform_sentence(sentence.clone()));
+            sentences.push(resolver.transform_sentence((**sentence).clone()));
         }
         extend_unique(&mut sentences, resolver.productions);
         extend_unique(&mut sentences, resolver.rules);
-        module.local_sentences = sentences;
+        module.local_sentences = sentences.into_iter().map(Arc::new).collect();
     }
 
     if diagnostics.is_empty() {

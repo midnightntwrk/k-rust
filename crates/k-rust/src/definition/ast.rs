@@ -3,11 +3,7 @@
 //!
 //! The flat, serializable K definition model.
 
-use std::{
-    collections::BTreeMap,
-    fmt,
-    sync::{Arc, OnceLock},
-};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use serde_json::Value;
 
@@ -48,8 +44,6 @@ pub struct Attributes {
     // through the definition clones made by the kompile pipeline; the structured receipt shares
     // that set and renders its JSON form only for consumers of the public map view.
     origin: Option<Arc<OriginReceipt>>,
-    // Preserve the public map view without materializing the shared receipt in semantic consumers.
-    materialized_entries: OnceLock<BTreeMap<String, Value>>,
 }
 
 /// One attribute key whose distinct values cannot be represented by the semantic map.
@@ -102,7 +96,6 @@ impl Clone for Attributes {
         Self {
             entries: self.entries.clone(),
             origin: self.origin.as_ref().map(Arc::clone),
-            materialized_entries: OnceLock::new(),
         }
     }
 }
@@ -111,7 +104,7 @@ impl fmt::Debug for Attributes {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Attributes")
-            .field("entries", self.entries())
+            .field("entries", &self.wire_map())
             .finish()
     }
 }
@@ -121,22 +114,40 @@ impl Attributes {
         let origin = entries
             .remove(AttributeKey::Origin.as_str())
             .map(|value| Arc::new(OriginReceipt::from_value(value)));
-        Self {
-            entries,
-            origin,
-            materialized_entries: OnceLock::new(),
-        }
+        Self { entries, origin }
     }
 
-    pub fn entries(&self) -> &BTreeMap<String, Value> {
-        let Some(origin) = &self.origin else {
-            return &self.entries;
-        };
-        self.materialized_entries.get_or_init(|| {
-            let mut entries = self.entries.clone();
-            entries.insert(AttributeKey::Origin.as_str().into(), origin.value().clone());
-            entries
-        })
+    /// Iterate over the wire representation, including the compiler-only origin receipt.
+    ///
+    /// The temporary vector is deliberately scoped to this call; unlike the former cached map,
+    /// rendering a receipt never becomes part of the sentence's retained state.
+    pub fn wire_entries(&self) -> impl Iterator<Item = (&str, &Value)> {
+        let mut entries = self
+            .entries
+            .iter()
+            .map(|(key, value)| (key.as_str(), value))
+            .collect::<Vec<_>>();
+        if let Some(origin) = &self.origin {
+            let key = AttributeKey::Origin.as_str();
+            let index = entries
+                .binary_search_by(|(candidate, _)| (*candidate).cmp(key))
+                .unwrap_or_else(|index| index);
+            entries.insert(index, (key, origin.value()));
+        }
+        entries.into_iter()
+    }
+
+    /// Return the complete wire representation as an owned map for serde and callers that need
+    /// map operations.
+    pub fn wire_map(&self) -> BTreeMap<String, Value> {
+        self.wire_entries()
+            .map(|(key, value)| (key.to_owned(), value.clone()))
+            .collect()
+    }
+
+    /// Compatibility map view. New code should prefer [`Self::wire_map`] or [`Self::wire_entries`].
+    pub fn entries(&self) -> BTreeMap<String, Value> {
+        self.wire_map()
     }
 
     pub fn get(&self, key: &str) -> Option<&Value> {
@@ -183,7 +194,6 @@ impl Attributes {
 
     pub fn insert(&mut self, key: impl Into<String>, value: Value) -> Option<Value> {
         let key = key.into();
-        self.invalidate_materialized_entries();
         if key == AttributeKey::Origin.as_str() {
             self.origin
                 .replace(Arc::new(OriginReceipt::from_value(value)))
@@ -194,7 +204,6 @@ impl Attributes {
     }
 
     pub fn remove(&mut self, key: &str) -> Option<Value> {
-        self.invalidate_materialized_entries();
         if key == AttributeKey::Origin.as_str() {
             self.origin.take().map(receipt_into_value)
         } else {
@@ -312,13 +321,11 @@ impl Attributes {
     }
 
     pub(crate) fn set_origin(&mut self, value: Value) {
-        self.invalidate_materialized_entries();
         self.origin = Some(Arc::new(OriginReceipt::from_value(value)));
     }
 
     /// Store a structured receipt; its JSON form is rendered only when a map view asks for it.
     pub(crate) fn set_origin_record(&mut self, record: OriginRecord) {
-        self.invalidate_materialized_entries();
         self.origin = Some(Arc::new(OriginReceipt::from_record(record)));
     }
 
@@ -346,12 +353,7 @@ impl Attributes {
         let Some(origin) = &source.origin else {
             return;
         };
-        self.invalidate_materialized_entries();
         self.origin = Some(Arc::clone(origin));
-    }
-
-    fn invalidate_materialized_entries(&mut self) {
-        self.materialized_entries = OnceLock::new();
     }
 }
 
@@ -506,7 +508,7 @@ pub struct FlatImport {
 pub struct FlatModule {
     pub name: String,
     pub imports: Vec<FlatImport>,
-    pub local_sentences: Vec<Sentence>,
+    pub local_sentences: Vec<Arc<Sentence>>,
     pub attributes: Attributes,
 }
 

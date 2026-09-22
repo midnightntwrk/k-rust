@@ -434,7 +434,7 @@ fn reference_let_list_binder_lambda_parameter_sorts_match() {
                 pattern,
                 attributes,
                 ..
-            } = sentence
+            } = &**sentence
             else {
                 return None;
             };
@@ -471,7 +471,7 @@ fn reference_let_list_binder_lambda_parameter_sorts_match() {
                 argument_sorts,
                 attributes,
                 ..
-            } = sentence
+            } = &**sentence
             else {
                 return None;
             };
@@ -562,7 +562,7 @@ fn duplicates_commutative_simplification_rules_and_removes_rule_comm() {
         .filter_map(|sentence| {
             let Sentence::Rule {
                 body, attributes, ..
-            } = sentence
+            } = &**sentence
             else {
                 return None;
             };
@@ -603,7 +603,7 @@ fn commutative_rule_copies_carry_their_source_rule_origin() {
         .local_sentences
         .iter()
         .enumerate()
-        .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+        .filter(|(_, sentence)| matches!(&***sentence, Sentence::Rule { .. }))
         .collect::<Vec<_>>();
 
     assert_eq!(rules.len(), 2);
@@ -614,7 +614,7 @@ fn commutative_rule_copies_carry_their_source_rule_origin() {
             receipt["destination"]["sentenceIndex"],
             serde_json::json!(sentence_index),
         );
-        let Sentence::Rule { body, .. } = sentence else {
+        let Sentence::Rule { body, .. } = &**sentence else {
             unreachable!();
         };
         let origin = body
@@ -696,7 +696,7 @@ fn module(name: &str, sentences: Vec<Sentence>) -> FlatModule {
     FlatModule {
         name: name.into(),
         imports: Vec::new(),
-        local_sentences: sentences,
+        local_sentences: sentences.into_iter().map(std::sync::Arc::new).collect(),
         attributes: Attributes::default(),
     }
 }
@@ -812,7 +812,7 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
         .find(|module| module.name == "K-IO")
         .unwrap()
         .local_sentences
-        .push(production("ioHelper", "KItem", Attributes::default()));
+        .push(production("ioHelper", "KItem", Attributes::default()).into());
     let resolved = ResolvedDefinition::resolve(&input).unwrap();
     let main_id = resolved.module_id("MAIN").unwrap();
     let catalog = resolved.production_catalog(main_id);
@@ -826,7 +826,7 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
         .iter_mut()
         .find(|sentence| sentence.attributes().get_str("label") == Some("consume"))
         .unwrap();
-    let Sentence::Rule { body, .. } = consume else {
+    let Sentence::Rule { body, .. } = k_rust::definition::sentence_mut(consume) else {
         unreachable!()
     };
     let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
@@ -840,7 +840,7 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
     let rendered = main
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -866,7 +866,7 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
             .any(|body| body.contains("builtinStep") && body.contains("`<in>`"))
     );
     assert!(main.local_sentences.iter().any(|sentence| {
-        matches!(sentence, Sentence::Production { sort, .. } if sort.name == "Stream")
+        matches!(&**sentence, Sentence::Production { sort, .. } if sort.name == "Stream")
     }));
     let generated_receipts = main
         .local_sentences
@@ -886,7 +886,7 @@ fn resolves_stream_initializers_unblocking_rules_and_builtin_sentences() {
         .iter()
         .find(|sentence| sentence.attributes().get_str("label") == Some("consume"))
         .unwrap();
-    let Sentence::Rule { body, .. } = consume else {
+    let Sentence::Rule { body, .. } = &**consume else {
         unreachable!()
     };
     let rebased = body
@@ -916,7 +916,7 @@ fn stdin_unblocking_rejects_multiple_matches_and_generates_one_for_single_match(
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("consume") => Some(body),
@@ -946,7 +946,7 @@ fn stdin_unblocking_rejects_multiple_matches_and_generates_one_for_single_match(
         body,
         attributes: rule_attributes,
         ..
-    } = consume
+    } = k_rust::definition::sentence_mut(consume)
     else {
         unreachable!()
     };
@@ -1049,7 +1049,7 @@ fn lowers_local_functions_with_closure_arguments_and_totality() {
     let sentences = &resolved.main_module().unwrap().local_sentences;
     let lambda = sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 items,
@@ -1076,7 +1076,7 @@ fn lowers_local_functions_with_closure_arguments_and_totality() {
 
     let rendered = sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -1131,7 +1131,7 @@ fn nested_local_functions_scope_closures_to_their_own_patterns() {
     let sentences = &resolved.main_module().unwrap().local_sentences;
     let lambda_arities = sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 items,
@@ -1148,7 +1148,7 @@ fn nested_local_functions_scope_closures_to_their_own_patterns() {
     assert_eq!(lambda_arities, vec![2, 3]);
 
     for sentence in sentences {
-        let Sentence::Rule { body, .. } = sentence else {
+        let Sentence::Rule { body, .. } = &**sentence else {
             continue;
         };
         let Term::Rewrite { left, right } = body.unannotated() else {
@@ -1256,7 +1256,7 @@ fn matching_patterns_bind_their_anonymous_variables_instead_of_closing_over_them
     let sentences = &resolved.main_module().unwrap().local_sentences;
     let lambda_arities = sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 items,
@@ -1282,7 +1282,7 @@ fn matching_patterns_bind_their_anonymous_variables_instead_of_closing_over_them
 
     let mut generated_rules = 0;
     for sentence in sentences {
-        let Sentence::Rule { body, .. } = sentence else {
+        let Sentence::Rule { body, .. } = &**sentence else {
             continue;
         };
         let Term::Rewrite { left, right } = body.unannotated() else {
@@ -1371,7 +1371,7 @@ fn local_function_variable_patterns_keep_the_k_parameter_sort() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 items,
@@ -1388,7 +1388,7 @@ fn local_function_variable_patterns_keep_the_k_parameter_sort() {
 
     let injected = add_sort_injections_to_definition(&transformed).unwrap();
     for sentence in injected.main_module().unwrap().local_sentences.iter() {
-        let Sentence::Rule { body, .. } = sentence else {
+        let Sentence::Rule { body, .. } = &**sentence else {
             continue;
         };
         body.visit_preorder(&mut |term| {
@@ -1448,7 +1448,7 @@ fn local_function_singleton_user_list_arguments_keep_the_k_parameter_sort() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 items,
@@ -1506,7 +1506,10 @@ fn gives_generated_lambdas_definition_wide_unique_labels() {
                     name: "LIB".into(),
                     public: true,
                 }],
-                local_sentences: vec![syntax(), rule(local_function(), Attributes::default())],
+                local_sentences: vec![
+                    syntax().into(),
+                    rule(local_function(), Attributes::default()).into(),
+                ],
                 attributes: Attributes::default(),
             },
         ],
@@ -1518,7 +1521,7 @@ fn gives_generated_lambdas_definition_wide_unique_labels() {
         .modules
         .iter()
         .flat_map(|module| &module.local_sentences)
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label), ..
             } if label.name.starts_with("#lambda") => Some(label.name.clone()),
@@ -1565,11 +1568,11 @@ fn lowers_k_non_matching_to_a_negated_predicate_with_owise_rule() {
     let resolved = resolve_fun(&definition).unwrap();
     let sentences = &resolved.main_module().unwrap().local_sentences;
     assert!(sentences.iter().any(|sentence| {
-        matches!(sentence, Sentence::Rule { attributes, .. } if attributes.get("owise").is_some())
+        matches!(&**sentence, Sentence::Rule { attributes, .. } if attributes.get("owise").is_some())
     }));
     let rendered = sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -1649,7 +1652,7 @@ fn threads_configuration_through_transitive_function_calls() {
     let main = transformed.main_module().unwrap();
     assert!(
         main.local_sentences.iter().any(|sentence| matches!(
-            sentence,
+            &**sentence,
             Sentence::SyntaxSort { sort, .. } if sort == &Sort::new("GeneratedTopCell")
         )),
         "adding configuration arguments must also declare GeneratedTopCell"
@@ -1657,7 +1660,7 @@ fn threads_configuration_through_transitive_function_calls() {
     let production_arities = main
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 items,
@@ -1673,7 +1676,7 @@ fn threads_configuration_through_transitive_function_calls() {
     let rendered = main
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -1760,7 +1763,7 @@ fn function_dependencies_ignore_anywhere_macro_classification() {
             .unwrap()
             .local_sentences
             .iter()
-            .filter_map(|sentence| match sentence {
+            .filter_map(|sentence| match &**sentence {
                 Sentence::Production {
                     label: Some(label),
                     items,
@@ -1829,7 +1832,7 @@ fn anywhere_macro_like_rules_are_not_anywhere_rules_for_with_config() {
             .unwrap()
             .local_sentences
             .iter()
-            .filter_map(|sentence| match sentence {
+            .filter_map(|sentence| match &**sentence {
                 Sentence::Production {
                     label: Some(label),
                     items,
@@ -1873,7 +1876,7 @@ fn lowers_with_config_rules_to_a_top_cell_alias() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -1906,7 +1909,7 @@ fn rebases_function_metadata_after_adding_configuration_arguments() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -1958,7 +1961,7 @@ fn aliases_a_rewritten_top_cell_when_configuration_is_used() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -2004,7 +2007,7 @@ fn does_not_alias_a_top_cell_for_unresolved_fresh_variables_alone() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -2028,7 +2031,7 @@ fn assigns_stable_alpha_normalized_sentence_ids() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { attributes, .. } => Some((
                 attributes.get_str("label").map(str::to_owned),
                 attributes
@@ -2092,7 +2095,7 @@ fn lowers_heat_and_cool_attributes_to_result_predicates() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { requires, .. } => Some(Printer::new().print_term(requires)),
             _ => None,
         })
@@ -2134,8 +2137,14 @@ fn heat_cool_ignores_non_rule_sentence_kinds_before_predicate_lookup() {
         let transformed = resolve_heat_cool_attributes(&definition)
             .expect("ignored sentence kinds must not require a strictness predicate");
         assert_eq!(
-            transformed.main_module().unwrap().local_sentences,
-            sentences
+            transformed
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .map(|s| &**s)
+                .collect::<Vec<_>>(),
+            sentences.iter().collect::<Vec<_>>()
         );
     }
 }
@@ -2190,7 +2199,7 @@ fn removes_semantic_casts_and_retains_inferred_variable_sorts() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -2236,7 +2245,7 @@ fn semantic_cast_sort_metadata_disambiguates_manually_built_applications() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -2263,7 +2272,7 @@ fn adds_kitem_subsorts_for_every_non_parser_sort() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: None,
                 sort,
@@ -2311,7 +2320,7 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, requires, .. } => Some((
                 Printer::new().print_term(body),
                 Printer::new().print_term(requires),
@@ -2341,7 +2350,7 @@ fn folds_integer_parameters_only_through_the_reference_unsigned_bound() {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Rule { body, .. } => match body.unannotated() {
                     Term::Rewrite { right, .. } => Some(right.unannotated().clone()),
                     _ => None,
@@ -2404,7 +2413,7 @@ fn folds_mpfr_float_constants_with_their_declared_contexts() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -2465,7 +2474,8 @@ fn folds_unicode_string_hooks_with_java_token_wrapping() {
         attributes: Attributes::default(),
     };
     let transformed = constant_fold(&definition).unwrap();
-    let Sentence::Rule { body, .. } = &transformed.main_module().unwrap().local_sentences[2] else {
+    let Sentence::Rule { body, .. } = &*transformed.main_module().unwrap().local_sentences[2]
+    else {
         unreachable!()
     };
     let Term::Rewrite { right, .. } = body.unannotated() else {
@@ -2505,7 +2515,7 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Rule { body, .. } => match body.unannotated() {
                     Term::Rewrite { right, .. } => Some(right.unannotated().clone()),
                     _ => None,
@@ -2629,7 +2639,7 @@ fn propagates_production_macro_kinds_except_to_simplification_rules() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { attributes, .. } => Some((
                 attributes.get_str("label").map(str::to_owned),
                 attributes.get("macro-rec").is_some(),
@@ -2664,7 +2674,7 @@ fn guards_or_patterns_with_collision_free_typed_aliases() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -2746,22 +2756,22 @@ fn guard_or_patterns_preserves_resolved_production_for_top_cell_alias_sort() {
         production: Some(top_cell_or_identity),
         ..TermMetadata::default()
     };
-    let Sentence::Rule { body, .. } = definition
+    let sentence = definition
         .modules
         .iter_mut()
         .find(|module| module.name == "MAIN")
         .unwrap()
         .local_sentences
         .last_mut()
-        .unwrap()
-    else {
+        .unwrap();
+    let Sentence::Rule { body, .. } = k_rust::definition::sentence_mut(sentence) else {
         unreachable!()
     };
     let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
     *body = taken.with_metadata(metadata.clone());
 
     let transformed = guard_or_patterns(&definition).unwrap();
-    let Sentence::Rule { body, .. } = transformed
+    let Sentence::Rule { body, .. } = &**transformed
         .main_module()
         .unwrap()
         .local_sentences
@@ -2818,17 +2828,28 @@ fn guard_or_patterns_propagates_sort_inference_errors() {
                 production("a", "Exp", Attributes::default()),
                 rule(
                     application("#Or", vec![application("a", Vec::new())]),
-                    Attributes::default(),
+                    attributes(&[
+                        ("org.kframework.attributes.Source", json!("or.k")),
+                        ("org.kframework.attributes.Location", json!([7, 3, 7, 20])),
+                    ]),
                 ),
             ],
         )],
         attributes: Attributes::default(),
     };
 
+    let error = guard_or_patterns(&definition).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1);
     assert_eq!(
-        guard_or_patterns(&definition).unwrap_err(),
+        error.diagnostics[0].code,
+        k_rust::diagnostic::DiagnosticCode::InvalidOrPattern
+    );
+    assert_eq!(
+        error.diagnostics[0].message,
         "KLabel \"#Or\" expects 2 arguments but received 1"
     );
+    assert_eq!(error.diagnostics[0].source.as_deref(), Some("or.k"));
+    assert_eq!(error.diagnostics[0].location.unwrap().start_line, 7);
 }
 
 #[cfg(feature = "z3-inference")]
@@ -2911,7 +2932,7 @@ fn allocates_shared_and_anonymous_fresh_configuration_constants() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -2971,7 +2992,7 @@ fn generates_predicates_for_each_local_sort() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 sort,
@@ -3012,7 +3033,7 @@ fn generates_generic_and_named_field_projections() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 attributes,
@@ -3089,7 +3110,7 @@ fn expands_nested_macros_child_first_in_priority_order() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("subject") => {
@@ -3226,7 +3247,7 @@ fn macro_expansion_preserves_an_unrelated_simplification_equation() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("subject") => Some(body),
@@ -3341,7 +3362,7 @@ fn macro_expansion_combines_call_site_and_macro_rule_sources() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("subject") => Some(body),
@@ -3385,7 +3406,7 @@ fn expands_smt_lemma_aliases_before_backend_validation() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("smt-lemma").is_some() => Some(body),
@@ -3418,7 +3439,7 @@ fn macro_matching_reuses_repeated_variables_and_freshens_unbound_rhs_variables()
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("subject") => Some(body),
@@ -3466,7 +3487,7 @@ fn expands_sort_constrained_variable_macros_over_tokens() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("subject") => {
@@ -3497,14 +3518,41 @@ fn rejects_macro_side_conditions_and_invalid_priorities() {
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(side_condition));
-    let definition = propagate_macro_attributes(&definition).unwrap();
+    let mut definition = propagate_macro_attributes(&definition).unwrap();
+    let main_module = definition.main_module.clone();
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == main_module)
+        .unwrap();
+    let attributes = module
+        .local_sentences
+        .iter_mut()
+        .find_map(
+            |sentence| match k_rust::definition::sentence_mut(sentence) {
+                Sentence::Rule { attributes, .. }
+                    if attributes.has(k_rust::definition::AttributeKey::Macro) =>
+                {
+                    Some(attributes)
+                }
+                _ => None,
+            },
+        )
+        .expect("macro rule");
+    attributes.insert("org.kframework.attributes.Source", json!("macro.k"));
+    attributes.insert("org.kframework.attributes.Location", json!([3, 1, 3, 20]));
     let error = expand_macros(&definition).unwrap_err();
-    assert!(
-        error
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message == "Cannot compute macros with side conditions.")
+    let diagnostic = error
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.message == "Cannot compute macros with side conditions.")
+        .expect("side-condition diagnostic");
+    assert_eq!(
+        diagnostic.code,
+        k_rust::diagnostic::DiagnosticCode::InvalidMacroExpansion
     );
+    assert_eq!(diagnostic.source.as_deref(), Some("macro.k"));
+    assert_eq!(diagnostic.location.unwrap().start_line, 3);
 
     let invalid_priority = indoc! {r#"
         module MAIN
@@ -3515,12 +3563,42 @@ fn rejects_macro_side_conditions_and_invalid_priorities() {
         endmodule
     "#};
     let definition = resolve_semantic_casts(&parsed(invalid_priority));
-    let definition = propagate_macro_attributes(&definition).unwrap();
+    let mut definition = propagate_macro_attributes(&definition).unwrap();
+    let main_module = definition.main_module.clone();
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == main_module)
+        .unwrap();
+    let attributes = module
+        .local_sentences
+        .iter_mut()
+        .find_map(
+            |sentence| match k_rust::definition::sentence_mut(sentence) {
+                Sentence::Rule { attributes, .. }
+                    if attributes
+                        .string(k_rust::definition::AttributeKey::Priority)
+                        .is_some() =>
+                {
+                    Some(attributes)
+                }
+                _ => None,
+            },
+        )
+        .expect("priority macro rule");
+    attributes.insert("org.kframework.attributes.Source", json!("priority.k"));
+    attributes.insert("org.kframework.attributes.Location", json!([7, 1, 7, 30]));
     let error = expand_macros(&definition).unwrap_err();
+    assert_eq!(
+        error.diagnostics[0].code,
+        k_rust::diagnostic::DiagnosticCode::InvalidMacroExpansion
+    );
     assert_eq!(
         error.diagnostics[0].message,
         "Invalid value for priority attribute: not-an-integer. Must be an integer."
     );
+    assert_eq!(error.diagnostics[0].source.as_deref(), Some("priority.k"));
+    assert_eq!(error.diagnostics[0].location.unwrap().start_line, 7);
 }
 
 #[test]
@@ -3548,7 +3626,7 @@ fn wraps_cell_free_rules_and_contexts_in_the_main_computation_cell() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             }
@@ -3603,20 +3681,24 @@ fn wraps_only_the_generated_counter_two_item_claim() {
         .find(|module| module.name == "MAIN")
         .unwrap()
         .local_sentences
-        .extend([
-            Sentence::Claim {
-                body: counter_body,
-                requires: truth(),
-                ensures: truth(),
-                attributes: attributes(&[("label", json!("counter-sentinel"))]),
-            },
-            Sentence::Claim {
-                body: state_body.clone(),
-                requires: truth(),
-                ensures: truth(),
-                attributes: attributes(&[("label", json!("ordinary-second-cell"))]),
-            },
-        ]);
+        .extend(
+            [
+                Sentence::Claim {
+                    body: counter_body,
+                    requires: truth(),
+                    ensures: truth(),
+                    attributes: attributes(&[("label", json!("counter-sentinel"))]),
+                },
+                Sentence::Claim {
+                    body: state_body.clone(),
+                    requires: truth(),
+                    ensures: truth(),
+                    attributes: attributes(&[("label", json!("ordinary-second-cell"))]),
+                },
+            ]
+            .into_iter()
+            .map(std::sync::Arc::new),
+        );
 
     let transformed = add_implicit_computation_cell(&definition).unwrap();
     let claims = transformed
@@ -3624,7 +3706,7 @@ fn wraps_only_the_generated_counter_two_item_claim() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Claim {
                 body, attributes, ..
             } => attributes.get_str("label").map(|label| (label, body)),
@@ -3659,7 +3741,7 @@ fn imported_syntax_rules_use_the_main_modules_computation_cell() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("imported") => Some(body),
@@ -3693,7 +3775,7 @@ fn wraps_a_non_function_overload_in_the_computation_cell() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } => attributes.get_str("label").map(|label| (label, body)),
@@ -3740,7 +3822,7 @@ fn falls_back_safely_when_function_application_metadata_is_stale() {
     for sentence in &mut main.local_sentences {
         let Sentence::Rule {
             body, attributes, ..
-        } = sentence
+        } = k_rust::definition::sentence_mut(sentence)
         else {
             continue;
         };
@@ -3772,7 +3854,7 @@ fn falls_back_safely_when_function_application_metadata_is_stale() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } => attributes.get_str("label").map(|label| (label, body)),
@@ -3799,15 +3881,23 @@ fn implicit_computation_cells_require_a_declared_main_cell_only_when_needed() {
             "MAIN",
             vec![rule(
                 rewrite(application("a", Vec::new()), application("b", Vec::new())),
-                Attributes::default(),
+                attributes(&[
+                    ("org.kframework.attributes.Source", json!("cell.k")),
+                    ("org.kframework.attributes.Location", json!([11, 2, 11, 20])),
+                ]),
             )],
         )],
         attributes: Attributes::default(),
     };
+    let error = add_implicit_computation_cell(&definition).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1);
     assert_eq!(
-        add_implicit_computation_cell(&definition).unwrap_err(),
-        "No main cell found"
+        error.diagnostics[0].code,
+        k_rust::diagnostic::DiagnosticCode::InvalidMainCell
     );
+    assert_eq!(error.diagnostics[0].message, "No main cell found");
+    assert_eq!(error.diagnostics[0].source.as_deref(), Some("cell.k"));
+    assert_eq!(error.diagnostics[0].location.unwrap().start_line, 11);
 
     let skipped = Definition {
         main_module: "MAIN".into(),
@@ -3846,7 +3936,7 @@ fn resolves_fresh_variables_and_generates_the_counter_configuration() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 sort,
@@ -3915,7 +4005,7 @@ fn fresh_offsets_reuse_names_and_cover_the_counter_range() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("fresh-range") => Some(body),
@@ -3950,7 +4040,7 @@ fn expands_the_internally_generated_counter_configuration() {
             .local_sentences
             .iter()
             .any(|sentence| matches!(
-                sentence,
+                &**sentence,
                 Sentence::Production { label: Some(label), .. }
                     if label.name == "<generatedCounter>"
             ))
@@ -3978,7 +4068,7 @@ fn preserves_explicit_cell_variables_while_sorting_cell_fragments() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. }
                 if Printer::new()
                     .print_term(body)
@@ -4119,7 +4209,7 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none()
@@ -4170,7 +4260,7 @@ fn concretizes_main_configuration_with_an_auxiliary_initializer() {
             .unwrap()
             .local_sentences
             .iter()
-            .filter_map(|sentence| match sentence {
+            .filter_map(|sentence| match &**sentence {
                 Sentence::Rule { body, .. } => Some(body.to_string()),
                 _ => None,
             })
@@ -4185,7 +4275,7 @@ fn concretizes_main_configuration_with_an_auxiliary_initializer() {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Rule {
                     body, attributes, ..
                 } if attributes.get_str("label") == Some("step") => Some(body),
@@ -4265,7 +4355,7 @@ fn preserves_already_complete_nested_cells() {
         .find(|module| module.name == "MAIN")
         .expect("the main module should be present");
     for sentence in &mut module.local_sentences {
-        if let Sentence::Rule { body, .. } = sentence
+        if let Sentence::Rule { body, .. } = k_rust::definition::sentence_mut(sentence)
             && Printer::new().print_term(body).contains("inspect")
         {
             let inspection = application("inspect", vec![complete_top.clone()]);
@@ -4282,7 +4372,7 @@ fn preserves_already_complete_nested_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } if Printer::new().print_term(body).contains("inspect") => {
                 Some(body)
             }
@@ -4361,11 +4451,11 @@ fn complete_cells_are_rejected_with_a_typed_error() {
             .local_sentences
             .iter_mut()
             .find(|sentence| {
-                matches!(sentence, Sentence::Rule { attributes, .. }
+                matches!(&***sentence, Sentence::Rule { attributes, .. }
                     if attributes.get("initializer").is_none())
             })
             .expect("fixture has an ordinary rule");
-        let Sentence::Rule { body, .. } = rule else {
+        let Sentence::Rule { body, .. } = k_rust::definition::sentence_mut(rule) else {
             unreachable!()
         };
         *body = application("<top>", arguments);
@@ -4411,7 +4501,7 @@ fn drops_a_shallower_misnested_sibling_when_completing_parent_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none()
@@ -4465,7 +4555,7 @@ fn omitted_parents_separate_repeated_nonmultiplicity_children() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
@@ -4487,7 +4577,7 @@ fn omitted_parents_group_distinct_nonmultiplicity_children() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
@@ -4545,12 +4635,14 @@ fn omitted_parents_check_conflicts_on_each_rewrite_side() {
             .unwrap()
             .local_sentences
             .iter_mut()
-            .find_map(|sentence| match sentence {
-                Sentence::Rule {
-                    body, attributes, ..
-                } if attributes.get("initializer").is_none() => Some(body),
-                _ => None,
-            })
+            .find_map(
+                |sentence| match k_rust::definition::sentence_mut(sentence) {
+                    Sentence::Rule {
+                        body, attributes, ..
+                    } if attributes.get("initializer").is_none() => Some(body),
+                    _ => None,
+                },
+            )
             .unwrap();
         *body = application(
             "#cells",
@@ -4583,7 +4675,7 @@ fn omitted_parents_check_conflicts_on_each_rewrite_side() {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Rule {
                     body, attributes, ..
                 } if attributes.get("initializer").is_none() => {
@@ -4627,7 +4719,7 @@ fn concretizes_cells_inside_generated_simplification_rules() {
         .iter()
         .flat_map(|module| &module.local_sentences)
     {
-        let Sentence::Rule { body, .. } = sentence else {
+        let Sentence::Rule { body, .. } = &**sentence else {
             continue;
         };
         body.visit_preorder(&mut |term| {
@@ -4668,7 +4760,7 @@ fn concretizes_authored_simplification_cell_bodies_without_root_wrapping() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("simplification").is_some() => Some(body),
@@ -4712,7 +4804,7 @@ fn does_not_wrap_matching_logic_simplifications_in_the_generated_top_cell() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("simplification").is_some() => {
@@ -4758,7 +4850,7 @@ fn splits_fragment_variables_on_both_sides_of_a_parent_cell_rewrite() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
@@ -4805,7 +4897,7 @@ fn lifts_one_sided_repeated_cell_rewrites_through_missing_parents() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
@@ -4848,7 +4940,7 @@ fn clears_repeated_cell_contents_without_removing_the_parent() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
@@ -4888,7 +4980,7 @@ fn splits_cell_fragment_variables_on_both_sides_of_a_rewrite() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none() => Some(Printer::new().print_term(body)),
@@ -4927,7 +5019,7 @@ fn concretizes_cells_inside_simplification_rules_without_adding_a_top_cell() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body,
                 requires,
@@ -4974,7 +5066,7 @@ fn concretizes_unrelated_modules_with_their_local_cell_models() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_some()
@@ -5025,7 +5117,7 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("initializer").is_none()
@@ -5071,20 +5163,23 @@ fn equal_concretized_defaults_have_distinct_destination_paths() {
         .find(|module| module.name == "MAIN")
         .unwrap()
         .local_sentences
-        .push(rule(
-            rewrite(
-                application(".Bag", Vec::new()),
-                application("#cells", vec![open_thread.clone(), open_thread]),
-            ),
-            attributes(&[("label", json!("equal-defaults"))]),
-        ));
+        .push(
+            rule(
+                rewrite(
+                    application(".Bag", Vec::new()),
+                    application("#cells", vec![open_thread.clone(), open_thread]),
+                ),
+                attributes(&[("label", json!("equal-defaults"))]),
+            )
+            .into(),
+        );
     let transformed = concretize_cells(&definition).unwrap();
     let body = transformed
         .main_module()
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get_str("label") == Some("equal-defaults") => Some(body),
@@ -5176,7 +5271,7 @@ fn preserves_repeated_cell_initializers_for_every_collection_shape() {
                 .unwrap()
                 .local_sentences
                 .iter()
-                .find_map(|sentence| match sentence {
+                .find_map(|sentence| match &**sentence {
                     Sentence::Rule {
                         body, attributes, ..
                     } if attributes.get("initializer").is_some()
@@ -5229,7 +5324,7 @@ fn splits_cell_fragment_variables_and_rebuilds_external_occurrences() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body,
                 requires,
@@ -5282,7 +5377,7 @@ fn finalizes_language_parsing_and_sort_predicate_rules() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if Printer::new().print_term(body).starts_with("isExp(") => Some((
@@ -5325,7 +5420,7 @@ fn marks_variable_headed_main_cell_sequences_as_cool_like() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } => Some((
@@ -5342,7 +5437,7 @@ fn marks_variable_headed_main_cell_sequences_as_cool_like() {
             .local_sentences
             .iter()
             .any(
-                |sentence| matches!(sentence, Sentence::Rule { attributes, .. }
+                |sentence| matches!(&**sentence, Sentence::Rule { attributes, .. }
             if attributes.get("initializer").is_none()
                 && attributes.get("cool-like").is_some())
             ),
@@ -5384,7 +5479,7 @@ fn marks_cool_like_rules_of_imported_modules_through_the_main_module() {
     let rules = syntax_module
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } => Some((
@@ -5434,7 +5529,7 @@ fn strictness_bool_import_rebases_existing_production_metadata() {
             .unwrap()
             .local_sentences
             .iter()
-            .find_map(|sentence| match sentence {
+            .find_map(|sentence| match &**sentence {
                 Sentence::Rule { body, .. } => match body.unannotated() {
                     Term::Rewrite { left, .. } => Some(left),
                     _ => None,
@@ -5476,7 +5571,7 @@ fn generates_left_to_right_seqstrict_contexts_and_imports_bool() {
     let contexts = main
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Context {
                 body,
                 requires,
@@ -5524,7 +5619,7 @@ fn strictness_contexts_link_to_their_source_production() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter(|sentence| matches!(sentence, Sentence::Context { .. }))
+        .filter(|sentence| matches!(&***sentence, Sentence::Context { .. }))
         .collect::<Vec<_>>();
     assert_eq!(contexts.len(), 2);
     for context in contexts {
@@ -5587,12 +5682,12 @@ fn expands_context_alias_groups_context_rewrites_and_hybrid_rules() {
         !main
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::ContextAlias { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::ContextAlias { .. }))
     );
     let contexts = main
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Context { body, requires, .. } => Some((
                 Printer::new().print_term(body),
                 Printer::new().print_term(requires),
@@ -5609,7 +5704,7 @@ fn expands_context_alias_groups_context_rewrites_and_hybrid_rules() {
     );
     assert!(contexts[1].1.contains("isFoo(K0)"), "{contexts:#?}");
     assert!(main.local_sentences.iter().any(|sentence| {
-        matches!(sentence, Sentence::Rule { body, requires, .. }
+        matches!(&**sentence, Sentence::Rule { body, requires, .. }
             if Printer::new().print_term(body).starts_with("isFoo(step(")
                 && Printer::new().print_term(requires).contains("isFoo(K0)")
                 && Printer::new().print_term(requires).contains("isFoo(K1)"))
@@ -5681,7 +5776,7 @@ fn gives_anonymous_variables_collision_free_sentence_local_names() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body,
                 requires,
@@ -5992,32 +6087,36 @@ fn concretize_cells_recurses_only_into_ml_result_sort_children() {
         .find(|module| module.name == "MAIN")
         .unwrap()
         .local_sentences
-        .extend([
-            ml_production(
-                "#Or",
-                vec![formal_result.clone()],
-                formal_result.clone(),
-                vec![formal_result.clone(), formal_result.clone()],
-            ),
-            ml_production(
-                "#Top",
-                vec![formal_result.clone()],
-                formal_result.clone(),
-                Vec::new(),
-            ),
-            ml_production(
-                "#Equals",
-                vec![formal_operand.clone(), formal_result.clone()],
-                formal_result.clone(),
-                vec![formal_operand.clone(), formal_operand.clone()],
-            ),
-            ml_production(
-                "#Exists",
-                vec![formal_operand.clone(), formal_result.clone()],
-                formal_result.clone(),
-                vec![formal_operand.clone(), formal_result.clone()],
-            ),
-        ]);
+        .extend(
+            [
+                ml_production(
+                    "#Or",
+                    vec![formal_result.clone()],
+                    formal_result.clone(),
+                    vec![formal_result.clone(), formal_result.clone()],
+                ),
+                ml_production(
+                    "#Top",
+                    vec![formal_result.clone()],
+                    formal_result.clone(),
+                    Vec::new(),
+                ),
+                ml_production(
+                    "#Equals",
+                    vec![formal_operand.clone(), formal_result.clone()],
+                    formal_result.clone(),
+                    vec![formal_operand.clone(), formal_operand.clone()],
+                ),
+                ml_production(
+                    "#Exists",
+                    vec![formal_operand.clone(), formal_result.clone()],
+                    formal_result.clone(),
+                    vec![formal_operand.clone(), formal_result.clone()],
+                ),
+            ]
+            .into_iter()
+            .map(std::sync::Arc::new),
+        );
     let resolved = ResolvedDefinition::resolve(&definition).unwrap();
     let root_sort = Sort::new("GeneratedTopCell");
     let operand_sort = Sort::new("Int");
@@ -6403,12 +6502,12 @@ fn lowers_contexts_to_freezer_heat_and_cool_rules() {
         !main
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Context { .. }))
+            .any(|sentence| matches!(&**sentence, Sentence::Context { .. }))
     );
     let generated = main
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label), ..
             } if label.name.starts_with("#freezer") => Some(("freezer", label.name.clone(), None)),
@@ -6463,7 +6562,7 @@ fn heat_and_cool_rules_carry_their_exact_context_origins() {
         .local_sentences
         .iter()
         .enumerate()
-        .filter(|(_, sentence)| match sentence {
+        .filter(|(_, sentence)| match &***sentence {
             Sentence::Production {
                 label: Some(label), ..
             } => label.name.starts_with("#freezer"),
@@ -6502,7 +6601,7 @@ fn heat_and_cool_rules_carry_their_exact_context_origins() {
             assert!(!links.contains(&unrelated), "{receipt}");
             assert_eq!(receipt["destination"]["sentenceIndex"], *sentence_index);
 
-            if let Sentence::Rule { body, .. } = sentence {
+            if let Sentence::Rule { body, .. } = &***sentence {
                 let origin = body
                     .metadata()
                     .and_then(|metadata| metadata.origin.as_deref())
@@ -6565,7 +6664,7 @@ fn inserts_context_rewrites_inside_the_main_cell() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("heat").is_some() || attributes.get("cool").is_some() => Some((
@@ -6649,7 +6748,7 @@ fn reuses_lhs_subterms_on_rule_right_hand_sides() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -6682,7 +6781,7 @@ fn alias_names_avoid_every_sort_of_an_existing_name() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -6748,7 +6847,7 @@ fn minimizes_imported_aliases_with_symbols_generated_in_the_main_module() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
             _ => None,
         })
@@ -6786,7 +6885,7 @@ fn removes_associative_units_from_rules_only() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule { body, .. } => Some(body),
             _ => None,
         })
@@ -6795,6 +6894,42 @@ fn removes_associative_units_from_rules_only() {
         Printer::new().print_term(body),
         "`_Items_`(a(.KList),b(.KList))=>`_Items_`(a(.KList),b(.KList))"
     );
+}
+
+#[test]
+fn rejects_non_associative_units_at_the_production_location() {
+    let unit_attributes = attributes(&[
+        ("unit", json!(".Items")),
+        ("org.kframework.attributes.Source", json!("unit.k")),
+        ("org.kframework.attributes.Location", json!([4, 1, 4, 18])),
+    ]);
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                production("_Items_", "Items", unit_attributes),
+                production(".Items", "Items", Attributes::default()),
+                rule(
+                    application("_Items_", vec![application(".Items", Vec::new())]),
+                    Attributes::default(),
+                ),
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let error = remove_unit(&definition).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 1);
+    assert_eq!(
+        error.diagnostics[0].code,
+        k_rust::diagnostic::DiagnosticCode::InvalidUnitAttribute
+    );
+    assert_eq!(
+        error.diagnostics[0].message,
+        "production for _Items_ has a unit attribute but is not associative"
+    );
+    assert_eq!(error.diagnostics[0].source.as_deref(), Some("unit.k"));
+    assert_eq!(error.diagnostics[0].location.unwrap().start_line, 4);
 }
 
 #[test]
@@ -6830,7 +6965,7 @@ fn fabricated_collection_units_replace_spans_with_generation_origins() {
     };
 
     let transformed = remove_unit(&definition).unwrap();
-    let body = match &transformed.main_module().unwrap().local_sentences[2] {
+    let body = match &*transformed.main_module().unwrap().local_sentences[2] {
         Sentence::Rule { body, .. } => body,
         _ => panic!("expected a rule"),
     };
@@ -6873,7 +7008,7 @@ fn preserves_optional_cell_units() {
 
     let transformed = remove_unit(&definition).unwrap();
     let preserved = transformed.main_module().unwrap().local_sentences[1].clone();
-    assert!(matches!(preserved, Sentence::Rule { body: actual, .. } if actual == body));
+    assert!(matches!(&*preserved, Sentence::Rule { body: actual, .. } if *actual == body));
 }
 
 #[test]
@@ -6905,7 +7040,7 @@ fn validates_smt_lemmas_after_expanding_aliases() {
         .iter()
         .find(|sentence| sentence.attributes().get("smt-lemma").is_some())
         .unwrap();
-    let Sentence::Rule { body, .. } = smt_lemma else {
+    let Sentence::Rule { body, .. } = &**smt_lemma else {
         panic!("expected an SMT lemma rule");
     };
     assert!(!Printer::new().print_term(body).contains("pow256"));
@@ -7005,7 +7140,7 @@ fn rebuilds_cell_fragments_used_as_data_inside_leaf_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body,
                 requires,

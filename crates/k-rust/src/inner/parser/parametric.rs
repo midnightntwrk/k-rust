@@ -455,7 +455,7 @@ mod tests {
         assert_eq!(actual.parsing_only_subsorts, expected.parsing_only_subsorts);
         assert!(actual.parsing_only_subsorts.iter().all(|bridge| {
             matches!(&bridge.sentence, Sentence::Production { label: None, parameters, attributes, .. }
-                if parameters.is_empty() && attributes.entries().is_empty())
+                if parameters.is_empty() && attributes.wire_entries().next().is_none())
         }));
     }
 

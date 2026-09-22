@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use std::sync::Arc;
+
 use k_rust::definition::{
     Associativity, Attributes, CheckMode, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE,
     PartialOrder, ProductionCatalog, ProductionItem, ResolvedModule, SOURCE_ATTRIBUTE, Sentence,
@@ -90,12 +92,12 @@ fn production(
     }
 }
 
-fn i107_syntax_sort(sort: &str) -> Sentence {
-    Sentence::SyntaxSort {
+fn i107_syntax_sort(sort: &str) -> Arc<Sentence> {
+    Arc::new(Sentence::SyntaxSort {
         parameters: Vec::new(),
         sort: Sort::new(sort),
         attributes: Attributes::default(),
-    }
+    })
 }
 
 fn resolved_definition(
@@ -126,7 +128,7 @@ fn claims_are_rejected_in_definitions_and_allowed_in_spec_modules() {
             local_sentences: vec![
                 i107_syntax_sort("Int"),
                 i107_syntax_sort("Bool"),
-                claim.clone(),
+                claim.clone().into(),
             ],
             attributes: Attributes::default(),
         }],
@@ -156,7 +158,7 @@ fn claims_are_rejected_in_definitions_and_allowed_in_spec_modules() {
                     name: "DEF".into(),
                     public: true,
                 }],
-                local_sentences: vec![claim],
+                local_sentences: vec![Arc::new(claim.into())],
                 attributes: Attributes::default(),
             },
         ],
@@ -220,10 +222,15 @@ fn proof_modules_admit_only_claims_simplifications_and_existing_sort_tokens() {
                 }],
                 local_sentences: vec![
                     i107_syntax_sort("Fresh"),
-                    production(Some("fresh"), "Fresh", &[], Attributes::default()),
-                    existing_token,
-                    ordinary_rule,
-                    simplification_rule,
+                    Arc::new(production(
+                        Some("fresh"),
+                        "Fresh",
+                        &[],
+                        Attributes::default(),
+                    )),
+                    Arc::new(existing_token),
+                    Arc::new(ordinary_rule),
+                    Arc::new(simplification_rule),
                 ],
                 attributes: Attributes::default(),
             },
@@ -282,12 +289,12 @@ fn is_sort_predicate_conflicts_match_kompile() {
                 i107_syntax_sort("KItem"),
                 i107_syntax_sort("Foo"),
                 i107_syntax_sort("NonAddr"),
-                predicate("isNonAddr", &["KItem"]),
-                predicate("isNonAddr", &["Foo"]),
-                predicate("isNonAddr", &["KItem", "KItem"]),
-                predicate("isFoo", &["Foo"]),
-                predicate("isnonaddr", &["KItem"]),
-                predicate("isNotASort", &["KItem"]),
+                Arc::new(predicate("isNonAddr", &["KItem"])),
+                Arc::new(predicate("isNonAddr", &["Foo"])),
+                Arc::new(predicate("isNonAddr", &["KItem", "KItem"])),
+                Arc::new(predicate("isFoo", &["Foo"])),
+                Arc::new(predicate("isnonaddr", &["KItem"])),
+                Arc::new(predicate("isNotASort", &["KItem"])),
             ],
             attributes: Attributes::default(),
         }],
@@ -327,7 +334,7 @@ fn i107_is_sort_predicate(name: &str, argument: &str) -> Sentence {
 fn i107_range_module(name: &str, with_rule: bool) -> FlatModule {
     let mut local_sentences = vec![i107_syntax_sort("Range")];
     if with_rule {
-        local_sentences.push(rule(located()));
+        local_sentences.push(rule(located()).into());
     }
     FlatModule {
         name: name.into(),
@@ -345,7 +352,7 @@ fn i107_is_range_main(name: &str) -> FlatModule {
         local_sentences: vec![
             i107_syntax_sort("Bool"),
             i107_syntax_sort("Value"),
-            i107_is_sort_predicate("isRange", "Value"),
+            Arc::new(i107_is_sort_predicate("isRange", "Value")),
         ],
         attributes: Attributes::default(),
     }
@@ -445,8 +452,8 @@ fn unused_symbols_follow_check_klabels_exemptions() {
                 i107_syntax_sort("Int"),
                 i107_syntax_sort("Foo"),
                 i107_syntax_sort("Bar"),
-                production(Some("foo"), "Foo", &["Int"], located()),
-                production(
+                Arc::new(production(Some("foo"), "Foo", &["Int"], located())),
+                Arc::new(production(
                     Some("bar"),
                     "Bar",
                     &["Int"],
@@ -455,7 +462,7 @@ fn unused_symbols_follow_check_klabels_exemptions() {
                         (SOURCE_ATTRIBUTE, json!("checks.k")),
                         (LOCATION_ATTRIBUTE, json!([2, 1, 2, 20])),
                     ]),
-                ),
+                )),
             ],
             attributes: Attributes::default(),
         }],
@@ -502,11 +509,11 @@ fn duplicate_overload_sets_warn_once_per_disconnected_component() {
             local_sentences: vec![
                 i107_syntax_sort("Foo1"),
                 i107_syntax_sort("Foo2"),
-                production(None, "Foo1", &["Foo2"], Attributes::default()),
-                overload("foo1", "Foo1", 1, 4),
-                overload("foo2", "Foo2", 1, 5),
-                overload("foo11", "Foo1", 2, 6),
-                overload("foo22", "Foo2", 2, 7),
+                Arc::new(production(None, "Foo1", &["Foo2"], Attributes::default())),
+                Arc::new(overload("foo1", "Foo1", 1, 4)),
+                Arc::new(overload("foo2", "Foo2", 1, 5)),
+                Arc::new(overload("foo11", "Foo1", 2, 6)),
+                Arc::new(overload("foo22", "Foo2", 2, 7)),
             ],
             attributes: Attributes::default(),
         }],
@@ -560,9 +567,9 @@ fn deprecated_productions_are_reported_per_use() {
             local_sentences: vec![
                 i107_syntax_sort("Bool"),
                 i107_syntax_sort("Foo"),
-                deprecated,
-                wrapper,
-                sentence,
+                Arc::new(deprecated),
+                Arc::new(wrapper),
+                Arc::new(sentence),
             ],
             attributes: Attributes::default(),
         }],
@@ -590,19 +597,19 @@ fn klabel_overloads_use_the_migration_warning_variant() {
                 i107_syntax_sort("Bool"),
                 i107_syntax_sort("Foo"),
                 i107_syntax_sort("Bar"),
-                production(None, "Foo", &["Bar"], Attributes::default()),
-                production(
+                Arc::new(production(None, "Foo", &["Bar"], Attributes::default())),
+                Arc::new(production(
                     Some("fooFoo"),
                     "Foo",
                     &["Foo"],
                     attrs(&[("klabel", json!("foo"))]),
-                ),
-                production(
+                )),
+                Arc::new(production(
                     Some("fooBar"),
                     "Bar",
                     &["Bar"],
                     attrs(&[("klabel", json!("foo"))]),
-                ),
+                )),
             ],
             attributes: Attributes::default(),
         }],
@@ -786,15 +793,15 @@ fn module_runner_checks_local_sentences_against_visible_indexes() {
         name: "BASE".into(),
         imports: Vec::new(),
         local_sentences: vec![
-            Sentence::SyntaxSort {
+            Arc::new(Sentence::SyntaxSort {
                 parameters: Vec::new(),
                 sort: Sort::new("Int"),
                 attributes: attrs(&[("token", json!(""))]),
-            },
-            Sentence::SyntaxPriority {
+            }),
+            Arc::new(Sentence::SyntaxPriority {
                 priorities: vec![vec!["high".into()], vec!["low".into()]],
                 attributes: Attributes::default(),
-            },
+            }),
         ],
         attributes: Attributes::default(),
     };
@@ -805,12 +812,17 @@ fn module_runner_checks_local_sentences_against_visible_indexes() {
             public: true,
         }],
         local_sentences: vec![
-            production(Some("ordinary"), "Int", &[], Attributes::default()),
-            Sentence::SyntaxAssociativity {
+            Arc::new(production(
+                Some("ordinary"),
+                "Int",
+                &[],
+                Attributes::default(),
+            )),
+            Arc::new(Sentence::SyntaxAssociativity {
                 associativity: Associativity::Left,
                 tags: vec!["high".into(), "low".into()],
                 attributes: Attributes::default(),
-            },
+            }),
         ],
         attributes: Attributes::default(),
     };
@@ -844,7 +856,7 @@ fn module_runner_includes_term_structure_checks() {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![rule_with_body(token("0"))],
+            local_sentences: vec![Arc::new(rule_with_body(token("0")))],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),
@@ -1072,7 +1084,7 @@ fn module_check_diagnostics_do_not_depend_on_declaration_order() {
             vec![FlatModule {
                 name: "MAIN".into(),
                 imports: Vec::new(),
-                local_sentences: sentences,
+                local_sentences: sentences.into_iter().map(Arc::new).collect(),
                 attributes: Attributes::default(),
             }],
         );
@@ -1298,7 +1310,7 @@ fn module_runner_options_control_existential_policy() {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![sentence],
+            local_sentences: vec![sentence.into()],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),
@@ -1481,13 +1493,18 @@ fn module_runner_uses_visible_function_metadata() {
         name: "BASE".into(),
         imports: Vec::new(),
         local_sentences: vec![
-            production(
+            Arc::new(production(
                 Some("f"),
                 "Int",
                 &["Int"],
                 attrs(&[("function", json!(""))]),
-            ),
-            production(Some("wrap"), "Int", &["Int"], Attributes::default()),
+            )),
+            Arc::new(production(
+                Some("wrap"),
+                "Int",
+                &["Int"],
+                Attributes::default(),
+            )),
         ],
         attributes: Attributes::default(),
     };
@@ -1497,10 +1514,10 @@ fn module_runner_uses_visible_function_metadata() {
             name: "BASE".into(),
             public: true,
         }],
-        local_sentences: vec![rule_with_body(rewrite(
+        local_sentences: vec![Arc::new(rule_with_body(rewrite(
             Term::apply("wrap", vec![Term::apply("f", vec![token("0")])]),
             token("1"),
-        ))],
+        )))],
         attributes: Attributes::default(),
     };
     let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
@@ -1708,12 +1725,12 @@ fn module_runner_includes_production_shape_checks() {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![production(
+            local_sentences: vec![Arc::new(production(
                 Some("hot"),
                 "Foo",
                 &["K"],
                 attrs(&[("strict", json!(""))]),
-            )],
+            ))],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),
@@ -1812,8 +1829,8 @@ fn duplicate_klabels_are_scoped_to_the_main_import_closure() {
         name: "BASE".into(),
         imports: Vec::new(),
         local_sentences: vec![
-            production(Some("dup"), "Int", &[], Attributes::default()),
-            production(Some("#EmptyK"), "K", &[], Attributes::default()),
+            Arc::new(production(Some("dup"), "Int", &[], Attributes::default())),
+            Arc::new(production(Some("#EmptyK"), "K", &[], Attributes::default())),
         ],
         attributes: Attributes::default(),
     };
@@ -1824,20 +1841,20 @@ fn duplicate_klabels_are_scoped_to_the_main_import_closure() {
             public: true,
         }],
         local_sentences: vec![
-            production(Some("dup"), "Other", &[], Attributes::default()),
-            production(Some("#EmptyK"), "K", &[], Attributes::default()),
+            Arc::new(production(Some("dup"), "Other", &[], Attributes::default())),
+            Arc::new(production(Some("#EmptyK"), "K", &[], Attributes::default())),
         ],
         attributes: Attributes::default(),
     };
     let disconnected = FlatModule {
         name: "DISCONNECTED".into(),
         imports: Vec::new(),
-        local_sentences: vec![production(
+        local_sentences: vec![Arc::new(production(
             Some("dup"),
             "Elsewhere",
             &[],
             Attributes::default(),
-        )],
+        ))],
         attributes: Attributes::default(),
     };
     let resolved = k_rust::definition::ResolvedDefinition::resolve(&Definition {
@@ -1873,7 +1890,7 @@ fn function_rules_must_consistently_use_concrete_or_symbolic() {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![function, concrete, ordinary],
+            local_sentences: vec![Arc::new(function), Arc::new(concrete), Arc::new(ordinary)],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),
@@ -1945,14 +1962,14 @@ fn function_rule_policy_covers_symbolic_conflicts_and_consistent_sets() {
             name: "MAIN".into(),
             imports: Vec::new(),
             local_sentences: vec![
-                symbolic_function,
-                conflicting_function,
-                consistent_function,
-                symbolic,
-                ordinary,
-                conflicting,
-                consistent_one,
-                consistent_two,
+                Arc::new(symbolic_function),
+                Arc::new(conflicting_function),
+                Arc::new(consistent_function),
+                Arc::new(symbolic),
+                Arc::new(ordinary),
+                Arc::new(conflicting),
+                Arc::new(consistent_one),
+                Arc::new(consistent_two),
             ],
             attributes: Attributes::default(),
         }],
@@ -1989,7 +2006,7 @@ fn simplification_rules_reject_overlapping_concrete_and_symbolic_variables() {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![simplification],
+            local_sentences: vec![Arc::new(simplification)],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),
@@ -2021,7 +2038,7 @@ fn simplification_rule_empty_attribute_overlap_preserves_java_rendering() {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![simplification],
+            local_sentences: vec![Arc::new(simplification)],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),
@@ -2047,20 +2064,30 @@ fn definition_runner_checks_every_module_and_definition_wide_invariants() {
                     name: "BASE".into(),
                     public: true,
                 }],
-                local_sentences: vec![production(Some("dup"), "Int", &[], Attributes::default())],
+                local_sentences: vec![Arc::new(production(
+                    Some("dup"),
+                    "Int",
+                    &[],
+                    Attributes::default(),
+                ))],
                 attributes: Attributes::default(),
             },
             FlatModule {
                 name: "BASE".into(),
                 imports: Vec::new(),
                 local_sentences: vec![
-                    Sentence::SyntaxSort {
+                    Arc::new(Sentence::SyntaxSort {
                         parameters: Vec::new(),
                         sort: Sort::new("K"),
                         attributes: Attributes::default(),
-                    },
-                    production(Some("dup"), "Int", &[], Attributes::default()),
-                    production(Some("hot"), "Foo", &["K"], attrs(&[("strict", json!(""))])),
+                    }),
+                    Arc::new(production(Some("dup"), "Int", &[], Attributes::default())),
+                    Arc::new(production(
+                        Some("hot"),
+                        "Foo",
+                        &["K"],
+                        attrs(&[("strict", json!(""))]),
+                    )),
                 ],
                 attributes: Attributes::default(),
             },
@@ -2094,7 +2121,7 @@ fn attribute_registry_rejects_unknown_and_misplaced_attributes() {
     };
     let module = ResolvedModule {
         name: "MAIN".into(),
-        local_sentences: vec![sentence.into()],
+        local_sentences: vec![Arc::new(sentence.into())],
         attributes: attrs(&[("function", json!(""))]),
     };
     let diagnostics = check_attributes(&module);
@@ -2420,7 +2447,7 @@ fn outer_check_module(name: &str, imports: &[&str], local_sentences: Vec<Sentenc
                 public: true,
             })
             .collect(),
-        local_sentences,
+        local_sentences: local_sentences.into_iter().map(Arc::new).collect(),
         attributes: Attributes::default(),
     }
 }

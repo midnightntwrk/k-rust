@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
@@ -37,7 +39,7 @@ proptest! {
             modules.push(FlatModule {
                 name: format!("M{importer}"),
                 imports,
-                local_sentences: vec![marker(&format!("M{importer}"))],
+                local_sentences: vec![Arc::new(marker(&format!("M{importer}")))],
                 attributes: Attributes::default(),
             });
         }

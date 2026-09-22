@@ -31,7 +31,7 @@ fn reference_bracket_symbol_fixture_matches_k_parsed_json() {
         .unwrap()
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Production { attributes, .. }
                 if attributes.get_str("symbol") == Some("paren") =>
             {
@@ -220,7 +220,10 @@ fn structured_definition_with_optional_configuration_cell(
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences,
+            local_sentences: local_sentences
+                .into_iter()
+                .map(std::sync::Arc::new)
+                .collect(),
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),

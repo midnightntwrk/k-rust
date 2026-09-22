@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use indoc::indoc;
 use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE, ProductionItem,
@@ -41,7 +43,7 @@ macro_rules! injection_snapshot {
                 .local_sentences
                 .iter()
                 .filter(|sentence| {
-                    matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
+                    matches!(&***sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
                         && sentence.attributes().get("projection").is_none()
                 })
                 .map(|sentence| {
@@ -229,7 +231,7 @@ fn semantic_casts_instantiate_parametric_production_results() {
         .unwrap()
         .local_sentences
         .iter()
-        .find(|sentence| matches!(sentence, Sentence::Rule { .. }))
+        .find(|sentence| matches!(&***sentence, Sentence::Rule { .. }))
         .unwrap();
     let injected = injector.inject_sentence(rule).unwrap();
     let Sentence::Rule { body, .. } = injected else {
@@ -551,20 +553,24 @@ fn semantic_casts_project_heterogeneous_collection_results() {
         .iter_mut()
         .find(|module| module.name == definition.main_module)
         .unwrap();
-    module.local_sentences.extend([
-        Sentence::Rule {
-            body: get("List:get", "List"),
-            requires: truth(),
-            ensures: truth(),
-            attributes: Attributes::default(),
-        },
-        Sentence::Rule {
-            body: get("Map:lookup", "Map"),
-            requires: truth(),
-            ensures: truth(),
-            attributes: Attributes::default(),
-        },
-    ]);
+    module.local_sentences.extend(
+        [
+            Sentence::Rule {
+                body: get("List:get", "List"),
+                requires: truth(),
+                ensures: truth(),
+                attributes: Attributes::default(),
+            },
+            Sentence::Rule {
+                body: get("Map:lookup", "Map"),
+                requires: truth(),
+                ensures: truth(),
+                attributes: Attributes::default(),
+            },
+        ]
+        .into_iter()
+        .map(std::sync::Arc::new),
+    );
 
     let definition = k_rust::kompile::resolve_semantic_casts(&definition);
     let definition = k_rust::kompile::subsort_kitem(&definition).unwrap();
@@ -576,7 +582,7 @@ fn semantic_casts_project_heterogeneous_collection_results() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.get("projection").is_none() => Some((
@@ -928,7 +934,7 @@ fn definition_injection_uses_the_selected_modules_visible_syntax() {
             FlatModule {
                 name: "BASE".into(),
                 imports: vec![],
-                local_sentences: vec![Sentence::Rule {
+                local_sentences: vec![Arc::new(Sentence::Rule {
                     body: Term::Rewrite {
                         left: Box::new(Term::apply("consumerOnly", vec![])),
                         right: Box::new(Term::apply("consumerOnly", vec![])),
@@ -936,7 +942,7 @@ fn definition_injection_uses_the_selected_modules_visible_syntax() {
                     requires: truth.clone(),
                     ensures: truth,
                     attributes: Attributes::default(),
-                }],
+                })],
                 attributes: Attributes::default(),
             },
             FlatModule {
@@ -945,13 +951,13 @@ fn definition_injection_uses_the_selected_modules_visible_syntax() {
                     name: "BASE".into(),
                     public: true,
                 }],
-                local_sentences: vec![Sentence::Production {
+                local_sentences: vec![Arc::new(Sentence::Production {
                     label: Some(Label::new("consumerOnly")),
                     parameters: vec![],
                     sort: Sort::new("KItem"),
                     items: Vec::<ProductionItem>::new(),
                     attributes: Attributes::default(),
-                }],
+                })],
                 attributes: Attributes::default(),
             },
         ],
@@ -959,7 +965,7 @@ fn definition_injection_uses_the_selected_modules_visible_syntax() {
     };
 
     let injected = add_sort_injections_to_definition(&definition).unwrap();
-    let Sentence::Rule { body, .. } = &injected.modules[0].local_sentences[0] else {
+    let Sentence::Rule { body, .. } = &*injected.modules[0].local_sentences[0] else {
         panic!("expected imported rule");
     };
     assert_eq!(
@@ -977,7 +983,7 @@ fn definition_injection_ignores_modules_outside_the_main_import_closure() {
     let unrelated_module = FlatModule {
         name: "UNRELATED".into(),
         imports: vec![],
-        local_sentences: vec![Sentence::Rule {
+        local_sentences: vec![Arc::new(Sentence::Rule {
             body: Term::Rewrite {
                 left: Box::new(Term::apply("unrelated", vec![])),
                 right: Box::new(Term::apply("unrelated", vec![])),
@@ -985,7 +991,7 @@ fn definition_injection_ignores_modules_outside_the_main_import_closure() {
             requires: truth.clone(),
             ensures: truth,
             attributes: Attributes::default(),
-        }],
+        })],
         attributes: Attributes::default(),
     };
     let definition = Definition {
@@ -1021,7 +1027,7 @@ fn definition_injection_errors_name_the_source_sentence() {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: vec![],
-            local_sentences: vec![Sentence::Rule {
+            local_sentences: vec![Arc::new(Sentence::Rule {
                 body: Term::Rewrite {
                     left: Box::new(Term::apply("missing", vec![])),
                     right: Box::new(Term::apply("missing", vec![])),
@@ -1029,7 +1035,7 @@ fn definition_injection_errors_name_the_source_sentence() {
                 requires: truth.clone(),
                 ensures: truth,
                 attributes,
-            }],
+            })],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),

@@ -415,7 +415,7 @@ fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String
     let mut rewrite_order = Vec::new();
     for module in ordered {
         for (index, sentence) in module.local_sentences.iter().enumerate() {
-            let Sentence::Rule { attributes, .. } = sentence else {
+            let Sentence::Rule { attributes, .. } = &**sentence else {
                 continue;
             };
             let unique_id = attributes.string(AttributeKey::UniqueId).ok_or_else(|| {
@@ -623,7 +623,7 @@ fn transform_loaded_definition(
         .modules
         .iter()
         .flat_map(|module| module.local_sentences.iter())
-        .any(|sentence| matches!(sentence, Sentence::Configuration { .. }))
+        .any(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
     {
         let (definition, configuration_diagnostics) =
             stage(timings, "expand structured configurations", || {
@@ -700,6 +700,8 @@ fn with_newline(mut text: String) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use k_rust_backend::definition::BackendDefinition;
 
     #[cfg(feature = "z3-inference")]
@@ -743,7 +745,7 @@ mod tests {
                 .collect(),
             local_sentences: rules
                 .iter()
-                .map(|(unique_id, body)| ranked_rule(*unique_id, body))
+                .map(|(unique_id, body)| Arc::new(ranked_rule(*unique_id, body)))
                 .collect(),
             attributes: Attributes::default(),
         }
@@ -961,7 +963,7 @@ mod tests {
             {
                 receipts.push(receipt.clone());
             }
-            match sentence {
+            match &**sentence {
                 Sentence::Rule {
                     body,
                     requires,

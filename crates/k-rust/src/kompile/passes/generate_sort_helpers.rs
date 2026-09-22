@@ -3,6 +3,9 @@
 //!
 //! Generate sort predicates and projection functions consumed by later backend passes.
 
+use std::sync::Arc;
+
+use crate::definition::ResolveError;
 use serde_json::{Value, json};
 
 use crate::definition::AttributeKey;
@@ -17,7 +20,7 @@ use crate::{
 };
 
 /// Apply Java's `GenerateSortPredicateSyntax` transformation.
-pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, String> {
+pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, ResolveError> {
     super::super::pipeline::run_standalone(
         definition,
         generate_sort_predicate_syntax_pass,
@@ -28,15 +31,18 @@ pub fn generate_sort_predicate_syntax(definition: &Definition) -> Result<Definit
 pub(crate) fn generate_sort_predicate_syntax_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, String> {
-    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
-    generate_sort_predicate_syntax_from_resolved(input.definition, resolved)
+) -> Result<Definition, ResolveError> {
+    let resolved = input.resolved_raw().map_err(Clone::clone)?;
+    Ok(generate_sort_predicate_syntax_from_resolved(
+        input.definition,
+        resolved,
+    ))
 }
 
 fn generate_sort_predicate_syntax_from_resolved(
     definition: &Definition,
     resolved: &ResolvedDefinition,
-) -> Result<Definition, String> {
+) -> Definition {
     let views = resolved.views();
     let mut output = definition.clone();
     for module in &mut output.modules {
@@ -87,7 +93,10 @@ fn generate_sort_predicate_syntax_from_resolved(
             generated.push(production);
         }
         let mut generated = retain_new_sentences(
-            visible.iter().copied().chain(module.local_sentences.iter()),
+            visible
+                .iter()
+                .copied()
+                .chain(module.local_sentences.iter().map(Arc::as_ref)),
             generated,
         );
         if !generated.is_empty() {
@@ -96,29 +105,38 @@ fn generate_sort_predicate_syntax_from_resolved(
                 sort: Sort::builtin(BuiltinSort::K),
                 attributes: Attributes::default(),
             };
-            if !module.local_sentences.contains(&k_sort) {
+            if !module
+                .local_sentences
+                .iter()
+                .any(|sentence| **sentence == k_sort)
+            {
                 generated.push(k_sort);
             }
-            module.local_sentences.extend(generated);
+            module
+                .local_sentences
+                .extend(generated.into_iter().map(Arc::new));
         }
     }
-    Ok(output)
+    output
 }
 
 /// Restore generated sort predicates to their canonical unary signature after passes that may
 /// temporarily add arguments, then generate predicates for any newly introduced sorts.
-pub fn regenerate_sort_predicate_syntax(definition: &Definition) -> Result<Definition, String> {
+pub fn regenerate_sort_predicate_syntax(
+    definition: &Definition,
+) -> Result<Definition, ResolveError> {
     super::super::pipeline::run_standalone(definition, regenerate_sort_predicate_syntax_pass, None)
 }
 
 pub(crate) fn regenerate_sort_predicate_syntax_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, String> {
-    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+) -> Result<Definition, ResolveError> {
+    let resolved = input.resolved_raw().map_err(Clone::clone)?;
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
+            let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Production {
                 label: Some(label),
                 items,
@@ -142,11 +160,13 @@ pub(crate) fn regenerate_sort_predicate_syntax_pass(
             ];
         }
     }
-    generate_sort_predicate_syntax_from_resolved(&output, resolved)
+    Ok(generate_sort_predicate_syntax_from_resolved(
+        &output, resolved,
+    ))
 }
 
 /// Apply the non-coverage form of Java's `GenerateSortProjections` transformation.
-pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, String> {
+pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, ResolveError> {
     super::super::pipeline::run_standalone(
         definition,
         generate_sort_projections_pass,
@@ -157,8 +177,8 @@ pub fn generate_sort_projections(definition: &Definition) -> Result<Definition, 
 pub(crate) fn generate_sort_projections_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, String> {
-    let resolved = input.resolved_raw().map_err(|error| error.to_string())?;
+) -> Result<Definition, ResolveError> {
+    let resolved = input.resolved_raw().map_err(Clone::clone)?;
     let main_id = resolved.main_module_id();
     let views = resolved.views();
     let main_productions = views.production_catalog(main_id);
@@ -202,8 +222,11 @@ pub(crate) fn generate_sort_projections_pass(
                 &defined_labels,
             ));
         }
-        let generated = retain_new_sentences(module.local_sentences.iter(), generated);
-        module.local_sentences.extend(generated);
+        let generated =
+            retain_new_sentences(module.local_sentences.iter().map(Arc::as_ref), generated);
+        module
+            .local_sentences
+            .extend(generated.into_iter().map(Arc::new));
     }
     Ok(output)
 }

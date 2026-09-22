@@ -129,9 +129,9 @@ pub(crate) fn concretize_cells_pass(
             &local_model
         };
         for sentence in &mut module.local_sentences {
-            let original = sentence.clone();
+            let original = (**sentence).clone();
             match Concretizer::new(model, productions).sentence(original) {
-                Ok(transformed) => *sentence = transformed,
+                Ok(transformed) => *crate::definition::sentence_mut(sentence) = transformed,
                 Err(message) => diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidCellConcretization,
                     message,

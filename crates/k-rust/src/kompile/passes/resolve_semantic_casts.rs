@@ -37,7 +37,10 @@ pub(crate) fn resolve_semantic_casts_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            resolve_semantic_casts_in_sentence_mut(sentence, false);
+            resolve_semantic_casts_in_sentence_mut(
+                crate::definition::sentence_mut(sentence),
+                false,
+            );
         }
     }
     Ok(output)

@@ -415,17 +415,22 @@ impl OriginReceipt {
 
     /// Compare receipts without rendering a structured receipt into JSON.
     pub(crate) fn identical(&self, other: &Self) -> bool {
-        match (&self.record, &other.record) {
+        // Cross-representation comparison necessarily materializes one side, but this is a
+        // structural comparison rather than a wire emission; keep it out of the render counter.
+        measure::without_counting(|| match (&self.record, &other.record) {
             (Some(left), Some(right)) => left == right,
             (None, None) => self.value == other.value,
             (Some(record), None) => record.to_value() == *other.value(),
             (None, Some(record)) => *self.value() == record.to_value(),
-        }
+        })
     }
 
     /// The JSON form of the receipt, rendered at most once per shared receipt.
     pub fn value(&self) -> &Value {
-        self.value.get_or_init(|| self.expect_record().to_value())
+        self.value.get_or_init(|| {
+            measure::bump(Counter::ProvenanceReceiptRenders);
+            self.expect_record().to_value()
+        })
     }
 
     pub fn into_value(self) -> Value {
@@ -492,21 +497,33 @@ fn record_generated_origins_inner(
             .modules
             .iter()
             .find(|candidate| candidate.name == module.name)
-            .map(|candidate| candidate.local_sentences.as_slice())
+            .map(|candidate| {
+                candidate
+                    .local_sentences
+                    .iter()
+                    .map(|sentence| (**sentence).clone())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
-        if skip_unchanged && before_sentences == module.local_sentences.as_slice() {
+        let after_snapshot = module
+            .local_sentences
+            .iter()
+            .map(|sentence| (**sentence).clone())
+            .collect::<Vec<_>>();
+        if skip_unchanged && before_sentences == after_snapshot {
             continue;
         }
         // One module-wide origin set per pass, shared by every generated sentence that has no
         // narrower derivation of its own.
         let module_origins: Arc<[ProvenanceLink]> =
-            module_origin_links(before_sentences, pass).into();
-        let counterparts = sentence_counterparts(before_sentences, &module.local_sentences);
+            module_origin_links(&before_sentences, pass).into();
+        let counterparts = sentence_counterparts(&before_sentences, &after_snapshot);
         for (sentence_offset, sentence) in module.local_sentences.iter_mut().enumerate() {
             let sentence_index =
                 u32::try_from(sentence_offset).expect("module sentence count fits u32");
             let before_sentence =
                 counterparts[sentence_offset].map(|index| &before_sentences[index]);
+            let sentence = crate::definition::sentence_mut(sentence);
             let generated = before_sentence.is_none_or(|candidate| candidate != sentence);
             let sentence_name = sentence_name(sentence, sentence_offset);
             let origins = sentence_origins(before_sentence, sentence, &module_origins);
@@ -1161,7 +1178,7 @@ mod tests {
             modules: vec![FlatModule {
                 name: "MAIN".into(),
                 imports: Vec::new(),
-                local_sentences: vec![rule(body)],
+                local_sentences: vec![Arc::new(rule(body))],
                 attributes: Attributes::default(),
             }],
             attributes: Attributes::default(),
@@ -1174,7 +1191,7 @@ mod tests {
             modules: vec![FlatModule {
                 name: "MAIN".into(),
                 imports: Vec::new(),
-                local_sentences: rules,
+                local_sentences: rules.into_iter().map(Arc::new).collect(),
                 attributes: Attributes::default(),
             }],
             attributes: Attributes::default(),
@@ -1436,7 +1453,7 @@ mod tests {
             definition(annotated("after")),
             GeneratingPass::MacroExpansion,
         );
-        let Sentence::Rule { body, .. } = &after.main_module().unwrap().local_sentences[0] else {
+        let Sentence::Rule { body, .. } = &*after.main_module().unwrap().local_sentences[0] else {
             panic!("expected rule");
         };
         let metadata = body.metadata().unwrap();
@@ -1480,7 +1497,7 @@ mod tests {
             )),
             GeneratingPass::MacroExpansion,
         );
-        let Sentence::Rule { body, .. } = &after.main_module().unwrap().local_sentences[0] else {
+        let Sentence::Rule { body, .. } = &*after.main_module().unwrap().local_sentences[0] else {
             panic!("expected rule");
         };
         let parent = body
@@ -1509,7 +1526,7 @@ mod tests {
         let before = definition(Term::apply("unchanged", vec![Term::variable("X")]));
         let after =
             record_generated_origins(&before, before.clone(), GeneratingPass::AddSortInjections);
-        let Sentence::Rule { body, .. } = &after.main_module().unwrap().local_sentences[0] else {
+        let Sentence::Rule { body, .. } = &*after.main_module().unwrap().local_sentences[0] else {
             panic!("expected rule");
         };
 
@@ -1531,7 +1548,7 @@ mod tests {
                     public: true,
                 })
                 .collect(),
-            local_sentences: vec![rule(Term::apply(body, Vec::new()))],
+            local_sentences: vec![Arc::new(rule(Term::apply(body, Vec::new())))],
             attributes: Attributes::default(),
         };
         let before = Definition {
@@ -1544,7 +1561,9 @@ mod tests {
             attributes: Attributes::default(),
         };
         let mut after = before.clone();
-        let Sentence::Rule { body, .. } = &mut after.modules[2].local_sentences[0] else {
+        let Sentence::Rule { body, .. } =
+            crate::definition::sentence_mut(&mut after.modules[2].local_sentences[0])
+        else {
             unreachable!()
         };
         *body = Term::apply("after", vec![Term::variable("X")]);
@@ -1588,7 +1607,7 @@ mod tests {
             definition(with_prior_origin("after")),
             GeneratingPass::MacroExpansion,
         );
-        let Sentence::Rule { body, .. } = &after.main_module().unwrap().local_sentences[0] else {
+        let Sentence::Rule { body, .. } = &*after.main_module().unwrap().local_sentences[0] else {
             panic!("expected rule");
         };
         let origin = body
@@ -1716,17 +1735,22 @@ mod tests {
                 definition_with_rules(vec![make_rule("after"), make_rule("unchanged")]),
                 GeneratingPass::MacroExpansion,
             );
-            let [
-                Sentence::Rule {
-                    body: changed_body, ..
-                },
-                Sentence::Rule {
-                    body: unchanged_body,
-                    ..
-                },
-            ] = after.main_module().unwrap().local_sentences.as_slice()
+            let [changed, unchanged] = after.main_module().unwrap().local_sentences.as_slice()
             else {
                 panic!("expected two rules");
+            };
+            let Sentence::Rule {
+                body: changed_body, ..
+            } = changed.as_ref()
+            else {
+                panic!("expected changed rule");
+            };
+            let Sentence::Rule {
+                body: unchanged_body,
+                ..
+            } = unchanged.as_ref()
+            else {
+                panic!("expected unchanged rule");
             };
 
             assert!(
@@ -1765,7 +1789,7 @@ mod tests {
                 .unwrap()
                 .local_sentences
                 .iter()
-                .filter_map(|sentence| match sentence {
+                .filter_map(|sentence| match &**sentence {
                     Sentence::Rule { body, .. } => body
                         .metadata()
                         .and_then(|metadata| metadata.origin.as_deref())
@@ -1799,7 +1823,7 @@ mod tests {
         let module = |name: &str, body| FlatModule {
             name: name.into(),
             imports: Vec::new(),
-            local_sentences: vec![make_rule(body)],
+            local_sentences: vec![Arc::new(make_rule(body))],
             attributes: Attributes::default(),
         };
         let before = Definition {
@@ -1835,7 +1859,7 @@ mod tests {
             .modules
             .iter()
             .map(|module| {
-                let Sentence::Rule { body, .. } = &module.local_sentences[0] else {
+                let Sentence::Rule { body, .. } = &*module.local_sentences[0] else {
                     unreachable!()
                 };
                 assert_eq!(body, &Term::apply("generated", Vec::new()));

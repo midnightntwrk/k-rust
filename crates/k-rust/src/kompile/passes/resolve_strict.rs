@@ -3,7 +3,7 @@
 //!
 //! Generate evaluation contexts from `strict`, `seqstrict`, and `hybrid` productions.
 
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use serde_json::Value;
 
@@ -71,7 +71,7 @@ pub(crate) fn resolve_strict_pass(
         let mut generated = Vec::new();
         // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         for sentence in &module.local_sentences {
-            let Sentence::Production { attributes, .. } = sentence else {
+            let Sentence::Production { attributes, .. } = &**sentence else {
                 continue;
             };
             for (key, sequential) in [
@@ -90,7 +90,7 @@ pub(crate) fn resolve_strict_pass(
 
         module
             .local_sentences
-            .retain(|sentence| !matches!(sentence, Sentence::ContextAlias { .. }));
+            .retain(|sentence| !matches!(&**sentence, Sentence::ContextAlias { .. }));
         if !generated.is_empty() {
             // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             let imports_bool = bool_module.is_some_and(|bool_module| {
@@ -118,7 +118,9 @@ pub(crate) fn resolve_strict_pass(
                     ));
                 }
             }
-            extend_unique(&mut module.local_sentences, generated);
+            module
+                .local_sentences
+                .extend(generated.into_iter().map(Arc::new));
         }
     }
 

@@ -30,7 +30,8 @@ pub use module_to_kore::{
     rust_backend_hook_namespaces, standard_kore_prelude,
 };
 pub use passes::{
-    CheckSimplificationError, ConcretizeCellsError, ConstantFoldingError, ExpandMacrosError,
+    AddImplicitComputationCellError, CheckSimplificationError, ConcretizeCellsError,
+    ConstantFoldingError, ExpandMacrosError, GuardOrPatternsError, RemoveUnitError,
     ResolveCommError, ResolveContextsError, ResolveFreshConfigConstantsError,
     ResolveFreshConstantsError, ResolveFunError, ResolveFunctionWithConfigError,
     ResolveHeatCoolError, ResolveIoError, ResolveStrictError, SubsortKItemError,

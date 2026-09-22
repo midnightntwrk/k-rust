@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::sync::Arc;
 
 use crate::definition::AttributeKey;
 use crate::definition::{
@@ -181,8 +182,11 @@ fn prepared_program_sentences_with(
 pub fn definition_with_named_projections(definition: &Definition) -> Definition {
     let mut output = definition.clone();
     for module in &mut output.modules {
-        let generated = named_projection_productions(&module.local_sentences);
-        append_unique(&mut module.local_sentences, generated.iter());
+        let generated =
+            named_projection_productions(module.local_sentences.iter().map(Arc::as_ref));
+        module
+            .local_sentences
+            .extend(generated.into_iter().map(Arc::new));
     }
     output
 }
