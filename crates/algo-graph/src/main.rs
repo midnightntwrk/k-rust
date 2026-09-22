@@ -26,7 +26,8 @@ struct Cli {
 enum Command {
     /// Write the canonical static graph as TOML.
     Graph {
-        /// Destination path. Defaults to target/algo/graph.toml below the repository root.
+        /// Destination path. Defaults to target/algo/graph.toml below the repository root, in which
+        /// case the advisory report is also written to target/algo/report.txt.
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -335,7 +336,11 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
     match command {
         Command::Graph { output } => {
             let build = report_build(build_graph(&root)?);
-            eprintln!("{}", write_report(&root, &build)?);
+            // The report file belongs to the default output location; with `-o` the findings
+            // already printed to standard error are the whole report.
+            if output.is_none() {
+                eprintln!("{}", write_report(&root, &build)?);
+            }
             let output = output.unwrap_or_else(|| default_output(&root, "graph.toml"));
             write_output(&output, &canonical_toml(&build.graph)?)?;
             println!("wrote {}", output.display());
