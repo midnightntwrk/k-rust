@@ -795,6 +795,7 @@ fn collection(symbols: &CollectionSymbols, mut components: Vec<kore::Pattern>) -
     let Some(mut result) = components.pop() else {
         return application(&symbols.unit, Vec::new(), Vec::new());
     };
+    // Invariant: `result` is the right-nested `symbols.concat` of the components popped so far, in their original order; each iteration pops one entry of `components` and pushes none.
     while let Some(component) = components.pop() {
         result = application(&symbols.concat, Vec::new(), vec![component, result]);
     }

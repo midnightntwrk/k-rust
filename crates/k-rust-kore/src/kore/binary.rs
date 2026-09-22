@@ -793,6 +793,7 @@ impl Encoder<'_> {
         }
 
         let mut tasks = vec![Task::Pattern(pattern)];
+        // Invariant: `self.output` ends with the encoding of every task popped so far and `tasks` holds the remaining tasks in reverse emission order; a popped `Task::Pattern` emits a leaf, becomes a `Task::Variable`, or is replaced by its children above its `Task::Finish`, so each node of `pattern` is expanded once and `tasks` empties.
         while let Some(task) = tasks.pop() {
             match task {
                 Task::Variable(variable) => {

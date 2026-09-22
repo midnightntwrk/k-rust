@@ -457,6 +457,7 @@ fn search_graph_collecting(
     let mut expanded: HashSet<(u64, Pattern, bool)> = HashSet::new();
 
     let mut validated = VecDeque::with_capacity(pending.len());
+    // Invariant: `validated` holds, in queue order, the popped states without a surviving macro or alias symbol, and `incomplete` one entry per other popped state; nothing is pushed onto `pending`, so each initial state is popped once.
     while let Some(work) = pending.pop_front() {
         if let Some(symbol) = work.state.pattern.macro_or_alias_symbol() {
             incomplete.push(rewrite_incomplete(
@@ -1037,6 +1038,7 @@ fn search_paths_collecting(
     let mut fresh_counter = 0;
 
     let mut validated = VecDeque::with_capacity(pending.len());
+    // Invariant: `validated` holds, in queue order, the popped paths without a surviving macro or alias symbol, and `incomplete` one entry per other popped path; nothing is pushed onto `pending`, so the initial path is popped once.
     while let Some(path) = pending.pop_front() {
         if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
             incomplete.push(rewrite_incomplete(

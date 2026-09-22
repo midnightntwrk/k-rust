@@ -406,6 +406,7 @@ fn discharge_valid_constraints(
 ) -> Result<Vec<Predicate>, SimplificationError> {
     let mut pending = std::collections::VecDeque::from(constraints);
     let mut retained = Vec::with_capacity(pending.len());
+    // Invariant: `retained` holds, in order, the popped constraints that are substitution bindings or that the solver left undecided, and `pending` holds the unexamined ones; each iteration pops one constraint and pushes none, so the loop runs at most |constraints| times.
     while let Some(constraint) = pending.pop_front() {
         if substitution_binding(&constraint, &definition.sort_graph).is_some() {
             retained.push(constraint);
@@ -2183,6 +2184,7 @@ fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
 
 fn term_contains_replacement_original(term: &Term, replacements: &[(Term, Term)]) -> bool {
     let mut pending = vec![term];
+    // Invariant: no popped subterm equals an original in `replacements`, and `pending` holds unexamined subterm occurrences of `term`; each pop pushes only its direct children, so each occurrence is popped at most once.
     while let Some(term) = pending.pop() {
         if replacements.iter().any(|(original, _)| original == term) {
             return true;

@@ -73,6 +73,7 @@ impl Node {
 
         let mut stack: Vec<Frame> = Vec::new();
         let mut value = None;
+        // Invariant: `stack` holds one `Frame` per open array or object, whose `values` are its converted children and `remaining` its unentered ones; `value` holds the converted value of the node just finished, or is `None` when `self` is the next node to convert; each node is entered once and each frame is popped once, so the loop returns when the root's value meets an empty `stack`.
         loop {
             if value.is_none() {
                 if let Some(primitive) = primitive(&mut self) {
@@ -141,6 +142,7 @@ impl Drop for Node {
         }
 
         let mut work = take_children(self);
+        // Invariant: `work` holds the detached subtrees whose children are still attached; each pop detaches one node's children into `work`, so each node is popped once and is dropped after its children are detached.
         while let Some(mut child) = work.pop() {
             work.extend(take_children(&mut child));
         }
@@ -211,6 +213,7 @@ pub fn parse(input: &str) -> Result<Node, Error> {
     let mut stack: Vec<Frame> = Vec::new();
     let mut root = None;
     let mut action = Action::Value;
+    // Invariant: `stack` holds one `Frame` per array or object opened and not yet closed, innermost last, and `action` names what the grammar admits at `parser.cursor`; every iteration advances `parser.cursor` except `ArrayValueOrEnd` without `]`, whose successor `Value` advances it, until `Finished` or an error returns.
     loop {
         parser.whitespace();
         action = match action {
@@ -428,6 +431,7 @@ pub fn to_string(root: &Node, pretty: bool) -> String {
 
     let mut output = String::new();
     let mut stack = vec![Task::Node(root, 0)];
+    // Invariant: `output` holds the text of every task popped so far and `stack` holds the remaining tasks in reverse output order; a popped `Task::Node` either emits its text or emits its opening bracket and pushes tasks for its separators, direct children, and closing bracket, so each node of `root` is expanded once and `stack` empties.
     while let Some(task) = stack.pop() {
         match task {
             Task::Raw(raw) => output.push_str(raw),

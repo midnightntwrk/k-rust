@@ -156,6 +156,7 @@ impl<'a> Execution<'a> {
             .collect::<VecDeque<_>>();
         let mut leaves = SelectedExecutionLeaves::default();
         let mut validated = VecDeque::with_capacity(pending.len());
+        // Invariant: `validated` holds, in queue order, the popped states without a surviving macro or alias symbol, and `leaves` one leaf per other popped state; nothing is pushed onto `pending`, so each initial state is popped once.
         while let Some(state) = pending.pop_front() {
             if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
                 leaves.push(state.leaf(

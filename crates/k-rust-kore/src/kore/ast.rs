@@ -282,6 +282,7 @@ impl Eq for Pattern {}
 impl Drop for Pattern {
     fn drop(&mut self) {
         let mut work = super::walk::take_children(self);
+        // Invariant: `work` holds the detached subpatterns whose children are still attached; each pop detaches one node's children into `work`, so each node is popped once and is dropped after its children are detached.
         while let Some(mut child) = work.pop() {
             work.extend(super::walk::take_children(&mut child));
         }
@@ -425,6 +426,7 @@ impl Ord for Pattern {
         }
 
         let mut work = vec![Step::Compare(self, other)];
+        // Invariant: every `Compare` popped so far found its two nodes equal in rank and scalars, and `work` holds, in comparison order, the unvisited child pairs of the open pairs and each open pair's `PrefixLength`; each `Compare` pairs the nodes at one position common to `self` and `other` and is pushed once, so `work` empties.
         while let Some(step) = work.pop() {
             let Step::Compare(left, right) = step else {
                 let Step::PrefixLength(ordering) = step else {

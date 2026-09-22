@@ -423,6 +423,7 @@ fn downstream_algorithms(
 
     let mut closure = BTreeSet::from([focus.to_owned()]);
     let mut pending = vec![focus.to_owned()];
+    // Invariant: `closure` holds `focus` and every selected algorithm reached so far over `feeds` or `constrains` edges, and `pending` holds the members of `closure` whose outgoing edges are unscanned; an id is pushed only when `closure.insert` admits it, so each id is popped at most once.
     while let Some(current) = pending.pop() {
         for edge in edges.iter().filter(|edge| {
             matches!(edge.kind.as_str(), "feeds" | "constrains") && edge.from == current

@@ -50,6 +50,7 @@ pub fn children(pattern: &Pattern) -> Vec<&Pattern> {
 
 pub fn for_each_post_order(pattern: &Pattern, mut visit: impl FnMut(&Pattern)) {
     let mut work = vec![(pattern, false)];
+    // Invariant: `visit` has seen, in post-order, every node whose `(pattern, true)` entry was popped, and `work` holds the remaining entries in reverse visit order; each node is pushed once as `(pattern, false)` and once as `(pattern, true)`, so `work` empties after 2 * |pattern| pops.
     while let Some((pattern, complete)) = work.pop() {
         if complete {
             visit(pattern);
@@ -81,6 +82,7 @@ pub fn rebuild<T>(root: &Pattern, mut build: impl FnMut(&Pattern, Vec<T>) -> T) 
     }
 
     let mut stack = vec![Frame::new(root)];
+    // Invariant: `stack` holds one `Frame` per node on the path from `root` to the current node, and each frame's `built` holds the values of its finished children in order; each node's frame is pushed once and popped once, so the loop returns the value of `root` after |root| pops.
     loop {
         let frame = stack
             .last_mut()
@@ -295,6 +297,7 @@ impl Pattern {
         let mut result = BTreeSet::new();
         let mut bound = BTreeMap::<&Variable, usize>::new();
         let mut work = vec![Step::Enter(self)];
+        // Invariant: `bound` counts, per variable, the binders entered and not yet left, and `result` holds every `Variable` node entered while not in `bound`; each node is entered once and each binder pushes one `Leave` below its children, so `work` empties.
         while let Some(step) = work.pop() {
             match step {
                 Step::Leave(variable) => {
@@ -333,6 +336,7 @@ impl Pattern {
     pub fn sort_variables(&self) -> BTreeSet<String> {
         fn collect(sort: &Sort, result: &mut BTreeSet<String>) {
             let mut work = vec![sort];
+            // Invariant: `result` holds every `Sort::Variable` popped so far and `work` holds unvisited subsorts of `sort`; each pop pushes only its direct arguments, so each subsort occurrence is popped once.
             while let Some(sort) = work.pop() {
                 match sort {
                     Sort::Variable(name) => {
@@ -453,6 +457,7 @@ impl Pattern {
     fn flatten_at(&self, sort: &Sort, conjunction: bool) -> Vec<&Pattern> {
         let mut result = Vec::new();
         let mut work = vec![self];
+        // Invariant: `result` holds, left to right, the popped operands that are neither a matching `And`/`Or` at `sort` nor its unit, and `work` holds the unvisited operands in reverse order; each pop pushes only the direct arguments of a matching node, so each subpattern of `self` is popped at most once.
         while let Some(pattern) = work.pop() {
             let arguments = match pattern {
                 Pattern::And {
@@ -483,6 +488,7 @@ impl Pattern {
         mut accept: impl FnMut(&Symbol, &[Pattern]) -> bool,
     ) -> Option<&Pattern> {
         let mut work = vec![(self, false)];
+        // Invariant: no `Application` whose `(pattern, true)` entry was popped satisfies `accept`, and `work` holds the remaining entries in reverse post-order; each node is pushed once as `(pattern, false)` and once as `(pattern, true)`, so `work` empties after at most 2 * |self| pops.
         while let Some((pattern, complete)) = work.pop() {
             if complete {
                 if let Pattern::Application { symbol, arguments } = pattern
