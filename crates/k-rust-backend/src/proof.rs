@@ -7,6 +7,7 @@
 //! span = "per problem"
 //! consumes = [
 //!   { type = "k_rust_backend::claim::ReachabilityClaim", role = "claim" },
+//!   { type = "k_rust_backend::matching::MatchResult", role = "match result" },
 //!   { type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" },
 //!   { type = "k_rust_backend::unification::UnificationResult", role = "unification result" },
 //!   { type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" },

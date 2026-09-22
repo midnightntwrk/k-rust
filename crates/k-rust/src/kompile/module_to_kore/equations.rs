@@ -6,6 +6,7 @@
 //! counters = []
 //! no_counter = "ordinary KORE rule emission has no dedicated counter; the sort injection it calls bumps KompileInjectionsInserted and the owise path bumps KompileOwiseCompetitorScans, each owned by its own card"
 //! consumes = [{ type = "k_rust_kore::kore::ast::Pattern", role = "converted term" }]
+//! produces = [{ type = "k_rust_kore::kore::ast::Sentence", role = "rule sentence" }]
 //!
 //! [[cost]]
 //! mode = "one module"

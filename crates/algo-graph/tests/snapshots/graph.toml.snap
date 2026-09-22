@@ -3821,6 +3821,20 @@ file = "crates/k-rust-kore/src/kore/ast.rs"
 symbol = "Pattern"
 
 [[node]]
+kind = "representation"
+id = "k_rust_kore::kore::ast::Sentence [rule sentence]"
+provenance = "declared"
+area = "kore"
+name = "k_rust_kore::kore::ast::Sentence"
+type_path = "k_rust_kore::kore::ast::Sentence"
+role = "rule sentence"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/ast.rs"
+symbol = "Sentence"
+
+[[node]]
 kind = "algorithm"
 id = "kompile.cells.concretize"
 provenance = "declared"
@@ -6641,6 +6655,12 @@ order = 48
 
 [[edge]]
 kind = "consumes"
+from = "backend.definedness.discharge"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
 from = "backend.definition.internalize"
 to = "k_rust_kore::kore::ast::Definition [compiled definition]"
 provenance = "declared"
@@ -6694,6 +6714,18 @@ to = "SmtQueries"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "backend.matching.collections"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.matching.collections"
+to = "k_rust_backend::unification::UnificationResult [unification result]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "backend.matching.collections"
 to = "MatchingCollectionProblems"
@@ -6733,6 +6765,12 @@ provenance = "declared"
 kind = "consumes"
 from = "backend.proof.search"
 to = "k_rust_backend::claim::ReachabilityClaim [claim]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.proof.search"
+to = "k_rust_backend::matching::MatchResult [match result]"
 provenance = "declared"
 
 [[edge]]
@@ -6904,9 +6942,21 @@ to = "k_rust_backend::matching::MatchResult [match result]"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "backend.simplify.predicates"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "backend.simplify.predicates"
 to = "SimplifyInvocations"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.simplify.term"
+to = "k_rust_backend::matching::MatchResult [match result]"
 provenance = "declared"
 
 [[edge]]
@@ -7472,6 +7522,12 @@ to = "k_rust::definition::SortCatalog<'a> [sort lookup]"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "kompile.kore.declarations"
+to = "k_rust_kore::kore::ast::Sentence [rule sentence]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "kompile.kore.declarations"
 to = "KompileResolveCalls"
@@ -7499,6 +7555,12 @@ provenance = "declared"
 kind = "consumes"
 from = "kompile.kore.rules"
 to = "k_rust_kore::kore::ast::Pattern [converted term]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "kompile.kore.rules"
+to = "k_rust_kore::kore::ast::Sentence [rule sentence]"
 provenance = "declared"
 
 [[edge]]

@@ -5,6 +5,10 @@
 //! variable = "k = pattern entries or elements left after common-key cancellation; n = subject entries or elements; h = list elements outside the frames; q = collection pairs in one call"
 //! counters = ["MatchingCollectionProblems"]
 //! span = "per problem"
+//! consumes = [
+//!   { type = "k_rust_backend::matching::MatchResult", role = "match result" },
+//!   { type = "k_rust_backend::unification::UnificationResult", role = "unification result" },
+//! ]
 //! produces = [{ type = "k_rust_backend::matching::collections::CollectionSolution", role = "collection solution" }]
 //!
 //! [[cost]]

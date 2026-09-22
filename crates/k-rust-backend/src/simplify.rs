@@ -5,6 +5,7 @@
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated"]
 //! span = "per call"
+//! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
 //! [[cost]]
 //! mode = "one term lineage"
@@ -22,6 +23,7 @@
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts"
 //! counters = ["SimplifyInvocations"]
 //! span = "per call"
+//! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
 //! [[cost]]
 //! mode = "one round"

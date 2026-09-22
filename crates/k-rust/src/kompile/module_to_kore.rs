@@ -9,6 +9,7 @@
 //!   { type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" },
 //!   { type = "k_rust::definition::SortCatalog<'a>", role = "sort lookup" },
 //!   { type = "k_rust::definition::PartialOrder<k_rust::kast::Sort>", role = "subsort order" },
+//!   { type = "k_rust_kore::kore::ast::Sentence", role = "rule sentence" },
 //! ]
 //! produces = [
 //!   { type = "k_rust_kore::kore::ast::Definition", role = "compiled definition" },
