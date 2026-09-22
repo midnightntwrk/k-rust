@@ -1,3 +1,29 @@
+//! ```toml algorithm
+//! id = "parser.grammar.build"
+//! name = "construction of a reusable inner-parser grammar"
+//! sites = ["Grammar::from_sentences", "Grammar::from_collected_sentences", "Grammar::add_production"]
+//! variable = "S = visible sentences; I = production items"
+//! counters = ["ParserGrammarBuilds"]
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "one grammar"
+//! bound = "O(S x I) plus declared relation and specialization work"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.grammar.unary_cycles"
+//! name = "detection of productive unary grammar cycles"
+//! sites = ["Grammar::identify_productive_unary_cycles", "unary_reachable"]
+//! variable = "U = unary productions; V = sorts; E = unary edges"
+//! counters = []
+//! no_counter = "productive-cycle detection has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one grammar"
+//! bound = "O(U x (V + E))"
+//! ```
+//!
 //! Construction of reusable parser grammars from visible K sentences.
 //!
 //! Production insertion is O(|sentences| * |items|), plus the declared relation computations and
@@ -6,7 +32,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::definition::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionItem, Regex as KRegex,
@@ -102,6 +128,7 @@ impl Grammar {
         include_default_layout: bool,
         scanner_seed: Option<&Scanner>,
     ) -> Result<Self, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserGrammarBuild);
         let lexical = sentences
             .iter()
             .filter_map(|sentence| match sentence {

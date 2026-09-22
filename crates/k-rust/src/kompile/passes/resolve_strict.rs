@@ -1,4 +1,17 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.strictness.resolve"
+//! name = "lowering of strictness attributes"
+//! sites = ["resolve_strict", "resolve_strict_pass", "resolve_production", "generate_contexts"]
+//! variable = "P = strict productions; C = generated evaluation contexts"
+//! counters = []
+//! no_counter = "strictness lowering has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(P + C)"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Generate evaluation contexts from `strict`, `seqstrict`, and `hybrid` productions.
@@ -59,7 +72,7 @@ pub(crate) fn resolve_strict_pass(
         diagnostics: vec![plain_error(error.to_string())],
     })?;
     let main = resolved.main_module_id();
-    let aliases = labeled_sentences(&resolved, main);
+    let aliases = labeled_sentences(resolved, main);
     let bool_module = resolved.module_id(WellKnownModule::Bool.as_str());
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();

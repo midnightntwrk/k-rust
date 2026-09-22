@@ -64,14 +64,13 @@ pub(crate) fn remove_unit_pass(
             else {
                 continue;
             };
-            *body = transform(body, &productions).map_err(|diagnostic| RemoveUnitError {
+            *body = transform(body, productions).map_err(|diagnostic| RemoveUnitError {
                 diagnostics: vec![diagnostic],
             })?;
-            *requires =
-                transform(requires, &productions).map_err(|diagnostic| RemoveUnitError {
-                    diagnostics: vec![diagnostic],
-                })?;
-            *ensures = transform(ensures, &productions).map_err(|diagnostic| RemoveUnitError {
+            *requires = transform(requires, productions).map_err(|diagnostic| RemoveUnitError {
+                diagnostics: vec![diagnostic],
+            })?;
+            *ensures = transform(ensures, productions).map_err(|diagnostic| RemoveUnitError {
                 diagnostics: vec![diagnostic],
             })?;
         }

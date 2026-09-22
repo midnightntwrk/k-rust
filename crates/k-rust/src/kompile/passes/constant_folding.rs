@@ -1,4 +1,16 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.constant_folding.evaluate"
+//! name = "bottom-up evaluation of constant hooked operations"
+//! sites = ["constant_fold", "constant_fold_pass", "Folder::fold", "Folder::evaluate"]
+//! variable = "N = visited term nodes"
+//! counters = ["KompileSentencesTransformed"]
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N) per sentence plus hook-specific arithmetic cost"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Compile-time evaluation of pure Boolean, integer, and string hooks.

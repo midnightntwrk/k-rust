@@ -48,8 +48,9 @@ The result directory holds profile.json.gz, command.txt, metadata.json,
 krust (a copy of KRUST_BIN, so the profile stays symbolisable after
 target/ is rebuilt), the workload's own output, and, when the binary
 writes them, timings.json
-(kprove --timings, kcompile --timings once supported) and counters.json
-(KRUST_COUNTERS, a binary built with the measure feature).
+(kprove --timings, kcompile --timings once supported), counters.json
+(KRUST_COUNTERS, a binary built with the measure feature), and trace.json
+(kcompile or kprove --trace, in Chrome trace-event format).
 Each workload runs twice: once unprofiled through
 scripts/conformance/measure.py for the baseline wall time and peak RSS,
 then under samply record for the profile.
@@ -59,6 +60,7 @@ Open a profile with: samply load --symbol-dir DIR DIR/profile.json.gz
 is refused (the agent-N sandbox's seccomp filter does that; the script
 then fails with samply's message). The unprofiled run, its wall time
 and peak RSS, timings.json, and counters.json are still recorded.
+The trace.json algorithm and phase trace is also still recorded.
 
 kevm-compile is a host-UID workload and needs gigabytes of memory. Its
 unprofiled or --skip-profile run may use scripts/reference-memory-guard.sh or
@@ -172,6 +174,7 @@ compile_args() {
   )
   append_source_args
   [[ "$kcompile_timings" != 1 ]] || args+=(--timings "$out/timings.json")
+  args+=(--trace "$out/trace.json")
 }
 
 # The two untimed preparations of benchmark.sh (prepare_krust_proof, run_spec_compile).
@@ -209,6 +212,7 @@ prove_args() {
     --claim "$claim"
     --depth "$proof_depth"
     --timings "$out/timings.json"
+    --trace "$out/trace.json"
   )
 }
 
@@ -439,6 +443,7 @@ jq -n \
   --argjson profiled_exit "$profiled_exit" \
   --argjson counters "$([[ -f "$out/counters.json" ]] && echo true || echo false)" \
   --argjson timings "$([[ -f "$out/timings.json" ]] && echo true || echo false)" \
+  --argjson trace "$([[ -f "$out/trace.json" ]] && echo true || echo false)" \
   --argjson timings_unattributed "$(if [[ -f "$out/timings.json" ]]; then jq -c '[.load_unattributed_seconds, .compile_unattributed_seconds, .write_unattributed_seconds] | map(select(type == "number")) | add // 0' "$out/timings.json"; else echo null; fi)" \
   '{
     workload: $workload,
@@ -458,7 +463,7 @@ jq -n \
     profiled: (if $profiled_exit == null then null else
       {wall_seconds: $profiled_wall, peak_rss_kib: $profiled_rss, exit_code: $profiled_exit,
        note: "measured around samply record; wall includes profile serialisation and peak RSS is the larger of samply and krust"} end),
-    outputs: {counters_json: $counters, timings_json: $timings, timings_unattributed_seconds: $timings_unattributed}
+    outputs: {counters_json: $counters, timings_json: $timings, trace_json: $trace, timings_unattributed_seconds: $timings_unattributed}
   }' >"$out/metadata.json"
 
 if [[ "$skip_profile" == 1 ]]; then

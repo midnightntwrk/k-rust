@@ -1037,7 +1037,7 @@ fn loader_parses_rules_against_generated_rule_cells() {
                     if attributes.source() == Some("cells.k")
             )
         })
-        .filter_map(|sentence| sentence_summary(&**sentence))
+        .filter_map(|sentence| sentence_summary(sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1125,7 +1125,7 @@ fn loader_parses_parenthesized_sequence_rewrites_before_cell_dots() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| sentence_summary(&**sentence))
+        .filter_map(|sentence| sentence_summary(sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1167,7 +1167,7 @@ fn loader_parses_legacy_empty_k_before_cell_dots() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| sentence_summary(&**sentence))
+        .filter_map(|sentence| sentence_summary(sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1216,7 +1216,7 @@ fn loader_parses_rewrites_between_bags_inside_collection_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| sentence_summary(&**sentence))
+        .filter_map(|sentence| sentence_summary(sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({
@@ -1310,7 +1310,7 @@ fn loader_parses_parenthesized_cell_deletion_inside_collection_cells() {
         .unwrap()
         .local_sentences
         .iter()
-        .filter_map(|sentence| sentence_summary(&**sentence))
+        .filter_map(|sentence| sentence_summary(sentence))
         .collect::<Vec<_>>();
 
     insta::with_settings!({

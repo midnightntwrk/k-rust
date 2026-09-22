@@ -1,3 +1,17 @@
+//! ```toml algorithm-site
+//! id = "definition.json.encode"
+//! role = "part"
+//! sites = ["write_runnable_artifact"]
+//! produces = [{ type = "k_rust::native::RunnableArtifact", role = "on-disk runnable artifact" }]
+//! ```
+//!
+//! ```toml algorithm-site
+//! id = "definition.outer.requires"
+//! role = "variant"
+//! sites = ["load_runnable_artifact"]
+//! consumes = [{ type = "k_rust::native::RunnableArtifact", role = "on-disk runnable artifact" }]
+//! ```
+//!
 //! Native host adapters kept out of the portable frontend build.
 
 use std::{

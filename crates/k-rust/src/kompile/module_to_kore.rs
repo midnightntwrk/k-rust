@@ -1,4 +1,27 @@
-//! KORE emission builds declarations and generated axioms, then emits rules and equations with an owise competitor predicate (D16-D18).
+//! ```toml algorithm
+//! id = "kompile.kore.declarations"
+//! name = "KORE declaration emission"
+//! sites = ["declaration_modules", "declaration_modules_from_resolved", "declaration_modules_from_resolved_with_options", "DeclarationModules::semantics_definition"]
+//! variable = "P = productions; A = declaration attributes"
+//! counters = []
+//! no_counter = "KORE declaration emission has no dedicated counter"
+//! consumes = [
+//!   { type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" },
+//!   { type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" },
+//!   { type = "k_rust::definition::SortCatalog<'a>", role = "sort lookup" },
+//!   { type = "k_rust::definition::PartialOrder<k_rust::kast::Sort>", role = "subsort order" },
+//! ]
+//! produces = [
+//!   { type = "k_rust::kompile::DeclarationModules", role = "KORE declaration modules" },
+//!   { type = "k_rust_kore::kore::ast::Definition", role = "compiled definition" },
+//! ]
+//!
+//! [[cost]]
+//! mode = "one module"
+//! bound = "O(P x A)"
+//! ```
+//!
+//! KORE emission builds declarations and generated axioms, then emits rules and equations with an owise competitor predicate.
 //! Complexity: O(P² + R²) over catalog products and owise rule scans.
 //! Catalog products and per-rule scans dominate; `KompileOwiseCompetitorScans` measures the competitor loop after CQ-12, and label dependency closure has a shared home.
 //!

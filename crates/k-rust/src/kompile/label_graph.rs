@@ -1,3 +1,16 @@
+//! ```toml algorithm
+//! id = "kompile.labels.backward_closure"
+//! name = "backward closure over the label-dependency graph"
+//! sites = ["LabelDependencyGraph::build", "LabelDependencyGraph::backward_closure"]
+//! variable = "V = function labels; E = rule dependency edges"
+//! counters = []
+//! no_counter = "label-dependency closure has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "graph construction and one closure"
+//! bound = "O(V + E)"
+//! ```
+//!
 //! Backward dependency closure over function and non-macro anywhere labels.
 //!
 //! Graph construction visits the rule catalog once; closure is O(V + E). No dedicated counter.

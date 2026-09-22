@@ -1,4 +1,17 @@
-//! Markdown extraction is a fence-state machine that emits K code blocks in source order (D33).
+//! ```toml algorithm
+//! id = "definition.outer.markdown"
+//! name = "extraction of selected K blocks from Markdown"
+//! sites = ["extract_fenced_k_code", "extract_fenced_k_code_with_map"]
+//! variable = "B = Markdown bytes"
+//! counters = []
+//! no_counter = "Markdown extraction has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one Markdown source"
+//! bound = "O(B)"
+//! ```
+//!
+//! Markdown extraction is a fence-state machine that emits K code blocks in source order.
 //! Complexity: O(B) over Markdown bytes.
 //! It is linear in input lines; no dedicated counter.
 //!

@@ -1,3 +1,16 @@
+//! ```toml algorithm
+//! id = "kore.pattern.walk"
+//! name = "explicit-stack traversal and rebuilding of KORE patterns"
+//! sites = ["children", "for_each_post_order", "rebuild", "clone_node", "take_children"]
+//! variable = "p = pattern nodes"
+//! counters = []
+//! no_counter = "pattern traversal has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one traversal"
+//! bound = "O(|p|)"
+//! ```
+//!
 //! One traversal of [`Pattern`] (children in field order, post-order visit with an explicit
 //! stack, and rebuild) and the walkers derived from it. Each traversal is O(|pattern|).
 

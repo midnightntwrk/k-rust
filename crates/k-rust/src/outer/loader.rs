@@ -1,4 +1,19 @@
-//! Source loading follows the `requires` DFS, selects modules, and runs the ordered load phases before lowering (D11, D21).
+//! ```toml algorithm
+//! id = "definition.outer.requires"
+//! name = "source loading by traversal of the require graph"
+//! sites = ["Loader::visit", "load_impl"]
+//! variable = "F = source files; E = require edges; B = source bytes"
+//! counters = []
+//! no_counter = "source-require traversal has no dedicated counter"
+//! consumes = [{ type = "k_rust::definition::Definition", role = "lowered source" }]
+//! produces = [{ type = "k_rust::outer::LoadedDefinition", role = "loaded definition" }]
+//!
+//! [[cost]]
+//! mode = "one source graph"
+//! bound = "O(F + E + B)"
+//! ```
+//!
+//! Source loading follows the `requires` DFS, selects modules, and runs the ordered load phases before lowering.
 //! Complexity: O(F + E + B) over files, require edges, and source bytes.
 //! Each source is visited once and each selection scans reachable modules; phase timings measure the driver.
 //!
@@ -27,6 +42,7 @@ use crate::{
         ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles_with_resolved,
     },
     kast::WellKnownModule,
+    kompile::pipeline::load_phase,
     provenance::{LogicalSourceId, SourceTable},
     timings::PhaseTimings,
 };
@@ -464,6 +480,7 @@ pub fn load_with_prepared_base_timed(
     .map(|(loaded, _, timings)| (loaded, timings))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn load_impl(
     entry: ResolvedSource,
     main_module: impl Into<String>,
@@ -487,13 +504,13 @@ fn load_impl(
         source_table: SourceTable::default(),
         diagnostics: Vec::new(),
     };
-    timings.time("parse sources", || {
+    timings.time(load_phase::PARSE_SOURCES, || {
         for source in &options.implicit_sources {
             loader.visit(source.clone())?;
         }
         loader.visit(entry)
     })?;
-    let selected_files = timings.time("select source files", || {
+    let selected_files = timings.time(load_phase::SELECT_SOURCE_FILES, || {
         validate_prepared_modules(&loader.files, prepared_modules)?;
         validate_and_select_modules(&loader.files)
     })?;
@@ -516,7 +533,7 @@ fn load_impl(
     });
     let files_to_lower = unprepared_files.as_deref().unwrap_or(files_to_lower);
 
-    let mut definition = timings.time("lower files", || {
+    let mut definition = timings.time(load_phase::LOWER_FILES, || {
         lower_files(
             files_to_lower,
             &main_module,
@@ -583,18 +600,18 @@ pub fn load_structured(
         diagnostics: Vec::new(),
     };
     let mut timings = PhaseTimings::default();
-    timings.time("parse sources", || {
+    timings.time(load_phase::PARSE_SOURCES, || {
         for source in &options.implicit_sources {
             loader.visit(source.clone())?;
         }
         Ok::<_, LoadError>(())
     })?;
-    let selected_files = timings.time("select source files", || {
+    let selected_files = timings.time(load_phase::SELECT_SOURCE_FILES, || {
         validate_and_select_modules(&loader.files)
     })?;
     let files_to_lower = selected_files.as_deref().unwrap_or(&loader.files);
 
-    let mut implicit = timings.time("lower files", || {
+    let mut implicit = timings.time(load_phase::LOWER_FILES, || {
         lower_files(
             files_to_lower,
             definition.main_module.clone(),
@@ -631,11 +648,13 @@ fn finish_load(
     compilation: Option<selection::CompilationSelection<'_>>,
     timings: &mut PhaseTimings,
 ) -> Result<(LoadedDefinition, Option<String>), LoadError> {
-    let (definition, resolved) = timings.time("apply sort synonyms", || {
+    let (definition, resolved) = timings.time(load_phase::APPLY_SORT_SYNONYMS, || {
         apply_sort_synonyms_with_resolved(&definition).map_err(LoadError::DefinitionResolution)
     })?;
     let mut diagnostics = diagnostics;
-    let outer_diagnostics = timings.time("check outer modules", || check_outer_modules(&resolved));
+    let outer_diagnostics = timings.time(load_phase::CHECK_OUTER_MODULES, || {
+        check_outer_modules(&resolved)
+    });
     let has_outer_errors = outer_diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -646,7 +665,7 @@ fn finish_load(
         ));
     }
 
-    let (definition, syntax_module) = timings.time("select modules", || {
+    let (definition, syntax_module) = timings.time(load_phase::SELECT_MODULES, || {
         let (definition, syntax_module) = if let Some(compilation) = compilation {
             let syntax = resolve_syntax_module(&resolved, compilation.syntax_module)?;
             if let Some(warning) = syntax.fallback_warning {
@@ -673,25 +692,26 @@ fn finish_load(
         )?;
         Ok::<_, LoadError>((definition, syntax_module))
     })?;
-    let definition = timings.time("resolve configuration bubbles", || {
+    let definition = timings.time(load_phase::RESOLVE_CONFIGURATION_BUBBLES, || {
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)
     })?;
     let (mut definition, configuration_diagnostics) =
-        timings.time("expand configurations", || {
+        timings.time(load_phase::EXPAND_CONFIGURATIONS, || {
             crate::definition::expand_configurations_with_diagnostics(&definition)
                 .map_err(LoadError::ConfigurationExpansion)
         })?;
     diagnostics.extend(configuration_diagnostics);
     remove_temporary_cell_sort_declarations(&mut definition);
-    let (resolved, expanded_diagnostics) = timings.time("resolve and check sorts", || {
-        let resolved =
-            ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
-        let mut expanded_diagnostics = Vec::new();
-        for (module_id, module) in resolved.modules() {
-            expanded_diagnostics.extend(check_sorts(module, &resolved.sort_catalog(module_id)));
-        }
-        Ok::<_, LoadError>((resolved, expanded_diagnostics))
-    })?;
+    let (resolved, expanded_diagnostics) =
+        timings.time(load_phase::RESOLVE_AND_CHECK_SORTS, || {
+            let resolved = ResolvedDefinition::resolve(&definition)
+                .map_err(LoadError::DefinitionResolution)?;
+            let mut expanded_diagnostics = Vec::new();
+            for (module_id, module) in resolved.modules() {
+                expanded_diagnostics.extend(check_sorts(module, &resolved.sort_catalog(module_id)));
+            }
+            Ok::<_, LoadError>((resolved, expanded_diagnostics))
+        })?;
     let has_expanded_errors = expanded_diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
@@ -702,10 +722,11 @@ fn finish_load(
         ));
     }
 
-    let (definition, resolved) = timings.time_nested("resolve rule bubbles", |nested| {
-        resolve_rule_bubbles_with_resolved(&definition, &resolved, Some(nested))
-            .map_err(LoadError::RuleParsing)
-    })?;
+    let (definition, resolved) =
+        timings.time_nested(load_phase::RESOLVE_RULE_BUBBLES, |nested| {
+            resolve_rule_bubbles_with_resolved(&definition, &resolved, Some(nested))
+                .map_err(LoadError::RuleParsing)
+        })?;
     let diagnostics = options.diagnostics.apply(diagnostics);
     if diagnostics
         .iter()

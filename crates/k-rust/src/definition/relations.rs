@@ -1,4 +1,24 @@
-//! Five relation builders scan one module's productions and return deterministic partial orders (D7).
+//! ```toml algorithm
+//! id = "definition.relations.build"
+//! name = "construction of subsort, overload, priority, and associativity relations"
+//! sites = ["compute_subsorts", "compute_disambiguation_subsorts", "compute_priorities", "compute_associativities", "compute_overloads"]
+//! variable = "P = productions; C = partial-order closure work"
+//! counters = ["KompilePartialOrdersBuilt"]
+//! consumes = [
+//!   { type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" },
+//!   { type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" },
+//! ]
+//! produces = [
+//!   { type = "k_rust::definition::PartialOrder<k_rust::kast::Sort>", role = "subsort order" },
+//!   { type = "k_rust::definition::PartialOrder<String>", role = "priority order" },
+//! ]
+//!
+//! [[cost]]
+//! mode = "one module"
+//! bound = "O(P^2 + C)"
+//! ```
+//!
+//! Five relation builders scan one module's productions and return deterministic partial orders.
 //! Complexity: O(P² + closure) over production pairs and partial-order construction.
 //! One-shot helpers rebuild per call; `DefinitionViews` memoises each result by module.
 //!

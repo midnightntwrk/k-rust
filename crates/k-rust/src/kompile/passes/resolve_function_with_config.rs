@@ -71,7 +71,7 @@ pub(crate) fn resolve_function_with_config_pass(
     let main_module = resolved
         .module_id(&input.definition.main_module)
         .expect("resolved definition contains its main module");
-    let with_config = compute_with_config_functions(&resolved, main_module);
+    let with_config = compute_with_config_functions(resolved, main_module);
     if with_config.is_empty() {
         return Ok(input.definition.clone());
     }

@@ -1,4 +1,21 @@
-//! The recovery ladder of the one-rule step (row B9): what Booster delegates to Kore when a
+//! ```toml algorithm
+//! id = "backend.rewrite.recover"
+//! name = "recovery from an indeterminate one-way match"
+//! sites = ["recover_indeterminate_match", "solve_collection_remainders_with_narrowing", "recover_general_unification", "recover_functional_symbolic_match", "recover_function_equality_match", "recover_symbolic_map_key_matches", "recover_boolean_matches", "recover_map_not_in_keys_matches", "recover_equality_matches", "recover_ite_matches", "recover_overload_symbolic_match"]
+//! variable = "k = symbolic map-key pattern entries; n = subject entries"
+//! counters = ["RewriteIndeterminateRecoveries"]
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "ordered recovery ladder"
+//! bound = "each strategy either declines or returns matches with an empty or strictly shorter remainder"
+//!
+//! [[cost]]
+//! mode = "symbolic map key"
+//! bound = "O(n^k)"
+//! ```
+//!
+//! The recovery ladder of the one-rule step: what Booster delegates to Kore when a
 //! match is indeterminate, tried in order: simplification of the remainder pairs
 //! (`Counter::RewriteIndeterminateRecoveries`), the six splitting strategies (boolean,
 //! symbolic map key, map-not-in-keys, equality, ite, collection narrowing), overload and general
@@ -8,7 +25,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 use k_rust_kore::names::BuiltinSort;
 
 use crate::{
@@ -56,6 +73,7 @@ pub(crate) fn recover_indeterminate_match(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<RecoveredMatch, SimplificationError> {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteRecover);
     measure::bump(Counter::RewriteIndeterminateRecoveries);
     let mut unresolved = Vec::new();
     let mut conditions = Vec::new();

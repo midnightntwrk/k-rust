@@ -257,9 +257,7 @@ fn nested_collection_remainder_is_solved_by_the_collection_solver() {
     let key = r#"\dv{SortKey{}}("key")"#;
     let pattern = internal_term(
         &definition,
-        &format!(
-            "mapItem{{}}(KEY:SortKey{{}}, nested{{}}(setConcat{{}}(setItem{{}}(ELEMENT:SortElement{{}}), REST:SortSet{{}})))"
-        ),
+        "mapItem{}(KEY:SortKey{}, nested{}(setConcat{}(setItem{}(ELEMENT:SortElement{}), REST:SortSet{})))",
     );
     let two = internal_term(
         &definition,

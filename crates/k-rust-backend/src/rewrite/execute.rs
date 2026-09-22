@@ -1,8 +1,27 @@
+//! ```toml algorithm
+//! id = "backend.rewrite.execute"
+//! name = "depth-first exploration of a rewrite tree"
+//! sites = ["execute_using", "Execution::run", "Execution::expand", "select_got_stuck_over_depth_bound", "merge_equal_final_leaves", "enqueue_execution_states"]
+//! variable = "d = maximum depth; b = maximum breadth"
+//! counters = ["RewriteSteps"]
+//! span = "per problem"
+//! invariant = "queued successors are pushed to the front so children are visited before siblings"
+//! consumes = [
+//!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
+//!   { type = "k_rust_backend::rewrite::Pattern", role = "internalized pattern" },
+//! ]
+//! produces = [{ type = "k_rust_backend::rewrite::ExecutionResult", role = "execution result" }]
+//!
+//! [[cost]]
+//! mode = "bounded execution"
+//! bound = "O(states), with states at most b^d; each state performs one term simplification, predicate pass, and rewrite step"
+//! ```
+//!
 //! Depth-first exploration of the rewrite tree (stack discipline) with a per-state pipeline and
 //! Kore's got-stuck-over-depth-bound leaf selection and equal-leaf merge (Booster performRewrite;
 //! Kore GraphTraversal.checkLeftUnproven): O(states) steps, states <= branching^depth bounded by
 //! `max_depth` and `max_breadth`, each state one term simplification, one predicate pass, and one
-//! rewrite step; `Counter::RewriteSteps` (row B11). Not breadth-first: `enqueue_execution_states`
+//! rewrite step; `Counter::RewriteSteps`. Not breadth-first: `enqueue_execution_states`
 //! pushes successors to the front, so children are visited before siblings.
 
 // The phase methods return `Phase<T>` (below), whose `Err` is the finished `ExecutionLeaf`
@@ -11,7 +30,7 @@
 
 use std::collections::{BTreeSet, VecDeque};
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -48,6 +67,7 @@ pub(super) fn execute_using(
     observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
 ) -> (ExecutionResult, InitialSimplificationStatus) {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteExecute);
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
@@ -440,7 +460,7 @@ impl<'a> Execution<'a> {
         Ok(state)
     }
 
-    /// E4: one priority-grouped rewrite step (row B10) under the option's mode.
+    /// E4: one priority-grouped rewrite step (backend.rewrite.step) under the option's mode.
     fn step(&mut self, state: &ExecutionState) -> RewriteResult {
         rewrite_step_with_optional_execution(
             self.definition,

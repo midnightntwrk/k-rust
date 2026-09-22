@@ -11,6 +11,9 @@
 use serde::Serialize;
 use web_time::Instant;
 
+/// Schema version written on every `--timings` envelope.
+pub const TIMINGS_SCHEMA_VERSION: u32 = 1;
+
 /// One named phase and its wall-clock duration in seconds.
 #[derive(Clone, Debug, Serialize)]
 pub struct PhaseTiming {
@@ -36,6 +39,7 @@ impl PhaseTimings {
     ///
     /// The value is returned unchanged, so fallible stages can be wrapped and then `?`-propagated.
     pub fn time<T>(&mut self, name: &'static str, run: impl FnOnce() -> T) -> T {
+        let _span = tracing::info_span!("phase", name = tracing::field::display(name)).entered();
         let started = Instant::now();
         let value = run();
         self.phases.push(PhaseTiming {
@@ -52,6 +56,7 @@ impl PhaseTimings {
         name: &'static str,
         run: impl FnOnce(&mut PhaseTimings) -> T,
     ) -> T {
+        let _span = tracing::info_span!("phase", name = tracing::field::display(name)).entered();
         let started = Instant::now();
         let parent_depth = self.depth;
         let mut children = PhaseTimings {

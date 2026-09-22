@@ -1,3 +1,27 @@
+//! ```toml algorithm
+//! id = "parser.prediction.nullability"
+//! name = "epsilon-nullability analysis by worklist"
+//! sites = ["PredictionAnalysis::new"]
+//! variable = "I = total production items"
+//! counters = ["ParserPredictionAnalysisBuilds"]
+//!
+//! [[cost]]
+//! mode = "one grammar"
+//! bound = "O(I)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.prediction.first_sets"
+//! name = "scanner-identity FIRST-set analysis by monotone propagation"
+//! sites = ["PredictionAnalysis::new"]
+//! variable = "S = sorts; L = lexemes; R = worklist re-enqueues"
+//! counters = ["ParserPredictionAnalysisBuilds", "ParserNonterminalPredictionsSkipped", "ParserTerminalPredictionsSkipped"]
+//!
+//! [[cost]]
+//! mode = "one grammar"
+//! bound = "O(S x L x R)"
+//! ```
+//!
 //! Epsilon-nullability and scanner-identity FIRST sets for immutable grammar snapshots.
 //!
 //! Both are monotone worklists. Nullability is O(total production items); FIRST propagation

@@ -1,13 +1,69 @@
+//! ```toml algorithm
+//! id = "backend.search.configurations"
+//! name = "breadth-first search over configurations"
+//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state", "retain_state_result"]
+//! variable = "n = distinct configurations at one depth"
+//! counters = ["SearchStatesDeduplicated"]
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "one depth"
+//! bound = "O(n) rewrite steps"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.search.paths"
+//! name = "breadth-first enumeration of simple rewrite paths"
+//! sites = ["search_paths_using", "search_paths_collecting", "retain_witness"]
+//! variable = "d = path depth; b = branching factor"
+//! counters = []
+//! no_counter = "path enumeration has no dedicated counter"
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "simple paths"
+//! bound = "exponential in b and d, plus O(d) visited-list work per pop"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.search.patterns"
+//! name = "pattern search over rewrite results"
+//! sites = ["search_pattern_using", "search_pattern_paths_using", "match_pattern_with_variables"]
+//! variable = "m = result patterns examined"
+//! counters = []
+//! no_counter = "pattern search has no dedicated counter"
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "result-set search"
+//! bound = "O(m) matches plus the selected rewrite-search strategy"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.substitution.extract_output"
+//! name = "output-restricted substitution extraction"
+//! sites = ["normalize_match_condition"]
+//! variable = "c = constraints; t = term size"
+//! counters = []
+//! no_counter = "output-restricted extraction has no dedicated counter"
+//! span = "per call"
+//! variant_of = "backend.substitution.extract"
+//!
+//! [[cost]]
+//! mode = "search result normalization"
+//! bound = "O(c^2 x t)"
+//! ```
+//!
 //! Breadth-first search over configurations with `(depth, pattern)` deduplication (Kore
 //! constructExecutionGraph; the LLVM backend's search), O(distinct configurations per depth)
 //! rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of simple
 //! paths with a per-path visited list, exponential in branching plus O(depth) per pop; pattern
-//! search over the result set (row B12). `normalize_match_condition` is the output-restricted
-//! variant of substitution extraction, O(c^2 x t) for c constraints, no counter (row B6b).
+//! search over the result set. `normalize_match_condition` is the output-restricted
+//! variant of substitution extraction, O(c^2 x t) for c constraints, no counter.
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -342,6 +398,7 @@ fn search_graph_using(
     observation: Option<&ObservationOptions>,
     observe: impl FnMut(&BuiltinEffect),
 ) -> SearchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendSearchConfigurations);
     search_graph_collecting(
         definition,
         initial,
@@ -939,6 +996,7 @@ fn search_paths_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PathSearchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendSearchPaths);
     search_paths_collecting(definition, initial, options, solver, observation, |_| false)
 }
 
@@ -1496,6 +1554,7 @@ fn search_pattern_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PatternSearchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let requested_bound = options.max_results;
     if requested_bound == Some(0) {
         return PatternSearchResult {
@@ -1638,6 +1697,7 @@ fn search_pattern_paths_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PatternPathSearchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let requested_bound = options.max_results;
     if requested_bound == Some(0) {
         return PatternPathSearchResult {
@@ -1844,6 +1904,7 @@ fn normalize_match_condition(
     mut constraints: Vec<Predicate>,
     output_variables: &BTreeSet<crate::term::Variable>,
 ) -> (Substitution, Vec<Predicate>) {
+    let _span = measure::algorithm_span(Algorithm::BackendSubstitutionExtractOutput);
     let mut solved = Substitution::new();
     // Invariant: each round moves one solvable equality into `solved`; exit when none remains.
     loop {

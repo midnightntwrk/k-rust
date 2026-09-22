@@ -1,4 +1,17 @@
-//! This definition-layer algorithm scans or transforms its model in deterministic declaration order (D34).
+//! ```toml algorithm
+//! id = "definition.regex.parse"
+//! name = "parsing of structured K regular expressions"
+//! sites = ["parse", "Parser::parse"]
+//! variable = "B = regular-expression syntax bytes"
+//! counters = []
+//! no_counter = "structured-regex parsing has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one regular expression"
+//! bound = "O(B)"
+//! ```
+//!
+//! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
 //! Complexity: O(B) over regex syntax bytes.
 //! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
 //!

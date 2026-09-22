@@ -1,5 +1,5 @@
-//! `proptest` invariants of the kept algorithms (CQ-10 commit 9): syntactic matching (row B2),
-//! first-order unification (row B5), and substitution extraction (row B6), over generated
+//! `proptest` invariants of the kept algorithms (CQ-10 commit 9): syntactic matching (backend.matching.syntactic),
+//! first-order unification (backend.unification.syntactic), and substitution extraction (backend.substitution.extract), over generated
 //! constructor terms of two sorts with one injection and variables of each sort.
 
 use std::collections::BTreeSet;

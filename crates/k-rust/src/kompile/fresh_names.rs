@@ -1,3 +1,16 @@
+//! ```toml algorithm
+//! id = "kompile.fresh_names.mint"
+//! name = "sentence-local fresh-name generation"
+//! sites = ["FreshNames::for_terms", "FreshNames::for_sentence", "FreshNames::mint", "FreshNames::reserve"]
+//! variable = "R = reserved names; C = colliding candidates"
+//! counters = []
+//! no_counter = "sentence-local fresh-name generation has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one name"
+//! bound = "O(R + C)"
+//! ```
+//!
 //! Fresh-name generation reserves existing names and retries monotonically increasing suffixes.
 //! Each mint takes at most O(reserved names + 1) attempts; no dedicated counter.
 //!

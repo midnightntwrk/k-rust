@@ -1,4 +1,17 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.sentences.number"
+//! name = "stable numbering of sentences by normalized digest"
+//! sites = ["number_sentences", "number_sentences_pass", "number_sentence", "unique_id_text"]
+//! variable = "N = normalized sentence and term nodes"
+//! counters = []
+//! no_counter = "sentence numbering has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N)"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Assign Java-compatible stable identifiers to rules and claims.

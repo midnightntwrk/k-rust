@@ -50,7 +50,14 @@ fn pipeline_description_accessors_cover_both_tables_and_the_checkpoint() {
     let stages = stage_descriptions();
     assert_eq!(stages.len(), 34);
     assert_eq!(stages.first().unwrap().call, "resolve_comm");
+    assert_eq!(stages.first().unwrap().table, "TRANSFORM_STAGES");
     assert_eq!(stages.last().unwrap().call, "minimize_term_construction");
+    assert_eq!(stages.last().unwrap().table, "EMISSION_STAGES");
+    assert!(
+        prologue_descriptions()
+            .iter()
+            .all(|stage| stage.table == "prologue_descriptions")
+    );
     assert_eq!(
         pipeline_checkpoint(),
         ("execution_definition", "definition")

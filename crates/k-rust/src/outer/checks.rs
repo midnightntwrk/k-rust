@@ -1,4 +1,17 @@
-//! Outer checks validate module and sentence declarations by linear scans with no worklist and no dedicated counter (D33).
+//! ```toml algorithm
+//! id = "definition.outer.checks"
+//! name = "validation of outer-syntax declarations"
+//! sites = ["check_list_declarations", "check_brackets"]
+//! variable = "N = outer syntax nodes"
+//! counters = []
+//! no_counter = "outer-syntax checks have no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one source file"
+//! bound = "O(N)"
+//! ```
+//!
+//! Outer checks validate module and sentence declarations by linear scans with no worklist and no dedicated counter.
 //! Complexity: O(N) over outer syntax nodes.
 //!
 use std::sync::LazyLock;

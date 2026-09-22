@@ -1,4 +1,17 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.functions.lift"
+//! name = "lifting of local functions into generated productions and rules"
+//! sites = ["resolve_fun", "resolve_fun_pass", "closure_variables"]
+//! variable = "N = traversed term nodes; G = generated sentences"
+//! counters = []
+//! no_counter = "local-function lifting has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N + G^2)"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Lower local `#fun`, `#let`, and K-matching expressions into generated functions.

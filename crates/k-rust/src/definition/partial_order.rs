@@ -1,3 +1,15 @@
+//! ```toml algorithm
+//! id = "definition.order.partial"
+//! name = "finite partial-order construction and closure"
+//! sites = ["PartialOrder", "PartialOrder::new", "find_cycle"]
+//! variable = "V = elements; E = direct relations; C = closure work"
+//! counters = ["KompilePartialOrdersBuilt"]
+//!
+//! [[cost]]
+//! mode = "one partial order"
+//! bound = "O(V + E + C)"
+//! ```
+//!
 //! Finite partial orders use Kahn topological sorting, reverse-order transitive closure, and set-intersection bounds.
 //! Construction is O(V + E + closure); `Counter::KompilePartialOrdersBuilt` measures builds after CQ-12's counter commit.
 //!

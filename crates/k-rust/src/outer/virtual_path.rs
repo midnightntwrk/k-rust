@@ -1,3 +1,16 @@
+//! ```toml algorithm
+//! id = "definition.outer.virtual_path"
+//! name = "lexical normalization of virtual source paths"
+//! sites = ["normalize_virtual_path"]
+//! variable = "P = path components"
+//! counters = []
+//! no_counter = "virtual-path normalization has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one path"
+//! bound = "O(P)"
+//! ```
+//!
 //! Virtual paths are normalized lexically in O(path components) with no worklist and no dedicated counter.
 //!
 //! Lexical path handling for host-provided virtual source graphs.

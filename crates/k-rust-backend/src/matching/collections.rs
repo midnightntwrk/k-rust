@@ -1,8 +1,25 @@
+//! ```toml algorithm
+//! id = "backend.matching.collections"
+//! name = "associative and associative-commutative collection matching"
+//! sites = ["solve_collection_pairs_in_definition", "solve_collection_pair", "solve_list_pair", "solve_map_pair", "solve_set_pair", "match_collection_remainders_all_in_definition", "cancel_common_opaque_chunks"]
+//! variable = "k = symbolic-key pattern elements; n = subject elements"
+//! counters = ["MatchingCollectionProblems"]
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "maps and sets"
+//! bound = "O(n^k) assignments in the worst case"
+//!
+//! [[cost]]
+//! mode = "lists"
+//! bound = "O(n) frame positions per frame"
+//! ```
+//!
 //! AC(U) matching over multisets with a frame variable (maps and sets) by backtracking
 //! assignment, O(n^k) assignments worst case for k pattern elements against n subject elements
 //! (exponential in k, the number of symbolic-key elements); A(U) matching over lists by frame
 //! splitting, O(n) frame positions per frame; opaque-concatenation cancellation;
-//! `Counter::MatchingCollectionProblems` (row B3). The per-pair rules (sorts, overloads,
+//! `Counter::MatchingCollectionProblems`. The per-pair rules (sorts, overloads,
 //! injections) stay in `solve_term_pair`, which is why no generic AC matcher replaces this.
 
 use std::{
@@ -10,7 +27,7 @@ use std::{
     sync::Arc,
 };
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::{BuiltinResult, evaluate_hook},
@@ -59,6 +76,7 @@ pub(crate) fn solve_collection_pairs_in_definition(
     pairs: &[(Term, Term)],
     mut narrowing: Option<&mut Narrowing<'_>>,
 ) -> Option<Vec<CollectionSolution>> {
+    let _span = measure::algorithm_span(Algorithm::BackendMatchingCollections);
     let initial = CollectionSolution {
         substitution: initial,
         constraints: Vec::new(),

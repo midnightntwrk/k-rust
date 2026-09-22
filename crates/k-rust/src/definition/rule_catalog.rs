@@ -1,3 +1,15 @@
+//! ```toml algorithm
+//! id = "definition.catalog.rule"
+//! name = "rule-catalog construction"
+//! sites = ["RuleCatalog", "RuleCatalog::new", "RuleCatalog::from_visible", "collect_unique"]
+//! variable = "n = visible rule-like sentences; eq = sentence-equivalence cost"
+//! counters = ["KompileSentenceEquivalenceChecks"]
+//!
+//! [[cost]]
+//! mode = "one catalog"
+//! bound = "O(n^2 x eq + n log n)"
+//! ```
+//!
 //! Rule catalogs collect unique rule-like sentences and build declaration-order views by kind and label.
 //! Construction costs O(n^2 * eq + n log n); no dedicated counter before CQ-12.
 //!

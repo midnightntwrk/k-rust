@@ -1,3 +1,44 @@
+//! ```toml algorithm
+//! id = "parser.forest.pack"
+//! name = "packed parse-forest construction"
+//! sites = ["build_packed_term", "pack_alternatives", "append_nodes", "PackedTerm::unpack"]
+//! variable = "C = children packed; N = nodes unpacked"
+//! counters = ["ParserUnpackedNodes"]
+//!
+//! [[cost]]
+//! mode = "construction and unpacking"
+//! bound = "O(C + N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.forest.order"
+//! name = "structural ordering of packed parse forests"
+//! sites = ["cmp_packed_structurally", "packed_terms_in_structural_order"]
+//! variable = "N = compared subtree nodes when fingerprints collide"
+//! counters = ["ParserPackedStructuralComparisons"]
+//!
+//! [[cost]]
+//! mode = "ordinary comparison"
+//! bound = "O(1)"
+//!
+//! [[cost]]
+//! mode = "fingerprint collision"
+//! bound = "O(N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.reserve_names"
+//! name = "reservation of variable names before record collapse"
+//! sites = ["packed_variable_names"]
+//! variable = "N = packed nodes"
+//! counters = []
+//! no_counter = "variable-name reservation has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one packed forest"
+//! bound = "O(N)"
+//! ```
+//!
 //! Packed parse forest with FNV fingerprints and deterministic structural ordering.
 //!
 //! Construction is O(children); ordering is O(1) unless fingerprints tie, then O(subtree) with

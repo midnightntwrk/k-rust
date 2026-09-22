@@ -1,4 +1,16 @@
-//! Search-pattern compilation applies sort injection and term-to-KORE conversion to one pattern (D15, D19).
+//! ```toml algorithm-site
+//! id = "kompile.sort_injections.insert"
+//! role = "part"
+//! sites = ["compile_search_pattern"]
+//! ```
+//!
+//! ```toml algorithm-site
+//! id = "kompile.kore.convert_term"
+//! role = "part"
+//! sites = ["compile_search_pattern"]
+//! ```
+//!
+//! Search-pattern compilation applies sort injection and term-to-KORE conversion to one pattern.
 //! Complexity: O(N + P) over pattern nodes and production candidates.
 //! It adds no worklist of its own; the enclosed algorithms determine its cost.
 //!

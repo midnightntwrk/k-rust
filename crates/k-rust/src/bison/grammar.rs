@@ -1,3 +1,29 @@
+//! ```toml algorithm
+//! id = "parser.bison.priorities"
+//! name = "restricted-sort expansion for Bison grammar export"
+//! sites = ["transform_priority_and_associativity", "constrain_side", "restricted_sort"]
+//! variable = "Q = restricted-sort and excluded-label pairs; P = productions"
+//! counters = []
+//! no_counter = "Bison grammar export has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one exported grammar"
+//! bound = "O(Q x P)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.bison.reachable_sorts"
+//! name = "reachable-sort traversal for Bison grammar export"
+//! sites = ["reachable_sorts"]
+//! variable = "S = reachable sorts; P = productions"
+//! counters = []
+//! no_counter = "Bison grammar export has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one exported grammar"
+//! bound = "O(S x P)"
+//! ```
+//!
 //! Deterministic Bison grammar rendering for standalone program parsers.
 //!
 //! Restricted-sort expansion is a monotone worklist over `(sort, excluded label)` pairs,

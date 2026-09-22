@@ -1,13 +1,28 @@
+//! ```toml algorithm
+//! id = "backend.fresh.object_language"
+//! name = "capture-avoiding substitution of object-language variables"
+//! sites = ["evaluate", "FreshNames::mint", "substitute", "freshen_bound_kvar_identities", "freshen_bound_kvar_identities_inner", "peel_injections"]
+//! variable = "t = term size; r = replacement size; b = binders renamed"
+//! counters = ["SimplifyBuiltinEvaluations"]
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "one object-language substitution"
+//! bound = "O(|t|) plus O(|r|) per renamed binder and collision retries"
+//! ```
+//!
 //! Capture-avoiding substitution of object-language `KVar` tokens (Barendregt renaming through
 //! `FreshNames::mint`), O(|term|) plus O(|replacement|) per binder renamed; counted as a hook
 //! under `Counter::SimplifyBuiltinEvaluations`; the only loops are the fresh-name retry and the
-//! injection peel (row B19). Its name domain is the object language, distinct from the
-//! backend-variable fresh naming (row B20).
+//! injection peel. Its name domain is the object language, distinct from the
+//! backend-variable fresh naming.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+
+use k_rust_kore::measure::{self, Algorithm};
 
 use super::{BuiltinError, BuiltinResult, UnsupportedHookReason, check_interrupted, expect_arity};
 use crate::{
@@ -21,6 +36,7 @@ pub(super) fn evaluate(
     arguments: &[Term],
     definition: Option<&BackendDefinition>,
 ) -> Result<BuiltinResult, BuiltinError> {
+    let _span = measure::algorithm_span(Algorithm::BackendFreshObjectLanguage);
     match hook {
         "SUBSTITUTION.substOne" => {
             expect_arity(hook, arguments, 3)?;

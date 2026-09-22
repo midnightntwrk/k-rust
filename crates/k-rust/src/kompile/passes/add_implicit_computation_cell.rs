@@ -103,12 +103,12 @@ pub(crate) fn add_implicit_computation_cell_pass(
                 } => (body, false, attributes),
                 _ => continue,
             };
-            if is_function(body, &productions) {
+            if is_function(body, productions) {
                 continue;
             }
             let items = flatten_cells(body);
             if !should_consider(&items, is_claim)
-                || !can_wrap(items[0], &configuration_productions, &cell_sorts)
+                || !can_wrap(items[0], configuration_productions, &cell_sorts)
             {
                 continue;
             }

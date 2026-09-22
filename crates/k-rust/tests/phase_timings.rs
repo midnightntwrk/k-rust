@@ -1,7 +1,7 @@
 //! The ordered phase list recorded by the timed load and compile entry points.
 //!
-//! The pinned list below is the kompile pipeline's documented stage order for a source
-//! definition. A pass reorder or a new stage edits this list deliberately.
+//! The public phase tables are the kompile pipeline's documented stage order for a source
+//! definition. A pass reorder or a new stage edits those tables deliberately.
 
 #![cfg(feature = "z3-inference")]
 
@@ -9,72 +9,13 @@ use std::{fs, path::Path};
 
 use k_rust::{
     builtin::embedded,
-    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition_timed},
+    kompile::{
+        CompilationBackend, CompileOptions, compile_loaded_definition_timed,
+        pipeline::{EMISSION_PHASES, LOAD_PHASES, prologue_descriptions, stage_descriptions},
+    },
     outer::{LoadOptions, ResolvedSource, load_for_compilation_timed},
     timings::PhaseTimings,
 };
-
-const LOAD_PHASES: &[&str] = &[
-    "parse sources",
-    "select source files",
-    "lower files",
-    "apply sort synonyms",
-    "check outer modules",
-    "select modules",
-    "resolve configuration bubbles",
-    "expand configurations",
-    "resolve and check sorts",
-    "resolve rule bubbles",
-];
-
-const COMPILE_PHASES: &[&str] = &[
-    "expand structured configurations",
-    "resolve structured configurations",
-    "definition checks",
-    "resolve commutative rules",
-    "resolve I/O streams",
-    "resolve local functions",
-    "seed sort predicate syntax",
-    "resolve function configuration",
-    "resolve strictness",
-    "resolve anonymous variables",
-    "resolve contexts",
-    "number sentences",
-    "resolve heat/cool attributes",
-    "resolve semantic casts",
-    "add KItem subsorts",
-    "constant folding",
-    "propagate macro attributes",
-    "guard or-patterns",
-    "resolve fresh configuration constants",
-    "generate sort predicate syntax",
-    "generate sort projections",
-    "expand macros",
-    "add implicit computation cell",
-    "resolve fresh constants",
-    "regenerate sort predicate syntax",
-    "regenerate sort projections",
-    "check simplification rules",
-    "finalize KItem subsorts",
-    "concretize cells",
-    "add semantics module",
-    "resolve configuration variables",
-    "add cool-like attributes",
-    "generate sort predicate rules",
-    "number sentences (final)",
-    "add sort injections",
-    "remove units",
-    "minimize term construction",
-    "collect execution rewrite order",
-    "resolve transformed definition",
-    "singleton overload checks",
-    "collect configuration variables",
-    "hook namespace checks",
-    "emit KORE",
-    "print definition.kore",
-    "print syntaxDefinition.kore",
-    "print macros.kore",
-];
 
 /// Load and compile `examples/rewrite.k` for the Rust backend, returning the load and compile
 /// timings separately.
@@ -106,21 +47,20 @@ fn time_rewrite_example() -> (PhaseTimings, PhaseTimings) {
 }
 
 #[test]
-fn load_and_compile_phases_follow_the_pinned_pipeline_order() {
+fn load_and_compile_phases_follow_the_public_table_order() {
     let (load_timings, compile_timings) = time_rewrite_example();
+    let load_names_and_depths = load_timings
+        .phases
+        .iter()
+        .map(|phase| (phase.name, phase.depth))
+        .collect::<Vec<_>>();
     let load_names = load_timings
         .phases
         .iter()
         .map(|phase| phase.name)
         .collect::<Vec<_>>();
-    assert!(
-        load_names
-            .iter()
-            .filter(|name| **name != "resolve rule bubbles / grammars"
-                && **name != "resolve rule bubbles / parse")
-            .copied()
-            .eq(LOAD_PHASES.iter().copied())
-    );
+    // The library entry point starts after the two mutually exclusive CLI entry phases.
+    assert_eq!(load_names, &LOAD_PHASES[2..]);
     let rule_bubbles = load_names
         .iter()
         .position(|name| *name == "resolve rule bubbles")
@@ -131,6 +71,14 @@ fn load_and_compile_phases_follow_the_pinned_pipeline_order() {
             "resolve rule bubbles",
             "resolve rule bubbles / grammars",
             "resolve rule bubbles / parse",
+        ]
+    );
+    assert_eq!(
+        &load_names_and_depths[rule_bubbles..rule_bubbles + 3],
+        &[
+            ("resolve rule bubbles", 0),
+            ("resolve rule bubbles / grammars", 1),
+            ("resolve rule bubbles / parse", 1),
         ]
     );
     assert_eq!(
@@ -152,7 +100,14 @@ fn load_and_compile_phases_follow_the_pinned_pipeline_order() {
         .iter()
         .map(|phase| phase.name)
         .collect::<Vec<_>>();
-    assert_eq!(compile_names, COMPILE_PHASES);
+    let expected_compile_names = prologue_descriptions()
+        .into_iter()
+        .chain(stage_descriptions())
+        .map(|description| description.name)
+        // The library entry point stops before the optional Bison and artifact-write phases.
+        .chain(EMISSION_PHASES[..EMISSION_PHASES.len() - 2].iter().copied())
+        .collect::<Vec<_>>();
+    assert_eq!(compile_names, expected_compile_names);
 }
 
 #[test]
@@ -182,7 +137,12 @@ fn phase_timings_are_non_negative_and_sum_by_prefix() {
         "rule-bubble child phases must be contained by parent: {rule_children} > {rule_parent}"
     );
     timings.extend(compile_timings);
-    assert!(timings.phases.len() >= LOAD_PHASES.len() + COMPILE_PHASES.len());
+    let expected_phase_count = LOAD_PHASES.len() - 2
+        + prologue_descriptions().len()
+        + stage_descriptions().len()
+        + EMISSION_PHASES.len()
+        - 2;
+    assert!(timings.phases.len() >= expected_phase_count);
     assert!(
         timings.phases.iter().all(|phase| phase.seconds >= 0.0),
         "{timings:?}"

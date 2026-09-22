@@ -1,3 +1,16 @@
+//! ```toml algorithm
+//! id = "definition.outer.select_modules"
+//! name = "module selection by import and configuration reachability"
+//! sites = ["select_modules", "has_configuration_after_exclusion"]
+//! variable = "M = modules; E = import edges"
+//! counters = []
+//! no_counter = "module selection has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one resolved definition"
+//! bound = "O(M + E)"
+//! ```
+//!
 //! Module selection traverses imports and configuration reachability before backend exclusion.
 //! Work is O(modules + imports); no dedicated counter.
 //!

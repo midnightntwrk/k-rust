@@ -1,4 +1,26 @@
 //! The `krust` command line: option parsing, file and stream I/O, printing, timings, and process status. Every backend operation goes through `k_rust::backend::Backend`; the kompile pipeline belongs to `k_rust::kompile`.
+//!
+//! ```toml algorithm-site
+//! id = "kompile.kore.declarations"
+//! role = "part"
+//! sites = ["kcompile"]
+//! produces = [{ type = "k_rust::PreparedDefinitionManifest", role = "prepared definition manifest" }]
+//! ```
+//!
+//! ```toml algorithm-site
+//! id = "definition.outer.requires"
+//! role = "variant"
+//! sites = ["load_definition_against_prepared", "load_prepared_manifest"]
+//! consumes = [{ type = "k_rust::PreparedDefinitionManifest", role = "prepared definition manifest" }]
+//! constrains = [{ id = "kompile.kore.declarations", site = "load_definition_against_prepared", via = "the SyntaxModule attribute and PreparedDefinitionManifest module digests cross the process boundary in parsed.json and krust.json" }]
+//! ```
+//!
+//! ```toml algorithm-contract
+//! id = "contract.counters.krust_writer_order"
+//! name = "stable KRUST_COUNTERS key order"
+//! sites = ["write_counters_if_requested"]
+//! constrains = [{ id = "Counter::ALL", site = "write_counters_if_requested", via = "Snapshot::iter preserves Counter::ALL declaration order for the hand-written JSON object" }]
+//! ```
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -38,6 +60,7 @@ use k_rust::{
         initial_configuration::{
             missing_variables, parser_modules, stream_defaults, top_cell_initializer,
         },
+        pipeline::{emission_phase, load_phase},
         term_to_kore_from_resolved_with_token_module,
     },
     kore::{
@@ -57,7 +80,7 @@ use k_rust::{
         load_for_compilation_timed, load_with_options_timed, load_with_prepared_base_timed,
         prepared_module_declarations, resolve_syntax_module,
     },
-    timings::{PhaseTiming, PhaseTimings},
+    timings::{PhaseTiming, PhaseTimings, TIMINGS_SCHEMA_VERSION},
 };
 use k_rust_backend::{
     externalize,
@@ -70,8 +93,49 @@ use k_rust_backend::{
     transition::DescriptorTranscriptEntry,
 };
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::prelude::*;
 
 mod rpc;
+
+struct TraceRecorder {
+    default: Option<tracing::dispatcher::DefaultGuard>,
+    flush: Option<tracing_chrome::FlushGuard>,
+}
+
+impl Drop for TraceRecorder {
+    fn drop(&mut self) {
+        // Stop routing new spans to the writer before asking it to finish the JSON document.
+        drop(self.default.take());
+        drop(self.flush.take());
+    }
+}
+
+fn start_trace(path: Option<&Path>) -> Result<Option<TraceRecorder>, Box<dyn Error>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let writer = fs::File::create(path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("could not create trace file `{}`: {error}", path.display()),
+        )
+    })?;
+    let (layer, flush) = tracing_chrome::ChromeLayerBuilder::new()
+        .writer(writer)
+        .include_args(true)
+        .build();
+    let subscriber = tracing_subscriber::registry().with(layer);
+    let default = tracing::subscriber::set_default(subscriber);
+    tracing::info!(
+        target: "algo_graph",
+        aggregation_rule = tracing::field::display("per algorithm id: invocation count, total and self duration; counter deltas summed across invocations"),
+        "trace_metadata"
+    );
+    Ok(Some(TraceRecorder {
+        default: Some(default),
+        flush: Some(flush),
+    }))
+}
 
 fn main() -> ExitCode {
     let outcome = run(Cli::parse());
@@ -274,6 +338,10 @@ struct KcompileArgs {
     /// Write phase timings in seconds as JSON (excludes process startup and teardown).
     #[arg(long, value_name = "FILE")]
     timings: Option<PathBuf>,
+
+    /// Write algorithm and phase spans as Chrome trace-event JSON.
+    #[arg(long, value_name = "FILE")]
+    trace: Option<PathBuf>,
 
     #[command(flatten)]
     warnings: WarningArgs,
@@ -548,6 +616,10 @@ struct KrunArgs {
     #[arg(long, value_name = "FILE")]
     timings: Option<PathBuf>,
 
+    /// Write algorithm and phase spans as Chrome trace-event JSON.
+    #[arg(long, value_name = "FILE")]
+    trace: Option<PathBuf>,
+
     #[command(flatten)]
     warnings: WarningArgs,
 
@@ -766,6 +838,10 @@ struct KproveArgs {
     #[arg(long, value_name = "FILE")]
     timings: Option<PathBuf>,
 
+    /// Write algorithm and phase spans as Chrome trace-event JSON.
+    #[arg(long, value_name = "FILE")]
+    trace: Option<PathBuf>,
+
     /// Prove only claims with one of these labels. May be repeated.
     #[arg(long = "claim", value_name = "LABEL")]
     claims: Vec<String>,
@@ -886,6 +962,7 @@ struct KcompileOptions {
     definition_module: Option<String>,
     compiled_definition: Option<PathBuf>,
     timings: Option<PathBuf>,
+    trace: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -1008,6 +1085,7 @@ struct KrunOptions {
     moving_average_timeout: bool,
     smt: Z3Options,
     timings: Option<PathBuf>,
+    trace: Option<PathBuf>,
 }
 
 struct KrunCompiledInput {
@@ -1050,15 +1128,30 @@ struct KproveOptions {
     smt: Z3Options,
     load_only: bool,
     timings: Option<PathBuf>,
+    trace: Option<PathBuf>,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Serialize)]
 struct ProofTimings {
+    version: u32,
     input_seconds: f64,
     internalize_seconds: f64,
     proof_setup_seconds: f64,
     proof_seconds: f64,
     claims: Vec<ClaimTiming>,
+}
+
+impl Default for ProofTimings {
+    fn default() -> Self {
+        Self {
+            version: TIMINGS_SCHEMA_VERSION,
+            input_seconds: 0.0,
+            internalize_seconds: 0.0,
+            proof_setup_seconds: 0.0,
+            proof_seconds: 0.0,
+            claims: Vec::new(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -1081,6 +1174,7 @@ impl ProofTimings {
 /// with the three group totals.
 #[derive(Serialize)]
 struct CompileTimings {
+    version: u32,
     load_seconds: f64,
     compile_seconds: f64,
     write_seconds: f64,
@@ -1110,6 +1204,7 @@ impl CompileTimings {
         phases.extend(compile);
         phases.extend(write);
         Self {
+            version: TIMINGS_SCHEMA_VERSION,
             load_seconds,
             compile_seconds,
             write_seconds,
@@ -1263,6 +1358,7 @@ impl From<KcompileArgs> for KcompileOptions {
             definition_module: arguments.definition_module,
             compiled_definition: arguments.compiled_definition,
             timings: arguments.timings,
+            trace: arguments.trace,
         }
     }
 }
@@ -1373,6 +1469,7 @@ impl From<KrunArgs> for KrunOptions {
             moving_average_timeout: arguments.timeout.moving_average,
             smt: arguments.smt.options(),
             timings: arguments.timings,
+            trace: arguments.trace,
         }
     }
 }
@@ -1466,6 +1563,7 @@ impl From<KproveArgs> for KproveOptions {
             smt: arguments.smt.options(),
             load_only: arguments.load_only,
             timings: arguments.timings,
+            trace: arguments.trace,
         }
     }
 }
@@ -1497,35 +1595,36 @@ fn load_definition_impl(
 > {
     let span_started = Instant::now();
     let mut timings = PhaseTimings::default();
-    let (mut resolver, entry, load_options) = timings.time("resolve entry source", || {
-        let builtin_directory = options.configured_builtin_directory();
-        let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
-        if let Some(directory) = builtin_directory {
-            resolver = resolver.with_builtin_directory(directory);
-        }
-        let entry = resolver.load_entry(&options.definition)?;
-        let implicit_sources = if options.no_prelude {
-            Vec::new()
-        } else {
-            vec![
-                resolver
-                    .resolve(&entry.source, "prelude.md")
-                    .map_err(|message| io::Error::new(io::ErrorKind::NotFound, message))?,
-            ]
-        };
-        let load_options = LoadOptions {
-            markdown_selector: options.markdown_selector.clone(),
-            implicit_sources,
-            excluded_module_attributes: backend
-                .map(|backend| vec![backend.excluded_module_attribute().into()])
-                .unwrap_or_default(),
-            configuration_module: configuration_module.map(str::to_owned),
-            project_root: None,
-            diagnostics: options.diagnostics,
-            bison_lists,
-        };
-        Ok::<_, Box<dyn Error>>((resolver, entry, load_options))
-    })?;
+    let (mut resolver, entry, load_options) =
+        timings.time(load_phase::RESOLVE_ENTRY_SOURCE, || {
+            let builtin_directory = options.configured_builtin_directory();
+            let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
+            if let Some(directory) = builtin_directory {
+                resolver = resolver.with_builtin_directory(directory);
+            }
+            let entry = resolver.load_entry(&options.definition)?;
+            let implicit_sources = if options.no_prelude {
+                Vec::new()
+            } else {
+                vec![
+                    resolver
+                        .resolve(&entry.source, "prelude.md")
+                        .map_err(|message| io::Error::new(io::ErrorKind::NotFound, message))?,
+                ]
+            };
+            let load_options = LoadOptions {
+                markdown_selector: options.markdown_selector.clone(),
+                implicit_sources,
+                excluded_module_attributes: backend
+                    .map(|backend| vec![backend.excluded_module_attribute().into()])
+                    .unwrap_or_default(),
+                configuration_module: configuration_module.map(str::to_owned),
+                project_root: None,
+                diagnostics: options.diagnostics,
+                bison_lists,
+            };
+            Ok::<_, Box<dyn Error>>((resolver, entry, load_options))
+        })?;
     if let Some(syntax) = compilation_syntax {
         let (loaded, syntax, loader_timings) = load_for_compilation_timed(
             entry,
@@ -1552,6 +1651,7 @@ fn load_definition_impl(
 }
 
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
+    let _trace = start_trace(options.trace.as_deref())?;
     if options.for_proving && options.backend != CompilationBackend::Rust {
         return Err("--for-proving requires --backend rust".into());
     }
@@ -1639,7 +1739,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     if let Some(mode) = bison_mode
         && let Some(start_sort) = artifacts.configuration_variables.get("PGM")
     {
-        write_timings.time("generate bison parser", || {
+        write_timings.time(emission_phase::GENERATE_BISON_PARSER, || {
             k_rust::bison::generate_program_parser(
                 &loaded.resolved,
                 &syntax_module.name,
@@ -1657,7 +1757,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             )
         })?;
     }
-    write_timings.time("write artifacts", || {
+    write_timings.time(emission_phase::WRITE_ARTIFACTS, || {
         if options.emit_json || options.for_proving {
             let definition = if options.compiled_definition.is_some() {
                 parsed_definition_for_json(&loaded, &syntax_module.name)?
@@ -1914,6 +2014,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
+    let _trace = start_trace(options.trace.as_deref())?;
     if options.source.is_none() && options.compiled_definition.is_none() {
         return Err("a source definition or --definition DIR is required".into());
     }
@@ -2053,6 +2154,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         }
     };
 
+    let program_parse_phase =
+        tracing::info_span!("phase", name = tracing::field::display("program_parse")).entered();
     let started = Instant::now();
     let available_config_vars = &compiled.configuration_variables;
     // K's krun (krun:484-489, :506-521) reads a program only when one is passed; a
@@ -2122,6 +2225,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         None
     };
     let program_parse_seconds = started.elapsed().as_secs_f64();
+    drop(program_parse_phase);
+    let config_vars_parse_phase =
+        tracing::info_span!("phase", name = tracing::field::display("config_vars_parse")).entered();
     let started = Instant::now();
     let program_uses_stdin = program_uses_stdin && program.is_some();
     let config_parser_modules = parser_modules(&program_resolved, &compiled.main_module)?;
@@ -2215,7 +2321,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
     }
     config_vars.extend(stream_defaults(
-        &available_config_vars,
+        available_config_vars,
         &mut seen_config_vars,
         io,
         program_uses_stdin,
@@ -2240,7 +2346,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     } else {
         None
     };
-    let missing_config_vars = missing_variables(&available_config_vars, &seen_config_vars);
+    let missing_config_vars = missing_variables(available_config_vars, &seen_config_vars);
     if !missing_config_vars.is_empty() {
         return Err(format!(
             "missing required configuration variable{} {}; pass {}",
@@ -2260,7 +2366,10 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     }
     let initial = top_cell_initializer(program, config_vars);
     let config_vars_parse_seconds = started.elapsed().as_secs_f64();
+    drop(config_vars_parse_phase);
 
+    let internalize_phase =
+        tracing::info_span!("phase", name = tracing::field::display("internalize")).entered();
     let started = Instant::now();
     let syntax = parse_kore_definition(&compiled.definition_kore)?;
 
@@ -2289,6 +2398,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         None => None,
     };
     let internalize_seconds = started.elapsed().as_secs_f64();
+    drop(internalize_phase);
+    let execute_phase =
+        tracing::info_span!("phase", name = tracing::field::display("execute")).entered();
     let started = Instant::now();
     let mut backend = Backend::from_internalized(
         backend,
@@ -2322,6 +2434,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         },
     )?;
     let execute_seconds = started.elapsed().as_secs_f64();
+    drop(execute_phase);
+    let output_phase =
+        tracing::info_span!("phase", name = tracing::field::display("output")).entered();
     let started = Instant::now();
     if options.output == KrunOutputArg::Kore
         && output.live_transcript.as_ref().is_some_and(|transcript| {
@@ -2354,6 +2469,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         KrunOutputArg::None => {}
     }
     let output_seconds = started.elapsed().as_secs_f64();
+    drop(output_phase);
     KrunTimings {
         compile: compiled.timings,
         program_parse_seconds,
@@ -2759,23 +2875,24 @@ fn load_definition_against_prepared(
 ) -> Result<(k_rust::outer::LoadedDefinition, PhaseTimings), Box<dyn Error>> {
     let span_started = Instant::now();
     let mut timings = PhaseTimings::default();
-    let (mut resolver, entry, manifest, base) = timings.time("read prepared definition", || {
-        let directory = prepared_artifact_directory(prepared);
-        let manifest = load_prepared_manifest(prepared)?;
-        let base: k_rust::definition::Definition =
-            definition_json::from_str(&fs::read_to_string(directory.join("parsed.json"))?)?;
-        let builtin_directory = options
-            .builtin_directory
-            .clone()
-            .or_else(|| env::var_os("KRUST_BUILTIN_DIRECTORY").map(PathBuf::from));
-        let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
-        if let Some(directory) = builtin_directory {
-            resolver = resolver.with_builtin_directory(directory);
-        }
-        resolver = resolver.with_prepared_sources(manifest.sources.clone());
-        let entry = resolver.load_entry(&options.definition)?;
-        Ok::<_, Box<dyn Error>>((resolver, entry, manifest, base))
-    })?;
+    let (mut resolver, entry, manifest, base) =
+        timings.time(load_phase::READ_PREPARED_DEFINITION, || {
+            let directory = prepared_artifact_directory(prepared);
+            let manifest = load_prepared_manifest(prepared)?;
+            let base: k_rust::definition::Definition =
+                definition_json::from_str(&fs::read_to_string(directory.join("parsed.json"))?)?;
+            let builtin_directory = options
+                .builtin_directory
+                .clone()
+                .or_else(|| env::var_os("KRUST_BUILTIN_DIRECTORY").map(PathBuf::from));
+            let mut resolver = FileResolver::from_current_directory(options.includes.clone())?;
+            if let Some(directory) = builtin_directory {
+                resolver = resolver.with_builtin_directory(directory);
+            }
+            resolver = resolver.with_prepared_sources(manifest.sources.clone());
+            let entry = resolver.load_entry(&options.definition)?;
+            Ok::<_, Box<dyn Error>>((resolver, entry, manifest, base))
+        })?;
     let (loaded, loader_timings) = load_with_prepared_base_timed(
         entry,
         &options.module,
@@ -2822,14 +2939,19 @@ fn prepared_artifact_directory(path: &Path) -> PathBuf {
 }
 
 fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
+    let _trace = start_trace(options.trace.as_deref())?;
     let started = Instant::now();
-    let syntax = match &options.input {
-        KproveInput::Source(common) => {
-            compile_proof_source(common, &options.definition_module, None)?
-        }
-        KproveInput::Compiled(path) => load_compiled_definition(path)?,
-        KproveInput::SourceWithCompiled { source, compiled } => {
-            compile_proof_source(source, &options.definition_module, Some(compiled))?
+    let syntax = {
+        let _phase =
+            tracing::info_span!("phase", name = tracing::field::display("input")).entered();
+        match &options.input {
+            KproveInput::Source(common) => {
+                compile_proof_source(common, &options.definition_module, None)?
+            }
+            KproveInput::Compiled(path) => load_compiled_definition(path)?,
+            KproveInput::SourceWithCompiled { source, compiled } => {
+                compile_proof_source(source, &options.definition_module, Some(compiled))?
+            }
         }
     };
     let mut timings = ProofTimings {
@@ -2837,11 +2959,17 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         ..ProofTimings::default()
     };
     let started = Instant::now();
-    let definition = Backend::internalize_definition(&syntax, &options.module)?;
+    let definition = {
+        let _phase =
+            tracing::info_span!("phase", name = tracing::field::display("internalize")).entered();
+        Backend::internalize_definition(&syntax, &options.module)?
+    };
     timings.internalize_seconds = started.elapsed().as_secs_f64();
     if options.load_only {
         return timings.write(options.timings.as_deref());
     }
+    let setup_phase =
+        tracing::info_span!("phase", name = tracing::field::display("proof_setup")).entered();
     let setup_started = Instant::now();
     let saved_proofs = SavedProofs::load(options.save_proofs.as_deref())?;
     let spec_module = syntax
@@ -2897,8 +3025,11 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     })?;
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
+    drop(setup_phase);
     let mut output = io::stdout().lock();
     let mut all_proven = true;
+    let proof_phase =
+        tracing::info_span!("phase", name = tracing::field::display("proof")).entered();
     // Invariant: proven_ids contains every uniquely identified claim proven before this index.
     for (index, claim) in kept.iter().enumerate() {
         let name = claim
@@ -2990,6 +3121,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             }
         }
     }
+    drop(proof_phase);
     saved_proofs.save(spec_module, &proven_ids)?;
     timings.write(options.timings.as_deref())?;
     if !all_proven {
@@ -3152,7 +3284,7 @@ mod tests {
                 .map_err(|error| {
                     io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
                 })?;
-                return Ok(externalize::constrained_pattern(&simplified));
+                Ok(externalize::constrained_pattern(&simplified))
             }
             PatternOrPredicate::Predicate(predicate, result_sort) => {
                 let simplified = simplify_and_decide_predicate_with_solver(
@@ -3165,7 +3297,7 @@ mod tests {
                 .map_err(|error| {
                     io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
                 })?;
-                return Ok(externalize::ml_pattern(&simplified, &result_sort));
+                Ok(externalize::ml_pattern(&simplified, &result_sort))
             }
         }
     }

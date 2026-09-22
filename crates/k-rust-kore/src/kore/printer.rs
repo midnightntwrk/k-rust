@@ -1,4 +1,17 @@
-//! KORE pretty printing computes flat widths once, then chooses compact or broken layouts in a linear document traversal (D20).
+//! ```toml algorithm
+//! id = "kore.printer.build"
+//! name = "construction of KORE pretty-print documents"
+//! sites = ["definition_doc", "module_doc", "sentence_doc", "pattern_doc", "syntax_doc", "Printer::print_definition", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern"]
+//! variable = "N = KORE syntax nodes"
+//! counters = []
+//! no_counter = "KORE document construction has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one syntax tree"
+//! bound = "O(N)"
+//! ```
+//!
+//! KORE pretty printing computes flat widths once, then chooses compact or broken layouts in a linear document traversal.
 //! Complexity: O(N) over document nodes.
 //! The former quadratic `fits` note is stale after the flat-width cache; no dedicated counter.
 //!
@@ -57,6 +70,11 @@ pub struct Printer {
     options: PrintOptions,
 }
 
+/// ```toml algorithm-site
+/// id = "kore.printer.render"
+/// role = "part"
+/// sites = ["Printer::render"]
+/// ```
 impl Printer {
     pub const fn new(options: PrintOptions) -> Self {
         Self { options }

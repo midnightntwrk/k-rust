@@ -1,3 +1,32 @@
+//! ```toml algorithm
+//! id = "definition.resolve.imports"
+//! name = "import-DAG resolution of flat definitions"
+//! sites = ["ResolvedDefinition::resolve", "ResolvedDefinition::update", "find_cycle"]
+//! variable = "M = modules; E = import edges"
+//! counters = ["KompileResolveCalls", "KompileResolveUpdates"]
+//! consumes = [
+//!   { type = "k_rust::definition::Definition", role = "lowered source" },
+//!   { type = "k_rust::definition::Definition", role = "parsed bubbles" },
+//! ]
+//! produces = [{ type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" }]
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(M log M + E)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "definition.resolve.sentences"
+//! name = "visible-sentence selection with bucketed equivalence deduplication"
+//! sites = ["ResolvedDefinition::select_sentence_locations"]
+//! variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost"
+//! counters = ["KompileResolveUpdateSentenceVisits", "KompileSentenceEquivalenceChecks"]
+//!
+//! [[cost]]
+//! mode = "all resolved modules"
+//! bound = "O(sum n_m^2 x eq)"
+//! ```
+//!
 //! Import-DAG resolution uses petgraph topological order and a colouring DFS for cycle reports.
 //! A resolve costs O(M log M + E + sum n_m^2 * eq); visible sentences use bucketed equivalence dedup and signatures use O(S^2 * eq) dedup.
 //! `Counter::KompileResolveCalls` counts invocations.

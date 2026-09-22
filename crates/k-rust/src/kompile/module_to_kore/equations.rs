@@ -1,4 +1,35 @@
-//! Rule, claim, macro, equation, and owise emission (D17).
+//! ```toml algorithm
+//! id = "kompile.kore.rules"
+//! name = "KORE rule, claim, and equation emission"
+//! sites = ["emit_rule_or_claim", "resolve_equation_production"]
+//! variable = "R = rules; I = sort-injection work; C = term-conversion work"
+//! counters = []
+//! no_counter = "ordinary KORE rule emission has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one module"
+//! bound = "O(R x (I + C))"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "kompile.kore.owise"
+//! name = "construction of owise competitor predicates"
+//! sites = ["emit_owise_equation"]
+//! variable = "R = module rules; O = owise equations"
+//! counters = ["KompileOwiseCompetitorScans"]
+//!
+//! [[cost]]
+//! mode = "one module"
+//! bound = "O(O x R)"
+//! ```
+//!
+//! ```toml algorithm-site
+//! id = "kompile.fresh_names.mint"
+//! role = "part"
+//! sites = ["refresh_variables"]
+//! ```
+//!
+//! Rule, claim, macro, equation, and owise emission.
 //! Complexity: O(R(inject + convert)) plus O(R) per owise equation; `KompileOwiseCompetitorScans` measures the latter scan.
 
 use super::*;
@@ -289,7 +320,7 @@ fn equation_info<'a>(
         label,
         children: arguments,
         argument_sorts,
-        result_sort: substitute_equation_sort(&sort, &substitution),
+        result_sort: substitute_equation_sort(sort, &substitution),
         direct: simplification,
     }))
 }

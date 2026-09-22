@@ -1,4 +1,16 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.terms.minimize"
+//! name = "minimization of repeated term construction"
+//! sites = ["minimize_term_construction", "minimize_term_construction_pass", "Minimizer::gather_terms", "Minimizer::transform"]
+//! variable = "N = rule term nodes"
+//! counters = ["KompileSentencesTransformed"]
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N log N) per rule"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Reuse LHS subterms that also occur on a rule RHS through `#as` aliases.

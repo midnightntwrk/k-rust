@@ -1,12 +1,25 @@
+//! ```toml algorithm
+//! id = "backend.implication.check"
+//! name = "subsumption by matching, witness elimination, and validity checking"
+//! sites = ["check_implication_with_existentials_and_options_and_policy", "check_implication", "check_implication_with_existentials", "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses"]
+//! variable = "r = antecedent simplification rounds; c = consequents"
+//! counters = ["SmtQueries", "ProofImplicationChecks"]
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "one implication check"
+//! bound = "O(r x (c matching problems + witness saturation + one SMT validity query))"
+//! ```
+//!
 //! Subsumption by Implies-mode matching, existential witness elimination, and SMT validity of
 //! the residual, iterated to a fixed point of the simplified antecedent (Kore checkImplication):
 //! O(rounds x (|consequents| x one matching problem + witness saturation + one SMT validity));
-//! one `Counter::SmtQueries` per residual, `Counter::ProofImplicationChecks` at the caller
-//! (row B14).
+//! one `Counter::SmtQueries` per residual, `Counter::ProofImplicationChecks` at the caller.
 
 use std::{collections::BTreeSet, error::Error, fmt};
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::measure::{self, Algorithm};
 
 use crate::{
     definition::BackendDefinition,
@@ -573,6 +586,7 @@ fn check_implication_with_existentials_and_options_and_policy(
     options: ImplicationCheckOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ImplicationResult, ImplicationError> {
+    let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
     let (consequent, consequent_existentials) =
         freshen_existentials(antecedent, consequent, consequent_existentials);
     let consequent = simplify_consequent(definition, antecedent, consequent, options, solver);
@@ -708,6 +722,11 @@ fn simplify_consequent(
     }
 }
 
+/// ```toml algorithm-site
+/// id = "backend.fresh.variables"
+/// role = "part"
+/// sites = ["freshen_existentials"]
+/// ```
 fn freshen_existentials(
     antecedent: &Pattern,
     consequent: &Pattern,

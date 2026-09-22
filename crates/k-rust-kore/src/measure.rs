@@ -21,6 +21,304 @@
 /// Schema version of the `KRUST_COUNTERS` document.
 pub const COUNTER_SCHEMA_VERSION: u64 = 9;
 
+macro_rules! algorithms {
+    ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
+        /// One algorithm described by the workspace's algorithm cards.
+        ///
+        /// The discriminant indexes [`Algorithm::ALL`]. Costs, sites, counters, and
+        /// representations live in the cards rather than in this identity registry.
+        #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+        #[repr(u16)]
+        pub enum Algorithm {
+            $(#[$doc] $variant),+
+        }
+
+        impl Algorithm {
+            /// Number of algorithm identities.
+            pub const COUNT: usize = [$(Algorithm::$variant),+].len();
+
+            /// Every algorithm identity in declaration order.
+            pub const ALL: [Algorithm; Self::COUNT] = [$(Algorithm::$variant),+];
+
+            /// The stable dotted identity used by cards and traces.
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Algorithm::$variant => $id),+
+                }
+            }
+        }
+    };
+}
+
+algorithms! {
+    /// Single-symbol rule selection.
+    BackendRuleSelect => "backend.rule.select",
+    /// Sort-aware one-way first-order matching by pair decomposition.
+    BackendMatchingSyntactic => "backend.matching.syntactic",
+    /// Associative and associative-commutative collection matching.
+    BackendMatchingCollections => "backend.matching.collections",
+    /// Subsort and overload transitive-closure construction.
+    BackendDefinitionClosure => "backend.definition.closure",
+    /// Subsort and overload membership queries.
+    BackendMatchingRelationQuery => "backend.matching.relation_query",
+    /// Syntactic first-order unification with eager substitution composition.
+    BackendUnificationSyntactic => "backend.unification.syntactic",
+    /// Simultaneous substitution with attribute-guided skipping.
+    BackendSubstitutionApply => "backend.substitution.apply",
+    /// Substitution extraction with strongly connected component cycle breaking.
+    BackendSubstitutionExtract => "backend.substitution.extract",
+    /// Output-restricted substitution extraction for search results.
+    BackendSubstitutionExtractOutput => "backend.substitution.extract_output",
+    /// Innermost equational simplification to a budgeted fixed point.
+    BackendSimplifyTerm => "backend.simplify.term",
+    /// Conjunct-set predicate simplification.
+    BackendSimplifyPredicates => "backend.simplify.predicates",
+    /// One-rule conditional rewriting.
+    BackendRewriteApply => "backend.rewrite.apply",
+    /// Recovery from an indeterminate one-way match.
+    BackendRewriteRecover => "backend.rewrite.recover",
+    /// Priority-grouped rewriting with a complete remainder.
+    BackendRewriteStep => "backend.rewrite.step",
+    /// Depth-first exploration of a rewrite tree.
+    BackendRewriteExecute => "backend.rewrite.execute",
+    /// Breadth-first search over configurations.
+    BackendSearchConfigurations => "backend.search.configurations",
+    /// Breadth-first enumeration of simple rewrite paths.
+    BackendSearchPaths => "backend.search.paths",
+    /// Pattern search over a rewrite result set.
+    BackendSearchPatterns => "backend.search.patterns",
+    /// Reachability-logic proof search.
+    BackendProofSearch => "backend.proof.search",
+    /// Subsumption by matching, witness elimination, and validity checking.
+    BackendImplicationCheck => "backend.implication.check",
+    /// Bounded FIFO memoization of SMT query scripts.
+    BackendSmtCache => "backend.smt.cache",
+    /// Structural definedness constraint generation and discharge.
+    BackendDefinedness => "backend.definedness.discharge",
+    /// KORE definition validation and internalization.
+    BackendDefinitionInternalize => "backend.definition.internalize",
+    /// Capture-avoiding alias unfolding.
+    BackendAliasUnfold => "backend.alias.unfold",
+    /// Capture-avoiding substitution of object-language variables.
+    BackendFreshObjectLanguage => "backend.fresh.object_language",
+    /// Counter-suffixed backend variable naming with collision retry.
+    BackendFreshVariables => "backend.fresh.variables",
+    /// Construction of a reusable inner-parser grammar.
+    ParserGrammarBuild => "parser.grammar.build",
+    /// Concretization of parametric parser productions.
+    ParserGrammarParametric => "parser.grammar.parametric",
+    /// Generation and reconstruction of implicit user lists.
+    ParserGrammarLists => "parser.grammar.lists",
+    /// Generation and collapse of record productions.
+    ParserGrammarRecords => "parser.grammar.records",
+    /// Detection of productive unary grammar cycles.
+    ParserGrammarUnaryCycles => "parser.grammar.unary_cycles",
+    /// Epsilon-nullability analysis by worklist.
+    ParserPredictionNullability => "parser.prediction.nullability",
+    /// Scanner-identity FIRST-set analysis by monotone propagation.
+    ParserPredictionFirstSets => "parser.prediction.first_sets",
+    /// Global-winner lexical scanning.
+    ParserScannerWinner => "parser.scanner.winner",
+    /// Agenda-driven Earley recognition.
+    ParserEarleyRecognize => "parser.earley.recognize",
+    /// Coverage-aware Earley chart insertion.
+    ParserChartInsert => "parser.chart.insert",
+    /// Packed parse-forest construction.
+    ParserForestPack => "parser.forest.pack",
+    /// Structural ordering of packed parse forests.
+    ParserForestOrder => "parser.forest.order",
+    /// Completed-node memoization for Earley charts.
+    ParserChartCompletedMemo => "parser.chart.completed_memo",
+    /// Priority and associativity filtering of packed terms.
+    ParserDisambiguationPriority => "parser.disambiguation.priority",
+    /// Reservation of variable names before record collapse.
+    ParserDisambiguationReserveNames => "parser.disambiguation.reserve_names",
+    /// Collapse of generated record syntax.
+    ParserDisambiguationCollapseRecords => "parser.disambiguation.collapse_records",
+    /// Resolution of application nodes against visible productions.
+    ParserDisambiguationResolveApplications => "parser.disambiguation.resolve_applications",
+    /// Factoring of packed ambiguities.
+    ParserDisambiguationFactorPacked => "parser.disambiguation.factor_packed",
+    /// Lifting of top-level left-hand-side ambiguities.
+    ParserDisambiguationLiftTopLhs => "parser.disambiguation.lift_top_lhs",
+    /// Portable sort inference by bound propagation.
+    ParserInferencePortable => "parser.inference.portable",
+    /// Z3-backed maximal-model sort inference.
+    ParserInferenceZ3 => "parser.inference.z3",
+    /// Resolution of overloaded list terminators.
+    ParserDisambiguationResolveTerminators => "parser.disambiguation.resolve_terminators",
+    /// Overload and prefer-or-avoid filtering.
+    ParserDisambiguationFilterOverloads => "parser.disambiguation.filter_overloads",
+    /// Insertion of implicit empty user lists.
+    ParserDisambiguationInsertEmptyLists => "parser.disambiguation.insert_empty_lists",
+    /// Removal of brackets and syntactic casts.
+    ParserDisambiguationRemoveBracketsCasts => "parser.disambiguation.remove_brackets_casts",
+    /// Resolution and reporting of remaining ambiguity.
+    ParserDisambiguationResolveAmbiguity => "parser.disambiguation.resolve_ambiguity",
+    /// Lowering of parsed terms into KAST.
+    ParserLowerTerm => "parser.lower.term",
+    /// Expansion of regex bodies during term lowering.
+    ParserLowerRegex => "parser.lower.regex",
+    /// Parsing and reconstruction of rule bubbles.
+    ParserBubbleRules => "parser.bubble.rules",
+    /// Parsing and reconstruction of configuration bubbles.
+    ParserBubbleConfigurations => "parser.bubble.configurations",
+    /// Parsing of user programs with a cached grammar.
+    ParserProgramsParse => "parser.programs.parse",
+    /// Rendering of no-parse diagnostics.
+    ParserDiagnosticNoParse => "parser.diagnostic.no_parse",
+    /// Mapping of parser spans to source locations.
+    ParserLocationSpan => "parser.location.span",
+    /// Rendering of ambiguity diagnostics.
+    ParserDiagnosticAmbiguity => "parser.diagnostic.ambiguity",
+    /// Collection of public program-grammar signatures.
+    ParserGrammarProgramSignature => "parser.grammar.program_signature",
+    /// Restricted-sort expansion for Bison grammar export.
+    ParserBisonPriorities => "parser.bison.priorities",
+    /// Reachable-sort traversal for Bison grammar export.
+    ParserBisonReachableSorts => "parser.bison.reachable_sorts",
+    /// Import-DAG resolution of flat definitions.
+    DefinitionResolveImports => "definition.resolve.imports",
+    /// Visible-sentence selection with bucketed equivalence deduplication.
+    DefinitionResolveSentences => "definition.resolve.sentences",
+    /// Structural sentence equivalence.
+    DefinitionEquivalenceSentence => "definition.equivalence.sentence",
+    /// Order-preserving deduplication by sentence equivalence.
+    DefinitionEquivalenceDeduplicate => "definition.equivalence.deduplicate",
+    /// Production-catalog construction.
+    DefinitionCatalogProduction => "definition.catalog.production",
+    /// Sort-catalog construction.
+    DefinitionCatalogSort => "definition.catalog.sort",
+    /// Rule-catalog construction.
+    DefinitionCatalogRule => "definition.catalog.rule",
+    /// Finite partial-order construction and closure.
+    DefinitionOrderPartial => "definition.order.partial",
+    /// Construction of subsort, overload, priority, and associativity relations.
+    DefinitionRelationsBuild => "definition.relations.build",
+    /// Expansion of configuration declarations into generated sentences.
+    DefinitionConfigurationExpand => "definition.configuration.expand",
+    /// Structural checking of resolved definitions.
+    DefinitionChecksRun => "definition.checks.run",
+    /// KAST JSON encoding of flat definitions.
+    DefinitionJsonEncode => "definition.json.encode",
+    /// Parsing of structured K regular expressions.
+    DefinitionRegexParse => "definition.regex.parse",
+    /// Recording of generation-origin receipts.
+    DefinitionProvenanceRecord => "definition.provenance.record",
+    /// Interning and offset mapping of logical source identities.
+    DefinitionProvenanceSourceIdentity => "definition.provenance.source_identity",
+    /// Production-metadata retargeting after deliberate identity changes.
+    KompileMetadataRetarget => "kompile.metadata.retarget",
+    /// Macro expansion by indexed structural matching.
+    KompileMacrosExpand => "kompile.macros.expand",
+    /// Sort inference and explicit injection insertion.
+    KompileSortInjectionsInsert => "kompile.sort_injections.insert",
+    /// KORE declaration emission.
+    KompileKoreDeclarations => "kompile.kore.declarations",
+    /// Generated KORE axiom emission.
+    KompileKoreAxioms => "kompile.kore.axioms",
+    /// KORE rule, claim, and equation emission.
+    KompileKoreRules => "kompile.kore.rules",
+    /// Construction of owise competitor predicates.
+    KompileKoreOwise => "kompile.kore.owise",
+    /// Backward closure over the label-dependency graph.
+    KompileLabelsBackwardClosure => "kompile.labels.backward_closure",
+    /// Conversion of KAST terms into KORE patterns.
+    KompileKoreConvertTerm => "kompile.kore.convert_term",
+    /// Collection of execution rewrite order through imports.
+    KompileModulesRewriteOrder => "kompile.modules.rewrite_order",
+    /// Sentence-local fresh-name generation.
+    KompileFreshNames => "kompile.fresh_names.mint",
+    /// Cell concretization.
+    KompileCellsConcretize => "kompile.cells.concretize",
+    /// Lifting of local functions into generated productions and rules.
+    KompileFunctionsLift => "kompile.functions.lift",
+    /// Resolution of fresh constants.
+    KompileFreshConstantsResolve => "kompile.fresh_constants.resolve",
+    /// Resolution of stream cells and templates.
+    KompileStreamsResolve => "kompile.streams.resolve",
+    /// Lowering of strictness attributes.
+    KompileStrictnessResolve => "kompile.strictness.resolve",
+    /// Lowering of evaluation contexts.
+    KompileContextsResolve => "kompile.contexts.resolve",
+    /// Generation of sort predicates, projections, and helper rules.
+    KompileSortHelpersGenerate => "kompile.sort_helpers.generate",
+    /// Bottom-up evaluation of constant hooked operations.
+    KompileConstantFoldingEvaluate => "kompile.constant_folding.evaluate",
+    /// Stable numbering of sentences by normalized digest.
+    KompileSentencesNumber => "kompile.sentences.number",
+    /// Minimization of repeated term construction.
+    KompileTermsMinimize => "kompile.terms.minimize",
+    /// Recursive-descent parsing of outer syntax.
+    OuterParserParse => "definition.outer.parse",
+    /// Extraction of selected K blocks from Markdown.
+    OuterMarkdownExtract => "definition.outer.markdown",
+    /// Lowering of outer syntax into the flat definition model.
+    OuterLowerDefinition => "definition.outer.lower",
+    /// Validation of outer-syntax declarations.
+    OuterChecksRun => "definition.outer.checks",
+    /// Lexical normalization of virtual source paths.
+    OuterVirtualPathNormalize => "definition.outer.virtual_path",
+    /// Source loading by traversal of the require graph.
+    OuterLoaderRequires => "definition.outer.requires",
+    /// Module selection by import and configuration reachability.
+    OuterModulesSelect => "definition.outer.select_modules",
+    /// Construction of KORE pretty-print documents.
+    KorePrinterBuild => "kore.printer.build",
+    /// Precomputation of KORE document flat widths.
+    KorePrinterFlatWidths => "kore.printer.flat_widths",
+    /// Width-aware rendering of KORE documents.
+    KorePrinterRender => "kore.printer.render",
+    /// Explicit-stack traversal and rebuilding of KORE patterns.
+    KorePatternWalk => "kore.pattern.walk",
+}
+
+/// An entered tracing span for one algorithm invocation.
+///
+/// Dropping the guard records the invocation's counter delta before closing the span.
+pub struct AlgorithmSpan {
+    _entered: tracing::span::EnteredSpan,
+    #[cfg(feature = "measure")]
+    before: Option<Snapshot>,
+}
+
+/// Enter a tracing span identified by a compile-checked [`Algorithm`] variant.
+///
+/// Without a subscriber, the disabled span performs only tracing's interest check. On a
+/// `measure` build, an enabled span also records the nonzero counter deltas observed during the
+/// invocation into its `counters` field before the span exits.
+pub fn algorithm_span(algorithm: Algorithm) -> AlgorithmSpan {
+    let span = tracing::info_span!(
+        "algo",
+        id = tracing::field::display(algorithm.as_str()),
+        counters = tracing::field::Empty
+    );
+    #[cfg(feature = "measure")]
+    let before = (!span.is_disabled()).then(snapshot);
+    AlgorithmSpan {
+        _entered: span.entered(),
+        #[cfg(feature = "measure")]
+        before,
+    }
+}
+
+impl Drop for AlgorithmSpan {
+    fn drop(&mut self) {
+        #[cfg(feature = "measure")]
+        if let Some(before) = &self.before {
+            let delta = snapshot().delta(before);
+            let counters = delta
+                .iter()
+                .filter(|(_, value)| *value != 0)
+                .collect::<std::collections::BTreeMap<_, _>>();
+            let counters = serde_json::to_string(&counters)
+                .expect("counter names and integer deltas always serialize");
+            self._entered
+                .record("counters", tracing::field::display(counters.as_str()));
+        }
+    }
+}
+
 /// One counted quantity. The discriminant indexes the counter array.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 #[repr(u16)]
@@ -432,9 +730,144 @@ mod imp {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        sync::{Arc, Mutex},
+    };
+
+    use tracing::{field::Visit, span};
+    use tracing_subscriber::{Layer, layer::Context, prelude::*, registry::LookupSpan};
 
     use super::*;
+
+    #[derive(Clone, Debug, Default, Eq, PartialEq)]
+    struct CapturedSpan {
+        name: String,
+        fields: BTreeMap<String, String>,
+    }
+
+    #[derive(Clone, Default)]
+    struct CaptureLayer(Arc<Mutex<Vec<CapturedSpan>>>);
+
+    #[derive(Clone, Copy)]
+    struct CaptureIndex(usize);
+
+    #[derive(Default)]
+    struct FieldVisitor(BTreeMap<String, String>);
+
+    impl Visit for FieldVisitor {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            self.0.insert(field.name().to_owned(), format!("{value:?}"));
+        }
+
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            self.0.insert(field.name().to_owned(), value.to_owned());
+        }
+    }
+
+    impl<S> Layer<S> for CaptureLayer
+    where
+        S: tracing::Subscriber + for<'lookup> LookupSpan<'lookup>,
+    {
+        fn on_new_span(
+            &self,
+            attributes: &span::Attributes<'_>,
+            id: &span::Id,
+            context: Context<'_, S>,
+        ) {
+            let mut visitor = FieldVisitor::default();
+            attributes.record(&mut visitor);
+            let mut captured = self.0.lock().unwrap();
+            let index = captured.len();
+            captured.push(CapturedSpan {
+                name: attributes.metadata().name().to_owned(),
+                fields: visitor.0,
+            });
+            drop(captured);
+            context
+                .span(id)
+                .unwrap()
+                .extensions_mut()
+                .insert(CaptureIndex(index));
+        }
+
+        fn on_record(&self, id: &span::Id, values: &span::Record<'_>, context: Context<'_, S>) {
+            let index = context
+                .span(id)
+                .unwrap()
+                .extensions()
+                .get::<CaptureIndex>()
+                .unwrap()
+                .0;
+            let mut visitor = FieldVisitor::default();
+            values.record(&mut visitor);
+            self.0.lock().unwrap()[index].fields.extend(visitor.0);
+        }
+    }
+
+    #[test]
+    fn algorithm_span_records_compile_checked_ids() {
+        let layer = CaptureLayer::default();
+        let captured = Arc::clone(&layer.0);
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            {
+                let _span = algorithm_span(Algorithm::BackendMatchingSyntactic);
+                #[cfg(feature = "measure")]
+                bump(Counter::RewriteSteps);
+            }
+            let _span = algorithm_span(Algorithm::ParserEarleyRecognize);
+        });
+
+        let captured = captured.lock().unwrap();
+        assert_eq!(captured.len(), 2);
+        assert!(captured.iter().all(|span| span.name == "algo"));
+        assert_eq!(
+            captured[0].fields.get("id").map(String::as_str),
+            Some("backend.matching.syntactic")
+        );
+        assert_eq!(
+            captured[1].fields.get("id").map(String::as_str),
+            Some("parser.earley.recognize")
+        );
+        #[cfg(feature = "measure")]
+        {
+            let counters = captured[0].fields.get("counters").unwrap();
+            let counters: serde_json::Value = serde_json::from_str(counters).unwrap();
+            assert_eq!(counters[Counter::RewriteSteps.name()], 1);
+            assert_eq!(captured[1].fields.get("counters").unwrap(), "{}");
+        }
+    }
+
+    #[test]
+    fn all_lists_every_algorithm_with_a_distinct_dotted_id() {
+        assert_eq!(Algorithm::ALL.len(), Algorithm::COUNT);
+        let ids = Algorithm::ALL
+            .iter()
+            .map(|algorithm| algorithm.as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(ids.len(), Algorithm::COUNT);
+
+        for (index, algorithm) in Algorithm::ALL.iter().enumerate() {
+            assert_eq!(*algorithm as usize, index);
+            let segments = algorithm.as_str().split('.').collect::<Vec<_>>();
+            assert_eq!(segments.len(), 3, "{}", algorithm.as_str());
+            assert!(
+                matches!(
+                    segments[0],
+                    "parser" | "definition" | "kompile" | "backend" | "kore"
+                ),
+                "{}",
+                algorithm.as_str()
+            );
+            assert!(segments.iter().all(|segment| {
+                !segment.is_empty()
+                    && segment.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+            }));
+        }
+    }
 
     #[test]
     fn all_lists_every_counter_with_distinct_names_in_index_order() {

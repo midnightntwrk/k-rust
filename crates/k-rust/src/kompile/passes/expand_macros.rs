@@ -1,4 +1,16 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.macros.expand"
+//! name = "macro expansion by indexed structural matching"
+//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term"]
+//! variable = "N = sentence term nodes; R = macro rules under the head label; A = macro applications"
+//! counters = ["KompileMacroApplications"]
+//!
+//! [[cost]]
+//! mode = "one sentence"
+//! bound = "O(N x R) plus recursive expansion of substituted results"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Expand compile-time macro and alias rules by structural matching.
@@ -252,7 +264,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             .into_iter()
             .enumerate()
             .filter_map(|(id, sentence)| {
-                macro_rule(id, sentence, &productions).map(|rule| (sentence, rule))
+                macro_rule(id, sentence, productions).map(|rule| (sentence, rule))
             })
             .map(|(_, rule)| Ok(rule))
             .collect::<Result<Vec<_>, Diagnostic>>()?;

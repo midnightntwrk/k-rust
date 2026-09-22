@@ -1,4 +1,17 @@
-//! Configuration expansion recursively generates cells, initializers, and top-cell syntax while resolving newly generated views (D8).
+//! ```toml algorithm
+//! id = "definition.configuration.expand"
+//! name = "expansion of configuration declarations into generated sentences"
+//! sites = ["expand_configurations", "expand_configurations_with_diagnostics", "expand_configurations_inner"]
+//! variable = "N = visited configuration-term nodes; G = generated sentences"
+//! counters = []
+//! no_counter = "configuration expansion is measured by enclosing resolution and sentence counters"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N + G^2)"
+//! ```
+//!
+//! Configuration expansion recursively generates cells, initializers, and top-cell syntax while resolving newly generated views.
 //! Complexity: O(N + G²) over visited terms and generated-sentence deduplication.
 //! Work is proportional to visited configuration terms plus generated-sentence dedup; enclosing resolve and sentence counters measure it.
 //!

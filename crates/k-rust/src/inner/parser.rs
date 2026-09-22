@@ -1,3 +1,69 @@
+//! ```toml algorithm
+//! id = "parser.earley.recognize"
+//! name = "agenda-driven Earley recognition"
+//! sites = ["Grammar::parse_attempt"]
+//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read"
+//! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates"]
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "one parse attempt"
+//! bound = "O(p x d)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.lower.term"
+//! name = "lowering of parsed terms into KAST"
+//! sites = ["lower_term"]
+//! variable = "N = parsed tree nodes"
+//! counters = []
+//! no_counter = "term lowering has no dedicated counter"
+//! produces = [{ type = "k_rust::kast::Term", role = "parsed term" }]
+//!
+//! [[cost]]
+//! mode = "one parsed tree"
+//! bound = "O(N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.lower.regex"
+//! name = "expansion of regex bodies during term lowering"
+//! sites = ["expand_regex_body"]
+//! variable = "B = regex syntax bytes"
+//! counters = []
+//! no_counter = "regex-body expansion has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one regex"
+//! bound = "O(B)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.diagnostic.no_parse"
+//! name = "rendering of no-parse diagnostics"
+//! sites = ["Grammar::no_parse", "NoParseInput"]
+//! variable = "E = expected productions at the furthest chart position"
+//! counters = []
+//! no_counter = "diagnostic rendering has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one failed parse"
+//! bound = "O(E)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.diagnostic.ambiguity"
+//! name = "rendering of ambiguity diagnostics"
+//! sites = ["AmbiguousParse"]
+//! variable = "A = reported alternatives and their rendered terms"
+//! counters = []
+//! no_counter = "ambiguity rendering has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one ambiguous parse"
+//! bound = "O(A)"
+//! ```
+//!
 //! Agenda-driven Earley recognition over lowered K productions.
 //!
 //! Each attempt is O(pops * dispatch cost): `ParserChartAgendaPops` counts pops,
@@ -22,8 +88,10 @@ mod z3_inference;
 use self::chart::*;
 use self::disambiguation::PackedPriorityMemos;
 use self::forest::*;
+use self::grammar::catalog_production;
 pub(super) use self::grammar::named_projection_productions;
-use self::grammar::{catalog_production, render_added_production, render_production};
+#[cfg(feature = "z3-inference")]
+use self::grammar::{render_added_production, render_production};
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,7 +100,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 #[cfg(test)]
 use crate::definition::Sentence;
@@ -758,6 +826,7 @@ impl Grammar {
         prediction_mode: PredictionMode,
         pruned: &mut bool,
     ) -> Result<Term, ParseError> {
+        let _span = measure::algorithm_span(Algorithm::ParserEarleyRecognize);
         let ParseContext {
             is_anywhere,
             provenance,

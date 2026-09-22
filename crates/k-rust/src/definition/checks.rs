@@ -1,4 +1,17 @@
-//! Structural definition checking composes Java-compatible per-module checks over resolved catalogs (D9).
+//! ```toml algorithm
+//! id = "definition.checks.run"
+//! name = "structural checking of resolved definitions"
+//! sites = ["check_definition_with_options", "check_module_with_options"]
+//! variable = "M = modules; S = visited sentences and terms plus catalog work"
+//! counters = []
+//! no_counter = "structural definition checks have no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(M x S)"
+//! ```
+//!
+//! Structural definition checking composes Java-compatible per-module checks over resolved catalogs.
 //! Complexity: O(M(S + catalog work)) over modules and their sentences.
 //! Checks are linear in visited sentences and terms unless a submodule states another bound; no dedicated counter.
 //!

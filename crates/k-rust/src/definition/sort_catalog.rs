@@ -1,3 +1,18 @@
+//! ```toml algorithm
+//! id = "definition.catalog.sort"
+//! name = "sort-catalog construction"
+//! sites = ["SortCatalog", "SortCatalog::new", "SortCatalog::from_visible"]
+//! variable = "n = visible sort declarations"
+//! counters = []
+//! no_counter = "sort-catalog construction has no dedicated counter"
+//! consumes = [{ type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" }]
+//! produces = [{ type = "k_rust::definition::SortCatalog<'a>", role = "sort lookup" }]
+//!
+//! [[cost]]
+//! mode = "one catalog"
+//! bound = "O(n log n)"
+//! ```
+//!
 //! Sort catalogs group visible declarations and instantiated sort heads in declaration order.
 //! Construction is O(n log n) in visible sort declarations; no dedicated counter.
 //!

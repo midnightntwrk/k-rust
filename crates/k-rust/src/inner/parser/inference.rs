@@ -1,3 +1,15 @@
+//! ```toml algorithm
+//! id = "parser.inference.portable"
+//! name = "portable sort inference by bound propagation"
+//! sites = ["Grammar::infer_sorts_portable"]
+//! variable = "V = sort-bound vertices; E = bound edges"
+//! counters = ["ParserPortableInferences"]
+//!
+//! [[cost]]
+//! mode = "one tree"
+//! bound = "O(V x E)"
+//! ```
+//!
 //! Portable bound-propagation sort inference for unambiguous, monomorphic trees.
 //!
 //! Constraint propagation saturates a finite sort-bound graph, worst-case O(V * E).

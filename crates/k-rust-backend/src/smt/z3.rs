@@ -1,6 +1,24 @@
+//! ```toml algorithm
+//! id = "backend.smt.cache"
+//! name = "bounded FIFO memoization of SMT query scripts"
+//! sites = ["Z3Solver::solve", "SolverResultCache::get", "SolverResultCache::insert", "Z3Solver::solve_uncached", "SolverResultCache"]
+//! variable = "e = entries evicted"
+//! counters = ["SmtQueries", "SmtSolverRuns"]
+//! span = "per call"
+//! invariant = "entries and insertion_order agree; eviction stops once the entry and key-byte limits admit the new key"
+//!
+//! [[cost]]
+//! mode = "cache hit"
+//! bound = "O(1)"
+//!
+//! [[cost]]
+//! mode = "cache insertion"
+//! bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
+//! ```
+//!
 //! In-process Z3 behind a bounded FIFO result cache: `Counter::SmtQueries` in,
 //! `Counter::SmtSolverRuns` out, O(1) per hit, eviction pops the oldest entry until the entry
-//! and key-byte limits admit the new key (row B15). A solver is constructed per run, which is
+//! and key-byte limits admit the new key. A solver is constructed per run, which is
 //! the visible cost in the IMP proof profile and the next measurable step.
 
 use std::{
@@ -12,7 +30,7 @@ use std::{
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 use k_rust_kore::names::BuiltinSort;
 use num_bigint::BigInt;
 use z3::{
@@ -154,6 +172,7 @@ impl Z3Solver {
     }
 
     fn solve(&self, script: &str) -> Satisfiability {
+        let _span = measure::algorithm_span(Algorithm::BackendSmtCache);
         if cancellation_requested() {
             return Satisfiability::Unknown("request cancelled".into());
         }

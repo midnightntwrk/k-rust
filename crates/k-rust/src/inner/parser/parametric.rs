@@ -1,3 +1,16 @@
+//! ```toml algorithm
+//! id = "parser.grammar.parametric"
+//! name = "concretization of parametric parser productions"
+//! sites = ["concretize_parametric_productions", "Grammar::add_parametric_productions"]
+//! variable = "S = concrete sorts; P = formal productions; T = traversed sort nodes"
+//! counters = []
+//! no_counter = "parametric-production concretization has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "grammar construction"
+//! bound = "O(S x P + T)"
+//! ```
+//!
 //! Scala-compatible concretization of parametric productions for Earley parsing.
 //!
 //! Construction is O(concrete sorts * formal productions), including the four K-specific

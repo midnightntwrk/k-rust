@@ -1,3 +1,33 @@
+//! ```toml algorithm
+//! id = "parser.grammar.lists"
+//! name = "generation and reconstruction of implicit user lists"
+//! sites = ["Grammar::initialize_user_lists", "Grammar::program_list_terminator"]
+//! variable = "L = list declarations; N = tree nodes; C = candidate instantiations"
+//! counters = []
+//! no_counter = "implicit-list processing has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "grammar insertion"
+//! bound = "O(L)"
+//!
+//! [[cost]]
+//! mode = "tree reconstruction"
+//! bound = "O(N x C)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.insert_empty_lists"
+//! name = "insertion of implicit empty user lists"
+//! sites = ["Grammar::add_empty_lists", "Grammar::add_empty_lists_with_order"]
+//! variable = "N = tree nodes; C = candidate list instantiations"
+//! counters = []
+//! no_counter = "empty-list insertion has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one parsed tree"
+//! bound = "O(N x C)"
+//! ```
+//!
 //! Scala-compatible implicit user-list constructors, terminators, and reconstruction.
 //!
 //! Grammar insertion is O(list declarations); tree reconstruction is O(nodes * candidate

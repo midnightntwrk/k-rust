@@ -1,4 +1,4 @@
-//! Predicate vocabulary shared by the rewriting, search, and proof layers (row B21, a
+//! Predicate vocabulary shared by the rewriting, search, and proof layers (a
 //! responsibility, not an algorithm): three-valued predicate truth, alpha equivalence of
 //! quantified conditions, unique extension with an `FxHashMap` position index, substitution
 //! into predicates, constructor-domain coverage (the finite no-junk check), and the

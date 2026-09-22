@@ -1,4 +1,11 @@
 //! Table-driven execution support for definition transformation passes.
+//!
+//! ```toml algorithm-contract
+//! id = "contract.kompile.resolved_cache"
+//! name = "lazy resolution shared by kompile stages"
+//! sites = ["PassInput::resolved_raw"]
+//! constrains = [{ id = "definition.resolve.imports", site = "PassInput::resolved_raw", via = "Current.resolved is forced once and ResolvedDefinition::update propagates the cached resolution between stages" }]
+//! ```
 
 use std::{convert::Infallible, fmt};
 
@@ -14,6 +21,86 @@ use crate::{
 
 use super::{CompileError, CompileOptions};
 use super::{passes, sort_injections};
+
+/// Names recorded while loading a definition for `kcompile`, in execution order.
+///
+/// The first two entries are alternative entry phases: source compilation records
+/// [`load_phase::RESOLVE_ENTRY_SOURCE`], while compilation against a prepared definition records
+/// [`load_phase::READ_PREPARED_DEFINITION`].
+pub static LOAD_PHASES: &[&str] = &[
+    load_phase::RESOLVE_ENTRY_SOURCE,
+    load_phase::READ_PREPARED_DEFINITION,
+    load_phase::PARSE_SOURCES,
+    load_phase::SELECT_SOURCE_FILES,
+    load_phase::LOWER_FILES,
+    load_phase::APPLY_SORT_SYNONYMS,
+    load_phase::CHECK_OUTER_MODULES,
+    load_phase::SELECT_MODULES,
+    load_phase::RESOLVE_CONFIGURATION_BUBBLES,
+    load_phase::EXPAND_CONFIGURATIONS,
+    load_phase::RESOLVE_AND_CHECK_SORTS,
+    load_phase::RESOLVE_RULE_BUBBLES,
+    load_phase::RESOLVE_RULE_BUBBLES_GRAMMARS,
+    load_phase::RESOLVE_RULE_BUBBLES_PARSE,
+];
+
+/// Named entries of [`LOAD_PHASES`] for timing sites.
+pub mod load_phase {
+    pub const RESOLVE_ENTRY_SOURCE: &str = "resolve entry source";
+    pub const READ_PREPARED_DEFINITION: &str = "read prepared definition";
+    pub const PARSE_SOURCES: &str = "parse sources";
+    pub const SELECT_SOURCE_FILES: &str = "select source files";
+    pub const LOWER_FILES: &str = "lower files";
+    pub const APPLY_SORT_SYNONYMS: &str = "apply sort synonyms";
+    pub const CHECK_OUTER_MODULES: &str = "check outer modules";
+    pub const SELECT_MODULES: &str = "select modules";
+    pub const RESOLVE_CONFIGURATION_BUBBLES: &str = "resolve configuration bubbles";
+    pub const EXPAND_CONFIGURATIONS: &str = "expand configurations";
+    pub const RESOLVE_AND_CHECK_SORTS: &str = "resolve and check sorts";
+    pub const RESOLVE_RULE_BUBBLES: &str = "resolve rule bubbles";
+    pub const RESOLVE_RULE_BUBBLES_GRAMMARS: &str = "resolve rule bubbles / grammars";
+    pub const RESOLVE_RULE_BUBBLES_PARSE: &str = "resolve rule bubbles / parse";
+}
+
+/// Names recorded after the table-driven transformation stages, in execution order.
+///
+/// [`emission_phase::GENERATE_BISON_PARSER`] is optional and is recorded immediately before the
+/// final artifact-write phase when requested.
+pub static EMISSION_PHASES: &[&str] = &[
+    emission_phase::COLLECT_EXECUTION_REWRITE_ORDER,
+    emission_phase::RESOLVE_TRANSFORMED_DEFINITION,
+    emission_phase::SINGLETON_OVERLOAD_CHECKS,
+    emission_phase::COLLECT_CONFIGURATION_VARIABLES,
+    emission_phase::HOOK_NAMESPACE_CHECKS,
+    emission_phase::EMIT_KORE,
+    emission_phase::PRINT_DEFINITION_KORE,
+    emission_phase::PRINT_SYNTAX_DEFINITION_KORE,
+    emission_phase::PRINT_MACROS_KORE,
+    emission_phase::GENERATE_BISON_PARSER,
+    emission_phase::WRITE_ARTIFACTS,
+];
+
+/// Named entries of [`EMISSION_PHASES`] for timing sites.
+pub mod emission_phase {
+    pub const COLLECT_EXECUTION_REWRITE_ORDER: &str = "collect execution rewrite order";
+    pub const RESOLVE_TRANSFORMED_DEFINITION: &str = "resolve transformed definition";
+    pub const SINGLETON_OVERLOAD_CHECKS: &str = "singleton overload checks";
+    pub const COLLECT_CONFIGURATION_VARIABLES: &str = "collect configuration variables";
+    pub const HOOK_NAMESPACE_CHECKS: &str = "hook namespace checks";
+    pub const EMIT_KORE: &str = "emit KORE";
+    pub const PRINT_DEFINITION_KORE: &str = "print definition.kore";
+    pub const PRINT_SYNTAX_DEFINITION_KORE: &str = "print syntaxDefinition.kore";
+    pub const PRINT_MACROS_KORE: &str = "print macros.kore";
+    pub const GENERATE_BISON_PARSER: &str = "generate bison parser";
+    pub const WRITE_ARTIFACTS: &str = "write artifacts";
+}
+
+/// Names recorded before the table-driven transformation stages.
+pub mod prologue_phase {
+    pub const EXPAND_STRUCTURED_CONFIGURATIONS: &str = "expand structured configurations";
+    pub const RESOLVE_STRUCTURED_CONFIGURATIONS: &str = "resolve structured configurations";
+    pub const DEFINITION_CHECKS: &str = "definition checks";
+}
 
 /// The common error carried across a pipeline stage boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -545,12 +632,15 @@ pub(crate) static EMISSION_STAGES: &[Stage] = &[
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StageDescription {
     pub name: &'static str,
+    /// Source table of this phase: `prologue_descriptions`, `TRANSFORM_STAGES`, or
+    /// `EMISSION_STAGES`.
+    pub table: &'static str,
     pub call: &'static str,
     pub behavior: &'static str,
     pub generating_passes: Vec<&'static str>,
 }
 
-fn description(stage: &Stage) -> StageDescription {
+fn description(stage: &Stage, table: &'static str) -> StageDescription {
     let generating_passes = match stage.provenance {
         Provenance::Driver(pass) => vec![pass.as_str()],
         // Internal provenance describes receipt placement. The manifest keeps the externally
@@ -562,6 +652,7 @@ fn description(stage: &Stage) -> StageDescription {
     };
     StageDescription {
         name: stage.name,
+        table,
         call: stage.call,
         behavior: stage.behavior,
         generating_passes,
@@ -571,27 +662,34 @@ fn description(stage: &Stage) -> StageDescription {
 pub fn stage_descriptions() -> Vec<StageDescription> {
     TRANSFORM_STAGES
         .iter()
-        .chain(EMISSION_STAGES)
-        .map(description)
+        .map(|stage| description(stage, "TRANSFORM_STAGES"))
+        .chain(
+            EMISSION_STAGES
+                .iter()
+                .map(|stage| description(stage, "EMISSION_STAGES")),
+        )
         .collect()
 }
 
 pub fn prologue_descriptions() -> Vec<StageDescription> {
     vec![
         StageDescription {
-            name: "expand structured configurations",
+            name: prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
+            table: "prologue_descriptions",
             call: "expand_configurations_with_diagnostics",
             behavior: "generating",
             generating_passes: vec![GeneratingPass::ConfigurationExpansion.as_str()],
         },
         StageDescription {
-            name: "resolve structured configurations",
+            name: prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
+            table: "prologue_descriptions",
             call: "resolve",
             behavior: "validation",
             generating_passes: Vec::new(),
         },
         StageDescription {
-            name: "definition checks",
+            name: prologue_phase::DEFINITION_CHECKS,
+            table: "prologue_descriptions",
             call: "check_definition_with_options",
             behavior: "validation",
             generating_passes: Vec::new(),

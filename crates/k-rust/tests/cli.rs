@@ -4583,7 +4583,11 @@ fn kprove_reports_closed_stdout_as_io_error() {
         ["--depth", "0"],
     ] {
         let mut child = Command::new(env!("CARGO_BIN_EXE_krust"))
-            .args(["kprove", "--compiled-definition", compiled.to_str().unwrap()])
+            .args([
+                "kprove",
+                "--compiled-definition",
+                compiled.to_str().unwrap(),
+            ])
             .args(["--main-module", "MAIN", "--claim", "reaches-b-or-c"])
             .args(options)
             .stdout(Stdio::piped())
@@ -4678,6 +4682,10 @@ endmodule
     assert!(load.stdout.is_empty());
     let load_timings: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
+    assert_eq!(
+        load_timings["version"],
+        k_rust::timings::TIMINGS_SCHEMA_VERSION
+    );
     assert!(load_timings["input_seconds"].as_f64().unwrap() > 0.0);
     assert!(load_timings["internalize_seconds"].as_f64().unwrap() > 0.0);
     assert_eq!(load_timings["proof_seconds"], 0.0);
@@ -4758,6 +4766,10 @@ endmodule
     );
     let proof_timings: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
+    assert_eq!(
+        proof_timings["version"],
+        k_rust::timings::TIMINGS_SCHEMA_VERSION
+    );
     assert!(proof_timings["proof_setup_seconds"].as_f64().unwrap() > 0.0);
     assert!(proof_timings["proof_seconds"].as_f64().unwrap() > 0.0);
     assert_eq!(proof_timings["claims"][0]["label"], "reaches-b");
@@ -7580,6 +7592,7 @@ endmodule
     )
     .unwrap();
     let timings_path = root.join("kcompile-timings.json");
+    let trace_path = root.join("kcompile-trace.json");
     let output_directory = root.join("compiled");
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -7591,6 +7604,8 @@ endmodule
             output_directory.to_str().unwrap(),
             "--timings",
             timings_path.to_str().unwrap(),
+            "--trace",
+            trace_path.to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -7601,8 +7616,18 @@ endmodule
     );
     assert!(output.stdout.is_empty());
     assert!(output_directory.join("definition.kore").is_file());
+    let trace: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&trace_path).unwrap()).unwrap();
+    let events = trace.as_array().unwrap();
+    assert!(events.iter().any(|event| event["name"] == "phase"));
+    assert!(
+        events
+            .iter()
+            .any(|event| event["args"]["aggregation_rule"].is_string())
+    );
     let timings: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&timings_path).unwrap()).unwrap();
+    assert_eq!(timings["version"], k_rust::timings::TIMINGS_SCHEMA_VERSION);
     for key in [
         "load_seconds",
         "compile_seconds",
@@ -7688,6 +7713,7 @@ endmodule
         assert!(timings[key].as_f64().unwrap() >= 0.0, "{key}: {timings}");
     }
     let compile = &timings["compile"];
+    assert_eq!(compile["version"], k_rust::timings::TIMINGS_SCHEMA_VERSION);
     assert!(
         compile["load_seconds"].as_f64().unwrap() >= 0.0,
         "{timings}"

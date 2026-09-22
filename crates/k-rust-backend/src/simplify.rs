@@ -1,14 +1,41 @@
+//! ```toml algorithm
+//! id = "backend.simplify.term"
+//! name = "innermost equational simplification to a budgeted fixed point"
+//! sites = ["simplify_with_optional_execution", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "apply_theory"]
+//! variable = "r = rounds; t = term nodes; c = candidate equations per node"
+//! counters = ["SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations"]
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "one term lineage"
+//! bound = "O(r x |t| x c), with r bounded by max_iterations"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.simplify.predicates"
+//! name = "conjunct-set predicate normalization"
+//! sites = ["simplify_predicates_with_solver", "predicate_conjunct_index", "simplify_predicates_with_budget", "simplify_predicate_with_budget"]
+//! variable = "b = simplification budget"
+//! counters = []
+//! no_counter = "predicate normalization has no dedicated counter; term rounds count only the term simplification it triggers"
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "indexed conjunct lookup"
+//! bound = "O(1) membership per conjunct with re-entry bounded by b"
+//! ```
+//!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
 //! builtin hooks, and evaluated-attribute memoisation (Booster ApplyEquations): cost O(rounds x
 //! |term| x candidates per node), rounds <= `max_iterations` per lineage;
 //! `Counter::SimplifyRounds`, `Counter::SimplifyEquationAttempts`,
-//! `Counter::SimplifyBuiltinEvaluations` (row B7).
+//! `Counter::SimplifyBuiltinEvaluations`.
 //! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index, O(1) membership per
-//! conjunct, budget-bounded re-entry through the ceil and predicate theories (row B8).
+//! conjunct, budget-bounded re-entry through the ceil and predicate theories.
 
 use std::{cell::Cell, collections::BTreeSet, fmt, sync::Arc};
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use rustc_hash::FxHashSet;
 
@@ -214,6 +241,7 @@ fn simplify_with_optional_execution(
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<Simplification, SimplificationError> {
+    let _span = measure::algorithm_span(Algorithm::BackendSimplifyTerm);
     measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
@@ -423,6 +451,7 @@ pub fn simplify_predicates_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<Vec<Predicate>, SimplificationError> {
+    let _span = measure::algorithm_span(Algorithm::BackendSimplifyPredicates);
     measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();

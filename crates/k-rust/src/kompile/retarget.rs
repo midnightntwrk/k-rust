@@ -1,3 +1,16 @@
+//! ```toml algorithm
+//! id = "kompile.metadata.retarget"
+//! name = "production-metadata retargeting after deliberate identity changes"
+//! sites = ["retarget_production_identities", "retarget_sentence", "retarget_term"]
+//! variable = "N = definition-local term nodes; R = replacement identities"
+//! counters = []
+//! no_counter = "the former rebase counter is retained at zero after positional rebasing was removed"
+//!
+//! [[cost]]
+//! mode = "one pass-owned replacement map"
+//! bound = "O(N log R)"
+//! ```
+//!
 //! Retarget compiler metadata when a pass deliberately changes a production.
 
 use std::collections::BTreeMap;

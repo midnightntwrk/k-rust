@@ -43,6 +43,9 @@ sha2 = "0.11.0"
 sha3 = "0.12.0"
 substrate-bn = "0.6.0"
 toml = "0.8.23"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-chrome = "0.7.2"
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["registry"] }
 web-time = "1.1.0"
 wasm-bindgen = "0.2.127"
 z3 = { version = "0.20.2", default-features = false }

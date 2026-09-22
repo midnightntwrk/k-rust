@@ -1,14 +1,36 @@
+//! ```toml algorithm
+//! id = "backend.rewrite.step"
+//! name = "priority-grouped rewriting with a complete remainder"
+//! sites = ["rewrite_step_all", "rewrite_step_any", "apply_priority_group", "first_productive_group", "fold_lower_priority_groups"]
+//! variable = "c = candidate rules"
+//! counters = ["RewriteRulesApplied"]
+//! span = "per call"
+//! consumes = [
+//!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
+//!   { type = "k_rust_backend::rewrite::Pattern", role = "internalized pattern" },
+//! ]
+//! produces = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
+//!
+//! [[cost]]
+//! mode = "All"
+//! bound = "O(c) rule attempts plus one SAT check per productive group"
+//!
+//! [[cost]]
+//! mode = "Any"
+//! bound = "O(c) rule attempts plus one SAT check per applied rule"
+//! ```
+//!
 //! Priority-grouped rewrite step with remainder: `All` mode folds the remainder through every
 //! priority group (Kore `transitionAllRewrite`), while `Any` mode threads it through the rules
 //! sequentially (Kore `applyRewriteRulesSequence`). The returned remainder is complete in both
 //! modes. O(c) rule attempts per step for the c candidates of `rule::applicable_rewrite_groups`
 //! plus one
 //! SAT check per productive group (`All`) or per applied rule (`Any`);
-//! `Counter::RewriteRulesApplied` (row B10).
+//! `Counter::RewriteRulesApplied`.
 
 use std::sync::Arc;
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
@@ -212,6 +234,7 @@ pub(super) fn rewrite_step_all(
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let index = term_index(&pattern.term);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(&definition.rewrite_theory, &index, &subject);
@@ -266,6 +289,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
 ) -> RewriteResult {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let index = term_index(&pattern.term);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(&definition.rewrite_theory, &index, &subject);

@@ -1,4 +1,25 @@
-//! The host-independent pass driver applies 39 named stages and preserves two checked-definition checkpoints (D11).
+//! ```toml algorithm
+//! id = "kompile.modules.rewrite_order"
+//! name = "collection of execution rewrite order through imports"
+//! sites = ["collect_execution_rewrite_order"]
+//! variable = "M = modules; E = import edges; R = rewrite sentences"
+//! counters = []
+//! no_counter = "execution rewrite-order collection has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(M + E + R)"
+//! ```
+//!
+//! ```toml algorithm-site
+//! id = "kompile.kore.declarations"
+//! role = "part"
+//! sites = ["compile_loaded_definition_timed"]
+//! consumes = [{ type = "k_rust::outer::LoadedDefinition", role = "loaded definition" }]
+//! produces = [{ type = "k_rust::kompile::CompiledKoreArtifacts", role = "compiled artifacts" }]
+//! ```
+//!
+//! The host-independent pass driver applies 39 named stages and preserves two checked-definition checkpoints.
 //! Complexity: O(sum of the named stage work).
 //! `tests/phase_timings.rs` pins stage names and `tests/provenance_manifest.rs` pins the transformation source; `KompileSentencesTransformed` measures output volume.
 //!
@@ -29,6 +50,7 @@ use crate::{
 
 use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
 use super::passes::number_sentence;
+use super::pipeline::{emission_phase, prologue_phase};
 use super::{
     ModuleToKoreOptions, module_to_kore_from_resolved_with_options, rust_backend_hook_namespaces,
 };
@@ -252,14 +274,18 @@ pub fn compile_loaded_definition_timed(
             .map(|module| module.local_sentences.len() as u64)
             .sum(),
     );
-    let execution_rewrite_order = stage(timings, "collect execution rewrite order", || {
-        collect_execution_rewrite_order(&execution_definition)
-    })?;
-    let resolved = stage(timings, "resolve transformed definition", || {
-        Ok::<_, String>(resolved)
-    })?;
+    let execution_rewrite_order = stage(
+        timings,
+        emission_phase::COLLECT_EXECUTION_REWRITE_ORDER,
+        || collect_execution_rewrite_order(&execution_definition),
+    )?;
+    let resolved = stage(
+        timings,
+        emission_phase::RESOLVE_TRANSFORMED_DEFINITION,
+        || Ok::<_, String>(resolved),
+    )?;
     diagnostics.extend(options.diagnostics.apply(
-        timings.time("singleton overload checks", || {
+        timings.time(emission_phase::SINGLETON_OVERLOAD_CHECKS, || {
             check_singleton_overloads(&resolved)
         }),
     ));
@@ -273,20 +299,20 @@ pub fn compile_loaded_definition_timed(
             diagnostics,
         ));
     }
-    let configuration_variables = stage(timings, "collect configuration variables", || {
-        configuration_variables(&resolved)
-    })?;
+    let configuration_variables = stage(
+        timings,
+        emission_phase::COLLECT_CONFIGURATION_VARIABLES,
+        || configuration_variables(&resolved),
+    )?;
     let hook_namespaces = options
         .hook_namespaces
         .clone()
         .unwrap_or_else(|| options.backend.default_hook_namespaces());
-    diagnostics.extend(
-        options
-            .diagnostics
-            .apply(timings.time("hook namespace checks", || {
-                unadmitted_hook_namespace_diagnostics(&resolved, &hook_namespaces)
-            })),
-    );
+    diagnostics.extend(options.diagnostics.apply(
+        timings.time(emission_phase::HOOK_NAMESPACE_CHECKS, || {
+            unadmitted_hook_namespace_diagnostics(&resolved, &hook_namespaces)
+        }),
+    ));
     if diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -297,7 +323,7 @@ pub fn compile_loaded_definition_timed(
             diagnostics,
         ));
     }
-    let generated = stage(timings, "emit KORE", || {
+    let generated = stage(timings, emission_phase::EMIT_KORE, || {
         module_to_kore_from_resolved_with_options(
             &resolved,
             &definition.main_module,
@@ -314,13 +340,13 @@ pub fn compile_loaded_definition_timed(
     })?;
 
     let printer = KorePrinter::pretty(options.kore_width);
-    let definition_kore = timings.time("print definition.kore", || {
+    let definition_kore = timings.time(emission_phase::PRINT_DEFINITION_KORE, || {
         with_newline(printer.print_definition(&generated.semantics_definition()))
     });
-    let syntax_definition_kore = timings.time("print syntaxDefinition.kore", || {
+    let syntax_definition_kore = timings.time(emission_phase::PRINT_SYNTAX_DEFINITION_KORE, || {
         with_newline(printer.print_definition(&generated.syntax_definition()))
     });
-    let macros_kore = timings.time("print macros.kore", || {
+    let macros_kore = timings.time(emission_phase::PRINT_MACROS_KORE, || {
         with_newline(
             generated
                 .macros
@@ -625,34 +651,42 @@ fn transform_loaded_definition(
         .flat_map(|module| module.local_sentences.iter())
         .any(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
     {
-        let (definition, configuration_diagnostics) =
-            stage(timings, "expand structured configurations", || {
-                expand_configurations_with_diagnostics(&loaded.definition)
-            })?;
-        let resolved = stage(timings, "resolve structured configurations", || {
-            ResolvedDefinition::resolve(&definition)
-        })?;
+        let (definition, configuration_diagnostics) = stage(
+            timings,
+            prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
+            || expand_configurations_with_diagnostics(&loaded.definition),
+        )?;
+        let resolved = stage(
+            timings,
+            prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
+            || ResolvedDefinition::resolve(&definition),
+        )?;
         (definition, configuration_diagnostics, resolved)
     } else {
-        let definition = stage(timings, "expand structured configurations", || {
-            Ok::<_, ConfigurationError>(loaded.definition.clone())
-        })?;
-        let resolved = stage(timings, "resolve structured configurations", || {
-            Ok::<_, ResolveError>(loaded.resolved.clone())
-        })?;
+        let definition = stage(
+            timings,
+            prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
+            || Ok::<_, ConfigurationError>(loaded.definition.clone()),
+        )?;
+        let resolved = stage(
+            timings,
+            prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
+            || Ok::<_, ResolveError>(loaded.resolved.clone()),
+        )?;
         (definition, Vec::new(), resolved)
     };
-    let checked = options
-        .diagnostics
-        .apply(stage(timings, "definition checks", || {
-            check_definition_with_options(
-                &resolved,
-                options.backend.structural_check_options(
-                    options.check_mode.clone(),
-                    options.builtin_source_prefixes.clone(),
-                ),
-            )
-        })?);
+    let checked =
+        options
+            .diagnostics
+            .apply(stage(timings, prologue_phase::DEFINITION_CHECKS, || {
+                check_definition_with_options(
+                    &resolved,
+                    options.backend.structural_check_options(
+                        options.check_mode.clone(),
+                        options.builtin_source_prefixes.clone(),
+                    ),
+                )
+            })?);
     let mut diagnostics = loaded.diagnostics.clone();
     diagnostics.extend(options.diagnostics.apply(configuration_diagnostics));
     diagnostics.extend(checked);

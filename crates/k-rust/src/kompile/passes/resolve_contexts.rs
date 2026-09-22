@@ -1,4 +1,17 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.contexts.resolve"
+//! name = "lowering of evaluation contexts"
+//! sites = ["resolve_contexts", "resolve_contexts_pass", "resolve_context"]
+//! variable = "N = context and term nodes; C = generated rules and productions"
+//! counters = []
+//! no_counter = "context lowering has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N + C)"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Lower evaluation contexts into heat/cool rules and freezer productions.
@@ -88,7 +101,7 @@ pub(crate) fn resolve_contexts_pass(
     let mut diagnostics = Vec::new();
     // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
     for context in contexts {
-        match resolve_context(context, &productions, &sentence_labels, &mut labels) {
+        match resolve_context(context, productions, &sentence_labels, &mut labels) {
             Ok(sentences) => extend_unique(&mut generated, sentences),
             Err(mut errors) => diagnostics.append(&mut errors),
         }

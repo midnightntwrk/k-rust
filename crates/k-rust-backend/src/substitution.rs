@@ -1,13 +1,46 @@
+//! ```toml algorithm
+//! id = "backend.substitution.apply"
+//! name = "simultaneous substitution with attribute-guided skipping"
+//! sites = ["substitute", "compose"]
+//! variable = "t = term size"
+//! counters = []
+//! no_counter = "TermConstructed measures resulting term construction only and is not dedicated to substitution"
+//! span = "none"
+//!
+//! [[cost]]
+//! mode = "one term"
+//! bound = "O(t) with O(1) skipping of variable-free subterms"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.substitution.extract"
+//! name = "substitution extraction with strongly connected component cycle breaking"
+//! sites = ["extract_substitution_with", "extract_substitution", "extract_substitution_for"]
+//! variable = "r = cycles broken; V and E = dependency-graph vertices and edges; s = binding count; t = term size"
+//! counters = []
+//! no_counter = "substitution extraction has no dedicated counter"
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "cycle breaking"
+//! bound = "O(r x (V + E))"
+//!
+//! [[cost]]
+//! mode = "saturation"
+//! bound = "O(s^2 x t)"
+//! ```
+//!
 //! Simultaneous substitution with attribute-guided skipping, O(t) per term with O(1) skip of
 //! variable-free subterms, and substitution extraction by Kosaraju SCC cycle breaking (petgraph,
 //! the least variable of each cycle kept as an equality), O(r x (V + E)) for r cycles broken,
 //! then saturation bounded by the binding count, O(s^2 x t); no counter of its own,
-//! `Counter::TermConstructed` indirectly (row B6).
+//! `Counter::TermConstructed` indirectly.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use petgraph::{algo::kosaraju_scc, graph::DiGraph};
 
+use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
@@ -139,6 +172,7 @@ fn extract_substitution_with(
     constraints: &[Predicate],
     mut binding: impl FnMut(&Predicate) -> Option<(Variable, Term)>,
 ) -> (Substitution, Vec<Predicate>) {
+    let _span = measure::algorithm_span(Algorithm::BackendSubstitutionExtract);
     let mut potential = BTreeMap::<Variable, Vec<(usize, Term)>>::new();
     for (index, constraint) in constraints.iter().enumerate() {
         if let Some((variable, value)) = binding(constraint) {

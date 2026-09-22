@@ -38,37 +38,7 @@ avoiding a package dependency cycle when the CLI links both halves into one stat
 
 ## Module map
 
-Each production module of `k-rust-backend` names its algorithm, its cost, and the
-`k_rust_kore::measure` counter that measures the cost's variable in its first `//!` paragraph;
-every worklist, fixpoint, backtracking, or graph loop carries an `// Invariant:` comment. The rows
-below are the architecture picture of `draft/code-quality-refactor/tickets/CQ-10-algorithms-backend.md`
-section 4.1 (row ids B1 to B21), one home per row.
-
-| Module | Rows | Algorithm | Counters |
-|---|---|---|---|
-| `term.rs`, `term/names.rs` | layer 1 | immutable hash-consed terms with cached attributes; provenance markers and fresh-name spellings | `TermConstructed` |
-| `substitution.rs` | B6 | simultaneous substitution with attribute-guided skipping; extraction by Kosaraju SCC cycle breaking (petgraph) then bounded saturation | none of its own |
-| `matching/mod.rs` | B2, B4 | sort-aware one-way matching by pair decomposition; sort-graph and overload membership queries | `MatchingProblems`, `MatchingPairs` |
-| `matching/collections.rs` | B3 | AC(U) matching over maps and sets by backtracking, A(U) matching over lists by frame splitting, opaque-concatenation cancellation | `MatchingCollectionProblems` |
-| `unification.rs` | B5 | syntactic first-order unification by work queue with eager composition and Kore's simplifiable-cycle rule | `UnificationProblems` |
-| `rule.rs` | B1, B17 | axiom-shape classification; the single-symbol rule index (`TermIndex`, `Theory`, `applicable_groups`) | `RewriteRuleAttempts` (candidates per step) |
-| `simplify.rs` | B7, B8 | innermost equational rewriting to a budgeted fixed point; conjunct-set predicate normalisation with an `FxHashSet` index | `SimplifyRounds`, `SimplifyEquationAttempts`, `SimplifyBuiltinEvaluations` |
-| `definedness.rs` | B16 | structural definedness (ceil) constraint generation and discharge | none |
-| `smt.rs`, `smt/z3.rs` | B15 | SMT-LIB translation; in-process Z3 behind a bounded FIFO result cache | `SmtQueries`, `SmtSolverRuns` |
-| `rewrite/mod.rs` | B9-B11, B21 | shared types, entry points, and re-exports of the rewrite homes | see the homes |
-| `rewrite/apply.rs` | B9 | one-rule conditional rewriting step: the thirteen phases of `apply_rule_with_match` | `RewriteRuleAttempts`, `RewriteMatchFailures` |
-| `rewrite/recover.rs` | B9 | the indeterminate-match recovery ladder: simplification, six splits, overload and general unification, functional witnesses | `RewriteIndeterminateRecoveries` |
-| `rewrite/step.rs` | B10 | priority-grouped rewrite step with a complete remainder: `All` folds and simplifies the remainder between priority groups as in Kore's `transitionAllRewrite`; `Any` threads it through every rule as in `applyRewriteRulesSequence` | `RewriteRulesApplied` |
-| `rewrite/execute.rs` | B11 | depth-first exploration of the rewrite tree; queued complete remainders pass through the ordinary pre-step pipeline and become stuck without another rule attempt; got-stuck-over-depth-bound leaf selection and equal-leaf merge | `RewriteSteps` |
-| `rewrite/predicates.rs` | B21 | predicate truth, alpha equivalence, unique extension, constructor-domain coverage, concreteness | none |
-| `fresh.rs` | B20 | counter-suffixed fresh variable naming with collision retry; Booster's existential renaming | none |
-| `search.rs` | B12, B6b | breadth-first search with `(depth, pattern, state kind)` deduplication; queued remainders participate in every search strategy's ordinary result selection; simple-path enumeration; output-restricted substitution extraction | `SearchStatesDeduplicated` |
-| `proof.rs` | B13 | reachability-logic proof search with subsumption and circularities; queued rewrite remainders receive the ordinary implication check before becoming stuck | `ProofStatesExplored`, `ProofImplicationChecks` |
-| `implication.rs` | B14 | subsumption by Implies-mode matching, witness elimination, and SMT validity to an antecedent fixed point | `SmtQueries` |
-| `definition.rs` | B17, B4 | KORE internalization: import DFS with cycle detection, preorder axiom order, subsort and overload closures | none (the `internalize` timing phase) |
-| `alias.rs` | B18 | capture-avoiding alias unfolding with a cycle stack | none |
-| `builtin.rs`, `builtin/*.rs` | B19 | hook evaluation by namespace; capture-avoiding object-language substitution in `builtin/substitution.rs` | `SimplifyBuiltinEvaluations` (at the caller) |
-| `externalize.rs`, `verify.rs` | none | conversion back to KORE; syntactic sentence verification | none |
+Run `cargo run -p algo-graph -- render module-map` to write the generated backend module-map projection to `target/algo/module-map.md`; it groups source-card algorithm IDs by their declared `k-rust-backend` site module and derives each module's counters from the graph's `measured-by` edges.
 
 Rewrite theory lookup first preserves the top-symbol `TermIndex` sequence, then filters it by the
 head of the generated `<k>` cell. The rule-side `RuleIndex` treats variables, overload members,

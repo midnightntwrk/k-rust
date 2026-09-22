@@ -2,7 +2,7 @@
 //! prefixes.
 //!
 //! ASCII alphanumerics and `-` pass through; every other UTF-16 unit becomes a four-letter
-//! mnemonic from [`TABLE`] or four hex digits, and a run of encoded units shares one pair of
+//! mnemonic from `TABLE` or four hex digits, and a run of encoded units shares one pair of
 //! apostrophes. The eight KORE keywords get a `'Kywd'` suffix so they lex as identifiers.
 //! `decode(encode(name)) == name` for every name; the backend's `external_variable_name` is a
 //! different encoding (one escape per character, hex by scalar value) and is not this one.

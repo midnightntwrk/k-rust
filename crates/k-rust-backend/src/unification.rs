@@ -1,8 +1,21 @@
+//! ```toml algorithm
+//! id = "backend.unification.syntactic"
+//! name = "syntactic first-order unification with eager substitution composition"
+//! sites = ["unify_term_pairs", "Unifier::run", "Unifier::unify_one"]
+//! variable = "n = pairs; s = bindings; t = term size"
+//! counters = ["UnificationProblems"]
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "symbolic KORE terms"
+//! bound = "O(n x s x t)"
+//! ```
+//!
 //! Syntactic first-order unification (Robinson / Martelli-Montanari work queue with eager
 //! composition) for symbolic KORE terms: O(n x s x t) for n pairs, s bindings, and term size t,
 //! since each pop re-substitutes both sides and each bind composes the whole substitution;
 //! constructor-only cycles are bottom, other cycles stay equalities (Kore
-//! `SubstitutionNormalization.simplifiableCycle`); `Counter::UnificationProblems` (row B5).
+//! `SubstitutionNormalization.simplifiableCycle`); `Counter::UnificationProblems`.
 //!
 //! Collection and hook-specific theories remain separate because they may produce more than one
 //! solution. This procedure handles the common syntactic theory, saturates bindings in both
@@ -10,7 +23,7 @@
 
 use std::collections::VecDeque;
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
@@ -55,6 +68,7 @@ pub fn unify_term_pairs(
     initial: Substitution,
     pairs: impl IntoIterator<Item = (Term, Term)>,
 ) -> UnificationResult {
+    let _span = measure::algorithm_span(Algorithm::BackendUnificationSyntactic);
     let mut unifier = Unifier {
         definition,
         substitution: initial,

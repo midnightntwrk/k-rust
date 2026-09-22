@@ -1,7 +1,46 @@
+//! ```toml algorithm
+//! id = "backend.definition.internalize"
+//! name = "KORE definition validation and internalization"
+//! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module", "visit_modules_preorder"]
+//! variable = "d = definition sentences and pattern nodes"
+//! counters = []
+//! no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed is indirect"
+//! span = "per problem"
+//! consumes = [
+//!   { type = "k_rust_kore::kore::ast::Definition", role = "compiled definition" },
+//!   { type = "k_rust_kore::kore::ast::Pattern", role = "converted term" },
+//! ]
+//! produces = [
+//!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
+//!   { type = "k_rust_backend::term::Term", role = "internalized term" },
+//!   { type = "k_rust_backend::rewrite::Pattern", role = "internalized pattern" },
+//! ]
+//! constrains = [{ id = "kompile.sentences.number", site = "BackendDefinition::internalize_for_source_execution", via = "the UNIQUE_ID attribute survives KORE emission and determines source rewrite order" }]
+//!
+//! [[cost]]
+//! mode = "one definition load"
+//! bound = "O(d)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.definition.closure"
+//! name = "subsort and overload transitive-closure construction"
+//! sites = ["build_sort_graph", "OverloadGraph::from_relations", "OverloadGraph"]
+//! variable = "S = sorts or overload symbols; C = closure pairs; h = longest relation chain"
+//! counters = []
+//! no_counter = "closure construction runs once per definition load and has no dedicated counter"
+//! span = "per call"
+//! invariant = "each closure grows monotonically and is bounded by |S| squared pairs"
+//!
+//! [[cost]]
+//! mode = "naive closure iteration"
+//! bound = "at most h rounds, each O(|S| x |C|)"
+//! ```
+//!
 //! Validation and internalization of textual KORE definitions, O(|definition|), once per load:
 //! import DFS with a path stack for cycle detection, preorder axiom order (CQ-05a), axiom-shape
-//! classification, term internalization (row B17); subsort and overload transitive closures by
-//! naive iteration, rounds <= longest chain, each O(|S| x |closure|) (row B4). No counter; the
+//! classification, term internalization; subsort and overload transitive closures by
+//! naive iteration, rounds <= longest chain, each O(|S| x |closure|). No counter; the
 //! `internalize` phase of `kprove --timings` measures it, `Counter::TermConstructed` indirectly.
 
 use std::{
@@ -13,6 +52,7 @@ use std::{
 
 use k_rust_kore::kore::ast as kore;
 use k_rust_kore::kore::string as kore_string;
+use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
@@ -74,6 +114,7 @@ impl OverloadGraph {
     fn from_relations(
         relations: impl IntoIterator<Item = (Name, Name)>,
     ) -> Result<Self, DefinitionError> {
+        let _span = measure::algorithm_span(Algorithm::BackendDefinitionClosure);
         let mut pairs = relations.into_iter().collect::<BTreeSet<_>>();
         // Invariant: `pairs` only grows, bounded by |S|^2; exit when a round adds no pair.
         loop {
@@ -431,6 +472,7 @@ impl BackendDefinition {
         definition: &kore::Definition,
         main_module: &str,
     ) -> Result<Self, DefinitionError> {
+        let _span = measure::algorithm_span(Algorithm::BackendDefinitionInternalize);
         Self::internalize_canonical(definition, main_module)
     }
 
@@ -1824,6 +1866,7 @@ fn attach_collection_metadata(
 }
 
 fn build_sort_graph(names: impl IntoIterator<Item = Name>, pairs: Vec<(Name, Name)>) -> SortGraph {
+    let _span = measure::algorithm_span(Algorithm::BackendDefinitionClosure);
     let names = names.into_iter().collect::<Vec<_>>();
     let mut closure = names
         .iter()

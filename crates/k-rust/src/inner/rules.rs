@@ -1,3 +1,20 @@
+//! ```toml algorithm
+//! id = "parser.bubble.rules"
+//! name = "parsing and reconstruction of rule bubbles"
+//! sites = ["resolve_rule_bubbles", "resolve_rule_bubbles_with_resolved", "parse_rule_content"]
+//! variable = "b = rule bubbles; g = grammar construction work; p = parse work"
+//! counters = ["KompileRuleBubblesParsed", "ParserGrammarBuilds", "ParserParseAttempts"]
+//! consumes = [
+//!   { type = "k_rust::definition::Definition", role = "lowered source" },
+//!   { type = "k_rust::kast::Term", role = "parsed term" },
+//! ]
+//! produces = [{ type = "k_rust::definition::Definition", role = "parsed bubbles" }]
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(g + sum over b of p)"
+//! ```
+//!
 //! Per-module rule-bubble parsing with K implicit rule syntax.
 //!
 //! One grammar is built per bubble-bearing module and each bubble is parsed through the Earley
@@ -220,12 +237,12 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
 
     if let Some(timings) = timings {
         timings.phases.push(crate::timings::PhaseTiming {
-            name: "resolve rule bubbles / grammars",
+            name: crate::kompile::pipeline::load_phase::RESOLVE_RULE_BUBBLES_GRAMMARS,
             seconds: grammar_seconds,
             depth: 1,
         });
         timings.phases.push(crate::timings::PhaseTiming {
-            name: "resolve rule bubbles / parse",
+            name: crate::kompile::pipeline::load_phase::RESOLVE_RULE_BUBBLES_PARSE,
             seconds: parse_seconds,
             depth: 1,
         });

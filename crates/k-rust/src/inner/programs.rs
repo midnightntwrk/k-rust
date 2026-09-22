@@ -1,3 +1,29 @@
+//! ```toml algorithm
+//! id = "parser.programs.parse"
+//! name = "user-program parsing with a cached grammar"
+//! sites = ["ProgramParser::parse", "ProgramParser::parse_with_provenance", "parse_program", "parse_program_for_presentation"]
+//! variable = "g = grammar construction work; p = parse work"
+//! counters = ["ParserGrammarBuilds", "ParserParseAttempts"]
+//! produces = [{ type = "k_rust::kast::Term", role = "parsed term" }]
+//!
+//! [[cost]]
+//! mode = "one parser and its parses"
+//! bound = "O(g + sum p)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.grammar.program_signature"
+//! name = "collection of public program-grammar signatures"
+//! sites = ["collect_public_signature", "prepared_program_sentences"]
+//! variable = "M = reachable modules and imports; S = visible sentences"
+//! counters = []
+//! no_counter = "public-signature collection has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one program grammar"
+//! bound = "O(M + S)"
+//! ```
+//!
 //! User-program parsing with a cached module-derived concrete-syntax grammar.
 //!
 //! A `ProgramParser` builds one grammar, then each parse uses the Earley pipeline. Public syntax

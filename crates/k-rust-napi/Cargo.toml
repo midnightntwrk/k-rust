@@ -14,7 +14,10 @@ doctest = false
 test = false
 
 [dependencies]
-k-rust = { path = "../k-rust" }
+k-rust = { path = "../k-rust", default-features = false, features = [
+  "mpfr-folding",
+  "z3-inference-gh-release",
+] }
 napi.workspace = true
 napi-derive.workspace = true
 serde.workspace = true

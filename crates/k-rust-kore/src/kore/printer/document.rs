@@ -1,3 +1,31 @@
+//! ```toml algorithm
+//! id = "kore.printer.flat_widths"
+//! name = "precomputation of KORE document flat widths"
+//! sites = ["flat_widths"]
+//! variable = "N = document nodes"
+//! counters = []
+//! no_counter = "flat-width precomputation has no dedicated counter"
+//! invariant = "the stack holds unmatched groups and accumulated widths for processed operations"
+//!
+//! [[cost]]
+//! mode = "one document"
+//! bound = "O(N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "kore.printer.render"
+//! name = "width-aware rendering of KORE documents"
+//! sites = ["render"]
+//! variable = "N = document nodes"
+//! counters = []
+//! no_counter = "document rendering has no dedicated counter"
+//! invariant = "processed operations have reached their recorded state and each pending operation is consumed once"
+//!
+//! [[cost]]
+//! mode = "compact or broken layout"
+//! bound = "O(N)"
+//! ```
+//!
 //! Wadler-style documents precompute flat widths and render with a bounded stack in O(document nodes).
 //! No dedicated counter measures printing.
 //!

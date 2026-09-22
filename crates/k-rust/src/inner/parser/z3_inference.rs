@@ -1,3 +1,19 @@
+//! ```toml algorithm
+//! id = "parser.inference.z3"
+//! name = "Z3-backed maximal-model sort inference"
+//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base"]
+//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings"
+//! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
+//!
+//! [[cost]]
+//! mode = "encoding construction"
+//! bound = "O(H + G^2)"
+//!
+//! [[cost]]
+//! mode = "one inference"
+//! bound = "O(N + M x solver checks)"
+//! ```
+//!
 //! Z3-backed maximal-model sort inference for ambiguous and parametric parse forests.
 //!
 //! Each check is counted by `Counter::ParserZ3Checks`; model enumeration is proportional to

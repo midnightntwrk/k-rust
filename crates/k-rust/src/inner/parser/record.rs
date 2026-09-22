@@ -1,3 +1,29 @@
+//! ```toml algorithm
+//! id = "parser.grammar.records"
+//! name = "generation of Scala-compatible record productions"
+//! sites = ["Grammar::add_record_productions", "Grammar::add_record_production"]
+//! variable = "F = record fields"
+//! counters = []
+//! no_counter = "record-production generation has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one record declaration"
+//! bound = "O(F)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.collapse_records"
+//! name = "collapse of generated record syntax"
+//! sites = ["Grammar::collapse_packed_record_productions", "Grammar::collapse_record_productions"]
+//! variable = "N = packed nodes; F = record fields"
+//! counters = []
+//! no_counter = "record collapse has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one parse forest"
+//! bound = "O(N + F)"
+//! ```
+//!
 //! Generation and collapse of Scala-compatible record productions.
 //!
 //! Production generation is O(fields). Packed collapse is O(nodes + fields) because pointer

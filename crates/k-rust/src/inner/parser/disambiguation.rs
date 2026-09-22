@@ -1,3 +1,105 @@
+//! ```toml algorithm
+//! id = "parser.disambiguation.priority"
+//! name = "priority and associativity filtering of packed terms"
+//! sites = ["Grammar::filter_packed_priority", "Grammar::filter_priority"]
+//! variable = "N = packed or owned nodes per memo lifetime"
+//! counters = ["ParserPackedPriorityComputations"]
+//!
+//! [[cost]]
+//! mode = "one parse forest"
+//! bound = "O(N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.resolve_applications"
+//! name = "resolution of application nodes against visible productions"
+//! sites = ["Grammar::resolve_packed_applications", "Grammar::resolve_applications"]
+//! variable = "N = application nodes; P = matching productions"
+//! counters = ["ParserPackedApplicationResolutions"]
+//!
+//! [[cost]]
+//! mode = "one parse forest"
+//! bound = "O(N x P)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.factor_packed"
+//! name = "factoring of packed ambiguities"
+//! sites = ["Grammar::factor_pre_inference_packed_ambiguities"]
+//! variable = "N = packed nodes; A = ambiguity alternatives"
+//! counters = []
+//! no_counter = "packed-ambiguity factoring has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one parse forest"
+//! bound = "O(N x A)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.lift_top_lhs"
+//! name = "lifting of top-level left-hand-side ambiguities"
+//! sites = ["Grammar::push_top_lhs_packed_ambiguity_up", "Grammar::push_top_lhs_ambiguity_up"]
+//! variable = "N = packed or owned nodes"
+//! counters = []
+//! no_counter = "top-LHS ambiguity lifting has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one parse forest"
+//! bound = "O(N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.resolve_terminators"
+//! name = "resolution of overloaded list terminators"
+//! sites = ["Grammar::resolve_overloaded_terminators"]
+//! variable = "N = owned nodes; C = list candidates"
+//! counters = []
+//! no_counter = "overloaded-terminator resolution has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one parsed tree"
+//! bound = "O(N x C)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.filter_overloads"
+//! name = "overload and prefer-or-avoid filtering"
+//! sites = ["Grammar::filter_overloads_prefer_avoid"]
+//! variable = "N = owned nodes"
+//! counters = []
+//! no_counter = "overload and preference filtering has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one parsed tree"
+//! bound = "O(N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.remove_brackets_casts"
+//! name = "removal of brackets and syntactic casts"
+//! sites = ["Grammar::remove_brackets_and_syntactic_casts"]
+//! variable = "N = owned nodes"
+//! counters = []
+//! no_counter = "bracket and syntactic-cast removal has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one parsed tree"
+//! bound = "O(N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "parser.disambiguation.resolve_ambiguity"
+//! name = "resolution and reporting of remaining ambiguity"
+//! sites = ["Grammar::resolve_ambiguities", "Grammar::factor_ambiguities"]
+//! variable = "N = owned nodes; A = ambiguity alternatives"
+//! counters = []
+//! no_counter = "final ambiguity resolution has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one parsed tree"
+//! bound = "O(N x A)"
+//! ```
+//!
 //! Packed-DAG and owned-tree disambiguation in the following pipeline order.
 //! 1. Reserve variable names (packed DAG, O(nodes)).
 //! 2. Collapse record syntax (packed DAG, O(nodes + fields)).

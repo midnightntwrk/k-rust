@@ -1,4 +1,17 @@
-//! Generated KORE syntax and semantic axiom families (D16).
+//! ```toml algorithm
+//! id = "kompile.kore.axioms"
+//! name = "generated KORE axiom emission"
+//! sites = ["generated_axioms", "constructor_productions"]
+//! variable = "P = productions; S = sorts; O = overloads"
+//! counters = []
+//! no_counter = "generated-axiom emission has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one module"
+//! bound = "O(P^2 + S x (P + S log S) + O^2)"
+//! ```
+//!
+//! Generated KORE syntax and semantic axiom families.
 //! Complexity: O(P² + S(P + S log S) + O²) over productions, sorts, and overloads; no dedicated counter.
 
 use super::equations::substitute_equation_sort;

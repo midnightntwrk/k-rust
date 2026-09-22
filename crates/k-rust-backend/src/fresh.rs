@@ -1,5 +1,23 @@
+//! ```toml algorithm
+//! id = "backend.fresh.variables"
+//! name = "counter-suffixed backend variable naming with collision retry"
+//! sites = ["fresh_name", "fresh_variable", "freshen_existential", "increment_name_counter"]
+//! variable = "c = colliding candidate names"
+//! counters = []
+//! no_counter = "fresh backend variable naming has no dedicated counter"
+//! span = "none"
+//!
+//! [[cost]]
+//! mode = "shared counter"
+//! bound = "O(c) per name, amortized O(1)"
+//!
+//! [[cost]]
+//! mode = "Booster existential spelling"
+//! bound = "O(c) trailing-decimal retries"
+//! ```
+//!
 //! Counter-suffixed fresh variable naming with collision retry against a name set, the one
-//! home of row B20: one loop, O(collisions) per name, amortised O(1) with the shared counter;
+//! home: one loop, O(collisions) per name, amortised O(1) with the shared counter;
 //! no measurement counter. The spelling is `term::names::with_fresh_marker`
 //! (`{base}!{marker}{counter}`; marker `""` for rewrite-introduced variables, `claim` for
 //! claim variables, `exists` for implication existentials), so emitted names are byte-identical

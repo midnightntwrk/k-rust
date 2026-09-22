@@ -1,18 +1,35 @@
+//! ```toml algorithm
+//! id = "backend.rewrite.apply"
+//! name = "one-rule conditional rewriting"
+//! sites = ["apply_rule_with_match", "apply_rule", "apply_rule_phases", "reenter", "dispatch_match", "instantiate"]
+//! variable = "c = candidate rules passed by the step; r = unmatched remainder pairs"
+//! counters = ["RewriteRuleAttempts", "RewriteMatchFailures", "SmtQueries"]
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "direct match"
+//! bound = "one matching problem and up to three SMT calls per attempt"
+//!
+//! [[cost]]
+//! mode = "indeterminate recovery"
+//! bound = "up to eleven recovery strategies with recursion depth at most |r| + 1"
+//! ```
+//!
 //! One-rule conditional rewriting step (Booster applyRule with a Kore-style unification
 //! fallback): match, recovery ladder, condition simplification, definedness, SAT narrowing,
 //! requires, validity, applicability, RHS instantiation, the thirteen phases P1 to P13 of
 //! `apply_rule_with_match`. Cost: one matching problem per attempt; on an indeterminate match up
 //! to eleven recovery strategies, each re-entering once per split with an empty or strictly
 //! shorter remainder (recursion depth <= |remainder| + 1); up to three SMT calls per attempt.
-//! `Counter::RewriteRuleAttempts`, `Counter::RewriteMatchFailures`, `Counter::SmtQueries`
-//! (row B9); O(c) attempts per step for the c candidates the step hands over.
+//! `Counter::RewriteRuleAttempts`, `Counter::RewriteMatchFailures`, `Counter::SmtQueries`;
+//! O(c) attempts per step for the c candidates the step hands over.
 
 // The phase functions return `Phase<T>` (below), whose `Err` is the `RuleAttempt` itself.
 #![allow(clippy::result_large_err)]
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -182,6 +199,7 @@ pub(super) fn apply_rule_with_match(
     matched: Option<PartialRuleMatch>,
     io: Option<&ExecutionIoState>,
 ) -> RuleAttempt {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteApply);
     measure::bump(Counter::RewriteRuleAttempts);
     let context = RuleContext {
         definition,
@@ -274,6 +292,11 @@ fn reenter(
 
 /// P1: the match of `rule.lhs` against the subject in `Rewrite` mode, or the caller's partial
 /// match rebuilt as `Success` / `Indeterminate`; the caller's conditions come with it.
+/// ```toml algorithm-site
+/// id = "backend.matching.syntactic"
+/// role = "part"
+/// sites = ["initial_match"]
+/// ```
 fn initial_match(
     context: RuleContext<'_>,
     matched: Option<PartialRuleMatch>,
@@ -674,6 +697,11 @@ fn configuration_bindings(
 
 /// P8: the inherited and match conditions simplified under the path; `False` ends the
 /// attempt; what remains are the `Unknown` conditions.
+/// ```toml algorithm-site
+/// id = "backend.simplify.predicates"
+/// role = "part"
+/// sites = ["simplify_conditions"]
+/// ```
 fn simplify_conditions(
     context: RuleContext<'_>,
     mut inherited_conditions: Vec<Predicate>,

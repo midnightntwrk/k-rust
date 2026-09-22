@@ -1,3 +1,16 @@
+//! ```toml algorithm
+//! id = "parser.location.span"
+//! name = "mapping parser byte spans to source locations"
+//! sites = ["span_location"]
+//! variable = "B = bytes before the span boundaries"
+//! counters = []
+//! no_counter = "source-location mapping has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one span"
+//! bound = "O(B)"
+//! ```
+//!
 //! Maps parser byte spans back to source locations in O(prefix bytes) time.
 
 use crate::definition::AttributeKey;

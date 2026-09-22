@@ -1,3 +1,20 @@
+//! ```toml algorithm
+//! id = "parser.bubble.configurations"
+//! name = "parsing and reconstruction of configuration bubbles"
+//! sites = ["resolve_configuration_bubbles"]
+//! variable = "b = configuration bubbles; g = grammar construction work; p = parse work"
+//! counters = ["ParserGrammarBuilds", "ParserParseAttempts"]
+//! consumes = [
+//!   { type = "k_rust::definition::Definition", role = "lowered source" },
+//!   { type = "k_rust::kast::Term", role = "parsed term" },
+//! ]
+//! produces = [{ type = "k_rust::definition::Definition", role = "parsed bubbles" }]
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(g + sum over b of p)"
+//! ```
+//!
 //! Per-module configuration-bubble parsing with K implicit configuration syntax.
 //!
 //! One grammar is built for each module with configurations, then each bubble runs the Earley

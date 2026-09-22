@@ -1,0 +1,7466 @@
+---
+source: crates/algo-graph/tests/freshness.rs
+expression: canonical
+---
+[[node]]
+kind = "registry"
+id = "Counter::ALL"
+provenance = "table"
+name = "counter declaration order"
+table = "Counter::ALL"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ALL"
+
+[[node]]
+kind = "observation"
+id = "KompileCatalogSentenceClones"
+provenance = "table"
+area = "kompile"
+name = "KompileCatalogSentenceClones"
+table = "Counter::ALL"
+registry_name = "kompile.catalog_sentence_clones"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileCatalogSentenceClones"
+
+[[node]]
+kind = "observation"
+id = "KompileInjectionsInserted"
+provenance = "table"
+area = "kompile"
+name = "KompileInjectionsInserted"
+table = "Counter::ALL"
+registry_name = "kompile.injections_inserted"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileInjectionsInserted"
+
+[[node]]
+kind = "observation"
+id = "KompileMacroApplications"
+provenance = "table"
+area = "kompile"
+name = "KompileMacroApplications"
+table = "Counter::ALL"
+registry_name = "kompile.macro_applications"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileMacroApplications"
+
+[[node]]
+kind = "observation"
+id = "KompileOwiseCompetitorScans"
+provenance = "table"
+area = "kompile"
+name = "KompileOwiseCompetitorScans"
+table = "Counter::ALL"
+registry_name = "kompile.owise_competitor_scans"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileOwiseCompetitorScans"
+
+[[node]]
+kind = "observation"
+id = "KompilePartialOrdersBuilt"
+provenance = "table"
+area = "kompile"
+name = "KompilePartialOrdersBuilt"
+table = "Counter::ALL"
+registry_name = "kompile.partial_orders_built"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompilePartialOrdersBuilt"
+
+[[node]]
+kind = "observation"
+id = "KompileProductionCatalogsBuilt"
+provenance = "table"
+area = "kompile"
+name = "KompileProductionCatalogsBuilt"
+table = "Counter::ALL"
+registry_name = "kompile.production_catalogs_built"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileProductionCatalogsBuilt"
+
+[[node]]
+kind = "observation"
+id = "KompileProductionIdentityDigests"
+provenance = "table"
+area = "kompile"
+name = "KompileProductionIdentityDigests"
+table = "Counter::ALL"
+registry_name = "kompile.production_identity_digests"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileProductionIdentityDigests"
+
+[[node]]
+kind = "observation"
+id = "KompileRebaseCalls"
+provenance = "table"
+area = "kompile"
+name = "KompileRebaseCalls"
+table = "Counter::ALL"
+registry_name = "kompile.rebase_calls"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileRebaseCalls"
+
+[[node]]
+kind = "observation"
+id = "KompileResolveCalls"
+provenance = "table"
+area = "kompile"
+name = "KompileResolveCalls"
+table = "Counter::ALL"
+registry_name = "kompile.resolve_calls"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileResolveCalls"
+
+[[node]]
+kind = "observation"
+id = "KompileResolveUpdateSentenceVisits"
+provenance = "table"
+area = "kompile"
+name = "KompileResolveUpdateSentenceVisits"
+table = "Counter::ALL"
+registry_name = "kompile.resolve_update_sentence_visits"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileResolveUpdateSentenceVisits"
+
+[[node]]
+kind = "observation"
+id = "KompileResolveUpdates"
+provenance = "table"
+area = "kompile"
+name = "KompileResolveUpdates"
+table = "Counter::ALL"
+registry_name = "kompile.resolve_updates"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileResolveUpdates"
+
+[[node]]
+kind = "observation"
+id = "KompileRuleBubblesParsed"
+provenance = "table"
+area = "kompile"
+name = "KompileRuleBubblesParsed"
+table = "Counter::ALL"
+registry_name = "kompile.rule_bubbles_parsed"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileRuleBubblesParsed"
+
+[[node]]
+kind = "observation"
+id = "KompileSentenceCopies"
+provenance = "table"
+area = "kompile"
+name = "KompileSentenceCopies"
+table = "Counter::ALL"
+registry_name = "kompile.sentence_copies"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileSentenceCopies"
+
+[[node]]
+kind = "observation"
+id = "KompileSentenceEquivalenceChecks"
+provenance = "table"
+area = "kompile"
+name = "KompileSentenceEquivalenceChecks"
+table = "Counter::ALL"
+registry_name = "kompile.sentence_equivalence_checks"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileSentenceEquivalenceChecks"
+
+[[node]]
+kind = "observation"
+id = "KompileSentencesTransformed"
+provenance = "table"
+area = "kompile"
+name = "KompileSentencesTransformed"
+table = "Counter::ALL"
+registry_name = "kompile.sentences_transformed"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileSentencesTransformed"
+
+[[node]]
+kind = "observation"
+id = "MatchingCollectionProblems"
+provenance = "table"
+area = "matching"
+name = "MatchingCollectionProblems"
+table = "Counter::ALL"
+registry_name = "matching.collection_problems"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::MatchingCollectionProblems"
+
+[[node]]
+kind = "observation"
+id = "MatchingPairs"
+provenance = "table"
+area = "matching"
+name = "MatchingPairs"
+table = "Counter::ALL"
+registry_name = "matching.pairs"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::MatchingPairs"
+
+[[node]]
+kind = "observation"
+id = "MatchingProblems"
+provenance = "table"
+area = "matching"
+name = "MatchingProblems"
+table = "Counter::ALL"
+registry_name = "matching.problems"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::MatchingProblems"
+
+[[node]]
+kind = "observation"
+id = "ParserChartAddCalls"
+provenance = "table"
+area = "parser"
+name = "ParserChartAddCalls"
+table = "Counter::ALL"
+registry_name = "parser.chart_add_calls"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserChartAddCalls"
+
+[[node]]
+kind = "observation"
+id = "ParserChartAgendaPops"
+provenance = "table"
+area = "parser"
+name = "ParserChartAgendaPops"
+table = "Counter::ALL"
+registry_name = "parser.chart_agenda_pops"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserChartAgendaPops"
+
+[[node]]
+kind = "observation"
+id = "ParserChartCompletionCandidates"
+provenance = "table"
+area = "parser"
+name = "ParserChartCompletionCandidates"
+table = "Counter::ALL"
+registry_name = "parser.chart_completion_candidates"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserChartCompletionCandidates"
+
+[[node]]
+kind = "observation"
+id = "ParserChartDerivationsRead"
+provenance = "table"
+area = "parser"
+name = "ParserChartDerivationsRead"
+table = "Counter::ALL"
+registry_name = "parser.chart_derivations_read"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserChartDerivationsRead"
+
+[[node]]
+kind = "observation"
+id = "ParserChartPredictionAttempts"
+provenance = "table"
+area = "parser"
+name = "ParserChartPredictionAttempts"
+table = "Counter::ALL"
+registry_name = "parser.chart_prediction_attempts"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserChartPredictionAttempts"
+
+[[node]]
+kind = "observation"
+id = "ParserChartRevisitPops"
+provenance = "table"
+area = "parser"
+name = "ParserChartRevisitPops"
+table = "Counter::ALL"
+registry_name = "parser.chart_revisit_pops"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserChartRevisitPops"
+
+[[node]]
+kind = "observation"
+id = "ParserChartStateChanges"
+provenance = "table"
+area = "parser"
+name = "ParserChartStateChanges"
+table = "Counter::ALL"
+registry_name = "parser.chart_state_changes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserChartStateChanges"
+
+[[node]]
+kind = "observation"
+id = "ParserCompletedNodesHits"
+provenance = "table"
+area = "parser"
+name = "ParserCompletedNodesHits"
+table = "Counter::ALL"
+registry_name = "parser.completed_nodes_hits"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserCompletedNodesHits"
+
+[[node]]
+kind = "observation"
+id = "ParserCompletedNodesInvalidated"
+provenance = "table"
+area = "parser"
+name = "ParserCompletedNodesInvalidated"
+table = "Counter::ALL"
+registry_name = "parser.completed_nodes_invalidated"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserCompletedNodesInvalidated"
+
+[[node]]
+kind = "observation"
+id = "ParserCompletedNodesMisses"
+provenance = "table"
+area = "parser"
+name = "ParserCompletedNodesMisses"
+table = "Counter::ALL"
+registry_name = "parser.completed_nodes_misses"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserCompletedNodesMisses"
+
+[[node]]
+kind = "observation"
+id = "ParserGrammarBuilds"
+provenance = "table"
+area = "parser"
+name = "ParserGrammarBuilds"
+table = "Counter::ALL"
+registry_name = "parser.grammar_builds"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserGrammarBuilds"
+
+[[node]]
+kind = "observation"
+id = "ParserGrammarReuses"
+provenance = "table"
+area = "parser"
+name = "ParserGrammarReuses"
+table = "Counter::ALL"
+registry_name = "parser.grammar_reuses"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserGrammarReuses"
+
+[[node]]
+kind = "observation"
+id = "ParserNonterminalPredictionsSkipped"
+provenance = "table"
+area = "parser"
+name = "ParserNonterminalPredictionsSkipped"
+table = "Counter::ALL"
+registry_name = "parser.nonterminal_predictions_skipped"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserNonterminalPredictionsSkipped"
+
+[[node]]
+kind = "observation"
+id = "ParserPackedApplicationResolutions"
+provenance = "table"
+area = "parser"
+name = "ParserPackedApplicationResolutions"
+table = "Counter::ALL"
+registry_name = "parser.packed_application_resolutions"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserPackedApplicationResolutions"
+
+[[node]]
+kind = "observation"
+id = "ParserPackedPriorityComputations"
+provenance = "table"
+area = "parser"
+name = "ParserPackedPriorityComputations"
+table = "Counter::ALL"
+registry_name = "parser.packed_priority_computations"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserPackedPriorityComputations"
+
+[[node]]
+kind = "observation"
+id = "ParserPackedStructuralComparisons"
+provenance = "table"
+area = "parser"
+name = "ParserPackedStructuralComparisons"
+table = "Counter::ALL"
+registry_name = "parser.packed_structural_comparisons"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserPackedStructuralComparisons"
+
+[[node]]
+kind = "observation"
+id = "ParserParseAttempts"
+provenance = "table"
+area = "parser"
+name = "ParserParseAttempts"
+table = "Counter::ALL"
+registry_name = "parser.parse_attempts"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserParseAttempts"
+
+[[node]]
+kind = "observation"
+id = "ParserPortableInferences"
+provenance = "table"
+area = "parser"
+name = "ParserPortableInferences"
+table = "Counter::ALL"
+registry_name = "parser.portable_inferences"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserPortableInferences"
+
+[[node]]
+kind = "observation"
+id = "ParserPredictionAnalysisBuilds"
+provenance = "table"
+area = "parser"
+name = "ParserPredictionAnalysisBuilds"
+table = "Counter::ALL"
+registry_name = "parser.prediction_analysis_builds"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserPredictionAnalysisBuilds"
+
+[[node]]
+kind = "observation"
+id = "ParserScannerWinnerComputations"
+provenance = "table"
+area = "parser"
+name = "ParserScannerWinnerComputations"
+table = "Counter::ALL"
+registry_name = "parser.scanner_winner_computations"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserScannerWinnerComputations"
+
+[[node]]
+kind = "observation"
+id = "ParserTerminalPredictionsSkipped"
+provenance = "table"
+area = "parser"
+name = "ParserTerminalPredictionsSkipped"
+table = "Counter::ALL"
+registry_name = "parser.terminal_predictions_skipped"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserTerminalPredictionsSkipped"
+
+[[node]]
+kind = "observation"
+id = "ParserUnpackedNodes"
+provenance = "table"
+area = "parser"
+name = "ParserUnpackedNodes"
+table = "Counter::ALL"
+registry_name = "parser.unpacked_nodes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserUnpackedNodes"
+
+[[node]]
+kind = "observation"
+id = "ParserZ3Checks"
+provenance = "table"
+area = "parser"
+name = "ParserZ3Checks"
+table = "Counter::ALL"
+registry_name = "parser.z3_checks"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserZ3Checks"
+
+[[node]]
+kind = "observation"
+id = "ParserZ3EncodingBuilds"
+provenance = "table"
+area = "parser"
+name = "ParserZ3EncodingBuilds"
+table = "Counter::ALL"
+registry_name = "parser.z3_encoding_builds"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ParserZ3EncodingBuilds"
+
+[[node]]
+kind = "observation"
+id = "ProofImplicationChecks"
+provenance = "table"
+area = "proof"
+name = "ProofImplicationChecks"
+table = "Counter::ALL"
+registry_name = "proof.implication_checks"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProofImplicationChecks"
+
+[[node]]
+kind = "observation"
+id = "ProofStatesExplored"
+provenance = "table"
+area = "proof"
+name = "ProofStatesExplored"
+table = "Counter::ALL"
+registry_name = "proof.states_explored"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProofStatesExplored"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceLinkDedupProbes"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceLinkDedupProbes"
+table = "Counter::ALL"
+registry_name = "provenance.link_dedup_probes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceLinkDedupProbes"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceReceiptRenders"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceReceiptRenders"
+table = "Counter::ALL"
+registry_name = "provenance.receipt_renders"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceReceiptRenders"
+
+[[node]]
+kind = "observation"
+id = "RewriteIndeterminateRecoveries"
+provenance = "table"
+area = "rewrite"
+name = "RewriteIndeterminateRecoveries"
+table = "Counter::ALL"
+registry_name = "rewrite.indeterminate_recoveries"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::RewriteIndeterminateRecoveries"
+
+[[node]]
+kind = "observation"
+id = "RewriteMatchFailures"
+provenance = "table"
+area = "rewrite"
+name = "RewriteMatchFailures"
+table = "Counter::ALL"
+registry_name = "rewrite.match_failures"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::RewriteMatchFailures"
+
+[[node]]
+kind = "observation"
+id = "RewriteRuleAttempts"
+provenance = "table"
+area = "rewrite"
+name = "RewriteRuleAttempts"
+table = "Counter::ALL"
+registry_name = "rewrite.rule_attempts"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::RewriteRuleAttempts"
+
+[[node]]
+kind = "observation"
+id = "RewriteRulesApplied"
+provenance = "table"
+area = "rewrite"
+name = "RewriteRulesApplied"
+table = "Counter::ALL"
+registry_name = "rewrite.rules_applied"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::RewriteRulesApplied"
+
+[[node]]
+kind = "observation"
+id = "RewriteSteps"
+provenance = "table"
+area = "rewrite"
+name = "RewriteSteps"
+table = "Counter::ALL"
+registry_name = "rewrite.steps"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::RewriteSteps"
+
+[[node]]
+kind = "observation"
+id = "SearchStatesDeduplicated"
+provenance = "table"
+area = "search"
+name = "SearchStatesDeduplicated"
+table = "Counter::ALL"
+registry_name = "search.states_deduplicated"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SearchStatesDeduplicated"
+
+[[node]]
+kind = "observation"
+id = "SimplifyBuiltinEvaluations"
+provenance = "table"
+area = "simplify"
+name = "SimplifyBuiltinEvaluations"
+table = "Counter::ALL"
+registry_name = "simplify.builtin_evaluations"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyBuiltinEvaluations"
+
+[[node]]
+kind = "observation"
+id = "SimplifyEquationAttempts"
+provenance = "table"
+area = "simplify"
+name = "SimplifyEquationAttempts"
+table = "Counter::ALL"
+registry_name = "simplify.equation_attempts"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyEquationAttempts"
+
+[[node]]
+kind = "observation"
+id = "SimplifyInvocations"
+provenance = "table"
+area = "simplify"
+name = "SimplifyInvocations"
+table = "Counter::ALL"
+registry_name = "simplify.invocations"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyInvocations"
+
+[[node]]
+kind = "observation"
+id = "SimplifyNodesSkippedEvaluated"
+provenance = "table"
+area = "simplify"
+name = "SimplifyNodesSkippedEvaluated"
+table = "Counter::ALL"
+registry_name = "simplify.nodes_skipped_evaluated"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyNodesSkippedEvaluated"
+
+[[node]]
+kind = "observation"
+id = "SimplifyRounds"
+provenance = "table"
+area = "simplify"
+name = "SimplifyRounds"
+table = "Counter::ALL"
+registry_name = "simplify.rounds"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SimplifyRounds"
+
+[[node]]
+kind = "observation"
+id = "SmtQueries"
+provenance = "table"
+area = "smt"
+name = "SmtQueries"
+table = "Counter::ALL"
+registry_name = "smt.queries"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SmtQueries"
+
+[[node]]
+kind = "observation"
+id = "SmtSolverRuns"
+provenance = "table"
+area = "smt"
+name = "SmtSolverRuns"
+table = "Counter::ALL"
+registry_name = "smt.solver_runs"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SmtSolverRuns"
+
+[[node]]
+kind = "observation"
+id = "TermConstructed"
+provenance = "table"
+area = "term"
+name = "TermConstructed"
+table = "Counter::ALL"
+registry_name = "term.constructed"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::TermConstructed"
+
+[[node]]
+kind = "observation"
+id = "UnificationProblems"
+provenance = "table"
+area = "unification"
+name = "UnificationProblems"
+table = "Counter::ALL"
+registry_name = "unification.problems"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::UnificationProblems"
+
+[[node]]
+kind = "phase"
+id = "add KItem subsorts"
+provenance = "table"
+area = "kompile"
+name = "add KItem subsorts"
+table = "TRANSFORM_STAGES"
+call = "subsort_kitem"
+behavior = "generating"
+generating_passes = ["subsort-kitem"]
+sequence = 28
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "subsort_kitem"
+
+[[node]]
+kind = "phase"
+id = "add cool-like attributes"
+provenance = "table"
+area = "kompile"
+name = "add cool-like attributes"
+table = "TRANSFORM_STAGES"
+call = "add_cool_like_attributes"
+behavior = "metadata-only"
+sequence = 45
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "add_cool_like_attributes"
+
+[[node]]
+kind = "phase"
+id = "add implicit computation cell"
+provenance = "table"
+area = "kompile"
+name = "add implicit computation cell"
+table = "TRANSFORM_STAGES"
+call = "add_implicit_computation_cell"
+behavior = "generating"
+generating_passes = ["add-implicit-computation-cell"]
+sequence = 36
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "add_implicit_computation_cell"
+
+[[node]]
+kind = "phase"
+id = "add semantics module"
+provenance = "table"
+area = "kompile"
+name = "add semantics module"
+table = "TRANSFORM_STAGES"
+call = "add_semantics_module"
+behavior = "structural-origin-free"
+sequence = 43
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "add_semantics_module"
+
+[[node]]
+kind = "phase"
+id = "add sort injections"
+provenance = "table"
+area = "kompile"
+name = "add sort injections"
+table = "EMISSION_STAGES"
+call = "add_sort_injections_to_definition"
+behavior = "generating"
+generating_passes = ["add-sort-injections"]
+sequence = 48
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "add_sort_injections_to_definition"
+
+[[node]]
+kind = "phase"
+id = "apply sort synonyms"
+provenance = "table"
+area = "kompile"
+name = "apply sort synonyms"
+table = "LOAD_PHASES"
+sequence = 5
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "algorithm"
+id = "backend.alias.unfold"
+provenance = "declared"
+area = "backend"
+name = "capture-avoiding alias unfolding"
+variable = "p = pattern size; d = expansion depth"
+no_counter = "alias unfolding runs only at load time and has no dedicated counter"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendAliasUnfold"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "expand"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "expand"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "expand_with"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "collect"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "validate_expansions"
+
+[[node.cost]]
+mode = "definition load"
+bound = "O(p x d)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.definedness.discharge"
+provenance = "declared"
+area = "backend"
+name = "structural definedness constraint generation and discharge"
+variable = "t = term size"
+no_counter = "definedness has no dedicated counter"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendDefinedness"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "discharge_rewrite_definedness"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "discharge_rewrite_definedness"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "rule_is_defined"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "ceil_term"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "ceil_predicate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "deduplicate"
+
+[[node.cost]]
+mode = "one term"
+bound = "O(|t|) with hash-set deduplication"
+
+[[node]]
+kind = "algorithm"
+id = "backend.definition.closure"
+provenance = "declared"
+area = "backend"
+name = "subsort and overload transitive-closure construction"
+variable = "S = sorts or overload symbols; C = closure pairs; h = longest relation chain"
+invariant = "each closure grows monotonically and is bounded by |S| squared pairs"
+no_counter = "closure construction runs once per definition load and has no dedicated counter"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendDefinitionClosure"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "build_sort_graph"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "build_sort_graph"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "OverloadGraph::from_relations"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "OverloadGraph"
+
+[[node.cost]]
+mode = "naive closure iteration"
+bound = "at most h rounds, each O(|S| x |C|)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.definition.internalize"
+provenance = "declared"
+area = "backend"
+name = "KORE definition validation and internalization"
+variable = "d = definition sentences and pattern nodes"
+no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed is indirect"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendDefinitionInternalize"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::internalize"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::internalize"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::internalize_for_source_execution"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::internalize_canonical"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::internalize_term"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::internalize_pattern"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "visit_module"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "visit_modules_preorder"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "classify_axiom"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "internalize_axiom"
+
+[[node.cost]]
+mode = "one definition load"
+bound = "O(d)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.fresh.object_language"
+provenance = "declared"
+area = "backend"
+name = "capture-avoiding substitution of object-language variables"
+variable = "t = term size; r = replacement size; b = binders renamed"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendFreshObjectLanguage"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/substitution.rs"
+symbol = "evaluate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/substitution.rs"
+symbol = "evaluate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/substitution.rs"
+symbol = "FreshNames::mint"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/substitution.rs"
+symbol = "substitute"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/substitution.rs"
+symbol = "freshen_bound_kvar_identities"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/substitution.rs"
+symbol = "freshen_bound_kvar_identities_inner"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/substitution.rs"
+symbol = "peel_injections"
+
+[[node.cost]]
+mode = "one object-language substitution"
+bound = "O(|t|) plus O(|r|) per renamed binder and collision retries"
+
+[[node]]
+kind = "algorithm"
+id = "backend.fresh.variables"
+provenance = "declared"
+area = "backend"
+name = "counter-suffixed backend variable naming with collision retry"
+variable = "c = colliding candidate names"
+no_counter = "fresh backend variable naming has no dedicated counter"
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendFreshVariables"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/fresh.rs"
+symbol = "fresh_name"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/alias.rs"
+symbol = "fresh_variable"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/fresh.rs"
+symbol = "fresh_name"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/fresh.rs"
+symbol = "fresh_variable"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/fresh.rs"
+symbol = "freshen_existential"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/fresh.rs"
+symbol = "increment_name_counter"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "freshen_existentials"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "freshen_claim"
+
+[[node.cost]]
+mode = "shared counter"
+bound = "O(c) per name, amortized O(1)"
+
+[[node.cost]]
+mode = "Booster existential spelling"
+bound = "O(c) trailing-decimal retries"
+
+[[node]]
+kind = "algorithm"
+id = "backend.implication.check"
+provenance = "declared"
+area = "backend"
+name = "subsumption by matching, witness elimination, and validity checking"
+variable = "r = antecedent simplification rounds; c = consequents"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendImplicationCheck"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "check_implication_with_existentials_and_options_and_policy"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "check_implication_with_existentials_and_options_and_policy"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "check_implication"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "check_implication_with_existentials"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "check_disjunctive_implication_with_existentials"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "eliminate_existential_witnesses"
+
+[[node.cost]]
+mode = "one implication check"
+bound = "O(r x (c matching problems + witness saturation + one SMT validity query))"
+
+[[node]]
+kind = "algorithm"
+id = "backend.matching.collections"
+provenance = "declared"
+area = "backend"
+name = "associative and associative-commutative collection matching"
+variable = "k = symbolic-key pattern elements; n = subject elements"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendMatchingCollections"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "solve_collection_pairs_in_definition"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "solve_collection_pairs_in_definition"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "solve_collection_pair"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "solve_list_pair"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "solve_map_pair"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "solve_set_pair"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "match_collection_remainders_all_in_definition"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/collections.rs"
+symbol = "cancel_common_opaque_chunks"
+
+[[node.cost]]
+mode = "maps and sets"
+bound = "O(n^k) assignments in the worst case"
+
+[[node.cost]]
+mode = "lists"
+bound = "O(n) frame positions per frame"
+
+[[node]]
+kind = "algorithm"
+id = "backend.matching.relation_query"
+provenance = "declared"
+area = "backend"
+name = "subsort and overload membership queries"
+variable = "S = sorts or overloaded symbols"
+no_counter = "relation queries have no dedicated counter"
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendMatchingRelationQuery"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "SortGraph::check_subsort"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "SortGraph::check_subsort"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "OverloadView::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "OverloadView::lift"
+
+[[node.cost]]
+mode = "one membership query"
+bound = "O(log |S|)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.matching.syntactic"
+provenance = "declared"
+area = "backend"
+name = "sort-aware one-way first-order matching by pair decomposition"
+variable = "p = pairs popped, bounded by |pattern| plus one re-enqueue per deferred pair; a = pair arity"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendMatchingSyntactic"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "match_terms_with_context"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "match_terms_with_context"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "match_terms"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "match_terms_in_definition"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "match_term_pairs_in_definition"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "Matcher::run"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "Matcher::match_one"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "initial_match"
+
+[[node.cost]]
+mode = "one matching problem"
+bound = "O(p x a)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.proof.search"
+provenance = "declared"
+area = "backend"
+name = "reachability-logic proof search"
+variable = "s = explored states; c = circularities"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendProofSearch"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "prove_claim"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "prove_claim"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "extend_frontier"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "finish_at_breadth_limit"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "apply_claim"
+
+[[node.cost]]
+mode = "one proof"
+bound = "O(s) x (simplification + implication + O(c) claim applications + one rewrite step)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.rewrite.apply"
+provenance = "declared"
+area = "backend"
+name = "one-rule conditional rewriting"
+variable = "c = candidate rules passed by the step; r = unmatched remainder pairs"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendRewriteApply"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "apply_rule_with_match"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "apply_rule_with_match"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "apply_rule"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "apply_rule_phases"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "reenter"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "dispatch_match"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "instantiate"
+
+[[node.cost]]
+mode = "direct match"
+bound = "one matching problem and up to three SMT calls per attempt"
+
+[[node.cost]]
+mode = "indeterminate recovery"
+bound = "up to eleven recovery strategies with recursion depth at most |r| + 1"
+
+[[node]]
+kind = "algorithm"
+id = "backend.rewrite.execute"
+provenance = "declared"
+area = "backend"
+name = "depth-first exploration of a rewrite tree"
+variable = "d = maximum depth; b = maximum breadth"
+invariant = "queued successors are pushed to the front so children are visited before siblings"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendRewriteExecute"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "execute_using"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/mod.rs"
+symbol = "Backend::execute_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "execute_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "Execution::run"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "Execution::expand"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "select_got_stuck_over_depth_bound"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "merge_equal_final_leaves"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "enqueue_execution_states"
+
+[[node.cost]]
+mode = "bounded execution"
+bound = "O(states), with states at most b^d; each state performs one term simplification, predicate pass, and rewrite step"
+
+[[node]]
+kind = "algorithm"
+id = "backend.rewrite.recover"
+provenance = "declared"
+area = "backend"
+name = "recovery from an indeterminate one-way match"
+variable = "k = symbolic map-key pattern entries; n = subject entries"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendRewriteRecover"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_indeterminate_match"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_indeterminate_match"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "solve_collection_remainders_with_narrowing"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_general_unification"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_functional_symbolic_match"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_function_equality_match"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_symbolic_map_key_matches"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_boolean_matches"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_map_not_in_keys_matches"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_equality_matches"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_ite_matches"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/recover.rs"
+symbol = "recover_overload_symbolic_match"
+
+[[node.cost]]
+mode = "ordered recovery ladder"
+bound = "each strategy either declines or returns matches with an empty or strictly shorter remainder"
+
+[[node.cost]]
+mode = "symbolic map key"
+bound = "O(n^k)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.rewrite.step"
+provenance = "declared"
+area = "backend"
+name = "priority-grouped rewriting with a complete remainder"
+variable = "c = candidate rules"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendRewriteStep"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/step.rs"
+symbol = "rewrite_step_all"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/step.rs"
+symbol = "rewrite_step_all"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/step.rs"
+symbol = "rewrite_step_any"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/step.rs"
+symbol = "apply_priority_group"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/step.rs"
+symbol = "first_productive_group"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/step.rs"
+symbol = "fold_lower_priority_groups"
+
+[[node.cost]]
+mode = "All"
+bound = "O(c) rule attempts plus one SAT check per productive group"
+
+[[node.cost]]
+mode = "Any"
+bound = "O(c) rule attempts plus one SAT check per applied rule"
+
+[[node]]
+kind = "algorithm"
+id = "backend.rule.select"
+provenance = "declared"
+area = "backend"
+name = "single-symbol rule selection"
+variable = "k = index keys; c = candidate rules returned for one step"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendRuleSelect"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "applicable_groups"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "applicable_groups"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "applicable_rewrite_groups"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "term_index"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "rule_index"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "subject_index"
+
+[[node.cost]]
+mode = "one subject"
+bound = "O(log k) index lookups plus O(c) candidate clones"
+
+[[node]]
+kind = "algorithm"
+id = "backend.search.configurations"
+provenance = "declared"
+area = "backend"
+name = "breadth-first search over configurations"
+variable = "n = distinct configurations at one depth"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendSearchConfigurations"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_graph_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_graph_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_graph_collecting"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "materialize_search_state"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "retain_state_result"
+
+[[node.cost]]
+mode = "one depth"
+bound = "O(n) rewrite steps"
+
+[[node]]
+kind = "algorithm"
+id = "backend.search.paths"
+provenance = "declared"
+area = "backend"
+name = "breadth-first enumeration of simple rewrite paths"
+variable = "d = path depth; b = branching factor"
+no_counter = "path enumeration has no dedicated counter"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendSearchPaths"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_paths_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_paths_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_paths_collecting"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "retain_witness"
+
+[[node.cost]]
+mode = "simple paths"
+bound = "exponential in b and d, plus O(d) visited-list work per pop"
+
+[[node]]
+kind = "algorithm"
+id = "backend.search.patterns"
+provenance = "declared"
+area = "backend"
+name = "pattern search over rewrite results"
+variable = "m = result patterns examined"
+no_counter = "pattern search has no dedicated counter"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendSearchPatterns"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_pattern_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_pattern_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "search_pattern_paths_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "match_pattern_with_variables"
+
+[[node.cost]]
+mode = "result-set search"
+bound = "O(m) matches plus the selected rewrite-search strategy"
+
+[[node]]
+kind = "algorithm"
+id = "backend.simplify.predicates"
+provenance = "declared"
+area = "backend"
+name = "conjunct-set predicate normalization"
+variable = "b = simplification budget"
+no_counter = "predicate normalization has no dedicated counter; term rounds count only the term simplification it triggers"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendSimplifyPredicates"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_predicates_with_solver"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "simplify_conditions"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_predicates_with_solver"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "predicate_conjunct_index"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_predicates_with_budget"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_predicate_with_budget"
+
+[[node.cost]]
+mode = "indexed conjunct lookup"
+bound = "O(1) membership per conjunct with re-entry bounded by b"
+
+[[node]]
+kind = "algorithm"
+id = "backend.simplify.term"
+provenance = "declared"
+area = "backend"
+name = "innermost equational simplification to a budgeted fixed point"
+variable = "r = rounds; t = term nodes; c = candidate equations per node"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendSimplifyTerm"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_with_optional_execution"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_with_optional_execution"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_with_solver"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_with_budget"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_children"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_root"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "apply_theory"
+
+[[node.cost]]
+mode = "one term lineage"
+bound = "O(r x |t| x c), with r bounded by max_iterations"
+
+[[node]]
+kind = "algorithm"
+id = "backend.smt.cache"
+provenance = "declared"
+area = "backend"
+name = "bounded FIFO memoization of SMT query scripts"
+variable = "e = entries evicted"
+invariant = "entries and insertion_order agree; eviction stops once the entry and key-byte limits admit the new key"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendSmtCache"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::solve"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::solve"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "SolverResultCache::get"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "SolverResultCache::insert"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::solve_uncached"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "SolverResultCache"
+
+[[node.cost]]
+mode = "cache hit"
+bound = "O(1)"
+
+[[node.cost]]
+mode = "cache insertion"
+bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
+
+[[node]]
+kind = "algorithm"
+id = "backend.substitution.apply"
+provenance = "declared"
+area = "backend"
+name = "simultaneous substitution with attribute-guided skipping"
+variable = "t = term size"
+no_counter = "TermConstructed measures resulting term construction only and is not dedicated to substitution"
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendSubstitutionApply"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "substitute"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "substitute"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "compose"
+
+[[node.cost]]
+mode = "one term"
+bound = "O(t) with O(1) skipping of variable-free subterms"
+
+[[node]]
+kind = "algorithm"
+id = "backend.substitution.extract"
+provenance = "declared"
+area = "backend"
+name = "substitution extraction with strongly connected component cycle breaking"
+variable = "r = cycles broken; V and E = dependency-graph vertices and edges; s = binding count; t = term size"
+no_counter = "substitution extraction has no dedicated counter"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendSubstitutionExtract"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "extract_substitution_with"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "extract_substitution_with"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "extract_substitution"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "extract_substitution_for"
+
+[[node.cost]]
+mode = "cycle breaking"
+bound = "O(r x (V + E))"
+
+[[node.cost]]
+mode = "saturation"
+bound = "O(s^2 x t)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.substitution.extract_output"
+provenance = "declared"
+area = "backend"
+name = "output-restricted substitution extraction"
+variable = "c = constraints; t = term size"
+no_counter = "output-restricted extraction has no dedicated counter"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendSubstitutionExtractOutput"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "normalize_match_condition"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "normalize_match_condition"
+
+[[node.cost]]
+mode = "search result normalization"
+bound = "O(c^2 x t)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.unification.syntactic"
+provenance = "declared"
+area = "backend"
+name = "syntactic first-order unification with eager substitution composition"
+variable = "n = pairs; s = bindings; t = term size"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "BackendUnificationSyntactic"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/unification.rs"
+symbol = "unify_term_pairs"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/unification.rs"
+symbol = "unify_term_pairs"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/unification.rs"
+symbol = "Unifier::run"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/unification.rs"
+symbol = "Unifier::unify_one"
+
+[[node.cost]]
+mode = "symbolic KORE terms"
+bound = "O(n x s x t)"
+
+[[node]]
+kind = "phase"
+id = "check outer modules"
+provenance = "table"
+area = "kompile"
+name = "check outer modules"
+table = "LOAD_PHASES"
+sequence = 6
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "check simplification rules"
+provenance = "table"
+area = "kompile"
+name = "check simplification rules"
+table = "TRANSFORM_STAGES"
+call = "check_simplification_rules"
+behavior = "validation"
+sequence = 40
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "check_simplification_rules"
+
+[[node]]
+kind = "phase"
+id = "collect configuration variables"
+provenance = "table"
+area = "kompile"
+name = "collect configuration variables"
+table = "EMISSION_PHASES"
+sequence = 54
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "collect execution rewrite order"
+provenance = "table"
+area = "kompile"
+name = "collect execution rewrite order"
+table = "EMISSION_PHASES"
+sequence = 51
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "concretize cells"
+provenance = "table"
+area = "kompile"
+name = "concretize cells"
+table = "TRANSFORM_STAGES"
+call = "concretize_cells"
+behavior = "generating"
+generating_passes = ["concretize-cells"]
+sequence = 42
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "concretize_cells"
+
+[[node]]
+kind = "phase"
+id = "constant folding"
+provenance = "table"
+area = "kompile"
+name = "constant folding"
+table = "TRANSFORM_STAGES"
+call = "constant_fold"
+behavior = "generating"
+generating_passes = ["constant-folding"]
+sequence = 29
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "constant_fold"
+
+[[node]]
+kind = "contract"
+id = "contract.counters.krust_writer_order"
+provenance = "declared"
+name = "stable KRUST_COUNTERS key order"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/main.rs"
+symbol = "write_counters_if_requested"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/main.rs"
+symbol = "write_counters_if_requested"
+
+[[node]]
+kind = "contract"
+id = "contract.definition.production_catalog_cache"
+provenance = "declared"
+name = "lazy production-catalog view shared by its consumers"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/views.rs"
+symbol = "DefinitionViews::production_catalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/views.rs"
+symbol = "DefinitionViews::production_catalog"
+
+[[node]]
+kind = "contract"
+id = "contract.kompile.resolved_cache"
+provenance = "declared"
+name = "lazy resolution shared by kompile stages"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "PassInput::resolved_raw"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "PassInput::resolved_raw"
+
+[[node]]
+kind = "phase"
+id = "definition checks"
+provenance = "table"
+area = "kompile"
+name = "definition checks"
+table = "prologue_descriptions"
+call = "check_definition_with_options"
+behavior = "validation"
+sequence = 16
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "check_definition_with_options"
+
+[[node]]
+kind = "algorithm"
+id = "definition.catalog.production"
+provenance = "declared"
+area = "definition"
+name = "production-catalog construction"
+variable = "n = visible productions; b = equivalence buckets; eq = sentence-equivalence cost"
+table = "Algorithm::ALL"
+registry_name = "DefinitionCatalogProduction"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog::from_visible"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "build_indexes"
+
+[[node.cost]]
+mode = "one catalog"
+bound = "O(n log n + b x eq)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.catalog.rule"
+provenance = "declared"
+area = "definition"
+name = "rule-catalog construction"
+variable = "n = visible rule-like sentences; eq = sentence-equivalence cost"
+table = "Algorithm::ALL"
+registry_name = "DefinitionCatalogRule"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/rule_catalog.rs"
+symbol = "RuleCatalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/rule_catalog.rs"
+symbol = "RuleCatalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/rule_catalog.rs"
+symbol = "RuleCatalog::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/rule_catalog.rs"
+symbol = "RuleCatalog::from_visible"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/rule_catalog.rs"
+symbol = "collect_unique"
+
+[[node.cost]]
+mode = "one catalog"
+bound = "O(n^2 x eq + n log n)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.catalog.sort"
+provenance = "declared"
+area = "definition"
+name = "sort-catalog construction"
+variable = "n = visible sort declarations"
+no_counter = "sort-catalog construction has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "DefinitionCatalogSort"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/sort_catalog.rs"
+symbol = "SortCatalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/sort_catalog.rs"
+symbol = "SortCatalog"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/sort_catalog.rs"
+symbol = "SortCatalog::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/sort_catalog.rs"
+symbol = "SortCatalog::from_visible"
+
+[[node.cost]]
+mode = "one catalog"
+bound = "O(n log n)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.checks.run"
+provenance = "declared"
+area = "definition"
+name = "structural checking of resolved definitions"
+variable = "M = modules; S = visited sentences and terms plus catalog work"
+no_counter = "structural definition checks have no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "DefinitionChecksRun"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks.rs"
+symbol = "check_definition_with_options"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks.rs"
+symbol = "check_definition_with_options"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks.rs"
+symbol = "check_module_with_options"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(M x S)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.configuration.expand"
+provenance = "declared"
+area = "definition"
+name = "expansion of configuration declarations into generated sentences"
+variable = "N = visited configuration-term nodes; G = generated sentences"
+no_counter = "configuration expansion is measured by enclosing resolution and sentence counters"
+table = "Algorithm::ALL"
+registry_name = "DefinitionConfigurationExpand"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/configuration.rs"
+symbol = "expand_configurations"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/configuration.rs"
+symbol = "expand_configurations"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/configuration.rs"
+symbol = "expand_configurations_with_diagnostics"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/configuration.rs"
+symbol = "expand_configurations_inner"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N + G^2)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.equivalence.deduplicate"
+provenance = "declared"
+area = "definition"
+name = "order-preserving deduplication by sentence equivalence"
+variable = "n = sentences; eq = sentence-equivalence cost"
+table = "Algorithm::ALL"
+registry_name = "DefinitionEquivalenceDeduplicate"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "dedup_by_equivalence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "dedup_by_equivalence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "EquivalenceAccumulator"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "push_if_inequivalent"
+
+[[node.cost]]
+mode = "one sentence collection"
+bound = "O(n^2 x eq)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.equivalence.sentence"
+provenance = "declared"
+area = "definition"
+name = "structural sentence equivalence"
+variable = "N = compared or encoded sentence and term nodes"
+table = "Algorithm::ALL"
+registry_name = "DefinitionEquivalenceSentence"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "sentence_equivalent"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "sentence_equivalent"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "production_identity"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "canonical_production_payload"
+
+[[node.cost]]
+mode = "one comparison or identity"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.json.encode"
+provenance = "declared"
+area = "definition"
+name = "KAST JSON encoding of flat definitions"
+variable = "N = encoded definition nodes"
+table = "Algorithm::ALL"
+registry_name = "DefinitionJsonEncode"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "to_string"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "to_string"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "to_string_pretty"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "to_provenance_string"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "to_provenance_string_pretty"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "serialize_provenance"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/native.rs"
+symbol = "write_runnable_artifact"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.order.partial"
+provenance = "declared"
+area = "definition"
+name = "finite partial-order construction and closure"
+variable = "V = elements; E = direct relations; C = closure work"
+table = "Algorithm::ALL"
+registry_name = "DefinitionOrderPartial"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/partial_order.rs"
+symbol = "PartialOrder"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/partial_order.rs"
+symbol = "PartialOrder"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/partial_order.rs"
+symbol = "PartialOrder::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/partial_order.rs"
+symbol = "find_cycle"
+
+[[node.cost]]
+mode = "one partial order"
+bound = "O(V + E + C)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.outer.checks"
+provenance = "declared"
+area = "definition"
+name = "validation of outer-syntax declarations"
+variable = "N = outer syntax nodes"
+no_counter = "outer-syntax checks have no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "OuterChecksRun"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/checks.rs"
+symbol = "check_list_declarations"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/checks.rs"
+symbol = "check_list_declarations"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/checks.rs"
+symbol = "check_brackets"
+
+[[node.cost]]
+mode = "one source file"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.outer.lower"
+provenance = "declared"
+area = "definition"
+name = "lowering of outer syntax into the flat definition model"
+variable = "S = outer sentences; I = production items"
+no_counter = "outer-syntax lowering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "OuterLowerDefinition"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/lower.rs"
+symbol = "lower"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/lower.rs"
+symbol = "lower"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/lower.rs"
+symbol = "lower_module"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/lower.rs"
+symbol = "lower_sentence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/lower.rs"
+symbol = "lower_production"
+
+[[node.cost]]
+mode = "one source set"
+bound = "O(S + I)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.outer.markdown"
+provenance = "declared"
+area = "definition"
+name = "extraction of selected K blocks from Markdown"
+variable = "B = Markdown bytes"
+no_counter = "Markdown extraction has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "OuterMarkdownExtract"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/markdown.rs"
+symbol = "extract_fenced_k_code"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/markdown.rs"
+symbol = "extract_fenced_k_code"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/markdown.rs"
+symbol = "extract_fenced_k_code_with_map"
+
+[[node.cost]]
+mode = "one Markdown source"
+bound = "O(B)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.outer.parse"
+provenance = "declared"
+area = "definition"
+name = "recursive-descent parsing of outer syntax"
+variable = "T = input tokens; C = tried production candidates"
+no_counter = "outer-syntax parsing has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "OuterParserParse"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/parser.rs"
+symbol = "parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/parser.rs"
+symbol = "parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/parser.rs"
+symbol = "Parser::module"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/parser.rs"
+symbol = "Parser::sentence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/parser.rs"
+symbol = "Parser::production"
+
+[[node.cost]]
+mode = "one source file"
+bound = "O(T x C)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.outer.requires"
+provenance = "declared"
+area = "definition"
+name = "source loading by traversal of the require graph"
+variable = "F = source files; E = require edges; B = source bytes"
+no_counter = "source-require traversal has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "OuterLoaderRequires"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/loader.rs"
+symbol = "Loader::visit"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/main.rs"
+symbol = "load_definition_against_prepared"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/main.rs"
+symbol = "load_prepared_manifest"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/native.rs"
+symbol = "load_runnable_artifact"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/loader.rs"
+symbol = "Loader::visit"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/loader.rs"
+symbol = "load_impl"
+
+[[node.cost]]
+mode = "one source graph"
+bound = "O(F + E + B)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.outer.select_modules"
+provenance = "declared"
+area = "definition"
+name = "module selection by import and configuration reachability"
+variable = "M = modules; E = import edges"
+no_counter = "module selection has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "OuterModulesSelect"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/loader/selection.rs"
+symbol = "select_modules"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/loader/selection.rs"
+symbol = "select_modules"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/loader/selection.rs"
+symbol = "has_configuration_after_exclusion"
+
+[[node.cost]]
+mode = "one resolved definition"
+bound = "O(M + E)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.outer.virtual_path"
+provenance = "declared"
+area = "definition"
+name = "lexical normalization of virtual source paths"
+variable = "P = path components"
+no_counter = "virtual-path normalization has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "OuterVirtualPathNormalize"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/virtual_path.rs"
+symbol = "normalize_virtual_path"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/virtual_path.rs"
+symbol = "normalize_virtual_path"
+
+[[node.cost]]
+mode = "one path"
+bound = "O(P)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.provenance.record"
+provenance = "declared"
+area = "definition"
+name = "recording of generation-origin receipts"
+variable = "N = sentences and changed term nodes; k = origin links per visited node"
+table = "Algorithm::ALL"
+registry_name = "DefinitionProvenanceRecord"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "record_generated_origins"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "record_generated_origins"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "sentence_counterparts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "annotate_term"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "insert_link"
+
+[[node.cost]]
+mode = "one module and generating pass"
+bound = "O(N log N + sum k)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.provenance.source_identity"
+provenance = "declared"
+area = "definition"
+name = "interning and offset mapping of logical source identities"
+variable = "B = source bytes; S = offset-map segments"
+no_counter = "logical source interning and offset mapping have no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "DefinitionProvenanceSourceIdentity"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "LogicalSourceId::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "LogicalSourceId::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "SourceTable::intern"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "SourceOffsetMap::new"
+
+[[node.cost]]
+mode = "one source"
+bound = "O(B + S)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.regex.parse"
+provenance = "declared"
+area = "definition"
+name = "parsing of structured K regular expressions"
+variable = "B = regular-expression syntax bytes"
+no_counter = "structured-regex parsing has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "DefinitionRegexParse"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/regex.rs"
+symbol = "parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/regex.rs"
+symbol = "parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/regex.rs"
+symbol = "Parser::parse"
+
+[[node.cost]]
+mode = "one regular expression"
+bound = "O(B)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.relations.build"
+provenance = "declared"
+area = "definition"
+name = "construction of subsort, overload, priority, and associativity relations"
+variable = "P = productions; C = partial-order closure work"
+table = "Algorithm::ALL"
+registry_name = "DefinitionRelationsBuild"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "compute_subsorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "compute_subsorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "compute_disambiguation_subsorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "compute_priorities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "compute_associativities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "compute_overloads"
+
+[[node.cost]]
+mode = "one module"
+bound = "O(P^2 + C)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.resolve.imports"
+provenance = "declared"
+area = "definition"
+name = "import-DAG resolution of flat definitions"
+variable = "M = modules; E = import edges"
+table = "Algorithm::ALL"
+registry_name = "DefinitionResolveImports"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition::resolve"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition::resolve"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition::update"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "find_cycle"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(M log M + E)"
+
+[[node]]
+kind = "algorithm"
+id = "definition.resolve.sentences"
+provenance = "declared"
+area = "definition"
+name = "visible-sentence selection with bucketed equivalence deduplication"
+variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost"
+table = "Algorithm::ALL"
+registry_name = "DefinitionResolveSentences"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition::select_sentence_locations"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition::select_sentence_locations"
+
+[[node.cost]]
+mode = "all resolved modules"
+bound = "O(sum n_m^2 x eq)"
+
+[[node]]
+kind = "phase"
+id = "emit KORE"
+provenance = "table"
+area = "kompile"
+name = "emit KORE"
+table = "EMISSION_PHASES"
+sequence = 56
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "expand configurations"
+provenance = "table"
+area = "kompile"
+name = "expand configurations"
+table = "LOAD_PHASES"
+sequence = 9
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "expand macros"
+provenance = "table"
+area = "kompile"
+name = "expand macros"
+table = "TRANSFORM_STAGES"
+call = "expand_macros"
+behavior = "generating"
+generating_passes = ["macro-expansion"]
+sequence = 35
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "expand_macros"
+
+[[node]]
+kind = "phase"
+id = "expand structured configurations"
+provenance = "table"
+area = "kompile"
+name = "expand structured configurations"
+table = "prologue_descriptions"
+call = "expand_configurations_with_diagnostics"
+behavior = "generating"
+generating_passes = ["configuration-expansion"]
+sequence = 14
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "expand_configurations_with_diagnostics"
+
+[[node]]
+kind = "phase"
+id = "finalize KItem subsorts"
+provenance = "table"
+area = "kompile"
+name = "finalize KItem subsorts"
+table = "TRANSFORM_STAGES"
+call = "subsort_kitem"
+behavior = "generating"
+generating_passes = ["subsort-kitem"]
+sequence = 41
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "subsort_kitem"
+
+[[node]]
+kind = "phase"
+id = "generate bison parser"
+provenance = "table"
+area = "kompile"
+name = "generate bison parser"
+table = "EMISSION_PHASES"
+sequence = 60
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "generate sort predicate rules"
+provenance = "table"
+area = "kompile"
+name = "generate sort predicate rules"
+table = "TRANSFORM_STAGES"
+call = "generate_sort_predicate_rules"
+behavior = "generating"
+generating_passes = ["generate-sort-predicate-rules"]
+sequence = 46
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "generate_sort_predicate_rules"
+
+[[node]]
+kind = "phase"
+id = "generate sort predicate syntax"
+provenance = "table"
+area = "kompile"
+name = "generate sort predicate syntax"
+table = "TRANSFORM_STAGES"
+call = "generate_sort_predicate_syntax"
+behavior = "generating"
+generating_passes = ["generate-sort-predicate-syntax"]
+sequence = 33
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "generate_sort_predicate_syntax"
+
+[[node]]
+kind = "phase"
+id = "generate sort projections"
+provenance = "table"
+area = "kompile"
+name = "generate sort projections"
+table = "TRANSFORM_STAGES"
+call = "generate_sort_projections"
+behavior = "generating"
+generating_passes = ["generate-sort-projections"]
+sequence = 34
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "generate_sort_projections"
+
+[[node]]
+kind = "phase"
+id = "guard or-patterns"
+provenance = "table"
+area = "kompile"
+name = "guard or-patterns"
+table = "TRANSFORM_STAGES"
+call = "guard_or_patterns"
+behavior = "generating"
+generating_passes = ["guard-or-patterns"]
+sequence = 31
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "guard_or_patterns"
+
+[[node]]
+kind = "phase"
+id = "hook namespace checks"
+provenance = "table"
+area = "kompile"
+name = "hook namespace checks"
+table = "EMISSION_PHASES"
+sequence = 55
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "representation"
+id = "k_rust::PreparedDefinitionManifest [prepared definition manifest]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::PreparedDefinitionManifest"
+type_path = "k_rust::PreparedDefinitionManifest"
+role = "prepared definition manifest"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/main.rs"
+symbol = "PreparedDefinitionManifest"
+
+[[node]]
+kind = "representation"
+id = "k_rust::backend::ExecutionResult [wire execution result]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::backend::ExecutionResult"
+type_path = "k_rust::backend::ExecutionResult"
+role = "wire execution result"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/mod.rs"
+symbol = "ExecutionResult"
+
+[[node]]
+kind = "representation"
+id = "k_rust::definition::Definition [lowered source]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::Definition"
+type_path = "k_rust::definition::Definition"
+role = "lowered source"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/ast.rs"
+symbol = "Definition"
+
+[[node]]
+kind = "representation"
+id = "k_rust::definition::Definition [parsed bubbles]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::Definition"
+type_path = "k_rust::definition::Definition"
+role = "parsed bubbles"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/ast.rs"
+symbol = "Definition"
+
+[[node]]
+kind = "representation"
+id = "k_rust::definition::PartialOrder<String> [priority order]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::PartialOrder<String>"
+type_path = "k_rust::definition::PartialOrder<String>"
+role = "priority order"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/partial_order.rs"
+symbol = "PartialOrder"
+
+[[node]]
+kind = "representation"
+id = "k_rust::definition::PartialOrder<k_rust::kast::Sort> [subsort order]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::PartialOrder<k_rust::kast::Sort>"
+type_path = "k_rust::definition::PartialOrder<k_rust::kast::Sort>"
+role = "subsort order"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/partial_order.rs"
+symbol = "PartialOrder"
+
+[[node]]
+kind = "representation"
+id = "k_rust::definition::ProductionCatalog<'a> [production lookup]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::ProductionCatalog<'a>"
+type_path = "k_rust::definition::ProductionCatalog<'a>"
+role = "production lookup"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/catalog.rs"
+symbol = "ProductionCatalog"
+
+[[node]]
+kind = "representation"
+id = "k_rust::definition::ResolvedDefinition [resolved definition]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::ResolvedDefinition"
+type_path = "k_rust::definition::ResolvedDefinition"
+role = "resolved definition"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition"
+
+[[node]]
+kind = "representation"
+id = "k_rust::definition::SortCatalog<'a> [sort lookup]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::SortCatalog<'a>"
+type_path = "k_rust::definition::SortCatalog<'a>"
+role = "sort lookup"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/sort_catalog.rs"
+symbol = "SortCatalog"
+
+[[node]]
+kind = "representation"
+id = "k_rust::kast::Term [parsed term]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::kast::Term"
+type_path = "k_rust::kast::Term"
+role = "parsed term"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kast/ast.rs"
+symbol = "Term"
+
+[[node]]
+kind = "representation"
+id = "k_rust::kompile::CompiledKoreArtifacts [compiled artifacts]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::kompile::CompiledKoreArtifacts"
+type_path = "k_rust::kompile::CompiledKoreArtifacts"
+role = "compiled artifacts"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/compile.rs"
+symbol = "CompiledKoreArtifacts"
+
+[[node]]
+kind = "representation"
+id = "k_rust::kompile::DeclarationModules [KORE declaration modules]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::kompile::DeclarationModules"
+type_path = "k_rust::kompile::DeclarationModules"
+role = "KORE declaration modules"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore.rs"
+symbol = "DeclarationModules"
+
+[[node]]
+kind = "representation"
+id = "k_rust::native::RunnableArtifact [on-disk runnable artifact]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::native::RunnableArtifact"
+type_path = "k_rust::native::RunnableArtifact"
+role = "on-disk runnable artifact"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/native.rs"
+symbol = "RunnableArtifact"
+
+[[node]]
+kind = "representation"
+id = "k_rust::outer::LoadedDefinition [loaded definition]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::outer::LoadedDefinition"
+type_path = "k_rust::outer::LoadedDefinition"
+role = "loaded definition"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/loader.rs"
+symbol = "LoadedDefinition"
+
+[[node]]
+kind = "representation"
+id = "k_rust::outer::ast::SourceFile [parsed source]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::outer::ast::SourceFile"
+type_path = "k_rust::outer::ast::SourceFile"
+role = "parsed source"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/outer/ast.rs"
+symbol = "SourceFile"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::definition::BackendDefinition [internalized theory]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::definition::BackendDefinition"
+type_path = "k_rust_backend::definition::BackendDefinition"
+role = "internalized theory"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::rewrite::ExecutionResult [execution result]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::rewrite::ExecutionResult"
+type_path = "k_rust_backend::rewrite::ExecutionResult"
+role = "execution result"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/mod.rs"
+symbol = "ExecutionResult"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::rewrite::Pattern [internalized pattern]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::rewrite::Pattern"
+type_path = "k_rust_backend::rewrite::Pattern"
+role = "internalized pattern"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/mod.rs"
+symbol = "Pattern"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::rewrite::RewriteResult"
+type_path = "k_rust_backend::rewrite::RewriteResult"
+role = "rewrite result"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/mod.rs"
+symbol = "RewriteResult"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::term::Term [internalized term]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::term::Term"
+type_path = "k_rust_backend::term::Term"
+role = "internalized term"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term"
+
+[[node]]
+kind = "representation"
+id = "k_rust_kore::kore::ast::Definition [compiled definition]"
+provenance = "declared"
+area = "kore"
+name = "k_rust_kore::kore::ast::Definition"
+type_path = "k_rust_kore::kore::ast::Definition"
+role = "compiled definition"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/ast.rs"
+symbol = "Definition"
+
+[[node]]
+kind = "representation"
+id = "k_rust_kore::kore::ast::Pattern [converted term]"
+provenance = "declared"
+area = "kore"
+name = "k_rust_kore::kore::ast::Pattern"
+type_path = "k_rust_kore::kore::ast::Pattern"
+role = "converted term"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/ast.rs"
+symbol = "Pattern"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.cells.concretize"
+provenance = "declared"
+area = "kompile"
+name = "cell concretization"
+variable = "P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell"
+table = "Algorithm::ALL"
+registry_name = "KompileCellsConcretize"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
+symbol = "concretize_cells"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
+symbol = "concretize_cells"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
+symbol = "concretize_cells_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
+symbol = "CellModel::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/concretize_cells.rs"
+symbol = "Concretizer::sentence"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(P x C + N x D x |children|)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.constant_folding.evaluate"
+provenance = "declared"
+area = "kompile"
+name = "bottom-up evaluation of constant hooked operations"
+variable = "N = visited term nodes"
+table = "Algorithm::ALL"
+registry_name = "KompileConstantFoldingEvaluate"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/constant_folding.rs"
+symbol = "constant_fold"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/constant_folding.rs"
+symbol = "constant_fold"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/constant_folding.rs"
+symbol = "constant_fold_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/constant_folding.rs"
+symbol = "Folder::fold"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/constant_folding.rs"
+symbol = "Folder::evaluate"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/constant_folding_float.rs"
+symbol = "evaluate"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/constant_folding_float.rs"
+symbol = "KFloat::parse"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N) per sentence plus hook-specific arithmetic cost"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.contexts.resolve"
+provenance = "declared"
+area = "kompile"
+name = "lowering of evaluation contexts"
+variable = "N = context and term nodes; C = generated rules and productions"
+no_counter = "context lowering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileContextsResolve"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_contexts.rs"
+symbol = "resolve_contexts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_contexts.rs"
+symbol = "resolve_contexts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_contexts.rs"
+symbol = "resolve_contexts_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_contexts.rs"
+symbol = "resolve_context"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N + C)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.fresh_constants.resolve"
+provenance = "declared"
+area = "kompile"
+name = "resolution of fresh constants"
+variable = "N = traversed terms; F = fresh variables"
+no_counter = "fresh-constant resolution has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileFreshConstantsResolve"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fresh_constants.rs"
+symbol = "resolve_fresh_constants"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fresh_constants.rs"
+symbol = "resolve_fresh_constants"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fresh_constants.rs"
+symbol = "resolve_fresh_constants_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fresh_constants.rs"
+symbol = "fresh_variables"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fresh_constants.rs"
+symbol = "transform_term"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N + F log F)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.fresh_names.mint"
+provenance = "declared"
+area = "kompile"
+name = "sentence-local fresh-name generation"
+variable = "R = reserved names; C = colliding candidates"
+no_counter = "sentence-local fresh-name generation has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileFreshNames"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/fresh_names.rs"
+symbol = "FreshNames::for_terms"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/fresh_names.rs"
+symbol = "FreshNames::for_terms"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/fresh_names.rs"
+symbol = "FreshNames::for_sentence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/fresh_names.rs"
+symbol = "FreshNames::mint"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/fresh_names.rs"
+symbol = "FreshNames::reserve"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
+symbol = "refresh_variables"
+
+[[node.cost]]
+mode = "one name"
+bound = "O(R + C)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.functions.lift"
+provenance = "declared"
+area = "kompile"
+name = "lifting of local functions into generated productions and rules"
+variable = "N = traversed term nodes; G = generated sentences"
+no_counter = "local-function lifting has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileFunctionsLift"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fun.rs"
+symbol = "resolve_fun"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fun.rs"
+symbol = "resolve_fun"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fun.rs"
+symbol = "resolve_fun_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_fun.rs"
+symbol = "closure_variables"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N + G^2)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.kore.axioms"
+provenance = "declared"
+area = "kompile"
+name = "generated KORE axiom emission"
+variable = "P = productions; S = sorts; O = overloads"
+no_counter = "generated-axiom emission has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileKoreAxioms"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/axioms.rs"
+symbol = "generated_axioms"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/axioms.rs"
+symbol = "generated_axioms"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/axioms.rs"
+symbol = "constructor_productions"
+
+[[node.cost]]
+mode = "one module"
+bound = "O(P^2 + S x (P + S log S) + O^2)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.kore.convert_term"
+provenance = "declared"
+area = "kompile"
+name = "conversion of KAST terms into KORE patterns"
+variable = "N = term nodes; O = overload candidates per label"
+no_counter = "KAST-to-KORE conversion has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileKoreConvertTerm"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/term_to_kore.rs"
+symbol = "TermConverter::convert"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/search_pattern.rs"
+symbol = "compile_search_pattern"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/term_to_kore.rs"
+symbol = "TermConverter::convert"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/term_to_kore.rs"
+symbol = "term_to_kore"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/term_to_kore.rs"
+symbol = "term_to_kore_from_resolved"
+
+[[node.cost]]
+mode = "one term"
+bound = "O(N x O)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.kore.declarations"
+provenance = "declared"
+area = "kompile"
+name = "KORE declaration emission"
+variable = "P = productions; A = declaration attributes"
+no_counter = "KORE declaration emission has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileKoreDeclarations"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore.rs"
+symbol = "declaration_modules"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/compile.rs"
+symbol = "compile_loaded_definition_timed"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore.rs"
+symbol = "declaration_modules"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore.rs"
+symbol = "declaration_modules_from_resolved"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore.rs"
+symbol = "declaration_modules_from_resolved_with_options"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore.rs"
+symbol = "DeclarationModules::semantics_definition"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/main.rs"
+symbol = "kcompile"
+
+[[node.cost]]
+mode = "one module"
+bound = "O(P x A)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.kore.owise"
+provenance = "declared"
+area = "kompile"
+name = "construction of owise competitor predicates"
+variable = "R = module rules; O = owise equations"
+table = "Algorithm::ALL"
+registry_name = "KompileKoreOwise"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
+symbol = "emit_owise_equation"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
+symbol = "emit_owise_equation"
+
+[[node.cost]]
+mode = "one module"
+bound = "O(O x R)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.kore.rules"
+provenance = "declared"
+area = "kompile"
+name = "KORE rule, claim, and equation emission"
+variable = "R = rules; I = sort-injection work; C = term-conversion work"
+no_counter = "ordinary KORE rule emission has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileKoreRules"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
+symbol = "emit_rule_or_claim"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
+symbol = "emit_rule_or_claim"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
+symbol = "resolve_equation_production"
+
+[[node.cost]]
+mode = "one module"
+bound = "O(R x (I + C))"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.labels.backward_closure"
+provenance = "declared"
+area = "kompile"
+name = "backward closure over the label-dependency graph"
+variable = "V = function labels; E = rule dependency edges"
+no_counter = "label-dependency closure has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileLabelsBackwardClosure"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/label_graph.rs"
+symbol = "LabelDependencyGraph::build"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/label_graph.rs"
+symbol = "LabelDependencyGraph::build"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/label_graph.rs"
+symbol = "LabelDependencyGraph::backward_closure"
+
+[[node.cost]]
+mode = "graph construction and one closure"
+bound = "O(V + E)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.macros.expand"
+provenance = "declared"
+area = "kompile"
+name = "macro expansion by indexed structural matching"
+variable = "N = sentence term nodes; R = macro rules under the head label; A = macro applications"
+table = "Algorithm::ALL"
+registry_name = "KompileMacrosExpand"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "expand_macros"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "expand_macros"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "expand_macros_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::expand_sentence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::expand_term"
+
+[[node.cost]]
+mode = "one sentence"
+bound = "O(N x R) plus recursive expansion of substituted results"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.metadata.retarget"
+provenance = "declared"
+area = "kompile"
+name = "production-metadata retargeting after deliberate identity changes"
+variable = "N = definition-local term nodes; R = replacement identities"
+no_counter = "the former rebase counter is retained at zero after positional rebasing was removed"
+table = "Algorithm::ALL"
+registry_name = "KompileMetadataRetarget"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/retarget.rs"
+symbol = "retarget_production_identities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/retarget.rs"
+symbol = "retarget_production_identities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/retarget.rs"
+symbol = "retarget_sentence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/retarget.rs"
+symbol = "retarget_term"
+
+[[node.cost]]
+mode = "one pass-owned replacement map"
+bound = "O(N log R)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.modules.rewrite_order"
+provenance = "declared"
+area = "kompile"
+name = "collection of execution rewrite order through imports"
+variable = "M = modules; E = import edges; R = rewrite sentences"
+no_counter = "execution rewrite-order collection has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileModulesRewriteOrder"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/compile.rs"
+symbol = "collect_execution_rewrite_order"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/compile.rs"
+symbol = "collect_execution_rewrite_order"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(M + E + R)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.sentences.number"
+provenance = "declared"
+area = "kompile"
+name = "stable numbering of sentences by normalized digest"
+variable = "N = normalized sentence and term nodes"
+no_counter = "sentence numbering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileSentencesNumber"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/number_sentences.rs"
+symbol = "number_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/number_sentences.rs"
+symbol = "number_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/number_sentences.rs"
+symbol = "number_sentences_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/number_sentences.rs"
+symbol = "number_sentence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/number_sentences.rs"
+symbol = "unique_id_text"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.sort_helpers.generate"
+provenance = "declared"
+area = "kompile"
+name = "generation of sort predicates, projections, and helper rules"
+variable = "M = modules; S = visible sorts; V = visible sentences"
+table = "Algorithm::ALL"
+registry_name = "KompileSortHelpersGenerate"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/generate_sort_helpers.rs"
+symbol = "generate_sort_predicate_syntax"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/finalize.rs"
+symbol = "generate_sort_predicate_rules"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/finalize.rs"
+symbol = "generate_sort_predicate_rules_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/generate_sort_helpers.rs"
+symbol = "generate_sort_predicate_syntax"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/generate_sort_helpers.rs"
+symbol = "regenerate_sort_predicate_syntax"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/generate_sort_helpers.rs"
+symbol = "generate_sort_projections"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/subsort_kitem.rs"
+symbol = "subsort_kitem"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/subsort_kitem.rs"
+symbol = "subsort_kitem_pass"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(M x S x V)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.sort_injections.insert"
+provenance = "declared"
+area = "kompile"
+name = "sort inference and explicit injection insertion"
+variable = "N = term nodes; P = production candidates; S = subsort queries"
+table = "Algorithm::ALL"
+registry_name = "KompileSortInjectionsInsert"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections.rs"
+symbol = "SortInjector::inject_sentence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/search_pattern.rs"
+symbol = "compile_search_pattern"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections.rs"
+symbol = "SortInjector::inject_sentence"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections.rs"
+symbol = "SortInjector::term_sort_with_arity"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections.rs"
+symbol = "add_sort_injections_to_definition"
+
+[[node.cost]]
+mode = "one sentence"
+bound = "O(N x (P + S))"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.streams.resolve"
+provenance = "declared"
+area = "kompile"
+name = "resolution of stream cells and templates"
+variable = "N = visited sentences and term nodes; S = stream declarations"
+no_counter = "stream resolution has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileStreamsResolve"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_io.rs"
+symbol = "resolve_io"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_io.rs"
+symbol = "resolve_io"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_io.rs"
+symbol = "resolve_io_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_io.rs"
+symbol = "stream_productions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_io.rs"
+symbol = "collect_stream_patterns"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N + S)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.strictness.resolve"
+provenance = "declared"
+area = "kompile"
+name = "lowering of strictness attributes"
+variable = "P = strict productions; C = generated evaluation contexts"
+no_counter = "strictness lowering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KompileStrictnessResolve"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_strict.rs"
+symbol = "resolve_strict"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_strict.rs"
+symbol = "resolve_strict"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_strict.rs"
+symbol = "resolve_strict_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_strict.rs"
+symbol = "resolve_production"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_strict.rs"
+symbol = "generate_contexts"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(P + C)"
+
+[[node]]
+kind = "algorithm"
+id = "kompile.terms.minimize"
+provenance = "declared"
+area = "kompile"
+name = "minimization of repeated term construction"
+variable = "N = rule term nodes"
+table = "Algorithm::ALL"
+registry_name = "KompileTermsMinimize"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/minimize_term_construction.rs"
+symbol = "minimize_term_construction"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/minimize_term_construction.rs"
+symbol = "minimize_term_construction"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/minimize_term_construction.rs"
+symbol = "minimize_term_construction_pass"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/minimize_term_construction.rs"
+symbol = "Minimizer::gather_terms"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/minimize_term_construction.rs"
+symbol = "Minimizer::transform"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(N log N) per rule"
+
+[[node]]
+kind = "algorithm"
+id = "kore.pattern.walk"
+provenance = "declared"
+area = "kore"
+name = "explicit-stack traversal and rebuilding of KORE patterns"
+variable = "p = pattern nodes"
+no_counter = "pattern traversal has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KorePatternWalk"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/walk.rs"
+symbol = "children"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/walk.rs"
+symbol = "children"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/walk.rs"
+symbol = "for_each_post_order"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/walk.rs"
+symbol = "rebuild"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/walk.rs"
+symbol = "clone_node"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/walk.rs"
+symbol = "take_children"
+
+[[node.cost]]
+mode = "one traversal"
+bound = "O(|p|)"
+
+[[node]]
+kind = "algorithm"
+id = "kore.printer.build"
+provenance = "declared"
+area = "kore"
+name = "construction of KORE pretty-print documents"
+variable = "N = KORE syntax nodes"
+no_counter = "KORE document construction has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KorePrinterBuild"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "definition_doc"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "definition_doc"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "module_doc"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "sentence_doc"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "pattern_doc"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "syntax_doc"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "Printer::print_definition"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "Printer::print_module"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "Printer::print_sentence"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "Printer::print_pattern"
+
+[[node.cost]]
+mode = "one syntax tree"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "kore.printer.flat_widths"
+provenance = "declared"
+area = "kore"
+name = "precomputation of KORE document flat widths"
+variable = "N = document nodes"
+invariant = "the stack holds unmatched groups and accumulated widths for processed operations"
+no_counter = "flat-width precomputation has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KorePrinterFlatWidths"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer/document.rs"
+symbol = "flat_widths"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer/document.rs"
+symbol = "flat_widths"
+
+[[node.cost]]
+mode = "one document"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "kore.printer.render"
+provenance = "declared"
+area = "kore"
+name = "width-aware rendering of KORE documents"
+variable = "N = document nodes"
+invariant = "processed operations have reached their recorded state and each pending operation is consumed once"
+no_counter = "document rendering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "KorePrinterRender"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer/document.rs"
+symbol = "render"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer/document.rs"
+symbol = "render"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "Printer::render"
+
+[[node.cost]]
+mode = "compact or broken layout"
+bound = "O(N)"
+
+[[node]]
+kind = "phase"
+id = "lower files"
+provenance = "table"
+area = "kompile"
+name = "lower files"
+table = "LOAD_PHASES"
+sequence = 4
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "minimize term construction"
+provenance = "table"
+area = "kompile"
+name = "minimize term construction"
+table = "EMISSION_STAGES"
+call = "minimize_term_construction"
+behavior = "generating"
+generating_passes = ["minimize-term-construction"]
+sequence = 50
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "minimize_term_construction"
+
+[[node]]
+kind = "phase"
+id = "number sentences"
+provenance = "table"
+area = "kompile"
+name = "number sentences"
+table = "TRANSFORM_STAGES"
+call = "number_sentences"
+behavior = "metadata-only"
+sequence = 25
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "number_sentences"
+
+[[node]]
+kind = "phase"
+id = "number sentences (final)"
+provenance = "table"
+area = "kompile"
+name = "number sentences (final)"
+table = "TRANSFORM_STAGES"
+call = "number_sentences"
+behavior = "metadata-only"
+sequence = 47
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "number_sentences"
+
+[[node]]
+kind = "phase"
+id = "parse sources"
+provenance = "table"
+area = "kompile"
+name = "parse sources"
+table = "LOAD_PHASES"
+sequence = 2
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "algorithm"
+id = "parser.bison.priorities"
+provenance = "declared"
+area = "parser"
+name = "restricted-sort expansion for Bison grammar export"
+variable = "Q = restricted-sort and excluded-label pairs; P = productions"
+no_counter = "Bison grammar export has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserBisonPriorities"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "transform_priority_and_associativity"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "transform_priority_and_associativity"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "constrain_side"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "restricted_sort"
+
+[[node.cost]]
+mode = "one exported grammar"
+bound = "O(Q x P)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.bison.reachable_sorts"
+provenance = "declared"
+area = "parser"
+name = "reachable-sort traversal for Bison grammar export"
+variable = "S = reachable sorts; P = productions"
+no_counter = "Bison grammar export has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserBisonReachableSorts"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "reachable_sorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "reachable_sorts"
+
+[[node.cost]]
+mode = "one exported grammar"
+bound = "O(S x P)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.bubble.configurations"
+provenance = "declared"
+area = "parser"
+name = "parsing and reconstruction of configuration bubbles"
+variable = "b = configuration bubbles; g = grammar construction work; p = parse work"
+table = "Algorithm::ALL"
+registry_name = "ParserBubbleConfigurations"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/config.rs"
+symbol = "resolve_configuration_bubbles"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/config.rs"
+symbol = "resolve_configuration_bubbles"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(g + sum over b of p)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.bubble.rules"
+provenance = "declared"
+area = "parser"
+name = "parsing and reconstruction of rule bubbles"
+variable = "b = rule bubbles; g = grammar construction work; p = parse work"
+table = "Algorithm::ALL"
+registry_name = "ParserBubbleRules"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/rules.rs"
+symbol = "resolve_rule_bubbles"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/rules.rs"
+symbol = "resolve_rule_bubbles"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/rules.rs"
+symbol = "resolve_rule_bubbles_with_resolved"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/rules.rs"
+symbol = "parse_rule_content"
+
+[[node.cost]]
+mode = "one definition"
+bound = "O(g + sum over b of p)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.chart.completed_memo"
+provenance = "declared"
+area = "parser"
+name = "completed-node memoization for Earley charts"
+variable = "M = memo entries; C = matching completed states"
+table = "Algorithm::ALL"
+registry_name = "ParserChartCompletedMemo"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "completed_nodes"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "completed_nodes"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Chart::invalidate_completed_node"
+
+[[node.cost]]
+mode = "memo hit"
+bound = "O(log M)"
+
+[[node.cost]]
+mode = "memo miss"
+bound = "O(C)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.chart.insert"
+provenance = "declared"
+area = "parser"
+name = "coverage-aware Earley chart insertion"
+variable = "D = stored derivations; W = child width"
+table = "Algorithm::ALL"
+registry_name = "ParserChartInsert"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Chart::add"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Chart::add"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Chart::add_with_status"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Derivations::insert"
+
+[[node.cost]]
+mode = "one insertion"
+bound = "O(D x W) with O(D log D) boundary factoring"
+
+[[node]]
+kind = "algorithm"
+id = "parser.diagnostic.ambiguity"
+provenance = "declared"
+area = "parser"
+name = "rendering of ambiguity diagnostics"
+variable = "A = reported alternatives and their rendered terms"
+no_counter = "ambiguity rendering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDiagnosticAmbiguity"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "AmbiguousParse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "AmbiguousParse"
+
+[[node.cost]]
+mode = "one ambiguous parse"
+bound = "O(A)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.diagnostic.no_parse"
+provenance = "declared"
+area = "parser"
+name = "rendering of no-parse diagnostics"
+variable = "E = expected productions at the furthest chart position"
+no_counter = "diagnostic rendering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDiagnosticNoParse"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::no_parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::no_parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "NoParseInput"
+
+[[node.cost]]
+mode = "one failed parse"
+bound = "O(E)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.collapse_records"
+provenance = "declared"
+area = "parser"
+name = "collapse of generated record syntax"
+variable = "N = packed nodes; F = record fields"
+no_counter = "record collapse has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationCollapseRecords"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/record.rs"
+symbol = "Grammar::collapse_packed_record_productions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/record.rs"
+symbol = "Grammar::collapse_packed_record_productions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/record.rs"
+symbol = "Grammar::collapse_record_productions"
+
+[[node.cost]]
+mode = "one parse forest"
+bound = "O(N + F)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.factor_packed"
+provenance = "declared"
+area = "parser"
+name = "factoring of packed ambiguities"
+variable = "N = packed nodes; A = ambiguity alternatives"
+no_counter = "packed-ambiguity factoring has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationFactorPacked"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::factor_pre_inference_packed_ambiguities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::factor_pre_inference_packed_ambiguities"
+
+[[node.cost]]
+mode = "one parse forest"
+bound = "O(N x A)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.filter_overloads"
+provenance = "declared"
+area = "parser"
+name = "overload and prefer-or-avoid filtering"
+variable = "N = owned nodes"
+no_counter = "overload and preference filtering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationFilterOverloads"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::filter_overloads_prefer_avoid"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::filter_overloads_prefer_avoid"
+
+[[node.cost]]
+mode = "one parsed tree"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.insert_empty_lists"
+provenance = "declared"
+area = "parser"
+name = "insertion of implicit empty user lists"
+variable = "N = tree nodes; C = candidate list instantiations"
+no_counter = "empty-list insertion has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationInsertEmptyLists"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::add_empty_lists"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::add_empty_lists"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::add_empty_lists_with_order"
+
+[[node.cost]]
+mode = "one parsed tree"
+bound = "O(N x C)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.lift_top_lhs"
+provenance = "declared"
+area = "parser"
+name = "lifting of top-level left-hand-side ambiguities"
+variable = "N = packed or owned nodes"
+no_counter = "top-LHS ambiguity lifting has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationLiftTopLhs"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::push_top_lhs_packed_ambiguity_up"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::push_top_lhs_packed_ambiguity_up"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::push_top_lhs_ambiguity_up"
+
+[[node.cost]]
+mode = "one parse forest"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.priority"
+provenance = "declared"
+area = "parser"
+name = "priority and associativity filtering of packed terms"
+variable = "N = packed or owned nodes per memo lifetime"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationPriority"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::filter_packed_priority"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::filter_packed_priority"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::filter_priority"
+
+[[node.cost]]
+mode = "one parse forest"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.remove_brackets_casts"
+provenance = "declared"
+area = "parser"
+name = "removal of brackets and syntactic casts"
+variable = "N = owned nodes"
+no_counter = "bracket and syntactic-cast removal has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationRemoveBracketsCasts"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::remove_brackets_and_syntactic_casts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::remove_brackets_and_syntactic_casts"
+
+[[node.cost]]
+mode = "one parsed tree"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.reserve_names"
+provenance = "declared"
+area = "parser"
+name = "reservation of variable names before record collapse"
+variable = "N = packed nodes"
+no_counter = "variable-name reservation has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationReserveNames"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "packed_variable_names"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "packed_variable_names"
+
+[[node.cost]]
+mode = "one packed forest"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.resolve_ambiguity"
+provenance = "declared"
+area = "parser"
+name = "resolution and reporting of remaining ambiguity"
+variable = "N = owned nodes; A = ambiguity alternatives"
+no_counter = "final ambiguity resolution has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationResolveAmbiguity"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_ambiguities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_ambiguities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::factor_ambiguities"
+
+[[node.cost]]
+mode = "one parsed tree"
+bound = "O(N x A)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.resolve_applications"
+provenance = "declared"
+area = "parser"
+name = "resolution of application nodes against visible productions"
+variable = "N = application nodes; P = matching productions"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationResolveApplications"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_packed_applications"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_packed_applications"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_applications"
+
+[[node.cost]]
+mode = "one parse forest"
+bound = "O(N x P)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.disambiguation.resolve_terminators"
+provenance = "declared"
+area = "parser"
+name = "resolution of overloaded list terminators"
+variable = "N = owned nodes; C = list candidates"
+no_counter = "overloaded-terminator resolution has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserDisambiguationResolveTerminators"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_overloaded_terminators"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_overloaded_terminators"
+
+[[node.cost]]
+mode = "one parsed tree"
+bound = "O(N x C)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.earley.recognize"
+provenance = "declared"
+area = "parser"
+name = "agenda-driven Earley recognition"
+variable = "p = chart-agenda pops; d = dispatch cost and derivations read"
+span = "per problem"
+table = "Algorithm::ALL"
+registry_name = "ParserEarleyRecognize"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::parse_attempt"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::parse_attempt"
+
+[[node.cost]]
+mode = "one parse attempt"
+bound = "O(p x d)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.forest.order"
+provenance = "declared"
+area = "parser"
+name = "structural ordering of packed parse forests"
+variable = "N = compared subtree nodes when fingerprints collide"
+table = "Algorithm::ALL"
+registry_name = "ParserForestOrder"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "cmp_packed_structurally"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "cmp_packed_structurally"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "packed_terms_in_structural_order"
+
+[[node.cost]]
+mode = "ordinary comparison"
+bound = "O(1)"
+
+[[node.cost]]
+mode = "fingerprint collision"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.forest.pack"
+provenance = "declared"
+area = "parser"
+name = "packed parse-forest construction"
+variable = "C = children packed; N = nodes unpacked"
+table = "Algorithm::ALL"
+registry_name = "ParserForestPack"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "build_packed_term"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "build_packed_term"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "pack_alternatives"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "append_nodes"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "PackedTerm::unpack"
+
+[[node.cost]]
+mode = "construction and unpacking"
+bound = "O(C + N)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.grammar.build"
+provenance = "declared"
+area = "parser"
+name = "construction of a reusable inner-parser grammar"
+variable = "S = visible sentences; I = production items"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "ParserGrammarBuild"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::from_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::from_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::from_collected_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::add_production"
+
+[[node.cost]]
+mode = "one grammar"
+bound = "O(S x I) plus declared relation and specialization work"
+
+[[node]]
+kind = "algorithm"
+id = "parser.grammar.lists"
+provenance = "declared"
+area = "parser"
+name = "generation and reconstruction of implicit user lists"
+variable = "L = list declarations; N = tree nodes; C = candidate instantiations"
+no_counter = "implicit-list processing has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserGrammarLists"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::initialize_user_lists"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::initialize_user_lists"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/lists.rs"
+symbol = "Grammar::program_list_terminator"
+
+[[node.cost]]
+mode = "grammar insertion"
+bound = "O(L)"
+
+[[node.cost]]
+mode = "tree reconstruction"
+bound = "O(N x C)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.grammar.parametric"
+provenance = "declared"
+area = "parser"
+name = "concretization of parametric parser productions"
+variable = "S = concrete sorts; P = formal productions; T = traversed sort nodes"
+no_counter = "parametric-production concretization has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserGrammarParametric"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/parametric.rs"
+symbol = "concretize_parametric_productions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/parametric.rs"
+symbol = "concretize_parametric_productions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/parametric.rs"
+symbol = "Grammar::add_parametric_productions"
+
+[[node.cost]]
+mode = "grammar construction"
+bound = "O(S x P + T)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.grammar.program_signature"
+provenance = "declared"
+area = "parser"
+name = "collection of public program-grammar signatures"
+variable = "M = reachable modules and imports; S = visible sentences"
+no_counter = "public-signature collection has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserGrammarProgramSignature"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "collect_public_signature"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "collect_public_signature"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "prepared_program_sentences"
+
+[[node.cost]]
+mode = "one program grammar"
+bound = "O(M + S)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.grammar.records"
+provenance = "declared"
+area = "parser"
+name = "generation of Scala-compatible record productions"
+variable = "F = record fields"
+no_counter = "record-production generation has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserGrammarRecords"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/record.rs"
+symbol = "Grammar::add_record_productions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/record.rs"
+symbol = "Grammar::add_record_productions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/record.rs"
+symbol = "Grammar::add_record_production"
+
+[[node.cost]]
+mode = "one record declaration"
+bound = "O(F)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.grammar.unary_cycles"
+provenance = "declared"
+area = "parser"
+name = "detection of productive unary grammar cycles"
+variable = "U = unary productions; V = sorts; E = unary edges"
+no_counter = "productive-cycle detection has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserGrammarUnaryCycles"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::identify_productive_unary_cycles"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::identify_productive_unary_cycles"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "unary_reachable"
+
+[[node.cost]]
+mode = "one grammar"
+bound = "O(U x (V + E))"
+
+[[node]]
+kind = "algorithm"
+id = "parser.inference.portable"
+provenance = "declared"
+area = "parser"
+name = "portable sort inference by bound propagation"
+variable = "V = sort-bound vertices; E = bound edges"
+table = "Algorithm::ALL"
+registry_name = "ParserInferencePortable"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference.rs"
+symbol = "Grammar::infer_sorts_portable"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference.rs"
+symbol = "Grammar::infer_sorts_portable"
+
+[[node.cost]]
+mode = "one tree"
+bound = "O(V x E)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.inference.z3"
+provenance = "declared"
+area = "parser"
+name = "Z3-backed maximal-model sort inference"
+variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings"
+table = "Algorithm::ALL"
+registry_name = "ParserInferenceZ3"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Grammar::infer_packed_sorts_z3"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Grammar::infer_packed_sorts_z3"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Grammar::infer_sorts_z3"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "encoding_base"
+
+[[node.cost]]
+mode = "encoding construction"
+bound = "O(H + G^2)"
+
+[[node.cost]]
+mode = "one inference"
+bound = "O(N + M x solver checks)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.location.span"
+provenance = "declared"
+area = "parser"
+name = "mapping parser byte spans to source locations"
+variable = "B = bytes before the span boundaries"
+no_counter = "source-location mapping has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserLocationSpan"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/location.rs"
+symbol = "span_location"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/location.rs"
+symbol = "span_location"
+
+[[node.cost]]
+mode = "one span"
+bound = "O(B)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.lower.regex"
+provenance = "declared"
+area = "parser"
+name = "expansion of regex bodies during term lowering"
+variable = "B = regex syntax bytes"
+no_counter = "regex-body expansion has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserLowerRegex"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "expand_regex_body"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "expand_regex_body"
+
+[[node.cost]]
+mode = "one regex"
+bound = "O(B)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.lower.term"
+provenance = "declared"
+area = "parser"
+name = "lowering of parsed terms into KAST"
+variable = "N = parsed tree nodes"
+no_counter = "term lowering has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserLowerTerm"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "lower_term"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "lower_term"
+
+[[node.cost]]
+mode = "one parsed tree"
+bound = "O(N)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.prediction.first_sets"
+provenance = "declared"
+area = "parser"
+name = "scanner-identity FIRST-set analysis by monotone propagation"
+variable = "S = sorts; L = lexemes; R = worklist re-enqueues"
+table = "Algorithm::ALL"
+registry_name = "ParserPredictionFirstSets"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/prediction.rs"
+symbol = "PredictionAnalysis::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/prediction.rs"
+symbol = "PredictionAnalysis::new"
+
+[[node.cost]]
+mode = "one grammar"
+bound = "O(S x L x R)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.prediction.nullability"
+provenance = "declared"
+area = "parser"
+name = "epsilon-nullability analysis by worklist"
+variable = "I = total production items"
+table = "Algorithm::ALL"
+registry_name = "ParserPredictionNullability"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/prediction.rs"
+symbol = "PredictionAnalysis::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/prediction.rs"
+symbol = "PredictionAnalysis::new"
+
+[[node.cost]]
+mode = "one grammar"
+bound = "O(I)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.programs.parse"
+provenance = "declared"
+area = "parser"
+name = "user-program parsing with a cached grammar"
+variable = "g = grammar construction work; p = parse work"
+table = "Algorithm::ALL"
+registry_name = "ParserProgramsParse"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "ProgramParser::parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "ProgramParser::parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "ProgramParser::parse_with_provenance"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "parse_program"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "parse_program_for_presentation"
+
+[[node.cost]]
+mode = "one parser and its parses"
+bound = "O(g + sum p)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.scanner.winner"
+provenance = "declared"
+area = "parser"
+name = "global-winner lexical scanning"
+variable = "B = input bytes; L = registered lexemes"
+table = "Algorithm::ALL"
+registry_name = "ParserScannerWinner"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scanner.rs"
+symbol = "Scanner::winner"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scanner.rs"
+symbol = "Scanner::winner"
+
+[[node.cost]]
+mode = "one parse attempt"
+bound = "O(B x L)"
+
+[[node]]
+kind = "phase"
+id = "print definition.kore"
+provenance = "table"
+area = "kompile"
+name = "print definition.kore"
+table = "EMISSION_PHASES"
+sequence = 57
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "print macros.kore"
+provenance = "table"
+area = "kompile"
+name = "print macros.kore"
+table = "EMISSION_PHASES"
+sequence = 59
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "print syntaxDefinition.kore"
+provenance = "table"
+area = "kompile"
+name = "print syntaxDefinition.kore"
+table = "EMISSION_PHASES"
+sequence = 58
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "propagate macro attributes"
+provenance = "table"
+area = "kompile"
+name = "propagate macro attributes"
+table = "TRANSFORM_STAGES"
+call = "propagate_macro_attributes"
+behavior = "metadata-only"
+sequence = 30
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "propagate_macro_attributes"
+
+[[node]]
+kind = "phase"
+id = "read prepared definition"
+provenance = "table"
+area = "kompile"
+name = "read prepared definition"
+table = "LOAD_PHASES"
+sequence = 1
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "regenerate sort predicate syntax"
+provenance = "table"
+area = "kompile"
+name = "regenerate sort predicate syntax"
+table = "TRANSFORM_STAGES"
+call = "regenerate_sort_predicate_syntax"
+behavior = "metadata-only"
+sequence = 38
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "regenerate_sort_predicate_syntax"
+
+[[node]]
+kind = "phase"
+id = "regenerate sort projections"
+provenance = "table"
+area = "kompile"
+name = "regenerate sort projections"
+table = "TRANSFORM_STAGES"
+call = "generate_sort_projections"
+behavior = "generating"
+generating_passes = ["generate-sort-projections"]
+sequence = 39
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "generate_sort_projections"
+
+[[node]]
+kind = "phase"
+id = "remove units"
+provenance = "table"
+area = "kompile"
+name = "remove units"
+table = "EMISSION_STAGES"
+call = "remove_unit"
+behavior = "generating"
+generating_passes = ["remove-unit"]
+sequence = 49
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "remove_unit"
+
+[[node]]
+kind = "phase"
+id = "resolve I/O streams"
+provenance = "table"
+area = "kompile"
+name = "resolve I/O streams"
+table = "TRANSFORM_STAGES"
+call = "resolve_io"
+behavior = "generating"
+generating_passes = ["resolve-io"]
+sequence = 18
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_io"
+
+[[node]]
+kind = "phase"
+id = "resolve and check sorts"
+provenance = "table"
+area = "kompile"
+name = "resolve and check sorts"
+table = "LOAD_PHASES"
+sequence = 10
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "resolve anonymous variables"
+provenance = "table"
+area = "kompile"
+name = "resolve anonymous variables"
+table = "TRANSFORM_STAGES"
+call = "resolve_anon_vars"
+behavior = "generating"
+generating_passes = ["resolve-anonymous-variables"]
+sequence = 23
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_anon_vars"
+
+[[node]]
+kind = "phase"
+id = "resolve commutative rules"
+provenance = "table"
+area = "kompile"
+name = "resolve commutative rules"
+table = "TRANSFORM_STAGES"
+call = "resolve_comm"
+behavior = "generating"
+generating_passes = ["resolve-comm"]
+sequence = 17
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_comm"
+
+[[node]]
+kind = "phase"
+id = "resolve configuration bubbles"
+provenance = "table"
+area = "kompile"
+name = "resolve configuration bubbles"
+table = "LOAD_PHASES"
+sequence = 8
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "resolve configuration variables"
+provenance = "table"
+area = "kompile"
+name = "resolve configuration variables"
+table = "TRANSFORM_STAGES"
+call = "resolve_config_var"
+behavior = "generating"
+generating_passes = ["resolve-function-with-config"]
+sequence = 44
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_config_var"
+
+[[node]]
+kind = "phase"
+id = "resolve contexts"
+provenance = "table"
+area = "kompile"
+name = "resolve contexts"
+table = "TRANSFORM_STAGES"
+call = "resolve_contexts"
+behavior = "generating"
+generating_passes = ["resolve-contexts"]
+sequence = 24
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_contexts"
+
+[[node]]
+kind = "phase"
+id = "resolve entry source"
+provenance = "table"
+area = "kompile"
+name = "resolve entry source"
+table = "LOAD_PHASES"
+sequence = 0
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "resolve fresh configuration constants"
+provenance = "table"
+area = "kompile"
+name = "resolve fresh configuration constants"
+table = "TRANSFORM_STAGES"
+call = "resolve_fresh_config_constants"
+behavior = "generating"
+generating_passes = ["resolve-fresh-config-constants"]
+sequence = 32
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_fresh_config_constants"
+
+[[node]]
+kind = "phase"
+id = "resolve fresh constants"
+provenance = "table"
+area = "kompile"
+name = "resolve fresh constants"
+table = "TRANSFORM_STAGES"
+call = "resolve_fresh_constants"
+behavior = "generating"
+generating_passes = ["resolve-fresh-constants"]
+sequence = 37
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_fresh_constants"
+
+[[node]]
+kind = "phase"
+id = "resolve function configuration"
+provenance = "table"
+area = "kompile"
+name = "resolve function configuration"
+table = "TRANSFORM_STAGES"
+call = "resolve_function_with_config"
+behavior = "generating"
+generating_passes = ["resolve-function-with-config"]
+sequence = 21
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_function_with_config"
+
+[[node]]
+kind = "phase"
+id = "resolve heat/cool attributes"
+provenance = "table"
+area = "kompile"
+name = "resolve heat/cool attributes"
+table = "TRANSFORM_STAGES"
+call = "resolve_heat_cool_attributes"
+behavior = "generating"
+generating_passes = ["resolve-heat-cool"]
+sequence = 26
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_heat_cool_attributes"
+
+[[node]]
+kind = "phase"
+id = "resolve local functions"
+provenance = "table"
+area = "kompile"
+name = "resolve local functions"
+table = "TRANSFORM_STAGES"
+call = "resolve_fun"
+behavior = "generating"
+generating_passes = ["resolve-fun"]
+sequence = 19
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_fun"
+
+[[node]]
+kind = "phase"
+id = "resolve rule bubbles"
+provenance = "table"
+area = "kompile"
+name = "resolve rule bubbles"
+table = "LOAD_PHASES"
+sequence = 11
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "resolve rule bubbles / grammars"
+provenance = "table"
+area = "kompile"
+name = "resolve rule bubbles / grammars"
+table = "LOAD_PHASES"
+sequence = 12
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "resolve rule bubbles / parse"
+provenance = "table"
+area = "kompile"
+name = "resolve rule bubbles / parse"
+table = "LOAD_PHASES"
+sequence = 13
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "resolve semantic casts"
+provenance = "table"
+area = "kompile"
+name = "resolve semantic casts"
+table = "TRANSFORM_STAGES"
+call = "resolve_semantic_casts"
+behavior = "generating"
+generating_passes = ["semantic-casts"]
+sequence = 27
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_semantic_casts"
+
+[[node]]
+kind = "phase"
+id = "resolve strictness"
+provenance = "table"
+area = "kompile"
+name = "resolve strictness"
+table = "TRANSFORM_STAGES"
+call = "resolve_strict"
+behavior = "generating"
+generating_passes = ["resolve-strict"]
+sequence = 22
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_strict"
+
+[[node]]
+kind = "phase"
+id = "resolve structured configurations"
+provenance = "table"
+area = "kompile"
+name = "resolve structured configurations"
+table = "prologue_descriptions"
+call = "resolve"
+behavior = "validation"
+sequence = 15
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve"
+
+[[node]]
+kind = "phase"
+id = "resolve transformed definition"
+provenance = "table"
+area = "kompile"
+name = "resolve transformed definition"
+table = "EMISSION_PHASES"
+sequence = 52
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "seed sort predicate syntax"
+provenance = "table"
+area = "kompile"
+name = "seed sort predicate syntax"
+table = "TRANSFORM_STAGES"
+call = "generate_sort_predicate_syntax"
+behavior = "generating"
+generating_passes = ["generate-sort-predicate-syntax"]
+sequence = 20
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "generate_sort_predicate_syntax"
+
+[[node]]
+kind = "phase"
+id = "select modules"
+provenance = "table"
+area = "kompile"
+name = "select modules"
+table = "LOAD_PHASES"
+sequence = 7
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "select source files"
+provenance = "table"
+area = "kompile"
+name = "select source files"
+table = "LOAD_PHASES"
+sequence = 3
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "LOAD_PHASES"
+
+[[node]]
+kind = "phase"
+id = "singleton overload checks"
+provenance = "table"
+area = "kompile"
+name = "singleton overload checks"
+table = "EMISSION_PHASES"
+sequence = 53
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "write artifacts"
+provenance = "table"
+area = "kompile"
+name = "write artifacts"
+table = "EMISSION_PHASES"
+sequence = 61
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "EMISSION_PHASES"
+
+[[edge]]
+kind = "constrains"
+from = "Counter::ALL"
+to = "contract.counters.krust_writer_order"
+provenance = "declared"
+detail = "Snapshot::iter preserves Counter::ALL declaration order for the hand-written JSON object"
+
+[edge.consumer_site]
+crate = "k-rust"
+file = "crates/k-rust/src/main.rs"
+symbol = "write_counters_if_requested"
+
+[[edge]]
+kind = "contains"
+from = "add KItem subsorts"
+to = "kompile.sort_helpers.generate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "add KItem subsorts"
+to = "constant folding"
+provenance = "table"
+order = 28
+
+[[edge]]
+kind = "follows"
+from = "add cool-like attributes"
+to = "generate sort predicate rules"
+provenance = "table"
+order = 45
+
+[[edge]]
+kind = "follows"
+from = "add implicit computation cell"
+to = "resolve fresh constants"
+provenance = "table"
+order = 36
+
+[[edge]]
+kind = "follows"
+from = "add semantics module"
+to = "resolve configuration variables"
+provenance = "table"
+order = 43
+
+[[edge]]
+kind = "contains"
+from = "add sort injections"
+to = "kompile.sort_injections.insert"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "add sort injections"
+to = "remove units"
+provenance = "table"
+order = 48
+
+[[edge]]
+kind = "consumes"
+from = "backend.definition.internalize"
+to = "k_rust_kore::kore::ast::Definition [compiled definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.definition.internalize"
+to = "k_rust_kore::kore::ast::Pattern [converted term]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.definition.internalize"
+to = "k_rust_backend::definition::BackendDefinition [internalized theory]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.definition.internalize"
+to = "k_rust_backend::rewrite::Pattern [internalized pattern]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.definition.internalize"
+to = "k_rust_backend::term::Term [internalized term]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.fresh.object_language"
+to = "SimplifyBuiltinEvaluations"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.implication.check"
+to = "ProofImplicationChecks"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.implication.check"
+to = "SmtQueries"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.matching.collections"
+to = "MatchingCollectionProblems"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.matching.syntactic"
+to = "MatchingPairs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.matching.syntactic"
+to = "MatchingProblems"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.proof.search"
+to = "ProofImplicationChecks"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.proof.search"
+to = "ProofStatesExplored"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.apply"
+to = "RewriteMatchFailures"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.apply"
+to = "RewriteRuleAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.apply"
+to = "SmtQueries"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.execute"
+to = "k_rust_backend::definition::BackendDefinition [internalized theory]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.execute"
+to = "k_rust_backend::rewrite::ExecutionResult [execution result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.execute"
+to = "k_rust_backend::rewrite::Pattern [internalized pattern]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.execute"
+to = "RewriteSteps"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.rewrite.execute"
+to = "k_rust::backend::ExecutionResult [wire execution result]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.rewrite.execute"
+to = "k_rust_backend::rewrite::ExecutionResult [execution result]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.recover"
+to = "RewriteIndeterminateRecoveries"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.step"
+to = "k_rust_backend::definition::BackendDefinition [internalized theory]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.rewrite.step"
+to = "k_rust_backend::rewrite::Pattern [internalized pattern]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.step"
+to = "RewriteRulesApplied"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.rewrite.step"
+to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rule.select"
+to = "RewriteRuleAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.search.configurations"
+to = "SearchStatesDeduplicated"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.term"
+to = "SimplifyBuiltinEvaluations"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.term"
+to = "SimplifyEquationAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.term"
+to = "SimplifyRounds"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.cache"
+to = "SmtQueries"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.cache"
+to = "SmtSolverRuns"
+provenance = "declared"
+
+[[edge]]
+kind = "variant-of"
+from = "backend.substitution.extract_output"
+to = "backend.substitution.extract"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.unification.syntactic"
+to = "UnificationProblems"
+provenance = "declared"
+
+[[edge]]
+kind = "follows"
+from = "check simplification rules"
+to = "finalize KItem subsorts"
+provenance = "table"
+order = 40
+
+[[edge]]
+kind = "contains"
+from = "concretize cells"
+to = "kompile.cells.concretize"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "concretize cells"
+to = "add semantics module"
+provenance = "table"
+order = 42
+
+[[edge]]
+kind = "contains"
+from = "constant folding"
+to = "kompile.constant_folding.evaluate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "constant folding"
+to = "propagate macro attributes"
+provenance = "table"
+order = 29
+
+[[edge]]
+kind = "contains"
+from = "definition checks"
+to = "definition.checks.run"
+provenance = "derived"
+
+[[edge]]
+kind = "constrains"
+from = "definition.catalog.production"
+to = "contract.definition.production_catalog_cache"
+provenance = "declared"
+detail = "the per-module OnceLock retains the first ProductionCatalog forced by disambiguation, sort injection, or KORE emission"
+
+[edge.consumer_site]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/views.rs"
+symbol = "DefinitionViews::production_catalog"
+
+[[edge]]
+kind = "consumes"
+from = "definition.catalog.production"
+to = "k_rust::definition::ResolvedDefinition [resolved definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.catalog.production"
+to = "KompileCatalogSentenceClones"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.catalog.production"
+to = "KompileProductionCatalogsBuilt"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.catalog.production"
+to = "k_rust::definition::ProductionCatalog<'a> [production lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.catalog.rule"
+to = "KompileSentenceEquivalenceChecks"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.catalog.sort"
+to = "k_rust::definition::ResolvedDefinition [resolved definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.catalog.sort"
+to = "k_rust::definition::SortCatalog<'a> [sort lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.equivalence.deduplicate"
+to = "KompileSentenceEquivalenceChecks"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.equivalence.sentence"
+to = "KompileProductionIdentityDigests"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.equivalence.sentence"
+to = "KompileSentenceEquivalenceChecks"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
+to = "ProvenanceReceiptRenders"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.json.encode"
+to = "k_rust::native::RunnableArtifact [on-disk runnable artifact]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.order.partial"
+to = "KompilePartialOrdersBuilt"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.outer.lower"
+to = "k_rust::outer::ast::SourceFile [parsed source]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.outer.lower"
+to = "k_rust::definition::Definition [lowered source]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.outer.parse"
+to = "k_rust::outer::ast::SourceFile [parsed source]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.outer.requires"
+to = "k_rust::PreparedDefinitionManifest [prepared definition manifest]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.outer.requires"
+to = "k_rust::definition::Definition [lowered source]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.outer.requires"
+to = "k_rust::native::RunnableArtifact [on-disk runnable artifact]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.outer.requires"
+to = "k_rust::outer::LoadedDefinition [loaded definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "constrains"
+from = "definition.provenance.record"
+to = "definition.json.encode"
+provenance = "declared"
+detail = "AttributeKey::Origin records generated origins and is excluded from semantic comparison before provenance serialization"
+
+[edge.consumer_site]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "serialize_provenance"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.provenance.record"
+to = "ProvenanceLinkDedupProbes"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.provenance.record"
+to = "ProvenanceReceiptRenders"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.relations.build"
+to = "k_rust::definition::ProductionCatalog<'a> [production lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.relations.build"
+to = "k_rust::definition::ResolvedDefinition [resolved definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.relations.build"
+to = "KompilePartialOrdersBuilt"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.relations.build"
+to = "k_rust::definition::PartialOrder<String> [priority order]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.relations.build"
+to = "k_rust::definition::PartialOrder<k_rust::kast::Sort> [subsort order]"
+provenance = "declared"
+
+[[edge]]
+kind = "constrains"
+from = "definition.resolve.imports"
+to = "contract.kompile.resolved_cache"
+provenance = "declared"
+detail = "Current.resolved is forced once and ResolvedDefinition::update propagates the cached resolution between stages"
+
+[edge.consumer_site]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "PassInput::resolved_raw"
+
+[[edge]]
+kind = "consumes"
+from = "definition.resolve.imports"
+to = "k_rust::definition::Definition [lowered source]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "definition.resolve.imports"
+to = "k_rust::definition::Definition [parsed bubbles]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.resolve.imports"
+to = "KompileResolveCalls"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.resolve.imports"
+to = "KompileResolveUpdates"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "definition.resolve.imports"
+to = "k_rust::definition::ResolvedDefinition [resolved definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.resolve.sentences"
+to = "KompileResolveUpdateSentenceVisits"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.resolve.sentences"
+to = "KompileSentenceEquivalenceChecks"
+provenance = "declared"
+
+[[edge]]
+kind = "contains"
+from = "expand macros"
+to = "kompile.macros.expand"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "expand macros"
+to = "add implicit computation cell"
+provenance = "table"
+order = 35
+
+[[edge]]
+kind = "contains"
+from = "expand structured configurations"
+to = "definition.configuration.expand"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "expand structured configurations"
+to = "resolve structured configurations"
+provenance = "table"
+order = 14
+
+[[edge]]
+kind = "contains"
+from = "finalize KItem subsorts"
+to = "kompile.sort_helpers.generate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "finalize KItem subsorts"
+to = "concretize cells"
+provenance = "table"
+order = 41
+
+[[edge]]
+kind = "contains"
+from = "generate sort predicate rules"
+to = "kompile.sort_helpers.generate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "generate sort predicate rules"
+to = "number sentences (final)"
+provenance = "table"
+order = 46
+
+[[edge]]
+kind = "contains"
+from = "generate sort predicate syntax"
+to = "kompile.sort_helpers.generate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "generate sort predicate syntax"
+to = "generate sort projections"
+provenance = "table"
+order = 33
+
+[[edge]]
+kind = "contains"
+from = "generate sort projections"
+to = "kompile.sort_helpers.generate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "generate sort projections"
+to = "expand macros"
+provenance = "table"
+order = 34
+
+[[edge]]
+kind = "follows"
+from = "guard or-patterns"
+to = "resolve fresh configuration constants"
+provenance = "table"
+order = 31
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.cells.concretize"
+to = "KompileSentencesTransformed"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.constant_folding.evaluate"
+to = "KompileSentencesTransformed"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.convert_term"
+to = "k_rust::definition::PartialOrder<k_rust::kast::Sort> [subsort order]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.convert_term"
+to = "k_rust::definition::ProductionCatalog<'a> [production lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.convert_term"
+to = "k_rust::definition::SortCatalog<'a> [sort lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.convert_term"
+to = "k_rust::kast::Term [parsed term]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "kompile.kore.convert_term"
+to = "k_rust_kore::kore::ast::Pattern [converted term]"
+provenance = "declared"
+
+[[edge]]
+kind = "constrains"
+from = "kompile.kore.declarations"
+to = "definition.outer.requires"
+provenance = "declared"
+detail = "the SyntaxModule attribute and PreparedDefinitionManifest module digests cross the process boundary in parsed.json and krust.json"
+
+[edge.consumer_site]
+crate = "k-rust"
+file = "crates/k-rust/src/main.rs"
+symbol = "load_definition_against_prepared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.declarations"
+to = "k_rust::definition::PartialOrder<k_rust::kast::Sort> [subsort order]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.declarations"
+to = "k_rust::definition::ProductionCatalog<'a> [production lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.declarations"
+to = "k_rust::definition::ResolvedDefinition [resolved definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.declarations"
+to = "k_rust::definition::SortCatalog<'a> [sort lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "kompile.kore.declarations"
+to = "k_rust::outer::LoadedDefinition [loaded definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "kompile.kore.declarations"
+to = "k_rust::PreparedDefinitionManifest [prepared definition manifest]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "kompile.kore.declarations"
+to = "k_rust::kompile::CompiledKoreArtifacts [compiled artifacts]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "kompile.kore.declarations"
+to = "k_rust::kompile::DeclarationModules [KORE declaration modules]"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "kompile.kore.declarations"
+to = "k_rust_kore::kore::ast::Definition [compiled definition]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.kore.owise"
+to = "KompileOwiseCompetitorScans"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.macros.expand"
+to = "KompileMacroApplications"
+provenance = "declared"
+
+[[edge]]
+kind = "constrains"
+from = "kompile.sentences.number"
+to = "backend.definition.internalize"
+provenance = "declared"
+detail = "the UNIQUE_ID attribute survives KORE emission and determines source rewrite order"
+
+[edge.consumer_site]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::internalize_for_source_execution"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.sort_helpers.generate"
+to = "KompileSentencesTransformed"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.sort_injections.insert"
+to = "KompileInjectionsInserted"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kompile.terms.minimize"
+to = "KompileSentencesTransformed"
+provenance = "declared"
+
+[[edge]]
+kind = "contains"
+from = "minimize term construction"
+to = "kompile.terms.minimize"
+provenance = "derived"
+
+[[edge]]
+kind = "contains"
+from = "number sentences"
+to = "kompile.sentences.number"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "number sentences"
+to = "resolve heat/cool attributes"
+provenance = "table"
+order = 25
+
+[[edge]]
+kind = "contains"
+from = "number sentences (final)"
+to = "kompile.sentences.number"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "number sentences (final)"
+to = "add sort injections"
+provenance = "table"
+order = 47
+
+[[edge]]
+kind = "consumes"
+from = "parser.bubble.configurations"
+to = "k_rust::definition::Definition [lowered source]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.bubble.configurations"
+to = "k_rust::kast::Term [parsed term]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.bubble.configurations"
+to = "ParserGrammarBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.bubble.configurations"
+to = "ParserParseAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "parser.bubble.configurations"
+to = "k_rust::definition::Definition [parsed bubbles]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.bubble.rules"
+to = "k_rust::definition::Definition [lowered source]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.bubble.rules"
+to = "k_rust::kast::Term [parsed term]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.bubble.rules"
+to = "KompileRuleBubblesParsed"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.bubble.rules"
+to = "ParserGrammarBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.bubble.rules"
+to = "ParserParseAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "parser.bubble.rules"
+to = "k_rust::definition::Definition [parsed bubbles]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.chart.completed_memo"
+to = "ParserChartCompletionCandidates"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.chart.completed_memo"
+to = "ParserCompletedNodesHits"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.chart.completed_memo"
+to = "ParserCompletedNodesInvalidated"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.chart.completed_memo"
+to = "ParserCompletedNodesMisses"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.chart.insert"
+to = "ParserChartAddCalls"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.chart.insert"
+to = "ParserChartStateChanges"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.disambiguation.priority"
+to = "ParserPackedPriorityComputations"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.disambiguation.resolve_applications"
+to = "ParserPackedApplicationResolutions"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.earley.recognize"
+to = "ParserChartAgendaPops"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.earley.recognize"
+to = "ParserChartCompletionCandidates"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.earley.recognize"
+to = "ParserChartDerivationsRead"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.earley.recognize"
+to = "ParserChartPredictionAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.earley.recognize"
+to = "ParserChartRevisitPops"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.earley.recognize"
+to = "ParserParseAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.forest.order"
+to = "ParserPackedStructuralComparisons"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.forest.pack"
+to = "ParserUnpackedNodes"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.grammar.build"
+to = "ParserGrammarBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.inference.portable"
+to = "ParserPortableInferences"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.inference.z3"
+to = "ParserZ3Checks"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.inference.z3"
+to = "ParserZ3EncodingBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "parser.lower.term"
+to = "k_rust::kast::Term [parsed term]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.prediction.first_sets"
+to = "ParserNonterminalPredictionsSkipped"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.prediction.first_sets"
+to = "ParserPredictionAnalysisBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.prediction.first_sets"
+to = "ParserTerminalPredictionsSkipped"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.prediction.nullability"
+to = "ParserPredictionAnalysisBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.programs.parse"
+to = "ParserGrammarBuilds"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.programs.parse"
+to = "ParserParseAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "parser.programs.parse"
+to = "k_rust::kast::Term [parsed term]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.scanner.winner"
+to = "ParserScannerWinnerComputations"
+provenance = "declared"
+
+[[edge]]
+kind = "follows"
+from = "propagate macro attributes"
+to = "guard or-patterns"
+provenance = "table"
+order = 30
+
+[[edge]]
+kind = "contains"
+from = "regenerate sort predicate syntax"
+to = "kompile.sort_helpers.generate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "regenerate sort predicate syntax"
+to = "regenerate sort projections"
+provenance = "table"
+order = 38
+
+[[edge]]
+kind = "contains"
+from = "regenerate sort projections"
+to = "kompile.sort_helpers.generate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "regenerate sort projections"
+to = "check simplification rules"
+provenance = "table"
+order = 39
+
+[[edge]]
+kind = "follows"
+from = "remove units"
+to = "minimize term construction"
+provenance = "table"
+order = 49
+
+[[edge]]
+kind = "contains"
+from = "resolve I/O streams"
+to = "kompile.streams.resolve"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "resolve I/O streams"
+to = "resolve local functions"
+provenance = "table"
+order = 18
+
+[[edge]]
+kind = "follows"
+from = "resolve anonymous variables"
+to = "resolve contexts"
+provenance = "table"
+order = 23
+
+[[edge]]
+kind = "follows"
+from = "resolve commutative rules"
+to = "resolve I/O streams"
+provenance = "table"
+order = 17
+
+[[edge]]
+kind = "follows"
+from = "resolve configuration variables"
+to = "add cool-like attributes"
+provenance = "table"
+order = 44
+
+[[edge]]
+kind = "contains"
+from = "resolve contexts"
+to = "kompile.contexts.resolve"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "resolve contexts"
+to = "number sentences"
+provenance = "table"
+order = 24
+
+[[edge]]
+kind = "follows"
+from = "resolve fresh configuration constants"
+to = "generate sort predicate syntax"
+provenance = "table"
+order = 32
+
+[[edge]]
+kind = "contains"
+from = "resolve fresh constants"
+to = "kompile.fresh_constants.resolve"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "resolve fresh constants"
+to = "regenerate sort predicate syntax"
+provenance = "table"
+order = 37
+
+[[edge]]
+kind = "follows"
+from = "resolve function configuration"
+to = "resolve strictness"
+provenance = "table"
+order = 21
+
+[[edge]]
+kind = "follows"
+from = "resolve heat/cool attributes"
+to = "resolve semantic casts"
+provenance = "table"
+order = 26
+
+[[edge]]
+kind = "contains"
+from = "resolve local functions"
+to = "kompile.functions.lift"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "resolve local functions"
+to = "seed sort predicate syntax"
+provenance = "table"
+order = 19
+
+[[edge]]
+kind = "follows"
+from = "resolve semantic casts"
+to = "add KItem subsorts"
+provenance = "table"
+order = 27
+
+[[edge]]
+kind = "contains"
+from = "resolve strictness"
+to = "kompile.strictness.resolve"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "resolve strictness"
+to = "resolve anonymous variables"
+provenance = "table"
+order = 22
+
+[[edge]]
+kind = "contains"
+from = "resolve structured configurations"
+to = "definition.resolve.imports"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "resolve structured configurations"
+to = "definition checks"
+provenance = "table"
+order = 15
+
+[[edge]]
+kind = "contains"
+from = "seed sort predicate syntax"
+to = "kompile.sort_helpers.generate"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "seed sort predicate syntax"
+to = "resolve function configuration"
+provenance = "table"
+order = 20

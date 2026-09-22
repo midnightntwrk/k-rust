@@ -1,4 +1,16 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.sort_helpers.generate"
+//! name = "generation of sort predicates, projections, and helper rules"
+//! sites = ["generate_sort_predicate_syntax", "regenerate_sort_predicate_syntax", "generate_sort_projections"]
+//! variable = "M = modules; S = visible sorts; V = visible sentences"
+//! counters = ["KompileSentencesTransformed"]
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(M x S x V)"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Generate sort predicates and projection functions consumed by later backend passes.

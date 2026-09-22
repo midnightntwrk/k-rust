@@ -1,4 +1,10 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm-site
+//! id = "kompile.sort_helpers.generate"
+//! role = "part"
+//! sites = ["subsort_kitem", "subsort_kitem_pass"]
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Add backend subsort declarations from every user sort to `KItem`.

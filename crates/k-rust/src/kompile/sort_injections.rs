@@ -1,3 +1,15 @@
+//! ```toml algorithm
+//! id = "kompile.sort_injections.insert"
+//! name = "sort inference and explicit injection insertion"
+//! sites = ["SortInjector::inject_sentence", "SortInjector::term_sort_with_arity", "add_sort_injections_to_definition"]
+//! variable = "N = term nodes; P = production candidates; S = subsort queries"
+//! counters = ["KompileInjectionsInserted"]
+//!
+//! [[cost]]
+//! mode = "one sentence"
+//! bound = "O(N x (P + S))"
+//! ```
+//!
 //! Sort injection computes expected sorts, least upper bounds, and explicit KORE injections, with strict rebase-in and lossy localization-out metadata policies.
 //! Work is O(term nodes times production and subsort queries); the retained zero-valued
 //! `KompileRebaseCalls` and `KompileInjectionsInserted` measure its variable work after CQ-12.

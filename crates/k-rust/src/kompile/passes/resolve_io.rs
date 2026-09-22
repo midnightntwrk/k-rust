@@ -1,4 +1,17 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.streams.resolve"
+//! name = "resolution of stream cells and templates"
+//! sites = ["resolve_io", "resolve_io_pass", "stream_productions", "collect_stream_patterns"]
+//! variable = "N = visited sentences and term nodes; S = stream declarations"
+//! counters = []
+//! no_counter = "stream resolution has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N + S)"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Java-compatible resolution of configuration cells marked with `stream`.

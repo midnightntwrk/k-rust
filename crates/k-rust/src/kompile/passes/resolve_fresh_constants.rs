@@ -1,4 +1,17 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.fresh_constants.resolve"
+//! name = "resolution of fresh constants"
+//! sites = ["resolve_fresh_constants", "resolve_fresh_constants_pass", "fresh_variables", "transform_term"]
+//! variable = "N = traversed terms; F = fresh variables"
+//! counters = []
+//! no_counter = "fresh-constant resolution has no dedicated counter"
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N + F log F)"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Resolve fresh rule variables through per-sort generators and a counter cell.
@@ -113,7 +126,7 @@ pub(crate) fn resolve_fresh_constants_pass(
             .any(|(_, production)| production.attributes().has(AttributeKey::Cell));
         let configuration =
             if module.name == input.definition.main_module && !visible_generated_top && has_cells {
-                match generated_top_configuration(&resolved, module_id, &productions, initial_fresh)
+                match generated_top_configuration(resolved, module_id, &productions, initial_fresh)
                 {
                     Ok(configuration) => Some(configuration),
                     Err(message) => {

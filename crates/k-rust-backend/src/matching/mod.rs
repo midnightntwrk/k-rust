@@ -1,9 +1,36 @@
+//! ```toml algorithm
+//! id = "backend.matching.syntactic"
+//! name = "sort-aware one-way first-order matching by pair decomposition"
+//! sites = ["match_terms_with_context", "match_terms", "match_terms_in_definition", "match_term_pairs_in_definition", "Matcher::run", "Matcher::match_one"]
+//! variable = "p = pairs popped, bounded by |pattern| plus one re-enqueue per deferred pair; a = pair arity"
+//! counters = ["MatchingProblems", "MatchingPairs"]
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "one matching problem"
+//! bound = "O(p x a)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.matching.relation_query"
+//! name = "subsort and overload membership queries"
+//! sites = ["SortGraph::check_subsort", "OverloadView::new", "OverloadView::lift"]
+//! variable = "S = sorts or overloaded symbols"
+//! counters = []
+//! no_counter = "relation queries have no dedicated counter"
+//! span = "none"
+//!
+//! [[cost]]
+//! mode = "one membership query"
+//! bound = "O(log |S|)"
+//! ```
+//!
 //! Sort-aware one-way first-order matching by pair decomposition (a Martelli-Montanari work
 //! queue without unification: pattern variables bind, subject variables defer), O(p) pair pops
 //! per problem for p bounded by |pattern| plus one re-enqueue per deferred pair, each pop
-//! O(arity); `Counter::MatchingProblems`, `Counter::MatchingPairs` (row B2). Subsort and
-//! overload membership queries over the closures `definition.rs` builds, O(log |S|) (row B4).
-//! AC and A collection matching (row B3) is `collections`, re-exported here so every entry
+//! O(arity); `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort and
+//! overload membership queries over the closures `definition.rs` builds, O(log |S|).
+//! AC and A collection matching is `collections`, re-exported here so every entry
 //! point of `crate::matching` keeps its path.
 
 mod collections;
@@ -25,7 +52,7 @@ use std::{
     sync::Arc,
 };
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
@@ -271,6 +298,7 @@ pub(crate) fn match_term_pairs_in_definition(
     definition: &BackendDefinition,
     pairs: impl IntoIterator<Item = (Term, Term)>,
 ) -> MatchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
     let pairs = pairs
         .into_iter()
         .filter(|(pattern, subject)| pattern != subject)
@@ -336,6 +364,7 @@ fn match_terms_with_context(
     pattern: &Term,
     subject: &Term,
 ) -> MatchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
     measure::bump(Counter::MatchingProblems);
     if pattern == subject {
         return MatchResult::Success(Substitution::new());

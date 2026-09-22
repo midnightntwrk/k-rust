@@ -1,4 +1,16 @@
-//! This D12 transformation pass resolves required views, transforms sentences and terms, records origins, and rebases metadata when needed.
+//! ```toml algorithm
+//! id = "kompile.cells.concretize"
+//! name = "cell concretization"
+//! sites = ["concretize_cells", "concretize_cells_pass", "CellModel::new", "Concretizer::sentence"]
+//! variable = "P = productions; C = cells; N = term nodes; D = cell depth; |children| = children per cell"
+//! counters = ["KompileSentencesTransformed"]
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(P x C + N x D x |children|)"
+//! ```
+//!
+//! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; kompile counters measure resolution, rebasing, and transformed sentences.
 //!
 //! Complete configuration abstractions into fixed-arity cell applications.

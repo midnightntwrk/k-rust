@@ -1,3 +1,15 @@
+//! ```toml algorithm
+//! id = "parser.scanner.winner"
+//! name = "global-winner lexical scanning"
+//! sites = ["Scanner::winner"]
+//! variable = "B = input bytes; L = registered lexemes"
+//! counters = ["ParserScannerWinnerComputations"]
+//!
+//! [[cost]]
+//! mode = "one parse attempt"
+//! bound = "O(B x L)"
+//! ```
+//!
 //! K global-winner scanning: longest match, then precedence, then lexeme key.
 //!
 //! A winner costs O(L) regex attempts for L registered lexemes and is memoized per position,

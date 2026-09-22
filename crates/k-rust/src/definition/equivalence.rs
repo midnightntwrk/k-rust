@@ -1,3 +1,27 @@
+//! ```toml algorithm
+//! id = "definition.equivalence.sentence"
+//! name = "structural sentence equivalence"
+//! sites = ["sentence_equivalent", "production_identity", "canonical_production_payload"]
+//! variable = "N = compared or encoded sentence and term nodes"
+//! counters = ["KompileSentenceEquivalenceChecks", "KompileProductionIdentityDigests"]
+//!
+//! [[cost]]
+//! mode = "one comparison or identity"
+//! bound = "O(N)"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "definition.equivalence.deduplicate"
+//! name = "order-preserving deduplication by sentence equivalence"
+//! sites = ["dedup_by_equivalence", "EquivalenceAccumulator", "push_if_inequivalent"]
+//! variable = "n = sentences; eq = sentence-equivalence cost"
+//! counters = ["KompileSentenceEquivalenceChecks"]
+//!
+//! [[cost]]
+//! mode = "one sentence collection"
+//! bound = "O(n^2 x eq)"
+//! ```
+//!
 //! Structural sentence and term equivalence powers declaration-order deduplication.
 //! The shared accumulator costs O(n^2 * eq); `Counter::KompileSentenceEquivalenceChecks` measures equivalence calls after CQ-12's counter commit.
 //!

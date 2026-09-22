@@ -1,7 +1,20 @@
+//! ```toml algorithm
+//! id = "backend.rule.select"
+//! name = "single-symbol rule selection"
+//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index"]
+//! variable = "k = index keys; c = candidate rules returned for one step"
+//! counters = ["RewriteRuleAttempts"]
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "one subject"
+//! bound = "O(log k) index lookups plus O(c) candidate clones"
+//! ```
+//!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
 //! rewrite rules additionally filter by the head of their `<k>` cell. Candidate count is the old
 //! exact-symbol then variable-symbol sequence filtered by `rule.index.covers(subject_index)`, so
-//! priority and declaration order remain unchanged (row B1).
+//! priority and declaration order remain unchanged.
 //!
 //! The index uses `Anything` for absent or malformed `<k>` cells, variables, overloaded heads,
 //! associative or idempotent heads, and subject-side functions. It strips injections and meets
@@ -14,6 +27,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast::{self as kore, KoreString};
+use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
@@ -327,6 +341,11 @@ impl From<MalformedAttribute> for AxiomError {
     }
 }
 
+/// ```toml algorithm-site
+/// id = "backend.definition.internalize"
+/// role = "part"
+/// sites = ["classify_axiom"]
+/// ```
 pub fn classify_axiom(
     module: Name,
     sort_parameters: Vec<Name>,
@@ -465,6 +484,11 @@ pub fn classify_axiom(
     }
 }
 
+/// ```toml algorithm-site
+/// id = "backend.definition.internalize"
+/// role = "part"
+/// sites = ["internalize_axiom"]
+/// ```
 pub fn internalize_axiom(
     definition: &BackendDefinition,
     axiom: &ClassifiedAxiom,
@@ -885,11 +909,12 @@ pub fn term_index(term: &Term) -> TermIndex {
 /// The rules a subject with `index` may match, per priority and in trial order: the rules
 /// under `index`, then the rules under `TermIndex::Variable`, each group in declaration order
 /// (CQ-05a). `Variable` subjects see only the variable-indexed rules. One `Arc` clone per
-/// candidate; `Counter::RewriteRuleAttempts` counts what the caller does with them (row B1).
+/// candidate; `Counter::RewriteRuleAttempts` counts what the caller does with them (backend.rule.select).
 pub(crate) fn applicable_groups(
     theory: &Theory,
     index: &TermIndex,
 ) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
+    let _span = measure::algorithm_span(Algorithm::BackendRuleSelect);
     let mut groups = BTreeMap::new();
     let covered = if index == &TermIndex::Variable {
         vec![index]
@@ -914,6 +939,7 @@ pub fn applicable_rewrite_groups(
     index: &TermIndex,
     subject: &RuleIndex,
 ) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
+    let _span = measure::algorithm_span(Algorithm::BackendRuleSelect);
     let mut groups = BTreeMap::new();
     let covered = if index == &TermIndex::Variable {
         vec![index]

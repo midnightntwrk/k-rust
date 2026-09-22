@@ -25,7 +25,13 @@ fn z3_acquisition_is_feature_selectable() {
     assert_feature(
         frontend_features,
         "cli",
-        &["dep:clap", "mpfr-folding", "z3-inference"],
+        &[
+            "dep:clap",
+            "dep:tracing-chrome",
+            "dep:tracing-subscriber",
+            "mpfr-folding",
+            "z3-inference",
+        ],
     );
     assert_feature(
         frontend_features,

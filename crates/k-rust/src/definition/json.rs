@@ -1,4 +1,17 @@
-//! This definition-layer algorithm scans or transforms its model in deterministic declaration order (D34).
+//! ```toml algorithm
+//! id = "definition.json.encode"
+//! name = "KAST JSON encoding of flat definitions"
+//! sites = ["to_string", "to_string_pretty", "to_provenance_string", "to_provenance_string_pretty", "serialize_provenance"]
+//! variable = "N = encoded definition nodes"
+//! counters = ["ProvenanceReceiptRenders"]
+//! constrains = [{ id = "definition.provenance.record", site = "serialize_provenance", via = "AttributeKey::Origin records generated origins and is excluded from semantic comparison before provenance serialization" }]
+//!
+//! [[cost]]
+//! mode = "one definition"
+//! bound = "O(N)"
+//! ```
+//!
+//! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
 //! Complexity: O(N) over encoded definition nodes.
 //! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
 //!
@@ -1036,7 +1049,6 @@ impl TryFrom<JsonFlatModule> for FlatModule {
             imports: module.imports.into_iter().map(Into::into).collect(),
             local_sentences: module
                 .local_sentences
-                .into_iter()
                 .into_iter()
                 .filter(|sentence| !matches!(sentence, JsonSentence::KBadsentence))
                 .map(|sentence| sentence.try_into().map(Arc::new))

@@ -158,7 +158,7 @@ fn claims_are_rejected_in_definitions_and_allowed_in_spec_modules() {
                     name: "DEF".into(),
                     public: true,
                 }],
-                local_sentences: vec![Arc::new(claim.into())],
+                local_sentences: vec![Arc::new(claim)],
                 attributes: Attributes::default(),
             },
         ],
@@ -2121,7 +2121,7 @@ fn attribute_registry_rejects_unknown_and_misplaced_attributes() {
     };
     let module = ResolvedModule {
         name: "MAIN".into(),
-        local_sentences: vec![Arc::new(sentence.into())],
+        local_sentences: vec![Arc::new(sentence)],
         attributes: attrs(&[("function", json!(""))]),
     };
     let diagnostics = check_attributes(&module);

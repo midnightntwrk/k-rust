@@ -1,8 +1,23 @@
+//! ```toml algorithm
+//! id = "backend.definedness.discharge"
+//! name = "structural definedness constraint generation and discharge"
+//! sites = ["discharge_rewrite_definedness", "rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate"]
+//! variable = "t = term size"
+//! counters = []
+//! no_counter = "definedness has no dedicated counter"
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "one term"
+//! bound = "O(|t|) with hash-set deduplication"
+//! ```
+//!
 //! Structural definedness (ceil) constraint generation and rewrite-rule definedness discharge,
-//! O(|term|) with `FxHashSet` deduplication; no counter, no worklist loop (row B16).
+//! O(|term|) with `FxHashSet` deduplication; no counter, no worklist loop.
 
 use std::sync::Arc;
 
+use k_rust_kore::measure::{self, Algorithm};
 use rustc_hash::FxHashSet;
 
 use crate::{
@@ -16,6 +31,7 @@ use crate::{
 };
 
 pub(crate) fn discharge_rewrite_definedness(definition: &mut BackendDefinition) {
+    let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
     let mut discharged = Vec::new();
     {
         let definition: &BackendDefinition = definition;

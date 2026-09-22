@@ -1,10 +1,24 @@
+//! ```toml algorithm
+//! id = "backend.alias.unfold"
+//! name = "capture-avoiding alias unfolding"
+//! sites = ["expand", "expand_with", "collect", "validate_expansions"]
+//! variable = "p = pattern size; d = expansion depth"
+//! counters = []
+//! no_counter = "alias unfolding runs only at load time and has no dedicated counter"
+//! span = "per call"
+//!
+//! [[cost]]
+//! mode = "definition load"
+//! bound = "O(p x d)"
+//! ```
+//!
 //! Capture-avoiding alias unfolding with a cycle stack, O(|pattern| x expansion depth), at load
-//! time only; no counter; the only loops are the cycle-stack recursion and the fresh-name retry
-//! (row B18).
+//! time only; no counter; the only loops are the cycle-stack recursion and the fresh-name retry.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::measure::{self, Algorithm};
 
 use crate::definition::DefinitionError;
 
@@ -137,6 +151,7 @@ pub(crate) fn expand(
     pattern: &kore::Pattern,
     aliases: &BTreeMap<String, AliasDefinition>,
 ) -> Result<kore::Pattern, DefinitionError> {
+    let _span = measure::algorithm_span(Algorithm::BackendAliasUnfold);
     expand_with(
         pattern,
         aliases,
@@ -449,6 +464,11 @@ fn expand_binder(
     })
 }
 
+/// ```toml algorithm-site
+/// id = "backend.fresh.variables"
+/// role = "part"
+/// sites = ["fresh_variable"]
+/// ```
 fn fresh_variable(
     variable: &kore::Variable,
     body: &kore::Pattern,

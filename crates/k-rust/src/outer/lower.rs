@@ -1,4 +1,19 @@
-//! Outer lowering maps tag-indexed syntax nodes into the flat definition model (D33).
+//! ```toml algorithm
+//! id = "definition.outer.lower"
+//! name = "lowering of outer syntax into the flat definition model"
+//! sites = ["lower", "lower_module", "lower_sentence", "lower_production"]
+//! variable = "S = outer sentences; I = production items"
+//! counters = []
+//! no_counter = "outer-syntax lowering has no dedicated counter"
+//! consumes = [{ type = "k_rust::outer::ast::SourceFile", role = "parsed source" }]
+//! produces = [{ type = "k_rust::definition::Definition", role = "lowered source" }]
+//!
+//! [[cost]]
+//! mode = "one source set"
+//! bound = "O(S + I)"
+//! ```
+//!
+//! Outer lowering maps tag-indexed syntax nodes into the flat definition model.
 //! Complexity: O(S + I) over sentences and production items.
 //! It visits each syntax node once; no dedicated counter.
 //!

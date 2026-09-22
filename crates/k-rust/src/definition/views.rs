@@ -1,4 +1,11 @@
 //! Memoised derived definition views scoped to one immutable resolution.
+//!
+//! ```toml algorithm-contract
+//! id = "contract.definition.production_catalog_cache"
+//! name = "lazy production-catalog view shared by its consumers"
+//! sites = ["DefinitionViews::production_catalog"]
+//! constrains = [{ id = "definition.catalog.production", site = "DefinitionViews::production_catalog", via = "the per-module OnceLock retains the first ProductionCatalog forced by disambiguation, sort injection, or KORE emission" }]
+//! ```
 
 use std::sync::{Arc, OnceLock};
 

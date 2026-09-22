@@ -1,3 +1,23 @@
+//! ```toml algorithm
+//! id = "kompile.kore.convert_term"
+//! name = "conversion of KAST terms into KORE patterns"
+//! sites = ["TermConverter::convert", "term_to_kore", "term_to_kore_from_resolved"]
+//! variable = "N = term nodes; O = overload candidates per label"
+//! counters = []
+//! no_counter = "KAST-to-KORE conversion has no dedicated counter"
+//! consumes = [
+//!   { type = "k_rust::kast::Term", role = "parsed term" },
+//!   { type = "k_rust::definition::ProductionCatalog<'a>", role = "production lookup" },
+//!   { type = "k_rust::definition::SortCatalog<'a>", role = "sort lookup" },
+//!   { type = "k_rust::definition::PartialOrder<k_rust::kast::Sort>", role = "subsort order" },
+//! ]
+//! produces = [{ type = "k_rust_kore::kore::ast::Pattern", role = "converted term" }]
+//!
+//! [[cost]]
+//! mode = "one term"
+//! bound = "O(N x O)"
+//! ```
+//!
 //! Term conversion recursively lowers K terms to typed KORE and resolves overloads against production catalogs.
 //! Work is O(term nodes times overload candidates); no dedicated counter.
 //!

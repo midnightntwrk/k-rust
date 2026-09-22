@@ -1,8 +1,21 @@
+//! ```toml algorithm
+//! id = "backend.proof.search"
+//! name = "reachability-logic proof search"
+//! sites = ["prove_claim", "extend_frontier", "finish_at_breadth_limit", "apply_claim"]
+//! variable = "s = explored states; c = circularities"
+//! counters = ["ProofStatesExplored", "ProofImplicationChecks"]
+//! span = "per problem"
+//!
+//! [[cost]]
+//! mode = "one proof"
+//! bound = "O(s) x (simplification + implication + O(c) claim applications + one rewrite step)"
+//! ```
+//!
 //! Reachability-logic proof search (Kore proveClaim; pyk APR): per explored state one
 //! simplification, one subsumption check (`Counter::ProofImplicationChecks`), circularity
 //! application at depth > 0, one rewrite step; breadth- or depth-first by option, no state
 //! deduplication; O(explored states) x (simplification + implication + |circularities| x
-//! claim application + one step), `Counter::ProofStatesExplored` (row B13).
+//! claim application + one step), `Counter::ProofStatesExplored`.
 
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -11,7 +24,7 @@ use std::{
     time::Duration,
 };
 
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
@@ -162,6 +175,7 @@ pub fn prove_claim(
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ProofResult, ProofError> {
+    let _span = measure::algorithm_span(Algorithm::BackendProofSearch);
     if options.max_counterexamples == 0 {
         return Err(ProofError::ZeroCounterexampleLimit);
     }
@@ -1163,6 +1177,11 @@ fn variables_of_claim(claim: &ReachabilityClaim) -> BTreeSet<crate::term::Variab
         .collect()
 }
 
+/// ```toml algorithm-site
+/// id = "backend.fresh.variables"
+/// role = "part"
+/// sites = ["freshen_claim"]
+/// ```
 fn freshen_claim(
     claim: &ReachabilityClaim,
     subject: &Pattern,
