@@ -336,6 +336,7 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
         &mut failures,
         &mut report,
     );
+    report_undeclared_representation_uses(&cards, &index, &mut report);
 
     let mut graph = Graph {
         nodes: nodes.into_values().collect(),
@@ -1047,6 +1048,135 @@ fn validate_source_contract(
     }
 }
 
+/// Report each algorithm that branches on a declared representation returned by a site of its
+/// producer, while no card of the algorithm consumes or produces that representation.
+///
+/// This is a syntactic heuristic, not type resolution. A representation is identified by its
+/// simple name: the last path segment of a declared type, without generic arguments. Its producers
+/// are the algorithms with a card that produces a type of that simple name, and a producer site
+/// name is the last `::` segment of a `sites` entry of any card of a producer. A use is an
+/// [`cards::OutcomePattern`] that names the representation and whose callee is a producer site
+/// name, as `MatchResult::Failed(_)` in `match match_terms_in_definition(..) { .. }`. The pattern
+/// path is first resolved through the file's `use` declarations by
+/// [`cards::SourceIndex::resolve_path`]; a resolved path names the representation when it equals
+/// the declared type path without generic arguments, so an alias such as `KoreSentence` matches
+/// `k_rust_kore::kore::ast::Sentence` and a same-name type at another path does not match. When
+/// the path cannot be resolved, the pattern names the representation whose simple name equals
+/// the identifier, and two types with one simple name are not distinguished. A use belongs to
+/// the algorithms with a card in the same file that names the enclosing item as a site (directly,
+/// or through `impl Type` for a `Type::method` item); a use in an item that no card in the file
+/// names belongs to every algorithm whose primary card is in that file. An algorithm declares a
+/// simple name when any of its cards consumes or produces a type of that simple name, whatever
+/// the role or crate.
+fn report_undeclared_representation_uses(
+    cards: &[Card],
+    index: &SourceIndex,
+    report: &mut Vec<String>,
+) {
+    let simple_name = |representation: &Representation| {
+        representation_parts(representation.type_path()).map(|(_, symbol)| symbol)
+    };
+    let mut type_paths = BTreeMap::<String, BTreeSet<&str>>::new();
+    let mut plain_paths = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut producer_sites = BTreeMap::<String, BTreeSet<&str>>::new();
+    let mut declared = BTreeMap::<&str, BTreeSet<String>>::new();
+    for card in cards {
+        for representation in &card.body.produces {
+            let Some(name) = simple_name(representation) else {
+                continue;
+            };
+            let sites = cards
+                .iter()
+                .filter(|candidate| candidate.body.id == card.body.id)
+                .flat_map(|candidate| &candidate.body.sites)
+                .filter(|site| !site.starts_with("impl "))
+                .filter_map(|site| site.rsplit("::").next());
+            producer_sites.entry(name).or_default().extend(sites);
+        }
+        for representation in card.body.consumes.iter().chain(&card.body.produces) {
+            let Some(name) = simple_name(representation) else {
+                continue;
+            };
+            type_paths
+                .entry(name.clone())
+                .or_default()
+                .insert(representation.type_path());
+            plain_paths
+                .entry(name.clone())
+                .or_default()
+                .extend(plain_type_path(representation.type_path()));
+            declared.entry(&card.body.id).or_default().insert(name);
+        }
+    }
+
+    let mut findings = BTreeMap::<(&str, &str), BTreeSet<String>>::new();
+    for (file, facts) in &index.files {
+        let file_cards = cards
+            .iter()
+            .filter(|card| card.file == *file)
+            .collect::<Vec<_>>();
+        for pattern in &facts.outcome_patterns {
+            let resolved = index.resolve_path(file, &pattern.path);
+            let resolved_name = match &resolved {
+                Some(path) => path.last().unwrap_or(&pattern.identifier),
+                None => &pattern.identifier,
+            };
+            let Some((name, _)) = producer_sites.get_key_value(resolved_name) else {
+                continue;
+            };
+            if resolved.is_some_and(|path| !plain_paths[name].contains(&path.join("::"))) {
+                continue;
+            }
+            if !producer_sites[name].contains(pattern.callee.as_str()) {
+                continue;
+            }
+            let names_item = |card: &&&Card| {
+                pattern.item.as_deref().is_some_and(|item| {
+                    card.body.sites.iter().any(|site| {
+                        site == item
+                            || site.strip_prefix("impl ").is_some_and(|type_name| {
+                                item.strip_prefix(type_name)
+                                    .is_some_and(|method| method.starts_with("::"))
+                            })
+                    })
+                })
+            };
+            let mut owners = file_cards
+                .iter()
+                .filter(names_item)
+                .map(|card| card.body.id.as_str())
+                .collect::<BTreeSet<_>>();
+            if owners.is_empty() {
+                owners = file_cards
+                    .iter()
+                    .filter(|card| card.kind == CardKind::Primary)
+                    .map(|card| card.body.id.as_str())
+                    .collect();
+            }
+            for owner in owners {
+                if declared
+                    .get(owner)
+                    .is_some_and(|names| names.contains(name))
+                {
+                    continue;
+                }
+                findings.entry((owner, name)).or_default().insert(format!(
+                    "{file}::{} (from {})",
+                    pattern.item.as_deref().unwrap_or("<item>"),
+                    pattern.callee
+                ));
+            }
+        }
+    }
+    for ((owner, name), uses) in findings {
+        report.push(format!(
+            "undeclared representation use {owner}: matches {name} ({}) without consumes or produces at {}",
+            type_paths[name].iter().copied().collect::<Vec<_>>().join(", "),
+            uses.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+}
+
 fn card_location(card: &Card) -> String {
     format!(
         "{}:{}",
@@ -1124,6 +1254,22 @@ fn crate_area(crate_name: &str) -> Option<String> {
         "k-rust" => Some("kompile".to_owned()),
         _ => None,
     }
+}
+
+/// A type path without generic arguments, as `k_rust::definition::PartialOrder` for
+/// `k_rust::definition::PartialOrder<k_rust::kast::Sort>`.
+fn plain_type_path(type_path: &str) -> Option<String> {
+    let syn::Type::Path(path) = syn::parse_str::<syn::Type>(type_path).ok()? else {
+        return None;
+    };
+    Some(
+        path.path
+            .segments
+            .iter()
+            .map(|segment| segment.ident.to_string())
+            .collect::<Vec<_>>()
+            .join("::"),
+    )
 }
 
 fn representation_parts(type_path: &str) -> Option<(String, String)> {

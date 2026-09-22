@@ -91,9 +91,20 @@ It does not infer a constraint from prose or from a call graph.
 ## Reading the gate report
 
 The freshness gate is `crates/algo-graph/tests/freshness.rs`; it runs under `cargo test` and fails on any card-contract violation.
-Its advisory findings (uncovered phases, unclaimed counters, runtime-invisible algorithms, and worklists without a card) never fail it.
+Its advisory findings (uncovered phases, unclaimed counters, runtime-invisible algorithms, worklists without a card, and undeclared representation uses) never fail it.
 The gate writes them, one per line, to `target/algo/report.txt` below the workspace root and prints `algo-graph report: <n> lines written to <path>` in a plain `cargo test` run, without `--nocapture`.
 `cargo run -p algo-graph -- graph` prints each finding to standard error; without `-o` it also rewrites the same file and prints the same summary line, and with `-o` it writes only the requested output.
+
+An `undeclared representation use` line names an algorithm that branches on a declared representation returned by a producer of that representation while none of the algorithm's cards consumes or produces it.
+It is a syntactic heuristic, not type resolution, and its absence proves nothing:
+
+- a pattern path is resolved through the `use` declarations in scope: explicit `use a::b::Name` and `use a::b::X as Name` in the file, a type the file defines, and, for a glob such as `use super::*`, the explicit `use` declarations and types of the workspace module file the glob names (one level); `crate::`, `self::`, and `super::` are made absolute, and a crate root's own `use` re-export, such as `pub use k_rust_kore::kore` in `k-rust`, is followed;
+- a resolved path names a representation when it equals the declared type without generic arguments, so an alias such as `KoreSentence` names `k_rust_kore::kore::ast::Sentence` and a bare `Sentence` resolved to `k_rust::definition::Sentence` does not;
+- a path that cannot be resolved names every representation whose simple name, the last segment of a `consumes` or `produces` type without generic arguments, equals the pattern segment, so two types with one simple name are not distinguished there;
+- a use is a pattern path naming the representation inside a `match` arm, `let`, `let`-`else`, `if let`, `while let`, or `matches!` pattern outside `#[cfg(test)]` modules, whose scrutinee is a call to a function named like the last `::` segment of a site of an algorithm that produces the representation, directly or through a `let name = function(..);` binding earlier in the same item;
+- a use belongs to the algorithms whose cards in the same file name the enclosing item as a site, or, when no card in the file names it, to every algorithm whose primary card is in the file.
+
+A type annotation, a constructor, a method-call scrutinee, and a match on a value obtained another way are not uses: the finding targets an algorithm that decides on another algorithm's outcome, not one that traverses a structure it already holds.
 
 ## Reviewing card drift
 
