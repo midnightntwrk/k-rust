@@ -56,6 +56,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-expand"
+version = "0.1.0"
+dependencies = [
+ "krs-ir",
+ "krs-syntax",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "krs-ir"
 version = "0.1.0"
 dependencies = [
@@ -67,11 +78,9 @@ dependencies = [
 name = "krs-macros"
 version = "0.1.0"
 dependencies = [
- "krs-ir",
- "krs-syntax",
+ "krs-expand",
  "proc-macro-crate",
  "proc-macro2",
- "quote",
  "syn 2.0.119",
 ]
 

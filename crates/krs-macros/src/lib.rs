@@ -1,35 +1,52 @@
 //! Narrow procedural-macro facade for the explicit KRS surface.
 //!
-//! Parsing belongs to `krs-syntax`; these macros only preserve/check the Rust
-//! surface and register current-protocol host descriptors. Whole-definition name
-//! resolution and K semantics remain collector/compiler responsibilities.
+//! Parsing belongs to `krs-syntax` and expansion to `krs-expand`; these entry
+//! points only pass rustc's tokens and invocation environment to
+//! `krs-expand` and render its diagnostics. Whole-definition name resolution
+//! and K semantics remain collector/compiler responsibilities.
 
 use proc_macro::TokenStream;
 
 mod environment;
-mod expand;
-mod provenance;
 
 use environment::ProcMacroEnvironment;
+use krs_expand::{AttributeMacro, FunctionMacro};
 
 fn finish(result: syn::Result<proc_macro2::TokenStream>) -> TokenStream {
     result.unwrap_or_else(syn::Error::into_compile_error).into()
 }
 
-/// Declares an open K sort on an empty Rust marker trait.
-#[proc_macro_attribute]
-pub fn sort(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::sort(
+fn attribute_macro(
+    entry: AttributeMacro,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> TokenStream {
+    finish(krs_expand::expand_attribute(
+        entry,
         &ProcMacroEnvironment,
         attributes.into(),
         item.into(),
     ))
 }
 
+fn function_macro(entry: FunctionMacro, input: TokenStream) -> TokenStream {
+    finish(krs_expand::expand_function(
+        entry,
+        &ProcMacroEnvironment,
+        input.into(),
+    ))
+}
+
+/// Declares an open K sort on an empty Rust marker trait.
+#[proc_macro_attribute]
+pub fn sort(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Sort, attributes, item)
+}
+
 /// Declares readable sort aliases, membership markers, and semantic edges.
 #[proc_macro]
 pub fn sorts(input: TokenStream) -> TokenStream {
-    finish(expand::sorts(&ProcMacroEnvironment, input.into()))
+    function_macro(FunctionMacro::Sorts, input)
 }
 
 /// Expands like [`sorts!`] and also emits the invocation's factory table.
@@ -40,7 +57,7 @@ pub fn sorts(input: TokenStream) -> TokenStream {
 #[doc(hidden)]
 #[proc_macro]
 pub fn __framework_sorts(input: TokenStream) -> TokenStream {
-    finish(expand::framework_sorts(&ProcMacroEnvironment, input.into()))
+    function_macro(FunctionMacro::FrameworkSorts, input)
 }
 
 /// Pins the stable public identity of a symbol-bearing declaration.
@@ -50,27 +67,19 @@ pub fn __framework_sorts(input: TokenStream) -> TokenStream {
 /// retaining the symbol literal's exact source span.
 #[proc_macro_attribute]
 pub fn symbol(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::symbol(attributes.into(), item.into()))
+    attribute_macro(AttributeMacro::Symbol, attributes, item)
 }
 
 /// Declares a unit or named-record K constructor.
 #[proc_macro_attribute]
 pub fn constructor(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::constructor(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Constructor, attributes, item)
 }
 
 /// Declares one total K function production.
 #[proc_macro_attribute]
 pub fn function(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::function(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Function, attributes, item)
 }
 
 /// Declares a Rust enum as a family of K constructors.
@@ -94,27 +103,19 @@ pub fn function(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// `reference` form with fully materialized fields and metadata.
 #[proc_macro_attribute]
 pub fn constructors(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::constructors(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Constructors, attributes, item)
 }
 
 /// Declares a nominal token sort and its checked regex production.
 #[proc_macro_attribute]
 pub fn token(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::token(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Token, attributes, item)
 }
 
 /// Adds one syntax-only bracket production to an attributed sort.
 #[proc_macro_attribute]
 pub fn bracket(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::bracket(attributes.into(), item.into()))
+    attribute_macro(AttributeMacro::Bracket, attributes, item)
 }
 
 /// Adds one explicit after-the-fact subsort relation. Deterministic layer-2
@@ -122,31 +123,19 @@ pub fn bracket(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// Rust impl targets the corresponding marker trait.
 #[proc_macro_attribute]
 pub fn subsort(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::subsort(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Subsort, attributes, item)
 }
 
 /// Constructor helper consumed by `#[k::constructor]`.
 #[proc_macro_attribute]
 pub fn strict(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::orphan_strictness(
-        "strict",
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Strict, attributes, item)
 }
 
 /// Constructor helper consumed by `#[k::constructor]`.
 #[proc_macro_attribute]
 pub fn seqstrict(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::orphan_strictness(
-        "seqstrict",
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Seqstrict, attributes, item)
 }
 
 /// Declares a complete fixed-cell configuration and its paired initializer.
@@ -156,21 +145,13 @@ pub fn seqstrict(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// remain supported as the reference surface.
 #[proc_macro_attribute]
 pub fn configuration(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::configuration(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Configuration, attributes, item)
 }
 
 /// Declares a nominal nested fixed-cell group.
 #[proc_macro_attribute]
 pub fn cell(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::cell(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Cell, attributes, item)
 }
 
 /// Declares the restricted associated initializer paired to a configuration.
@@ -180,21 +161,13 @@ pub fn cell(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// main input. `#[k::config_var(...)]` remains available as an override.
 #[proc_macro_attribute]
 pub fn init(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::init(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Init, attributes, item)
 }
 
 /// Declares an ordinary term rule or a simultaneous fixed-configuration rule.
 #[proc_macro_attribute]
 pub fn rule(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::rule(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Rule, attributes, item)
 }
 
 /// Declares a readable family of independently named ordinary term rules.
@@ -205,100 +178,61 @@ pub fn rule(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// reported by rustc at the authored head instead of selecting one by order.
 #[proc_macro]
 pub fn rules(input: TokenStream) -> TokenStream {
-    finish(expand::rules(&ProcMacroEnvironment, input.into()))
+    function_macro(FunctionMacro::Rules, input)
 }
 
 /// Declares one unconditional or `requires`-guarded function equation.
 #[proc_macro_attribute]
 pub fn equation(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::equation(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Equation, attributes, item)
 }
 
 /// Declares one simplifier lemma, with an optional numeric ordering hint.
 #[proc_macro_attribute]
 pub fn simplification(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::simplification(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Simplification, attributes, item)
 }
 
 /// Declares one explicitly labeled reachability claim.
 #[proc_macro_attribute]
 pub fn claim(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::claim(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Claim, attributes, item)
 }
 
 /// Declares a reversible static alias production helper or alias clause.
 #[proc_macro_attribute]
 pub fn alias(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::alias(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Alias, attributes, item)
 }
 
 /// Declares one reusable one-sided fixed-configuration context template.
 #[proc_macro_attribute]
 pub fn context_alias(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::context_alias(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::ContextAlias, attributes, item)
 }
 
 /// Attaches an exact numeric priority to an equation.
 #[proc_macro_attribute]
 pub fn priority(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::priority(
-        &ProcMacroEnvironment,
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Priority, attributes, item)
 }
 
 /// Rule helper consumed by an outer `#[k::rule]` expansion.
 #[proc_macro_attribute]
 pub fn requires(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::orphan_rule_helper(
-        &ProcMacroEnvironment,
-        "requires",
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Requires, attributes, item)
 }
 
 /// Claim helper consumed by an outer `#[k::claim]` expansion.
 #[proc_macro_attribute]
 pub fn exists(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::orphan_rule_helper(
-        &ProcMacroEnvironment,
-        "exists",
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Exists, attributes, item)
 }
 
 /// Claim postcondition helper consumed by an outer `#[k::claim]` expansion.
 #[proc_macro_attribute]
 pub fn ensures(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    finish(expand::orphan_rule_helper(
-        &ProcMacroEnvironment,
-        "ensures",
-        attributes.into(),
-        item.into(),
-    ))
+    attribute_macro(AttributeMacro::Ensures, attributes, item)
 }
 
 /// Parses the M1 named-term subset as a Rust expression.
@@ -309,78 +243,65 @@ pub fn ensures(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// payloads before this function-like macro is expanded.
 #[proc_macro]
 pub fn term(input: TokenStream) -> TokenStream {
-    finish(expand::term(input.into()))
+    function_macro(FunctionMacro::Term, input)
 }
 
 /// Compiler-owned concrete builtin Id token island.
 #[proc_macro]
 pub fn id(input: TokenStream) -> TokenStream {
-    let literal = syn::parse_macro_input!(input as syn::LitStr);
-    let value = literal.value();
-    if !value.strip_prefix('$').is_some_and(|tail| {
-        !tail.is_empty()
-            && tail
-                .chars()
-                .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-    }) {
-        return syn::Error::new(literal.span(), "invalid builtin `Id` token")
-            .into_compile_error()
-            .into();
-    }
-    quote::quote!(::core::panic!("id! has no runtime value")).into()
+    function_macro(FunctionMacro::Id, input)
 }
 
 /// Compiler-owned concrete builtin Bytes token island.
 #[proc_macro]
 pub fn bytes(input: TokenStream) -> TokenStream {
-    let _literal = syn::parse_macro_input!(input as syn::LitByteStr);
-    quote::quote!(::core::panic!("bytes! has no runtime value")).into()
+    function_macro(FunctionMacro::Bytes, input)
 }
 
 /// Compiler-owned fresh anonymous object-language occurrence.
 #[proc_macro]
-pub fn anonymous(_input: TokenStream) -> TokenStream {
-    quote::quote!(::core::panic!("anonymous! has no runtime value")).into()
+pub fn anonymous(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Anonymous, input)
 }
 
 /// Compiler-owned associative object-Bool disjunction.
 #[proc_macro]
-pub fn or_bool(_input: TokenStream) -> TokenStream {
-    quote::quote!(::core::panic!("or_bool! has no runtime value")).into()
+pub fn or_bool(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::OrBool, input)
 }
 
 /// Checks a compiler-owned complete nested-cell term.
 #[proc_macro]
 pub fn fragment(input: TokenStream) -> TokenStream {
-    finish(expand::fragment(&ProcMacroEnvironment, &input.into()))
+    function_macro(FunctionMacro::Fragment, input)
 }
 
 /// Checks a complete computation-sequence expression without evaluating it.
 #[proc_macro]
 pub fn k(input: TokenStream) -> TokenStream {
-    finish(expand::k(&ProcMacroEnvironment, input.into()))
+    function_macro(FunctionMacro::K, input)
 }
 
 /// Checks a compiler-owned finite-map expression island.
 #[proc_macro]
 pub fn map(input: TokenStream) -> TokenStream {
-    finish(expand::map(&ProcMacroEnvironment, input.into()))
+    function_macro(FunctionMacro::Map, input)
 }
 
 /// Checks a compiler-owned simultaneous fixed-cell expression island.
 #[proc_macro]
 pub fn cells(input: TokenStream) -> TokenStream {
-    finish(expand::cells(input.into()))
+    function_macro(FunctionMacro::Cells, input)
 }
 
 /// Declares one or more precedence chains between production groups.
 #[proc_macro]
 pub fn precedence(input: TokenStream) -> TokenStream {
-    finish(expand::precedence(&ProcMacroEnvironment, input.into()))
+    function_macro(FunctionMacro::Precedence, input)
 }
 
 /// Declares typed associativity for production groups.
 #[proc_macro]
 pub fn associativity(input: TokenStream) -> TokenStream {
-    finish(expand::associativity(&ProcMacroEnvironment, input.into()))
+    function_macro(FunctionMacro::Associativity, input)
 }

@@ -1,0 +1,212 @@
+//! Expansion core of the KRS macro surface.
+//!
+//! This crate renders every `krs-macros` entry point with `proc_macro2`,
+//! `syn`, and `quote` and never calls into `proc_macro`. Invocation source
+//! locations and `krs` facade discovery are supplied by the caller through
+//! [`MacroEnvironment`]: `krs-macros` supplies rustc's values, and a host
+//! outside a procedural macro (a test, or the browser expander) supplies its
+//! own. Parsing belongs to `krs-syntax`.
+
+mod environment;
+mod expand;
+mod islands;
+mod provenance;
+
+use proc_macro2::TokenStream;
+
+pub use environment::{MacroEnvironment, SourcePosition};
+
+/// Declares a fieldless entry-point enum, its source-order `ALL` table, and
+/// its `name`/`from_name` mapping to the `krs-macros` function names.
+macro_rules! entry_points {
+    ($(#[$meta:meta])* $enum:ident { $($(#[$variant_meta:meta])* $variant:ident = $name:literal,)* }) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub enum $enum {
+            $($(#[$variant_meta])* $variant,)*
+        }
+
+        impl $enum {
+            /// Every entry point, in `krs-macros` source order.
+            pub const ALL: &'static [Self] = &[$(Self::$variant,)*];
+
+            /// The `krs-macros` function name of this entry point.
+            #[must_use]
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)*
+                }
+            }
+
+            /// The entry point whose `krs-macros` function is named `name`.
+            #[must_use]
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name {
+                    $($name => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+entry_points! {
+    /// A `#[proc_macro_attribute]` entry point of `krs-macros`.
+    AttributeMacro {
+        /// `#[k::sort]`.
+        Sort = "sort",
+        /// `#[k::symbol]`.
+        Symbol = "symbol",
+        /// `#[k::constructor]`.
+        Constructor = "constructor",
+        /// `#[k::function]`.
+        Function = "function",
+        /// `#[k::constructors]`.
+        Constructors = "constructors",
+        /// `#[k::token]`.
+        Token = "token",
+        /// `#[k::bracket]`.
+        Bracket = "bracket",
+        /// `#[k::subsort]`.
+        Subsort = "subsort",
+        /// `#[k::strict]` outside a `#[k::constructor]` item.
+        Strict = "strict",
+        /// `#[k::seqstrict]` outside a `#[k::constructor]` item.
+        Seqstrict = "seqstrict",
+        /// `#[k::configuration]`.
+        Configuration = "configuration",
+        /// `#[k::cell]`.
+        Cell = "cell",
+        /// `#[k::init]`.
+        Init = "init",
+        /// `#[k::rule]`.
+        Rule = "rule",
+        /// `#[k::equation]`.
+        Equation = "equation",
+        /// `#[k::simplification]`.
+        Simplification = "simplification",
+        /// `#[k::claim]`.
+        Claim = "claim",
+        /// `#[k::alias]`.
+        Alias = "alias",
+        /// `#[k::context_alias]`.
+        ContextAlias = "context_alias",
+        /// `#[k::priority]`.
+        Priority = "priority",
+        /// `#[k::requires]` outside a `#[k::rule]` item.
+        Requires = "requires",
+        /// `#[k::exists]` outside a `#[k::claim]` item.
+        Exists = "exists",
+        /// `#[k::ensures]` outside a `#[k::claim]` item.
+        Ensures = "ensures",
+    }
+}
+
+entry_points! {
+    /// A `#[proc_macro]` entry point of `krs-macros`.
+    FunctionMacro {
+        /// `k::sorts!`.
+        Sorts = "sorts",
+        /// The facade-internal `__framework_sorts!` block of `krs`.
+        FrameworkSorts = "__framework_sorts",
+        /// `k::rules!`.
+        Rules = "rules",
+        /// `k::term!`.
+        Term = "term",
+        /// `k::id!`.
+        Id = "id",
+        /// `k::bytes!`.
+        Bytes = "bytes",
+        /// `k::anonymous!`.
+        Anonymous = "anonymous",
+        /// `k::or_bool!`.
+        OrBool = "or_bool",
+        /// `k::fragment!`.
+        Fragment = "fragment",
+        /// `k::k!`.
+        K = "k",
+        /// `k::map!`.
+        Map = "map",
+        /// `k::cells!`.
+        Cells = "cells",
+        /// `k::precedence!`.
+        Precedence = "precedence",
+        /// `k::associativity!`.
+        Associativity = "associativity",
+    }
+}
+
+/// Expands one attribute-macro invocation.
+///
+/// `attributes` are the tokens inside the invoking attribute's delimiters and
+/// `item` is the annotated item without that attribute, as rustc passes them
+/// to a `#[proc_macro_attribute]`.
+///
+/// # Errors
+///
+/// Returns the invocation's diagnostics; `krs-macros` renders them with
+/// [`syn::Error::into_compile_error`].
+pub fn expand_attribute(
+    entry: AttributeMacro,
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> syn::Result<TokenStream> {
+    match entry {
+        AttributeMacro::Sort => expand::sort(env, attributes, item),
+        AttributeMacro::Symbol => expand::symbol(attributes, item),
+        AttributeMacro::Constructor => expand::constructor(env, attributes, item),
+        AttributeMacro::Function => expand::function(env, attributes, item),
+        AttributeMacro::Constructors => expand::constructors(env, attributes, item),
+        AttributeMacro::Token => expand::token(env, attributes, item),
+        AttributeMacro::Bracket => expand::bracket(attributes, item),
+        AttributeMacro::Subsort => expand::subsort(env, attributes, item),
+        AttributeMacro::Strict => expand::orphan_strictness("strict", attributes, item),
+        AttributeMacro::Seqstrict => expand::orphan_strictness("seqstrict", attributes, item),
+        AttributeMacro::Configuration => expand::configuration(env, attributes, item),
+        AttributeMacro::Cell => expand::cell(env, attributes, item),
+        AttributeMacro::Init => expand::init(env, attributes, item),
+        AttributeMacro::Rule => expand::rule(env, attributes, item),
+        AttributeMacro::Equation => expand::equation(env, attributes, item),
+        AttributeMacro::Simplification => expand::simplification(env, attributes, item),
+        AttributeMacro::Claim => expand::claim(env, attributes, item),
+        AttributeMacro::Alias => expand::alias(env, attributes, item),
+        AttributeMacro::ContextAlias => expand::context_alias(env, attributes, item),
+        AttributeMacro::Priority => expand::priority(env, attributes, item),
+        AttributeMacro::Requires => expand::orphan_rule_helper(env, "requires", attributes, item),
+        AttributeMacro::Exists => expand::orphan_rule_helper(env, "exists", attributes, item),
+        AttributeMacro::Ensures => expand::orphan_rule_helper(env, "ensures", attributes, item),
+    }
+}
+
+/// Expands one function-like macro invocation.
+///
+/// `input` is the tokens inside the invocation's delimiters, as rustc passes
+/// them to a `#[proc_macro]`.
+///
+/// # Errors
+///
+/// Returns the invocation's diagnostics; `krs-macros` renders them with
+/// [`syn::Error::into_compile_error`].
+pub fn expand_function(
+    entry: FunctionMacro,
+    env: &dyn MacroEnvironment,
+    input: TokenStream,
+) -> syn::Result<TokenStream> {
+    match entry {
+        FunctionMacro::Sorts => expand::sorts(env, input),
+        FunctionMacro::FrameworkSorts => expand::framework_sorts(env, input),
+        FunctionMacro::Rules => expand::rules(env, input),
+        FunctionMacro::Term => expand::term(input),
+        FunctionMacro::Id => islands::id(input),
+        FunctionMacro::Bytes => islands::bytes(input),
+        FunctionMacro::Anonymous => Ok(islands::anonymous()),
+        FunctionMacro::OrBool => Ok(islands::or_bool()),
+        FunctionMacro::Fragment => expand::fragment(env, &input),
+        FunctionMacro::K => expand::k(env, input),
+        FunctionMacro::Map => expand::map(env, input),
+        FunctionMacro::Cells => expand::cells(input),
+        FunctionMacro::Precedence => expand::precedence(env, input),
+        FunctionMacro::Associativity => expand::associativity(env, input),
+    }
+}
