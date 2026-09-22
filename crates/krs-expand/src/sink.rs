@@ -47,6 +47,12 @@ impl AuthoredFile {
     /// bytes; parse macro inputs from them (for example with `syn::parse2`),
     /// not by lexing `source` again, which creates another fallback file.
     ///
+    /// Doc comments are returned as rustc passes them to a procedural macro:
+    /// `#[doc = "…"]` whose string literal escapes every character of the
+    /// comment with `char::escape_debug` (`rustc_expand` `proc_macro_server`),
+    /// so `/// it's` becomes `"it\'s"`, where the `proc_macro2` fallback lexer
+    /// writes `"it's"`.
+    ///
     /// # Errors
     ///
     /// Returns the lexer error when `source` is not a Rust token stream.
@@ -57,14 +63,72 @@ impl AuthoredFile {
             .into_iter()
             .next()
             .map(|tree| tree.span().file());
-        Ok((
-            Self {
-                display_file: display_file.to_owned(),
-                source: source.to_owned(),
-                fallback_file,
-            },
-            tokens,
-        ))
+        let file = Self {
+            display_file: display_file.to_owned(),
+            source: source.to_owned(),
+            fallback_file,
+        };
+        let tokens = file.rustc_doc_comments(tokens);
+        Ok((file, tokens))
+    }
+
+    /// Rewrites the string literal of every doc comment in `stream` with
+    /// rustc's escaping, keeping every span.
+    fn rustc_doc_comments(&self, stream: TokenStream) -> TokenStream {
+        stream
+            .into_iter()
+            .map(|tree| {
+                let TokenTree::Group(group) = tree else {
+                    return tree;
+                };
+                let inner = self
+                    .doc_comment_literal(&group)
+                    .unwrap_or_else(|| self.rustc_doc_comments(group.stream()));
+                let mut rebuilt = proc_macro2::Group::new(group.delimiter(), inner);
+                rebuilt.set_span(group.span());
+                TokenTree::Group(rebuilt)
+            })
+            .collect()
+    }
+
+    /// The rustc form of the `[doc = "…"]` group of a doc comment, or `None`
+    /// when `group` is not one.
+    fn doc_comment_literal(&self, group: &proc_macro2::Group) -> Option<TokenStream> {
+        if group.delimiter() != Delimiter::Bracket {
+            return None;
+        }
+        let trees = group.stream().into_iter().collect::<Vec<_>>();
+        let [
+            TokenTree::Ident(doc),
+            TokenTree::Punct(eq),
+            TokenTree::Literal(literal),
+        ] = trees.as_slice()
+        else {
+            return None;
+        };
+        let text = self.source.get(self.byte_range(group.span())?)?;
+        let comment = if text.starts_with("///") || text.starts_with("//!") {
+            &text[3..]
+        } else if text.starts_with("/**") || text.starts_with("/*!") {
+            text.get(3..text.len().checked_sub(2)?)?
+        } else {
+            return None;
+        };
+        if doc != "doc" || eq.as_char() != '=' {
+            return None;
+        }
+        let mut escaped = String::from("\"");
+        for ch in comment.chars() {
+            escaped.extend(ch.escape_debug());
+        }
+        escaped.push('"');
+        let mut rustc_literal = escaped.parse::<proc_macro2::Literal>().ok()?;
+        rustc_literal.set_span(literal.span());
+        Some(TokenStream::from_iter([
+            TokenTree::Ident(doc.clone()),
+            TokenTree::Punct(eq.clone()),
+            TokenTree::Literal(rustc_literal),
+        ]))
     }
 
     /// The display file of the authored source (rustc `Span::file`).
@@ -779,6 +843,22 @@ mod tests {
     };
     use proc_macro2::{TokenStream, TokenTree};
     use quote::quote;
+
+    #[test]
+    fn doc_comments_lex_as_rustc_passes_them() {
+        let source = "/// it's \"so\"\n//! inner\n/** block's */\nstruct S;\n";
+        let (authored, tokens) = AuthoredFile::lex("src/lib.rs", source).unwrap();
+        assert_eq!(
+            tokens.to_string(),
+            "# [doc = \" it\\'s \\\"so\\\"\"] # ! [doc = \" inner\"] # [doc = \" block\\'s \"] struct S ;"
+        );
+        let Some(TokenTree::Group(group)) = tokens.into_iter().nth(1) else {
+            panic!("a doc group");
+        };
+        assert_eq!(authored.byte_range(group.span()), Some(0..13));
+        let literal = group.stream().into_iter().nth(2).unwrap();
+        assert_eq!(authored.byte_range(literal.span()), Some(0..13));
+    }
 
     fn check_covering(source: &GeneratedSource) {
         let mut position = 0;
