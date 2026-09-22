@@ -293,6 +293,32 @@ fn coverage(printed: &Printed, anchor: &Range<usize>) -> Coverage {
             reason: String::new(),
         };
     }
+    // A respanned token maps exact-authored to its span through lookup (IR-18).
+    let respanned = printed
+        .source
+        .map
+        .segments
+        .iter()
+        .filter(|segment| segment.respanned.as_ref() == Some(anchor))
+        .map(|segment| segment.generated.clone())
+        .filter(|generated| {
+            matches!(
+                lookup(&printed.source, &printed.authored, generated.clone()),
+                Mapping::ExactAuthored { authored: ref mapped, .. } if mapped == anchor
+            )
+        })
+        .collect::<Vec<_>>();
+    if !respanned.is_empty() {
+        return Coverage {
+            generated: respanned,
+            class: MappingClass::ExactAuthored,
+            reason: format!(
+                "rustc-visible only as {}, spanned at this authored range with different text (respanned); lookup maps it exact-authored, where native rustc reports it (IR-18)",
+                texts(printed, |segment| segment.respanned.as_ref()
+                    == Some(anchor))
+            ),
+        };
+    }
     let reason = if let Some(invocation) = printed
         .source
         .map
@@ -708,6 +734,9 @@ fn anchor_coverage(printed: &Printed, anchors: &BTreeSet<Anchor>) -> String {
             Some(first) => {
                 writeln!(rows, "generated = [{}, {}]", first.start, first.end).unwrap();
                 writeln!(rows, "generated_occurrences = {}", coverage.generated.len()).unwrap();
+                if !coverage.reason.is_empty() {
+                    writeln!(rows, "reason = {}", toml_string(&coverage.reason)).unwrap();
+                }
             }
             None => writeln!(rows, "reason = {}", toml_string(&coverage.reason)).unwrap(),
         }

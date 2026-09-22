@@ -1,0 +1,16 @@
+[package]
+name = "bl006-wrong-result"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+k.workspace = true
+
+[package.metadata.krs]
+k-namespace = "BL006-WRONG-RESULT"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"

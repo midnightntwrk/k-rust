@@ -10,7 +10,7 @@ import type { ExpandResponse, LookupResponse, PolicyResponse } from "../../src/m
 import { runExpander, runLookup, runPolicy } from "../../src/modules.ts";
 import { packFromIr14, type Ir14PackManifest } from "../../src/pack-ir14.ts";
 import { checkActivation, recomputePackId, sha256Hex } from "../../src/pack.ts";
-import { createBuild, runBuild, stagePolicy, StageFailure } from "../../src/pipeline.ts";
+import { createBuild, injectMissingFactory, runBuild, stagePolicy, StageFailure } from "../../src/pipeline.ts";
 import type { CompileEvent, LessonManifest, PackManifest, VerifiedAssets } from "../../src/protocol.ts";
 import { classifyRustc, collectorInvocation, lessonInvocation, parseStderr, reportable } from "../../src/rustc.ts";
 import { parseSysrootBundle, readOnlyTree } from "../../src/vfs.ts";
@@ -291,3 +291,28 @@ describe.skipIf(!haveAssets)("modules (staged assets)", () => {
     expect(events.at(-1)).toMatchObject({ type: "failure", stage: "assets", code: "pack-integrity" });
   });
 });
+
+describe("test-only fault injection (IR-18)", () => {
+  const table = [
+    "fn a() {}\n",
+    "fn __krs_register_descriptors(r: &mut R) {\n    r.factory(crate::__krs_sort_descriptor_14a572b2d7631807);\n}\n",
+  ];
+  const text = table.join("");
+  const response = {
+    source_map: { segments: [{ generated: [0, table[0]!.length], class: "exact-authored" }, { generated: [table[0]!.length, text.length], class: "generated-only" }] },
+    registrations: [{ factory: "__krs_sort_descriptor_14a572b2d7631807" }],
+  } as unknown as ExpandResponse;
+
+  test("registration-table-missing-factory renames one table reference and keeps every offset", () => {
+    const { text: faulted, detail } = injectMissingFactory(text, response);
+    expect(faulted.length).toBe(text.length);
+    expect(faulted).toContain("crate::__krs_sort_descriptor_14a572b2d763180X)");
+    expect(faulted.slice(0, table[0]!.length)).toBe(table[0]!);
+    expect(detail).toContain("-> __krs_sort_descriptor_14a572b2d763180X");
+  });
+
+  test("registration-table-missing-factory refuses text without the table reference", () => {
+    expect(() => injectMissingFactory("fn a() {}\n", response)).toThrow(StageFailure);
+  });
+});
+

@@ -16,6 +16,9 @@
     "pipeline": "bun test/run-pipeline.ts",
     "verify": "bun test/verify.ts",
     "summarize": "bun test/summarize.ts",
-    "controller": "bun test/run-controller.ts"
+    "controller": "bun test/run-controller.ts",
+    "parity:tour-minimal": "bun test/parity/tour-minimal.ts",
+    "parity:native-diagnostics": "bash test/parity/native-diagnostics.sh",
+    "parity:diagnostics": "bun test/parity/diagnostics.ts"
   }
 }

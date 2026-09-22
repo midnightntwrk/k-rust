@@ -13,12 +13,26 @@ export interface Expectation {
   code?: FailureCode;
   /** Expected diagnostics (subset match on the listed fields). */
   diagnostics?: Array<{ origin: string; code: string | null; class: string; authored: [number, number] | null }>;
+  /** Exact number of diagnostics on the terminal event, when set. */
+  diagnosticCount?: number;
 }
 
 export interface Scenario {
   name: string;
   fixture: string;
   expect: Expectation;
+  /** Expectations that differ by the pack's fork_revision (compiler behaviour changes). */
+  expectByFork?: Record<string, Expectation>;
+}
+
+/** Fork 195111dff (IR-04): rustc.wasm traps after errors and loses the stashed type-path E0433. */
+export const FORK_IR04 = "195111dff60e2ce0c6d71f7302401cc4c07b0365";
+/** Fork 0ce51e933 (IR-26): errors finish as natively (summary lines, exit 1, no trap). */
+export const FORK_IR26 = "0ce51e9339ee538c16580fea01ca98dd89f6d7a0";
+
+/** The expectation for a scenario under the pack's fork revision. */
+export function expectationFor(scenario: Scenario, forkRevision: string): Expectation {
+  return scenario.expectByFork?.[forkRevision] ?? scenario.expect;
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -50,7 +64,9 @@ export const SCENARIOS: Scenario[] = [
   {
     // tour-minimal with `k::k![Object::Missing()]`: E0599 on the authored
     // `Missing` (copied verbatim by k!), plus E0599 on the generated
-    // `__krs_variant_type_id_Missing` check, which maps to the #[k::init] call site.
+    // `__krs_variant_type_id_Missing` check. That identifier is respanned at the
+    // authored `Missing`; native rustc reports both there, and so does lookup
+    // since IR-18 (IR-15 expected the #[k::init] call site 593..603).
     name: "rustc-unresolved-variant",
     fixture: "rustc-unresolved-variant.rs",
     expect: {
@@ -59,17 +75,26 @@ export const SCENARIOS: Scenario[] = [
       code: "compile-error",
       diagnostics: [
         { origin: "rustc", code: "E0599", class: "exact-authored", authored: [676, 683] },
-        { origin: "rustc", code: "E0599", class: "invocation-level", authored: [593, 603] },
       ],
+      diagnosticCount: 2,
     },
   },
   {
     // BL-006 D002 shape (`sort = missing::M2Obj`). rustc.wasm at 195111dff traps
-    // with no output on E0433 in a type path (the twin reports E0433), so the
-    // worker must classify it as compiler-trap. Pinned until the fork is fixed.
+    // with no output on E0433 in a type path (the twin reports E0433): compiler-trap.
+    // The IR-26 fork (0ce51e933) reports the E0433 and exits 1, as the twin does.
     name: "rustc-e0433-type-path-trap",
     fixture: "rustc-e0433-type-path.rs",
     expect: { outcome: "failure", stage: "rustc-lesson", code: "compiler-trap" },
+    expectByFork: {
+      [FORK_IR26]: {
+        outcome: "failure",
+        stage: "rustc-lesson",
+        code: "compile-error",
+        diagnostics: [{ origin: "rustc", code: "E0433", class: "exact-authored", authored: [347, 354] }],
+        diagnosticCount: 1,
+      },
+    },
   },
   {
     name: "tour-minimal-again",
@@ -102,6 +127,9 @@ export function check(expect: Expectation, events: Array<{ type: string; stage?:
   if (expect.bundleSha256 && last?.bundleSha256 !== expect.bundleSha256) problems.push(`bundle ${last?.bundleSha256}`);
   if (expect.stage && last?.stage !== expect.stage) problems.push(`stage ${last?.stage}, expected ${expect.stage}`);
   if (expect.code && last?.code !== expect.code) problems.push(`code ${last?.code}, expected ${expect.code}`);
+  if (expect.diagnosticCount !== undefined && (last?.diagnostics ?? []).length !== expect.diagnosticCount) {
+    problems.push(`${(last?.diagnostics ?? []).length} diagnostics, expected ${expect.diagnosticCount}`);
+  }
   for (const want of expect.diagnostics ?? []) {
     const found = (last?.diagnostics ?? []).some((d) =>
       d.origin === want.origin && d.code === want.code && d.class === want.class &&

@@ -3,11 +3,12 @@
 // window.ir15 for the WebDriver/BiDi drivers.
 
 import { KrsCompiler, loadVerifiedAssets } from "../../src/controller.ts";
-import type { CompileEvent, LessonManifest, PackManifest } from "../../src/protocol.ts";
-import { check, SCENARIOS } from "../scenarios.ts";
+import type { CompileEvent, FaultInjection, LessonManifest, PackManifest } from "../../src/protocol.ts";
+import { check, expectationFor, SCENARIOS } from "../scenarios.ts";
 
 let compiler: KrsCompiler | null = null;
 let lesson: LessonManifest | null = null;
+let forkRevision = "";
 const fixtures = new Map<string, string>();
 
 function base64(bytes: Uint8Array): string {
@@ -25,20 +26,28 @@ function resourceNames(): string[] {
   return performance.getEntriesByType("resource").map((entry) => entry.name);
 }
 
-/** JSON-safe copy of an event: bundle bytes become size + base64; bulky evidence text is dropped. */
-function plain(event: CompileEvent, keepBundle: boolean): unknown {
+/** JSON-safe copy of an event: bundle bytes become size + base64; bulky evidence text is dropped unless keepExpanded. */
+function plain(event: CompileEvent, keepBundle: boolean, keepExpanded = false): unknown {
+  const bulky = keepExpanded ? {} : { expandedText: undefined, sourceMap: undefined };
   if (event.type === "success") {
     const { bundle, evidence, ...rest } = event;
     return {
       ...rest,
       bundle: { bytes: bundle.byteLength, ...(keepBundle ? { base64: base64(bundle) } : {}) },
-      ...(evidence ? { evidence: { ...evidence, expandedText: undefined, sourceMap: undefined } } : {}),
+      ...(evidence ? { evidence: { ...evidence, ...bulky } } : {}),
     };
   }
   if (event.type === "failure" && event.evidence) {
-    return { ...event, evidence: { ...event.evidence, expandedText: undefined, sourceMap: undefined } };
+    return { ...event, evidence: { ...event.evidence, ...bulky } };
   }
   return event;
+}
+
+function resourceEntries(from: number) {
+  return performance.getEntriesByType("resource").slice(from).map((e) => {
+    const r = e as PerformanceResourceTiming;
+    return { name: r.name, startTime: r.startTime, durationMs: r.duration, transferSize: r.transferSize, decodedBodySize: r.decodedBodySize };
+  });
 }
 
 async function collect(iterable: AsyncIterable<CompileEvent>, onEvent?: (event: CompileEvent) => void) {
@@ -54,6 +63,7 @@ async function collect(iterable: AsyncIterable<CompileEvent>, onEvent?: (event: 
 async function init() {
   const t0 = performance.now();
   const pack = (await (await fetch("./assets/pack.json")).json()) as PackManifest;
+  forkRevision = pack.fork_revision;
   lesson = (await (await fetch("./assets/lessons/tour-minimal/lesson.json")).json()) as LessonManifest;
   for (const scenario of SCENARIOS) {
     if (!fixtures.has(scenario.fixture)) fixtures.set(scenario.fixture, await (await fetch(`./fixtures/${scenario.fixture}`)).text());
@@ -92,7 +102,7 @@ async function run(name: string, options: { debugEvidence?: boolean; keepBundle?
   const { events, wallMs } = await collect(
     compiler.compile({ lesson, files: { "src/lib.rs": fixtures.get(scenario.fixture)! }, debugEvidence: options.debugEvidence ?? true }),
   );
-  const verdict = check(scenario.expect, events.map((e) => e.event));
+  const verdict = check(expectationFor(scenario, forkRevision), events.map((e) => e.event));
   return {
     scenario: name,
     wallMs,
@@ -103,6 +113,54 @@ async function run(name: string, options: { debugEvidence?: boolean; keepBundle?
     workersStarted: compiler.workersStarted,
     events: events.map(({ event, atMs }) => ({ atMs, ...(plain(event, options.keepBundle ?? event.type === "success") as object) })),
   };
+}
+
+/**
+ * Compiles caller-supplied source (IR-17 edit round trip, IR-18 cases) in the
+ * current page session. `lesson` defaults to the staged tour-minimal manifest;
+ * a caller may pass another manifest for the same pack (BL-006 packages).
+ */
+async function runSource(options: {
+  label: string;
+  source: string;
+  lesson?: LessonManifest;
+  debugEvidence?: boolean;
+  keepBundle?: boolean;
+  keepExpanded?: boolean;
+  faultInjection?: FaultInjection;
+}) {
+  const target = options.lesson ?? lesson;
+  if (!compiler || !target) throw new Error("not initialized");
+  const resourcesBefore = resourceNames().length;
+  const heapBefore = heap();
+  const { events, wallMs } = await collect(
+    compiler.compile({
+      lesson: target,
+      files: { [target.display_file]: options.source },
+      debugEvidence: options.debugEvidence ?? true,
+      ...(options.faultInjection ? { faultInjection: options.faultInjection } : {}),
+    }),
+  );
+  return {
+    label: options.label,
+    lesson: target.lesson,
+    wallMs,
+    requestsDuringBuild: resourceNames().slice(resourcesBefore),
+    resourceTiming: resourceEntries(resourcesBefore),
+    heapBefore,
+    heapAfter: heap(),
+    workersStarted: compiler.workersStarted,
+    events: events.map(({ event, atMs }) => ({
+      atMs,
+      ...(plain(event, options.keepBundle ?? event.type === "success", options.keepExpanded ?? false) as object),
+    })),
+  };
+}
+
+/** The staged tour-minimal source and manifest (IR-17 applies E1 to this text). */
+function lessonSource() {
+  if (!lesson) throw new Error("not initialized");
+  return { lesson, source: fixtures.get("tour-minimal.rs")! };
 }
 
 /** Cancel while rustc-lesson runs, then build again in the replacement worker. */
@@ -151,6 +209,14 @@ async function supersede() {
   return { first: terminal(a), second: terminal(b), third: terminal(c), secondEventCount: b.events.length };
 }
 
-(globalThis as unknown as { ir15: unknown }).ir15 = { init, run, cancelDuringRustcLesson, supersede, scenarios: SCENARIOS.map((s) => s.name) };
+(globalThis as unknown as { ir15: unknown }).ir15 = {
+  init,
+  run,
+  runSource,
+  lessonSource,
+  cancelDuringRustcLesson,
+  supersede,
+  scenarios: SCENARIOS.map((s) => s.name),
+};
 (globalThis as unknown as { ir15Ready: boolean }).ir15Ready = true;
 document.getElementById("status")!.textContent = "ready: call window.ir15.init()";
