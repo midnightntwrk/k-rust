@@ -222,9 +222,10 @@ pub struct Segment {
     /// whose text differs from the authored bytes (such as an identifier
     /// formatted from an authored one): the authored range of that span.
     ///
-    /// rustc reports a diagnostic at such a token at this range. The map does
-    /// not classify it exact-authored, because the generated text is not the
-    /// authored text; comparing with rustc is the diagnostic comparison's call.
+    /// The map does not classify the segment exact-authored, because the
+    /// generated text is not the authored text. Native rustc reports a
+    /// diagnostic at such a token at this authored range with no expansion
+    /// context, so [`lookup`] maps it exact-authored to this range (IR-18).
     pub respanned: Option<Range<usize>>,
 }
 
@@ -673,22 +674,24 @@ impl Mapping {
 ///
 /// An empty range classifies the segment that contains its position, and a
 /// range inside one segment takes that segment's class; an exact-authored
-/// segment maps the corresponding authored subrange.
+/// segment maps the corresponding authored subrange, and a respanned
+/// invocation-level token maps exact-authored to its whole respanned range,
+/// where native rustc reports it (IR-18).
 ///
 /// A range across several segments is classified in the innermost invocation
 /// (or the text outside every invocation) that owns or encloses all of them,
 /// its context. Every nested invocation it touches must lie wholly inside the
 /// range, which then contains that invocation's whole expansion; the range is
 /// unmappable otherwise. Ignoring whitespace, when the range starts and ends
-/// with an exact-authored segment or a whole nested expansion (which stands for
-/// the authored range it replaced), and the first authored range does not end
-/// after the last one starts, the range is exact-authored from the first to
-/// the last authored byte. This is how rustc spans a node whose first and last
-/// tokens are authored, whatever the expansion put between them. Otherwise the
-/// range is invocation-level in its context, generated-only when it lies in
-/// generated-only text outside every invocation, and unmappable when it mixes
-/// that text with other text. Finer rules belong to the diagnostic comparison
-/// (IR-18).
+/// with an exact-authored segment, a respanned token, or a whole nested
+/// expansion (which stands for the authored range it replaced), and the first
+/// authored range does not end after the last one starts, the range is
+/// exact-authored from the first to the last authored byte. This is how rustc
+/// spans a node whose first and last tokens carry authored spans, whatever the
+/// expansion put between them. Otherwise the range is invocation-level in its
+/// context, generated-only when it lies in generated-only text outside every
+/// invocation, and unmappable when it mixes that text with other text. This is
+/// the final rule the IR-18 diagnostic comparison fixed against native rustc.
 #[must_use]
 pub fn lookup(
     source: &GeneratedSource,
@@ -734,7 +737,13 @@ pub fn lookup(
                 authored,
                 owner: context,
             },
-            (MappingClass::InvocationLevel, _) => invocation_level(),
+            (MappingClass::InvocationLevel, _) => match &segment.respanned {
+                Some(authored) => Mapping::ExactAuthored {
+                    authored: authored.clone(),
+                    owner: context,
+                },
+                None => invocation_level(),
+            },
             (MappingClass::GeneratedOnly, _) => Mapping::GeneratedOnly,
             _ => Mapping::Unmappable,
         };
@@ -789,9 +798,10 @@ fn clipped_image(segment: &Segment, generated: &Range<usize>) -> Option<Range<us
 }
 
 /// The parts of a range across segments, whitespace aside, as (authored image,
-/// exact): segments of `context`, and whole expansions of invocations that
-/// `context` directly contains, which stand for the authored range they
-/// replaced. `None` when the range contains only part of a nested expansion.
+/// exact): segments of `context` (a respanned token is exact at its respanned
+/// range), and whole expansions of invocations that `context` directly
+/// contains, which stand for the authored range they replaced. `None` when the
+/// range contains only part of a nested expansion.
 fn parts(
     source: &GeneratedSource,
     touched: &[&Segment],
@@ -808,7 +818,9 @@ fn parts(
             let whitespace = source.text[segment.generated.clone()]
                 .chars()
                 .all(char::is_whitespace);
-            if exact || !whitespace {
+            if let Some(respanned) = &segment.respanned {
+                parts.push((Some(respanned.clone()), true));
+            } else if exact || !whitespace {
                 parts.push((clipped_image(segment, generated), exact));
             }
             continue;
@@ -943,7 +955,7 @@ mod tests {
     }
 
     #[test]
-    fn respanned_and_reordered_tokens_are_not_exact() {
+    fn respanned_tokens_map_to_their_span_and_reordered_tokens_are_not_exact() {
         let (authored, tokens) = AuthoredFile::lex("src/lib.rs", "a b").unwrap();
         let trees = tokens.into_iter().collect::<Vec<_>>();
         let (a, b) = (&trees[0], &trees[1]);
@@ -958,8 +970,34 @@ mod tests {
             lookup(&out, &authored, 0..3).class(),
             MappingClass::InvocationLevel
         );
+        // The segment stays invocation-level in the map (its text is not the
+        // authored text), but rustc reports at the span, and so does lookup.
+        let c = out
+            .map
+            .segments
+            .iter()
+            .find(|segment| segment.generated == (4..5))
+            .unwrap();
+        assert_eq!(c.class, MappingClass::InvocationLevel);
+        assert_eq!(c.respanned, Some(0..1));
         assert_eq!(
-            lookup(&out, &authored, 4..5).class(),
+            lookup(&out, &authored, 4..5),
+            Mapping::ExactAuthored {
+                authored: 0..1,
+                owner: Some(InvocationId(0))
+            }
+        );
+        // `a c` starts and ends at `a`: rustc joins the two spans.
+        assert_eq!(
+            lookup(&out, &authored, 2..5),
+            Mapping::ExactAuthored {
+                authored: 0..1,
+                owner: Some(InvocationId(0))
+            }
+        );
+        // `b a c` starts at `b` and ends at `a`: not in authored order.
+        assert_eq!(
+            lookup(&out, &authored, 0..5).class(),
             MappingClass::InvocationLevel
         );
     }
