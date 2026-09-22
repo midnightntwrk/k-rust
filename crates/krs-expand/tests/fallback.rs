@@ -2,244 +2,54 @@
 //! process, where `proc_macro2` uses its fallback implementation. A surviving
 //! `proc_macro`-only call panics here.
 
-use std::cell::Cell;
+mod support;
 
-use krs_expand::{AttributeMacro, FunctionMacro, MacroEnvironment, SourcePosition};
-use proc_macro2::{LineColumn, Span, TokenStream, TokenTree};
-use quote::ToTokens;
-use syn::spanned::Spanned;
+use krs_expand::{AttributeMacro, FunctionMacro};
+use proc_macro2::TokenStream;
+use support::{Expansion, TestEnvironment, expand_tour_minimal};
 
-const TOUR_MINIMAL: &str = include_str!("../../../tests/tour-minimal/src/lib.rs");
-
-/// Facade `::k`, display file `src/lib.rs`, 1-based positions from fallback
-/// spans of the whole parsed file, and the current invocation's call site.
-///
-/// Like rustc, it locates every span outside the authored file (call-site
-/// tokens and tokens re-parsed from strings) at the invocation's call site.
-struct TestEnvironment {
-    authored_file: String,
-    call_site: Cell<Option<Span>>,
-}
-
-impl TestEnvironment {
-    fn new(authored_file: String) -> Self {
-        Self {
-            authored_file,
-            call_site: Cell::new(None),
-        }
-    }
-
-    fn resolve(&self, span: Span) -> Span {
-        if span.file() == self.authored_file {
-            span
-        } else {
-            self.call_site.get().unwrap_or(span)
-        }
-    }
-
-    fn position(location: LineColumn) -> Option<SourcePosition> {
-        Some(SourcePosition {
-            line: u32::try_from(location.line).ok()?,
-            column: u32::try_from(location.column).ok()?.checked_add(1)?,
-        })
-    }
-}
-
-impl MacroEnvironment for TestEnvironment {
-    fn span_file(&self, _span: Span) -> String {
-        "src/lib.rs".to_owned()
-    }
-
-    fn span_start(&self, span: Span) -> Option<SourcePosition> {
-        Self::position(self.resolve(span).start())
-    }
-
-    fn span_end(&self, span: Span) -> Option<SourcePosition> {
-        Self::position(self.resolve(span).end())
-    }
-
-    fn call_site(&self) -> Option<Span> {
-        self.call_site.get()
-    }
-
-    fn facade_path(&self) -> syn::Result<syn::Path> {
-        syn::parse_str("::k")
-    }
-}
-
-/// The `k::<entry>` name of a two-segment facade path.
-fn facade_entry(path: &syn::Path) -> Option<String> {
-    let [facade, entry] = [path.segments.first()?, path.segments.last()?];
-    (path.segments.len() == 2 && facade.ident == "k").then(|| entry.ident.to_string())
-}
-
-/// Removes the first KRS entry-point attribute and returns its entry, its
-/// arguments, and its span.
-fn take_attribute(attrs: &mut Vec<syn::Attribute>) -> Option<(AttributeMacro, TokenStream, Span)> {
-    let index = attrs.iter().position(|attribute| {
-        facade_entry(attribute.path())
-            .and_then(|name| AttributeMacro::from_name(&name))
-            .is_some()
-    })?;
-    let attribute = attrs.remove(index);
-    let entry = AttributeMacro::from_name(&facade_entry(attribute.path())?)?;
-    let arguments = match &attribute.meta {
-        syn::Meta::Path(_) => TokenStream::new(),
-        syn::Meta::List(list) => list.tokens.clone(),
-        syn::Meta::NameValue(_) => panic!("KRS attributes take no `=` value"),
-    };
-    Some((entry, arguments, attribute.span()))
-}
-
-/// Every `k::k!` invocation nested in `tokens`, as (input, call site).
-fn nested_k_invocations(tokens: TokenStream, found: &mut Vec<(TokenStream, Span)>) {
-    let trees = tokens.into_iter().collect::<Vec<_>>();
-    for (index, tree) in trees.iter().enumerate() {
-        if let [
-            TokenTree::Ident(facade),
-            TokenTree::Punct(first),
-            TokenTree::Punct(second),
-            TokenTree::Ident(entry),
-            TokenTree::Punct(bang),
-            TokenTree::Group(group),
-        ] = &trees[index..trees.len().min(index + 6)]
-            && facade == "k"
-            && first.as_char() == ':'
-            && second.as_char() == ':'
-            && entry == "k"
-            && bang.as_char() == '!'
-        {
-            let span = facade.span().join(group.span()).expect("one fallback file");
-            found.push((group.stream(), span));
-        }
-        if let TokenTree::Group(group) = tree {
-            nested_k_invocations(group.stream(), found);
+/// Every expansion's kind and output, each nested invocation right after its
+/// parent.
+fn flatten(expansions: &[Expansion], output: &mut Vec<(&'static str, TokenStream)>) {
+    for expansion in expansions {
+        output.push((expansion.kind, expansion.output.clone()));
+        let nested = expansion
+            .nested
+            .iter()
+            .map(|(_, _, nested)| nested)
+            .collect::<Vec<_>>();
+        for nested in nested {
+            flatten(std::slice::from_ref(nested), output);
         }
     }
 }
 
-#[derive(Debug, Default)]
-struct Expanded {
-    attributes: Vec<AttributeMacro>,
-    functions: Vec<FunctionMacro>,
-}
-
-fn expand_attribute(
-    env: &TestEnvironment,
-    expanded: &mut Expanded,
-    entry: AttributeMacro,
-    arguments: TokenStream,
-    call_site: Span,
-    item: TokenStream,
-) -> TokenStream {
-    env.call_site.set(Some(call_site));
-    let output = krs_expand::expand_attribute(entry, env, arguments, item)
-        .unwrap_or_else(|error| panic!("#[k::{}] failed: {error}", entry.name()));
-    expanded.attributes.push(entry);
-    output
-}
-
-fn expand_function(
-    env: &TestEnvironment,
-    expanded: &mut Expanded,
-    mac: &syn::Macro,
-) -> TokenStream {
-    let name = facade_entry(&mac.path).expect("a facade-qualified macro");
-    let entry = FunctionMacro::from_name(&name).expect("a krs-macros entry point");
-    env.call_site.set(Some(mac.span()));
-    let output = krs_expand::expand_function(entry, env, mac.tokens.clone())
-        .unwrap_or_else(|error| panic!("k::{name}! failed: {error}"));
-    expanded.functions.push(entry);
-    output
-}
-
-/// Expands every tour-minimal invocation in source order, the nested `k::k!`
-/// right after its enclosing `#[k::init]`.
-fn expand_tour_minimal() -> (Expanded, Vec<TokenStream>) {
-    let tokens: TokenStream = TOUR_MINIMAL.parse().expect("tour-minimal lexes");
-    let authored_file = tokens
-        .clone()
-        .into_iter()
-        .next()
-        .expect("tour-minimal is not empty")
-        .span()
-        .file();
-    let file: syn::File = syn::parse2(tokens).expect("tour-minimal parses");
-    let env = TestEnvironment::new(authored_file);
-    let mut expanded = Expanded::default();
+fn tour_minimal_outputs() -> Vec<(&'static str, TokenStream)> {
+    let (_, expansions) = expand_tour_minimal();
     let mut outputs = Vec::new();
-    for item in file.items {
-        match item {
-            syn::Item::Macro(item) => outputs.push(expand_function(&env, &mut expanded, &item.mac)),
-            syn::Item::Enum(mut item) => {
-                let (entry, arguments, span) = take_attribute(&mut item.attrs).unwrap();
-                outputs.push(expand_attribute(
-                    &env,
-                    &mut expanded,
-                    entry,
-                    arguments,
-                    span,
-                    item.to_token_stream(),
-                ));
-            }
-            syn::Item::Struct(mut item) => {
-                let (entry, arguments, span) = take_attribute(&mut item.attrs).unwrap();
-                outputs.push(expand_attribute(
-                    &env,
-                    &mut expanded,
-                    entry,
-                    arguments,
-                    span,
-                    item.to_token_stream(),
-                ));
-            }
-            syn::Item::Impl(item) => {
-                for impl_item in item.items {
-                    let syn::ImplItem::Fn(mut function) = impl_item else {
-                        continue;
-                    };
-                    let (entry, arguments, span) = take_attribute(&mut function.attrs).unwrap();
-                    let mut nested = Vec::new();
-                    nested_k_invocations(function.block.to_token_stream(), &mut nested);
-                    outputs.push(expand_attribute(
-                        &env,
-                        &mut expanded,
-                        entry,
-                        arguments,
-                        span,
-                        function.to_token_stream(),
-                    ));
-                    for (input, span) in nested {
-                        env.call_site.set(Some(span));
-                        outputs.push(
-                            krs_expand::expand_function(FunctionMacro::K, &env, input)
-                                .expect("the nested k::k! expands"),
-                        );
-                        expanded.functions.push(FunctionMacro::K);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    (expanded, outputs)
+    flatten(&expansions, &mut outputs);
+    outputs
 }
 
 #[test]
 fn tour_minimal_expands_in_a_fallback_process() {
-    let (expanded, outputs) = expand_tour_minimal();
+    let outputs = tour_minimal_outputs();
+    let kinds = outputs.iter().map(|(kind, _)| *kind).collect::<Vec<_>>();
     assert_eq!(
-        expanded.attributes,
+        kinds,
         [
-            AttributeMacro::Constructors,
-            AttributeMacro::Configuration,
-            AttributeMacro::Init,
+            FunctionMacro::Sorts.name(),
+            AttributeMacro::Constructors.name(),
+            AttributeMacro::Configuration.name(),
+            AttributeMacro::Init.name(),
+            FunctionMacro::K.name(),
+            FunctionMacro::Rules.name(),
         ]
     );
-    assert_eq!(
-        expanded.functions,
-        [FunctionMacro::Sorts, FunctionMacro::K, FunctionMacro::Rules]
-    );
+    let outputs = outputs
+        .into_iter()
+        .map(|(_, output)| output)
+        .collect::<Vec<_>>();
     let sorts = outputs[0].to_string();
     assert!(sorts.contains(":: k :: HostSourceAnchor :: new (\"src/lib.rs\" . to_owned ()"));
     // `k::sorts! { ... }` spans 10:1 through 12:2 of the authored file.
@@ -260,7 +70,7 @@ fn tour_minimal_expands_in_a_fallback_process() {
 
 #[test]
 fn every_builtin_token_island_expands_in_a_fallback_process() {
-    let env = TestEnvironment::new(String::new());
+    let env = TestEnvironment::new(None);
     for (entry, input) in [
         (FunctionMacro::Id, "\"$x\""),
         (FunctionMacro::Bytes, "b\"\\x00\""),
@@ -307,9 +117,9 @@ fn tour_minimal_matches_the_native_capture() {
         .filter(|row| row["crate"] == "krs_tour_minimal" && row["file"] == "src/lib.rs")
         .collect::<Vec<_>>();
     rows.sort_by_key(|row| (row["line"].as_u64(), row["column"].as_u64()));
-    let (_, outputs) = expand_tour_minimal();
+    let outputs = tour_minimal_outputs();
     assert_eq!(rows.len(), outputs.len(), "one native row per invocation");
-    for (row, output) in rows.iter().zip(&outputs) {
+    for (row, (_, output)) in rows.iter().zip(&outputs) {
         let native: TokenStream = row["output"]
             .as_str()
             .expect("a captured output")

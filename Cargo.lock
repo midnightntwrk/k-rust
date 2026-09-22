@@ -435,6 +435,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde_json",
+ "sha2 0.10.9",
  "syn 2.0.119",
 ]
 

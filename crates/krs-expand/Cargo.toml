@@ -15,6 +15,7 @@ syn = { version = "2.0.119", features = ["full", "parsing", "printing"] }
 
 [dev-dependencies]
 serde_json.workspace = true
+sha2 = "0.10.9"
 
 [lints]
 workspace = true
