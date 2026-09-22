@@ -66,9 +66,9 @@ impl LabelDependencyGraph {
             let Sentence::Rule { body, requires, .. } = rule else {
                 unreachable!("rule catalogs contain rules")
             };
-            // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+            // Invariant: `result.graph` has an edge from `current_node` to every function or anywhere label applied in the roots before `root` (`body`, then `requires`).
             for root in [body, requires] {
-                // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+                // Invariant: the preorder traversal visits each node of `root` once and adds one edge from `current_node` for every non-injection application whose label is in `function_labels` or `anywhere_labels`.
                 root.visit_preorder(&mut |term| {
                     let Term::Apply { label, .. } = term.unannotated() else {
                         return;

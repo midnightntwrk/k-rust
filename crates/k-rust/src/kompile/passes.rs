@@ -204,7 +204,7 @@ pub(crate) fn resolve_comm_pass(
     }
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each call rebuilds one node of `term` and recurses only into its direct subterms, with `on_lhs` set true under the left side of a rewrite and false under its right side; the finite `term` bounds the calls.
 fn commute_lhs(
     term: &Term,
     on_lhs: bool,

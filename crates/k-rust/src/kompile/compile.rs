@@ -367,7 +367,7 @@ pub fn compile_loaded_definition_timed(
 }
 
 fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String>, String> {
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+    // Invariant: `visited` holds the modules whose imports are already ordered, each pushed to `ordered` after its imports, and `visiting` is the current import path, so a name on it closes a cycle; each call that does not return at once moves one module into `visited`, so the module set bounds the calls.
     fn visit<'a>(
         name: &str,
         modules: &BTreeMap<&str, &'a FlatModule>,
@@ -378,7 +378,6 @@ fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String
         if visited.contains(name) {
             return Ok(());
         }
-        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         if let Some(start) = visiting.iter().position(|candidate| *candidate == name) {
             let mut cycle = visiting[start..].to_vec();
             cycle.push(visiting[start]);
@@ -434,6 +433,7 @@ fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String
 
     let mut occurrences = BTreeMap::<String, Occurrence<'_>>::new();
     let mut rewrite_order = Vec::new();
+    // Invariant: `occurrences` maps every UNIQUE_ID of the rules in the modules before `module` (in import order) to its first occurrence, and `rewrite_order` lists those ids once each in first-occurrence order; each module and each of its `local_sentences` is visited once.
     for module in ordered {
         for (index, sentence) in module.local_sentences.iter().enumerate() {
             let Sentence::Rule { attributes, .. } = &**sentence else {
@@ -540,7 +540,7 @@ pub fn configuration_variables(
         }
     }
 
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: each call visits one node of `term` and recurses only into its direct subterms, so the finite rule body bounds the calls; `sorts` holds the sort `insert_sort` settled for every configuration variable found so far.
     fn collect(term: &Term, sorts: &mut BTreeMap<String, Sort>) -> Result<(), String> {
         match term.unannotated() {
             Term::Apply { label, arguments } => {
@@ -601,6 +601,7 @@ fn unadmitted_hook_namespace_diagnostics(
 ) -> Vec<Diagnostic> {
     let mut seen = BTreeSet::new();
     let mut diagnostics = Vec::new();
+    // Invariant: `diagnostics` has one warning for every (namespace, hook) pair in `seen`, taken from the hooked function productions before `sentence` whose namespace is neither builtin nor in `admitted`; each such production scans `admitted` once.
     for sentence in definition.sentences(definition.main_module_id()) {
         let crate::definition::Sentence::Production { attributes, .. } = sentence else {
             continue;
@@ -614,7 +615,6 @@ fn unadmitted_hook_namespace_diagnostics(
         let Some((namespace, _)) = hook.split_once('.') else {
             continue;
         };
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
         if BUILTIN_HOOK_NAMESPACES.contains(&namespace)
             || admitted.iter().any(|candidate| candidate == namespace)
             || !seen.insert((namespace.to_owned(), hook.to_owned()))

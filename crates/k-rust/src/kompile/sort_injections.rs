@@ -354,7 +354,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         self.term_sort_with_arity(term, expected, true)
     }
 
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: each recursive call descends into a direct subterm of `term` (a rewrite side, an `as` pattern or alias, or one argument of a sort-transparent application), so the depth of `term` bounds the recursion.
     fn term_sort_with_arity(
         &self,
         term: &Term,
@@ -491,7 +491,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         }
     }
 
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: each call either retries once on the `semantic_projection` of `term`, whose argument carries no cast sort and so cannot project again, or recurses through `visit_children` into the direct subterms of `term`; the depth of `term` bounds the calls.
     fn inject_with_position(
         &self,
         term: &Term,
@@ -617,7 +617,6 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 } if parameters.is_empty()
                     && sort == expected
                     && attributes.has(AttributeKey::UserList)
-                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                     && !items.iter().any(|item| {
                         matches!(item, crate::definition::ProductionItem::NonTerminal { .. })
                     }) =>
@@ -663,6 +662,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         let Term::Apply { label, arguments } = term.unannotated() else {
             return Ok(None);
         };
+        // Invariant: no production before `production` in catalog order carries both `wrapElement` and `element` with a wrapped label of sort `actual`, since the first one that does returns; each candidate scans the productions of its wrapped label once.
         for (_, production) in self.productions.productions() {
             let Sentence::Production { attributes, .. } = production else {
                 unreachable!()
@@ -677,7 +677,6 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 .productions
                 .productions_for(&LabelHead::new(wrapped_label))
                 .iter()
-                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 .any(|id| {
                     matches!(
                         self.productions.production(*id),
@@ -900,7 +899,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 )?;
                 self.match_sort(parameters, declared, &actual, &mut matches);
             }
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+            // Invariant: each `parameter` scans `argument_sorts` once, O(|parameters| * |argument_sorts|), and the scan stops at the first parameter that occurs in `sort` but in no argument sort.
             let result_only_parameter = parameters.iter().any(|parameter| {
                 contains_sort(sort, parameter)
                     && !argument_sorts
@@ -963,7 +962,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         )
     }
 
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: each `match_sort` to `match_sort_parameters` to `match_sort` round descends one level into `declared.parameters`, so the depth of `declared` bounds the recursion; `matches` accumulates, per formal parameter, every sort bound so far.
     fn match_sort(
         &self,
         formal_parameters: &[Sort],
@@ -980,7 +979,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         }
 
         self.match_sort_parameters(formal_parameters, declared, actual, matches);
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `matches` includes the bindings from `actual` and from every strict subsort of `actual` before `candidate` in `sorts.sorted_all_sorts()`; each candidate is visited once.
         for candidate in self.sorts.sorted_all_sorts() {
             if candidate != actual && self.subsorts.less_than_eq(candidate, actual) {
                 self.match_sort_parameters(formal_parameters, declared, candidate, matches);
@@ -1118,7 +1117,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             .iter()
             .filter(|sort| !sort.parameters.is_empty())
             .collect::<Vec<_>>();
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        // Invariant: a `bound` is kept only when every sort of `parametric` has an instantiation below it; the check costs O(|bounds| * the instantiations of the sorts in `parametric`).
         bounds.retain(|bound| {
             parametric.iter().all(|sort| {
                 self.sorts
@@ -1263,7 +1262,7 @@ fn has_rewrite(term: &Term) -> bool {
     found
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each call projects one node of `term` and recurses only into its direct subterms, so the finite `term` bounds the calls; `right` selects the side kept at every rewrite.
 pub(crate) fn rewrite_projection(term: &Term, right: bool) -> Term {
     match term.unannotated() {
         Term::Rewrite {

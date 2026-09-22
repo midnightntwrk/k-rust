@@ -236,7 +236,7 @@ fn encode_generated_identity(identity: GeneratedVariableIdentity) -> KoreVariabl
 }
 
 fn variable_identities(pattern: &Pattern) -> BTreeSet<KoreVariableIdentity> {
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: each call visits one node of `pattern` and recurses only into its direct subpatterns, so the finite `pattern` bounds the calls; `output` holds every free or bound variable identity met so far.
     fn collect(pattern: &Pattern, output: &mut BTreeSet<KoreVariableIdentity>) {
         match pattern {
             Pattern::Variable(variable) => {

@@ -60,7 +60,7 @@ pub(super) fn generated_axioms(
         let Some(greater_productions) = overloads.order().relations_from(&lesser) else {
             continue;
         };
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        // Invariant: `semantics` and `syntax` hold one overload axiom for every production before `greater` in catalog order that `greater_productions` contains; this scan of `overloads.catalog().productions()` runs once per `lesser`, O(n^2) in the catalog size.
         for (greater, _) in overloads.catalog().productions() {
             if greater_productions.contains(&greater) {
                 let axiom = overload_axiom(overloads, lesser, greater)?;
@@ -153,7 +153,7 @@ fn no_confusion_axioms(
         Sentence::Production { sort, .. } => SortHead::from(sort),
         _ => unreachable!("production catalogs contain productions"),
     };
-    // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+    // Invariant: `emitted_pairs` holds both orderings of every constructor pair that already has a no-confusion axiom, so each unordered pair is emitted once; this scan of `productions.productions()` runs once per constructor `id`, O(n^2) in the catalog size.
     for (other_id, other_production) in productions.productions() {
         if other_id == id
             || !constructors.contains(&other_id)
@@ -261,7 +261,7 @@ fn no_junk_axioms(
         let mut used_variable_names = BTreeSet::new();
         let mut variable_suffixes = BTreeMap::new();
         let mut has_token = false;
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        // Invariant: `alternatives` holds one pattern for every admitted production of `result_head` before this one, with at most one top pattern for token productions as tracked by `has_token`; this scan of `productions.productions()` runs once per sort, O(|sorts| * |productions|).
         for (_, production) in productions.productions() {
             let Sentence::Production {
                 label,
@@ -317,7 +317,7 @@ fn no_junk_axioms(
             }
         }
         if sort.name != BuiltinSort::K.k_name() {
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+            // Invariant: `alternatives` has gained one injection alternative for every strict subsort of `sort` before `subsort`; this scan of `sorts.sorted_all_sorts()` runs once per sort of the same list, O(|sorts|^2).
             for subsort in sorts
                 .sorted_all_sorts()
                 .filter(|subsort| subsorts.less_than(subsort, sort))
@@ -384,7 +384,7 @@ fn consistent_generated_variable(
             base.to_owned()
         } else {
             let suffix = suffixes.entry(base.to_owned()).or_insert(2);
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+            // Invariant: every `{base}V{n}` with `n` below `suffix` is already in `used`; each iteration increments `suffix`, and `used` is finite, so an unused candidate is reached.
             loop {
                 let candidate = format!("{base}V{suffix}");
                 *suffix += 1;
@@ -443,7 +443,7 @@ fn generated_production_for_sort(
     })
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each call matches one node of `pattern` against `concrete` and recurses only into their `parameters`, so the finite `pattern` bounds the calls; `substitution` binds every element of `parameters` met so far to one concrete sort.
 fn match_sort_parameters(
     pattern: &Sort,
     concrete: &Sort,

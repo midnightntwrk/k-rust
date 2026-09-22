@@ -478,7 +478,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         )
     }
 
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: each call visits one node of `term` and recurses only into its direct subterms, so the finite `term` bounds the calls; `variables` lists every anonymous name of `seen` once, in first-occurrence preorder.
     fn collect_anonymous_variables(
         &self,
         term: &Term,
@@ -775,7 +775,6 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         if ids.len() != 1
             && let Some(expected) = term.metadata().and_then(|metadata| metadata.sort.as_ref())
         {
-            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             let matching = ids
                 .iter()
                 .filter_map(|id| {
