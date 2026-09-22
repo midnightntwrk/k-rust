@@ -58,7 +58,7 @@ fn uses_deprecated_production(term: &Term, productions: &ProductionCatalog<'_>) 
         if productions.production(*production).attributes().has(AttributeKey::Deprecated))
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `visitor` has been applied to `term` before any of its subterms, and each recursive call descends into a strict subterm of `term`, so the size of `term` bounds the calls.
 fn visit_with_metadata(term: &Term, visitor: &mut impl FnMut(&Term)) {
     visitor(term);
     match term.unannotated() {

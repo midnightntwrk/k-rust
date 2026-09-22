@@ -185,7 +185,7 @@ pub fn compute_priorities<'a>(
         };
         for adjacent in priorities.windows(2) {
             for greater_precedence in &adjacent[0] {
-                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+                // Invariant: `relations` contains every pair from the earlier windows of `priorities`, from the earlier `greater_precedence` entries of `adjacent[0]`, and from the earlier entries of `adjacent[1]`; each iteration consumes one entry of `adjacent[1]`, so each window costs O(|adjacent[0]| * |adjacent[1]|) insertions.
                 for lesser_precedence in &adjacent[1] {
                     relations.insert((greater_precedence.clone(), lesser_precedence.clone()));
                 }
@@ -220,7 +220,7 @@ pub fn compute_associativities<'a>(
         };
         for target in targets {
             for parent in tags {
-                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+                // Invariant: `target` contains `(parent, c)` for every `c` of `tags` before `child`, and `(p, c)` for every earlier `p` and every `c` of `tags`; each iteration consumes one entry of `tags`, so each `target` costs O(|tags|^2) insertions.
                 for child in tags {
                     target.insert((parent.clone(), child.clone()));
                 }
@@ -293,7 +293,7 @@ fn add_overload_group(
     require_lesser_label: bool,
 ) {
     for &lesser in group {
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: `relations` contains `(l, g)` for every pair of `group` already visited, with an earlier `lesser` or an earlier `greater`, that satisfies the label requirement and `production_less_than`; each iteration consumes one entry of `group`, so a group costs O(|group|^2) comparisons.
         for &greater in group {
             let lesser_sentence = catalog.production(lesser);
             let lesser_has_label =

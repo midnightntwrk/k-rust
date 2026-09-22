@@ -255,9 +255,9 @@ impl Attributes {
         let mut origin = None::<Arc<OriginReceipt>>;
         let mut conflicting_origin = false;
         for attributes in attributes {
+            // Invariant: `values` maps every key of the earlier attribute sets and of the entries before `key` to its distinct values in first-occurrence order; each iteration consumes one entry of `attributes.entries` and scans that key's `candidates` once.
             for (key, value) in &attributes.entries {
                 let candidates = values.entry(key.clone()).or_default();
-                // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
                 if !candidates.contains(value) {
                     candidates.push(value.clone());
                 }

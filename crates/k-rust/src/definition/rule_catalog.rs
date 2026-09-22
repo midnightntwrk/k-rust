@@ -255,7 +255,7 @@ fn local_ids<Id: Ord>(
     visible
         .iter()
         .enumerate()
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: the collected set holds `id(index)` for every entry of `visible` before the current one that is equivalent to an entry of `local`; the filter scans `local` once per entry of `visible`, O(|visible| * |local|) `sentence_equivalent` calls.
         .filter(|(_, sentence)| {
             local
                 .iter()

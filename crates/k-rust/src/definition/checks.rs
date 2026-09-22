@@ -332,7 +332,7 @@ pub fn check_syntax_groups(
             .into_iter()
             .collect::<Vec<_>>();
         for left in 0..tags.len() {
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+            // Invariant: `diagnostics` holds a warning for every pair `(tags[l], tags[r])` related by `priorities` with `l < left`, or with `l == left` and `r < right`; each iteration consumes one index of `left + 1..tags.len()`, so a group costs O(|tags|^2) `in_some_relation` queries.
             for right in left + 1..tags.len() {
                 if priorities.in_some_relation(tags[left], tags[right]) {
                     diagnostics.push(Diagnostic::warning(
@@ -543,7 +543,7 @@ struct RewriteState {
     in_function_body: bool,
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: the `state` flags describe the rewrite, `#as`, and `#fun` context enclosing `term`, and each recursive call descends into a strict subterm of `term`, so the size of the rule body bounds the calls.
 fn visit_rewrite_term(
     term: &Term,
     state: &mut RewriteState,

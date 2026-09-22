@@ -495,7 +495,7 @@ fn collect_definition_metadata(
     Ok(())
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `path` holds the child indices from the root of sentence term `field` to `term`, and each recursive call through `collect_metadata_child` pushes one index and descends into a strict subterm of `term`, so the size of `term` bounds the calls.
 fn collect_term_metadata(
     term: &Term,
     source_table: &SourceTable,
@@ -767,7 +767,7 @@ fn source_id(source_table: &SourceTable, source: &JsonLogicalSource) -> Result<S
     let identity = LogicalSourceId::try_from(source.clone())?;
     source_table
         .iter()
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        // Invariant: every entry of `source_table` before `candidate` differs from `identity`; the scan consumes one entry per step, so the length of `source_table` bounds it.
         .position(|candidate| candidate == &identity)
         .map(SourceId)
         .ok_or_else(|| {

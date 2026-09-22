@@ -204,7 +204,7 @@ fn check_context_variables(
     );
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `position` is the `TermPosition` of `term` in the rule, and each recursive call receives a child of `term` from `positioned_children`, so the size of `term` bounds the calls.
 fn check_pattern_value(
     term: &Term,
     position: TermPosition,
@@ -229,7 +229,7 @@ fn check_pattern_value(
 }
 
 #[allow(clippy::too_many_arguments)]
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `bound` holds the variables bound at the positions already visited, and each recursive call receives a strict subterm of `term`, so the size of `term` bounds the calls.
 fn gather_variables(
     term: &Term,
     position: TermPosition,
@@ -346,7 +346,7 @@ fn report_unbound(
     }
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `unbound` holds the unbound right-hand-side variables of the subterms already visited, and each recursive call receives a strict subterm of `term`, so the size of `term` bounds the calls.
 fn compute_unbound(
     term: &Term,
     position: TermPosition,

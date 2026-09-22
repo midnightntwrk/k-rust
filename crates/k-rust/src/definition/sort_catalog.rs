@@ -235,7 +235,7 @@ impl ResolvedDefinition {
     ///
     /// This accessor recomputes on every call; use `DefinitionViews` inside a loop.
     pub fn sort_catalog(&self, module: ModuleId) -> SortCatalog<'_> {
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: the collected set holds the `all_sorts` of the visible-sentence catalog of every entry of `self.direct_imports(module)` already consumed; the pass consumes one direct import per step and rebuilds its catalog with `SortCatalog::from_visible`.
         let imported_sorts = self
             .direct_imports(module)
             .into_iter()
@@ -255,6 +255,7 @@ fn compute_instantiations(
 ) -> BTreeMap<SortHead, BTreeSet<Sort>> {
     let mut nonempty = BTreeMap::<SortHead, BTreeSet<Sort>>::new();
     let mut heads = BTreeSet::new();
+    // Invariant: `heads` holds the head of every parametric production sort among the entries of `sentences` before `sentence`, and `nonempty` maps each such head to those sorts that mention none of their production's `parameters`; each iteration consumes one sentence.
     for sentence in sentences {
         let Sentence::Production {
             parameters, sort, ..
@@ -265,7 +266,6 @@ fn compute_instantiations(
         if !sort.parameters.is_empty() {
             let head = SortHead::from(sort);
             heads.insert(head.clone());
-            // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
             if !parameters.contains(sort)
                 && sort
                     .parameters
@@ -306,6 +306,7 @@ fn compute_defined_heads(
     instantiations: &BTreeMap<SortHead, BTreeSet<Sort>>,
 ) -> BTreeSet<SortHead> {
     let mut defined = BTreeSet::new();
+    // Invariant: `defined` holds the head of every production sort among the entries of `sentences` before `sentence` that is not one of its production's `parameters`; each iteration consumes one sentence.
     for sentence in sentences {
         let Sentence::Production {
             parameters, sort, ..
@@ -313,7 +314,6 @@ fn compute_defined_heads(
         else {
             continue;
         };
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         if !parameters.contains(sort) {
             defined.insert(SortHead::from(sort));
         }

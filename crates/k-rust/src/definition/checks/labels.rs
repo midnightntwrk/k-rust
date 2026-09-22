@@ -252,8 +252,8 @@ pub(super) fn check_duplicate_overloads_with_views(views: &DefinitionViews<'_>) 
     }
     let components = overloads.order().connected_components();
     let mut diagnostics = Vec::new();
+    // Invariant: `diagnostics` holds a duplicate-overload warning per component for every entry of `groups` before `key` whose `group` spans more entries of `components` than its limit; each iteration consumes one group and intersects it with every entry of `components`, O(|groups| * |components|) intersections.
     for (key, group) in groups {
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let group_components = components
             .iter()
             .map(|component| {
@@ -329,7 +329,7 @@ fn cell_collection_production(
         return false;
     };
     attributes.has(AttributeKey::Cell)
-        // Invariant: prior outer items and prior candidates for this item have been examined in order; the remaining inner iterator shrinks, giving O(n^2) over the two scanned collections.
+        // Invariant: no entry of `items` before `item` is a nonterminal whose sort carries `cell-collection`; the scan consumes one item per step.
         && items.iter().any(|item| {
             let ProductionItem::NonTerminal { sort, .. } = item else {
                 return false;
@@ -369,8 +369,8 @@ pub(super) fn check_function_rule_attributes_with_views(
     let rules = definition.rule_catalog(module);
     let mut diagnostics = Vec::new();
 
+    // Invariant: `diagnostics` holds the attribute errors of the rules of every entry of `productions.function_labels()` before `function`; each iteration consumes one label and scans all of `rules.rules()`, O(|function labels| * |rules|).
     for function in productions.function_labels() {
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let function_rules = rules
             .rules()
             .filter(|(_, rule)| LabelHead::from(&match_rule_label(rule)) == *function)

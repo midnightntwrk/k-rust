@@ -254,7 +254,7 @@ fn check_production(
             production,
         ));
     }
-    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+    // Invariant: no entry of `overloads.productions()` before `candidate` is both equivalent to `production` and a member of `overloads.order()`; the scan consumes one production per step and stops at the first match.
     let marks_overload = overloads.is_some_and(|overloads| {
         overloads.productions().any(|(id, candidate)| {
             sentence_equivalent(candidate, production) && overloads.order().contains(&id)

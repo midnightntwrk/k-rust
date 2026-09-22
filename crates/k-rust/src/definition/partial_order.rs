@@ -224,7 +224,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .filter(|candidate| {
                 !elements
                     .iter()
-                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+                    // Invariant: no entry of `elements` before `other` is strictly less than `candidate`; the scan consumes one entry per step, so `minimal` makes at most |elements|^2 `less_than` queries.
                     .any(|other| self.less_than(other, candidate))
             })
             .map(|element| (*element).clone())
@@ -241,7 +241,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .filter(|candidate| {
                 !elements
                     .iter()
-                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+                    // Invariant: no entry of `elements` before `other` is strictly greater than `candidate`; the scan consumes one entry per step, so `maximal` makes at most |elements|^2 `less_than` queries.
                     .any(|other| self.less_than(candidate, other))
             })
             .map(|element| (*element).clone())
@@ -277,7 +277,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
                     continue;
                 }
                 unseen.remove(&element);
-                // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+                // Invariant: `pending` has gained every element of `self.elements()` before `candidate` that is related to `element` in either direction and absent from `component`; each iteration consumes one element, so each expansion scans all of `self.elements()`.
                 for candidate in self.elements() {
                     if (self.less_than(&element, candidate) || self.less_than(candidate, &element))
                         && !component.contains(candidate)
@@ -304,7 +304,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
             .filter(|candidate| {
                 elements
                     .iter()
-                    // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+                    // Invariant: every entry of `elements` before `element` satisfies `relation(self, candidate, _)`; the scan consumes one entry per step, so `bounds` makes at most |self.elements()| * |elements| `relation` calls.
                     .all(|element| relation(self, candidate, element))
             })
             .cloned()
@@ -317,7 +317,7 @@ fn unique<T: Ord>(mut elements: BTreeSet<T>) -> Option<T> {
 }
 
 fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: `stack` is the current depth-first path, whose nodes have `state` 1, and finished nodes have `state` 2; each recursive call is made only on a node with `state` 0 and sets it to 1, so the node count of `graph` bounds the calls.
     fn visit<T: Clone + Ord>(
         graph: &DiGraph<T, ()>,
         node: NodeIndex,
@@ -326,9 +326,9 @@ fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
     ) -> Option<Vec<T>> {
         state[node.index()] = 1;
         stack.push(node);
-        // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
         let mut successors = graph.neighbors_directed(node, Outgoing).collect::<Vec<_>>();
         successors.sort_by(|left, right| graph[*left].cmp(&graph[*right]));
+        // Invariant: every entry of `successors` before `successor` has `state` 2, since a visit that returns `None` finishes its node; each iteration consumes one successor.
         for successor in successors {
             if state[successor.index()] == 0 {
                 if let Some(cycle) = visit(graph, successor, state, stack) {
@@ -337,7 +337,7 @@ fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
             } else if state[successor.index()] == 1 {
                 let start = stack
                     .iter()
-                    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+                    // Invariant: no entry of `stack` before `candidate` equals `successor`, which has `state` 1 and so lies on `stack`; the scan consumes one stack entry per step.
                     .position(|candidate| *candidate == successor)
                     .expect("active node is in DFS stack");
                 return Some(
@@ -354,12 +354,11 @@ fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
         None
     }
 
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
     let mut state = vec![0; graph.node_count()];
     let mut stack = Vec::new();
     let mut nodes = graph.node_indices().collect::<Vec<_>>();
     nodes.sort_by(|left, right| graph[*left].cmp(&graph[*right]));
-    // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+    // Invariant: every entry of `nodes` before `node` has `state` 2 and `stack` is empty; each iteration consumes one node.
     for node in nodes {
         if state[node.index()] == 0
             && let Some(cycle) = visit(graph, node, &mut state, &mut stack)

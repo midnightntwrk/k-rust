@@ -58,7 +58,7 @@ pub fn check_functions(
 }
 
 #[allow(clippy::too_many_arguments)]
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `position` is the `TermPosition` of `term`, and `at_top` stays true only until the first application other than `WithConfig` is visited; each recursive call, directly or through `visit_arguments`, receives a strict subterm of `term`, so the size of the rule body bounds the calls.
 fn visit_term(
     term: &Term,
     position: TermPosition,

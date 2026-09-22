@@ -13,6 +13,7 @@ use crate::kast::{FrontendSort, Sort};
 pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
+    // Invariant: `diagnostics` holds the parametric-sort and undefined-sort errors of every entry of `module.local_sentences` before `sentence`; each iteration consumes one local sentence.
     for sentence in module.local_sentences.iter().map(std::sync::Arc::as_ref) {
         match sentence {
             Sentence::SyntaxSort { sort, .. } => {
@@ -36,7 +37,6 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                             return None;
                         };
                         let head = SortHead::from(sort);
-                        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
                         let missing_head = !parameters.contains(sort)
                             && !sorts.defined_heads().contains(&head)
                             && !sorts.synonym_map().contains_key(sort);
@@ -95,13 +95,14 @@ pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<D
         .local_sentences
         .iter()
         .map(std::sync::Arc::as_ref)
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
+        // Invariant: the chain yields every entry of `module.local_sentences`, then each entry of `visible` that is not pointer-equal to a local sentence; the filter scans `module.local_sentences` once per entry of `visible`, O(|visible| * |local_sentences|).
         .chain(visible.iter().copied().filter(|candidate| {
             !module
                 .local_sentences
                 .iter()
                 .any(|local| std::ptr::eq(local.as_ref(), *candidate))
         }));
+    // Invariant: `diagnostics` holds an error for every entry of `candidates` before `sentence` whose sort has a user-list production in `visible` from another origin; each iteration consumes one candidate and scans `visible` once with `find`, O(|candidates| * |visible|).
     for sentence in candidates {
         let Sentence::Production {
             sort, attributes, ..
@@ -114,7 +115,6 @@ pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<D
         }
 
         let own_origin = (attributes.source(), attributes.location());
-        // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
         let previous = visible.iter().copied().find(|candidate| {
             let Sentence::Production {
                 sort: candidate_sort,

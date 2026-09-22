@@ -13,6 +13,7 @@ pub fn check_smt_lemmas(
     productions: &ProductionCatalog<'_>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+    // Invariant: `diagnostics` holds an error for every label application in the `smt-lemma` rules before `sentence` none of whose productions carries `smt-hook` or `smtlib`; each iteration consumes one entry of `sentences`.
     for sentence in sentences {
         let Sentence::Rule {
             body, attributes, ..
@@ -31,7 +32,6 @@ pub fn check_smt_lemmas(
             if ids.is_empty() {
                 return;
             }
-            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             if ids.iter().all(|id| {
                 let attributes = productions.production(*id).attributes();
                 !attributes.has(AttributeKey::SmtHook) && !attributes.has(AttributeKey::Smtlib)

@@ -513,7 +513,7 @@ fn production_items_equivalent(left: &[ProductionItem], right: &[ProductionItem]
 ///
 /// K compares rule bodies as `K` terms, whose variable equality ignores the sort and
 /// which never carry the parser's metadata annotations.
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: each recursive call, directly or through `terms_equivalent`, compares a pair of strict subterms of `left` and `right`, so the size of `left` bounds the calls.
 pub fn term_equivalent(left: &Term, right: &Term) -> bool {
     match (left.unannotated(), right.unannotated()) {
         (Term::InjectedLabel(left), Term::InjectedLabel(right)) => left == right,

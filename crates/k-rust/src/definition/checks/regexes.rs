@@ -55,12 +55,12 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
         }
 
         let mut bad_names = Vec::new();
+        // Invariant: `bad_names` holds, without duplicates and in first-occurrence order, the undeclared names yielded before `name`; each iteration consumes one yielded name and scans `bad_names` once, quadratic in the number of undeclared references.
         for name in parsed
             .iter()
             .flat_map(|regex| named_references(&regex.body))
             .filter(|name| !declarations.contains_key(name))
         {
-            // Invariant: preceding items have been processed in encounter order, and the remaining iterator shrinks by one each iteration.
             if !bad_names.contains(&name) {
                 bad_names.push(name);
             }
@@ -181,7 +181,6 @@ fn named_references(body: &RegexBody) -> Vec<String> {
     let mut names = Vec::new();
     body.visit_preorder(&mut |body| {
         if let RegexBody::Named(name) = body
-            // Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
             && !names.contains(name)
         {
             names.push(name.clone());
@@ -190,7 +189,6 @@ fn named_references(body: &RegexBody) -> Vec<String> {
     names
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn push_unique<T: PartialEq>(values: &mut Vec<T>, value: T) {
     if !values.contains(&value) {
         values.push(value);
@@ -199,7 +197,7 @@ fn push_unique<T: PartialEq>(values: &mut Vec<T>, value: T) {
 
 fn disjoint_cycles(mut adjacency: BTreeMap<String, BTreeSet<String>>) -> Vec<Vec<String>> {
     let mut cycles = Vec::new();
-    // Invariant: the current state contains every fact found so far, and each successful iteration changes at least one fact in the finite state space.
+    // Invariant: `cycles` holds the disjoint cycles found so far, none of whose members remains a key or a dependency in `adjacency`; each iteration removes the nonempty `members` of `cycle` from the keys of `adjacency`, so its key count bounds the iterations.
     while let Some(cycle) = find_cycle(&adjacency) {
         let members = cycle.iter().cloned().collect::<BTreeSet<_>>();
         adjacency.retain(|name, _| !members.contains(name));
@@ -211,11 +209,11 @@ fn disjoint_cycles(mut adjacency: BTreeMap<String, BTreeSet<String>>) -> Vec<Vec
     cycles
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
 fn find_cycle(adjacency: &BTreeMap<String, BTreeSet<String>>) -> Option<Vec<String>> {
     let mut visited = BTreeSet::new();
     let mut stack = Vec::new();
     let mut on_stack = BTreeMap::<String, usize>::new();
+    // Invariant: `visited` holds every name reachable from the keys of `adjacency` before `name`, and no cycle is reachable from them; each iteration consumes one key of `adjacency`.
     for name in adjacency.keys() {
         if let Some(cycle) = visit_cycle(name, adjacency, &mut visited, &mut stack, &mut on_stack) {
             return Some(cycle);
@@ -224,7 +222,7 @@ fn find_cycle(adjacency: &BTreeMap<String, BTreeSet<String>>) -> Option<Vec<Stri
     None
 }
 
-// Invariant: each recursive visit consumes one input node or follows an unvisited graph edge, so the finite input bounds the remaining visits.
+// Invariant: `stack` is the current depth-first path and `on_stack` maps each of its names to its index; each call either returns at once or inserts a new name into `visited`, so the names in `adjacency` bound the calls.
 fn visit_cycle(
     name: &str,
     adjacency: &BTreeMap<String, BTreeSet<String>>,
