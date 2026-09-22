@@ -21,6 +21,9 @@ import {
   WORKER_PROTOCOL,
 } from "./protocol.ts";
 
+/** The asset loader (hash verification + one module compile per page), re-exported for docs-site. */
+export { loadVerifiedAssets, PackIntegrityError } from "./pack.ts";
+
 export interface KrsCompilerOptions {
   /** Creates the module worker (the bundle location differs between hosts). */
   createWorker: () => Worker;

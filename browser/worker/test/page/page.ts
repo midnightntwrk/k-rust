@@ -2,8 +2,7 @@
 // verifies every hash, compiles the three modules once, and exposes
 // window.ir15 for the WebDriver/BiDi drivers.
 
-import { KrsCompiler } from "../../src/controller.ts";
-import { loadVerifiedAssets } from "../../src/pack.ts";
+import { KrsCompiler, loadVerifiedAssets } from "../../src/controller.ts";
 import type { CompileEvent, LessonManifest, PackManifest } from "../../src/protocol.ts";
 import { check, SCENARIOS } from "../scenarios.ts";
 
