@@ -1,6 +1,7 @@
-//! `proptest` invariants of the kept algorithms (CQ-10 commit 9): syntactic matching (backend.matching.syntactic),
-//! first-order unification (backend.unification.syntactic), and substitution extraction (backend.substitution.extract), over generated
-//! constructor terms of two sorts with one injection and variables of each sort.
+//! `proptest` invariants of the kept algorithms (CQ-10 commit 9): syntactic matching
+//! (backend.matching.syntactic), first-order unification (backend.unification.syntactic), and
+//! substitution extraction (backend.substitution.extract), over generated constructor terms of
+//! two sorts with one injection and variables of each sort.
 
 use std::collections::BTreeSet;
 
@@ -129,8 +130,9 @@ fn idempotent(substitution: &Substitution) -> bool {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// Row B2: a successful `Rewrite`-mode match of a constructor pattern against an instance
-    /// of it returns a substitution whose application to the pattern is the subject.
+    /// backend.matching.syntactic: a successful `Rewrite`-mode match of a constructor pattern
+    /// against an instance of it returns a substitution whose application to the pattern is the
+    /// subject.
     #[test]
     fn matching_substitution_applied_to_the_pattern_is_the_subject(
         pattern in term_s(true),
@@ -162,8 +164,8 @@ proptest! {
         }
     }
 
-    /// Row B5: a `Unified` result is a unifier (both sides agree under it) and the substitution
-    /// is idempotent, so composing it again changes nothing.
+    /// backend.unification.syntactic: a `Unified` result is a unifier (both sides agree under
+    /// it) and the substitution is idempotent, so composing it again changes nothing.
     #[test]
     fn unifier_is_idempotent_and_identifies_both_sides(
         left in term_s(true),
@@ -184,8 +186,9 @@ proptest! {
         }
     }
 
-    /// Row B6: extraction returns an idempotent (hence acyclic) substitution; every input
-    /// equality is either exactly one binding, saturated under the whole substitution, or
+    /// backend.substitution.extract: extraction returns an idempotent (hence acyclic)
+    /// substitution; every input equality is either exactly one binding, saturated under the
+    /// whole substitution, or
     /// returned untouched among the remaining predicates (the cycle-breaking equality of each
     /// cycle stays there in its input form). An equality whose right-hand side mentions its
     /// own variable (`X = X`, `X = c1(X)`) is never a binding, as the reference backend drops

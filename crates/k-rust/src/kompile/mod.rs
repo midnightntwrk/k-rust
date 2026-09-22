@@ -1,4 +1,4 @@
-//! Kompile layers definition resolution, ordered D12 transformation passes, sort injection, and KORE emission.
+//! Kompile layers definition resolution, ordered transformation passes, sort injection, and KORE emission.
 //! `compile::transform_loaded_definition` owns the timed stage list; shared equivalence, retargeting, and label-graph algorithms have one home.
 //! Kompile and provenance counters measure the variable work named by those algorithms.
 //!

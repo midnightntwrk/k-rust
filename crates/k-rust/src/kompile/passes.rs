@@ -1,4 +1,4 @@
-//! Shared D12 pass scaffolding resolves views, clones and transforms definitions, records origins, and rebases production metadata.
+//! Shared pass scaffolding resolves views, clones and transforms definitions, records origins, and retargets production metadata.
 //! Cost is the pass traversal plus resolution, measured by the kompile counters and named timing phase.
 //!
 //! Ordered frontend compilation passes that transform flat definitions.

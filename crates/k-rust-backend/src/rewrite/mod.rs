@@ -1,13 +1,14 @@
-//! Rewrite steps and execution over internalized theories, the set of homes of rows B9, B10,
-//! B11, and B21 of the CQ-10 architecture picture: `apply` (one-rule conditional rewriting,
-//! B9), `recover` (its indeterminate-match recovery ladder, B9), `step` (the priority-grouped
-//! step with remainder, B10), `execute` (depth-first exploration of the rewrite tree, B11), and
-//! `predicates` (predicate truth, alpha equivalence, and constructor-domain coverage, B21).
-//! This file holds the shared types, the public entry points, and the re-exports that keep
-//! every `crate::rewrite::` path of the tests unchanged; each home's head states its cost and
-//! counters. In one line: O(c) rule attempts per step for c candidates and O(states) steps per
-//! execution; `Counter::RewriteRuleAttempts`, `Counter::RewriteRulesApplied`,
-//! `Counter::RewriteSteps`.
+//! Rewrite steps and execution over internalized theories, the set of homes of
+//! backend.rewrite.apply, backend.rewrite.step, and backend.rewrite.execute of the CQ-10
+//! architecture picture: `apply` (one-rule conditional rewriting, backend.rewrite.apply),
+//! `recover` (its indeterminate-match recovery ladder, backend.rewrite.apply), `step` (the
+//! priority-grouped step with remainder, backend.rewrite.step), `execute` (depth-first
+//! exploration of the rewrite tree, backend.rewrite.execute), and `predicates` (predicate
+//! truth, alpha equivalence, and constructor-domain coverage). This file holds the shared
+//! types, the public entry points, and the re-exports that keep every `crate::rewrite::` path
+//! of the tests unchanged; each home's head states its cost and counters. In one line: O(c)
+//! rule attempts per step for c candidates and O(states) steps per execution;
+//! `Counter::RewriteRuleAttempts`, `Counter::RewriteRulesApplied`, `Counter::RewriteSteps`.
 
 mod apply;
 mod execute;

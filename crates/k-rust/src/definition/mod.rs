@@ -1,4 +1,4 @@
-//! Definition algorithms are layered from syntax and equivalence through import resolution and derived catalogs (D1-D9).
+//! Definition algorithms are layered from syntax and equivalence through import resolution and derived catalogs.
 //! `DefinitionViews` memoises derived catalogs and relations for one resolution; one-shot public
 //! helpers remain available for callers that need a single view.
 //! `KompileResolveCalls`, `KompileResolveUpdates`, `KompileSentenceEquivalenceChecks`,
