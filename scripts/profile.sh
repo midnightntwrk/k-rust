@@ -39,13 +39,15 @@ the same K_CHECKOUT / IMP_SEMANTICS_CHECKOUT / EVM_SEMANTICS_CHECKOUT
 variables as scripts/benchmark.sh.
 
 The result directory holds profile.json.gz, command.txt, metadata.json,
-the workload's own output, and, when the binary writes them, timings.json
+krust (a copy of KRUST_BIN, so the profile stays symbolisable after
+target/ is rebuilt), the workload's own output, and, when the binary
+writes them, timings.json
 (kprove --timings, kcompile --timings once supported) and counters.json
 (KRUST_COUNTERS, a binary built with the measure feature).
 Each workload runs twice: once unprofiled through
 scripts/conformance/measure.py for the baseline wall time and peak RSS,
 then under samply record for the profile.
-Open a profile with: samply load DIR/profile.json.gz
+Open a profile with: samply load --symbol-dir DIR DIR/profile.json.gz
 
 --skip-profile leaves out the samply run, for hosts where perf_event_open
 is refused (the agent-N sandbox's seccomp filter does that; the script
@@ -381,6 +383,8 @@ if [[ "$skip_profile" != 1 ]]; then
   if [[ "$sample_count" == 0 ]]; then
     fail "profile has 0 samples: $out/profile.json.gz (perf_event delivered nothing; see benchmarks/README.md, Profiling)"
   fi
+  cp "$KRUST_BIN" "$out/krust"
+  retained_binary=krust
   profiled_wall=$(measure_field "$out/profiled" wall_seconds)
   profiled_rss=$(measure_field "$out/profiled" peak_rss_kib)
   profiled_exit=$(measure_field "$out/profiled" exit_code)
@@ -411,6 +415,7 @@ jq -n \
   --arg krust_version "$("$KRUST_BIN" --version)" \
   --arg krust_path "$KRUST_BIN" \
   --arg krust_sha256 "$(sha256sum "$KRUST_BIN" | cut -d' ' -f1)" \
+  --arg krust_retained "${retained_binary:-}" \
   --arg rustc_version "$(rustc --version 2>/dev/null || echo unavailable)" \
   --arg samply_version "$("$SAMPLY" --version)" \
   --argjson rate "$rate" \
@@ -436,7 +441,7 @@ jq -n \
       plugin: (if $plugin_revision == "" then null else $plugin_revision end)
     },
     tools: {krust: $krust_version, rustc: $rustc_version, samply: $samply_version},
-    binary: {path: $krust_path, sha256: $krust_sha256},
+    binary: {path: $krust_path, sha256: $krust_sha256, retained: (if $krust_retained == "" then null else $krust_retained end)},
     sampling: {rate_hz: $rate, sample_count: $sample_count},
     unprofiled: {wall_seconds: $unprofiled_wall, peak_rss_kib: $unprofiled_rss, exit_code: $unprofiled_exit},
     profiled: (if $profiled_exit == null then null else
@@ -449,5 +454,5 @@ if [[ "$skip_profile" == 1 ]]; then
   echo "[$workload] no profile recorded (--skip-profile); results in $out"
 else
   echo "[$workload] $sample_count samples; results in $out"
-  echo "next: $SAMPLY load $(shell_command "$out/profile.json.gz")"
+  echo "next: $SAMPLY load --symbol-dir $(shell_command "$out") $(shell_command "$out/profile.json.gz")"
 fi
