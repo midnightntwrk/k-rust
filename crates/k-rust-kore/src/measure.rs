@@ -16,10 +16,10 @@
 //! serves the process-exit dump and the parser's existing test helpers.
 //!
 //! The counter names are a schema for the dump written by `krust` under `KRUST_COUNTERS`; a
-//! rename is a contract change and bumps the dump's `version`.
+//! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 9;
+pub const COUNTER_SCHEMA_VERSION: u64 = 10;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -330,8 +330,6 @@ pub enum Counter {
     KompileResolveUpdates,
     /// Flat-definition sentences examined while deciding whether a resolved module is reusable.
     KompileResolveUpdateSentenceVisits,
-    /// Retained schema counter for the removed positional production rebases; always zero.
-    KompileRebaseCalls,
     /// Rule bubbles parsed (one Earley parse plus sort inference each).
     KompileRuleBubblesParsed,
     /// Sentence count of the transformed definition, written once per compile.
@@ -340,8 +338,6 @@ pub enum Counter {
     KompileSentenceEquivalenceChecks,
     /// Production catalogs constructed from visible sentence sets.
     KompileProductionCatalogsBuilt,
-    /// Sentences cloned while constructing a production catalog from borrowed inputs.
-    KompileCatalogSentenceClones,
     /// Finite partial orders constructed.
     KompilePartialOrdersBuilt,
     /// Explicit sort-injection terms inserted.
@@ -452,19 +448,17 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 61;
+    pub const COUNT: usize = 59;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
         Counter::KompileResolveCalls,
         Counter::KompileResolveUpdates,
         Counter::KompileResolveUpdateSentenceVisits,
-        Counter::KompileRebaseCalls,
         Counter::KompileRuleBubblesParsed,
         Counter::KompileSentencesTransformed,
         Counter::KompileSentenceEquivalenceChecks,
         Counter::KompileProductionCatalogsBuilt,
-        Counter::KompileCatalogSentenceClones,
         Counter::KompilePartialOrdersBuilt,
         Counter::KompileInjectionsInserted,
         Counter::KompileMacroApplications,
@@ -525,12 +519,10 @@ impl Counter {
             Counter::KompileResolveCalls => "kompile.resolve_calls",
             Counter::KompileResolveUpdates => "kompile.resolve_updates",
             Counter::KompileResolveUpdateSentenceVisits => "kompile.resolve_update_sentence_visits",
-            Counter::KompileRebaseCalls => "kompile.rebase_calls",
             Counter::KompileRuleBubblesParsed => "kompile.rule_bubbles_parsed",
             Counter::KompileSentencesTransformed => "kompile.sentences_transformed",
             Counter::KompileSentenceEquivalenceChecks => "kompile.sentence_equivalence_checks",
             Counter::KompileProductionCatalogsBuilt => "kompile.production_catalogs_built",
-            Counter::KompileCatalogSentenceClones => "kompile.catalog_sentence_clones",
             Counter::KompilePartialOrdersBuilt => "kompile.partial_orders_built",
             Counter::KompileInjectionsInserted => "kompile.injections_inserted",
             Counter::KompileMacroApplications => "kompile.macro_applications",
