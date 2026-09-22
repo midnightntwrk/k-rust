@@ -1,7 +1,7 @@
 use crate::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DefinitionRequest, DiagnosticEnvelope,
     DiagnosticStage, FacetSelector, GeneratedCollector, GenerationError, KrsCfg, PlanningError,
-    exact_authored_range_from_origin,
+    RegistrationMode, exact_authored_range_from_origin,
 };
 use krs_compiler::{
     DescriptorLoweringError, EmitError, LoweringError, ReferenceExpansionError, emit_k,
@@ -56,6 +56,11 @@ pub struct CommandRequest {
     pub backend: Backend,
     /// Artifact directory for `emit-k` and `build`.
     pub output_directory: Option<PathBuf>,
+    /// Descriptor registration mechanism of the generated collector.
+    ///
+    /// [`RegistrationMode::Explicit`] is build and parity tooling; authored
+    /// packages use the default.
+    pub registration: RegistrationMode,
 }
 
 /// Stable command output intended for stdout.
@@ -110,6 +115,10 @@ pub fn execute_command(request: &CommandRequest) -> Result<CommandOutcome, Comma
         },
         runtime,
     )?;
+    let plan = match request.registration {
+        RegistrationMode::Inventory => plan,
+        RegistrationMode::Explicit => plan.with_explicit_registration()?,
+    };
     let prepared = prepare(&metadata, &plan)?;
 
     match request.command {
@@ -1010,6 +1019,7 @@ mod tests {
             cfg: Vec::new(),
             backend: Backend::Llvm,
             output_directory: None,
+            registration: RegistrationMode::Inventory,
         };
         assert!(validate_request(&base).is_ok());
         let mut emit = base.clone();

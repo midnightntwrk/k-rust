@@ -323,6 +323,61 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Resu
     Ok(quote!(#request #(#output)* #(#rust_memberships)*))
 }
 
+/// Expands the facade's own framework sort block and lists its factories.
+///
+/// The output is exactly the [`sorts`] expansion followed by a crate-private
+/// `FRAMEWORK_FACTORIES` table of that invocation's descriptor factories, so a
+/// collector without linker-section registration can still obtain the
+/// framework descriptors. A procedural macro sees only its own invocation;
+/// this per-invocation table is the only registration table it can write.
+pub(crate) fn framework_sorts(input: TokenStream) -> syn::Result<TokenStream> {
+    let facade = facade_path()?;
+    let expansion = sorts(input)?;
+    let factories = registered_factories(&expansion);
+    if factories.is_empty() {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "framework sort block registered no descriptors",
+        ));
+    }
+    Ok(quote! {
+        #expansion
+
+        #[doc(hidden)]
+        pub(crate) const FRAMEWORK_FACTORIES: &[fn() -> #facade::HostDescriptor] =
+            &[#(#factories),*];
+    })
+}
+
+/// Collects the factories of the top-level `__register_host_descriptor!`
+/// invocations in one expansion.
+///
+/// `sorts!` never places `#[cfg]` attributes on readable sort or membership
+/// registrations, so every collected factory is unconditional.
+fn registered_factories(expansion: &TokenStream) -> Vec<Ident> {
+    let tokens = expansion.clone().into_iter().collect::<Vec<_>>();
+    tokens
+        .windows(3)
+        .filter_map(|window| match window {
+            [
+                TokenTree::Ident(name),
+                TokenTree::Punct(bang),
+                TokenTree::Group(arguments),
+            ] if name == "__register_host_descriptor"
+                && bang.as_char() == '!'
+                && arguments.delimiter() == proc_macro2::Delimiter::Parenthesis =>
+            {
+                let mut arguments = arguments.stream().into_iter();
+                match (arguments.next(), arguments.next()) {
+                    (Some(TokenTree::Ident(factory)), None) => Some(factory),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 fn push_local_sort_ancestors(
     sort: &Path,
     local_parents: &BTreeMap<String, Vec<Path>>,

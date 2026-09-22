@@ -90,6 +90,17 @@ pub struct CollectorRuntime {
     pub compiler_manifest: PathBuf,
 }
 
+/// How the generated production collector enumerates host descriptors.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RegistrationMode {
+    /// Linker-section registration through the `krs` `inventory` feature.
+    #[default]
+    Inventory,
+    /// Generated crate-root `__KRS_REGISTRATIONS` tables, one per semantics
+    /// package, with the `krs` `inventory` feature disabled.
+    Explicit,
+}
+
 /// A selected and validated KRS definition facet.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedFacet {
@@ -132,6 +143,7 @@ pub struct ResolvedPackage {
     pub semantics: bool,
     pub(crate) cargo_package_id: String,
     pub(crate) manifest_path: PathBuf,
+    pub(crate) dependency_ids: Vec<String>,
 }
 
 /// A deterministic, validated collector build plan.
@@ -149,6 +161,7 @@ pub struct CollectorPlan {
     pub(crate) entry_alias: String,
     pub(crate) entry_function: Vec<String>,
     pub(crate) runtime: Option<CollectorRuntime>,
+    pub(crate) registration: RegistrationMode,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -281,6 +294,12 @@ impl CollectorPlan {
                     semantics: semantic_ids.contains(id.as_str()),
                     cargo_package_id: id.clone(),
                     manifest_path: PathBuf::from(&package.manifest_path),
+                    dependency_ids: {
+                        let mut dependencies = node.dependencies.clone();
+                        dependencies.sort();
+                        dependencies.dedup();
+                        dependencies
+                    },
                 }
             })
             .collect::<Vec<_>>();
@@ -317,6 +336,7 @@ impl CollectorPlan {
             entry_alias: aliases[&entry_package.id].clone(),
             entry_function: request.entrypoint.function.clone(),
             runtime: None,
+            registration: RegistrationMode::Inventory,
         };
         plan.package_contexts()?;
         Ok(plan)
@@ -360,6 +380,77 @@ impl CollectorPlan {
         plan.entry_function.clear();
         plan.runtime = Some(runtime);
         Ok(plan)
+    }
+
+    /// Switch a production plan to explicit registration tables.
+    ///
+    /// The generated collector then disables the `krs` `inventory` feature
+    /// and reads each semantics package's crate-root `__KRS_REGISTRATIONS`
+    /// table. This is build tooling for targets without linker-section
+    /// registration and for the native parity gate, not an author-facing
+    /// mode.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlanningErrorKind::InvalidRegistrationMode`] for a
+    /// non-production plan, [`PlanningErrorKind::InventoryFeatureActive`] when
+    /// the resolved `krs` package has `inventory` enabled (Cargo feature
+    /// unification cannot disable it from the collector), and
+    /// [`PlanningErrorKind::UnregisteredKrsDependent`] when a package that
+    /// depends on `krs` is not a selected semantics package, because its
+    /// descriptors would silently disappear rather than fail collection.
+    pub fn with_explicit_registration(mut self) -> Result<Self, PlanningError> {
+        if !self.is_production() {
+            return Err(PlanningError::new(
+                PlanningErrorKind::InvalidRegistrationMode,
+                "explicit registration requires a production collector plan",
+            ));
+        }
+        let facade_ids = self
+            .package_closure
+            .iter()
+            .filter(|package| package.name == "krs")
+            .map(|package| package.cargo_package_id.as_str())
+            .collect::<BTreeSet<_>>();
+        if let Some(facade) = self.package_closure.iter().find(|package| {
+            facade_ids.contains(package.cargo_package_id.as_str())
+                && package
+                    .features
+                    .iter()
+                    .any(|feature| feature == "inventory")
+        }) {
+            return Err(PlanningError::new(
+                PlanningErrorKind::InventoryFeatureActive,
+                format!(
+                    "explicit registration requires the `inventory` feature of `krs {}` to be disabled; depend on it with `default-features = false`",
+                    facade.version
+                ),
+            ));
+        }
+        if let Some(dependent) = self.package_closure.iter().find(|package| {
+            !package.semantics
+                && !facade_ids.contains(package.cargo_package_id.as_str())
+                && package
+                    .dependency_ids
+                    .iter()
+                    .any(|dependency| facade_ids.contains(dependency.as_str()))
+        }) {
+            return Err(PlanningError::new(
+                PlanningErrorKind::UnregisteredKrsDependent,
+                format!(
+                    "package `{} {}` depends on `krs` but is not a selected semantics package; explicit registration would omit its descriptors",
+                    dependent.name, dependent.version
+                ),
+            ));
+        }
+        self.registration = RegistrationMode::Explicit;
+        Ok(self)
+    }
+
+    /// The descriptor registration mechanism of the generated collector.
+    #[must_use]
+    pub const fn registration(&self) -> RegistrationMode {
+        self.registration
     }
 
     /// Whether this plan uses KRS-owned production collection.
@@ -1057,6 +1148,12 @@ pub enum PlanningErrorKind {
     InvalidEntrypoint,
     /// A KRS-owned collector runtime manifest path is malformed.
     InvalidCollectorRuntime,
+    /// The requested registration mode does not apply to this plan.
+    InvalidRegistrationMode,
+    /// Explicit registration was requested while `krs` enables `inventory`.
+    InventoryFeatureActive,
+    /// Explicit registration would omit a non-semantics `krs` dependent.
+    UnregisteredKrsDependent,
 }
 
 /// A typed collector planning failure.

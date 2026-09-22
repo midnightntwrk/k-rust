@@ -1,7 +1,8 @@
 //! Cargo-style command-line frontend for the KRS definition compiler.
 
 use krs_cli::{
-    Backend, CommandKind, CommandRequest, FacetSelector, KrsCfg, PackageSelector, execute_command,
+    Backend, CommandKind, CommandRequest, FacetSelector, KrsCfg, PackageSelector, RegistrationMode,
+    execute_command,
 };
 use krs_fmt::{FormatOptions, TrailingCommentStyle};
 use std::ffi::OsString;
@@ -113,6 +114,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
     let mut cfg = Vec::new();
     let mut backend = Backend::Llvm;
     let mut output_directory = None;
+    let mut registration = RegistrationMode::Inventory;
 
     while let Some(option) = arguments.next() {
         if option == "-h" || option == "--help" {
@@ -141,6 +143,14 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
                 };
             }
             "--output" => output_directory = Some(PathBuf::from(value)),
+            // Hidden build and parity tooling; deliberately absent from USAGE.
+            "--registration" => {
+                registration = match utf8(value, "registration")?.as_str() {
+                    "inventory" => RegistrationMode::Inventory,
+                    "explicit" => RegistrationMode::Explicit,
+                    value => return Err(format!("unknown registration mode `{value}`")),
+                };
+            }
             _ => return Err(format!("unknown option `{option}`")),
         }
     }
@@ -156,6 +166,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
         cfg,
         backend,
         output_directory,
+        registration,
     }))
 }
 
