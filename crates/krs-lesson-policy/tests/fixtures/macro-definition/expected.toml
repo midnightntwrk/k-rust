@@ -1,0 +1,11 @@
+[[diagnostic]]
+code = "krs::policy::macro-definition"
+start = 9
+end = 61
+text = "macro_rules! twice {\n    ($e:expr) => { $e + $e };\n}"
+
+[[diagnostic]]
+code = "krs::policy::macro-definition"
+start = 63
+end = 95
+text = "pub macro thrice($e:expr) { $e }"

@@ -1,0 +1,5 @@
+[[diagnostic]]
+code = "krs::policy::path-attribute"
+start = 0
+end = 20
+text = "#[path = \"other.rs\"]"

@@ -1,0 +1,17 @@
+[[diagnostic]]
+code = "krs::policy::krs-item-scope"
+start = 20
+end = 60
+text = "k::sorts! {\n        M: k::KResult;\n    }"
+
+[[diagnostic]]
+code = "krs::policy::krs-item-scope"
+start = 66
+end = 85
+text = "#[k::configuration]"
+
+[[diagnostic]]
+code = "krs::policy::krs-item-scope"
+start = 199
+end = 231
+text = "k::rules! {\n        for M;\n    }"

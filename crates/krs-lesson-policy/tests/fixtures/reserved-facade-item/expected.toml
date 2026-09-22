@@ -1,0 +1,17 @@
+[[diagnostic]]
+code = "krs::policy::reserved-facade-item"
+start = 7
+end = 16
+text = "__private"
+
+[[diagnostic]]
+code = "krs::policy::reserved-facade-item"
+start = 30
+end = 59
+text = "k::__register_host_descriptor"
+
+[[diagnostic]]
+code = "krs::policy::reserved-facade-item"
+start = 74
+end = 85
+text = "k::__hidden"

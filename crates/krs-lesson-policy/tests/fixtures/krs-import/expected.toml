@@ -1,0 +1,47 @@
+[[diagnostic]]
+code = "krs::policy::krs-import"
+start = 7
+end = 12
+text = "sorts"
+
+[[diagnostic]]
+code = "krs::policy::krs-import"
+start = 31
+end = 41
+text = "rules as r"
+
+[[diagnostic]]
+code = "krs::policy::krs-import"
+start = 51
+end = 52
+text = "*"
+
+[[diagnostic]]
+code = "krs::policy::krs-import"
+start = 58
+end = 69
+text = "k as facade"
+
+[[diagnostic]]
+code = "krs::policy::krs-import"
+start = 80
+end = 88
+text = "vec as k"
+
+[[diagnostic]]
+code = "krs::policy::krs-import"
+start = 95
+end = 96
+text = "k"
+
+[[diagnostic]]
+code = "krs::policy::krs-import"
+start = 101
+end = 106
+text = "sorts"
+
+[[diagnostic]]
+code = "krs::policy::krs-import"
+start = 131
+end = 143
+text = "constructors"

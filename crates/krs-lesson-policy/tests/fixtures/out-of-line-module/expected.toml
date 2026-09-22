@@ -1,0 +1,11 @@
+[[diagnostic]]
+code = "krs::policy::out-of-line-module"
+start = 0
+end = 16
+text = "pub mod helpers;"
+
+[[diagnostic]]
+code = "krs::policy::out-of-line-module"
+start = 34
+end = 45
+text = "mod deeper;"
