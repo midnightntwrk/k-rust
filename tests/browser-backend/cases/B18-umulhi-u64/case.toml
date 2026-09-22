@@ -1,0 +1,15 @@
+schema = 1
+id = "B18-umulhi-u64"
+behavior = "u64 checked multiplication (checked_mul; overflowing_mul and saturating_mul take the same path)."
+basis = "found by IR-16 (B10 u64 checked_mul / overflowing_mul / saturating_mul)"
+gap = { class = "backend", summary = "clif2wasm: `lowering umulhi.i64: unimplemented binary opcode umulhi on i64` at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Binary arm (lines 222-271): no Umulhi entry for I64" }
+expected_status = "known-gap"
+
+[[crate]]
+name = "b18_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b18_repro"

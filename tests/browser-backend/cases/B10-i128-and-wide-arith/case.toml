@@ -1,0 +1,14 @@
+schema = 1
+id = "B10-i128-and-wide-arith"
+behavior = "u128/i128 multiply, divide, remainder, shifts, rotates, bit counts; u64 checked/overflowing/wrapping arithmetic; float <-> 128-bit conversions."
+basis = "StableHasher u64 wrapping multiply (krs-macros expand.rs); i128 lowering in clif2wasm"
+expected_status = "pass"
+
+[[crate]]
+name = "b10_wide_arith"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b10_wide_arith"

@@ -1,0 +1,326 @@
+{
+ "schema": 2,
+ "case": "B18-umulhi-u64",
+ "revisions": {
+  "0ce51e9339ee538c16580fea01ca98dd89f6d7a0": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (0ce51e933 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 0ce51e9339ee538c16580fea01ca98dd89f6d7a0",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:915c873392d636db5c06761625d934b9c561e0c1e176c91aa90feefe04e6dec1",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "Some(12) None\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "Some(12) None\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "Some(12) None\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "Some(12) None\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvMs7_NtCsdV8jk5tKLlX_4core3numy11checked_mulCsgt89sGlsNjN_9b18_repro`: lowering `v6 = umulhi.i64 v3, v4`: unimplemented binary opcode umulhi on i64"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCsgt89sGlsNjN_9b18_repro7checked`: lowering `v6 = umulhi.i64 v3, v4`: unimplemented binary opcode umulhi on i64"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "clif2wasm: `lowering umulhi.i64: unimplemented binary opcode umulhi on i64` at opt-levels 0 and 2",
+    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Binary arm (lines 222-271): no Umulhi entry for I64"
+   }
+  },
+  "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (195111dff 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "Some(12) None\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "Some(12) None\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "Some(12) None\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "Some(12) None\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "error",
+       "exit": "trap",
+       "summary": false,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvMs7_NtCsgYNL0BNe6V5_4core3numy11checked_mulCs5jr8WHuFI5v_9b18_repro`: lowering `v6 = umulhi.i64 v3, v4`: unimplemented binary opcode umulhi on i64"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b18_repro",
+       "outcome": "error",
+       "exit": "trap",
+       "summary": false,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCs5jr8WHuFI5v_9b18_repro7checked`: lowering `v6 = umulhi.i64 v3, v4`: unimplemented binary opcode umulhi on i64"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "clif2wasm: `lowering umulhi.i64: unimplemented binary opcode umulhi on i64` at opt-levels 0 and 2",
+    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Binary arm (lines 222-271): no Umulhi entry for I64"
+   }
+  }
+ }
+}

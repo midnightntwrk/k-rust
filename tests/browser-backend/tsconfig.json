@@ -1,0 +1,16 @@
+{
+  "extends": "../../browser/worker/tsconfig.json",
+  "compilerOptions": {
+    "types": []
+  },
+  "include": [
+    "runner/protocol.ts",
+    "runner/suite.ts",
+    "runner/objinfo.ts",
+    "runner/worker-client.ts",
+    "runner/shim-session.ts",
+    "runner/shim-worker.ts",
+    "page/**/*.ts",
+    "../../browser/worker/vendor/**/*.d.ts"
+  ]
+}

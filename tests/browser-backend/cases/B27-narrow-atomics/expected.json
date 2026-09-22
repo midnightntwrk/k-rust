@@ -1,0 +1,322 @@
+{
+ "schema": 2,
+ "case": "B27-narrow-atomics",
+ "revisions": {
+  "0ce51e9339ee538c16580fea01ca98dd89f6d7a0": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (0ce51e933 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 0ce51e9339ee538c16580fea01ca98dd89f6d7a0",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:915c873392d636db5c06761625d934b9c561e0c1e176c91aa90feefe04e6dec1",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 2, 3, 4]\nu8 fetch_add after=[0, 7]\nu16 fetch_add after=[0, 4660]\nu8 compare_exchange Ok(5) after=[8, 6]\nbool swap was=false after=[true, true]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 2, 3, 4]\nu8 fetch_add after=[0, 7]\nu16 fetch_add after=[0, 4660]\nu8 compare_exchange Ok(5) after=[8, 6]\nbool swap was=false after=[true, true]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 2, 3, 4]\nu8 fetch_add after=[0, 7]\nu16 fetch_add after=[0, 4660]\nu8 compare_exchange Ok(5) after=[8, 6]\nbool swap was=false after=[true, true]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 2, 3, 4]\nu8 fetch_add after=[0, 7]\nu16 fetch_add after=[0, 4660]\nu8 compare_exchange Ok(5) after=[8, 6]\nbool swap was=false after=[true, true]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 0, 0, 0]\nu8 fetch_add after=[0, 8]\nu16 fetch_add after=[0, 4661]\nu8 compare_exchange Err(5) after=[5, 6]\nbool swap was=true after=[true, false]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 0, 0, 0]\nu8 fetch_add after=[0, 8]\nu16 fetch_add after=[0, 4661]\nu8 compare_exchange Err(5) after=[5, 6]\nbool swap was=true after=[true, false]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "silent miscompile: AtomicU8::swap zeroes the next three bytes ([9, 0, 0, 0], twin [9, 2, 3, 4]); fetch_add carries into the next byte; compare_exchange on u8 fails with Err(5) (twin Ok(5)); signed narrow min/max compare unsigned",
+    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff AtomicRmw arm (lines 623-673) and AtomicCas (line 675): the access width comes from map_type(result) (I32 for i8/i16), so I32Load/I32Store are used instead of Load8U/Store8 and Load16U/Store16, and Smin/Smax use I32LtS/I32GtS on zero-extended values"
+   }
+  },
+  "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (195111dff 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 2, 3, 4]\nu8 fetch_add after=[0, 7]\nu16 fetch_add after=[0, 4660]\nu8 compare_exchange Ok(5) after=[8, 6]\nbool swap was=false after=[true, true]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 2, 3, 4]\nu8 fetch_add after=[0, 7]\nu16 fetch_add after=[0, 4660]\nu8 compare_exchange Ok(5) after=[8, 6]\nbool swap was=false after=[true, true]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 2, 3, 4]\nu8 fetch_add after=[0, 7]\nu16 fetch_add after=[0, 4660]\nu8 compare_exchange Ok(5) after=[8, 6]\nbool swap was=false after=[true, true]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 2, 3, 4]\nu8 fetch_add after=[0, 7]\nu16 fetch_add after=[0, 4660]\nu8 compare_exchange Ok(5) after=[8, 6]\nbool swap was=false after=[true, true]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 0, 0, 0]\nu8 fetch_add after=[0, 8]\nu16 fetch_add after=[0, 4661]\nu8 compare_exchange Err(5) after=[5, 6]\nbool swap was=true after=[true, false]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b27_repro",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "u8 swap old=1 after=[9, 0, 0, 0]\nu8 fetch_add after=[0, 8]\nu16 fetch_add after=[0, 4661]\nu8 compare_exchange Err(5) after=[5, 6]\nbool swap was=true after=[true, false]\ni16 fetch_min now=-7\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "silent miscompile: AtomicU8::swap zeroes the next three bytes ([9, 0, 0, 0], twin [9, 2, 3, 4]); fetch_add carries into the next byte; compare_exchange on u8 fails with Err(5) (twin Ok(5)); signed narrow min/max compare unsigned",
+    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff AtomicRmw arm (lines 623-673) and AtomicCas (line 675): the access width comes from map_type(result) (I32 for i8/i16), so I32Load/I32Store are used instead of Load8U/Store8 and Load16U/Store16, and Smin/Smax use I32LtS/I32GtS on zero-extended values"
+   }
+  }
+ }
+}

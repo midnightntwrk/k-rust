@@ -1,0 +1,480 @@
+{
+ "schema": 2,
+ "case": "B02-init-funcs-absent",
+ "revisions": {
+  "0ce51e9339ee538c16580fea01ca98dd89f6d7a0": {
+   "status": "limitation",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (0ce51e933 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 0ce51e9339ee538c16580fea01ca98dd89f6d7a0",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:915c873392d636db5c06761625d934b9c561e0c1e176c91aa90feefe04e6dec1",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 2
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=2 names=[\"alpha\", \"beta\"]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 2
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=0 names=[]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 2
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=2 names=[\"alpha\", \"beta\"]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 2
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=0 names=[]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 0
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=0 names=[]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 0
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=0 names=[]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "ticket": "IR-22",
+    "summary": "clif2wasm emits no WASM_INIT_FUNCS for .init_array statics; riwl's __wasm_call_ctors therefore calls nothing from browser-compiled code",
+    "root_cause": "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (results/BL-003/backend-limitations.md; IR-03 M0/M2 init_funcs_in_object = false)"
+   }
+  },
+  "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
+   "status": "limitation",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (195111dff 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 2
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=2 names=[\"alpha\", \"beta\"]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 2
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=0 names=[]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 2
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=2 names=[\"alpha\", \"beta\"]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 2
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=0 names=[]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 0
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=0 names=[]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b02_registry",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b02_registrations_object",
+       "outcome": "ok",
+       "init_funcs": 0
+      },
+      {
+       "crate": "b02_collector",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "declared=2 registrations=0 names=[]\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "ticket": "IR-22",
+    "summary": "clif2wasm emits no WASM_INIT_FUNCS for .init_array statics; riwl's __wasm_call_ctors therefore calls nothing from browser-compiled code",
+    "root_cause": "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (results/BL-003/backend-limitations.md; IR-03 M0/M2 init_funcs_in_object = false)"
+   }
+  }
+ }
+}

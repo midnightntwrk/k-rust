@@ -1,0 +1,45 @@
+schema = 1
+id = "B11-panic-abort"
+behavior = "panic!, unreachable!, unwrap on None, out-of-bounds index, arithmetic overflow under panic=abort, and std::process::exit(3)."
+basis = "BL-003 COLLECTOR_MODE=trap"
+expected_status = "pass"
+
+[[crate]]
+name = "b11_panic_abort"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "panic"
+bin = "b11_panic_abort"
+args = ["panic"]
+
+[[run]]
+name = "unreachable"
+bin = "b11_panic_abort"
+args = ["unreachable"]
+
+[[run]]
+name = "unwrap-none"
+bin = "b11_panic_abort"
+args = ["unwrap-none"]
+
+[[run]]
+name = "index"
+bin = "b11_panic_abort"
+args = ["index"]
+
+[[run]]
+name = "overflow"
+bin = "b11_panic_abort"
+args = ["overflow"]
+
+[[run]]
+name = "exit3"
+bin = "b11_panic_abort"
+args = ["exit3"]
+
+[[run]]
+name = "none"
+bin = "b11_panic_abort"
+args = ["none"]

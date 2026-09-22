@@ -1,0 +1,15 @@
+schema = 1
+id = "B27-narrow-atomics"
+behavior = "AtomicU8/AtomicU16/AtomicBool swap, fetch_add, compare_exchange; AtomicI16 fetch_min."
+basis = "found by IR-16 (operation sweep against the twin)"
+gap = { class = "backend", summary = "silent miscompile: AtomicU8::swap zeroes the next three bytes ([9, 0, 0, 0], twin [9, 2, 3, 4]); fetch_add carries into the next byte; compare_exchange on u8 fails with Err(5) (twin Ok(5)); signed narrow min/max compare unsigned", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff AtomicRmw arm (lines 623-673) and AtomicCas (line 675): the access width comes from map_type(result) (I32 for i8/i16), so I32Load/I32Store are used instead of Load8U/Store8 and Load16U/Store16, and Smin/Smax use I32LtS/I32GtS on zero-extended values" }
+expected_status = "known-gap"
+
+[[crate]]
+name = "b27_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b27_repro"

@@ -1,0 +1,15 @@
+schema = 1
+id = "B23-fma"
+behavior = "fma.f64 (f64::mul_add); fma.f32 takes the same path."
+basis = "found by IR-16 (operation sweep)"
+gap = { class = "backend", summary = "clif2wasm: `lowering fma.f64: unimplemented opcode fma` at opt-levels 0 and 2 (wasm has no scalar fma; needs a libcall to compiler_builtins fma/fmaf)", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff falls through to `unimplemented opcode` (line 859)" }
+expected_status = "known-gap"
+
+[[crate]]
+name = "b23_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b23_repro"

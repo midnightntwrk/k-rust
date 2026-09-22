@@ -1,0 +1,15 @@
+schema = 1
+id = "B09-hash-and-order"
+behavior = "SHA-256 known-answer vectors, sort_unstable, stable sort_by_key, BTreeMap and BTreeSet iteration."
+basis = "sha2 0.10.9 in the pack; collect.rs source identities (SHA-256)"
+expected_status = "pass"
+
+[[crate]]
+name = "b09_hash_and_order"
+src = "main.rs"
+type = "bin"
+pack = ["sha2"]
+
+[[run]]
+name = "default"
+bin = "b09_hash_and_order"

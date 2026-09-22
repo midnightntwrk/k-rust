@@ -1,0 +1,234 @@
+{
+ "schema": 2,
+ "case": "B14-e0433-type-path",
+ "revisions": {
+  "0ce51e9339ee538c16580fea01ca98dd89f6d7a0": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (0ce51e933 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 0ce51e9339ee538c16580fea01ca98dd89f6d7a0",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:915c873392d636db5c06761625d934b9c561e0c1e176c91aa90feefe04e6dec1",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0433",
+         "message": "cannot find module or crate `missing` in this scope"
+        }
+       ]
+      }
+     ],
+     "runs": {}
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0433",
+         "message": "cannot find module or crate `missing` in this scope"
+        }
+       ]
+      }
+     ],
+     "runs": {}
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0433",
+         "message": "cannot find module or crate `missing` in this scope"
+        }
+       ]
+      }
+     ],
+     "runs": {}
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0433",
+         "message": "cannot find module or crate `missing` in this scope"
+        }
+       ]
+      }
+     ],
+     "runs": {}
+    }
+   },
+   "stable_differs": []
+  },
+  "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (195111dff 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0433",
+         "message": "cannot find module or crate `missing` in this scope"
+        }
+       ]
+      }
+     ],
+     "runs": {}
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0433",
+         "message": "cannot find module or crate `missing` in this scope"
+        }
+       ]
+      }
+     ],
+     "runs": {}
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0433",
+         "message": "cannot find module or crate `missing` in this scope"
+        }
+       ]
+      }
+     ],
+     "runs": {}
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": "E0433",
+         "message": "cannot find module or crate `missing` in this scope"
+        }
+       ]
+      }
+     ],
+     "runs": {}
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "compiler-trap",
+       "exit": "trap",
+       "summary": false
+      }
+     ],
+     "runs": {}
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b14_e0433",
+       "outcome": "compiler-trap",
+       "exit": "trap",
+       "summary": false
+      }
+     ],
+     "runs": {}
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "at 195111dff rustc.wasm traps (RuntimeError: unreachable) with no diagnostic, where the twin reports E0433 `cannot find module or crate `missing` in this scope`",
+    "root_cause": "IR-26: the wasip1 compiler is panic=abort, so FatalError::raise aborts before run_compiler's finish_diagnostics emits the stashed E0433; fixed by 0ce51e933 (krs/ir-26-wasip1-trap)",
+    "fixed_in": "0ce51e9339ee538c16580fea01ca98dd89f6d7a0"
+   }
+  }
+ }
+}

@@ -1,0 +1,15 @@
+schema = 1
+id = "B17-smulhi-i64"
+behavior = "i64 multiplication with the debug overflow check (opt-level 0)."
+basis = "found by IR-16 (B04 double(), B09 index * 7919 at opt-level 0)"
+gap = { class = "backend", summary = "clif2wasm: `lowering smulhi.i64: unimplemented binary opcode smulhi on i64` at opt-level 0; every checked i64 multiply in browser-compiled code fails to compile", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Binary arm (lines 222-271): no Smulhi/Umulhi entry for I64 (wasm has no mulhi; needs a 32-bit partial-product expansion like i128_lower.rs umulhi64)" }
+expected_status = "known-gap"
+
+[[crate]]
+name = "b17_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b17_repro"

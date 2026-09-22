@@ -1,0 +1,15 @@
+schema = 1
+id = "B26-narrow-shl"
+behavior = "ishl on i8/i16 followed by ushr or zero extension."
+basis = "found by IR-16 (operation sweep against the twin)"
+gap = { class = "backend", summary = "silent miscompile: (0xab_u8 << 4) >> 4 = 171 (twin 11); compiles and exits 0 at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Binary arm (lines 274-279): only Iadd/Isub/Imul results are re-masked with mask_narrow; Ishl on i8/i16 leaves high bits set in the i32 local, breaking the zero-extended invariant" }
+expected_status = "known-gap"
+
+[[crate]]
+name = "b26_repro"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b26_repro"

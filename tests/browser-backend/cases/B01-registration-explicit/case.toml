@@ -1,0 +1,70 @@
+schema = 1
+id = "B01-registration-explicit"
+behavior = "Two library crates register factories in an explicit table; collectors name them in both orders; the runner canonicalizes and reads /workspace files."
+basis = "spikes/BL-003 browser-control/collector-{ab,ba}-explicit.rs, registration-{alpha,beta}.rs, collector-runner.rs (inventory replaced by an explicit table, IR-07)"
+expected_status = "pass"
+# The default runs must also equal spikes/BL-003/expected/success.json byte for byte.
+oracle = { runs = ["ab", "ba"], file = "spikes/BL-003/expected/success.json" }
+
+[[crate]]
+name = "b01_model"
+src = "model.rs"
+type = "rlib"
+
+[[crate]]
+name = "b01_registration_alpha"
+src = "registration_alpha.rs"
+type = "rlib"
+externs = ["b01_model"]
+
+[[crate]]
+name = "b01_registration_beta"
+src = "registration_beta.rs"
+type = "rlib"
+externs = ["b01_model"]
+
+[[crate]]
+name = "b01_runner"
+src = "runner.rs"
+type = "rlib"
+externs = ["b01_model"]
+
+[[crate]]
+name = "b01_collector_ab"
+src = "collector_ab.rs"
+type = "bin"
+externs = ["b01_model", "b01_registration_alpha", "b01_registration_beta", "b01_runner"]
+
+[[crate]]
+name = "b01_collector_ba"
+src = "collector_ba.rs"
+type = "bin"
+externs = ["b01_model", "b01_registration_alpha", "b01_registration_beta", "b01_runner"]
+
+[[run]]
+name = "ab"
+bin = "b01_collector_ab"
+vfs = "vfs"
+
+[[run]]
+name = "ba"
+bin = "b01_collector_ba"
+vfs = "vfs"
+
+[[run]]
+name = "missing-source"
+bin = "b01_collector_ab"
+vfs = "vfs"
+env = ["COLLECTOR_SOURCE_PATH=/workspace/src/missing.krs"]
+
+[[run]]
+name = "relative-path"
+bin = "b01_collector_ab"
+vfs = "vfs"
+env = ["COLLECTOR_MANIFEST_PATH=workspace/Cargo.toml"]
+
+[[run]]
+name = "trap"
+bin = "b01_collector_ab"
+vfs = "vfs"
+env = ["COLLECTOR_MODE=trap"]
