@@ -2,18 +2,25 @@
 //! id = "backend.alias.unfold"
 //! name = "capture-avoiding alias unfolding"
 //! sites = ["expand", "expand_with", "collect", "validate_expansions"]
-//! variable = "p = pattern size; d = expansion depth"
+//! variable = "p = pattern size; o = expanded output size, which multiplies by the repeat count of a parameter at each nested alias level; b = binders visited; r = total size of the parameter map at a binder; n = aliases in the definition"
 //! counters = []
-//! no_counter = "alias unfolding runs only at load time and has no dedicated counter"
+//! no_counter = "alias unfolding has no dedicated counter; it runs once per alias at load and once per internalize_term or internalize_pattern request"
 //! span = "per call"
 //!
 //! [[cost]]
-//! mode = "definition load"
-//! bound = "O(p x d)"
+//! mode = "one expand call"
+//! bound = "O(o + b x (p + r))"
+//!
+//! [[cost]]
+//! mode = "definition load (validate_expansions)"
+//! bound = "n expand calls, each O(o + b x (p + r))"
 //! ```
 //!
-//! Capture-avoiding alias unfolding with a cycle stack, O(|pattern| x expansion depth), at load
-//! time only; no counter; the only loops are the cycle-stack recursion and the fresh-name retry.
+//! Capture-avoiding alias unfolding with a cycle stack, linear in the expanded output plus a clone
+//! of the parameter map and a free-variable scan of the body and of the captured replacements at
+//! each binder, at load time and per internalized request; no counter; the loops are the
+//! cycle-stack recursion, the per-binder free-variable scans, the per-alias loop of
+//! `validate_expansions`, and the fresh-name retry.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -466,7 +473,8 @@ fn expand_binder(
 
 /// ```toml algorithm-site
 /// id = "backend.fresh.variables"
-/// role = "part"
+/// role = "variant"
+/// variant_of = "backend.fresh.variables"
 /// sites = ["fresh_variable"]
 /// ```
 fn fresh_variable(

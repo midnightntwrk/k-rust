@@ -2,7 +2,7 @@
 //! id = "backend.fresh.variables"
 //! name = "counter-suffixed backend variable naming with collision retry"
 //! sites = ["fresh_name", "fresh_variable", "freshen_existential", "increment_name_counter"]
-//! variable = "c = colliding candidate names"
+//! variable = "c = colliding candidate names; v = variable names collected into a site's avoid set"
 //! counters = []
 //! no_counter = "fresh backend variable naming has no dedicated counter"
 //! span = "none"
@@ -14,11 +14,20 @@
 //! [[cost]]
 //! mode = "Booster existential spelling"
 //! bound = "O(c) trailing-decimal retries"
+//!
+//! [[cost]]
+//! mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, alias fresh_variable)"
+//! bound = "O(v log v) per call before the retry loop"
+//!
+//! [[cost]]
+//! mode = "freshen_existentials"
+//! bound = "O(c) per name without amortization, since the suffix restarts at each existential's index"
 //! ```
 //!
-//! Counter-suffixed fresh variable naming with collision retry against a name set, the one
-//! home: one loop, O(collisions) per name, amortised O(1) with the shared counter;
-//! no measurement counter. The spelling is `term::names::with_fresh_marker`
+//! Counter-suffixed fresh variable naming with collision retry against a name set, the one home for
+//! backend-term names (alias unfolding keeps its own `{name}Alias{index}` loop in `alias.rs`, a
+//! declared variant): one loop, O(collisions) per name, amortised O(1) with the shared counter; no
+//! measurement counter. The spelling is `term::names::with_fresh_marker`
 //! (`{base}!{marker}{counter}`; marker `""` for rewrite-introduced variables, `claim` for
 //! claim variables, `exists` for implication existentials), so emitted names are byte-identical
 //! to the three per-site loops this replaces. Existentials introduced by a rule's right-hand

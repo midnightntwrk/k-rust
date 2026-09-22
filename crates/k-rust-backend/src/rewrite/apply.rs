@@ -2,17 +2,17 @@
 //! id = "backend.rewrite.apply"
 //! name = "one-rule conditional rewriting"
 //! sites = ["apply_rule_with_match", "apply_rule", "apply_rule_phases", "reenter", "dispatch_match", "instantiate"]
-//! variable = "c = candidate rules passed by the step; r = unmatched remainder pairs"
+//! variable = "r = unmatched remainder pairs; a = right-hand-side alternatives of the rule; f = partial matches returned by one recovery split"
 //! counters = ["RewriteRuleAttempts", "RewriteMatchFailures", "SmtQueries"]
 //! span = "per call"
 //!
 //! [[cost]]
 //! mode = "direct match"
-//! bound = "one matching problem and up to three SMT calls per attempt"
+//! bound = "one matching problem, at most one is_sat query, and at most 1 + 2a decide_condition calls of up to three solver queries each per attempt"
 //!
 //! [[cost]]
 //! mode = "indeterminate recovery"
-//! bound = "up to eleven recovery strategies with recursion depth at most |r| + 1"
+//! bound = "up to eleven recovery strategies with recursion depth at most |r| + 1, each split re-entering once for each of its f partial matches"
 //! ```
 //!
 //! One-rule conditional rewriting step (Booster applyRule with a Kore-style unification
@@ -442,6 +442,11 @@ fn recover_by_simplification(
 /// ite, collection narrowing), each either producing partial matches that re-enter with an
 /// empty or strictly shorter remainder (combined by `combine_rule_attempts`) or declining.
 /// `None` means every strategy declined.
+/// ```toml algorithm-site
+/// id = "backend.rewrite.recover"
+/// role = "part"
+/// sites = ["recover_by_split", "recover_by_unification"]
+/// ```
 fn recover_by_split(
     context: RuleContext<'_>,
     fresh_counter: &mut u64,
@@ -449,6 +454,7 @@ fn recover_by_split(
     remainder: &[(Term, Term)],
     inherited_conditions: &[Predicate],
 ) -> Option<RuleAttempt> {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteRecover);
     let definition = context.definition;
     let rule = context.rule;
     let pattern = context.pattern;
@@ -557,6 +563,7 @@ fn recover_by_unification(
     inherited_conditions: &[Predicate],
     inherited_knowledge: &[Predicate],
 ) -> Phase<(Substitution, Vec<Predicate>)> {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteRecover);
     let definition = context.definition;
     let rule = context.rule;
     let pattern = context.pattern;
@@ -697,11 +704,6 @@ fn configuration_bindings(
 
 /// P8: the inherited and match conditions simplified under the path; `False` ends the
 /// attempt; what remains are the `Unknown` conditions.
-/// ```toml algorithm-site
-/// id = "backend.simplify.predicates"
-/// role = "part"
-/// sites = ["simplify_conditions"]
-/// ```
 fn simplify_conditions(
     context: RuleContext<'_>,
     mut inherited_conditions: Vec<Predicate>,

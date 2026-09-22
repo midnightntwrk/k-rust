@@ -2,8 +2,6 @@
 //! id = "backend.rewrite.execute"
 //! role = "part"
 //! sites = ["Backend::execute_using"]
-//! consumes = [{ type = "k_rust_backend::rewrite::ExecutionResult", role = "execution result" }]
-//! produces = [{ type = "k_rust::backend::ExecutionResult", role = "wire execution result" }]
 //! ```
 //!
 //! One orchestration path for the CLI, RPC server, and JavaScript hosts: a session, one solver per module, and execution, search, simplification, implication, and proving operations. `wire` contains the JavaScript JSON contracts.

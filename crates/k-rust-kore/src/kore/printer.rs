@@ -1,17 +1,18 @@
 //! ```toml algorithm
 //! id = "kore.printer.build"
 //! name = "construction of KORE pretty-print documents"
-//! sites = ["definition_doc", "module_doc", "sentence_doc", "pattern_doc", "syntax_doc", "Printer::print_definition", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern"]
-//! variable = "N = KORE syntax nodes"
+//! sites = ["definition_doc", "module_doc", "sentence_doc", "pattern_doc", "syntax_doc", "Printer::print_definition", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "attributes_doc", "declaration_pattern_doc", "delimited", "join"]
+//! variable = "N = KORE syntax nodes; g = Doc::nest and Doc::group calls whose document contains a given op"
 //! counters = []
 //! no_counter = "KORE document construction has no dedicated counter"
+//! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one syntax tree"
-//! bound = "O(N)"
+//! bound = "O(N x g), since nest and group insert at the front of the op vector"
 //! ```
 //!
-//! KORE pretty printing computes flat widths once, then chooses compact or broken layouts in a linear document traversal.
+//! KORE pretty printing builds a document by an explicit task stack in `syntax_doc`, then renders it through `document::render`, which computes flat widths once and chooses compact or broken layouts in a linear traversal.
 //! Complexity: O(N) over document nodes.
 //! The former quadratic `fits` note is stale after the flat-width cache; no dedicated counter.
 //!
@@ -22,6 +23,8 @@ mod document;
 use std::fmt::{self, Display, Formatter};
 
 use document::{Doc, Op, RenderMode, render};
+
+use crate::measure::{self, Algorithm};
 
 use super::ast::{
     Associativity, Attributes, Definition, Module, Pattern, Sentence, Sort, Symbol, Variable,
@@ -89,18 +92,22 @@ impl Printer {
     }
 
     pub fn print_definition(self, definition: &Definition) -> String {
+        let _span = measure::algorithm_span(Algorithm::KorePrinterBuild);
         self.render(definition_doc(definition, self.options.indent))
     }
 
     pub fn print_module(self, module: &Module) -> String {
+        let _span = measure::algorithm_span(Algorithm::KorePrinterBuild);
         self.render(module_doc(module, self.options.indent))
     }
 
     pub fn print_sentence(self, sentence: &Sentence) -> String {
+        let _span = measure::algorithm_span(Algorithm::KorePrinterBuild);
         self.render(sentence_doc(sentence, self.options.indent))
     }
 
     pub fn print_pattern(self, pattern: &Pattern) -> String {
+        let _span = measure::algorithm_span(Algorithm::KorePrinterBuild);
         self.render(pattern_doc(pattern, self.options.indent))
     }
 

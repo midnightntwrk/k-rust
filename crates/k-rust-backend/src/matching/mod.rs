@@ -2,34 +2,44 @@
 //! id = "backend.matching.syntactic"
 //! name = "sort-aware one-way first-order matching by pair decomposition"
 //! sites = ["match_terms_with_context", "match_terms", "match_terms_in_definition", "match_term_pairs_in_definition", "Matcher::run", "Matcher::match_one"]
-//! variable = "p = pairs popped, bounded by |pattern| plus one re-enqueue per deferred pair; a = pair arity"
+//! variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term"
 //! counters = ["MatchingProblems", "MatchingPairs"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one matching problem"
-//! bound = "O(p x a)"
+//! bound = "O(p x (a + s x t))"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "backend.matching.relation_query"
 //! name = "subsort and overload membership queries"
-//! sites = ["SortGraph::check_subsort", "OverloadView::new", "OverloadView::lift"]
-//! variable = "S = sorts or overloaded symbols"
+//! sites = ["SortGraph::check_subsort"]
+//! variable = "S = sorts or overloaded symbols; g = sort-argument nodes of the two compared sorts; C = overload closure pairs"
 //! counters = []
 //! no_counter = "relation queries have no dedicated counter"
 //! span = "none"
 //!
 //! [[cost]]
-//! mode = "one membership query"
-//! bound = "O(log |S|)"
+//! mode = "SortGraph::check_subsort"
+//! bound = "O(g x log |S|)"
+//!
+//! [[cost]]
+//! mode = "OverloadGraph::is_overloading, OverloadGraph::overloaded_by"
+//! bound = "O(log |S|) plus the size of the returned set"
+//!
+//! [[cost]]
+//! mode = "OverloadGraph::common_overloads"
+//! bound = "O(|C|)"
 //! ```
 //!
 //! Sort-aware one-way first-order matching by pair decomposition (a Martelli-Montanari work
-//! queue without unification: pattern variables bind, subject variables defer), O(p) pair pops
-//! per problem for p bounded by |pattern| plus one re-enqueue per deferred pair, each pop
-//! O(arity); `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort and
-//! overload membership queries over the closures `definition.rs` builds, O(log |S|).
+//! queue without unification: pattern variables bind, subject variables defer), O(p) pair pops per
+//! problem for p bounded by |pattern| plus subject-side `And` duplications and one `map_queue`
+//! postponement per map pair, each pop O(arity) plus an eager composition of the substitution per
+//! binding; `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort and overload membership
+//! queries over the closures `definition.rs` builds, O(log |S|) per sort head plus one lookup per
+//! nested sort argument, and a linear scan of the overload closure for `common_overloads`.
 //! AC and A collection matching is `collections`, re-exported here so every entry
 //! point of `crate::matching` keeps its path.
 
@@ -299,6 +309,7 @@ pub(crate) fn match_term_pairs_in_definition(
     pairs: impl IntoIterator<Item = (Term, Term)>,
 ) -> MatchResult {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
+    measure::bump(Counter::MatchingProblems);
     let pairs = pairs
         .into_iter()
         .filter(|(pattern, subject)| pattern != subject)

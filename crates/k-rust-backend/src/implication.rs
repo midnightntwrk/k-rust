@@ -3,18 +3,24 @@
 //! name = "subsumption by matching, witness elimination, and validity checking"
 //! sites = ["check_implication_with_existentials_and_options_and_policy", "check_implication", "check_implication_with_existentials", "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses"]
 //! variable = "r = antecedent simplification rounds; c = consequents"
-//! counters = ["SmtQueries", "ProofImplicationChecks"]
+//! counters = ["SmtQueries"]
 //! span = "per problem"
 //!
 //! [[cost]]
-//! mode = "one implication check"
-//! bound = "O(r x (c matching problems + witness saturation + one SMT validity query))"
+//! mode = "one consequent (check_implication_with_existentials_and_options_and_policy)"
+//! bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to two is_sat queries"
+//!
+//! [[cost]]
+//! mode = "several consequents (check_disjunctive_implication_with_existentials)"
+//! bound = "O(r x (c matching problems + c witness eliminations + one check_predicates))"
 //! ```
 //!
 //! Subsumption by Implies-mode matching, existential witness elimination, and SMT validity of
 //! the residual, iterated to a fixed point of the simplified antecedent (Kore checkImplication):
 //! O(rounds x (|consequents| x one matching problem + witness saturation + one SMT validity));
-//! one `Counter::SmtQueries` per residual, `Counter::ProofImplicationChecks` at the caller.
+//! one `Counter::SmtQueries` per solver call (an antecedent satisfiability check, up to three
+//! validity subqueries for the residual, and a refutation check), `Counter::ProofImplicationChecks`
+//! at the caller.
 
 use std::{collections::BTreeSet, error::Error, fmt};
 
@@ -364,6 +370,7 @@ pub fn check_disjunctive_implication_with_existentials(
         );
     }
 
+    let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
     let consequents = consequents
         .iter()
         .map(|consequent| freshen_existentials(antecedent, consequent, consequent_existentials))

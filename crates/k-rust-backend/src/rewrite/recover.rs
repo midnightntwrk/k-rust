@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "ordered recovery ladder"
-//! bound = "each strategy either declines or returns matches with an empty or strictly shorter remainder"
+//! bound = "each strategy either declines or returns matches with an empty or strictly shorter remainder, except symbolic map key, whose remainder is the other pairs plus the indeterminate pairs of its nested matches"
 //!
 //! [[cost]]
 //! mode = "symbolic map key"

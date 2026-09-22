@@ -1,15 +1,15 @@
 //! ```toml algorithm
 //! id = "backend.smt.cache"
 //! name = "bounded FIFO memoization of SMT query scripts"
-//! sites = ["Z3Solver::solve", "SolverResultCache::get", "SolverResultCache::insert", "Z3Solver::solve_uncached", "SolverResultCache"]
-//! variable = "e = entries evicted"
+//! sites = ["Z3Solver::solve", "SolverResultCache::get", "SolverResultCache::insert", "Z3Solver::solve_uncached", "SolverResultCache", "Z3Solver::solve_model"]
+//! variable = "e = entries evicted; E = cached entries; L = script length in bytes"
 //! counters = ["SmtQueries", "SmtSolverRuns"]
 //! span = "per call"
 //! invariant = "entries and insertion_order agree; eviction stops once the entry and key-byte limits admit the new key"
 //!
 //! [[cost]]
 //! mode = "cache hit"
-//! bound = "O(1)"
+//! bound = "O(L x log E) for the key comparison, after an O(L) copy of the base script in solve_query"
 //!
 //! [[cost]]
 //! mode = "cache insertion"
@@ -17,9 +17,13 @@
 //! ```
 //!
 //! In-process Z3 behind a bounded FIFO result cache: `Counter::SmtQueries` in,
-//! `Counter::SmtSolverRuns` out, O(1) per hit, eviction pops the oldest entry until the entry
-//! and key-byte limits admit the new key. A solver is constructed per run, which is
-//! the visible cost in the IMP proof profile and the next measurable step.
+//! `Counter::SmtSolverRuns` out (the constructor's prelude check and the model path count solver
+//! runs without a query), O(L x log E) per hit for a script of L bytes among E cached entries,
+//! eviction pops the oldest entry until the entry and key-byte limits admit the new key. A solver
+//! is constructed per run, which is the visible cost in the IMP proof profile and the next
+//! measurable step.
+//! A validity check (`decide_validity`) issues a positive subquery, then a negative or a base
+//! subquery, and a third on the unknown path; each subquery goes through the cache.
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -242,11 +246,13 @@ impl Z3Solver {
         query: &TranslatedQuery,
         variables: &BTreeSet<Variable>,
     ) -> Result<ModelResult, SmtError> {
+        let _span = measure::algorithm_span(Algorithm::BackendSmtCache);
         let mut timeout = self.options.timeout_ms;
         for attempt in 0..=self.options.retry_limit {
             if cancellation_requested() {
                 return Ok(ModelResult::Unknown("request cancelled".into()));
             }
+            measure::bump(Counter::SmtSolverRuns);
             let solver = Solver::new();
             let mut parameters = Params::new();
             parameters.set_u32("timeout", timeout);

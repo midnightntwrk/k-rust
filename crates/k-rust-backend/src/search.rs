@@ -2,13 +2,17 @@
 //! id = "backend.search.configurations"
 //! name = "breadth-first search over configurations"
 //! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state", "retain_state_result"]
-//! variable = "n = distinct configurations at one depth"
+//! variable = "n = distinct (depth, pattern, is_rewritable) keys at one depth; r = results retained"
 //! counters = ["SearchStatesDeduplicated"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one depth"
-//! bound = "O(n) rewrite steps"
+//! bound = "O(n) rewrite steps plus O(r) pattern comparisons per retained result"
+//!
+//! [[cost]]
+//! mode = "result or pattern bound reached"
+//! bound = "one extra rewrite step in state_may_expand"
 //! ```
 //!
 //! ```toml algorithm
@@ -28,15 +32,15 @@
 //! ```toml algorithm
 //! id = "backend.search.patterns"
 //! name = "pattern search over rewrite results"
-//! sites = ["search_pattern_using", "search_pattern_paths_using", "match_pattern_with_variables"]
-//! variable = "m = result patterns examined"
+//! sites = ["search_pattern_using", "search_pattern_paths_using", "match_pattern_with_variables", "match_disjunction_using"]
+//! variable = "m = result patterns examined; k = matches retained"
 //! counters = []
 //! no_counter = "pattern search has no dedicated counter"
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "result-set search"
-//! bound = "O(m) matches plus the selected rewrite-search strategy"
+//! bound = "O(m) matches, each followed by one predicate simplification and at most one is_sat, plus O(k) comparisons per retained match, plus the selected rewrite-search strategy"
 //! ```
 //!
 //! ```toml algorithm
@@ -54,12 +58,13 @@
 //! bound = "O(c^2 x t)"
 //! ```
 //!
-//! Breadth-first search over configurations with `(depth, pattern)` deduplication (Kore
-//! constructExecutionGraph; the LLVM backend's search), O(distinct configurations per depth)
-//! rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of simple
-//! paths with a per-path visited list, exponential in branching plus O(depth) per pop; pattern
-//! search over the result set. `normalize_match_condition` is the output-restricted
-//! variant of substitution extraction, O(c^2 x t) for c constraints, no counter.
+//! Breadth-first search over configurations with `(depth, pattern, is_rewritable)`
+//! deduplication (Kore constructExecutionGraph; the LLVM backend's search), O(distinct
+//! configurations per depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first
+//! enumeration of simple paths with a per-path visited list, exponential in branching plus
+//! O(depth) per pop; pattern search over the result set. `normalize_match_condition` is the
+//! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints, no
+//! counter.
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
@@ -296,6 +301,7 @@ fn match_disjunction_using(
     solver: &dyn SmtSolver,
     retain_unknown: bool,
 ) -> Result<Vec<PatternMatch>, PatternMatchError> {
+    let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let output_variables = pattern_variables(target);
     let mut matches = Vec::new();
     for subject in subjects {
@@ -398,7 +404,6 @@ fn search_graph_using(
     observation: Option<&ObservationOptions>,
     observe: impl FnMut(&BuiltinEffect),
 ) -> SearchResult {
-    let _span = measure::algorithm_span(Algorithm::BackendSearchConfigurations);
     search_graph_collecting(
         definition,
         initial,
@@ -420,6 +425,7 @@ fn search_graph_collecting(
     mut observe: impl FnMut(&BuiltinEffect),
     mut pattern_bound_reached: impl FnMut(&SearchState) -> bool,
 ) -> SearchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendSearchConfigurations);
     let mut observation_log = ObservationLog::default();
     let mut pending = initial
         .into_iter()
@@ -996,7 +1002,6 @@ fn search_paths_using(
     solver: &dyn SmtSolver,
     observation: Option<&ObservationOptions>,
 ) -> PathSearchResult {
-    let _span = measure::algorithm_span(Algorithm::BackendSearchPaths);
     search_paths_collecting(definition, initial, options, solver, observation, |_| false)
 }
 
@@ -1008,6 +1013,7 @@ fn search_paths_collecting(
     observation: Option<&ObservationOptions>,
     mut pattern_bound_reached: impl FnMut(&PathWitness) -> bool,
 ) -> PathSearchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendSearchPaths);
     let mut observation_log = ObservationLog::default();
     let mut pending = VecDeque::from([PathSearchState {
         state: SearchState {

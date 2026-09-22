@@ -2,14 +2,18 @@
 //! id = "backend.substitution.apply"
 //! name = "simultaneous substitution with attribute-guided skipping"
 //! sites = ["substitute", "compose"]
-//! variable = "t = term size"
+//! variable = "t = term size; v = variables of a visited subterm; s = bindings of the applied substitution; o = bindings of the old substitution in compose"
 //! counters = []
 //! no_counter = "TermConstructed measures resulting term construction only and is not dedicated to substitution"
 //! span = "none"
 //!
 //! [[cost]]
 //! mode = "one term"
-//! bound = "O(t) with O(1) skipping of variable-free subterms"
+//! bound = "O(t x v log s), with O(1) skipping of variable-free subterms"
+//!
+//! [[cost]]
+//! mode = "compose"
+//! bound = "o calls of substitute, each bounded as one term"
 //! ```
 //!
 //! ```toml algorithm
@@ -27,13 +31,13 @@
 //!
 //! [[cost]]
 //! mode = "saturation"
-//! bound = "O(s^2 x t)"
+//! bound = "O(s^2 x (s + t))"
 //! ```
 //!
 //! Simultaneous substitution with attribute-guided skipping, O(t) per term with O(1) skip of
 //! variable-free subterms, and substitution extraction by Kosaraju SCC cycle breaking (petgraph,
 //! the least variable of each cycle kept as an equality), O(r x (V + E)) for r cycles broken,
-//! then saturation bounded by the binding count, O(s^2 x t); no counter of its own,
+//! then saturation bounded by the binding count, O(s^2 x (s + t)); no counter of its own,
 //! `Counter::TermConstructed` indirectly.
 
 use std::collections::{BTreeMap, BTreeSet};

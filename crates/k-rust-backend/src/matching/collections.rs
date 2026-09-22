@@ -2,23 +2,28 @@
 //! id = "backend.matching.collections"
 //! name = "associative and associative-commutative collection matching"
 //! sites = ["solve_collection_pairs_in_definition", "solve_collection_pair", "solve_list_pair", "solve_map_pair", "solve_set_pair", "match_collection_remainders_all_in_definition", "cancel_common_opaque_chunks"]
-//! variable = "k = symbolic-key pattern elements; n = subject elements"
+//! variable = "k = pattern entries or elements left after common-key cancellation; n = subject entries or elements; h = list elements outside the frames; q = collection pairs in one call"
 //! counters = ["MatchingCollectionProblems"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "maps and sets"
-//! bound = "O(n^k) assignments in the worst case"
+//! bound = "O((n+1)^k) solve_term_pair assignments with narrowing, O(n^k) without"
 //!
 //! [[cost]]
 //! mode = "lists"
-//! bound = "O(n) frame positions per frame"
+//! bound = "O(h) solve_term_pair calls per list pair"
+//!
+//! [[cost]]
+//! mode = "deferred pair sweep (solve_collection_pairs_from_solution)"
+//! bound = "O(q^2) solve_collection_pair attempts per solution branch"
 //! ```
 //!
-//! AC(U) matching over multisets with a frame variable (maps and sets) by backtracking
-//! assignment, O(n^k) assignments worst case for k pattern elements against n subject elements
-//! (exponential in k, the number of symbolic-key elements); A(U) matching over lists by frame
-//! splitting, O(n) frame positions per frame; opaque-concatenation cancellation;
+//! AC(U) matching over multisets with a frame variable (maps and sets) by backtracking assignment,
+//! O(n^k) assignments worst case for k pattern elements against n subject elements (exponential in
+//! k, the number of pattern elements left after cancellation); A(U) matching over lists by a
+//! length-fixed frame split, one pair solve per element outside the frames; opaque-concatenation
+//! cancellation;
 //! `Counter::MatchingCollectionProblems`. The per-pair rules (sorts, overloads,
 //! injections) stay in `solve_term_pair`, which is why no generic AC matcher replaces this.
 
@@ -336,6 +341,7 @@ fn solve_list_pair(
     narrowing: &mut Option<&mut Narrowing<'_>>,
     depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
+    measure::bump(Counter::MatchingCollectionProblems);
     match match_terms_with_context(
         mode,
         &definition.sort_graph,

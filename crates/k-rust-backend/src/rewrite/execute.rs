@@ -2,19 +2,24 @@
 //! id = "backend.rewrite.execute"
 //! name = "depth-first exploration of a rewrite tree"
 //! sites = ["execute_using", "Execution::run", "Execution::expand", "select_got_stuck_over_depth_bound", "merge_equal_final_leaves", "enqueue_execution_states"]
-//! variable = "d = maximum depth; b = maximum breadth"
+//! variable = "d = maximum depth; b = maximum breadth; L = final leaves"
 //! counters = ["RewriteSteps"]
 //! span = "per problem"
-//! invariant = "queued successors are pushed to the front so children are visited before siblings"
+//! invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows"
 //! consumes = [
 //!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
 //!   { type = "k_rust_backend::rewrite::Pattern", role = "internalized pattern" },
+//!   { type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" },
 //! ]
 //! produces = [{ type = "k_rust_backend::rewrite::ExecutionResult", role = "execution result" }]
 //!
 //! [[cost]]
 //! mode = "bounded execution"
-//! bound = "O(states), with states at most b^d; each state performs one term simplification, predicate pass, and rewrite step"
+//! bound = "O(states), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None); each state performs one term simplification, predicate pass, and rewrite step, and a state stopped at max_depth is simplified once more"
+//!
+//! [[cost]]
+//! mode = "final leaf merge (merge_equal_final_leaves)"
+//! bound = "O(L^2) structural key comparisons"
 //! ```
 //!
 //! Depth-first exploration of the rewrite tree (stack discipline) with a per-state pipeline and

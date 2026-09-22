@@ -2,9 +2,9 @@
 //! id = "backend.definition.internalize"
 //! name = "KORE definition validation and internalization"
 //! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module", "visit_modules_preorder"]
-//! variable = "d = definition sentences and pattern nodes"
+//! variable = "d = definition sentences and pattern nodes; P = import paths from the main module, one entry each in the visit_modules_preorder output, which does not deduplicate; a = axioms and claims of one module"
 //! counters = []
-//! no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed is indirect"
+//! no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
 //! span = "per problem"
 //! consumes = [
 //!   { type = "k_rust_kore::kore::ast::Definition", role = "compiled definition" },
@@ -19,7 +19,11 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d)"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
+//!
+//! [[cost]]
+//! mode = "one term or pattern request (internalize_term, internalize_pattern)"
+//! bound = "one alias expansion plus O(pattern nodes)"
 //! ```
 //!
 //! ```toml algorithm
@@ -33,15 +37,22 @@
 //! invariant = "each closure grows monotonically and is bounded by |S| squared pairs"
 //!
 //! [[cost]]
-//! mode = "naive closure iteration"
+//! mode = "subsort closure (build_sort_graph)"
 //! bound = "at most h rounds, each O(|S| x |C|)"
+//!
+//! [[cost]]
+//! mode = "overload closure (OverloadGraph::from_relations)"
+//! bound = "at most h rounds, each O(|C|^2)"
 //! ```
 //!
-//! Validation and internalization of textual KORE definitions, O(|definition|), once per load:
-//! import DFS with a path stack for cycle detection, preorder axiom order (CQ-05a), axiom-shape
-//! classification, term internalization; subsort and overload transitive closures by
-//! naive iteration, rounds <= longest chain, each O(|S| x |closure|). No counter; the
-//! `internalize` phase of `kprove --timings` measures it, `Counter::TermConstructed` indirectly.
+//! Validation and internalization of textual KORE definitions, O(|definition|) for the module, sort
+//! and symbol passes plus one axiom push, alias expansion and classification per import path to
+//! each module, once per load: import DFS with a path stack for cycle detection, preorder axiom
+//! order (CQ-05a) without deduplication of modules reached by several import paths, axiom-shape
+//! classification, term internalization; subsort and overload transitive closures by naive
+//! iteration, rounds <= longest chain, each O(|S| x |closure|) for subsorts and O(|closure|^2) for
+//! overloads. No counter; the `internalize` phase of `kprove --timings` measures it,
+//! `Counter::TermConstructed` indirectly.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -104,6 +115,11 @@ pub enum PatternOrPredicate {
 ///
 /// A relation `(greater, lesser)` records that `greater` overloads `lesser`. Symbols which share
 /// a strict upper bound may be unified by lifting both applications to a common overload.
+/// ```toml algorithm-site
+/// id = "backend.matching.relation_query"
+/// role = "part"
+/// sites = ["OverloadGraph::is_overloading", "OverloadGraph::common_overloads", "OverloadGraph::overloaded_by"]
+/// ```
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct OverloadGraph {
     greater_than: BTreeMap<Name, BTreeSet<Name>>,
@@ -788,6 +804,7 @@ impl BackendDefinition {
         pattern: &kore::Pattern,
         sort_variables: &[Name],
     ) -> Result<Term, DefinitionError> {
+        let _span = measure::algorithm_span(Algorithm::BackendDefinitionInternalize);
         self.internalize_term_with_validation(pattern, sort_variables, SubsortValidation::Check)
     }
 
@@ -843,6 +860,7 @@ impl BackendDefinition {
         pattern: &kore::Pattern,
         sort_variables: &[Name],
     ) -> Result<Pattern, DefinitionError> {
+        let _span = measure::algorithm_span(Algorithm::BackendDefinitionInternalize);
         let pattern = expand_aliases(pattern, &self.aliases)?;
         let (term, constraints) =
             internalize_rule_pattern(self, &pattern, sort_variables, SubsortValidation::Check)?;

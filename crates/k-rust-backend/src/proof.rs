@@ -2,13 +2,14 @@
 //! id = "backend.proof.search"
 //! name = "reachability-logic proof search"
 //! sites = ["prove_claim", "extend_frontier", "finish_at_breadth_limit", "apply_claim"]
-//! variable = "s = explored states; c = circularities"
+//! variable = "s = explored states; c = circularities; u = states still pending when the breadth limit is reached"
 //! counters = ["ProofStatesExplored", "ProofImplicationChecks"]
 //! span = "per problem"
+//! consumes = [{ type = "k_rust_backend::rewrite::RewriteResult", role = "rewrite result" }]
 //!
 //! [[cost]]
 //! mode = "one proof"
-//! bound = "O(s) x (simplification + implication + O(c) claim applications + one rewrite step)"
+//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit"
 //! ```
 //!
 //! Reachability-logic proof search (Kore proveClaim; pyk APR): per explored state one

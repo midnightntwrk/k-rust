@@ -2,19 +2,23 @@
 //! id = "backend.fresh.object_language"
 //! name = "capture-avoiding substitution of object-language variables"
 //! sites = ["evaluate", "FreshNames::mint", "substitute", "freshen_bound_kvar_identities", "freshen_bound_kvar_identities_inner", "peel_injections"]
-//! variable = "t = term size; r = replacement size; b = binders renamed"
-//! counters = ["SimplifyBuiltinEvaluations"]
+//! variable = "t = term size; r = replacement size; k = binders traversed whose bound variable differs from the target; b = binders renamed; m = entries of one map; s = sorts in the definition"
+//! counters = []
 //! span = "per call"
+//! no_counter = "object-language substitution has no dedicated counter; its hook caller simplify_root bumps SimplifyBuiltinEvaluations"
 //!
 //! [[cost]]
 //! mode = "one object-language substitution"
-//! bound = "O(|t|) plus O(|r|) per renamed binder and collision retries"
+//! bound = "O(s + (k + b + 1) x t + k x r + m^2 per map) plus collision retries"
 //! ```
 //!
 //! Capture-avoiding substitution of object-language `KVar` tokens (Barendregt renaming through
-//! `FreshNames::mint`), O(|term|) plus O(|replacement|) per binder renamed; counted as a hook
-//! under `Counter::SimplifyBuiltinEvaluations`; the only loops are the fresh-name retry and the
-//! injection peel. Its name domain is the object language, distinct from the
+//! `FreshNames::mint`), one recursive pass over the term that rescans the binder body for free
+//! `KVar`s at each binder, freshens the replacement at each binder the target occurs under, and
+//! substitutes a renamed body twice; its hook caller counts it under
+//! `Counter::SimplifyBuiltinEvaluations`; besides the fresh-name retry and the injection peel it
+//! loops over application arguments, map entries (pairwise for key distinctness), list heads and
+//! tails, and set elements. Its name domain is the object language, distinct from the
 //! backend-variable fresh naming.
 
 use std::{

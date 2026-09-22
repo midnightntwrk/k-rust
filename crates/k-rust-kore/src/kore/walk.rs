@@ -5,6 +5,7 @@
 //! variable = "p = pattern nodes"
 //! counters = []
 //! no_counter = "pattern traversal has no dedicated counter"
+//! span = "none"
 //!
 //! [[cost]]
 //! mode = "one traversal"
@@ -12,7 +13,9 @@
 //! ```
 //!
 //! One traversal of [`Pattern`] (children in field order, post-order visit with an explicit
-//! stack, and rebuild) and the walkers derived from it. Each traversal is O(|pattern|).
+//! stack, and rebuild) and the walkers derived from it. Each traversal visits every pattern
+//! node once, and a derived walker that collects variables adds one ordered-set insertion per
+//! variable node.
 
 use std::collections::{BTreeMap, BTreeSet};
 

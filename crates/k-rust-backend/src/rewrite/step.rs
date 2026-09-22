@@ -13,20 +13,19 @@
 //!
 //! [[cost]]
 //! mode = "All"
-//! bound = "O(c) rule attempts plus one SAT check per productive group"
+//! bound = "O(c) rule attempts plus one SAT check per productive group and one remainder term simplification before the first lower group and after each productive lower group"
 //!
 //! [[cost]]
 //! mode = "Any"
-//! bound = "O(c) rule attempts plus one SAT check per applied rule"
+//! bound = "O(c) rule attempts plus one predicate simplification per applied rule and one SAT check per step"
 //! ```
 //!
 //! Priority-grouped rewrite step with remainder: `All` mode folds the remainder through every
 //! priority group (Kore `transitionAllRewrite`), while `Any` mode threads it through the rules
 //! sequentially (Kore `applyRewriteRulesSequence`). The returned remainder is complete in both
 //! modes. O(c) rule attempts per step for the c candidates of `rule::applicable_rewrite_groups`
-//! plus one
-//! SAT check per productive group (`All`) or per applied rule (`Any`);
-//! `Counter::RewriteRulesApplied`.
+//! plus one SAT check per productive group (`All`) or one predicate simplification per applied
+//! rule and one SAT check per step (`Any`); `Counter::RewriteRulesApplied`.
 
 use std::sync::Arc;
 
@@ -432,6 +431,7 @@ pub(super) fn rewrite_step_any(
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let index = term_index(&pattern.term);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(&definition.rewrite_theory, &index, &subject);

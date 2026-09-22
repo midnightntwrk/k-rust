@@ -6,6 +6,7 @@
 //! counters = []
 //! no_counter = "flat-width precomputation has no dedicated counter"
 //! invariant = "the stack holds unmatched groups and accumulated widths for processed operations"
+//! span = "none"
 //!
 //! [[cost]]
 //! mode = "one document"
@@ -16,19 +17,23 @@
 //! id = "kore.printer.render"
 //! name = "width-aware rendering of KORE documents"
 //! sites = ["render"]
-//! variable = "N = document nodes"
+//! variable = "N = document nodes; o = output characters"
 //! counters = []
 //! no_counter = "document rendering has no dedicated counter"
-//! invariant = "processed operations have reached their recorded state and each pending operation is consumed once"
+//! invariant = "ops before the current index have been written to output; modes holds the base mode plus one mode per open group; indentation is the sum of open nest amounts"
+//! span = "per call"
 //!
 //! [[cost]]
 //! mode = "compact or broken layout"
-//! bound = "O(N)"
+//! bound = "O(N + o)"
 //! ```
 //!
-//! Wadler-style documents precompute flat widths and render with a bounded stack in O(document nodes).
+//! Wadler-style documents precompute flat widths and render with a mode stack whose height is the group nesting depth, in O(document nodes + output characters).
 //! No dedicated counter measures printing.
 //!
+
+use crate::measure::{self, Algorithm};
+
 #[derive(Clone, Debug)]
 pub(super) struct Doc {
     ops: Vec<Op>,
@@ -109,6 +114,7 @@ pub(super) enum RenderMode {
 }
 
 pub(super) fn render(document: &Doc, mode: RenderMode, width: usize) -> String {
+    let _span = measure::algorithm_span(Algorithm::KorePrinterRender);
     let flat_widths = flat_widths(&document.ops);
     let mut output = String::new();
     let mut column = 0usize;
@@ -118,7 +124,7 @@ pub(super) fn render(document: &Doc, mode: RenderMode, width: usize) -> String {
         RenderMode::Pretty => Mode::Break,
     }];
 
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+    // Invariant: ops before the current index have been written to output; `modes` holds the base mode plus one mode per open group; `indentation` is the sum of open nest amounts.
     for (index, op) in document.ops.iter().enumerate() {
         match op {
             Op::Text(value) => {
@@ -163,7 +169,7 @@ enum Mode {
 fn flat_widths(ops: &[Op]) -> Vec<Option<usize>> {
     let mut result = vec![None; ops.len()];
     let mut stack: Vec<(usize, Option<usize>)> = Vec::new();
-    // Invariant: processed entries have reached their recorded state, the pending collection is the discovered frontier, and each pop consumes one entry before unseen successors are added.
+    // Invariant: the stack holds unmatched groups and accumulated widths for processed operations.
     for (index, op) in ops.iter().enumerate() {
         let width = match op {
             Op::Text(value) => Some(value.chars().count()),

@@ -971,8 +971,8 @@ id = "backend.alias.unfold"
 provenance = "declared"
 area = "backend"
 name = "capture-avoiding alias unfolding"
-variable = "p = pattern size; d = expansion depth"
-no_counter = "alias unfolding runs only at load time and has no dedicated counter"
+variable = "p = pattern size; o = expanded output size, which multiplies by the repeat count of a parameter at each nested alias level; b = binders visited; r = total size of the parameter map at a binder; n = aliases in the definition"
+no_counter = "alias unfolding has no dedicated counter; it runs once per alias at load and once per internalize_term or internalize_pattern request"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendAliasUnfold"
@@ -1003,8 +1003,12 @@ file = "crates/k-rust-backend/src/alias.rs"
 symbol = "validate_expansions"
 
 [[node.cost]]
-mode = "definition load"
-bound = "O(p x d)"
+mode = "one expand call"
+bound = "O(o + b x (p + r))"
+
+[[node.cost]]
+mode = "definition load (validate_expansions)"
+bound = "n expand calls, each O(o + b x (p + r))"
 
 [[node]]
 kind = "algorithm"
@@ -1012,8 +1016,8 @@ id = "backend.definedness.discharge"
 provenance = "declared"
 area = "backend"
 name = "structural definedness constraint generation and discharge"
-variable = "t = term size"
-no_counter = "definedness has no dedicated counter"
+variable = "t = term size; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
+no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendDefinedness"
@@ -1048,9 +1052,18 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
 symbol = "deduplicate"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "ceil_term_recursive"
+
 [[node.cost]]
-mode = "one term"
-bound = "O(|t|) with hash-set deduplication"
+mode = "one term (ceil_term)"
+bound = "O(t) visits with one deduplication clone each, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
+
+[[node.cost]]
+mode = "one definition (discharge_rewrite_definedness)"
+bound = "R rule_is_defined calls, each two ceil_term calls, one ceil_predicate over the requires clause, and O(l^2) Vec::contains comparisons"
 
 [[node]]
 kind = "algorithm"
@@ -1086,8 +1099,12 @@ file = "crates/k-rust-backend/src/definition.rs"
 symbol = "OverloadGraph"
 
 [[node.cost]]
-mode = "naive closure iteration"
+mode = "subsort closure (build_sort_graph)"
 bound = "at most h rounds, each O(|S| x |C|)"
+
+[[node.cost]]
+mode = "overload closure (OverloadGraph::from_relations)"
+bound = "at most h rounds, each O(|C|^2)"
 
 [[node]]
 kind = "algorithm"
@@ -1095,8 +1112,8 @@ id = "backend.definition.internalize"
 provenance = "declared"
 area = "backend"
 name = "KORE definition validation and internalization"
-variable = "d = definition sentences and pattern nodes"
-no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed is indirect"
+variable = "d = definition sentences and pattern nodes; P = import paths from the main module, one entry each in the visit_modules_preorder output, which does not deduplicate; a = axioms and claims of one module"
+no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendDefinitionInternalize"
@@ -1153,7 +1170,11 @@ symbol = "internalize_axiom"
 
 [[node.cost]]
 mode = "one definition load"
-bound = "O(d)"
+bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
+
+[[node.cost]]
+mode = "one term or pattern request (internalize_term, internalize_pattern)"
+bound = "one alias expansion plus O(pattern nodes)"
 
 [[node]]
 kind = "algorithm"
@@ -1161,7 +1182,8 @@ id = "backend.fresh.object_language"
 provenance = "declared"
 area = "backend"
 name = "capture-avoiding substitution of object-language variables"
-variable = "t = term size; r = replacement size; b = binders renamed"
+variable = "t = term size; r = replacement size; k = binders traversed whose bound variable differs from the target; b = binders renamed; m = entries of one map; s = sorts in the definition"
+no_counter = "object-language substitution has no dedicated counter; its hook caller simplify_root bumps SimplifyBuiltinEvaluations"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendFreshObjectLanguage"
@@ -1203,7 +1225,7 @@ symbol = "peel_injections"
 
 [[node.cost]]
 mode = "one object-language substitution"
-bound = "O(|t|) plus O(|r|) per renamed binder and collision retries"
+bound = "O(s + (k + b + 1) x t + k x r + m^2 per map) plus collision retries"
 
 [[node]]
 kind = "algorithm"
@@ -1211,7 +1233,7 @@ id = "backend.fresh.variables"
 provenance = "declared"
 area = "backend"
 name = "counter-suffixed backend variable naming with collision retry"
-variable = "c = colliding candidate names"
+variable = "c = colliding candidate names; v = variable names collected into a site's avoid set"
 no_counter = "fresh backend variable naming has no dedicated counter"
 span = "none"
 table = "Algorithm::ALL"
@@ -1265,6 +1287,14 @@ bound = "O(c) per name, amortized O(1)"
 mode = "Booster existential spelling"
 bound = "O(c) trailing-decimal retries"
 
+[[node.cost]]
+mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, alias fresh_variable)"
+bound = "O(v log v) per call before the retry loop"
+
+[[node.cost]]
+mode = "freshen_existentials"
+bound = "O(c) per name without amortization, since the suffix restarts at each existential's index"
+
 [[node]]
 kind = "algorithm"
 id = "backend.implication.check"
@@ -1307,8 +1337,12 @@ file = "crates/k-rust-backend/src/implication.rs"
 symbol = "eliminate_existential_witnesses"
 
 [[node.cost]]
-mode = "one implication check"
-bound = "O(r x (c matching problems + witness saturation + one SMT validity query))"
+mode = "one consequent (check_implication_with_existentials_and_options_and_policy)"
+bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to two is_sat queries"
+
+[[node.cost]]
+mode = "several consequents (check_disjunctive_implication_with_existentials)"
+bound = "O(r x (c matching problems + c witness eliminations + one check_predicates))"
 
 [[node]]
 kind = "algorithm"
@@ -1316,7 +1350,7 @@ id = "backend.matching.collections"
 provenance = "declared"
 area = "backend"
 name = "associative and associative-commutative collection matching"
-variable = "k = symbolic-key pattern elements; n = subject elements"
+variable = "k = pattern entries or elements left after common-key cancellation; n = subject entries or elements; h = list elements outside the frames; q = collection pairs in one call"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendMatchingCollections"
@@ -1363,11 +1397,15 @@ symbol = "cancel_common_opaque_chunks"
 
 [[node.cost]]
 mode = "maps and sets"
-bound = "O(n^k) assignments in the worst case"
+bound = "O((n+1)^k) solve_term_pair assignments with narrowing, O(n^k) without"
 
 [[node.cost]]
 mode = "lists"
-bound = "O(n) frame positions per frame"
+bound = "O(h) solve_term_pair calls per list pair"
+
+[[node.cost]]
+mode = "deferred pair sweep (solve_collection_pairs_from_solution)"
+bound = "O(q^2) solve_collection_pair attempts per solution branch"
 
 [[node]]
 kind = "algorithm"
@@ -1375,7 +1413,7 @@ id = "backend.matching.relation_query"
 provenance = "declared"
 area = "backend"
 name = "subsort and overload membership queries"
-variable = "S = sorts or overloaded symbols"
+variable = "S = sorts or overloaded symbols; g = sort-argument nodes of the two compared sorts; C = overload closure pairs"
 no_counter = "relation queries have no dedicated counter"
 span = "none"
 table = "Algorithm::ALL"
@@ -1388,22 +1426,35 @@ symbol = "SortGraph::check_subsort"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "OverloadGraph::is_overloading"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "OverloadGraph::common_overloads"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "OverloadGraph::overloaded_by"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/matching/mod.rs"
 symbol = "SortGraph::check_subsort"
 
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/matching/mod.rs"
-symbol = "OverloadView::new"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/matching/mod.rs"
-symbol = "OverloadView::lift"
+[[node.cost]]
+mode = "SortGraph::check_subsort"
+bound = "O(g x log |S|)"
 
 [[node.cost]]
-mode = "one membership query"
-bound = "O(log |S|)"
+mode = "OverloadGraph::is_overloading, OverloadGraph::overloaded_by"
+bound = "O(log |S|) plus the size of the returned set"
+
+[[node.cost]]
+mode = "OverloadGraph::common_overloads"
+bound = "O(|C|)"
 
 [[node]]
 kind = "algorithm"
@@ -1411,7 +1462,7 @@ id = "backend.matching.syntactic"
 provenance = "declared"
 area = "backend"
 name = "sort-aware one-way first-order matching by pair decomposition"
-variable = "p = pairs popped, bounded by |pattern| plus one re-enqueue per deferred pair; a = pair arity"
+variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendMatchingSyntactic"
@@ -1458,7 +1509,7 @@ symbol = "initial_match"
 
 [[node.cost]]
 mode = "one matching problem"
-bound = "O(p x a)"
+bound = "O(p x (a + s x t))"
 
 [[node]]
 kind = "algorithm"
@@ -1466,7 +1517,7 @@ id = "backend.proof.search"
 provenance = "declared"
 area = "backend"
 name = "reachability-logic proof search"
-variable = "s = explored states; c = circularities"
+variable = "s = explored states; c = circularities; u = states still pending when the breadth limit is reached"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendProofSearch"
@@ -1498,7 +1549,7 @@ symbol = "apply_claim"
 
 [[node.cost]]
 mode = "one proof"
-bound = "O(s) x (simplification + implication + O(c) claim applications + one rewrite step)"
+bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit"
 
 [[node]]
 kind = "algorithm"
@@ -1506,7 +1557,7 @@ id = "backend.rewrite.apply"
 provenance = "declared"
 area = "backend"
 name = "one-rule conditional rewriting"
-variable = "c = candidate rules passed by the step; r = unmatched remainder pairs"
+variable = "r = unmatched remainder pairs; a = right-hand-side alternatives of the rule; f = partial matches returned by one recovery split"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendRewriteApply"
@@ -1548,11 +1599,11 @@ symbol = "instantiate"
 
 [[node.cost]]
 mode = "direct match"
-bound = "one matching problem and up to three SMT calls per attempt"
+bound = "one matching problem, at most one is_sat query, and at most 1 + 2a decide_condition calls of up to three solver queries each per attempt"
 
 [[node.cost]]
 mode = "indeterminate recovery"
-bound = "up to eleven recovery strategies with recursion depth at most |r| + 1"
+bound = "up to eleven recovery strategies with recursion depth at most |r| + 1, each split re-entering once for each of its f partial matches"
 
 [[node]]
 kind = "algorithm"
@@ -1560,8 +1611,8 @@ id = "backend.rewrite.execute"
 provenance = "declared"
 area = "backend"
 name = "depth-first exploration of a rewrite tree"
-variable = "d = maximum depth; b = maximum breadth"
-invariant = "queued successors are pushed to the front so children are visited before siblings"
+variable = "d = maximum depth; b = maximum breadth; L = final leaves"
+invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendRewriteExecute"
@@ -1608,7 +1659,11 @@ symbol = "enqueue_execution_states"
 
 [[node.cost]]
 mode = "bounded execution"
-bound = "O(states), with states at most b^d; each state performs one term simplification, predicate pass, and rewrite step"
+bound = "O(states), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None); each state performs one term simplification, predicate pass, and rewrite step, and a state stopped at max_depth is simplified once more"
+
+[[node.cost]]
+mode = "final leaf merge (merge_equal_final_leaves)"
+bound = "O(L^2) structural key comparisons"
 
 [[node]]
 kind = "algorithm"
@@ -1625,6 +1680,16 @@ registry_name = "BackendRewriteRecover"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/recover.rs"
 symbol = "recover_indeterminate_match"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "recover_by_split"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/apply.rs"
+symbol = "recover_by_unification"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1683,7 +1748,7 @@ symbol = "recover_overload_symbolic_match"
 
 [[node.cost]]
 mode = "ordered recovery ladder"
-bound = "each strategy either declines or returns matches with an empty or strictly shorter remainder"
+bound = "each strategy either declines or returns matches with an empty or strictly shorter remainder, except symbolic map key, whose remainder is the other pairs plus the indeterminate pairs of its nested matches"
 
 [[node.cost]]
 mode = "symbolic map key"
@@ -1732,11 +1797,11 @@ symbol = "fold_lower_priority_groups"
 
 [[node.cost]]
 mode = "All"
-bound = "O(c) rule attempts plus one SAT check per productive group"
+bound = "O(c) rule attempts plus one SAT check per productive group and one remainder term simplification before the first lower group and after each productive lower group"
 
 [[node.cost]]
 mode = "Any"
-bound = "O(c) rule attempts plus one SAT check per applied rule"
+bound = "O(c) rule attempts plus one predicate simplification per applied rule and one SAT check per step"
 
 [[node]]
 kind = "algorithm"
@@ -1744,7 +1809,8 @@ id = "backend.rule.select"
 provenance = "declared"
 area = "backend"
 name = "single-symbol rule selection"
-variable = "k = index keys; c = candidate rules returned for one step"
+variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; t = subject term nodes"
+no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendRuleSelect"
@@ -1781,7 +1847,11 @@ symbol = "subject_index"
 
 [[node.cost]]
 mode = "one subject"
-bound = "O(log k) index lookups plus O(c) candidate clones"
+bound = "O(log k) index lookups plus O(r) covers checks plus O(c) candidate clones"
+
+[[node.cost]]
+mode = "subject_index"
+bound = "O(t)"
 
 [[node]]
 kind = "algorithm"
@@ -1789,7 +1859,7 @@ id = "backend.search.configurations"
 provenance = "declared"
 area = "backend"
 name = "breadth-first search over configurations"
-variable = "n = distinct configurations at one depth"
+variable = "n = distinct (depth, pattern, is_rewritable) keys at one depth; r = results retained"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendSearchConfigurations"
@@ -1821,7 +1891,11 @@ symbol = "retain_state_result"
 
 [[node.cost]]
 mode = "one depth"
-bound = "O(n) rewrite steps"
+bound = "O(n) rewrite steps plus O(r) pattern comparisons per retained result"
+
+[[node.cost]]
+mode = "result or pattern bound reached"
+bound = "one extra rewrite step in state_may_expand"
 
 [[node]]
 kind = "algorithm"
@@ -1865,7 +1939,7 @@ id = "backend.search.patterns"
 provenance = "declared"
 area = "backend"
 name = "pattern search over rewrite results"
-variable = "m = result patterns examined"
+variable = "m = result patterns examined; k = matches retained"
 no_counter = "pattern search has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -1891,9 +1965,14 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/search.rs"
 symbol = "match_pattern_with_variables"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search.rs"
+symbol = "match_disjunction_using"
+
 [[node.cost]]
 mode = "result-set search"
-bound = "O(m) matches plus the selected rewrite-search strategy"
+bound = "O(m) matches, each followed by one predicate simplification and at most one is_sat, plus O(k) comparisons per retained match, plus the selected rewrite-search strategy"
 
 [[node]]
 kind = "algorithm"
@@ -1901,8 +1980,7 @@ id = "backend.simplify.predicates"
 provenance = "declared"
 area = "backend"
 name = "conjunct-set predicate normalization"
-variable = "b = simplification budget"
-no_counter = "predicate normalization has no dedicated counter; term rounds count only the term simplification it triggers"
+variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendSimplifyPredicates"
@@ -1911,11 +1989,6 @@ registry_name = "BackendSimplifyPredicates"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_predicates_with_solver"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/rewrite/apply.rs"
-symbol = "simplify_conditions"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1938,8 +2011,8 @@ file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_predicate_with_budget"
 
 [[node.cost]]
-mode = "indexed conjunct lookup"
-bound = "O(1) membership per conjunct with re-entry bounded by b"
+mode = "one round"
+bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
 
 [[node]]
 kind = "algorithm"
@@ -1996,13 +2069,17 @@ symbol = "apply_theory"
 mode = "one term lineage"
 bound = "O(r x |t| x c), with r bounded by max_iterations"
 
+[[node.cost]]
+mode = "rule condition"
+bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
+
 [[node]]
 kind = "algorithm"
 id = "backend.smt.cache"
 provenance = "declared"
 area = "backend"
 name = "bounded FIFO memoization of SMT query scripts"
-variable = "e = entries evicted"
+variable = "e = entries evicted; E = cached entries; L = script length in bytes"
 invariant = "entries and insertion_order agree; eviction stops once the entry and key-byte limits admit the new key"
 span = "per call"
 table = "Algorithm::ALL"
@@ -2038,9 +2115,14 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/z3.rs"
 symbol = "SolverResultCache"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::solve_model"
+
 [[node.cost]]
 mode = "cache hit"
-bound = "O(1)"
+bound = "O(L x log E) for the key comparison, after an O(L) copy of the base script in solve_query"
 
 [[node.cost]]
 mode = "cache insertion"
@@ -2052,7 +2134,7 @@ id = "backend.substitution.apply"
 provenance = "declared"
 area = "backend"
 name = "simultaneous substitution with attribute-guided skipping"
-variable = "t = term size"
+variable = "t = term size; v = variables of a visited subterm; s = bindings of the applied substitution; o = bindings of the old substitution in compose"
 no_counter = "TermConstructed measures resulting term construction only and is not dedicated to substitution"
 span = "none"
 table = "Algorithm::ALL"
@@ -2075,7 +2157,11 @@ symbol = "compose"
 
 [[node.cost]]
 mode = "one term"
-bound = "O(t) with O(1) skipping of variable-free subterms"
+bound = "O(t x v log s), with O(1) skipping of variable-free subterms"
+
+[[node.cost]]
+mode = "compose"
+bound = "o calls of substitute, each bounded as one term"
 
 [[node]]
 kind = "algorithm"
@@ -2115,7 +2201,7 @@ bound = "O(r x (V + E))"
 
 [[node.cost]]
 mode = "saturation"
-bound = "O(s^2 x t)"
+bound = "O(s^2 x (s + t))"
 
 [[node]]
 kind = "algorithm"
@@ -3300,20 +3386,6 @@ symbol = "PreparedDefinitionManifest"
 
 [[node]]
 kind = "representation"
-id = "k_rust::backend::ExecutionResult [wire execution result]"
-provenance = "declared"
-area = "kompile"
-name = "k_rust::backend::ExecutionResult"
-type_path = "k_rust::backend::ExecutionResult"
-role = "wire execution result"
-
-[node.anchor]
-crate = "k-rust"
-file = "crates/k-rust/src/backend/mod.rs"
-symbol = "ExecutionResult"
-
-[[node]]
-kind = "representation"
 id = "k_rust::definition::Definition [lowered source]"
 provenance = "declared"
 area = "kompile"
@@ -4398,6 +4470,7 @@ area = "kore"
 name = "explicit-stack traversal and rebuilding of KORE patterns"
 variable = "p = pattern nodes"
 no_counter = "pattern traversal has no dedicated counter"
+span = "none"
 table = "Algorithm::ALL"
 registry_name = "KorePatternWalk"
 
@@ -4441,8 +4514,9 @@ id = "kore.printer.build"
 provenance = "declared"
 area = "kore"
 name = "construction of KORE pretty-print documents"
-variable = "N = KORE syntax nodes"
+variable = "N = KORE syntax nodes; g = Doc::nest and Doc::group calls whose document contains a given op"
 no_counter = "KORE document construction has no dedicated counter"
+span = "per call"
 table = "Algorithm::ALL"
 registry_name = "KorePrinterBuild"
 
@@ -4496,9 +4570,29 @@ crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "Printer::print_pattern"
 
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "attributes_doc"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "declaration_pattern_doc"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "delimited"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "join"
+
 [[node.cost]]
 mode = "one syntax tree"
-bound = "O(N)"
+bound = "O(N x g), since nest and group insert at the front of the op vector"
 
 [[node]]
 kind = "algorithm"
@@ -4509,6 +4603,7 @@ name = "precomputation of KORE document flat widths"
 variable = "N = document nodes"
 invariant = "the stack holds unmatched groups and accumulated widths for processed operations"
 no_counter = "flat-width precomputation has no dedicated counter"
+span = "none"
 table = "Algorithm::ALL"
 registry_name = "KorePrinterFlatWidths"
 
@@ -4532,9 +4627,10 @@ id = "kore.printer.render"
 provenance = "declared"
 area = "kore"
 name = "width-aware rendering of KORE documents"
-variable = "N = document nodes"
-invariant = "processed operations have reached their recorded state and each pending operation is consumed once"
+variable = "N = document nodes; o = output characters"
+invariant = "ops before the current index have been written to output; modes holds the base mode plus one mode per open group; indentation is the sum of open nest amounts"
 no_counter = "document rendering has no dedicated counter"
+span = "per call"
 table = "Algorithm::ALL"
 registry_name = "KorePrinterRender"
 
@@ -4555,7 +4651,7 @@ symbol = "Printer::render"
 
 [[node.cost]]
 mode = "compact or broken layout"
-bound = "O(N)"
+bound = "O(N + o)"
 
 [[node]]
 kind = "phase"
@@ -6314,15 +6410,9 @@ to = "k_rust_backend::term::Term [internalized term]"
 provenance = "declared"
 
 [[edge]]
-kind = "measured-by"
-from = "backend.fresh.object_language"
-to = "SimplifyBuiltinEvaluations"
-provenance = "declared"
-
-[[edge]]
-kind = "measured-by"
-from = "backend.implication.check"
-to = "ProofImplicationChecks"
+kind = "variant-of"
+from = "backend.fresh.variables"
+to = "backend.fresh.variables"
 provenance = "declared"
 
 [[edge]]
@@ -6347,6 +6437,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.matching.syntactic"
 to = "MatchingProblems"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.proof.search"
+to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
 provenance = "declared"
 
 [[edge]]
@@ -6388,25 +6484,19 @@ provenance = "declared"
 [[edge]]
 kind = "consumes"
 from = "backend.rewrite.execute"
-to = "k_rust_backend::rewrite::ExecutionResult [execution result]"
+to = "k_rust_backend::rewrite::Pattern [internalized pattern]"
 provenance = "declared"
 
 [[edge]]
 kind = "consumes"
 from = "backend.rewrite.execute"
-to = "k_rust_backend::rewrite::Pattern [internalized pattern]"
+to = "k_rust_backend::rewrite::RewriteResult [rewrite result]"
 provenance = "declared"
 
 [[edge]]
 kind = "measured-by"
 from = "backend.rewrite.execute"
 to = "RewriteSteps"
-provenance = "declared"
-
-[[edge]]
-kind = "produces"
-from = "backend.rewrite.execute"
-to = "k_rust::backend::ExecutionResult [wire execution result]"
 provenance = "declared"
 
 [[edge]]
@@ -6447,14 +6537,14 @@ provenance = "declared"
 
 [[edge]]
 kind = "measured-by"
-from = "backend.rule.select"
-to = "RewriteRuleAttempts"
+from = "backend.search.configurations"
+to = "SearchStatesDeduplicated"
 provenance = "declared"
 
 [[edge]]
 kind = "measured-by"
-from = "backend.search.configurations"
-to = "SearchStatesDeduplicated"
+from = "backend.simplify.predicates"
+to = "SimplifyInvocations"
 provenance = "declared"
 
 [[edge]]
@@ -6467,6 +6557,18 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.simplify.term"
 to = "SimplifyEquationAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.term"
+to = "SimplifyInvocations"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.simplify.term"
+to = "SimplifyNodesSkippedEvaluated"
 provenance = "declared"
 
 [[edge]]

@@ -2,19 +2,26 @@
 //! id = "backend.rule.select"
 //! name = "single-symbol rule selection"
 //! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index"]
-//! variable = "k = index keys; c = candidate rules returned for one step"
-//! counters = ["RewriteRuleAttempts"]
+//! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; t = subject term nodes"
+//! counters = []
 //! span = "per call"
+//! no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
 //!
 //! [[cost]]
 //! mode = "one subject"
-//! bound = "O(log k) index lookups plus O(c) candidate clones"
+//! bound = "O(log k) index lookups plus O(r) covers checks plus O(c) candidate clones"
+//!
+//! [[cost]]
+//! mode = "subject_index"
+//! bound = "O(t)"
 //! ```
 //!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
 //! rewrite rules additionally filter by the head of their `<k>` cell. Candidate count is the old
 //! exact-symbol then variable-symbol sequence filtered by `rule.index.covers(subject_index)`, so
-//! priority and declaration order remain unchanged.
+//! priority and declaration order remain unchanged. Selection costs O(log k) index lookups plus
+//! one `covers` check per rule stored under the subject's key and the `Variable` key;
+//! `Counter::RewriteRuleAttempts` is bumped by the caller per candidate tried.
 //!
 //! The index uses `Anything` for absent or malformed `<k>` cells, variables, overloaded heads,
 //! associative or idempotent heads, and subject-side functions. It strips injections and meets

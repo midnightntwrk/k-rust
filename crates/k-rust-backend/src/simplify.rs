@@ -3,35 +3,40 @@
 //! name = "innermost equational simplification to a budgeted fixed point"
 //! sites = ["simplify_with_optional_execution", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "apply_theory"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
-//! counters = ["SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations"]
+//! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated"]
 //! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one term lineage"
 //! bound = "O(r x |t| x c), with r bounded by max_iterations"
+//!
+//! [[cost]]
+//! mode = "rule condition"
+//! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
 //! sites = ["simplify_predicates_with_solver", "predicate_conjunct_index", "simplify_predicates_with_budget", "simplify_predicate_with_budget"]
-//! variable = "b = simplification budget"
-//! counters = []
-//! no_counter = "predicate normalization has no dedicated counter; term rounds count only the term simplification it triggers"
+//! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts"
+//! counters = ["SimplifyInvocations"]
 //! span = "per call"
 //!
 //! [[cost]]
-//! mode = "indexed conjunct lookup"
-//! bound = "O(1) membership per conjunct with re-entry bounded by b"
+//! mode = "one round"
+//! bound = "n predicate simplifications plus up to n rebuilds of PathConditionReplacements from e equalities, for at most b + 1 rounds"
 //! ```
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
 //! builtin hooks, and evaluated-attribute memoisation (Booster ApplyEquations): cost O(rounds x
 //! |term| x candidates per node), rounds <= `max_iterations` per lineage;
-//! `Counter::SimplifyRounds`, `Counter::SimplifyEquationAttempts`,
-//! `Counter::SimplifyBuiltinEvaluations`.
-//! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index, O(1) membership per
-//! conjunct, budget-bounded re-entry through the ceil and predicate theories.
+//! `Counter::SimplifyInvocations`, `Counter::SimplifyRounds`,
+//! `Counter::SimplifyEquationAttempts`, `Counter::SimplifyBuiltinEvaluations`,
+//! `Counter::SimplifyNodesSkippedEvaluated`.
+//! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index, one predicate
+//! simplification per conjunct per round, budget-bounded re-entry through the ceil and
+//! predicate theories.
 
 use std::{cell::Cell, collections::BTreeSet, fmt, sync::Arc};
 
