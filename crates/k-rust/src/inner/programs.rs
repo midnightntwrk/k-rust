@@ -4,7 +4,7 @@
 //! sites = ["ProgramParser::parse", "ProgramParser::parse_with_provenance", "parse_program", "parse_program_for_presentation"]
 //! variable = "g = grammar construction work; p = parse work"
 //! counters = ["ParserGrammarBuilds", "ParserParseAttempts"]
-//! produces = [{ type = "k_rust::kast::Term", role = "parsed term" }]
+//! produces = [{ type = "k_rust::kast::Term", role = "parsed program" }]
 //!
 //! [[cost]]
 //! mode = "one parser and its parses"
@@ -21,14 +21,15 @@
 //!
 //! [[cost]]
 //! mode = "one program grammar"
-//! bound = "O(M + S)"
+//! bound = "O(M x S) EquivalenceAccumulator insertions"
 //! ```
 //!
 //! User-program parsing with a cached module-derived concrete-syntax grammar.
 //!
 //! A `ProgramParser` builds one grammar, then each parse uses the Earley pipeline. Public syntax
-//! collection is a visited-set DFS, O(modules + imports + visible sentences); parse work is
-//! measured by the parser counter family.
+//! collection is a visited-set DFS that rebuilds its equivalence accumulator over the collected
+//! sentences for each visited module, O(modules * visible sentences); parse work is measured by
+//! the parser counter family.
 
 use std::collections::BTreeSet;
 use std::fmt;

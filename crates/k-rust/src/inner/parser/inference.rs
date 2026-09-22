@@ -1,13 +1,18 @@
 //! ```toml algorithm
 //! id = "parser.inference.portable"
 //! name = "portable sort inference by bound propagation"
-//! sites = ["Grammar::infer_sorts_portable"]
-//! variable = "V = sort-bound vertices; E = bound edges"
+//! sites = ["Grammar::infer_sorts_portable", "Grammar::infer_packed_sorts", "Grammar::infer_sorts"]
+//! variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case"
 //! counters = ["ParserPortableInferences"]
+//! falls_back_to = ["parser.inference.z3"]
 //!
 //! [[cost]]
 //! mode = "one tree"
 //! bound = "O(V x E)"
+//!
+//! [[cost]]
+//! mode = "variable realization"
+//! bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations per inference"
 //! ```
 //!
 //! Portable bound-propagation sort inference for unambiguous, monomorphic trees.

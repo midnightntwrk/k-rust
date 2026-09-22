@@ -9,6 +9,9 @@
 //!   { type = "k_rust::kast::Term", role = "parsed term" },
 //! ]
 //! produces = [{ type = "k_rust::definition::Definition", role = "parsed bubbles" }]
+//! constrains = [
+//!   { id = "definition.catalog.production", site = "resolve_rule_bubbles_with_resolved", via = "the per-module ProductionCatalog that rule_grammar reads from ResolvedDefinition::production_catalog" },
+//! ]
 //!
 //! [[cost]]
 //! mode = "one definition"

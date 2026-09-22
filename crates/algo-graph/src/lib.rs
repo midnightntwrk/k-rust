@@ -1280,6 +1280,11 @@ mod tests {
                     Some("DefinitionViews::production_catalog"),
                 ),
                 (
+                    "definition.catalog.production",
+                    "parser.bubble.rules",
+                    Some("resolve_rule_bubbles_with_resolved"),
+                ),
+                (
                     "definition.provenance.record",
                     "definition.json.encode",
                     Some("serialize_provenance"),
@@ -1340,6 +1345,12 @@ mod tests {
                     ),
                     Some(
                         "ResolvedDefinition keeps one ProductionCatalog per module in a OnceLock that ResolvedDefinition::update carries forward while the module's visible syntax is unchanged; DefinitionViews caches an Arc to it",
+                    ),
+                ),
+                (
+                    ("definition.catalog.production", "parser.bubble.rules"),
+                    Some(
+                        "the per-module ProductionCatalog that rule_grammar reads from ResolvedDefinition::production_catalog",
                     ),
                 ),
                 (

@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.bison.priorities"
 //! name = "restricted-sort expansion for Bison grammar export"
-//! sites = ["transform_priority_and_associativity", "constrain_side", "restricted_sort"]
+//! sites = ["transform_priority_and_associativity", "constrain_side", "restricted_sort", "prepare_user_lists"]
 //! variable = "Q = restricted-sort and excluded-label pairs; P = productions"
 //! counters = []
 //! no_counter = "Bison grammar export has no dedicated counter"
@@ -28,7 +28,7 @@
 //!
 //! Restricted-sort expansion is a monotone worklist over `(sort, excluded label)` pairs,
 //! O(pairs * productions). Reachability is a visited-set DFS, O(reachable sorts * productions).
-//! These exporter-only algorithms have no CQ-02 counter.
+//! These exporter-only algorithms have no dedicated counter.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Write};

@@ -277,6 +277,15 @@ reason = "outer-syntax module index and re-exports; each outer algorithm declare
 
 [[without_primary_card]]
 files = [
+  "crates/k-rust/src/bison/mod.rs",
+  "crates/k-rust/src/bison/scanner.rs",
+  "crates/k-rust/src/bison/toolchain.rs",
+]
+classification = "responsibility-only"
+reason = "Bison export driver, scanner rendering and toolchain invocation; the two exporter algorithms are declared in bison/grammar.rs"
+
+[[without_primary_card]]
+files = [
   "crates/k-rust/src/definition/ast.rs",
   "crates/k-rust/src/definition/attribute_keys.rs",
   "crates/k-rust/src/outer/ast.rs",

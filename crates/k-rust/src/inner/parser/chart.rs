@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.chart.insert"
 //! name = "coverage-aware Earley chart insertion"
-//! sites = ["Chart::add", "Chart::add_with_status", "Derivations::insert"]
+//! sites = ["Chart::add_with_status", "Derivations::insert"]
 //! variable = "D = stored derivations; W = child width"
 //! counters = ["ParserChartAddCalls", "ParserChartStateChanges"]
 //!
@@ -14,23 +14,23 @@
 //! id = "parser.chart.completed_memo"
 //! name = "completed-node memoization for Earley charts"
 //! sites = ["completed_nodes", "Chart::invalidate_completed_node"]
-//! variable = "M = memo entries; C = matching completed states"
+//! variable = "M = memo entries; k = packed terms in the memoized result; S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation"
 //! counters = ["ParserCompletedNodesHits", "ParserCompletedNodesMisses", "ParserCompletedNodesInvalidated", "ParserChartCompletionCandidates"]
 //!
 //! [[cost]]
 //! mode = "memo hit"
-//! bound = "O(log M)"
+//! bound = "O(log M + k)"
 //!
 //! [[cost]]
 //! mode = "memo miss"
-//! bound = "O(C)"
+//! bound = "O(S + C x b)"
 //! ```
 //!
 //! Earley chart insertion with coverage-aware derivations and completed-node memoization.
 //!
 //! An insertion costs O(stored derivations * child width), with boundary factoring at O(d log d).
 //! Completed-node lookup is O(log memo) on a hit and scans matching completed states on a miss.
-//! Chart adds, state changes, memo hits, misses, and completion candidates are CQ-02 counters.
+//! Chart adds, state changes, memo hits, misses, and completion candidates have dedicated counters.
 
 #[cfg(test)]
 use std::cell::Cell;

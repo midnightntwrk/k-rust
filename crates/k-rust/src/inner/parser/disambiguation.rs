@@ -1,25 +1,29 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.priority"
 //! name = "priority and associativity filtering of packed terms"
-//! sites = ["Grammar::filter_packed_priority", "Grammar::filter_priority"]
-//! variable = "N = packed or owned nodes per memo lifetime"
+//! sites = ["Grammar::filter_packed_priority", "Grammar::filter_or_defer_packed_priority"]
+//! variable = "N = packed nodes per memo lifetime"
 //! counters = ["ParserPackedPriorityComputations"]
 //!
 //! [[cost]]
 //! mode = "one parse forest"
 //! bound = "O(N)"
+//!
+//! [[cost]]
+//! mode = "one completion candidate (filter_or_defer_packed_priority)"
+//! bound = "one memoized packed filter; a Scope error under KRewrite, KSequence or Let is deferred, and the candidate kept"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "parser.disambiguation.resolve_applications"
 //! name = "resolution of application nodes against visible productions"
-//! sites = ["Grammar::resolve_packed_applications", "Grammar::resolve_applications"]
-//! variable = "N = application nodes; P = matching productions"
+//! sites = ["Grammar::resolve_packed_applications"]
+//! variable = "N = application nodes; R = productions in the grammar; a = flattened argument lists of one application, the product of the alternatives of its KList nodes"
 //! counters = ["ParserPackedApplicationResolutions"]
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N x P)"
+//! bound = "O(N x a x R)"
 //! ```
 //!
 //! ```toml algorithm
@@ -38,7 +42,7 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.lift_top_lhs"
 //! name = "lifting of top-level left-hand-side ambiguities"
-//! sites = ["Grammar::push_top_lhs_packed_ambiguity_up", "Grammar::push_top_lhs_ambiguity_up"]
+//! sites = ["Grammar::push_top_lhs_packed_ambiguity_up"]
 //! variable = "N = packed or owned nodes"
 //! counters = []
 //! no_counter = "top-LHS ambiguity lifting has no dedicated counter"
@@ -52,26 +56,26 @@
 //! id = "parser.disambiguation.resolve_terminators"
 //! name = "resolution of overloaded list terminators"
 //! sites = ["Grammar::resolve_overloaded_terminators"]
-//! variable = "N = owned nodes; C = list candidates"
+//! variable = "N = owned nodes; L = user lists; R = productions in the grammar; K = nullary nodes whose source production is overloaded"
 //! counters = []
 //! no_counter = "overloaded-terminator resolution has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N x C)"
+//! bound = "O(N x L + K x R)"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "parser.disambiguation.filter_overloads"
 //! name = "overload and prefer-or-avoid filtering"
 //! sites = ["Grammar::filter_overloads_prefer_avoid"]
-//! variable = "N = owned nodes"
+//! variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call"
 //! counters = []
 //! no_counter = "overload and preference filtering has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N)"
+//! bound = "O(N + t x R) plus one clone, f and one equality test per ambiguity with more than one surviving alternative, and a further pass when factoring changed it"
 //! ```
 //!
 //! ```toml algorithm
@@ -91,25 +95,26 @@
 //! id = "parser.disambiguation.resolve_ambiguity"
 //! name = "resolution and reporting of remaining ambiguity"
 //! sites = ["Grammar::resolve_ambiguities", "Grammar::factor_ambiguities"]
-//! variable = "N = owned nodes; A = ambiguity alternatives"
+//! variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N x A)"
+//! bound = "O(N x h) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
 //! ```
 //!
 //! Packed-DAG and owned-tree disambiguation in the following pipeline order.
 //! 1. Reserve variable names (packed DAG, O(nodes)).
 //! 2. Collapse record syntax (packed DAG, O(nodes + fields)).
 //! 3. Filter priority and associativity (packed DAG, O(nodes per memo lifetime)).
-//! 4. Resolve `#KApply` (packed DAG, O(nodes * matching productions)).
+//! 4. Resolve `#KApply` (packed DAG, O(nodes * argument lists * productions)).
 //! 5. Factor packed ambiguities (packed DAG, O(nodes * alternatives)).
 //! 6. Lift top-LHS ambiguities (packed DAG, O(nodes)).
 //! 7. Infer sorts and unpack (packed DAG to owned tree).
 //! 8. Resolve overloaded terminators (owned tree, O(nodes * list candidates)).
-//! 9. Apply prefer/avoid and overload filtering (owned tree, O(nodes)).
+//! 9. Apply prefer/avoid and overload filtering (owned tree, O(nodes) plus re-factoring of each
+//!    surviving ambiguity).
 //! 10. Remove brackets and syntactic casts (owned tree, O(nodes)).
 //! 11. Factor and report remaining ambiguities (owned tree, O(nodes * alternatives)).
 //!
@@ -717,8 +722,9 @@ impl Grammar {
     /// Java's `SetsTransformerWithErrors` removes only the invalid alternatives beneath an
     /// ambiguity. Treating a packed child as one opaque node either retained invalid associations
     /// or discarded valid siblings, so this transformation performs the same branch-wise filter.
-    /// This owned pass remains necessary after generated record productions collapse and expose
-    /// edges which their parser-only wrappers deliberately exempt from priority checking.
+    /// This owned pass is a test-only (`#[cfg(test)]`) counterpart of the packed pass for edges
+    /// that generated record productions expose after they collapse, which their parser-only
+    /// wrappers deliberately exempt from priority checking.
     #[cfg(test)]
     pub(super) fn filter_priority(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
         match term {
@@ -964,6 +970,11 @@ impl Grammar {
         None
     }
 
+    /// ```toml algorithm-site
+    /// id = "parser.diagnostic.ambiguity"
+    /// role = "part"
+    /// sites = ["Grammar::resolve_ambiguities"]
+    /// ```
     pub(super) fn resolve_ambiguities(&self, term: ParsedTerm) -> Result<Term, ParseError> {
         match term {
             ParsedTerm::Term(term) => Ok(term),

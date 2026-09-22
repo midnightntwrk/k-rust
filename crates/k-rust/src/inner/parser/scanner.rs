@@ -2,18 +2,20 @@
 //! id = "parser.scanner.winner"
 //! name = "global-winner lexical scanning"
 //! sites = ["Scanner::winner"]
-//! variable = "B = input bytes; L = registered lexemes"
+//! variable = "B = input bytes; L = registered lexemes; Y = layout patterns; m = work of one regex attempt, including a precede-restriction match over the input prefix"
 //! counters = ["ParserScannerWinnerComputations"]
 //!
 //! [[cost]]
 //! mode = "one parse attempt"
-//! bound = "O(B x L)"
+//! bound = "O(B x (L + Y) x m)"
 //! ```
 //!
 //! K global-winner scanning: longest match, then precedence, then lexeme key.
 //!
-//! A winner costs O(L) regex attempts for L registered lexemes and is memoized per position,
-//! giving O(input bytes * L) per attempt. `ParserScannerWinnerComputations` counts cache misses.
+//! A winner costs O(L) lexeme attempts plus one attempt per layout pattern, each a regex match
+//! whose precede restriction scans the input prefix; it is memoized per position, giving
+//! O(input bytes * (L + layout patterns)) attempts per parse attempt.
+//! `ParserScannerWinnerComputations` counts cache misses.
 
 use std::collections::BTreeMap;
 

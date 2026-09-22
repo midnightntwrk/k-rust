@@ -13,17 +13,21 @@
 //! ```toml algorithm
 //! id = "parser.forest.order"
 //! name = "structural ordering of packed parse forests"
-//! sites = ["cmp_packed_structurally", "packed_terms_in_structural_order"]
-//! variable = "N = compared subtree nodes when fingerprints collide"
+//! sites = ["cmp_packed_structurally", "packed_terms_in_structural_order", "PackedTerm::cmp"]
+//! variable = "N = compared subtree nodes when fingerprints tie; P = distinct node pairs reached by one structural comparison; A = alternatives of one compared ambiguity; n = terms in the ordered set"
 //! counters = ["ParserPackedStructuralComparisons"]
 //!
 //! [[cost]]
-//! mode = "ordinary comparison"
-//! bound = "O(1)"
+//! mode = "PackedTerm::cmp"
+//! bound = "O(1) unless the fingerprints tie, then O(N)"
 //!
 //! [[cost]]
-//! mode = "fingerprint collision"
-//! bound = "O(N)"
+//! mode = "cmp_packed_structurally"
+//! bound = "O(P x A log A)"
+//!
+//! [[cost]]
+//! mode = "packed_terms_in_structural_order"
+//! bound = "O(n log n) structural comparisons, each with a fresh pair memo"
 //! ```
 //!
 //! ```toml algorithm
@@ -41,8 +45,9 @@
 //!
 //! Packed parse forest with FNV fingerprints and deterministic structural ordering.
 //!
-//! Construction is O(children); ordering is O(1) unless fingerprints tie, then O(subtree) with
-//! pair memoization. `Counter::ParserPackedStructuralComparisons` and
+//! Construction is O(children); `PackedTerm::cmp` is O(1) unless fingerprints tie, and
+//! `cmp_packed_structurally` walks both subtrees with pair memoization.
+//! `Counter::ParserPackedStructuralComparisons` and
 //! `Counter::ParserUnpackedNodes` measure the two variable costs.
 
 use std::collections::{BTreeSet, HashSet};

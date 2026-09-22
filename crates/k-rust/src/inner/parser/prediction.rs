@@ -15,7 +15,7 @@
 //! name = "scanner-identity FIRST-set analysis by monotone propagation"
 //! sites = ["PredictionAnalysis::new"]
 //! variable = "S = sorts; L = lexemes; R = worklist re-enqueues"
-//! counters = ["ParserPredictionAnalysisBuilds", "ParserNonterminalPredictionsSkipped", "ParserTerminalPredictionsSkipped"]
+//! counters = ["ParserPredictionAnalysisBuilds"]
 //!
 //! [[cost]]
 //! mode = "one grammar"

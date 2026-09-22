@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.grammar.build"
 //! name = "construction of a reusable inner-parser grammar"
-//! sites = ["Grammar::from_sentences", "Grammar::from_collected_sentences", "Grammar::add_production"]
+//! sites = ["Grammar::from_collected_sentences", "Grammar::from_rule_sentences", "Grammar::from_program_sentences", "Grammar::from_configuration_sentences", "Grammar::from_sentences", "Grammar::add_production"]
 //! variable = "S = visible sentences; I = production items"
 //! counters = ["ParserGrammarBuilds"]
 //! span = "per call"
@@ -21,14 +21,14 @@
 //!
 //! [[cost]]
 //! mode = "one grammar"
-//! bound = "O(U x (V + E))"
+//! bound = "O(U x V x E)"
 //! ```
 //!
 //! Construction of reusable parser grammars from visible K sentences.
 //!
 //! Production insertion is O(|sentences| * |items|), plus the declared relation computations and
 //! the specialized parametric, list, and record expansions. Productive unary-cycle detection is
-//! O(|unary productions| * (|sorts| + |unary edges|)) and runs once after construction.
+//! O(|unary productions| * |sorts| * |unary edges|) and runs once after construction.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 

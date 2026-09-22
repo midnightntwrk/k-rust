@@ -691,7 +691,7 @@ mod tests {
             .lines()
             .filter(|line| line.contains("constrains [declared]"))
             .collect::<Vec<_>>();
-        assert_eq!(constraint_lines.len(), 7);
+        assert_eq!(constraint_lines.len(), 8);
         assert!(constraint_lines.iter().all(|line| line.contains("-.->")));
         assert!(rendered.contains("feeds [derived]"));
         assert!(rendered.contains("stroke:#a23c6f,stroke-width:2px,stroke-dasharray:8 4"));

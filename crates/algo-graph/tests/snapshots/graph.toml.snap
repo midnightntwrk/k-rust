@@ -3472,6 +3472,20 @@ symbol = "Definition"
 
 [[node]]
 kind = "representation"
+id = "k_rust::definition::Definition [parsed configuration bubbles]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::definition::Definition"
+type_path = "k_rust::definition::Definition"
+role = "parsed configuration bubbles"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/ast.rs"
+symbol = "Definition"
+
+[[node]]
+kind = "representation"
 id = "k_rust::definition::PartialOrder<String> [priority order]"
 provenance = "declared"
 area = "kompile"
@@ -3539,6 +3553,20 @@ role = "sort lookup"
 crate = "k-rust"
 file = "crates/k-rust/src/definition/sort_catalog.rs"
 symbol = "SortCatalog"
+
+[[node]]
+kind = "representation"
+id = "k_rust::kast::Term [parsed program]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::kast::Term"
+type_path = "k_rust::kast::Term"
+role = "parsed program"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kast/ast.rs"
+symbol = "Term"
 
 [[node]]
 kind = "representation"
@@ -4825,6 +4853,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/bison/grammar.rs"
 symbol = "restricted_sort"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/bison/grammar.rs"
+symbol = "prepare_user_lists"
+
 [[node.cost]]
 mode = "one exported grammar"
 bound = "O(Q x P)"
@@ -4860,7 +4893,7 @@ id = "parser.bubble.configurations"
 provenance = "declared"
 area = "parser"
 name = "parsing and reconstruction of configuration bubbles"
-variable = "b = configuration bubbles; g = grammar construction work; p = parse work"
+variable = "b = configuration bubbles; g = grammar construction work summed over modules with configuration bubbles; p = parse work; r = ResolvedDefinition::resolve work; D = definition size"
 table = "Algorithm::ALL"
 registry_name = "ParserBubbleConfigurations"
 
@@ -4876,7 +4909,7 @@ symbol = "resolve_configuration_bubbles"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(g + sum over b of p)"
+bound = "O(r + D + g + sum over b of p)"
 
 [[node]]
 kind = "algorithm"
@@ -4918,7 +4951,7 @@ id = "parser.chart.completed_memo"
 provenance = "declared"
 area = "parser"
 name = "completed-node memoization for Earley charts"
-variable = "M = memo entries; C = matching completed states"
+variable = "M = memo entries; k = packed terms in the memoized result; S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation"
 table = "Algorithm::ALL"
 registry_name = "ParserChartCompletedMemo"
 
@@ -4939,11 +4972,11 @@ symbol = "Chart::invalidate_completed_node"
 
 [[node.cost]]
 mode = "memo hit"
-bound = "O(log M)"
+bound = "O(log M + k)"
 
 [[node.cost]]
 mode = "memo miss"
-bound = "O(C)"
+bound = "O(S + C x b)"
 
 [[node]]
 kind = "algorithm"
@@ -4958,12 +4991,7 @@ registry_name = "ParserChartInsert"
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/chart.rs"
-symbol = "Chart::add"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/chart.rs"
-symbol = "Chart::add"
+symbol = "Chart::add_with_status"
 
 [[node.sites]]
 crate = "k-rust"
@@ -4997,6 +5025,11 @@ symbol = "AmbiguousParse"
 
 [[node.sites]]
 crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::resolve_ambiguities"
+
+[[node.sites]]
+crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
 symbol = "AmbiguousParse"
 
@@ -5010,7 +5043,7 @@ id = "parser.diagnostic.no_parse"
 provenance = "declared"
 area = "parser"
 name = "rendering of no-parse diagnostics"
-variable = "E = expected productions at the furthest chart position"
+variable = "B = input bytes; K = state keys at the furthest non-empty chart; E = expected item descriptions; L = registered lexemes"
 no_counter = "diagnostic rendering has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserDiagnosticNoParse"
@@ -5025,14 +5058,9 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::no_parse"
 
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser.rs"
-symbol = "NoParseInput"
-
 [[node.cost]]
 mode = "one failed parse"
-bound = "O(E)"
+bound = "O(B + K x log E) plus O(L) per scanner.winner call on a position whose cache entry is empty, at most B calls"
 
 [[node]]
 kind = "algorithm"
@@ -5040,7 +5068,7 @@ id = "parser.disambiguation.collapse_records"
 provenance = "declared"
 area = "parser"
 name = "collapse of generated record syntax"
-variable = "N = packed nodes; F = record fields"
+variable = "N = packed nodes; F = record fields; X = field maps produced by collect_packed_record_fields, the product of the prefix and item alternatives"
 no_counter = "record collapse has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationCollapseRecords"
@@ -5055,14 +5083,9 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/record.rs"
 symbol = "Grammar::collapse_packed_record_productions"
 
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/record.rs"
-symbol = "Grammar::collapse_record_productions"
-
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N + F)"
+bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives"
 
 [[node]]
 kind = "algorithm"
@@ -5095,7 +5118,7 @@ id = "parser.disambiguation.filter_overloads"
 provenance = "declared"
 area = "parser"
 name = "overload and prefer-or-avoid filtering"
-variable = "N = owned nodes"
+variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call"
 no_counter = "overload and preference filtering has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationFilterOverloads"
@@ -5112,7 +5135,7 @@ symbol = "Grammar::filter_overloads_prefer_avoid"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N)"
+bound = "O(N + t x R) plus one clone, f and one equality test per ambiguity with more than one surviving alternative, and a further pass when factoring changed it"
 
 [[node]]
 kind = "algorithm"
@@ -5142,7 +5165,7 @@ symbol = "Grammar::add_empty_lists_with_order"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N x C)"
+bound = "O(N x C) plus one PartialOrder::new over the subsort relations"
 
 [[node]]
 kind = "algorithm"
@@ -5165,11 +5188,6 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::push_top_lhs_packed_ambiguity_up"
 
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::push_top_lhs_ambiguity_up"
-
 [[node.cost]]
 mode = "one parse forest"
 bound = "O(N)"
@@ -5180,7 +5198,7 @@ id = "parser.disambiguation.priority"
 provenance = "declared"
 area = "parser"
 name = "priority and associativity filtering of packed terms"
-variable = "N = packed or owned nodes per memo lifetime"
+variable = "N = packed nodes per memo lifetime"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationPriority"
 
@@ -5197,11 +5215,15 @@ symbol = "Grammar::filter_packed_priority"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::filter_priority"
+symbol = "Grammar::filter_or_defer_packed_priority"
 
 [[node.cost]]
 mode = "one parse forest"
 bound = "O(N)"
+
+[[node.cost]]
+mode = "one completion candidate (filter_or_defer_packed_priority)"
+bound = "one memoized packed filter; a Scope error under KRewrite, KSequence or Let is deferred, and the candidate kept"
 
 [[node]]
 kind = "algorithm"
@@ -5259,7 +5281,7 @@ id = "parser.disambiguation.resolve_ambiguity"
 provenance = "declared"
 area = "parser"
 name = "resolution and reporting of remaining ambiguity"
-variable = "N = owned nodes; A = ambiguity alternatives"
+variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
 no_counter = "final ambiguity resolution has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationResolveAmbiguity"
@@ -5281,7 +5303,7 @@ symbol = "Grammar::factor_ambiguities"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N x A)"
+bound = "O(N x h) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
 
 [[node]]
 kind = "algorithm"
@@ -5289,7 +5311,7 @@ id = "parser.disambiguation.resolve_applications"
 provenance = "declared"
 area = "parser"
 name = "resolution of application nodes against visible productions"
-variable = "N = application nodes; P = matching productions"
+variable = "N = application nodes; R = productions in the grammar; a = flattened argument lists of one application, the product of the alternatives of its KList nodes"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationResolveApplications"
 
@@ -5303,14 +5325,9 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::resolve_packed_applications"
 
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/disambiguation.rs"
-symbol = "Grammar::resolve_applications"
-
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N x P)"
+bound = "O(N x a x R)"
 
 [[node]]
 kind = "algorithm"
@@ -5318,7 +5335,7 @@ id = "parser.disambiguation.resolve_terminators"
 provenance = "declared"
 area = "parser"
 name = "resolution of overloaded list terminators"
-variable = "N = owned nodes; C = list candidates"
+variable = "N = owned nodes; L = user lists; R = productions in the grammar; K = nullary nodes whose source production is overloaded"
 no_counter = "overloaded-terminator resolution has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationResolveTerminators"
@@ -5335,7 +5352,7 @@ symbol = "Grammar::resolve_overloaded_terminators"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N x C)"
+bound = "O(N x L + K x R)"
 
 [[node]]
 kind = "algorithm"
@@ -5343,7 +5360,7 @@ id = "parser.earley.recognize"
 provenance = "declared"
 area = "parser"
 name = "agenda-driven Earley recognition"
-variable = "p = chart-agenda pops; d = dispatch cost and derivations read"
+variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserEarleyRecognize"
@@ -5358,9 +5375,27 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::parse_attempt"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::parse"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::parse_with_context_and_diagnostic_provenance"
+
 [[node.cost]]
-mode = "one parse attempt"
-bound = "O(p x d)"
+mode = "recognition (the chart loop of parse_attempt)"
+bound = "O(B x s) chart allocation plus O(p x d)"
+
+[[node.cost]]
+mode = "one parse attempt (parse_attempt)"
+bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_forest, inference, resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity)"
+
+[[node.cost]]
+mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
+bound = "at most two parse attempts"
 
 [[node]]
 kind = "algorithm"
@@ -5368,7 +5403,7 @@ id = "parser.forest.order"
 provenance = "declared"
 area = "parser"
 name = "structural ordering of packed parse forests"
-variable = "N = compared subtree nodes when fingerprints collide"
+variable = "N = compared subtree nodes when fingerprints tie; P = distinct node pairs reached by one structural comparison; A = alternatives of one compared ambiguity; n = terms in the ordered set"
 table = "Algorithm::ALL"
 registry_name = "ParserForestOrder"
 
@@ -5387,13 +5422,22 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/forest.rs"
 symbol = "packed_terms_in_structural_order"
 
-[[node.cost]]
-mode = "ordinary comparison"
-bound = "O(1)"
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "PackedTerm::cmp"
 
 [[node.cost]]
-mode = "fingerprint collision"
-bound = "O(N)"
+mode = "PackedTerm::cmp"
+bound = "O(1) unless the fingerprints tie, then O(N)"
+
+[[node.cost]]
+mode = "cmp_packed_structurally"
+bound = "O(P x A log A)"
+
+[[node.cost]]
+mode = "packed_terms_in_structural_order"
+bound = "O(n log n) structural comparisons, each with a fresh pair memo"
 
 [[node]]
 kind = "algorithm"
@@ -5448,17 +5492,32 @@ registry_name = "ParserGrammarBuild"
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/grammar.rs"
-symbol = "Grammar::from_sentences"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/grammar.rs"
-symbol = "Grammar::from_sentences"
+symbol = "Grammar::from_collected_sentences"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/grammar.rs"
 symbol = "Grammar::from_collected_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::from_rule_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::from_program_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::from_configuration_sentences"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::from_sentences"
 
 [[node.sites]]
 crate = "k-rust"
@@ -5475,7 +5534,7 @@ id = "parser.grammar.lists"
 provenance = "declared"
 area = "parser"
 name = "generation and reconstruction of implicit user lists"
-variable = "L = list declarations; N = tree nodes; C = candidate instantiations"
+variable = "L = list declarations; R = productions in the grammar"
 no_counter = "implicit-list processing has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserGrammarLists"
@@ -5497,11 +5556,11 @@ symbol = "Grammar::program_list_terminator"
 
 [[node.cost]]
 mode = "grammar insertion"
-bound = "O(L)"
+bound = "O(R + L x R)"
 
 [[node.cost]]
-mode = "tree reconstruction"
-bound = "O(N x C)"
+mode = "program-list terminator lookup"
+bound = "O(L) per child"
 
 [[node]]
 kind = "algorithm"
@@ -5561,7 +5620,7 @@ symbol = "prepared_program_sentences"
 
 [[node.cost]]
 mode = "one program grammar"
-bound = "O(M + S)"
+bound = "O(M x S) EquivalenceAccumulator insertions"
 
 [[node]]
 kind = "algorithm"
@@ -5621,7 +5680,7 @@ symbol = "unary_reachable"
 
 [[node.cost]]
 mode = "one grammar"
-bound = "O(U x (V + E))"
+bound = "O(U x V x E)"
 
 [[node]]
 kind = "algorithm"
@@ -5629,7 +5688,7 @@ id = "parser.inference.portable"
 provenance = "declared"
 area = "parser"
 name = "portable sort inference by bound propagation"
-variable = "V = sort-bound vertices; E = bound edges"
+variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case"
 table = "Algorithm::ALL"
 registry_name = "ParserInferencePortable"
 
@@ -5643,9 +5702,23 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/inference.rs"
 symbol = "Grammar::infer_sorts_portable"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference.rs"
+symbol = "Grammar::infer_packed_sorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference.rs"
+symbol = "Grammar::infer_sorts"
+
 [[node.cost]]
 mode = "one tree"
 bound = "O(V x E)"
+
+[[node.cost]]
+mode = "variable realization"
+bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations per inference"
 
 [[node]]
 kind = "algorithm"
@@ -5653,7 +5726,7 @@ id = "parser.inference.z3"
 provenance = "declared"
 area = "parser"
 name = "Z3-backed maximal-model sort inference"
-variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings"
+variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks"
 table = "Algorithm::ALL"
 registry_name = "ParserInferenceZ3"
 
@@ -5679,11 +5752,15 @@ symbol = "encoding_base"
 
 [[node.cost]]
 mode = "encoding construction"
-bound = "O(H + G^2)"
+bound = "O(H + G^2 + R) plus two PartialOrder::new constructions"
 
 [[node.cost]]
 mode = "one inference"
-bound = "O(N + M x solver checks)"
+bound = "O(N x M + c)"
+
+[[node.cost]]
+mode = "cached encoding base that does not cover the term sorts"
+bound = "one uncached encoding construction per inference"
 
 [[node]]
 kind = "algorithm"
@@ -5715,8 +5792,8 @@ kind = "algorithm"
 id = "parser.lower.regex"
 provenance = "declared"
 area = "parser"
-name = "expansion of regex bodies during term lowering"
-variable = "B = regex syntax bytes"
+name = "expansion of named lexical references in regex bodies during scanner compilation"
+variable = "B = regex syntax bytes; e = nodes of the regex body after every named reference is inlined"
 no_counter = "regex-body expansion has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserLowerRegex"
@@ -5733,7 +5810,7 @@ symbol = "expand_regex_body"
 
 [[node.cost]]
 mode = "one regex"
-bound = "O(B)"
+bound = "O(e)"
 
 [[node]]
 kind = "algorithm"
@@ -5741,8 +5818,9 @@ id = "parser.lower.term"
 provenance = "declared"
 area = "parser"
 name = "lowering of parsed terms into KAST"
-variable = "N = parsed tree nodes"
+variable = "N = parsed tree nodes; h = parsed tree height"
 no_counter = "term lowering has no dedicated counter"
+span = "none"
 table = "Algorithm::ALL"
 registry_name = "ParserLowerTerm"
 
@@ -5758,7 +5836,7 @@ symbol = "lower_term"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N)"
+bound = "O(N x h), one subtree clone per lowered node"
 
 [[node]]
 kind = "algorithm"
@@ -5853,7 +5931,7 @@ id = "parser.scanner.winner"
 provenance = "declared"
 area = "parser"
 name = "global-winner lexical scanning"
-variable = "B = input bytes; L = registered lexemes"
+variable = "B = input bytes; L = registered lexemes; Y = layout patterns; m = work of one regex attempt, including a precede-restriction match over the input prefix"
 table = "Algorithm::ALL"
 registry_name = "ParserScannerWinner"
 
@@ -5869,7 +5947,7 @@ symbol = "Scanner::winner"
 
 [[node.cost]]
 mode = "one parse attempt"
-bound = "O(B x L)"
+bound = "O(B x (L + Y) x m)"
 
 [[node]]
 kind = "phase"
@@ -6717,6 +6795,18 @@ file = "crates/k-rust/src/definition/views.rs"
 symbol = "DefinitionViews::production_catalog"
 
 [[edge]]
+kind = "constrains"
+from = "definition.catalog.production"
+to = "parser.bubble.rules"
+provenance = "declared"
+detail = "the per-module ProductionCatalog that rule_grammar reads from ResolvedDefinition::production_catalog"
+
+[edge.consumer_site]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/rules.rs"
+symbol = "resolve_rule_bubbles_with_resolved"
+
+[[edge]]
 kind = "consumes"
 from = "definition.catalog.production"
 to = "k_rust::definition::ResolvedDefinition [resolved definition]"
@@ -7236,12 +7326,6 @@ to = "k_rust::definition::Definition [lowered source]"
 provenance = "declared"
 
 [[edge]]
-kind = "consumes"
-from = "parser.bubble.configurations"
-to = "k_rust::kast::Term [parsed term]"
-provenance = "declared"
-
-[[edge]]
 kind = "measured-by"
 from = "parser.bubble.configurations"
 to = "ParserGrammarBuilds"
@@ -7256,7 +7340,7 @@ provenance = "declared"
 [[edge]]
 kind = "produces"
 from = "parser.bubble.configurations"
-to = "k_rust::definition::Definition [parsed bubbles]"
+to = "k_rust::definition::Definition [parsed configuration bubbles]"
 provenance = "declared"
 
 [[edge]]
@@ -7376,7 +7460,19 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "parser.earley.recognize"
+to = "ParserNonterminalPredictionsSkipped"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.earley.recognize"
 to = "ParserParseAttempts"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.earley.recognize"
+to = "ParserTerminalPredictionsSkipped"
 provenance = "declared"
 
 [[edge]]
@@ -7396,6 +7492,13 @@ kind = "measured-by"
 from = "parser.grammar.build"
 to = "ParserGrammarBuilds"
 provenance = "declared"
+
+[[edge]]
+kind = "falls-back-to"
+from = "parser.inference.portable"
+to = "parser.inference.z3"
+provenance = "declared"
+order = 0
 
 [[edge]]
 kind = "measured-by"
@@ -7424,19 +7527,7 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "parser.prediction.first_sets"
-to = "ParserNonterminalPredictionsSkipped"
-provenance = "declared"
-
-[[edge]]
-kind = "measured-by"
-from = "parser.prediction.first_sets"
 to = "ParserPredictionAnalysisBuilds"
-provenance = "declared"
-
-[[edge]]
-kind = "measured-by"
-from = "parser.prediction.first_sets"
-to = "ParserTerminalPredictionsSkipped"
 provenance = "declared"
 
 [[edge]]
@@ -7460,7 +7551,7 @@ provenance = "declared"
 [[edge]]
 kind = "produces"
 from = "parser.programs.parse"
-to = "k_rust::kast::Term [parsed term]"
+to = "k_rust::kast::Term [parsed program]"
 provenance = "declared"
 
 [[edge]]

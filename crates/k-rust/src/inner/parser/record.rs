@@ -14,20 +14,21 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.collapse_records"
 //! name = "collapse of generated record syntax"
-//! sites = ["Grammar::collapse_packed_record_productions", "Grammar::collapse_record_productions"]
-//! variable = "N = packed nodes; F = record fields"
+//! sites = ["Grammar::collapse_packed_record_productions"]
+//! variable = "N = packed nodes; F = record fields; X = field maps produced by collect_packed_record_fields, the product of the prefix and item alternatives"
 //! counters = []
 //! no_counter = "record collapse has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N + F)"
+//! bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives"
 //! ```
 //!
 //! Generation and collapse of Scala-compatible record productions.
 //!
-//! Production generation is O(fields). Packed collapse is O(nodes + fields) because pointer
-//! memos visit each shared node once; generated field names saturate a reserved-name set.
+//! Production generation is O(fields). Packed collapse visits each shared node once through a
+//! pointer memo, while field collection recurses without a memo and multiplies prefix and item
+//! alternatives; generated field names saturate a reserved-name set.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;

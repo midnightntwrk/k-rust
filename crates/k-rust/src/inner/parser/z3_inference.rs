@@ -2,16 +2,20 @@
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
 //! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base"]
-//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings"
+//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //!
 //! [[cost]]
 //! mode = "encoding construction"
-//! bound = "O(H + G^2)"
+//! bound = "O(H + G^2 + R) plus two PartialOrder::new constructions"
 //!
 //! [[cost]]
 //! mode = "one inference"
-//! bound = "O(N + M x solver checks)"
+//! bound = "O(N x M + c)"
+//!
+//! [[cost]]
+//! mode = "cached encoding base that does not cover the term sorts"
+//! bound = "one uncached encoding construction per inference"
 //! ```
 //!
 //! Z3-backed maximal-model sort inference for ambiguous and parametric parse forests.

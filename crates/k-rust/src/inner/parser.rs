@@ -1,54 +1,63 @@
 //! ```toml algorithm
 //! id = "parser.earley.recognize"
 //! name = "agenda-driven Earley recognition"
-//! sites = ["Grammar::parse_attempt"]
-//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read"
-//! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates"]
+//! sites = ["Grammar::parse_attempt", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance"]
+//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts"
+//! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates", "ParserTerminalPredictionsSkipped", "ParserNonterminalPredictionsSkipped"]
 //! span = "per problem"
 //!
 //! [[cost]]
-//! mode = "one parse attempt"
-//! bound = "O(p x d)"
+//! mode = "recognition (the chart loop of parse_attempt)"
+//! bound = "O(B x s) chart allocation plus O(p x d)"
+//!
+//! [[cost]]
+//! mode = "one parse attempt (parse_attempt)"
+//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_forest, inference, resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity)"
+//!
+//! [[cost]]
+//! mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
+//! bound = "at most two parse attempts"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "parser.lower.term"
 //! name = "lowering of parsed terms into KAST"
 //! sites = ["lower_term"]
-//! variable = "N = parsed tree nodes"
+//! variable = "N = parsed tree nodes; h = parsed tree height"
 //! counters = []
 //! no_counter = "term lowering has no dedicated counter"
 //! produces = [{ type = "k_rust::kast::Term", role = "parsed term" }]
+//! span = "none"
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N)"
+//! bound = "O(N x h), one subtree clone per lowered node"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "parser.lower.regex"
-//! name = "expansion of regex bodies during term lowering"
+//! name = "expansion of named lexical references in regex bodies during scanner compilation"
 //! sites = ["expand_regex_body"]
-//! variable = "B = regex syntax bytes"
+//! variable = "B = regex syntax bytes; e = nodes of the regex body after every named reference is inlined"
 //! counters = []
 //! no_counter = "regex-body expansion has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one regex"
-//! bound = "O(B)"
+//! bound = "O(e)"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "parser.diagnostic.no_parse"
 //! name = "rendering of no-parse diagnostics"
-//! sites = ["Grammar::no_parse", "NoParseInput"]
-//! variable = "E = expected productions at the furthest chart position"
+//! sites = ["Grammar::no_parse"]
+//! variable = "B = input bytes; K = state keys at the furthest non-empty chart; E = expected item descriptions; L = registered lexemes"
 //! counters = []
 //! no_counter = "diagnostic rendering has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one failed parse"
-//! bound = "O(E)"
+//! bound = "O(B + K x log E) plus O(L) per scanner.winner call on a position whose cache entry is empty, at most B calls"
 //! ```
 //!
 //! ```toml algorithm
@@ -1385,7 +1394,7 @@ fn next_grammar_generation() -> u64 {
     NEXT_GRAMMAR_GENERATION.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Links from grammar sentences back to the source production catalog.
+/// Inline named lexical references in a regex body, rejecting recursive and undefined names.
 pub(super) fn expand_regex_body(
     body: &RegexBody,
     lexical: &BTreeMap<String, KRegex>,

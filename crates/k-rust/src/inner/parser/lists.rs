@@ -2,17 +2,17 @@
 //! id = "parser.grammar.lists"
 //! name = "generation and reconstruction of implicit user lists"
 //! sites = ["Grammar::initialize_user_lists", "Grammar::program_list_terminator"]
-//! variable = "L = list declarations; N = tree nodes; C = candidate instantiations"
+//! variable = "L = list declarations; R = productions in the grammar"
 //! counters = []
 //! no_counter = "implicit-list processing has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "grammar insertion"
-//! bound = "O(L)"
+//! bound = "O(R + L x R)"
 //!
 //! [[cost]]
-//! mode = "tree reconstruction"
-//! bound = "O(N x C)"
+//! mode = "program-list terminator lookup"
+//! bound = "O(L) per child"
 //! ```
 //!
 //! ```toml algorithm
@@ -25,13 +25,13 @@
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N x C)"
+//! bound = "O(N x C) plus one PartialOrder::new over the subsort relations"
 //! ```
 //!
 //! Scala-compatible implicit user-list constructors, terminators, and reconstruction.
 //!
-//! Grammar insertion is O(list declarations); tree reconstruction is O(nodes * candidate
-//! instantiations) and recursively preserves declared child sorts.
+//! Grammar insertion is O(productions + list declarations * productions); tree reconstruction
+//! is O(nodes * candidate instantiations) and recursively preserves declared child sorts.
 
 use std::collections::{BTreeMap, BTreeSet};
 
