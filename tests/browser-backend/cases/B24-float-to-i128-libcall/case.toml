@@ -2,7 +2,7 @@ schema = 1
 id = "B24-float-to-i128-libcall"
 behavior = "f64 -> u128 conversion (a compiler_builtins libcall returning i128)."
 basis = "found by IR-16 (B10 float <-> i128)"
-gap = { class = "linker", summary = "riwl: `function signature mismatch for __fixunsdfti: wanted (F64) -> (I64, I64) defined (I32, F64) -> ()`; the bin does not link at opt-levels 0 and 2 (i128 -> float, i128 div/rem libcalls work)", root_cause = "clif2wasm lowers libcalls that return i128 with a multi-value return; the LLVM-built compiler_builtins uses an sret pointer (wasm32 C ABI). The i128 libcall signature table in clif2wasm (runtime_i128.rs / call lowering in bridge.rs) must use sret for returns" }
+gap = { class = "linker", summary = "riwl: `function signature mismatch for __fixunsdfti: wanted (F64) -> (I64, I64) defined (I32, F64) -> ()`; the bin does not link at opt-levels 0 and 2 (i128 -> float, i128 div/rem libcalls work)", root_cause = "clif2wasm lowers libcalls that return i128 with a multi-value return; the LLVM-built compiler_builtins uses an sret pointer (wasm32 C ABI). Where clif2wasm maps the i128 return of an imported libcall signature was not located (inference: the signature mapping of I128 returns to an (I64, I64) pair)" }
 expected_status = "known-gap"
 
 [[crate]]

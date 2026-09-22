@@ -157,7 +157,7 @@
    "gap": {
     "class": "backend",
     "summary": "silent miscompile: -100_i8 / 7 = 22 (twin -14), -100_i8 % 7 = 2 (-2), -100_i8 >> 7 = 0 (-1); i16 alike; compiles and exits 0 at opt-levels 0 and 2",
-    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff: narrow ints are kept zero-extended in i32 (comment at line 181) but the Binary arm maps Sdiv/Srem/Sshr on i8/i16 straight to I32DivS/I32RemS/I32ShrS without sign_extend_narrow, and BinaryImm64 does the same for SdivImm/SremImm (SshrImm alone sign-extends, line 795)"
+    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff: narrow ints are kept zero-extended in i32 (comment at line 184) but the Binary arm maps Sdiv/Srem/Sshr on i8/i16 straight to I32DivS/I32RemS/I32ShrS without sign_extend_narrow, and BinaryImm64 does the same for SdivImm/SremImm (SshrImm alone sign-extends, line 799; SdivImm/SremImm at 807/809)"
    }
   },
   "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
@@ -315,7 +315,7 @@
    "gap": {
     "class": "backend",
     "summary": "silent miscompile: -100_i8 / 7 = 22 (twin -14), -100_i8 % 7 = 2 (-2), -100_i8 >> 7 = 0 (-1); i16 alike; compiles and exits 0 at opt-levels 0 and 2",
-    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff: narrow ints are kept zero-extended in i32 (comment at line 181) but the Binary arm maps Sdiv/Srem/Sshr on i8/i16 straight to I32DivS/I32RemS/I32ShrS without sign_extend_narrow, and BinaryImm64 does the same for SdivImm/SremImm (SshrImm alone sign-extends, line 795)"
+    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff: narrow ints are kept zero-extended in i32 (comment at line 184) but the Binary arm maps Sdiv/Srem/Sshr on i8/i16 straight to I32DivS/I32RemS/I32ShrS without sign_extend_narrow, and BinaryImm64 does the same for SdivImm/SremImm (SshrImm alone sign-extends, line 799; SdivImm/SremImm at 807/809)"
    }
   }
  }

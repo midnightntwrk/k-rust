@@ -157,7 +157,7 @@
    "gap": {
     "class": "backend",
     "summary": "silent miscompile: AtomicU8::swap zeroes the next three bytes ([9, 0, 0, 0], twin [9, 2, 3, 4]); fetch_add carries into the next byte; compare_exchange on u8 fails with Err(5) (twin Ok(5)); signed narrow min/max compare unsigned",
-    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff AtomicRmw arm (lines 623-670) and AtomicCas: the access width comes from map_type(result) (I32 for i8/i16), so I32Load/I32Store are used instead of Load8U/Store8 and Load16U/Store16, and Smin/Smax use I32LtS/I32GtS on zero-extended values"
+    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff AtomicRmw arm (lines 623-673) and AtomicCas (line 675): the access width comes from map_type(result) (I32 for i8/i16), so I32Load/I32Store are used instead of Load8U/Store8 and Load16U/Store16, and Smin/Smax use I32LtS/I32GtS on zero-extended values"
    }
   },
   "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
@@ -315,7 +315,7 @@
    "gap": {
     "class": "backend",
     "summary": "silent miscompile: AtomicU8::swap zeroes the next three bytes ([9, 0, 0, 0], twin [9, 2, 3, 4]); fetch_add carries into the next byte; compare_exchange on u8 fails with Err(5) (twin Ok(5)); signed narrow min/max compare unsigned",
-    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff AtomicRmw arm (lines 623-670) and AtomicCas: the access width comes from map_type(result) (I32 for i8/i16), so I32Load/I32Store are used instead of Load8U/Store8 and Load16U/Store16, and Smin/Smax use I32LtS/I32GtS on zero-extended values"
+    "root_cause": "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff AtomicRmw arm (lines 623-673) and AtomicCas (line 675): the access width comes from map_type(result) (I32 for i8/i16), so I32Load/I32Store are used instead of Load8U/Store8 and Load16U/Store16, and Smin/Smax use I32LtS/I32GtS on zero-extended values"
    }
   }
  }
