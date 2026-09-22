@@ -8,9 +8,9 @@ description: Define total and partial functions, equations, priority, aliases, n
 {/* tour-concepts: context-aliases functions equations aliases simplifications */}
 
 Static clauses simplify symbolic terms and define derived syntax without adding ordinary machine transitions.
-M4's adjunct exercises the current function, equation, alias, and context surfaces:
+The checked static-semantics fixture exercises the current function, equation, alias, and context surfaces:
 
-```rust [tests/m4/rust-definition/src/static_adjunct.rs]
+```rust
 // [!include ~/snippets/static-semantics.rs]
 ```
 
@@ -26,7 +26,7 @@ Their Rust fields are operands, not values consumed by executing Rust function b
 
 ### An undefined partial application
 
-M4's partial function has exactly one equation, guarded by `0 <=Int value`.
+The fixture's partial function has exactly one equation, guarded by `0 <=Int value`.
 The positive claim `partial-equation` checks the defined case `#m3dPositive(7) => 7` through the pinned Haskell proof route.
 Now consider the other side of that same guard:
 
@@ -39,7 +39,7 @@ Its only equation is inapplicable, and because `M3dPositive` was declared `parti
 There is no `None` constructor to inspect and no Rust call that returns a value.
 Bottom is also not an authored `trap` term or a complete normal form; if a transition needs this result, it cannot obtain one.
 
-The focused tour evidence gate checks the partial declaration, its sole guarded equation, the negative ground input, and M4's pinned proved positive case together.
+The focused tour evidence gate checks the partial declaration, its sole guarded equation, the negative ground input, and the pinned proved positive case together.
 This example is a static-semantics consequence, not a claimed `krun` trace: bottom is the absence of a result in the theory.
 
 ## Equations and priority
@@ -64,7 +64,7 @@ The context describes where evaluation occurs inside a framed configuration; cal
 
 Verification also contributes unprioritized simplification lemmas:
 
-```rust [tests/m4/rust-definition/src/verification.rs]
+```rust
 // [!include ~/snippets/simplifications.rs]
 ```
 

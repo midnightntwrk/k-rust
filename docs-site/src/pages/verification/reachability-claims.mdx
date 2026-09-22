@@ -12,9 +12,9 @@ It is a proof sentence, not another transition rule.
 
 ## Branching results
 
-This M4 claim permits either branch result while requiring the final value to satisfy a postcondition:
+This complete IMP claim permits either branch result while requiring the final value to satisfy a postcondition:
 
-```rust [tests/m4/rust-definition/src/claims.rs]
+```rust
 // [!include ~/snippets/claim-branching.rs]
 ```
 
@@ -33,7 +33,7 @@ It does not run a host assertion before invoking a Rust function.
 
 Loop proofs may deliberately use circularity:
 
-```rust [tests/m4/rust-definition/src/claims.rs]
+```rust
 // [!include ~/snippets/claim-circular.rs]
 ```
 
@@ -46,9 +46,9 @@ The backend column below describes repository-qualified claim processing, not ju
 
 | Claim form | Collection and emitted K | Haskell route | LLVM route |
 | --- | --- | --- | --- |
-| All-path, without existential binders | Current; M4 and KWasm provide positive authored specimens. | Current; M4 records bounded outcomes including a proved `addition-1` claim. KWasm's additional pinned K reference proof runs only when its gate receives `--java-reference`. | Unqualified as a proof route; LLVM is positively used for concrete execution, but the repository has no LLVM claim-proof specimen. |
-| All-path with existential results, anonymous values, or `ensures` | Current; M4 preserves binders, uses, and source maps. | Current; M4 has exact native/reference KORE parity and pinned bounded proof outcomes, including a proved `branching` claim. | Unsupported for existential claims: `krs build --backend llvm` returns typed `UnsupportedExistentialVariable` capability diagnostics before writing artifacts. |
-| Circular all-path | Current; M4 authors two specimens. | Current but proof-result-sensitive: `sum-spec` is proved, while `two-sum-spec` retains one incomplete frontier at depth 100 and branching bound 64. | Unqualified as a proof route; no positive end-to-end LLVM circular-claim fixture exists. |
+| All-path, without existential binders | Current; the complete IMP and KWasm fixtures provide positive authored specimens. | Current; the complete IMP proof suite records bounded outcomes including a proved `addition-1` claim. KWasm's additional pinned K reference proof runs only when its gate receives `--java-reference`. | Unqualified as a proof route; LLVM is positively used for concrete execution, but the repository has no LLVM claim-proof specimen. |
+| All-path with existential results, anonymous values, or `ensures` | Current; the complete IMP fixture preserves binders, uses, and source maps. | Current; the complete IMP proof suite has exact native/reference KORE parity and pinned bounded proof outcomes, including a proved `branching` claim. | Unsupported for existential claims: `krs build --backend llvm` returns typed `UnsupportedExistentialVariable` capability diagnostics before writing artifacts. |
+| Circular all-path | Current; the complete IMP fixture authors two specimens. | Current but proof-result-sensitive: `sum-spec` is proved, while `two-sum-spec` retains one incomplete frontier at depth 100 and branching bound 64. | Unqualified as a proof route; no positive end-to-end LLVM circular-claim fixture exists. |
 | One-path | Accepted by parsing, lowering, and emission. | Unqualified; there is no positive end-to-end proof specimen. | Unqualified; there is no positive end-to-end proof specimen. |
 
 “Current” does not mean every true-looking claim closes within every bound.

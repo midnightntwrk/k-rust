@@ -1,4 +1,4 @@
-//! M3D's separately identified static stress surface.
+//! Fixture-specific static-semantics stress surface.
 //!
 //! These declarations exercise functions, equations, equation priority,
 //! aliases, and named contexts. They are intentionally not upstream IMP.

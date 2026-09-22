@@ -10,6 +10,7 @@ const snippets = [
   {
     source: '../tests/tour-imp/chapters/01-sorts.rs',
     mirror: 'src/snippets/imp-sorts.rs',
+    replacements: [['complete M4 IMP language', 'complete IMP language']],
   },
   {
     source: '../tests/tour-imp/chapters/02-concrete-grammar.rs',
@@ -34,6 +35,7 @@ const snippets = [
   {
     source: '../tests/tour-imp/src/lib.rs',
     mirror: 'src/snippets/tour-imp-capstone.rs',
+    replacements: [['complete M4 IMP language', 'complete IMP language']],
   },
   {
     source: '../tests/tour-imp/generated/eval-add-readable.txt',
@@ -54,6 +56,9 @@ const snippets = [
   {
     source: '../tests/m4/rust-definition/src/static_adjunct.rs',
     mirror: 'src/snippets/static-semantics.rs',
+    replacements: [
+      ["M3D's separately identified static stress surface", 'Fixture-specific static-semantics stress surface'],
+    ],
   },
   {
     source: '../tests/m4/rust-definition/src/verification.rs',
@@ -130,7 +135,10 @@ for (const snippet of snippets) {
   if (start < 0) throw new Error(`${snippet.source}: missing start anchor ${snippet.start}`)
   const end = snippet.end ? completeSource.indexOf(snippet.end, start) : completeSource.length
   if (end < 0) throw new Error(`${snippet.source}: missing end anchor ${snippet.end}`)
-  const source = completeSource.slice(start, end).trimEnd().concat('\n')
+  let source = completeSource.slice(start, end).trimEnd().concat('\n')
+  for (const [internal, publicName] of snippet.replacements ?? []) {
+    source = source.replaceAll(internal, publicName)
+  }
   if (process.argv.includes('--write')) {
     writeFileSync(mirrorPath, source)
     console.log(`updated ${mirrorPath}`)
