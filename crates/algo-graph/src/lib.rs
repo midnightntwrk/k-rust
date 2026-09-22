@@ -15,6 +15,7 @@ mod drift;
 mod html;
 mod join;
 mod model;
+pub mod query;
 mod render;
 
 use std::{
