@@ -13,11 +13,30 @@ const TOUR_MINIMAL: &str = include_str!("../../../tests/tour-minimal/src/lib.rs"
 
 /// Facade `::k`, display file `src/lib.rs`, 1-based positions from fallback
 /// spans of the whole parsed file, and the current invocation's call site.
+///
+/// Like rustc, it locates every span outside the authored file (call-site
+/// tokens and tokens re-parsed from strings) at the invocation's call site.
 struct TestEnvironment {
+    authored_file: String,
     call_site: Cell<Option<Span>>,
 }
 
 impl TestEnvironment {
+    fn new(authored_file: String) -> Self {
+        Self {
+            authored_file,
+            call_site: Cell::new(None),
+        }
+    }
+
+    fn resolve(&self, span: Span) -> Span {
+        if span.file() == self.authored_file {
+            span
+        } else {
+            self.call_site.get().unwrap_or(span)
+        }
+    }
+
     fn position(location: LineColumn) -> Option<SourcePosition> {
         Some(SourcePosition {
             line: u32::try_from(location.line).ok()?,
@@ -32,11 +51,11 @@ impl MacroEnvironment for TestEnvironment {
     }
 
     fn span_start(&self, span: Span) -> Option<SourcePosition> {
-        Self::position(span.start())
+        Self::position(self.resolve(span).start())
     }
 
     fn span_end(&self, span: Span) -> Option<SourcePosition> {
-        Self::position(span.end())
+        Self::position(self.resolve(span).end())
     }
 
     fn call_site(&self) -> Option<Span> {
@@ -134,12 +153,19 @@ fn expand_function(
     output
 }
 
-#[test]
-fn tour_minimal_expands_in_a_fallback_process() {
-    let file = syn::parse_file(TOUR_MINIMAL).expect("tour-minimal parses");
-    let env = TestEnvironment {
-        call_site: Cell::new(None),
-    };
+/// Expands every tour-minimal invocation in source order, the nested `k::k!`
+/// right after its enclosing `#[k::init]`.
+fn expand_tour_minimal() -> (Expanded, Vec<TokenStream>) {
+    let tokens: TokenStream = TOUR_MINIMAL.parse().expect("tour-minimal lexes");
+    let authored_file = tokens
+        .clone()
+        .into_iter()
+        .next()
+        .expect("tour-minimal is not empty")
+        .span()
+        .file();
+    let file: syn::File = syn::parse2(tokens).expect("tour-minimal parses");
+    let env = TestEnvironment::new(authored_file);
     let mut expanded = Expanded::default();
     let mut outputs = Vec::new();
     for item in file.items {
@@ -196,7 +222,12 @@ fn tour_minimal_expands_in_a_fallback_process() {
             _ => {}
         }
     }
+    (expanded, outputs)
+}
 
+#[test]
+fn tour_minimal_expands_in_a_fallback_process() {
+    let (expanded, outputs) = expand_tour_minimal();
     assert_eq!(
         expanded.attributes,
         [
@@ -216,14 +247,20 @@ fn tour_minimal_expands_in_a_fallback_process() {
         ":: k :: HostSourcePosition :: new (10u32 , 1u32) . expect (\"stable proc-macro positions are one-based\") , :: k :: HostSourcePosition :: new (12u32 , 2u32)"
     ));
     assert!(sorts.contains(":: k :: AnchorPrecision :: Exact"));
+    // The clause range ends on tokens `krs-syntax` re-quotes at the call site;
+    // the environment locates them at `k::rules!`, so the nonce is rustc's
+    // (native `krs emit-k` build of tour-minimal, display file `src/lib.rs`).
+    assert!(
+        outputs[5]
+            .to_string()
+            .contains("__krs_head_rule_sort_2cb94a8d9d940990")
+    );
     assert!(outputs.iter().all(|output| !output.is_empty()));
 }
 
 #[test]
 fn every_builtin_token_island_expands_in_a_fallback_process() {
-    let env = TestEnvironment {
-        call_site: Cell::new(None),
-    };
+    let env = TestEnvironment::new(String::new());
     for (entry, input) in [
         (FunctionMacro::Id, "\"$x\""),
         (FunctionMacro::Bytes, "b\"\\x00\""),
@@ -248,4 +285,42 @@ fn entry_point_names_round_trip() {
     }
     assert_eq!(AttributeMacro::from_name("sorts"), None);
     assert_eq!(FunctionMacro::from_name("sort"), None);
+}
+
+/// Compares the fallback expansion of every tour-minimal invocation with a
+/// native per-invocation capture (the IR-09 capture method), token for token.
+///
+/// `KRS_NATIVE_CAPTURE` names a JSON Lines capture whose rows carry `crate`,
+/// `file`, `line`, `column`, and rustc's `output` text; the rows of
+/// `krs_tour_minimal` with display file `src/lib.rs` (the `krs emit-k`
+/// collector build) are compared. rustc's `Display` differs from the
+/// `proc_macro2` fallback `Display`, so the native text is re-lexed through
+/// `proc_macro2` before the token strings are compared.
+#[test]
+#[ignore = "needs a native capture; set KRS_NATIVE_CAPTURE"]
+fn tour_minimal_matches_the_native_capture() {
+    let path = std::env::var("KRS_NATIVE_CAPTURE").expect("KRS_NATIVE_CAPTURE names a capture");
+    let capture = std::fs::read_to_string(&path).expect("the native capture is readable");
+    let mut rows = capture
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("a JSON capture row"))
+        .filter(|row| row["crate"] == "krs_tour_minimal" && row["file"] == "src/lib.rs")
+        .collect::<Vec<_>>();
+    rows.sort_by_key(|row| (row["line"].as_u64(), row["column"].as_u64()));
+    let (_, outputs) = expand_tour_minimal();
+    assert_eq!(rows.len(), outputs.len(), "one native row per invocation");
+    for (row, output) in rows.iter().zip(&outputs) {
+        let native: TokenStream = row["output"]
+            .as_str()
+            .expect("a captured output")
+            .parse()
+            .expect("native output lexes");
+        assert_eq!(
+            native.to_string(),
+            output.to_string(),
+            "invocation at {}:{}",
+            row["line"],
+            row["column"]
+        );
+    }
 }

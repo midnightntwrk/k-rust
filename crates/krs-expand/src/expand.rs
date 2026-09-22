@@ -31,7 +31,7 @@ use syn::{
     parse_quote,
 };
 
-use crate::environment::MacroEnvironment;
+use crate::environment::{MacroEnvironment, SourcePosition};
 use crate::provenance::host_provenance;
 
 pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
@@ -6721,13 +6721,32 @@ fn expansion_nonce(
     kind.hash(&mut hasher);
     ident.to_string().hash(&mut hasher);
     env.span_file(range.first()).hash(&mut hasher);
-    let start = range.start();
-    let end = range.end();
-    start.line.hash(&mut hasher);
-    start.column.hash(&mut hasher);
-    end.line.hash(&mut hasher);
-    end.column.hash(&mut hasher);
+    let (start_line, start_column) = nonce_position(env.span_start(range.first()));
+    let (end_line, end_column) = nonce_position(env.span_end(range.last()));
+    start_line.hash(&mut hasher);
+    start_column.hash(&mut hasher);
+    end_line.hash(&mut hasher);
+    end_column.hash(&mut hasher);
     hasher.finish()
+}
+
+/// The nonce's view of an environment position: the 1-based line and the
+/// 0-based column that `proc_macro2::Span::start`/`end` report for a rustc
+/// span, and `(0, 0)` where `proc_macro2` has no location.
+///
+/// The environment, not `proc_macro2`, resolves the span, so a host outside a
+/// procedural macro can resolve synthesized spans (such as `Span::call_site()`
+/// tokens re-quoted by `krs-syntax`) to the invocation, as rustc does. The
+/// values are hashed as `u64`, which is what `usize` hashed on the 64-bit
+/// hosts that run `krs-macros`, so the nonce does not depend on the pointer
+/// width of the expanding host.
+fn nonce_position(position: Option<SourcePosition>) -> (u64, u64) {
+    position.map_or((0, 0), |position| {
+        (
+            u64::from(position.line),
+            u64::from(position.column.saturating_sub(1)),
+        )
+    })
 }
 
 fn rule_application_selector(ident: &Ident) -> u64 {

@@ -19,6 +19,13 @@ pub struct SourcePosition {
 
 /// The host of one macro invocation: source locations of its spans, its call
 /// site, and the path of the `krs` facade.
+///
+/// Location queries resolve a span as rustc does. A span the expansion
+/// synthesized rather than copied from the macro input (`Span::call_site()`,
+/// `Span::mixed_site()`, or tokens re-parsed from a string) is located at the
+/// invocation's call site. Expansion code reads span locations only through
+/// this trait, never through `proc_macro2::Span::start`/`end`, because outside
+/// a procedural macro a synthesized span is not located at the invocation.
 pub trait MacroEnvironment {
     /// The display file of `span` (rustc `Span::file`).
     fn span_file(&self, span: Span) -> String;
