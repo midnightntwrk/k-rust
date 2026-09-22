@@ -1,0 +1,1212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>k-rust algorithm graph</title>
+<style>
+:root {
+  --bg: #f4f5f2;
+  --surface: #ffffff;
+  --surface-2: #eaede7;
+  --ink: #1a201d;
+  --muted: #58625c;
+  --line: #d2d7cf;
+  --accent: #1c5d84;
+  --accent-soft: #dcebf4;
+  --heat: #d4520f;
+  --constrain: #a23c6f;
+  --phase: #3f5f92;
+  --good: #2f6f3e;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111513;
+    --surface: #191e1b;
+    --surface-2: #222925;
+    --ink: #e3e8e3;
+    --muted: #9aa59e;
+    --line: #343d38;
+    --accent: #72b6de;
+    --accent-soft: #1d3342;
+    --heat: #ff8a4a;
+    --constrain: #e27fab;
+    --phase: #8fb0e4;
+    --good: #7cc48d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111513;
+  --surface: #191e1b;
+  --surface-2: #222925;
+  --ink: #e3e8e3;
+  --muted: #9aa59e;
+  --line: #343d38;
+  --accent: #72b6de;
+  --accent-soft: #1d3342;
+  --heat: #ff8a4a;
+  --constrain: #e27fab;
+  --phase: #8fb0e4;
+  --good: #7cc48d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  padding-inline: 16px;
+  padding-block: 0 48px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.45 var(--sans);
+}
+a { color: var(--accent); }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h1 { font-size: 20px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 650; }
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 650; margin-top: 14px; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.top {
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding-block: 12px 10px;
+  display: grid;
+  gap: 8px;
+}
+.titleline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.stats { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls input[type="search"] { flex: 1 1 220px; min-width: 0; }
+.controls input[type="search"], .controls select {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  max-width: 100%;
+}
+.controls select { flex: 0 1 auto; min-width: 0; }
+.areas { display: flex; flex-wrap: wrap; gap: 4px; }
+.toggle {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.check { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.results { display: flex; flex-wrap: wrap; gap: 4px 6px; max-height: 9.5em; overflow: auto; }
+.results:empty { display: none; }
+.result {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.result small { color: var(--muted); margin-left: 6px; }
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "lanes" "panel" "nbhd" "run";
+  gap: 22px;
+  margin-top: 16px;
+}
+@media (min-width: 1100px) {
+  .top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; }
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
+    grid-template-areas: "lanes panel" "nbhd panel" "run panel";
+    align-items: start;
+  }
+  .panel {
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + var(--top-height, 120px) + 12px);
+    max-height: calc(100vh - var(--top-height, 120px) - 28px);
+    overflow: auto;
+  }
+}
+.layout > * { min-width: 0; }
+#lanes-section { grid-area: lanes; }
+#panel { grid-area: panel; }
+#nbhd-section { grid-area: nbhd; }
+#run-section { grid-area: run; }
+.section-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; margin-bottom: 8px; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0; }
+.scroll { overflow-x: auto; max-width: 100%; }
+/* Pipeline lanes */
+table.lanes { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+table.lanes th, table.lanes td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); vertical-align: top; padding: 4px; }
+table.lanes thead th { background: var(--surface-2); font-weight: 600; }
+table.lanes .group th { text-align: left; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+table.lanes th.area {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--surface-2);
+  text-align: left; white-space: nowrap; font-size: 12px;
+}
+table.lanes th.phase { height: 170px; vertical-align: bottom; padding: 6px 2px; }
+table.lanes th.phase .vt {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  white-space: nowrap; font-weight: 500; color: var(--phase); font-size: 11.5px;
+  max-height: 160px; overflow: hidden; text-overflow: ellipsis; display: inline-block;
+}
+table.lanes th.phase .vt .t { color: var(--heat); font-variant-numeric: tabular-nums; }
+table.lanes th.phase.run-only .vt { color: var(--muted); font-style: italic; }
+table.lanes td { background: var(--surface); min-width: 22px; }
+table.lanes td.wide, table.lanes th.wide { min-width: 180px; }
+.lanesbox { border: 1px solid var(--line); border-radius: 6px; }
+.loose { display: grid; gap: 8px; }
+.looserow { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; align-items: start; }
+.looserow .area { font-weight: 600; font-size: 12px; padding-top: 3px; }
+.looserow .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.looserow .chip { width: auto; }
+@media (max-width: 600px) { .looserow { grid-template-columns: minmax(0, 1fr); gap: 3px; } }
+.cellstack { display: grid; gap: 3px; }
+.chip {
+  --h: 0%;
+  display: block; width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 6px;
+  background: color-mix(in oklab, var(--heat) var(--h), var(--surface));
+  font-family: var(--mono); font-size: 11.5px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.chip:hover { border-color: var(--accent); }
+.chip.observed { border-style: dashed; }
+.chip.dim { opacity: 0.38; }
+.chip.sel { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+.chip .t { display: block; font-family: var(--sans); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Panel */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+.panel .empty { color: var(--muted); }
+.kind { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-right: 6px; }
+.pid { font-family: var(--mono); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.pname { margin: 4px 0 0; font-size: 15px; }
+.loc { display: flex; gap: 6px; align-items: baseline; margin: 2px 0; }
+.loc code { overflow-wrap: anywhere; }
+.loc.file code { color: var(--muted); }
+.loc.sym { padding-left: 14px; }
+.copy { border: 1px solid var(--line); background: var(--surface-2); border-radius: 4px; font-size: 11px; padding: 0 6px; cursor: pointer; flex: none; }
+dl.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 10px; margin: 6px 0 0; }
+dl.kv dt { color: var(--muted); font-size: 12.5px; }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+.costs { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.costs td { border-top: 1px solid var(--line); padding: 3px 4px; vertical-align: top; }
+.costs td:first-child { color: var(--muted); width: 40%; }
+.var { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+ul.rel { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 3px; }
+ul.rel li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 6px; align-items: start; font-size: 12.5px; }
+.prov { display: block; height: 0; margin-top: 9px; border-top: 2px solid var(--ink); }
+.prov.table { border-top-style: dashed; }
+.prov.derived { border-top-style: dotted; }
+.prov.observed { border-top-color: var(--heat); border-top-style: dashed; }
+.rel .k { color: var(--muted); }
+.rel .det { display: block; color: var(--muted); font-size: 11.5px; }
+.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-family: var(--mono); font-size: 12px; text-align: left; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent); }
+span.link { color: var(--ink); cursor: default; text-decoration: none; }
+.nbrs { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.runbox { margin-top: 10px; padding: 8px 10px; background: var(--surface-2); border-radius: 6px; font-size: 12.5px; }
+.num { font-variant-numeric: tabular-nums; }
+.counterlist { list-style: none; padding: 0; margin: 4px 0 0; display: grid; gap: 2px; }
+.counterlist li { font-size: 12.5px; }
+.counterlist .n { font-variant-numeric: tabular-nums; font-weight: 600; }
+.muted { color: var(--muted); }
+.nowrap, .nowrap .link { white-space: nowrap; overflow-wrap: normal; }
+/* Neighbourhood */
+.nbhd-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+svg.nbhd { display: block; }
+svg.nbhd text { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+svg.nbhd .node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+svg.nbhd .node.algorithm rect { fill: color-mix(in oklab, var(--heat) var(--h, 0%), var(--surface)); }
+svg.nbhd .node.other rect { fill: var(--surface-2); stroke-dasharray: 4 3; }
+svg.nbhd .node.center rect { stroke: var(--accent); stroke-width: 2.5; }
+svg.nbhd .node.dim { opacity: 0.4; }
+svg.nbhd .node { cursor: pointer; }
+svg.nbhd .node:hover rect { stroke: var(--accent); }
+svg.nbhd path.edge { fill: none; stroke: var(--muted); stroke-width: 1.3; }
+svg.nbhd path.edge.table { stroke-dasharray: 6 4; }
+svg.nbhd path.edge.derived { stroke-dasharray: 2 3; }
+svg.nbhd path.edge.constrains { stroke: var(--constrain); }
+svg.nbhd text.elabel { font-family: var(--sans); font-size: 10px; fill: var(--muted); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+svg.nbhd text.colhead { font-family: var(--sans); font-size: 10.5px; fill: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+svg.nbhd marker path { fill: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 6px; align-items: center; }
+.legend .sw { display: inline-block; width: 26px; vertical-align: middle; margin-right: 4px; }
+.legend .sw.solid { border-top: 2px solid var(--ink); }
+.legend .sw.dashed { border-top: 2px dashed var(--ink); }
+.legend .sw.dotted { border-top: 2px dotted var(--ink); }
+.legend .sw.constrains { border-top: 2px solid var(--constrain); }
+.legend .sw.observed { border-top: 2px dashed var(--heat); }
+.legend .heatbar { display: inline-block; width: 60px; height: 10px; vertical-align: middle; border: 1px solid var(--line); background: linear-gradient(90deg, var(--surface), var(--heat)); margin-right: 4px; }
+/* Run */
+.runmeta { font-size: 12.5px; color: var(--muted); display: grid; gap: 2px; margin-bottom: 8px; }
+.runmeta b { color: var(--ink); font-weight: 600; }
+.note { font-size: 12.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin: 0 0 10px; }
+table.data { border-collapse: collapse; width: 100%; font-size: 12.5px; background: var(--surface); }
+table.data th, table.data td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+table.data th { background: var(--surface-2); position: sticky; top: 0; white-space: nowrap; }
+table.data th button { background: none; border: 0; padding: 0; font-weight: 600; cursor: pointer; }
+table.data th[aria-sort="ascending"] button::after { content: " \2191"; }
+table.data th[aria-sort="descending"] button::after { content: " \2193"; }
+table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.data tr.dim td { opacity: 0.5; }
+table.data .var { margin: 0 0 2px; }
+table.data td:last-child { min-width: 280px; }
+@media (min-width: 1100px) { section, .panel { scroll-margin-top: calc(var(--top-height, 120px) + 8px); } }
+.tablebox { max-height: 70vh; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.tree { font-size: 12.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-x: auto; }
+.tree details { margin-left: 14px; }
+.tree > details { margin-left: 0; }
+.tree summary { cursor: pointer; white-space: nowrap; }
+.tree .leaf { margin-left: 28px; white-space: nowrap; }
+.tree .t { color: var(--heat); font-variant-numeric: tabular-nums; margin-left: 6px; }
+.tree .c { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 6px; }
+.grid2 { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+@media (prefers-reduced-motion: no-preference) { .chip, .toggle { transition: background-color 0.12s, border-color 0.12s; } }
+</style>
+</head>
+<body>
+<header class="top" id="top">
+  <div class="titleline">
+    <h1>k-rust algorithm graph</h1>
+    <span class="stats" id="stats"></span>
+  </div>
+  <div class="controls">
+    <input type="search" id="q" placeholder="Search id, name, file, symbol" aria-label="Search id, name, file, or symbol">
+    <div class="areas" id="areas" role="group" aria-label="Area filter"></div>
+    <select id="phase" aria-label="Phase filter"></select>
+    <select id="counter" aria-label="Counter filter"></select>
+    <label class="check"><input type="checkbox" id="zero"> show zero counters</label>
+    <select id="run" aria-label="Run" hidden></select>
+  </div>
+  <div class="results" id="results" aria-live="polite"></div>
+</header>
+<main class="layout">
+  <section id="lanes-section" aria-labelledby="lanes-h">
+    <div class="section-head">
+      <h2 id="lanes-h">Pipeline</h2>
+      <label class="check"><input type="checkbox" id="allphases"> show every phase</label>
+      <p class="hint" id="lanes-hint"></p>
+    </div>
+    <div class="scroll" id="lanes"></div>
+    <div class="legend" id="lanes-legend"></div>
+  </section>
+  <aside class="panel" id="panel" aria-label="Selected algorithm"></aside>
+  <section id="nbhd-section" aria-labelledby="nbhd-h">
+    <div class="section-head">
+      <h2 id="nbhd-h">Neighbourhood</h2>
+      <label class="check">depth
+        <select id="depth">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </label>
+      <p class="hint">Upstream on the left, downstream on the right, placed by breadth-first distance. Edge labels name the representation that connects two algorithms.</p>
+    </div>
+    <div class="nbhd-wrap"><div class="scroll" id="nbhd"></div></div>
+    <div class="legend">
+      <span><span class="sw solid"></span>declared</span>
+      <span><span class="sw dashed"></span>table</span>
+      <span><span class="sw dotted"></span>derived (produces then consumes)</span>
+      <span><span class="sw constrains"></span>constrains</span>
+    </div>
+  </section>
+  <section id="run-section" aria-labelledby="run-h" hidden>
+    <div class="section-head">
+      <h2 id="run-h">Run</h2>
+      <label class="check"><input type="checkbox" id="unexercised"> include unexercised algorithms</label>
+    </div>
+    <div class="runmeta" id="runmeta"></div>
+    <p class="note" id="perfetto"></p>
+    <div class="grid2">
+      <div>
+        <h3>Algorithms</h3>
+        <div class="tablebox" id="runtable"></div>
+      </div>
+      <div>
+        <h3>Observed nesting</h3>
+        <p class="hint">Phases, then the algorithms observed inside them, then the algorithms each one invoked. Self time is the algorithm's self time over the whole run, except on the first level, where it is the self time within that phase.</p>
+        <div class="tree" id="tree"></div>
+      </div>
+      <div>
+        <h3>Phases</h3>
+        <div class="tablebox" id="phasetable"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<script type="application/json" id="algo-graph-data">@@ALGO_GRAPH_DATA@@</script>
+<script>
+"use strict";
+(function () {
+  const DATA = JSON.parse(document.getElementById("algo-graph-data").textContent);
+  const G = DATA.graph;
+  const RUNS = DATA.runs || [];
+  // The graph and join field names follow their canonical TOML (serde renames).
+  const NODES = G.node || [];
+  const EDGES = G.edge || [];
+  const AREA_ORDER = ["parser", "definition", "kompile", "kore", "backend"];
+    const COMPOSITION_KINDS = ["feeds", "constrains", "falls-back-to", "variant-of"];
+
+  // ---- DOM helpers ----
+  function h(tag, attrs) {
+    const e = document.createElement(tag);
+    setAttrs(e, attrs);
+    for (let i = 2; i < arguments.length; i++) append(e, arguments[i]);
+    return e;
+  }
+  function s(tag, attrs) {
+    const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    setAttrs(e, attrs);
+    for (let i = 2; i < arguments.length; i++) append(e, arguments[i]);
+    return e;
+  }
+  function setAttrs(e, attrs) {
+    if (!attrs) return;
+    for (const k of Object.keys(attrs)) {
+      const v = attrs[k];
+      if (v === null || v === undefined || v === false) continue;
+      if (k === "class") e.setAttribute("class", v);
+      else if (k === "text") e.textContent = v;
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+      else if (k === "style") e.setAttribute("style", v);
+      else e.setAttribute(k, v === true ? "" : String(v));
+    }
+  }
+  function append(e, kid) {
+    if (kid === null || kid === undefined || kid === false) return;
+    if (Array.isArray(kid)) { for (const k of kid) append(e, k); return; }
+    e.append(kid instanceof window.Node ? kid : String(kid));
+  }
+  const $ = (id) => document.getElementById(id);
+
+  // ---- Formatting ----
+  function fmtS(sec) {
+    if (sec === undefined || sec === null) return "";
+    if (sec === 0) return "0";
+    if (sec >= 1) return sec.toFixed(2) + " s";
+    const ms = sec * 1000;
+    if (ms >= 1) return ms.toFixed(ms >= 100 ? 0 : ms >= 10 ? 1 : 2) + " ms";
+    return (sec * 1e6).toFixed(0) + " µs";
+  }
+  function fmtN(n) {
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  }
+  function shortRep(rep) {
+    const m = /^(.*?)( \[.*\])?$/.exec(rep);
+    const path = m[1];
+    const last = path.split("::").pop();
+    return last + (m[2] || "");
+  }
+  function loc(a) { return a.file + "::" + a.symbol; }
+
+  // ---- Graph indexes ----
+  const byId = new Map();
+  for (const n of NODES) {
+    if (!byId.has(n.id) || n.kind === "algorithm") byId.set(n.id, n);
+  }
+  const algos = NODES.filter((n) => n.kind === "algorithm");
+  const outEdges = new Map(), inEdges = new Map();
+  function pushMap(m, k, v) { if (!m.has(k)) m.set(k, []); m.get(k).push(v); }
+  for (const e of EDGES) { pushMap(outEdges, e.from, e); pushMap(inEdges, e.to, e); }
+
+  const producers = new Map(), consumers = new Map();
+  for (const e of EDGES) {
+    if (e.kind === "produces") pushMap(producers, e.to, e.from);
+    if (e.kind === "consumes") pushMap(consumers, e.to, e.from);
+  }
+  const compEdges = [];
+  for (const [rep, ps] of producers) {
+    const cs = consumers.get(rep) || [];
+    for (const p of ps) for (const c of cs) {
+      if (p !== c) compEdges.push({ kind: "feeds", from: p, to: c, provenance: "derived", detail: rep });
+    }
+  }
+  for (const e of EDGES) {
+    if (COMPOSITION_KINDS.includes(e.kind) && e.from !== e.to) compEdges.push(e);
+  }
+  const compOut = new Map(), compIn = new Map();
+  for (const e of compEdges) { pushMap(compOut, e.from, e); pushMap(compIn, e.to, e); }
+
+  const measured = new Map(); // algorithm -> [observation node]
+  for (const e of EDGES) if (e.kind === "measured-by" && byId.has(e.to)) pushMap(measured, e.from, byId.get(e.to));
+  const counterNodes = [...new Set([].concat(...[...measured.values()]))]
+    .sort((a, b) => (a.registry_name || a.id).localeCompare(b.registry_name || b.id));
+
+  const staticContains = new Map(); // phase -> [algorithm]
+  const containedBy = new Map(); // algorithm -> [phase]
+  for (const e of EDGES) if (e.kind === "contains") { pushMap(staticContains, e.from, e.to); pushMap(containedBy, e.to, e.from); }
+
+  // Phases in `follows` order; `sequence` breaks ties and orders phases no edge relates.
+  const phases = (function () {
+    const ps = NODES.filter((n) => n.kind === "phase");
+    const seq = (p) => (p.sequence === undefined ? Infinity : p.sequence);
+    const indeg = new Map(ps.map((p) => [p.id, 0]));
+    const next = new Map();
+    for (const e of EDGES) if (e.kind === "follows" && indeg.has(e.from) && indeg.has(e.to)) {
+      pushMap(next, e.from, e.to); indeg.set(e.to, indeg.get(e.to) + 1);
+    }
+    const byPid = new Map(ps.map((p) => [p.id, p]));
+    const cmp = (a, b) => seq(byPid.get(a)) - seq(byPid.get(b)) || (a < b ? -1 : a > b ? 1 : 0);
+    let ready = ps.filter((p) => indeg.get(p.id) === 0).map((p) => p.id).sort(cmp);
+    const out = [];
+    while (ready.length) {
+      const id = ready.shift();
+      out.push(byPid.get(id));
+      for (const t of next.get(id) || []) {
+        indeg.set(t, indeg.get(t) - 1);
+        if (indeg.get(t) === 0) { ready.push(t); ready.sort(cmp); }
+      }
+    }
+    for (const p of ps) if (!out.includes(p)) out.push(p); // a cycle: keep every phase visible
+    return out;
+  })();
+
+  const areas = (function () {
+    const set = new Set(algos.map((a) => a.area).filter(Boolean));
+    const known = AREA_ORDER.filter((a) => set.has(a));
+    return known.concat([...set].filter((a) => !AREA_ORDER.includes(a)).sort());
+  })();
+
+  // ---- State ----
+  const state = {
+    q: "",
+    areas: new Set((DATA.filters && DATA.filters.areas) || []),
+    phases: (DATA.filters && DATA.filters.phases) || [],
+    counters: (DATA.filters && DATA.filters.counters) || [],
+    zero: false,
+    allPhases: false,
+    unexercised: false,
+    run: RUNS.length ? 0 : -1,
+    selected: null,
+    depth: 2,
+  };
+
+  // ---- Run indexes ----
+  let R = null;
+  function buildRun() {
+    if (state.run < 0) { R = null; return; }
+    const join = RUNS[state.run].join;
+    const alg = new Map(join.algorithm.map((a) => [a.id, a]));
+    const exercised = new Map();
+    for (const n of join.node) exercised.set(n.kind + "\u0000" + n.id, n);
+    const phaseRun = new Map(join.phase.map((p) => [p.id, p]));
+    const nestOut = new Map(), nestIn = new Map();
+    for (const e of join.observed_nest) { pushMap(nestOut, e.from, e); pushMap(nestIn, e.to, e); }
+    const contains = new Map(), containsIn = new Map();
+    for (const c of join.observed_contains) { pushMap(contains, c.from, c); pushMap(containsIn, c.to, c); }
+    const receipt = new Map(join.receipt_counter.map((c) => [c.name, c.value]));
+    let maxSelf = 0;
+    for (const a of join.algorithm) maxSelf = Math.max(maxSelf, a.self_seconds);
+    R = { join, alg, exercised, phaseRun, nestOut, nestIn, contains, containsIn, receipt, maxSelf };
+  }
+  function heat(id) {
+    if (!R) return 0;
+    const a = R.alg.get(id);
+    if (!a || !R.maxSelf || !a.self_seconds) return 0;
+    return Math.round(Math.sqrt(a.self_seconds / R.maxSelf) * 80);
+  }
+  function isExercised(kind, id) {
+    if (!R) return true;
+    const n = R.exercised.get(kind + "\u0000" + id);
+    return n ? n.exercised : !!(R.alg.get(id) && R.alg.get(id).count > 0);
+  }
+
+  // ---- Filtering ----
+  function searchText(n) {
+    const parts = [n.id, n.name || "", n.anchor.file, n.anchor.symbol];
+    for (const site of n.sites || []) parts.push(site.file, site.symbol);
+    return parts.join("\n").toLowerCase();
+  }
+  const searchIndex = new Map(NODES.map((n) => [n, searchText(n)]));
+  function matchesQuery(n) {
+    if (!state.q) return true;
+    const text = searchIndex.get(n) || "";
+    return state.q.toLowerCase().split(/\s+/).filter(Boolean).every((t) => text.includes(t));
+  }
+  function passes(id) {
+    const n = byId.get(id);
+    const area = n ? n.area : R && R.alg.get(id) ? R.alg.get(id).area : undefined;
+    if (state.areas.size && !state.areas.has(area)) return false;
+    if (state.phases.length) {
+      const ps = containedBy.get(id) || [];
+      if (!ps.some((p) => state.phases.includes(p))) return false;
+    }
+    if (state.counters.length) {
+      const cs = measured.get(id) || [];
+      if (!cs.some((c) => state.counters.includes(c.id) || state.counters.includes(c.name) || state.counters.includes(c.registry_name))) return false;
+    }
+    if (state.q && (!n || !matchesQuery(n))) return false;
+    return true;
+  }
+
+  // ---- Controls ----
+  function initControls() {
+    const counts = { nodes: NODES.length, edges: EDGES.length };
+    const kinds = {};
+    for (const n of NODES) kinds[n.kind] = (kinds[n.kind] || 0) + 1;
+    $("stats").textContent = [
+      (kinds.algorithm || 0) + " algorithms",
+      (kinds.phase || 0) + " phases",
+      (kinds.representation || 0) + " representations",
+      (kinds.observation || 0) + " counters",
+      counts.edges + " edges",
+    ].join(" · ");
+
+    const areaBox = $("areas");
+    for (const a of areas) {
+      const n = algos.filter((x) => x.area === a).length;
+      areaBox.append(h("button", {
+        class: "toggle", type: "button", "data-area": a, "aria-pressed": state.areas.has(a) ? "true" : "false",
+        onclick: () => { state.areas.has(a) ? state.areas.delete(a) : state.areas.add(a); syncAreaButtons(); renderAll(); },
+      }, a + " " + n));
+    }
+
+    const phaseSel = $("phase");
+    phaseSel.append(h("option", { value: "" }, "all phases"));
+    if (state.phases.length > 1) phaseSel.append(h("option", { value: "\u0000cli" }, "phases: " + state.phases.join(", ")));
+    for (const p of phases) if (staticContains.has(p.id)) phaseSel.append(h("option", { value: p.id }, p.id));
+    phaseSel.value = state.phases.length > 1 ? "\u0000cli" : state.phases[0] || "";
+    phaseSel.addEventListener("change", () => {
+      if (phaseSel.value !== "\u0000cli") state.phases = phaseSel.value ? [phaseSel.value] : [];
+      renderAll();
+    });
+
+    const counterSel = $("counter");
+    counterSel.append(h("option", { value: "" }, "all counters"));
+    if (state.counters.length > 1) counterSel.append(h("option", { value: "\u0000cli" }, "counters: " + state.counters.join(", ")));
+    for (const c of counterNodes) counterSel.append(h("option", { value: c.id }, c.registry_name || c.id));
+    if (state.counters.length === 1) {
+      const want = state.counters[0];
+      const hit = counterNodes.find((c) => c.id === want || c.name === want || c.registry_name === want);
+      counterSel.value = hit ? hit.id : "";
+    } else counterSel.value = state.counters.length ? "\u0000cli" : "";
+    counterSel.addEventListener("change", () => {
+      if (counterSel.value !== "\u0000cli") state.counters = counterSel.value ? [counterSel.value] : [];
+      renderAll();
+    });
+
+    $("q").addEventListener("input", (ev) => { state.q = ev.target.value.trim(); renderAll(); });
+    $("allphases").addEventListener("change", (ev) => { state.allPhases = ev.target.checked; renderLanes(); });
+    $("zero").addEventListener("change", (ev) => { state.zero = ev.target.checked; renderAll(); });
+    $("unexercised").addEventListener("change", (ev) => { state.unexercised = ev.target.checked; renderRun(); });
+    $("depth").addEventListener("change", (ev) => { state.depth = Number(ev.target.value); renderNeighbourhood(); });
+
+    const runSel = $("run");
+    if (RUNS.length) {
+      runSel.hidden = false;
+      runSel.append(h("option", { value: "-1" }, "no run overlay"));
+      RUNS.forEach((r, i) => runSel.append(h("option", { value: String(i) }, "run: " + r.label)));
+      runSel.value = String(state.run);
+      runSel.addEventListener("change", () => { state.run = Number(runSel.value); buildRun(); renderAll(); });
+    }
+  }
+  function syncAreaButtons() {
+    for (const b of $("areas").querySelectorAll("button")) b.setAttribute("aria-pressed", state.areas.has(b.dataset.area) ? "true" : "false");
+  }
+
+  // ---- Search results ----
+  function renderResults() {
+    const box = $("results");
+    box.replaceChildren();
+    if (!state.q) return;
+    const hits = NODES.filter((n) => n.kind !== "phase" && matchesQuery(n) && (n.kind !== "algorithm" || passes(n.id)));
+    const rank = { algorithm: 0, contract: 1, representation: 2, observation: 3, registry: 4 };
+    hits.sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9) || (a.id < b.id ? -1 : 1));
+    if (!hits.length) { box.append(h("span", { class: "muted" }, "No node matches “" + state.q + "”.")); return; }
+    for (const n of hits.slice(0, 60)) {
+      box.append(h("button", { class: "result", type: "button", "data-select": n.id },
+        h("code", null, n.id), h("small", null, n.kind === "algorithm" ? loc(n.anchor) : n.kind)));
+    }
+    if (hits.length > 60) box.append(h("span", { class: "muted" }, "… " + (hits.length - 60) + " more; refine the search."));
+  }
+
+  // ---- Pipeline lanes ----
+  function renderLanes() {
+    let cols = phases.map((p) => ({ key: p.id, phase: p, group: p.table || "phases", runOnly: false }));
+    if (R) {
+      for (const p of R.join.phase) if (!byId.has(p.id) && p.count > 0) cols.push({ key: p.id, phase: null, group: "run phases (no table)", runOnly: true });
+    }
+    const colKeys = new Set(cols.map((c) => c.key));
+    const cells = new Map(); // area \0 phase -> Map(id -> observed)
+    const areaOf = (id) => { const n = byId.get(id); return n ? n.area : R && R.alg.get(id) ? R.alg.get(id).area : "other"; };
+    const put = (id, col, observed) => {
+      const key = areaOf(id) + "\u0000" + col;
+      if (!cells.has(key)) cells.set(key, new Map());
+      const m = cells.get(key);
+      if (!m.has(id)) m.set(id, observed);
+    };
+    for (const [ph, ids] of staticContains) if (colKeys.has(ph)) for (const id of ids) put(id, ph, false);
+    if (R) for (const c of R.join.observed_contains) if (colKeys.has(c.from) && c.count > 0) put(c.to, c.from, true);
+
+    const shownIds = new Set();
+    const colHas = new Set(), rowHas = new Set();
+    for (const [key, m] of cells) {
+      const [area, col] = key.split("\u0000");
+      for (const id of m.keys()) if (passes(id)) { colHas.add(col); rowHas.add(area); shownIds.add(id); }
+    }
+    const rowAreas = areas.concat([...rowHas].filter((a) => !areas.includes(a)));
+    const allCols = cols.length;
+    // With a run, a phase column is shown by default only when the run entered the phase or
+    // exercised one of its algorithms.
+    const ran = (c) => {
+      if (!R) return true;
+      const pr = R.phaseRun.get(c.key);
+      if (pr && pr.count > 0) return true;
+      return rowAreas.some((area) => [...((cells.get(area + "\u0000" + c.key) || new Map()).keys())].some((id) => isExercised("algorithm", id)));
+    };
+    if (!state.allPhases) cols = cols.filter((c) => colHas.has(c.key) && ran(c));
+    const shownCols = new Set(cols.map((c) => c.key));
+    const inShownCol = new Set();
+    for (const [key, m] of cells) if (shownCols.has(key.split("\u0000")[1])) for (const id of m.keys()) inShownCol.add(id);
+    for (const area of [...rowHas]) if (!cols.some((c) => [...((cells.get(area + "\u0000" + c.key) || new Map()).keys())].some(passes))) rowHas.delete(area);
+
+    const table = h("table", { class: "lanes" });
+    const groupRow = h("tr", { class: "group" }, h("th", { class: "area" }, "table"));
+    const headRow = h("tr", null, h("th", { class: "area" }, "area \u2572 phase"));
+    let lastGroup = null, groupCell = null;
+    for (const c of cols) {
+      if (c.group !== lastGroup) {
+        groupCell = h("th", { colspan: "1" }, c.group);
+        groupRow.append(groupCell);
+        lastGroup = c.group;
+      } else groupCell.setAttribute("colspan", String(Number(groupCell.getAttribute("colspan")) + 1));
+      const pr = R ? R.phaseRun.get(c.key) : null;
+      const tip = c.phase
+        ? [c.phase.id, "table: " + (c.phase.table || ""), c.phase.call ? "call: " + c.phase.call : "", c.phase.behavior ? "behavior: " + c.phase.behavior : "", pr ? "run: \u00d7" + pr.count + ", " + fmtS(pr.total_seconds) : ""].filter(Boolean).join("\n")
+        : c.key + "\nphase observed in the run; no phase table declares it" + (pr ? "\nrun: \u00d7" + pr.count + ", " + fmtS(pr.total_seconds) : "");
+      headRow.append(h("th", { class: "phase" + (colHas.has(c.key) ? " wide" : "") + (c.runOnly ? " run-only" : ""), title: tip, scope: "col" },
+        h("span", { class: "vt" }, c.key, pr && pr.total_seconds > 0 ? h("span", { class: "t" }, " \u00b7 " + fmtS(pr.total_seconds)) : null)));
+    }
+    table.append(h("thead", null, groupRow, headRow));
+    const tbody = h("tbody");
+    for (const area of rowAreas) {
+      if (!rowHas.has(area)) continue;
+      const tr = h("tr", null, h("th", { class: "area", scope: "row" }, area));
+      for (const c of cols) {
+        const m = cells.get(area + "\u0000" + c.key);
+        const td = h("td", { class: colHas.has(c.key) ? "wide" : null });
+        if (m) {
+          const ids = [...m.keys()].filter(passes).sort();
+          if (ids.length) td.append(h("div", { class: "cellstack" }, ids.map((id) => chip(id, m.get(id), area))));
+        }
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+    table.append(tbody);
+
+    // Algorithms that no phase contains, in this view, grouped by area.
+    const loose = h("div", { class: "loose" });
+    for (const area of rowAreas) {
+      const ids = algos.filter((a) => a.area === area && !inShownCol.has(a.id) && passes(a.id)).map((a) => a.id).sort();
+      if (R) for (const a of R.join.algorithm) if (!byId.has(a.id) && a.area === area && !inShownCol.has(a.id) && passes(a.id)) ids.push(a.id);
+      if (!ids.length) continue;
+      ids.forEach((id) => shownIds.add(id));
+      loose.append(h("div", { class: "looserow" }, h("div", { class: "area" }, area), h("div", { class: "chips" }, ids.map((id) => chip(id, false, area)))));
+    }
+    const parts = [];
+    if (rowHas.size) parts.push(h("div", { class: "scroll lanesbox" }, table));
+    if (loose.childNodes.length) parts.push(h("h3", null, "In no phase column shown"), loose);
+    if (!parts.length) parts.push(h("p", { class: "muted" }, "No algorithm passes the filters."));
+    $("lanes").replaceChildren(...parts);
+    $("lanes-hint").textContent = shownIds.size + " of " + algos.length + " algorithms shown. Columns follow the stage tables in follows order; a phase contains the algorithms whose sites its call names. " + (state.allPhases ? "Narrow columns contain no algorithm shown." : (allCols - cols.length) + " of " + allCols + " phases are hidden because they contain no algorithm shown" + (R ? " or the run did not enter them" : "") + ".");
+    const legend = [h("span", null, h("span", { class: "sw solid" }), "contained by the phase table")];
+    if (R) {
+      legend.push(h("span", null, h("span", { class: "sw observed" }), "observed inside the phase in this run only"));
+      legend.push(h("span", null, h("span", { class: "heatbar" }), "self time, square-root scale"));
+      legend.push(h("span", null, "faded: not exercised by this run"));
+    }
+    $("lanes-legend").replaceChildren(...legend);
+  }
+  function chip(id, observed, area) {
+    const run = R ? R.alg.get(id) : null;
+    const hv = heat(id);
+    const label = area && id.startsWith(area + ".") ? id.slice(area.length + 1) : id;
+    const n = byId.get(id);
+    const b = h("button", {
+      class: "chip" + (observed ? " observed" : "") + (R && !isExercised("algorithm", id) ? " dim" : "") + (state.selected === id ? " sel" : ""),
+      type: "button", "data-select": id, style: "--h:" + hv + "%",
+      title: id + (n && n.name ? "\n" + n.name : "") + (run ? "\nself " + fmtS(run.self_seconds) + ", total " + fmtS(run.total_seconds) + ", ×" + run.count : ""),
+    }, label);
+    if (run && run.count > 0) b.append(h("span", { class: "t" }, fmtS(run.self_seconds) + " self · ×" + fmtN(run.count)));
+    return b;
+  }
+
+  // ---- Panel ----
+  function copyButton(text) {
+    return h("button", {
+      class: "copy", type: "button", title: "Copy " + text,
+      onclick: (ev) => {
+        const btn = ev.currentTarget;
+        const done = () => { btn.textContent = "copied"; setTimeout(() => { btn.textContent = "copy"; }, 1200); };
+        try {
+          navigator.clipboard.writeText(text).then(done, () => selectText(btn.previousSibling));
+        } catch (_) { selectText(btn.previousSibling); }
+      },
+    }, "copy");
+  }
+  function selectText(el) {
+    if (!el) return;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  function nodeLink(id) {
+    if (byId.has(id) && byId.get(id).kind !== "phase") return h("button", { class: "link", type: "button", "data-select": id }, id);
+    return h("span", { class: "link mono" }, id);
+  }
+  function renderPanel() {
+    const panel = $("panel");
+    const id = state.selected;
+    const n = id ? byId.get(id) : null;
+    const run = R && id ? R.alg.get(id) : null;
+    if (!n && !run) {
+      panel.replaceChildren(h("p", { class: "empty" }, id ? "No node with id " + id + " in this graph." : "Select an algorithm in the pipeline, the search results, the neighbourhood, or the run table. The URL fragment #<id> opens one directly."));
+      return;
+    }
+    const out = [];
+    out.push(h("div", null, h("span", { class: "kind" }, n ? n.kind : "algorithm (run only)"), n && n.area ? h("span", { class: "kind" }, n.area) : null));
+    out.push(h("div", { class: "loc" }, h("span", { class: "pid" }, id), copyButton(id)));
+    if (n && n.name && n.name !== id) out.push(h("p", { class: "pname" }, n.name));
+    if (!n) out.push(h("p", { class: "muted" }, "The run records this id, but the embedded graph has no node for it."));
+    if (n) {
+      out.push(h("h3", null, "Location"));
+      const locs = [n.anchor].concat((n.sites || []).filter((x) => loc(x) !== loc(n.anchor)));
+      const files = [];
+      for (const a of locs) { let f = files.find((x) => x.file === a.file); if (!f) files.push(f = { file: a.file, syms: [] }); f.syms.push(a); }
+      for (const f of files) {
+        out.push(h("div", { class: "loc file" }, h("code", null, f.file), copyButton(f.file)));
+        for (const a of f.syms) out.push(h("div", { class: "loc sym" }, h("code", null, "::" + a.symbol), copyButton(loc(a))));
+      }
+      if (n.sites && n.sites.length) out.push(h("p", { class: "hint" }, "The first symbol is the anchor; " + n.sites.length + " declared site" + (n.sites.length === 1 ? "" : "s") + "."));
+      if (n.cost && n.cost.length) {
+        out.push(h("h3", null, "Cost"));
+        out.push(h("table", { class: "costs" }, h("tbody", null, n.cost.map((c) => h("tr", null, h("td", null, c.mode), h("td", { class: "mono" }, c.bound))))));
+        if (n.variable) out.push(h("div", { class: "var" }, "where " + n.variable));
+      }
+      const kv = [];
+      const addKv = (k, v) => { if (v !== undefined && v !== null && v !== "") kv.push(h("dt", null, k), h("dd", null, v)); };
+      addKv("span", n.span);
+      addKv("invariant", n.invariant);
+      addKv("no counter", n.no_counter);
+      addKv("type", n.type_path);
+      addKv("role", n.role);
+      addKv("registry", n.registry_name);
+      addKv("table", n.table);
+      addKv("provenance", n.provenance);
+      if (kv.length) out.push(h("dl", { class: "kv" }, kv));
+
+      const counters = measured.get(id) || [];
+      if (counters.length || n.kind === "algorithm") {
+        out.push(h("h3", null, "Counters"));
+        if (!counters.length) out.push(h("p", { class: "muted" }, n.no_counter ? "none: " + n.no_counter : "none declared"));
+        else out.push(counterList(counters, run));
+      }
+
+      const phaseIds = containedBy.get(id) || [];
+      if (phaseIds.length) out.push(h("h3", null, "Contained by"), h("div", { class: "nbrs" }, phaseIds.map((p) => h("span", { class: "mono" }, p))));
+
+      const cons = (outEdges.get(id) || []).filter((e) => e.kind === "consumes");
+      const prods = (outEdges.get(id) || []).filter((e) => e.kind === "produces");
+      if (cons.length || prods.length) {
+        out.push(h("h3", null, "Representations"));
+        const li = [];
+        for (const e of cons) li.push(repItem("consumes", e, producers.get(e.to) || [], "from"));
+        for (const e of prods) li.push(repItem("produces", e, consumers.get(e.to) || [], "to"));
+        out.push(h("ul", { class: "rel" }, li));
+      }
+
+      const up = uniq((compIn.get(id) || []).map((e) => e.from));
+      const down = uniq((compOut.get(id) || []).map((e) => e.to));
+      if (up.length || down.length) {
+        out.push(h("h3", null, "Neighbours"));
+        out.push(h("dl", { class: "kv" },
+          h("dt", null, "upstream"), h("dd", null, up.length ? h("div", { class: "nbrs" }, up.map(nodeLink)) : h("span", { class: "muted" }, "none")),
+          h("dt", null, "downstream"), h("dd", null, down.length ? h("div", { class: "nbrs" }, down.map(nodeLink)) : h("span", { class: "muted" }, "none"))));
+      }
+
+      const rels = [];
+      for (const e of outEdges.get(id) || []) rels.push(relItem(e, "→", e.to));
+      for (const e of inEdges.get(id) || []) rels.push(relItem(e, "←", e.from));
+      out.push(h("h3", null, "Relations (" + rels.length + ")"));
+      out.push(rels.length ? h("ul", { class: "rel" }, rels) : h("p", { class: "muted" }, "none"));
+      out.push(h("p", { class: "hint" }, "Line style: solid declared by a card, dashed read from a table, dotted derived by the generator. An absent edge proves nothing."));
+    }
+    if (R) out.push(runBox(id, run, n));
+    panel.replaceChildren(...out);
+  }
+  function uniq(xs) { return [...new Set(xs)].sort(); }
+  function repItem(kind, e, others, word) {
+    const peers = others.filter((x) => x !== e.from);
+    return h("li", null, h("span", { class: "prov " + e.provenance, title: e.provenance }),
+      h("span", null, h("span", { class: "k" }, kind + " "), nodeLink(e.to),
+        h("span", { class: "det" }, peers.length ? [word + " ", peers.map((p, i) => [i ? ", " : "", nodeLink(p)])] : (kind === "consumes" ? "no card produces it" : "no card consumes it"))));
+  }
+  function relItem(e, arrow, other) {
+    const extra = [];
+    if (e.detail) extra.push(e.detail);
+    if (e.order !== undefined) extra.push("order " + e.order);
+    if (e.consumer_site) extra.push("at " + loc(e.consumer_site));
+    return h("li", null, h("span", { class: "prov " + e.provenance, title: e.provenance }),
+      h("span", null, h("span", { class: "k" }, e.kind + " " + arrow + " "), nodeLink(other), h("span", { class: "k" }, " [" + e.provenance + "]"),
+        extra.length ? h("span", { class: "det" }, extra.join(" · ")) : null));
+  }
+  function counterList(counters, run) {
+    const items = [];
+    for (const c of counters) {
+      const name = c.registry_name || c.id;
+      let value = null;
+      if (R) {
+        const ac = run && run.counter ? run.counter.find((x) => x.name === name) : null;
+        const rv = R.receipt.get(name);
+        const traced = ac && ac.trace_total !== undefined ? ac.trace_total : null;
+        const shownN = traced !== null ? traced : rv;
+        if (!state.zero && (shownN === 0 || shownN === undefined) && !rv) continue;
+        value = [h("span", { class: "n" }, " " + (traced !== null ? fmtN(traced) : "–")),
+          h("span", { class: "muted" }, " in spans" + (rv !== undefined ? " · receipt " + fmtN(rv) : ""))];
+      }
+      items.push(h("li", null, h("button", { class: "link", type: "button", "data-select": c.id }, name), value));
+    }
+    if (!items.length) return h("p", { class: "muted" }, "all zero in this run (show zero counters to list them)");
+    return h("ul", { class: "counterlist" }, items);
+  }
+  function runBox(id, run, n) {
+    const box = h("div", { class: "runbox" });
+    box.append(h("div", null, h("b", null, "Run "), RUNS[state.run].label));
+    if (!run || (run.count === 0 && !isExercised(n ? n.kind : "algorithm", id))) {
+      box.append(h("div", { class: "muted" }, n && n.kind !== "algorithm" ? (isExercised(n.kind, id) ? "exercised" : "not exercised") : "not exercised by this run"));
+      return box;
+    }
+    box.append(h("div", { class: "num" }, "×" + fmtN(run.count) + " · total " + fmtS(run.total_seconds) + " · self " + fmtS(run.self_seconds)));
+    const ex = R.exercised.get("algorithm\u0000" + id);
+    if (ex && ex.exercised_by) box.append(h("div", { class: "muted" }, "exercised by " + ex.exercised_by));
+    const parents = R.nestIn.get(id) || [], children = R.nestOut.get(id) || [];
+    const fmtNest = (list, key) => list.slice().sort((a, b) => b.count - a.count).map((e, i) => [i ? ", " : "", nodeLink(e[key]), h("span", { class: "muted" }, " ×" + fmtN(e.count))]);
+    if (parents.length) box.append(h("div", null, h("span", { class: "muted" }, "called inside "), fmtNest(parents, "from")));
+    if (children.length) box.append(h("div", null, h("span", { class: "muted" }, "invokes "), fmtNest(children, "to")));
+    const inPhases = R.containsIn.get(id) || [];
+    if (inPhases.length) box.append(h("div", null, h("span", { class: "muted" }, "in phases "), inPhases.map((c, i) => [i ? ", " : "", h("span", { class: "mono" }, c.from), h("span", { class: "muted" }, " " + fmtS(c.self_seconds) + " self")])));
+    return box;
+  }
+
+  // ---- Neighbourhood ----
+  function renderNeighbourhood() {
+    const box = $("nbhd");
+    const id = state.selected;
+    if (!id || !byId.has(id)) { box.replaceChildren(h("p", { class: "muted" }, "Select an algorithm to draw its neighbourhood.")); return; }
+    const depth = state.depth;
+    const bfs = (dir) => {
+      const dist = new Map([[id, 0]]);
+      let frontier = [id];
+      for (let d = 1; d <= depth && frontier.length; d++) {
+        const next = [];
+        for (const cur of frontier) {
+          for (const e of (dir > 0 ? compOut.get(cur) : compIn.get(cur)) || []) {
+            const other = dir > 0 ? e.to : e.from;
+            if (!dist.has(other)) { dist.set(other, d); next.push(other); }
+          }
+        }
+        frontier = next;
+      }
+      return dist;
+    };
+    const down = bfs(1), up = bfs(-1);
+    const layer = new Map([[id, 0]]);
+    for (const [n, d] of down) if (n !== id) layer.set(n, d);
+    for (const [n, d] of up) if (n !== id && (!layer.has(n) || d < layer.get(n))) layer.set(n, -d);
+    if (layer.size === 1) { box.replaceChildren(h("p", { class: "muted" }, id + " has no composition relation (feeds, constrains, falls-back-to, variant-of).")); return; }
+
+    // Merge parallel edges between the same pair.
+    const pairs = new Map();
+    for (const e of compEdges) {
+      if (!layer.has(e.from) || !layer.has(e.to)) continue;
+      const key = e.from + "\u0000" + e.to;
+      if (!pairs.has(key)) pairs.set(key, { from: e.from, to: e.to, kinds: new Set(), provs: new Set(), labels: [] });
+      const p = pairs.get(key);
+      p.kinds.add(e.kind); p.provs.add(e.provenance);
+      p.labels.push(e.kind === "feeds" ? shortRep(e.detail) : e.kind);
+    }
+    const cols = new Map();
+    for (const [n, l] of layer) pushMap(cols, l, n);
+    const layers = [...cols.keys()].sort((a, b) => a - b);
+    for (const l of layers) cols.get(l).sort();
+    const pos = new Map();
+    const setPos = (l) => cols.get(l).forEach((n, i) => pos.set(n, i));
+    setPos(0);
+    const neighbours = new Map();
+    for (const p of pairs.values()) { pushMap(neighbours, p.from, p.to); pushMap(neighbours, p.to, p.from); }
+    const order = (l, ref) => {
+      const bary = (n) => {
+        const ns = (neighbours.get(n) || []).filter((m) => layer.get(m) === ref);
+        return ns.length ? ns.reduce((acc, m) => acc + pos.get(m), 0) / ns.length : Infinity;
+      };
+      cols.get(l).sort((a, b) => bary(a) - bary(b) || (a < b ? -1 : 1));
+      setPos(l);
+    };
+    for (const l of layers.filter((x) => x > 0)) order(l, l - 1);
+    for (const l of layers.filter((x) => x < 0).reverse()) order(l, l + 1);
+
+    const NW = 200, NH = 30, RH = 42, PADX = 12, PADY = 30;
+    const minL = layers[0];
+    // Fill the available width when it allows, but keep room for edge labels between columns.
+    const avail = (box.clientWidth || 900) - NW - PADX * 2;
+    const CW = layers.length > 1 ? Math.max(300, Math.min(420, Math.floor(avail / (layers.length - 1)))) : 0;
+    const maxRows = Math.max(...layers.map((l) => cols.get(l).length));
+    const width = (layers.length - 1) * CW + NW + PADX * 2;
+    const height = maxRows * RH + PADY + 12;
+    const xy = new Map();
+    for (const l of layers) {
+      const list = cols.get(l);
+      const offset = ((maxRows - list.length) * RH) / 2;
+      list.forEach((n, i) => xy.set(n, { x: PADX + (l - minL) * CW, y: PADY + offset + i * RH }));
+    }
+    const svg = s("svg", { class: "nbhd", width, height, viewBox: "0 0 " + width + " " + height, role: "img", "aria-label": "Neighbourhood of " + id });
+    svg.append(s("defs", null, s("marker", { id: "arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" }, s("path", { d: "M0,0 L10,5 L0,10 z" }))));
+    for (const l of layers) {
+      const text = l === 0 ? "selected" : l < 0 ? "upstream " + -l : "downstream " + l;
+      svg.append(s("text", { class: "colhead", x: PADX + (l - minL) * CW, y: 14 }, text));
+    }
+    const showLabels = pairs.size <= 40;
+    const edgeGroup = s("g"), labelGroup = s("g");
+    for (const p of pairs.values()) {
+      const a = xy.get(p.from), b = xy.get(p.to);
+      let d, lx, ly, anchor = "middle";
+      if (a.x < b.x) {
+        const x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x - 2, y2 = b.y + NH / 2;
+        const mx = (x1 + x2) / 2;
+        d = "M" + x1 + "," + y1 + " C" + mx + "," + y1 + " " + mx + "," + y2 + " " + x2 + "," + y2;
+        // Label the end away from the selected node, where edges fan out and labels do not stack.
+        if (layer.get(p.from) < 0 && layer.get(p.to) <= 0) { lx = x1 + 6; ly = y1 - 4; anchor = "start"; }
+        else { lx = x2 - 8; ly = y2 - 4; anchor = "end"; }
+      } else {
+        const x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x + NW + 2, y2 = b.y + NH / 2;
+        const bulge = Math.max(x1, x2) + 40 + Math.abs(y2 - y1) * 0.15;
+        d = "M" + x1 + "," + y1 + " C" + bulge + "," + y1 + " " + bulge + "," + y2 + " " + x2 + "," + y2;
+        lx = bulge - 10; ly = (y1 + y2) / 2;
+      }
+      const prov = p.provs.has("declared") ? "declared" : p.provs.has("table") ? "table" : "derived";
+      const labels = uniq(p.labels);
+      const title = p.from + " → " + p.to + "\n" + labels.join("\n");
+      edgeGroup.append(s("path", { class: "edge " + prov + (p.kinds.has("constrains") ? " constrains" : ""), d, "marker-end": "url(#arrow)" }, s("title", null, title)));
+      if (showLabels) {
+        const text = labels.length > 1 ? labels[0] + " +" + (labels.length - 1) : labels[0];
+        labelGroup.append(s("text", { class: "elabel", x: lx, y: ly, "text-anchor": anchor }, text.length > 32 ? text.slice(0, 31) + "\u2026" : text, s("title", null, title)));
+      }
+    }
+    svg.append(edgeGroup);
+    for (const [n, p] of xy) {
+      const node = byId.get(n);
+      const isAlgo = node && node.kind === "algorithm";
+      const label = n.length > 30 ? n.slice(0, 29) + "…" : n;
+      const g = s("g", {
+        class: "node " + (isAlgo ? "algorithm" : "other") + (n === id ? " center" : "") + (R && isAlgo && !isExercised("algorithm", n) ? " dim" : ""),
+        transform: "translate(" + p.x + "," + p.y + ")", "data-select": n, tabindex: "0", role: "button", style: "--h:" + heat(n) + "%",
+      },
+      s("title", null, n + (node && node.name ? "\n" + node.name : "") + (node && node.kind !== "algorithm" ? "\n(" + node.kind + ")" : "")),
+      s("rect", { width: NW, height: NH, rx: "5" }),
+      s("text", { x: "8", y: NH / 2 + 4 }, label));
+      svg.append(g);
+    }
+    svg.append(labelGroup);
+    box.replaceChildren(...[svg].concat(showLabels ? [] : [h("p", { class: "hint" }, pairs.size + " edges; hover an edge for its representation.")]));
+  }
+
+  // ---- Run overlay ----
+  function sortableTable(columns, rows, initial) {
+    let sortKey = initial.key, dir = initial.dir;
+    const table = h("table", { class: "data" });
+    const headRow = h("tr");
+    const tbody = h("tbody");
+    const draw = () => {
+      const col = columns.find((c) => c.key === sortKey);
+      const sorted = rows.slice().sort((a, b) => {
+        const va = col.value(a), vb = col.value(b);
+        const r = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+        return (dir === "descending" ? -r : r) || (a.id < b.id ? -1 : 1);
+      });
+      tbody.replaceChildren(...sorted.map((r) => h("tr", { class: r.dim ? "dim" : null }, columns.map((c) => h("td", { class: c.num ? "num" : null }, c.render(r))))));
+      for (const th of headRow.children) th.setAttribute("aria-sort", th.dataset.key === sortKey ? dir : "none");
+    };
+    for (const c of columns) {
+      headRow.append(h("th", { class: c.num ? "num" : null, "data-key": c.key, scope: "col" },
+        c.sortable === false ? c.label : h("button", { type: "button", onclick: () => {
+          if (sortKey === c.key) dir = dir === "descending" ? "ascending" : "descending";
+          else { sortKey = c.key; dir = c.num ? "descending" : "ascending"; }
+          draw();
+        } }, c.label)));
+    }
+    table.append(h("thead", null, headRow), tbody);
+    draw();
+    return table;
+  }
+  function renderRun() {
+    const section = $("run-section");
+    if (!R) { section.hidden = true; return; }
+    section.hidden = false;
+    const j = R.join, rc = j.receipt;
+    const meta = [
+      h("div", null, h("b", null, rc.workload), rc.claim ? " · claim " + rc.claim : "", rc.timestamp ? " · " + rc.timestamp : ""),
+      h("div", null, "krust " + (rc.krust_revision || "unknown revision") + (rc.tool || []).map((t) => " · " + t.version).join("")),
+      h("div", null, j.summary.exercised_algorithms + " of " + j.summary.declared_algorithms + " declared algorithms exercised; largest self time: ",
+        j.summary.largest_self_time_algorithm ? nodeLink(j.summary.largest_self_time_algorithm) : "none", " (" + fmtS(j.summary.largest_self_seconds) + ")"),
+      h("div", null, "receipt " + rc.directory + " · counter schema " + rc.counter_schema + (rc.counters_partial ? " (partial)" : "") + " · timings schema " + rc.timings_schema + (rc.timings_partial ? " (partial)" : "")),
+    ];
+    $("runmeta").replaceChildren(...meta);
+    $("perfetto").replaceChildren("Per-invocation drill-down: open the run's ", h("code", null, "trace.json"), " (normally in ", h("code", null, rc.directory), ") in Perfetto (", h("code", null, "https://ui.perfetto.dev"), "). This page aggregates by algorithm id and draws no flame chart.");
+
+    const rows = [];
+    for (const a of j.algorithm) {
+      const exercised = a.count > 0 || isExercised("algorithm", a.id);
+      if (!exercised && !state.unexercised) continue;
+      if (!passes(a.id)) continue;
+      rows.push({ id: a.id, a, dim: !exercised });
+    }
+    const counterCell = (r) => {
+      const node = byId.get(r.id);
+      const out = [];
+      if (node && node.variable) out.push(h("div", { class: "var" }, node.variable));
+      const cs = (r.a.counter || []).filter((c) => state.zero || (c.trace_total || 0) > 0);
+      const declared = cs.filter((c) => c.declared), other = cs.filter((c) => !c.declared);
+      const fmtC = (c) => h("li", null, h("span", { class: "mono" }, c.name), h("span", { class: "n" }, " " + (c.trace_total === undefined ? "–" : fmtN(c.trace_total))),
+        c.trace_self !== undefined && c.trace_self !== c.trace_total ? h("span", { class: "muted" }, " (self " + fmtN(c.trace_self) + ")") : null,
+        c.receipt_total !== undefined && c.receipt_total !== c.trace_total ? h("span", { class: "muted" }, " · receipt " + fmtN(c.receipt_total)) : null);
+      if (declared.length) out.push(h("ul", { class: "counterlist" }, declared.map(fmtC)));
+      if (other.length) out.push(h("details", null, h("summary", { class: "muted" }, other.length + " counter" + (other.length === 1 ? "" : "s") + " the card does not declare"), h("ul", { class: "counterlist" }, other.map(fmtC))));
+      return out;
+    };
+    const columns = [
+      { key: "id", label: "Algorithm", value: (r) => r.id, render: (r) => h("span", { class: "nowrap" }, nodeLink(r.id)) },
+      { key: "count", label: "Count", num: true, value: (r) => r.a.count, render: (r) => fmtN(r.a.count) },
+      { key: "total", label: "Total", num: true, value: (r) => r.a.total_seconds, render: (r) => fmtS(r.a.total_seconds) },
+      { key: "self", label: "Self", num: true, value: (r) => r.a.self_seconds, render: (r) => fmtS(r.a.self_seconds) },
+      { key: "counters", label: "Card variable and counters (observed n)", sortable: false, value: () => 0, render: counterCell },
+    ];
+    $("runtable").replaceChildren(rows.length ? sortableTable(columns, rows, { key: "self", dir: "descending" }) : h("p", { class: "muted", style: "padding:8px" }, "No algorithm row passes the filters."));
+
+    const phaseRows = j.phase.filter((p) => state.zero || p.count > 0).map((p) => ({ id: p.id, p }));
+    const phaseCols = [
+      { key: "id", label: "Phase", value: (r) => r.id, render: (r) => h("span", { class: "mono" }, r.id, byId.has(r.id) ? null : h("span", { class: "muted" }, " (no table)")) },
+      { key: "count", label: "Count", num: true, value: (r) => r.p.count, render: (r) => fmtN(r.p.count) },
+      { key: "total", label: "Total", num: true, value: (r) => r.p.total_seconds, render: (r) => fmtS(r.p.total_seconds) },
+      { key: "attr", label: "In algorithms", num: true, value: (r) => r.p.algorithm_self_seconds, render: (r) => fmtS(r.p.algorithm_self_seconds) },
+      { key: "rest", label: "Unattributed", num: true, value: (r) => r.p.unattributed_seconds, render: (r) => fmtS(r.p.unattributed_seconds) },
+    ];
+    $("phasetable").replaceChildren(sortableTable(phaseCols, phaseRows, { key: "total", dir: "descending" }));
+    renderTree();
+  }
+  function renderTree() {
+    const j = R.join;
+    const tree = $("tree");
+    const alg = (id) => R.alg.get(id);
+    const selfOf = (id) => (alg(id) ? alg(id).self_seconds : 0);
+    const nodeRow = (id, count, self, path) => {
+      const kids = (R.nestOut.get(id) || []).filter((e) => !path.has(e.to)).sort((a, b) => selfOf(b.to) - selfOf(a.to) || (a.to < b.to ? -1 : 1));
+      const head = [nodeLink(id), h("span", { class: "c" }, "×" + fmtN(count)), h("span", { class: "t" }, fmtS(self) + " self")];
+      const self_loop = (R.nestOut.get(id) || []).find((e) => e.to === id);
+      if (self_loop) head.push(h("span", { class: "c" }, "recursive ×" + fmtN(self_loop.count)));
+      if (!kids.length) return h("div", { class: "leaf" }, head);
+      const d = h("details", null, h("summary", null, head));
+      let built = false;
+      d.addEventListener("toggle", () => {
+        if (!d.open || built) return;
+        built = true;
+        const next = new Set(path); next.add(id);
+        for (const e of kids) d.append(nodeRow(e.to, e.count, selfOf(e.to), next));
+      });
+      return d;
+    };
+    const out = [];
+    const phaseList = j.phase.filter((p) => (R.contains.get(p.id) || []).length).sort((a, b) => b.total_seconds - a.total_seconds);
+    const placed = new Set();
+    for (const p of phaseList) {
+      const inside = R.contains.get(p.id).filter((c) => passes(c.to));
+      const insideIds = new Set(R.contains.get(p.id).map((c) => c.to));
+      const roots = inside.filter((c) => !(R.nestIn.get(c.to) || []).some((e) => e.from !== c.to && insideIds.has(e.from)))
+        .sort((a, b) => b.self_seconds - a.self_seconds);
+      for (const c of R.contains.get(p.id)) placed.add(c.to);
+      if (!roots.length) continue;
+      const d = h("details", { open: phaseList.length <= 4 ? true : null }, h("summary", null, h("span", { class: "mono" }, p.id), h("span", { class: "c" }, "phase ×" + fmtN(p.count)), h("span", { class: "t" }, fmtS(p.total_seconds) + " total")));
+      for (const c of roots) d.append(nodeRow(c.to, c.count, c.self_seconds, new Set()));
+      out.push(d);
+    }
+    const orphans = j.algorithm.filter((a) => a.count > 0 && !placed.has(a.id) && passes(a.id) && !(R.nestIn.get(a.id) || []).some((e) => e.from !== a.id));
+    if (orphans.length) {
+      const d = h("details", { open: true }, h("summary", null, h("span", { class: "muted" }, "outside every observed phase")));
+      for (const a of orphans.sort((x, y) => y.self_seconds - x.self_seconds)) d.append(nodeRow(a.id, a.count, a.self_seconds, new Set()));
+      out.push(d);
+    }
+    tree.replaceChildren(...(out.length ? out : [h("p", { class: "muted" }, "No observed invocation passes the filters.")]));
+  }
+
+  // ---- Selection ----
+  function select(id, fromHash) {
+    state.selected = id;
+    if (!fromHash && location.hash.slice(1) !== id) {
+      history.replaceState(null, "", "#" + id);
+    }
+    for (const c of document.querySelectorAll(".chip.sel")) c.classList.remove("sel");
+    for (const c of document.querySelectorAll(".chip")) if (c.dataset.select === id) c.classList.add("sel");
+    renderPanel();
+    renderNeighbourhood();
+    if (window.matchMedia("(max-width: 1099px)").matches && !fromHash) $("panel").scrollIntoView({ block: "start" });
+    else $("panel").scrollTop = 0;
+  }
+  document.addEventListener("click", (ev) => {
+    const t = ev.target.closest("[data-select]");
+    if (!t) return;
+    ev.preventDefault();
+    select(t.dataset.select, false);
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    const t = ev.target.closest && ev.target.closest("svg [data-select]");
+    if (t) { ev.preventDefault(); select(t.dataset.select, false); }
+  });
+  function fromHash() {
+    let id = "";
+    try { id = decodeURIComponent(location.hash.slice(1)); } catch (_) { id = location.hash.slice(1); }
+    if (id && id !== state.selected) select(id, true);
+  }
+  window.addEventListener("hashchange", fromHash);
+
+  function renderAll() {
+    renderResults();
+    renderLanes();
+    renderPanel();
+    renderNeighbourhood();
+    renderRun();
+  }
+  function measureTop() {
+    document.documentElement.style.setProperty("--top-height", $("top").offsetHeight + "px");
+  }
+
+  initControls();
+  buildRun();
+  const initial = (function () { try { return decodeURIComponent(location.hash.slice(1)); } catch (_) { return location.hash.slice(1); } })();
+  if (initial) state.selected = initial;
+  renderAll();
+  measureTop();
+  window.addEventListener("resize", measureTop);
+  if (initial && window.matchMedia("(max-width: 1099px)").matches) $("panel").scrollIntoView({ block: "start" });
+})();
+</script>
+</body>
+</html>

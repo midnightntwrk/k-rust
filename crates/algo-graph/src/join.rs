@@ -222,7 +222,7 @@ struct Frame {
 }
 
 #[derive(Clone, Debug, Default)]
-struct TraceObservations {
+pub(crate) struct TraceObservations {
     algorithms: BTreeMap<String, Aggregate>,
     phases: BTreeMap<String, Aggregate>,
     nests: BTreeMap<(String, String), u64>,
@@ -264,7 +264,7 @@ pub fn canonical_join_toml(join: &Join) -> Result<String, Error> {
     Ok(output)
 }
 
-fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
+pub(crate) fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
     let events = match document {
         Value::Array(events) => events,
         Value::Object(root) => root
@@ -667,7 +667,7 @@ fn optional_string(value: Option<&Value>) -> Option<String> {
     value.filter(|value| !value.is_null()).map(scalar_text)
 }
 
-fn project(
+pub(crate) fn project(
     graph: &Graph,
     observations: TraceObservations,
     receipt: Receipt,
@@ -1011,6 +1011,10 @@ fn edge_exercised(
 
 /// Render a complete run overlay. Static cost bounds stay in the algorithm label beside the
 /// trace observations, and unexercised nodes and edges are dimmed.
+///
+/// A counter node whose receipt value is zero is omitted together with its edges: the run
+/// observed nothing on it, so it carries no run information. A counter the receipt does not
+/// record is kept, because its value is unknown rather than zero.
 pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
     let algorithm = join
         .algorithms
@@ -1032,7 +1036,19 @@ pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
         .iter()
         .map(|node| ((node.kind.as_str(), node.id.as_str()), node.exercised))
         .collect::<BTreeMap<_, _>>();
-    let mut nodes = graph.nodes.iter().collect::<Vec<_>>();
+    let observed_zero = |node: &&crate::Node| {
+        node.kind == "observation"
+            && node
+                .registry_name
+                .as_deref()
+                .and_then(|name| receipt_counter.get(name))
+                == Some(&0)
+    };
+    let mut nodes = graph
+        .nodes
+        .iter()
+        .filter(|node| !observed_zero(node))
+        .collect::<Vec<_>>();
     nodes.sort_by(|left, right| (&left.id, &left.kind).cmp(&(&right.id, &right.kind)));
     let ids = nodes
         .iter()
@@ -1110,13 +1126,16 @@ pub fn render_run_overlay(graph: &Graph, join: &Join) -> String {
         })
         .collect::<BTreeMap<_, _>>();
     let mut unexercised_links = Vec::new();
-    for (index, edge) in graph.edges.iter().enumerate() {
+    let mut link = 0usize;
+    for edge in &graph.edges {
         let Some(from) = first_id.get(edge.from.as_str()) else {
             continue;
         };
         let Some(to) = first_id.get(edge.to.as_str()) else {
             continue;
         };
+        let index = link;
+        link += 1;
         output.push_str(&format!(
             "  {from} -->|\"{} [{}]\"| {to}\n",
             escape(&edge.kind),
@@ -1290,6 +1309,22 @@ crate = "demo"
 file = "measure.rs"
 symbol = "Counter::B"
 
+[[node]]
+kind = "observation"
+id = "CounterZero"
+provenance = "table"
+registry_name = "work.zero"
+[node.anchor]
+crate = "demo"
+file = "measure.rs"
+symbol = "Counter::Zero"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.unused"
+to = "CounterZero"
+provenance = "declared"
+
 [[edge]]
 kind = "contains"
 from = "proof"
@@ -1300,6 +1335,12 @@ provenance = "table"
 kind = "contains"
 from = "proof"
 to = "backend.b"
+provenance = "table"
+
+[[edge]]
+kind = "contains"
+from = "proof"
+to = "backend.unused"
 provenance = "table"
 
 [[edge]]
@@ -1337,7 +1378,7 @@ provenance = "declared"
         fs::write(receipt.join("timings.json"), r#"{"proof_seconds":0.1}"#).unwrap();
         fs::write(
             receipt.join("counters.json"),
-            r#"{"format":"krust-counters","version":1,"counters":{"work.a":10,"work.b":3}}"#,
+            r#"{"format":"krust-counters","version":1,"counters":{"work.a":10,"work.b":3,"work.zero":0}}"#,
         )
         .unwrap();
 
@@ -1397,6 +1438,15 @@ provenance = "declared"
         assert!(overlay.contains("receipt n: 10"));
         assert!(overlay.contains("observed nests ×1"));
         assert!(overlay.contains("unexercised"));
+        assert!(!overlay.contains("CounterZero"), "{overlay}");
+        assert!(!overlay.contains("receipt n: 0"), "{overlay}");
+        let links = overlay.lines().filter(|line| line.contains("-->|")).count();
+        let dimmed = overlay
+            .lines()
+            .find_map(|line| line.strip_prefix("  linkStyle "))
+            .and_then(|line| line.split_whitespace().next())
+            .unwrap();
+        assert_eq!(dimmed, (links - 1).to_string(), "{overlay}");
 
         fs::remove_dir_all(root).unwrap();
     }

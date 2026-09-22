@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use algo_graph::{
     Filters, build_graph, canonical_join_toml, canonical_toml, drift, join_files,
-    render_composition, render_composition_focus, render_drift, render_module_map, render_pipeline,
-    render_run_overlay, workspace_root, write_output, write_report,
+    render_composition, render_composition_focus, render_drift, render_html, render_module_map,
+    render_pipeline, render_run_overlay, workspace_root, write_output, write_report,
 };
 use clap::{Args, Parser, Subcommand};
 
@@ -45,6 +45,8 @@ enum RenderCommand {
     Composition(CompositionArgs),
     /// Render the backend source-card inventory as Markdown.
     ModuleMap(OutputArgs),
+    /// Render the self-contained HTML explorer, with zero or more embedded runs.
+    Html(HtmlArgs),
 }
 
 #[derive(Debug, Args)]
@@ -77,6 +79,16 @@ struct CompositionArgs {
     /// Render this algorithm and its downstream composition closure.
     #[arg(long)]
     focus: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct HtmlArgs {
+    /// Initial filters of the page; the reader may clear them. The whole graph is embedded.
+    #[command(flatten)]
+    render: RenderArgs,
+    /// Run projection TOML produced by `algo-graph join`. Repeat for more than one run.
+    #[arg(long = "join")]
+    joins: Vec<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -154,6 +166,34 @@ fn main() -> Result<(), algo_graph::Error> {
                     .output
                     .unwrap_or_else(|| default_output(&root, "module-map.md"));
                 write_output(&output, &render_module_map(&build.graph))?;
+                println!("wrote {}", output.display());
+            }
+            RenderCommand::Html(arguments) => {
+                let build = report_build(build_graph(&root)?);
+                let joins = arguments
+                    .joins
+                    .iter()
+                    .map(|path| {
+                        let read = || -> Result<algo_graph::Join, algo_graph::Error> {
+                            Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
+                        };
+                        read().map_err(|error| {
+                            algo_graph::Error::Invalid(format!(
+                                "--join {}: {error}",
+                                path.display()
+                            ))
+                        })
+                    })
+                    .collect::<Result<Vec<_>, algo_graph::Error>>()?;
+                let output = arguments
+                    .render
+                    .output
+                    .clone()
+                    .unwrap_or_else(|| default_output(&root, "explorer.html"));
+                write_output(
+                    &output,
+                    &render_html(&build.graph, &joins, &arguments.render.filters())?,
+                )?;
                 println!("wrote {}", output.display());
             }
         },

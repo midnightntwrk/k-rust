@@ -12,6 +12,7 @@
 
 mod cards;
 mod drift;
+mod html;
 mod join;
 mod model;
 mod render;
@@ -24,6 +25,7 @@ use std::{
 
 use cards::{Card, CardKind, Representation, SourceIndex};
 pub use drift::{DriftFinding, DriftReport, drift, render_drift};
+pub use html::{HTML_DATA_ELEMENT_ID, render_html};
 pub use join::{
     AGGREGATION_RULE, AlgorithmCounter, AlgorithmRun, EdgeRun, JOIN_SCHEMA_VERSION, Join, NodeRun,
     ObservedContain, ObservedEdge, PhaseRun, Receipt, ReceiptCounter, Revision, Summary,
