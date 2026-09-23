@@ -110,20 +110,27 @@ fn connective(
                 result
             }
             ConjunctionShape::Balanced => {
+                /// The balanced tree over the next `length` (at least 1) operands of `patterns`:
+                /// the operand itself when `length` is 1, otherwise a binary node whose left
+                /// subtree holds the next `length / 2` operands and whose right subtree holds the
+                /// `length - length / 2` after them. Each operand is moved out once, in order.
                 fn balanced(
-                    patterns: &[kore::Pattern],
+                    patterns: &mut impl Iterator<Item = kore::Pattern>,
+                    length: usize,
                     node: &impl Fn(Vec<kore::Pattern>) -> kore::Pattern,
                 ) -> kore::Pattern {
-                    if let [pattern] = patterns {
-                        return pattern.clone();
+                    if length == 1 {
+                        return patterns
+                            .next()
+                            .expect("the caller asks for at most the operands that remain");
                     }
-                    let middle = patterns.len() / 2;
-                    node(vec![
-                        balanced(&patterns[..middle], node),
-                        balanced(&patterns[middle..], node),
-                    ])
+                    let middle = length / 2;
+                    let left = balanced(patterns, middle, node);
+                    let right = balanced(patterns, length - middle, node);
+                    node(vec![left, right])
                 }
-                balanced(&patterns, &node)
+                let length = patterns.len();
+                balanced(&mut patterns.into_iter(), length, &node)
             }
         }),
     }
@@ -1192,5 +1199,56 @@ mod tests {
         definition
             .verify_standalone_pattern(&matching_equality)
             .unwrap();
+    }
+
+    /// The balanced shape as it was built from a borrowed slice, cloning each operand: the
+    /// oracle for the owned build in `connective`.
+    fn balanced_from_slice(
+        sort: &kore::Sort,
+        patterns: &[kore::Pattern],
+        and: bool,
+    ) -> kore::Pattern {
+        if let [pattern] = patterns {
+            return pattern.clone();
+        }
+        let middle = patterns.len() / 2;
+        let arguments = vec![
+            balanced_from_slice(sort, &patterns[..middle], and),
+            balanced_from_slice(sort, &patterns[middle..], and),
+        ];
+        if and {
+            kore::Pattern::And {
+                sort: sort.clone(),
+                arguments,
+            }
+        } else {
+            kore::Pattern::Or {
+                sort: sort.clone(),
+                arguments,
+            }
+        }
+    }
+
+    proptest::proptest! {
+        /// `conjunction`/`disjunction` with `ConjunctionShape::Balanced` equal the tree the
+        /// slice-based build returns (same split point `length / 2` at every node, operands in
+        /// order), for 2 to 70 distinct operands, and return the single operand for one.
+        #[test]
+        fn balanced_owned_build_equals_slice_build(length in 1usize..=70, and in proptest::bool::ANY) {
+            let result_sort = sort(&Sort::simple("SortS"));
+            let operands = (0..length)
+                .map(|index| kore::Pattern::DomainValue {
+                    sort: result_sort.clone(),
+                    value: index.to_string().into(),
+                })
+                .collect::<Vec<_>>();
+            let expected = balanced_from_slice(&result_sort, &operands, and);
+            let actual = if and {
+                conjunction(&result_sort, operands, ConjunctionShape::Balanced)
+            } else {
+                disjunction(&result_sort, operands, ConjunctionShape::Balanced)
+            };
+            proptest::prop_assert_eq!(actual, Some(expected));
+        }
     }
 }
