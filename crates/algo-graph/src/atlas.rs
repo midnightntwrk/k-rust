@@ -37,7 +37,7 @@ pub const AMDAHL_RULE: &str = "the ceiling of an algorithm is 1 / (1 - share): t
 pub const CUT_RULE: &str = "a workload lists its algorithms by decreasing share until the listed shares reach 90 % of span time, then every further algorithm whose share exceeds 1 %; the others are counted in the workload table. A workload is its receipts without a parameter, or, for a ladder, its receipts at the largest parameter";
 
 /// How a growth exponent is fitted along a ladder.
-pub const SLOPE_RULE: &str = "for each ladder, each algorithm whose median span count is positive at two or more parameter values is fitted by ordinary least squares of ln(value) on ln(param), over the parameter values where the value's median over repeats is positive, for its span count, its self seconds, and each counter its card declares, measured inside its spans including nested spans (trace_total). The slope is the growth exponent, points is the number of parameter values fitted, R2 is 1 - residual / total sum of squares (absent when every fitted value is equal), and a fit from fewer than three points is marked *. The card's cost bounds and variable are printed beside the fit, not parsed";
+pub const SLOPE_RULE: &str = "for each ladder, each algorithm whose median span count is positive at two or more parameter values is fitted by ordinary least squares of ln(value) on ln(param), over the parameter values where the value's median over repeats is positive, for its span count, its self seconds, and each counter its card declares, measured inside its spans including nested spans (trace_total). The slope is the growth exponent, points is the number of parameter values fitted, R2 is 1 - residual / total sum of squares (absent when every fitted value is equal), and a fit from fewer than three points is marked *. The card's cost bounds and variable are printed beside the fit, not parsed. In the markdown, the per-call slope is the self-seconds slope minus the span-count slope, the growth of one invocation's own time; rows are sorted by self-seconds slope, and an algorithm whose span-count, self-seconds and counter slopes are all below 0.2 in magnitude (or absent) is listed on one Flat line instead of a row";
 
 /// How a workload's observed nesting outline is built.
 pub const NESTING_RULE: &str = "each workload's outline is the nesting observed on its run, not a declared relation: a child under a parent means the child's span opened while the parent's span was open on the same thread (the join's observed_nest edges), and algorithms without spans do not appear. With repeats, the edges are the first repeat's, and the outline says whether every repeat has the same edges. Roots are algorithms with a positive span count and no observed parent other than themselves; algorithms reachable only through a cycle are added as roots. Children are ordered by decreasing median total-seconds share of span time; a line reads `id - nested N x - total X % - self Y %`, with the span count in place of the nest count for a root. Nesting of an algorithm inside itself is a `(recursive, N x)` note, not a child. An algorithm with several parents is shown in full under the parent with the largest nest count and as `= id` under the others; `^ id (cycle)` marks a child that is already an ancestor on the path. Children and roots below 0.5 % total share are folded into a `+k more (Z %)` line with their summed total share";
@@ -312,6 +312,9 @@ pub struct MatrixRow {
     pub workloads_over_one_percent: usize,
 }
 
+/// A ladder row whose every slope is below this in magnitude does not grow with the parameter.
+pub const FLAT_SLOPE: f64 = 0.2;
+
 /// Growth fits along one ladder.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Ladder {
@@ -338,6 +341,26 @@ pub struct LadderRow {
     pub cost: Vec<Cost>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variable: Option<String>,
+}
+
+impl LadderRow {
+    /// Whether no fitted quantity grows or shrinks with the parameter by `FLAT_SLOPE` or more.
+    pub fn is_flat(&self) -> bool {
+        [self.span_count.as_ref(), self.self_seconds.as_ref()]
+            .into_iter()
+            .chain(self.counters.iter().map(|counter| counter.fit.as_ref()))
+            .all(|fit| fit.is_none_or(|fit| fit.slope.abs() < FLAT_SLOPE))
+    }
+
+    /// The growth exponent of one invocation's self time: self-seconds slope minus span-count
+    /// slope.
+    pub fn per_call_slope(&self) -> Option<f64> {
+        Some(self.self_seconds.as_ref()?.slope - self.span_count.as_ref()?.slope)
+    }
+}
+
+fn slope_of(fit: Option<&Fit>) -> f64 {
+    fit.map_or(f64::NEG_INFINITY, |fit| fit.slope)
 }
 
 /// The fit of one declared counter.
@@ -1168,19 +1191,28 @@ impl Atlas {
                     .collect::<Vec<_>>()
                     .join(", ")
             );
+            let (flat, mut growing): (Vec<&LadderRow>, Vec<&LadderRow>) =
+                ladder.rows.iter().partition(|row| row.is_flat());
+            growing.sort_by(|left, right| {
+                slope_of(right.self_seconds.as_ref())
+                    .total_cmp(&slope_of(left.self_seconds.as_ref()))
+                    .then_with(|| left.id.cmp(&right.id))
+            });
             let _ = writeln!(out);
             let _ = writeln!(
                 out,
-                "| algorithm | spans slope (points, R2) | self s slope | declared counter slopes | card bounds | variable |"
+                "| algorithm | spans slope (points, R2) | self s slope | per-call slope | declared counter slopes | card bounds | variable |"
             );
-            let _ = writeln!(out, "|---|---|---|---|---|---|");
-            for row in &ladder.rows {
+            let _ = writeln!(out, "|---|---|---|--:|---|---|---|");
+            for row in growing {
                 let _ = writeln!(
                     out,
-                    "| {} | {} | {} | {} | {} | {} |",
+                    "| {} | {} | {} | {} | {} | {} | {} |",
                     row.id,
                     fit_text(row.span_count.as_ref()),
                     fit_text(row.self_seconds.as_ref()),
+                    row.per_call_slope()
+                        .map_or_else(|| "-".to_owned(), |slope| format!("{slope:.2}")),
                     if row.counters.is_empty() {
                         "-".to_owned()
                     } else {
@@ -1200,6 +1232,18 @@ impl Atlas {
                             .join("; ")
                     ),
                     cell(row.variable.as_deref().unwrap_or("-")),
+                );
+            }
+            if !flat.is_empty() {
+                let _ = writeln!(out);
+                let _ = writeln!(
+                    out,
+                    "Flat ({} algorithms, every slope below {FLAT_SLOPE} in magnitude): {}",
+                    flat.len(),
+                    flat.iter()
+                        .map(|row| row.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
             }
         }
@@ -1703,6 +1747,36 @@ mod tests {
             "one parameter value is not a ladder row"
         );
         assert!(atlas.markdown().contains("(2*, "));
+    }
+
+    #[test]
+    fn ladder_markdown_folds_flat_rows_and_prints_per_call_growth() {
+        let at = |n: f64| {
+            let rows = vec![
+                run("a.flat", 5, 0.01, 0.01, &[]),
+                run("a.linear", n as u64, n / 1000.0, n / 1000.0, &[]),
+                // one call per step whose own time grows with n: per-call slope 1
+                run("a.per_call", n as u64, n * n / 1e6, n * n / 1e6, &[]),
+            ];
+            receipt("sum", Some(n), 1, join("sum", "c0ffee", rows, &[]), n)
+        };
+        let receipts = vec![at(10.0), at(100.0), at(1000.0)];
+        let atlas = atlas(&index(&receipts), &receipts, "regenerate");
+        let ladder = &atlas.ladders[0];
+        let row = |id: &str| ladder.rows.iter().find(|row| row.id == id).expect(id);
+        assert!(row("a.flat").is_flat());
+        assert!(!row("a.linear").is_flat());
+        assert!((row("a.linear").per_call_slope().expect("slope")).abs() < 1e-9);
+        assert!((row("a.per_call").per_call_slope().expect("slope") - 1.0).abs() < 1e-9);
+        let markdown = atlas.markdown();
+        let markdown = &markdown[markdown.find("## Ladder").expect("ladder section")..];
+        assert!(
+            markdown.contains("Flat (1 algorithms, every slope below 0.2 in magnitude): a.flat")
+        );
+        assert!(!markdown.contains("| a.flat |"));
+        let per_call = markdown.find("| a.per_call |").expect("per-call row");
+        let linear = markdown.find("| a.linear |").expect("linear row");
+        assert!(per_call < linear, "rows sort by self-seconds slope");
     }
 
     #[test]
