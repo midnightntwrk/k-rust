@@ -2504,10 +2504,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         deliver_console_transcript(transcript)?;
     }
     match options.output {
-        KrunOutputArg::Kore => println!(
-            "{}",
-            KorePrinter::pretty(100).print_pattern(&output.pattern)
-        ),
+        KrunOutputArg::Kore => write_kore_result(&output.pattern, None)?,
         KrunOutputArg::Captured => {
             io::stdout().lock().write_all(
                 output
@@ -2595,12 +2592,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             execution_input: None,
         },
     )?;
-    let pattern = KorePrinter::pretty(100).print_pattern(&output.pattern);
-    if let Some(path) = options.output {
-        fs::write(path, pattern)?;
-    } else {
-        println!("{pattern}");
-    }
+    write_kore_result(&output.pattern, options.output.as_deref())?;
     Ok(ExitCode::from(output.exit_code))
 }
 
@@ -2647,13 +2639,7 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
     )?;
     let syntax = load_kore_syntax(&options.pattern, "simplification")?;
     let output = backend.simplify_kore(None, &syntax)?;
-    let output = KorePrinter::pretty(100).print_pattern(&output);
-    if let Some(path) = options.output {
-        fs::write(path, output)?;
-    } else {
-        println!("{output}");
-    }
-    Ok(())
+    write_kore_result(&output, options.output.as_deref())
 }
 
 fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
@@ -2813,13 +2799,154 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
         &BTreeSet::new(),
         &function_symbols,
     );
-    let output = KorePrinter::pretty(100).print_pattern(&output);
-    if let Some(path) = options.output {
-        fs::write(path, output)?;
-    } else {
-        println!("{output}");
+    write_kore_result(&output, options.output.as_deref())
+}
+
+/// Write `pattern` as `KorePrinter::pretty(100).print_pattern` prints it, rendering as it goes
+/// so that the text is never held whole: to the file `path` as the text alone, or to standard
+/// output followed by a newline.
+fn write_kore_result(pattern: &KorePattern, path: Option<&Path>) -> Result<(), Box<dyn Error>> {
+    const BUFFER_BYTES: usize = 1 << 20;
+    let printer = KorePrinter::pretty(100);
+    match path {
+        Some(path) => {
+            let mut file = io::BufWriter::with_capacity(BUFFER_BYTES, fs::File::create(path)?);
+            printer.write_pattern(pattern, &mut file)?;
+            file.into_inner().map_err(io::IntoInnerError::into_error)?;
+        }
+        None => {
+            let mut stdout = io::BufWriter::with_capacity(BUFFER_BYTES, io::stdout().lock());
+            printer.write_pattern(pattern, &mut stdout)?;
+            stdout.write_all(b"\n")?;
+            stdout.flush()?;
+        }
     }
     Ok(())
+}
+
+/// A writer that writes each line of the text written through it to `inner` preceded by
+/// `prefix` and followed by a newline, as `for line in text.lines() { writeln!(inner,
+/// "{prefix}{line}") }` does once the text is complete, without holding the text.
+///
+/// `str::lines` splits at `\n` and at `\r\n`, drops those terminators, and yields no empty line
+/// after a final terminator. So a `\r` is held back until the next byte shows whether it ends
+/// the line, a line's prefix is written with its first byte (an empty line's with its `\n`),
+/// and `finish` terminates a last line that has no `\n`, keeping a `\r` that no `\n` followed.
+struct PrefixedLines<W: Write> {
+    inner: W,
+    prefix: &'static str,
+    line_open: bool,
+    pending_carriage_return: bool,
+}
+
+impl<W: Write> PrefixedLines<W> {
+    fn new(inner: W, prefix: &'static str) -> Self {
+        Self {
+            inner,
+            prefix,
+            line_open: false,
+            pending_carriage_return: false,
+        }
+    }
+
+    /// Write the prefix if the current line has not started, and a held `\r` that a byte other
+    /// than `\n` follows.
+    fn continue_line(&mut self) -> io::Result<()> {
+        if !self.line_open {
+            self.inner.write_all(self.prefix.as_bytes())?;
+            self.line_open = true;
+        }
+        if self.pending_carriage_return {
+            self.inner.write_all(b"\r")?;
+            self.pending_carriage_return = false;
+        }
+        Ok(())
+    }
+
+    fn finish(mut self) -> io::Result<W> {
+        if self.line_open {
+            if self.pending_carriage_return {
+                self.inner.write_all(b"\r")?;
+            }
+            self.inner.write_all(b"\n")?;
+        }
+        Ok(self.inner)
+    }
+}
+
+impl<W: Write> Write for PrefixedLines<W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let mut rest = buffer;
+        // Invariant: the bytes of `buffer` before `rest` have been written, or held as the one
+        // pending `\r`, as the line-by-line form writes them.
+        while !rest.is_empty() {
+            let end = rest
+                .iter()
+                .position(|byte| matches!(byte, b'\n' | b'\r'))
+                .unwrap_or(rest.len());
+            if end > 0 {
+                self.continue_line()?;
+                self.inner.write_all(&rest[..end])?;
+            }
+            match rest.get(end) {
+                Some(b'\n') => {
+                    if !self.line_open {
+                        self.inner.write_all(self.prefix.as_bytes())?;
+                    }
+                    self.pending_carriage_return = false;
+                    self.inner.write_all(b"\n")?;
+                    self.line_open = false;
+                }
+                Some(_) => {
+                    self.continue_line()?;
+                    self.pending_carriage_return = true;
+                }
+                None => break,
+            }
+            rest = &rest[end + 1..];
+        }
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+#[cfg(test)]
+mod prefixed_lines_tests {
+    use std::io::Write;
+
+    use proptest::prelude::*;
+
+    use super::PrefixedLines;
+
+    proptest! {
+        /// Writing a text through `PrefixedLines` in arbitrary pieces gives the bytes that
+        /// `writeln!` over `str::lines` gives on the whole text.
+        #[test]
+        fn prefixed_lines_match_str_lines(
+            text in "[a\r\n ]{0,40}",
+            cuts in prop::collection::vec(0usize..41, 0..6),
+        ) {
+            let mut expected = Vec::new();
+            for line in text.lines() {
+                writeln!(expected, "    {line}").unwrap();
+            }
+            let mut cuts = cuts
+                .into_iter()
+                .map(|cut| cut.min(text.len()))
+                .collect::<Vec<_>>();
+            cuts.push(0);
+            cuts.push(text.len());
+            cuts.sort_unstable();
+            let mut lines = PrefixedLines::new(Vec::new(), "    ");
+            for piece in cuts.windows(2) {
+                lines.write_all(&text.as_bytes()[piece[0]..piece[1]]).unwrap();
+            }
+            prop_assert_eq!(lines.finish().unwrap(), expected);
+        }
+    }
 }
 
 fn deliver_console_transcript(transcript: &[DescriptorTranscriptEntry]) -> io::Result<()> {
@@ -3164,10 +3291,12 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     )?;
                 }
                 let pattern = externalize::constrained_pattern(&leaf.pattern);
-                let rendered = KorePrinter::pretty(100).print_pattern(&pattern);
-                for line in rendered.lines() {
-                    writeln!(output, "    {line}")?;
-                }
+                let mut lines = PrefixedLines::new(io::BufWriter::new(&mut output), "    ");
+                KorePrinter::pretty(100).write_pattern(&pattern, &mut lines)?;
+                lines
+                    .finish()?
+                    .into_inner()
+                    .map_err(io::IntoInnerError::into_error)?;
             }
         }
     }

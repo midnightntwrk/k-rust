@@ -267,9 +267,9 @@ algorithms! {
     OuterModulesSelect => "definition.outer.select_modules",
     /// Construction of KORE pretty-print documents.
     KorePrinterBuild => "kore.printer.build",
-    /// Precomputation of KORE document flat widths.
-    KorePrinterFlatWidths => "kore.printer.flat_widths",
-    /// Width-aware rendering of KORE documents.
+    /// Bounded look-ahead for the flat layout of a KORE document group.
+    KorePrinterFits => "kore.printer.fits",
+    /// Width-aware streaming rendering of KORE documents.
     KorePrinterRender => "kore.printer.render",
     /// Explicit-stack traversal and rebuilding of KORE patterns.
     KorePatternWalk => "kore.pattern.walk",
