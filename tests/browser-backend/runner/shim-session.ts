@@ -1,8 +1,8 @@
-// Compile and run steps under the vendored, IR-12-patched browser_wasi_shim,
-// reusing the IR-15 worker's runCommand (byte-exact capture, trap and memory
+// Compile and run steps under the vendored, path_readlink-patched browser_wasi_shim,
+// reusing the compiler worker's runCommand (byte-exact capture, trap and memory
 // reporting) and VFS helpers. Used inside the browser executor worker.
 //
-// rustc.wasm VFS (one preopen per layer, as IR-15):
+// rustc.wasm VFS (one preopen per layer, as in the compiler worker):
 //   /sysroot  immutable  sysroot bundle (RIWB1), at the pack's sysroot mount
 //   /pack     immutable  every pack artifact at its pack-relative path
 //   /case     per step   the case sources

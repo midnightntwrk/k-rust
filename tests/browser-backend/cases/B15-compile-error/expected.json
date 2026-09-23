@@ -278,7 +278,7 @@
    "gap": {
     "class": "backend",
     "summary": "at 195111dff rustc.wasm prints the diagnostics, then traps (RuntimeError: unreachable) with no `aborting due to` summary and no exit status",
-    "root_cause": "IR-26 (panic=abort host: FatalError::raise aborts before finish_diagnostics); fixed by 0ce51e933",
+    "root_cause": "panic=abort host: FatalError::raise aborts before finish_diagnostics; fixed by 0ce51e933",
     "fixed_in": "0ce51e9339ee538c16580fea01ca98dd89f6d7a0"
    }
   },

@@ -34,7 +34,7 @@ fn main() {
     sorted.sort();
     sorted.dedup_by_key(|entry| entry.0);
     println!("distinct_keys={}", sorted.len());
-    // The TypeId values themselves (IR-03: identical for the twin and rustc.wasm of one fork commit).
+    // The TypeId values themselves (identical for the twin and rustc.wasm of one fork commit).
     println!("type_id square={:?}", TypeId::of::<Square>());
     println!("type_id generic_u8={:?}", TypeId::of::<Generic<u8>>());
     println!("type_id local={:?}", TypeId::of::<Local>());

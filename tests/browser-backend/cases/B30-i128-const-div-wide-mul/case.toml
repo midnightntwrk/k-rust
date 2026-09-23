@@ -1,7 +1,7 @@
 schema = 1
 id = "B30-i128-const-div-wide-mul"
 behavior = "i128/u128 division and remainder by constants; checked, overflowing, and saturating 128-bit multiplies; the high half of a u64 x u64 product."
-basis = "IR-22 reachability check for clif2wasm's unimplemented i128 division immediates and i128 smulhi/umulhi (IR-27 [[open]] item)"
+basis = "reachability check for clif2wasm's unimplemented i128 division immediates and i128 smulhi/umulhi, left open by the eb8eda040 fixes"
 expected_status = "pass"
 
 [[crate]]

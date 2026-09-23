@@ -1,4 +1,4 @@
-// Static tables of function pointers in a library crate (the BL-003 factory
+// Static tables of function pointers in a library crate (the collector's factory
 // and render pointers; krs HostRegistration::new).
 use std::fmt::Debug;
 

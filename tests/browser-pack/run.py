@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Top-level browser-lesson regression runner (IR-21): every browser gate, in order, against one pack.
+"""Top-level browser-lesson regression runner: every browser gate, in order, against one pack.
 
-No CI job builds or tests the browser pack. The fork build (IR-01 recipe: LLVM built from source, about
+No CI job builds or tests the browser pack. The fork build (LLVM built from source, about
 19 min at -j 8, 17 GB peak memory, 17 GB disk) and the pack build (browser/pack/build.sh) run by hand on a
 machine with those resources, and this runner is the regression gate over their output.
 
@@ -21,22 +21,23 @@ the native twin are skipped):
 
 Steps (local mode, in order; --steps selects a subset, dependencies are the caller's concern):
   expectations        fail first, with the file to edit, when the pack's fork revision has no recorded
-                      expectation: IR-15 scenarios with expectByFork (browser/worker/test/scenarios.ts) and
-                      every IR-16 case (tests/browser-backend/cases/*/expected.json; --record-backend records them)
-  modules             krs-lesson-policy and krs-expand-wasm, each in its own cargo invocation (IR-15 finding 3)
+                      expectation: worker scenarios with expectByFork (browser/worker/test/scenarios.ts) and
+                      every backend-suite case (tests/browser-backend/cases/*/expected.json; --record-backend records them)
+  modules             krs-lesson-policy and krs-expand-wasm, each in its own cargo invocation (a joint build
+                      unifies the policy crate's default `abi` feature into the expander)
   stage               browser/worker/scripts/stage-assets.ts over --pack and the two modules
-  oracle              browser/worker/test/parity/regenerate-oracle.sh (IR-17 native oracle for this crates/ tree)
+  oracle              browser/worker/test/parity/regenerate-oracle.sh (tour-minimal native oracle for this crates/ tree)
   licenses            browser/release/release.py licenses (fails closed; needs --fork-source and --fork-build)
   release             browser/release/release.py assemble into OUT/publish (content-addressed layout)
   fetch               serve OUT/publish under hosting.toml, fetch the release by its SHA-256 with header checks,
                       and require the fetched directory to equal the staged one; later steps use the fetched copy
   check               tests/browser-pack/verify.py --check (pack, pack.json, licenses, oracle, release) and --falsify
-  pipeline            IR-15 scenarios through the pipeline stage functions under Bun (test/run-pipeline.ts)
-  tour-minimal        IR-17 bundle parity, headless Chromium and Firefox
-  native-diagnostics  IR-18 native baseline and twin controls (needs the twin of the pack's fork)
-  diagnostics         IR-18 diagnostic parity, headless Chromium and Firefox
-  backend             IR-16 backend suite: --host all --references (twin; --record-backend adds --record for a new fork commit)
-  cache               IR-21 cache and corruption tests, headless Chromium and Firefox
+  pipeline            worker scenarios through the pipeline stage functions under Bun (test/run-pipeline.ts)
+  tour-minimal        tour-minimal bundle parity, headless Chromium and Firefox
+  native-diagnostics  diagnostic-parity native baseline and twin controls (needs the twin of the pack's fork)
+  diagnostics         diagnostic parity, headless Chromium and Firefox
+  backend             backend compatibility suite: --host all --references (twin; --record-backend adds --record for a new fork commit)
+  cache               release cache and corruption tests, headless Chromium and Firefox
   rebuild             (only with --rebuild) tests/browser-pack/verify.py --rebuild: two clean pack builds compared byte for byte
 Hosted mode runs: fetch, expectations, oracle, check, pipeline, tour-minimal, backend (hosts against expected.json, no references), cache.
 
@@ -190,16 +191,16 @@ class Runner:
         fork = self.fork_revision()
         script = ("import { scenariosMissingFork } from './test/scenarios.ts';"
                   f"const missing = scenariosMissingFork('{fork}');"
-                  "if (missing.length) { console.error(`IR-15 scenarios without an expectation for fork " + fork + " (add expectByFork entries in browser/worker/test/scenarios.ts): ${missing.join(', ')}`); process.exit(1); }"
-                  "console.log('IR-15 scenarios: every fork-dependent scenario has an expectation for " + fork + "');")
+                  "if (missing.length) { console.error(`worker scenarios without an expectation for fork " + fork + " (add expectByFork entries in browser/worker/test/scenarios.ts): ${missing.join(', ')}`); process.exit(1); }"
+                  "console.log('worker scenarios: every fork-dependent scenario has an expectation for " + fork + "');")
         ok = self.step("expectations-ir15", ["bun", "-e", script], cwd=WORKER)
         missing = sorted(p.parent.name for p in (ROOT / "tests/browser-backend/cases").glob("*/expected.json")
                          if fork not in json.loads(p.read_text()).get("revisions", {}))
         if missing and not self.args.record_backend:
-            message = (f"IR-16 cases without an expected.json entry for fork {fork}: {', '.join(missing)}; "
+            message = (f"backend-suite cases without an expected.json entry for fork {fork}: {', '.join(missing)}; "
                        "record them with --record-backend (tests/browser-backend/verify.py --record) and review the diff")
             return self.step("expectations-ir16", ["sh", "-c", f"echo '{message}' >&2; exit 1"]) and False
-        return self.step("expectations-ir16", ["sh", "-c", f"echo 'IR-16: {'recording ' + str(len(missing)) + ' cases' if missing else 'every case has an entry'} for fork {fork}'"]) and ok
+        return self.step("expectations-ir16", ["sh", "-c", f"echo 'backend suite: {'recording ' + str(len(missing)) + ' cases' if missing else 'every case has an entry'} for fork {fork}'"]) and ok
 
     def pipeline(self) -> bool:
         return self.step("pipeline", ["bun", "test/run-pipeline.ts", "--assets", self.assets, "--out", self.out / "ir15-pipeline-bun.json"], cwd=WORKER)
@@ -254,7 +255,7 @@ class Runner:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--pack", type=Path, help="IR-14 pack root (local mode)")
+    parser.add_argument("--pack", type=Path, help="dependency pack root (local mode)")
     parser.add_argument("--fork-build", type=Path, help="fork build root of the pack's fork commit (twin, rustc.wasm, COPYRIGHT files)")
     parser.add_argument("--fork-source", type=Path, help="fork source checkout at the pack's fork commit (licenses, wasi-sdk wasm-ld)")
     parser.add_argument("--base-url", help="hosted mode: publication base URL")
@@ -262,7 +263,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=Path("/var/tmp/krs-ir21-run"))
     parser.add_argument("--steps", default="", help="comma-separated subset")
     parser.add_argument("--rebuild", action="store_true", help="also run the heavy two-build reproducibility gate")
-    parser.add_argument("--record-backend", action="store_true", help="IR-16 --record: new fork commit; review the expected.json diff by hand")
+    parser.add_argument("--record-backend", action="store_true", help="backend suite --record: new fork commit; review the expected.json diff by hand")
     parser.add_argument("--keep-going", action="store_true")
     parser.add_argument("--serve-port", type=int, default=8741)
     args = parser.parse_args()
@@ -310,7 +311,7 @@ def main() -> int:
     header["wall_s"] = round(time.monotonic() - started, 1)
     header["pass"] = not failed and bool(runner.results)
     header["failed"] = failed
-    lines = ["# IR-21 browser-lesson regression run (tests/browser-pack/run.py)."]
+    lines = ["# browser-lesson regression run (tests/browser-pack/run.py)."]
     for k, v in header.items():
         if v is not None:
             lines.append(f"{k} = {json.dumps(v)}")

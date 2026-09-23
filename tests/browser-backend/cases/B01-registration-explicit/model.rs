@@ -1,5 +1,5 @@
-// Ported from the BL-003 spike's collector model: the same Registration
-// record, without the `inventory::collect!` collection (IR-07 explicit registration).
+// Ported from the collector control's model: the same Registration record,
+// without the `inventory::collect!` collection (explicit registration).
 use std::any::{Any, TypeId};
 
 pub struct Registration {

@@ -1,7 +1,7 @@
-// itoa 1.0.18 formatting of integer extremes (the BL-003 itoa failure was
+// itoa 1.0.18 formatting of integer extremes (an earlier itoa failure was
 // `ireduce i16 -> i8` in itoa's digit loop) and serde_json serialization of a
 // struct with those fields. The Serialize impl is written by hand: serde_derive
-// is metadata-only in the pack (-Zproc-macro-metadata-only, IR-04), so a
+// is metadata-only in the pack (-Zproc-macro-metadata-only), so a
 // #[derive] in browser-compiled code cannot expand.
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::hint::black_box;

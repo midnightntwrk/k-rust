@@ -1,5 +1,5 @@
-// Every ireduce pair and the inverse extensions (clif2wasm/src/ops.rs; BL-003
-// backend-control/ireduce-i16-i8.rs). Values pass through black_box and
+// Every ireduce pair and the inverse extensions (clif2wasm/src/ops.rs; the
+// i16 -> i8 ireduce backend control). Values pass through black_box and
 // non-inlined functions so that the narrowing is not constant-folded.
 use std::hint::black_box;
 
@@ -104,7 +104,7 @@ fn main() {
         let value = black_box(value);
         println!("i64 ext {value}: i128={} u64->u128={}", i64_i128(value), u64_u128(value as u64));
     }
-    // The BL-003 control: narrow(0x1234) = 52, narrow(0xffff) = 255.
+    // The ireduce control: narrow(0x1234) = 52, narrow(0xffff) = 255.
     println!("bl003 narrow(0x1234)={} narrow(0xffff)={}", u16_u8(black_box(0x1234)), u16_u8(black_box(0xffff)));
     // Wrapping arithmetic in narrow types (i8/i16 results of add, sub, mul, neg, unsigned shr).
     let a = black_box(100_i8);

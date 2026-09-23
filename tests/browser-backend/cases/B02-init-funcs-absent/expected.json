@@ -234,9 +234,8 @@
    },
    "gap": {
     "class": "backend",
-    "ticket": "IR-22",
     "summary": "clif2wasm emits no WASM_INIT_FUNCS for .init_array statics; riwl's __wasm_call_ctors therefore calls nothing from browser-compiled code",
-    "root_cause": "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (results/BL-003/backend-limitations.md; IR-03 M0/M2 init_funcs_in_object = false)"
+    "root_cause": "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (the registration crate's object has no init functions)"
    }
   },
   "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
@@ -471,9 +470,8 @@
    },
    "gap": {
     "class": "backend",
-    "ticket": "IR-22",
     "summary": "clif2wasm emits no WASM_INIT_FUNCS for .init_array statics; riwl's __wasm_call_ctors therefore calls nothing from browser-compiled code",
-    "root_cause": "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (results/BL-003/backend-limitations.md; IR-03 M0/M2 init_funcs_in_object = false)"
+    "root_cause": "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (the registration crate's object has no init functions)"
    }
   },
   "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826": {
@@ -871,9 +869,8 @@
    },
    "gap": {
     "class": "backend",
-    "ticket": "IR-22",
     "summary": "clif2wasm emits no WASM_INIT_FUNCS for .init_array statics; riwl's __wasm_call_ctors therefore calls nothing from browser-compiled code",
-    "root_cause": "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (results/BL-003/backend-limitations.md; IR-03 M0/M2 init_funcs_in_object = false)"
+    "root_cause": "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (the registration crate's object has no init functions)"
    }
   }
  }

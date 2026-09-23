@@ -1,7 +1,7 @@
 // i128/u128 division and remainder by constants, and 128-bit multiplies whose high
 // half matters. cg_clif lowers these to __divti3 & co. and __rust_{u,i}128_mulo, so
 // clif2wasm's unimplemented i128 division immediates and i128 smulhi/umulhi are not
-// reached (IR-22); this case keeps that observation checked.
+// reached (checked on 8bf3c69b3); this case keeps that observation checked.
 use std::hint::black_box;
 
 fn main() {

@@ -2,7 +2,7 @@
 // (WASI Preview 1), the independent WASI implementation of the suite, with
 // every guest directory materialized in a per-step scratch directory.
 //
-// rustc.wasm preopens: /sysroot (the unpacked bundle), /pack (the IR-14 pack
+// rustc.wasm preopens: /sysroot (the unpacked bundle), /pack (the dependency pack
 // root, read only by convention), /case, /out, /tmp. A case run sees one
 // preopen "/" holding exactly the run's VFS files.
 

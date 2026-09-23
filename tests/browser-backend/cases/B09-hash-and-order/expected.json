@@ -158,7 +158,7 @@
    },
    "gap": {
     "class": "backend",
-    "summary": "compile failure on forks before eb8eda040: the case uses constructs of IR-16 gaps B17/B18",
+    "summary": "compile failure on forks before eb8eda040: the case uses constructs of backend gaps B17/B18",
     "root_cause": "see the case.toml files of B17/B18",
     "fixed_in": "eb8eda0400b8015a0751e48597eb0969dbbd7b36"
    }
@@ -319,7 +319,7 @@
    },
    "gap": {
     "class": "backend",
-    "summary": "compile failure on forks before eb8eda040: the case uses constructs of IR-16 gaps B17/B18",
+    "summary": "compile failure on forks before eb8eda040: the case uses constructs of backend gaps B17/B18",
     "root_cause": "see the case.toml files of B17/B18",
     "fixed_in": "eb8eda0400b8015a0751e48597eb0969dbbd7b36"
    }

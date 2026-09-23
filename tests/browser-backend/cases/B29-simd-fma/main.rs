@@ -1,5 +1,5 @@
 // std::simd mul_add (simd_fma): each lane is a fused multiply-add. On wasm32 cg_clif
-// calls fma/fmaf per lane (IR-22); before, clif2wasm failed on the fma instruction.
+// calls fma/fmaf per lane (since 8bf3c69b3); before, clif2wasm failed on the fma instruction.
 #![feature(portable_simd)]
 use std::hint::black_box;
 use std::simd::{f32x4, f64x2, StdFloat};

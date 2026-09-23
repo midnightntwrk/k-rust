@@ -1,6 +1,6 @@
 // Shapes shared by the suite controller, the executors, verify.py, and the page.
 //
-// verify.py renders every cases/<id>/case.toml and the IR-14 pack manifest into
+// verify.py renders every cases/<id>/case.toml and the dependency-pack manifest into
 // one suite.json (SuiteFile); every host runs the same suite.json and returns a
 // HostRecord, which verify.py compares with each case's expected.json.
 

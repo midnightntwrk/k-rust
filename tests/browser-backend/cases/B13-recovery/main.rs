@@ -1,4 +1,4 @@
-// Recovery control (BL-003 COLLECTOR_MODE=spin; BL-009 cancel_recovery): the
+// Recovery control (collector COLLECTOR_MODE=spin; recovery after cancel): the
 // suite runs this case after every other case in the same host session. Its
 // `spin` run is cancelled by the host; the case is then recompiled and rerun.
 use std::collections::BTreeMap;

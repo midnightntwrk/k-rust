@@ -1,9 +1,9 @@
 schema = 1
 id = "B17-smulhi-i64"
 behavior = "i64 multiplication with the debug overflow check (opt-level 0)."
-basis = "found by IR-16 (B04 double(), B09 index * 7919 at opt-level 0)"
+basis = "found by the backend suite (B04 double(), B09 index * 7919 at opt-level 0)"
 gap = { class = "backend", summary = "clif2wasm: `lowering smulhi.i64: unimplemented binary opcode smulhi on i64` at opt-level 0; every checked i64 multiply in browser-compiled code fails to compile", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff Binary arm (lines 222-271): no Smulhi/Umulhi entry for I64 (wasm has no mulhi; needs a 32-bit partial-product expansion like i128_lower.rs umulhi64)", fixed_in = "eb8eda0400b8015a0751e48597eb0969dbbd7b36" }
-# Fixed by IR-27 (fork eb8eda040, commit eb37865 of krs/ir-27-clif2wasm-gaps): passes from that
+# Fixed in fork eb8eda040 (commit eb37865 of krs/ir-27-clif2wasm-gaps): passes from that
 # revision on and is the recorded known gap of 195111dff (R-k) and 0ce51e933 (R-26).
 expected_status = "pass"
 fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "known-gap", "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" = "known-gap" }

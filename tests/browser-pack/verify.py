@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser pack reproducibility and release gate (IR-21).
+"""Browser pack reproducibility and release gate.
 
   PYTHONDONTWRITEBYTECODE=1 python3 tests/browser-pack/verify.py --check --staged DIR
       [--publish DIR] [--oracle ORACLE_TOML] [--no-checkout] [--out FILE]
@@ -10,7 +10,7 @@
 --check (light; needs no fork build) verifies a staged asset directory
 (browser/worker/scripts/stage-assets.ts output, or `release.py fetch` output):
   * pack/: every [[artifact]] byte count and SHA-256, no extra file, pack_id (browser/pack/manifest.py verify);
-  * pack.json: pack_id, every PackAsset's bytes and SHA-256, the recomputed IR-14 pack_id, and one crates/
+  * pack.json: pack_id, every PackAsset's bytes and SHA-256, the recomputed pack_id, and one crates/
     tree for pack, modules, and (unless --no-checkout) the checkout's HEAD:crates;
   * licenses/licenses.toml: covers exactly the release assets with their current hashes, every component has an
     SPDX expression, every notice file exists with its hash and no notice file is unreferenced, and status
@@ -221,7 +221,7 @@ def check_publish(publish: Path, staged: Path, oracle: dict[str, Any] | None, re
     for aid, a in rel_ids.items():
         for field in ("id", "role", "url", "required_media_type", "decoded_bytes", "decoded_sha256", "cache_policy"):
             if field not in a:
-                problems.append(f"{aid}: missing required field {field} (BL-009 required_asset_fields)")
+                problems.append(f"{aid}: missing required field {field}")
         blob = publish / a["url"]
         if not a["url"].startswith(f"blobs/{a['decoded_sha256']}"):
             problems.append(f"{aid}: url {a['url']} does not carry its sha256")

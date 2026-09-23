@@ -5,7 +5,7 @@
 // Chromium: WebDriver through a ChromeDriver this script starts (--headless=new).
 // Firefox: WebDriver BiDi on /usr/lib/firefox/firefox --headless --new-instance.
 // Both use a fresh /var/tmp profile and one page session for the whole suite, as
-// the IR-15 drivers do (browser/worker/test/browser/). No window is opened.
+// the worker gate drivers do (browser/worker/test/browser/). No window is opened.
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";

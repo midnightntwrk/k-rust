@@ -3,7 +3,7 @@
 //   node runner/node.ts --suite FILE --out FILE --compiler fork|twin|stable
 //        [--only ID,ID] [--scratch DIR] [--twin RUSTC] [--wasm-ld PATH] [--stable-deps DIR]
 //
-// fork:   rustc.wasm from the IR-14 pack under node:wasi, in a worker thread
+// fork:   rustc.wasm from the dependency pack under node:wasi, in a worker thread
 // twin:   the native twin (x86_64 host, same fork commit, LLVM) with the pack's rlibs
 // stable: rustc +stable with rlibs built by cargo +stable (second reference)
 // Every case module runs under node:wasi in a worker thread; a timed-out run

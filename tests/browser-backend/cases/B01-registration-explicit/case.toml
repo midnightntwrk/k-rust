@@ -1,9 +1,9 @@
 schema = 1
 id = "B01-registration-explicit"
 behavior = "Two library crates register factories in an explicit table; collectors name them in both orders; the runner canonicalizes and reads /workspace files."
-basis = "BL-003 spike browser-control/collector-{ab,ba}-explicit.rs, registration-{alpha,beta}.rs, collector-runner.rs (inventory replaced by an explicit table, IR-07)"
+basis = "the browser collector control: collectors ab and ba, registrations alpha and beta, and the collector runner, with inventory replaced by an explicit registration table"
 expected_status = "pass"
-# The default runs must also equal oracle-success.json (the BL-003 spike's expected success output) byte for byte.
+# The default runs must also equal oracle-success.json (the collector control's expected success output) byte for byte.
 oracle = { runs = ["ab", "ba"], file = "oracle-success.json" }
 
 [[crate]]

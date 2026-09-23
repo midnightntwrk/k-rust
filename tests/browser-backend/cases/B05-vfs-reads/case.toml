@@ -1,7 +1,7 @@
 schema = 1
 id = "B05-vfs-reads"
 behavior = "fs::canonicalize, fs::read, fs::metadata, fs::read_dir on an existing file, a directory, a missing file, a .. path, a missing parent, the root; structured error on the missing file."
-basis = "BL-003 runner; IR-12 probe (canonicalize.rs) and the browser_wasi_shim path_readlink patch"
+basis = "the collector runner's source reads; the virtual-path canonicalize probe and the browser_wasi_shim path_readlink patch"
 expected_status = "pass"
 
 [[crate]]

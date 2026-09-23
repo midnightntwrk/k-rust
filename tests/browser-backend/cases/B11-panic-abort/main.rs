@@ -1,4 +1,4 @@
-// panic!, unreachable!, and process::exit under panic=abort (BL-003
+// panic!, unreachable!, and process::exit under panic=abort (collector
 // COLLECTOR_MODE=trap). A panic prints its message on stderr and aborts, which
 // the host reports as a trap; exit(3) is an ordinary exit status.
 use std::hint::black_box;

@@ -1,6 +1,6 @@
 // fs::canonicalize, fs::read, fs::metadata, and fs::read_dir over the case
 // VFS (preopen "/" holding /data), as the collector reads manifests and
-// sources (BL-003 runner, IR-12 probe). Errors print io::ErrorKind, the raw
+// sources (collector runner, canonicalize probe). Errors print io::ErrorKind, the raw
 // WASI errno, and the message.
 use std::fmt::Debug;
 use std::fs;
@@ -55,7 +55,7 @@ fn main() {
         }),
     );
     show("read_to_string missing", fs::read_to_string("/data/dir/missing.txt"));
-    // The structured error the collector reports for a missing source (BL-003 Failure::io).
+    // The structured error the collector reports for a missing source (Failure::io).
     if let Err(error) = fs::canonicalize("/data/dir/missing.txt") {
         println!(
             "{{\"error\":{{\"kind\":\"{:?}\",\"message\":\"{}\",\"path\":\"/data/dir/missing.txt\"}}}}",

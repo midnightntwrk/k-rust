@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Browser backend compatibility suite (IR-16).
+"""Browser backend compatibility suite.
 
 Every case under cases/<id>/ is compiled by the wasip1-hosted fork compiler
-(rustc.wasm of the IR-14 pack) and run, in Node WASI, headless Chromium, and
+(rustc.wasm of the dependency pack) and run, in Node WASI, headless Chromium, and
 headless Firefox; each host's outcome must equal the case's recorded
 expectation.
 
@@ -21,7 +21,7 @@ outcome: the host must reproduce it, and an outcome equal to the twin's
       [--only B01-...,B06-...] [--out DIR] [--evidence DIR]
 
 --pack selects the compiler under test (rustc.wasm, sysroot bundle, and
-rlibs of one IR-14 pack); --fork-build supplies the twin of the same commit.
+rlibs of one dependency pack); --fork-build supplies the twin of the same commit.
 --host none with --references rebuilds only the reference records;
 --record rewrites this revision's entry of every expected.json from a fresh
 twin (and stable) run and, for gap cases, from the Node host's fork outcome.
@@ -123,7 +123,7 @@ def pack_section(pack_root: Path) -> dict[str, Any]:
         "artifacts": artifacts,
         "sysroot_mount": manifest["sysroot"]["mount"],
         "fork_flags": fork_flags,
-        # the BL-003 browser-rustc harness and browser/worker/src/pack-ir14.ts
+        # as browser/worker/src/pack-ir14.ts sets them
         "fork_env": ["CLIF2WASM_OBJECT=1", "RIWL_TIMINGS=1"],
         "externs": externs,
         "_manifest": manifest,
@@ -206,7 +206,7 @@ def normalize_variant(variant: dict[str, Any], commit: str) -> dict[str, Any]:
     for record in variant["compile"]:
         entry: dict[str, Any] = {"crate": record["crate"], "outcome": record["outcome"]}
         if record["outcome"] != "ok":
-            # Error-exit behaviour (IR-26): an exit status with rustc's summary line, or a trap.
+            # Error-exit behaviour: an exit status with rustc's summary line, or (forks before 0ce51e933) a trap.
             entry["exit"] = "trap" if record["trap"] is not None else record["exitCode"]
             entry["summary"] = record.get("summary", False)
         if record["errors"]:
@@ -401,7 +401,7 @@ def main() -> int:
     parser.add_argument("--references", action="store_true", help="rebuild the twin and stable references and compare them with expected.json")
     parser.add_argument("--record", action="store_true", help="rewrite this fork revision's entry of every expected.json (implies --references and the node host)")
     parser.add_argument("--only", default="", help="comma-separated case ids")
-    parser.add_argument("--pack", type=Path, default=DEFAULT_PACK, help="IR-14 pack root (holds pack-manifest.toml); its rustc.wasm, bundle, and rlibs are used together")
+    parser.add_argument("--pack", type=Path, default=DEFAULT_PACK, help="dependency pack root (holds pack-manifest.toml); its rustc.wasm, bundle, and rlibs are used together")
     parser.add_argument("--fork-build", type=Path, default=DEFAULT_FORK_BUILD, help="fork build root of the same commit as the pack (its stage1 twin is the reference)")
     parser.add_argument("--twin", type=Path, default=None, help="native twin rustc (default: FORK_BUILD/build/x86_64-unknown-linux-gnu/stage1/bin/rustc)")
     parser.add_argument("--fork-source", type=Path, default=DEFAULT_FORK_SOURCE, help="only its wasi-sdk wasm-ld is used (twin links)")
@@ -573,8 +573,8 @@ def main() -> int:
         "failures": failures,
     }
     if records:
-        write_toml_rows(args.out / "matrix.toml", ["IR-16 browser backend compatibility matrix (tests/browser-backend/verify.py).", "One row per case, opt level, and host."], header, "row", rows)
-    write_toml_rows(args.out / "expectations.toml", ["IR-16 expectation hashes: sha256 of the normalized per-case JSON in cases/<id>/expected.json, per fork revision."],
+        write_toml_rows(args.out / "matrix.toml", ["browser backend compatibility matrix (tests/browser-backend/verify.py).", "One row per case, opt level, and host."], header, "row", rows)
+    write_toml_rows(args.out / "expectations.toml", ["backend suite expectation hashes: sha256 of the normalized per-case JSON in cases/<id>/expected.json, per fork revision."],
                     {"current_fork_revision": revision}, "case", expectation_rows)
     if args.evidence:
         args.evidence.mkdir(parents=True, exist_ok=True)

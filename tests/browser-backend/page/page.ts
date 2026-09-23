@@ -1,4 +1,4 @@
-// IR-16 suite page: loads suite.json and the IR-14 pack from local files,
+// Backend suite page: loads suite.json and the dependency pack from local files,
 // verifies every pack artifact and the pack_id, compiles rustc.wasm once, and
 // runs the suite through an executor worker (browser_wasi_shim). A cancelled
 // step terminates the worker; the next step starts a fresh one in the same page.
@@ -99,7 +99,7 @@ window.ir16 = {
       schema: 1,
       host: "browser",
       compiler: "fork",
-      environment: { userAgent: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency, wasi: "browser_wasi_shim (Weblings d0cd7a9f + IR-12 patch, browser/worker/vendor)", ...timings },
+      environment: { userAgent: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency, wasi: "browser_wasi_shim (Weblings d0cd7a9f + path_readlink patch, browser/worker/vendor)", ...timings },
       pack_id: suite.pack.pack_id,
       verified,
       cases,

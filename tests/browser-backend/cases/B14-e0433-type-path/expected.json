@@ -226,7 +226,7 @@
    "gap": {
     "class": "backend",
     "summary": "at 195111dff rustc.wasm traps (RuntimeError: unreachable) with no diagnostic, where the twin reports E0433 `cannot find module or crate `missing` in this scope`",
-    "root_cause": "IR-26: the wasip1 compiler is panic=abort, so FatalError::raise aborts before run_compiler's finish_diagnostics emits the stashed E0433; fixed by 0ce51e933 (krs/ir-26-wasip1-trap)",
+    "root_cause": "the wasip1 compiler is panic=abort, so FatalError::raise aborts before run_compiler's finish_diagnostics emits the stashed E0433; fixed by 0ce51e933 (krs/ir-26-wasip1-trap)",
     "fixed_in": "0ce51e9339ee538c16580fea01ca98dd89f6d7a0"
    }
   },

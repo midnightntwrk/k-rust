@@ -1,6 +1,6 @@
 // u128/i128 multiply, divide, remainder, shifts, and u64 overflow checks
 // (StableHasher's u64 wrapping multiply; i128 lowering in clif2wasm).
-// Since eb8eda040 (IR-27) also: checked/overflowing/saturating u64 multiply (B18),
+// Since eb8eda040 also: checked/overflowing/saturating u64 multiply (B18),
 // checked i128 ops and signum (B21), u128 swap_bytes/reverse_bits (B22),
 // mul_add (B23), and float -> 128-bit conversions (B24).
 use std::hint::black_box;

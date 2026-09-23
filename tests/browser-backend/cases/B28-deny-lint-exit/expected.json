@@ -238,7 +238,7 @@
    "gap": {
     "class": "backend",
     "summary": "at 195111dff rustc.wasm prints the lint error, then traps with no summary line",
-    "root_cause": "IR-26; fixed by 0ce51e933",
+    "root_cause": "panic=abort host: FatalError::raise aborts before finish_diagnostics; fixed by 0ce51e933",
     "fixed_in": "0ce51e9339ee538c16580fea01ca98dd89f6d7a0"
    }
   },

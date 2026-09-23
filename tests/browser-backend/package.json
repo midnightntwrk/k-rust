@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "IR-16 browser backend compatibility suite runners (no dependencies; Node >= 24 type stripping and Bun).",
+  "description": "Browser backend compatibility suite runners (no dependencies; Node >= 24 type stripping and Bun).",
   "scripts": {
     "verify": "python3 verify.py",
     "typecheck": "tsc --noEmit -p ."

@@ -1,7 +1,7 @@
 schema = 1
 id = "B11-panic-abort"
 behavior = "panic!, unreachable!, unwrap on None, out-of-bounds index, arithmetic overflow under panic=abort, and std::process::exit(3)."
-basis = "BL-003 COLLECTOR_MODE=trap"
+basis = "the collector runner's COLLECTOR_MODE=trap"
 expected_status = "pass"
 
 [[crate]]

@@ -1,7 +1,7 @@
 schema = 1
 id = "B07-itoa-serde"
 behavior = "itoa 1.0.18 formatting of u8, u16, i16, u64, i128 extremes; serde_json serialization of a struct with those fields (hand-written Serialize) and a parse round trip."
-basis = "the BL-003 itoa failure; krs-ir to_canonical_json"
+basis = "the earlier itoa compile failure (ireduce i16 -> i8); krs-ir to_canonical_json"
 expected_status = "pass"
 
 [[crate]]
