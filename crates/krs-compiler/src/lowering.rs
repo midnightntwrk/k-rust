@@ -61,14 +61,14 @@ impl LoweredDefinition {
 /// Typed failure at the semantic-to-Definition boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoweringError {
-    /// The frozen M2 subset does not contain this otherwise-valid semantic shape.
+    /// Lowering does not support this otherwise-valid semantic shape.
     UnsupportedShape {
         /// Stable node family.
         node: &'static str,
         /// Deterministic explanatory detail.
         detail: String,
     },
-    /// Authored syntax is not representable by the M2 production-template subset.
+    /// Authored syntax is not representable by the production-template subset.
     InvalidProductionTemplate {
         /// Constructor whose template failed.
         production: Box<StableItemId>,
@@ -109,7 +109,7 @@ impl fmt::Display for LoweringError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnsupportedShape { node, detail } => {
-                write!(formatter, "unsupported M2 {node} shape: {detail}")
+                write!(formatter, "unsupported {node} shape: {detail}")
             }
             Self::InvalidProductionTemplate { production, detail } => {
                 write!(
@@ -167,7 +167,7 @@ impl From<IrIdentityError> for LoweringError {
     }
 }
 
-/// Deterministically lowers the frozen M2 semantic subset to Definition IR.
+/// Deterministically lowers a semantic theory to Definition IR.
 ///
 /// One preflight pass assigns every module, symbol, and label identity and
 /// rejects collisions before [`DefinitionIr`] construction. Every copied node
@@ -176,7 +176,7 @@ impl From<IrIdentityError> for LoweringError {
 ///
 /// # Errors
 ///
-/// Returns [`LoweringError`] for unsupported M2 shapes, invalid templates or
+/// Returns [`LoweringError`] for unsupported shapes, invalid templates or
 /// names, naming/source-map collisions, or a failed Definition IR invariant.
 pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinition, LoweringError> {
     let names = NamingPass::run(theory)?;

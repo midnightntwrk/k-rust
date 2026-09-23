@@ -31,7 +31,7 @@ use syn::{Expr, Lit, Member};
 
 use crate::{AnalysisError, AnalysisErrorKind};
 
-/// Deterministic M1 open-sort relation computed from a stable descriptor bundle.
+/// Deterministic open-sort relation computed from a stable descriptor bundle.
 ///
 /// Direct edges remain distinct from their transitive closure. Constructor
 /// membership includes the directly declared sort and every transitive parent,
@@ -70,13 +70,13 @@ impl OpenSortAnalysis {
     }
 }
 
-/// Computes the target-neutral M1 open-sort relation from stable descriptors.
+/// Computes the target-neutral open-sort relation from stable descriptors.
 ///
 /// # Errors
 ///
 /// Rejects duplicate declaration IDs, absent/wrongly-kinded sort references,
 /// and direct or indirect subsort cycles. Rules do not participate in this
-/// deliberately small M1 analysis.
+/// deliberately small analysis.
 #[allow(clippy::too_many_lines)]
 pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis, AnalysisError> {
     let mut kinds = BTreeMap::new();
@@ -208,7 +208,7 @@ pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis,
 pub enum DescriptorLoweringError {
     /// Two descriptors claim one stable identity.
     DuplicateItemId(Box<StableItemId>),
-    /// M2 requires exactly one selected configuration descriptor.
+    /// Lowering requires exactly one selected configuration descriptor.
     ConfigurationCount(usize),
     /// A descriptor payload and stable item kind disagree.
     WrongItemKind {
@@ -237,14 +237,14 @@ pub enum DescriptorLoweringError {
         /// Stable diagnostic detail.
         detail: String,
     },
-    /// The frozen M2 term subset could not be represented structurally.
+    /// The term could not be represented structurally.
     InvalidTerm {
         /// Descriptor containing the term.
         id: Box<StableItemId>,
         /// Stable diagnostic detail.
         detail: String,
     },
-    /// The descriptor graph is outside the deliberately frozen M2 shape.
+    /// The descriptor graph is outside the supported shape.
     UnsupportedShape {
         /// Semantic node family.
         node: &'static str,
@@ -296,7 +296,7 @@ impl fmt::Display for DescriptorLoweringError {
                 write!(formatter, "invalid descriptor term for {id:?}: {detail}")
             }
             Self::UnsupportedShape { node, detail } => {
-                write!(formatter, "unsupported M2 {node}: {detail}")
+                write!(formatter, "unsupported {node}: {detail}")
             }
             Self::OverlappingRules { first, second } => write!(
                 formatter,
@@ -3905,7 +3905,7 @@ fn lower_configuration_descriptor(
     if configuration.cell.content_sort != BuiltinSort::KSequence {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "configuration cell",
-            detail: "M2 accepts only builtin KSequence".into(),
+            detail: "the computation cell accepts only builtin KSequence".into(),
         });
     }
     let configuration_id = SemanticId::new(configuration.root.clone())?;

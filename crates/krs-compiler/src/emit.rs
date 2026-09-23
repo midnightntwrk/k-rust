@@ -48,7 +48,7 @@ impl EmittedK {
 /// Typed canonical-source emission failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EmitError {
-    /// The checked Definition IR contains a source-level node outside M2 emission.
+    /// The checked Definition IR contains a source-level node that canonical-source emission does not support.
     UnsupportedShape {
         /// Structural node family.
         node: &'static str,
@@ -67,7 +67,7 @@ impl fmt::Display for EmitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnsupportedShape { node, detail } => {
-                write!(formatter, "unsupported M2 source {node} shape: {detail}")
+                write!(formatter, "unsupported source {node} shape: {detail}")
             }
             Self::InvalidReference(detail) => formatter.write_str(detail),
             Self::DuplicateGeneratedRange(key) => write!(

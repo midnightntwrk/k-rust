@@ -1,4 +1,4 @@
-//! Schema-v3 IMP calculation/state lowering, canonical source, and sidecars.
+//! IMP calculation fixed-state lowering, canonical source, and sidecars.
 
 use std::collections::BTreeMap;
 
@@ -19,7 +19,7 @@ use krs_ir::{
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-M3B", "m3b-calc", "0.1.0", "workspace").unwrap()
+    PackageId::new("KRS-CALC", "calc", "0.1.0", "workspace").unwrap()
 }
 
 fn item(name: &str, kind: ItemKind) -> StableItemId {
@@ -485,7 +485,7 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
 
     let module = SemanticModule::new(
         origin("module.calc"),
-        ModuleId::new("KRS-M3B-CALC").unwrap(),
+        ModuleId::new("KRS-CALC").unwrap(),
         vec![],
         vec![
             SemanticSort::new(origin("sort.expr"), item("Expr", ItemKind::Sort)),
@@ -528,7 +528,7 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
 fn assert_exact_source(source: &str) {
     assert_eq!(
         source,
-        r#"module KRS-M3B-CALC
+        r#"module KRS-CALC
   imports ID-SYNTAX
   imports MAP
 
@@ -581,7 +581,7 @@ fn assert_complete_sidecars(emitted: &EmittedK) {
         symbol_names,
         BTreeMap::from([
             ("Expr", 1),
-            ("KRS-M3B-CALC", 1),
+            ("KRS-CALC", 1),
             ("KResult", 1),
             ("Stmt", 1),
             ("Value", 1),
@@ -669,7 +669,7 @@ fn assert_deterministic(lowered: &LoweredDefinition) {
 }
 
 #[test]
-fn exact_calc_source_and_schema_v3_sidecars_are_complete() {
+fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
     let lowered = lower_semantic_theory(&calc_theory(CalcOptions::default())).unwrap();
     let emitted = emit_k(&lowered).unwrap();
 
@@ -840,7 +840,7 @@ fn emitted_calc_source_compiles_with_pinned_reference_frontend() {
     assert!(String::from_utf8_lossy(&version.stdout).contains("v7.1.337"));
 
     let temporary = std::env::temp_dir().join(format!(
-        "krs-compiler-m3b-{}-{}",
+        "krs-compiler-calc-{}-{}",
         std::process::id(),
         std::thread::current().name().unwrap_or("reference")
     ));
@@ -852,9 +852,9 @@ fn emitted_calc_source_compiles_with_pinned_reference_frontend() {
     let output = Command::new("kompile")
         .arg(&source_path)
         .arg("--main-module")
-        .arg("KRS-M3B-CALC")
+        .arg("KRS-CALC")
         .arg("--syntax-module")
-        .arg("KRS-M3B-CALC")
+        .arg("KRS-CALC")
         .arg("--backend")
         .arg("llvm")
         .arg("--output-definition")
@@ -863,7 +863,7 @@ fn emitted_calc_source_compiles_with_pinned_reference_frontend() {
         .unwrap();
     assert!(
         output.status.success(),
-        "kompile rejected canonical M3B source:\n{}",
+        "kompile rejected canonical calculation source:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(definition_path.join("definition.kore").is_file());

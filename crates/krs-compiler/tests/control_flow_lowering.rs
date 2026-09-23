@@ -1,4 +1,4 @@
-//! Hand-built M3C IMP control-flow lowering and canonical source contract.
+//! Hand-built IMP control-flow lowering and canonical source contract.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,13 +22,13 @@ use krs_ir::{
     TransformationOriginKind,
 };
 
-const CALC_SYNTAX: &str = "KRS-M3B-CALC-SYNTAX";
-const CALC: &str = "KRS-M3B-CALC";
-const IMP_SYNTAX: &str = "KRS-M3C-IMP-SYNTAX";
-const IMP: &str = "KRS-M3C-IMP";
+const CALC_SYNTAX: &str = "KRS-CALC-SYNTAX";
+const CALC: &str = "KRS-CALC";
+const IMP_SYNTAX: &str = "KRS-IMP-SYNTAX";
+const IMP: &str = "KRS-IMP";
 
 fn package() -> PackageId {
-    PackageId::new("KRS-M3C", "m3c-imp", "0.1.0", "workspace").unwrap()
+    PackageId::new("KRS-IMP", "imp", "0.1.0", "workspace").unwrap()
 }
 
 fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
@@ -559,14 +559,14 @@ fn k_rule(
 }
 
 #[derive(Clone, Copy, Default)]
-struct M3cOptions {
+struct ControlOptions {
     invalid_first_label: bool,
     omit_if_true_wildcard: bool,
     adjuncts: bool,
 }
 
 #[allow(clippy::too_many_lines)]
-fn control_rules(options: M3cOptions) -> Vec<SemanticRule> {
+fn control_rules(options: ControlOptions) -> Vec<SemanticRule> {
     let expr = sort("Expr");
     let stmt = sort("Stmt");
     let if_else = item("imp_syntax", "IfThenElse", ItemKind::Constructor);
@@ -714,9 +714,9 @@ fn context_alias() -> SemanticContextAlias {
     let here = sid("HERE");
     SemanticContextAlias::new(
         origin("imp.context.eval"),
-        item("imp", "M3dEval", ItemKind::ContextAlias),
+        item("imp", "EvalContext", ItemKind::ContextAlias),
         origin("imp.context.eval.name"),
-        "m3d_eval".into(),
+        "eval_context".into(),
         origin("imp.context.eval.here"),
         here.clone(),
         vec![SemanticVariable::new(here.clone(), sort("Stmt"))],
@@ -922,7 +922,7 @@ fn simplification_rule() -> SemanticRule {
     )))
 }
 
-fn imp_module(options: M3cOptions) -> SemanticModule {
+fn imp_module(options: ControlOptions) -> SemanticModule {
     let mut rules = control_rules(options);
     let context_aliases = if options.adjuncts {
         rules.extend([all_paths_claim(), one_path_claim(), simplification_rule()]);
@@ -948,7 +948,7 @@ fn imp_module(options: M3cOptions) -> SemanticModule {
     )
 }
 
-fn m3c_theory(options: M3cOptions) -> Result<SemanticTheory, SemanticValidationError> {
+fn control_flow_theory(options: ControlOptions) -> Result<SemanticTheory, SemanticValidationError> {
     SemanticTheory::new(vec![
         imp_module(options),
         configuration_module(),
@@ -960,8 +960,8 @@ fn m3c_theory(options: M3cOptions) -> Result<SemanticTheory, SemanticValidationE
 fn assert_exact_source(source: &str) {
     assert_eq!(
         source,
-        r#"module KRS-M3B-CALC
-  imports KRS-M3B-CALC-SYNTAX
+        r#"module KRS-CALC
+  imports KRS-CALC-SYNTAX
   imports MAP
 
   configuration
@@ -970,7 +970,7 @@ fn assert_exact_source(source: &str) {
 
 endmodule
 
-module KRS-M3B-CALC-SYNTAX
+module KRS-CALC-SYNTAX
   imports BOOL-SYNTAX
   imports ID-SYNTAX
 
@@ -992,10 +992,10 @@ module KRS-M3B-CALC-SYNTAX
   syntax right krsgroup-ef11204726b39d86ee1fe653
 endmodule
 
-module KRS-M3C-IMP
+module KRS-IMP
   imports BOOL-SYNTAX
-  imports KRS-M3B-CALC
-  imports KRS-M3C-IMP-SYNTAX
+  imports KRS-CALC
+  imports KRS-IMP-SYNTAX
 
   rule [block]:
     <k> { V53:Stmt } => V53:Stmt ~> { } ... </k>
@@ -1011,8 +1011,8 @@ module KRS-M3C-IMP
     <k> while ( V43:Expr ) V53:Stmt => if ( V43:Expr ) { V53:Stmt while ( V43:Expr ) V53:Stmt } else { } ... </k>
 endmodule
 
-module KRS-M3C-IMP-SYNTAX
-  imports KRS-M3B-CALC-SYNTAX
+module KRS-IMP-SYNTAX
+  imports KRS-CALC-SYNTAX
 
   syntax Stmt ::= "{" Stmt "}" [symbol(block), format(%1%i%n%2%d%n%3)]
   syntax Stmt ::= "{" "}" [symbol(emptyBlock), format(%1%2)]
@@ -1146,7 +1146,8 @@ fn assert_sidecars_and_determinism(lowered: &LoweredDefinition, emitted: &Emitte
     assert_eq!(missing[&SourceMapNodeKind::ProductionGroup], 2);
     assert_eq!(missing[&SourceMapNodeKind::ConfigurationRewrite], 6);
 
-    let repeated = lower_semantic_theory(&m3c_theory(M3cOptions::default()).unwrap()).unwrap();
+    let repeated =
+        lower_semantic_theory(&control_flow_theory(ControlOptions::default()).unwrap()).unwrap();
     assert_eq!(
         lowered.definition().to_canonical_json().unwrap(),
         repeated.definition().to_canonical_json().unwrap()
@@ -1162,8 +1163,8 @@ fn assert_sidecars_and_determinism(lowered: &LoweredDefinition, emitted: &Emitte
 }
 
 #[test]
-fn exact_m3c_control_flow_lowers_and_emits_canonical_k() {
-    let semantic = m3c_theory(M3cOptions::default()).unwrap();
+fn exact_control_flow_lowers_and_emits_canonical_k() {
+    let semantic = control_flow_theory(ControlOptions::default()).unwrap();
     let lowered = lower_semantic_theory(&semantic).unwrap();
     let emitted = emit_k(&lowered).unwrap();
     assert_definition_structure(&lowered);
@@ -1173,9 +1174,9 @@ fn exact_m3c_control_flow_lowers_and_emits_canonical_k() {
 
 #[test]
 fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
-    let semantic = m3c_theory(M3cOptions {
+    let semantic = control_flow_theory(ControlOptions {
         adjuncts: true,
-        ..M3cOptions::default()
+        ..ControlOptions::default()
     })
     .unwrap();
     let lowered = lower_semantic_theory(&semantic).unwrap();
@@ -1183,7 +1184,7 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
     let source = emitted.source();
 
     assert!(
-        source.contains("context alias [m3dEval]:\n    <k> HERE ... </k>"),
+        source.contains("context alias [evalContext]:\n    <k> HERE ... </k>"),
         "{source}"
     );
     assert!(source.contains("[simplification(42), label("), "{source}");
@@ -1223,15 +1224,15 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
 #[test]
 fn undeclared_wildcard_and_invalid_control_label_fail_typed() {
     assert!(matches!(
-        m3c_theory(M3cOptions {
+        control_flow_theory(ControlOptions {
             omit_if_true_wildcard: true,
-            ..M3cOptions::default()
+            ..ControlOptions::default()
         }),
         Err(SemanticValidationError::DanglingVariable(_))
     ));
-    let invalid = m3c_theory(M3cOptions {
+    let invalid = control_flow_theory(ControlOptions {
         invalid_first_label: true,
-        ..M3cOptions::default()
+        ..ControlOptions::default()
     })
     .unwrap();
     assert!(matches!(
@@ -1245,7 +1246,7 @@ fn undeclared_wildcard_and_invalid_control_label_fail_typed() {
 
 #[test]
 #[ignore = "requires pin-matched K 7.1.337 tools"]
-fn emitted_m3c_source_compiles_with_pinned_reference_frontend() {
+fn emitted_control_flow_source_compiles_with_pinned_reference_frontend() {
     use std::fs;
     use std::process::Command;
 
@@ -1257,14 +1258,15 @@ fn emitted_m3c_source_compiles_with_pinned_reference_frontend() {
     assert!(String::from_utf8_lossy(&version.stdout).contains("v7.1.337"));
 
     let temporary = std::env::temp_dir().join(format!(
-        "krs-compiler-m3c-{}-{}",
+        "krs-compiler-control-flow-{}-{}",
         std::process::id(),
         std::thread::current().name().unwrap_or("reference")
     ));
     fs::create_dir(&temporary).unwrap();
     let source_path = temporary.join("definition.k");
     let definition_path = temporary.join("compiled");
-    let lowered = lower_semantic_theory(&m3c_theory(M3cOptions::default()).unwrap()).unwrap();
+    let lowered =
+        lower_semantic_theory(&control_flow_theory(ControlOptions::default()).unwrap()).unwrap();
     fs::write(&source_path, emit_k(&lowered).unwrap().source()).unwrap();
     let output = Command::new("kompile")
         .arg(&source_path)
@@ -1281,7 +1283,7 @@ fn emitted_m3c_source_compiles_with_pinned_reference_frontend() {
         .unwrap();
     assert!(
         output.status.success(),
-        "kompile rejected canonical M3C source:\n{}",
+        "kompile rejected canonical control-flow source:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(definition_path.join("definition.kore").is_file());

@@ -13,7 +13,7 @@ use krs_ir::{
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-M3A", "m3a", "0.1.0", "workspace").unwrap()
+    PackageId::new("KRS-GRAMMAR", "grammar", "0.1.0", "workspace").unwrap()
 }
 
 fn item(name: &str, kind: ItemKind) -> StableItemId {
@@ -367,7 +367,7 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     );
     let module = SemanticModule::new(
         origin("module"),
-        ModuleId::new("KRS-M3A-LOWERING").unwrap(),
+        ModuleId::new("KRS-GRAMMAR-LOWERING").unwrap(),
         vec![],
         vec![
             SemanticSort::new(origin("sort.expr"), expr.clone()),

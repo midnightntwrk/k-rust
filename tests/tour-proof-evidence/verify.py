@@ -191,7 +191,7 @@ def verify_capability_matrix() -> None:
         'r#"one_path, label = "circular", circularity"#',
     )
     require_fragments(
-        "crates/krs-compiler/tests/m3c_lowering.rs",
+        "crates/krs-compiler/tests/control_flow_lowering.rs",
         "ClaimModality::OnePath",
         'assert!(source.contains("[one-path]"), "{source}")',
     )

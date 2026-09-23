@@ -1,4 +1,4 @@
-//! Legacy one-cell M2 compatibility lowering on the current classified IR.
+//! Single-cell compatibility configuration lowering on the current classified IR.
 
 use krs_compiler::{LoweringError, emit_k, lower_semantic_theory};
 use krs_ir::{
@@ -10,7 +10,7 @@ use krs_ir::{
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-M2", "m2-semantics", "0.1.0", "workspace").unwrap()
+    PackageId::new("KRS-FOO-BAR", "foo-bar-semantics", "0.1.0", "workspace").unwrap()
 }
 
 fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
@@ -41,7 +41,7 @@ fn origin_with_label(key: &str, label: Option<&str>) -> NodeOrigin {
 fn theory(reverse: bool) -> SemanticTheory {
     let k_item = item("syntax", "KItem", ItemKind::Sort);
     let k_result = item("syntax", "KResult", ItemKind::Sort);
-    let object = item("syntax", "M2Obj", ItemKind::Sort);
+    let object = item("syntax", "Obj", ItemKind::Sort);
     let foo_production = item("syntax", "Foo", ItemKind::Constructor);
     let bar = item("syntax", "Bar", ItemKind::Constructor);
     let rule = item("rules", "foo_to_bar", ItemKind::Rule);
@@ -141,7 +141,7 @@ fn theory(reverse: bool) -> SemanticTheory {
     .unwrap();
     SemanticTheory::new(vec![SemanticModule::new(
         origin("sem.module.main"),
-        ModuleId::new("KRS-M2-REFERENCE").unwrap(),
+        ModuleId::new("KRS-FOO-BAR").unwrap(),
         vec![],
         sorts,
         subsorts,
@@ -175,20 +175,20 @@ fn exact_source_snapshot_and_reordering_are_byte_identical() {
     assert_eq!(emitted, reemitted);
     assert_eq!(
         emitted.source(),
-        r#"module KRS-M2-REFERENCE
+        r#"module KRS-FOO-BAR
   syntax KItem
   syntax KResult
-  syntax M2Obj
+  syntax Obj
 
-  syntax M2Obj ::= "bar" [symbol(bar)]
-  syntax M2Obj ::= "foo" [symbol(foo)]
+  syntax Obj ::= "bar" [symbol(bar)]
+  syntax Obj ::= "foo" [symbol(foo)]
 
   syntax KItem ::= KResult
-  syntax KResult ::= M2Obj
+  syntax KResult ::= Obj
 
   configuration <k> foo </k>
 
-  rule foo => bar [label(krsRule_725f2944b8a5a8eaf4b9fc6c)]
+  rule foo => bar [label(krsRule_7ff2bcc3f880afc8861cfcfe)]
 endmodule
 "#
     );

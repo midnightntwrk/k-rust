@@ -684,7 +684,7 @@ status = "unqualified"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["simplifications"]
-evidence = ["crates/krs-syntax/src/attribute.rs", "crates/krs-compiler/tests/m3c_lowering.rs"]
+evidence = ["crates/krs-syntax/src/attribute.rs", "crates/krs-compiler/tests/control_flow_lowering.rs"]
 note = "The parser and lowering accept simplification(priority = N), but no positive authored macro fixture was found during review."
 
 [[concept]]

@@ -51,7 +51,7 @@ pub enum CollectionErrorKind {
     AmbiguousSourcePath,
     /// A line or Unicode-scalar column was outside the exact source revision.
     SourcePositionOutOfBounds,
-    /// An M1 semantic node used an invocation-fallback rather than exact leaves.
+    /// A semantic node used an invocation-fallback rather than exact leaves.
     ImpreciseAuthoredAnchor,
     /// The exact source no longer parses under the shared KRS parser.
     SourceSyntax,

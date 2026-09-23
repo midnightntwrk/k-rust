@@ -2490,7 +2490,7 @@ fn materialize_invocation(
             return Err(CollectionError::new(
                 CollectionErrorKind::ImpreciseAuthoredAnchor,
                 format!(
-                    "M1 provenance `{}`#{} for `{}` is not leaf-exact",
+                    "authored provenance `{}`#{} for `{}` is not leaf-exact",
                     authored.key().role(),
                     authored.key().ordinal(),
                     display_item(id)

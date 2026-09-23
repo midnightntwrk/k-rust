@@ -45,7 +45,7 @@ struct ExprType;
 struct FooType;
 struct BarType;
 struct KResultType;
-struct M2ObjType;
+struct ObjType;
 struct OtherType;
 struct MachineType;
 
@@ -69,8 +69,8 @@ fn kresult_type() -> TypeId {
     TypeId::of::<KResultType>()
 }
 
-fn m2obj_type() -> TypeId {
-    TypeId::of::<M2ObjType>()
+fn obj_type() -> TypeId {
+    TypeId::of::<ObjType>()
 }
 
 fn other_type() -> TypeId {
@@ -738,7 +738,7 @@ pub struct Machine { pub k: k::configuration::KCell<k::builtin::KSequence> }
         foo_type,
     );
     let bundle = collect_host_descriptors(
-        [package.context("KRS-M2-REFERENCE")],
+        [package.context("KRS-FOO-BAR")],
         [
             package.sort("KItem", kitem_type, vec![]),
             package.constructor("Foo", foo_type, kitem_type),
@@ -781,7 +781,7 @@ pub struct Machine { pub k: k::configuration::KCell<k::builtin::KSequence> }
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn collected_m2_bundle_reaches_canonical_semantic_definition_and_k() {
+fn collected_foo_bar_bundle_reaches_canonical_semantic_definition_and_k() {
     use krs_compiler::{emit_k, lower_descriptor_bundle, lower_semantic_theory};
 
     let source = r#"#[k::sort]
@@ -789,15 +789,15 @@ pub trait KItem {}
 #[k::sort]
 pub trait KResult: KItem {}
 #[k::sort]
-pub trait M2Obj: KResult {}
-#[k::constructor(sort = M2Obj, syntax = "foo")]
+pub trait Obj: KResult {}
+#[k::constructor(sort = Obj, syntax = "foo")]
 pub struct Foo;
-#[k::constructor(sort = M2Obj, syntax = "bar")]
+#[k::constructor(sort = Obj, syntax = "bar")]
 pub struct Bar;
 #[k::configuration(root = "machine")]
 pub struct Machine { pub k: k::configuration::KCell<k::builtin::KSequence> }
 #[k::rule]
-fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
+fn foo_to_bar(Foo: Term<dyn Obj>) -> Term<dyn Obj> { term!(Bar) }
 "#;
     let initializer = r"impl Machine {
     #[k::init]
@@ -806,22 +806,21 @@ fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
     }
 }
 ";
-    let package = TestPackage::new("m2_semantics", source);
+    let package = TestPackage::new("foo_bar_semantics", source);
     fs::write(package.root().join("src/initializer.rs"), initializer).unwrap();
     let descriptors = vec![
         package.sort("KItem", kitem_type, vec![]),
         package.sort("KResult", kresult_type, vec![type_ref(kitem_type, "KItem")]),
-        package.sort("M2Obj", m2obj_type, vec![type_ref(kresult_type, "KResult")]),
-        package.constructor("Foo", foo_type, m2obj_type),
-        package.constructor("Bar", bar_type, m2obj_type),
+        package.sort("Obj", obj_type, vec![type_ref(kresult_type, "KResult")]),
+        package.constructor("Foo", foo_type, obj_type),
+        package.constructor("Bar", bar_type, obj_type),
         package.configuration(source, initializer, "src/initializer.rs", foo_type),
-        package.transition("foo_to_bar", m2obj_type, foo_type, bar_type),
+        package.transition("foo_to_bar", obj_type, foo_type, bar_type),
     ];
     let bundle =
-        collect_host_descriptors([package.context("KRS-M2-REFERENCE")], descriptors.clone())
-            .unwrap();
+        collect_host_descriptors([package.context("KRS-FOO-BAR")], descriptors.clone()).unwrap();
     let reordered = collect_host_descriptors(
-        [package.context("KRS-M2-REFERENCE")],
+        [package.context("KRS-FOO-BAR")],
         descriptors.into_iter().rev(),
     )
     .unwrap();
@@ -847,12 +846,12 @@ fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
                 krs_ir::SemanticSortRef::Declared(subsort),
                 krs_ir::SemanticSortRef::Declared(supersort),
             ) => (subsort.item_name(), supersort.item_name()),
-            _ => panic!("M2 subsort endpoints must remain authored sorts"),
+            _ => panic!("subsort endpoints must remain authored sorts"),
         })
         .collect::<Vec<_>>();
     assert_eq!(
         subsort_names,
-        vec![("KResult", "KItem"), ("M2Obj", "KResult")]
+        vec![("KResult", "KItem"), ("Obj", "KResult")]
     );
     let grammar_origins = module
         .productions()
@@ -925,27 +924,27 @@ fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
     );
     assert_eq!(
         digest(&bundle.to_canonical_json().unwrap()),
-        "3ce6f64c71edf54e4e7453359b8a27acc3c343f48582802588fb42325469af60"
+        "d73df11e2531a0e992bf13bb9af3f4d661351a65581e0513a4ff3786f465243a"
     );
     assert_eq!(
         digest(&semantic.to_canonical_json().unwrap()),
-        "3c4aff14e7d212f461db1c4a99335663ae0fff29fd4721e8721a66b76c8bb16f"
+        "630a234514dc4a0fcc56f6861751a234313bb66fc1bdf823edca28aa01c4505a"
     );
     assert_eq!(
         digest(&lowered.definition().to_canonical_json().unwrap()),
-        "70c37b5ef8aabcfe795885f5feed200a246ee25e750082561018690f903f3530"
+        "b5ae22b834912fc60ebf26ca28042b54d8d88869468ffaebb0305f9a0520fbed"
     );
     assert_eq!(
         digest(&lowered.symbol_map().to_canonical_json().unwrap()),
-        "b6d58a5bf91eae0744a0180091cc44be02aad9eecdcdeaca69c7de5739eae8d5"
+        "de9d0522590b224f27e677ec3a225a6b22a0a407bf250348692994997bc781c8"
     );
     assert_eq!(
         digest(&lowered.source_map().to_canonical_json().unwrap()),
-        "3f0aa3f421e4054f6913fb89526ffe7e8c9c7f410343837dd939798fdae5563b"
+        "641601a6ad3742286fd24d279d7669d8fcd05784b92ddfea9e18b023dc6f7f54"
     );
     assert_eq!(
         digest(emit_k(&lowered).unwrap().source()),
-        "6fac1fbe096a70ef1bad795f8e2dcef6597c2b9d69219b633f8c430d1b7767d8"
+        "b3a1d4de646f5d524faf13082b5fd4f1949f554057901982e6957ea23bf2fed1"
     );
     assert_eq!(
         lowered.definition().to_canonical_json().unwrap(),
@@ -961,36 +960,36 @@ fn foo_to_bar(Foo: Term<dyn M2Obj>) -> Term<dyn M2Obj> { term!(Bar) }
     );
     assert_eq!(
         emit_k(&lowered).unwrap().source(),
-        r#"module KRS-M2-REFERENCE
+        r#"module KRS-FOO-BAR
   syntax KItem
   syntax KResult
-  syntax M2Obj
+  syntax Obj
 
-  syntax M2Obj ::= "bar" [symbol(bar)]
-  syntax M2Obj ::= "foo" [symbol(foo)]
+  syntax Obj ::= "bar" [symbol(bar)]
+  syntax Obj ::= "foo" [symbol(foo)]
 
   syntax KItem ::= KResult
-  syntax KResult ::= M2Obj
+  syntax KResult ::= Obj
 
   configuration <k> foo </k>
 
-  rule foo => bar [label(krsRule_2062992b8378c13e5a704d5c)]
+  rule foo => bar [label(krsRule_899812504076c9a2b6796b67)]
 endmodule
 "#
     );
 
-    let relocated = TestPackage::new("m2_semantics", source);
+    let relocated = TestPackage::new("foo_bar_semantics", source);
     fs::write(relocated.root().join("src/initializer.rs"), initializer).unwrap();
     let relocated_bundle = collect_host_descriptors(
-        [relocated.context("KRS-M2-REFERENCE")],
+        [relocated.context("KRS-FOO-BAR")],
         [
             relocated.sort("KItem", kitem_type, vec![]),
             relocated.sort("KResult", kresult_type, vec![type_ref(kitem_type, "KItem")]),
-            relocated.sort("M2Obj", m2obj_type, vec![type_ref(kresult_type, "KResult")]),
-            relocated.constructor("Foo", foo_type, m2obj_type),
-            relocated.constructor("Bar", bar_type, m2obj_type),
+            relocated.sort("Obj", obj_type, vec![type_ref(kresult_type, "KResult")]),
+            relocated.constructor("Foo", foo_type, obj_type),
+            relocated.constructor("Bar", bar_type, obj_type),
             relocated.configuration(source, initializer, "src/initializer.rs", foo_type),
-            relocated.transition("foo_to_bar", m2obj_type, foo_type, bar_type),
+            relocated.transition("foo_to_bar", obj_type, foo_type, bar_type),
         ],
     )
     .unwrap();
@@ -1100,7 +1099,7 @@ pub struct Machine { pub k: KCell<KSequence> }
     let mut descriptors = declarations();
     descriptors.push(wrong_owner);
     assert_kind(
-        collect_host_descriptors([package.context("KRS-M2-NEGATIVE")], descriptors),
+        collect_host_descriptors([package.context("KRS-NEGATIVE")], descriptors),
         CollectionErrorKind::InvalidConfiguration,
     );
 
@@ -1112,7 +1111,7 @@ pub struct Machine { pub k: KCell<KSequence> }
     let mut descriptors = declarations();
     descriptors.push(wrong_term);
     assert_kind(
-        collect_host_descriptors([package.context("KRS-M2-NEGATIVE")], descriptors),
+        collect_host_descriptors([package.context("KRS-NEGATIVE")], descriptors),
         CollectionErrorKind::ProvenanceMismatch,
     );
 
@@ -1124,7 +1123,7 @@ pub struct Machine { pub k: KCell<KSequence> }
     let mut descriptors = declarations();
     descriptors.push(missing_reference);
     assert_kind(
-        collect_host_descriptors([package.context("KRS-M2-NEGATIVE")], descriptors),
+        collect_host_descriptors([package.context("KRS-NEGATIVE")], descriptors),
         CollectionErrorKind::ProvenanceMismatch,
     );
 }
@@ -1168,7 +1167,7 @@ pub struct Machine { pub k: KCell<KSequence> }
     });
     payload.initializer.references.clear();
     let bundle = collect_host_descriptors(
-        [package.context("KRS-M2-VARIABLE")],
+        [package.context("KRS-VARIABLE")],
         [
             package.sort("KItem", kitem_type, vec![]),
             package.constructor("Foo", foo_type, kitem_type),
@@ -1517,18 +1516,18 @@ impl TestPackage {
                 sentence_kind: SentenceKind::Transition,
                 parameters: vec![HostRuleParameterDescriptor {
                     bindings: Vec::new(),
-                    sort: type_ref(sort, "M2Obj"),
+                    sort: type_ref(sort, "Obj"),
                     pattern: parsed.parameter().pattern.spelling(),
                 }],
-                result_sort: type_ref(sort, "M2Obj"),
+                result_sort: type_ref(sort, "Obj"),
                 references: vec![
                     HostDescriptorReference::new(
                         ProvenanceRole::RuleType.key(0).unwrap(),
-                        type_ref(sort, "M2Obj"),
+                        type_ref(sort, "Obj"),
                     ),
                     HostDescriptorReference::new(
                         ProvenanceRole::RuleResultType.key(0).unwrap(),
-                        type_ref(sort, "M2Obj"),
+                        type_ref(sort, "Obj"),
                     ),
                     HostDescriptorReference::new(
                         ProvenanceRole::RuleLeftPath.key(0).unwrap(),
