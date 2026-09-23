@@ -5975,6 +5975,7 @@ lean = [
     "KRust.MaximalModels.runs_agree_up_to_pref",
     "KRust.MaximalModels.runs_agree",
     "KRust.MaximalModels.runs_agree_lowered",
+    "KRust.MaximalModels.runs_agree_candidates",
 ]
 
 [node.anchor]
@@ -6060,7 +6061,7 @@ symbol = "Encoding::maximal_models"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Encoding::check_parameter_choice"
+symbol = "Encoding::admissible_parameters"
 
 [[node.sites]]
 crate = "k-rust"
@@ -6085,8 +6086,8 @@ mode = "one order constraint (less_than_eq)"
 bound = "O(U) when a side is closed, O(P) otherwise"
 
 [[node.cost]]
-mode = "parameter-choice check of one recorded model with formal parameters"
-bound = "A solver checks, plus A model applications and post-inference lowerings of O(N) nodes each when A > 1; the compile fails at the first lowering that differs, or when A exceeds 256"
+mode = "admissible parameter enumeration of one recorded model with formal parameters"
+bound = "A solver checks, and A model applications of O(N) nodes each, whose candidates join the one ambiguity the post-inference passes resolve; the inference fails when A exceeds 256"
 
 [[node.cost]]
 mode = "cached encoding base that does not cover the term sorts"

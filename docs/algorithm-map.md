@@ -269,7 +269,7 @@ Each card with a `lean` key names theorems of `lean/theorems.txt` whose models m
 - backend.definedness.discharge: KRust.TermAttributes.ceilFree_sound
 - backend.rule.select: KRust.TermAttributes.rule_index_same
 - backend.term.macro_or_alias: KRust.TermAttributes.hasMacro_iff, KRust.TermAttributes.macro_shortcut_eq
-- parser.inference.z3: KRust.SubsortEncoding.new_equiv, KRust.MaximalModels.maximal_models_spec, KRust.MaximalModels.runs_agree_up_to_pref, KRust.MaximalModels.runs_agree, KRust.MaximalModels.runs_agree_lowered
+- parser.inference.z3: KRust.SubsortEncoding.new_equiv, KRust.MaximalModels.maximal_models_spec, KRust.MaximalModels.runs_agree_up_to_pref, KRust.MaximalModels.runs_agree, KRust.MaximalModels.runs_agree_lowered, KRust.MaximalModels.runs_agree_candidates
 - representation.backend.term: KRust.TermAttributes.ceilFree_sound, KRust.TermAttributes.map_keys_pairwise_distinct, KRust.TermAttributes.set_pairwise_distinct
 
 ## Fallbacks and variants
