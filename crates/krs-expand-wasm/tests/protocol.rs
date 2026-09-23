@@ -192,6 +192,60 @@ fn policy_diagnostics_stop_before_expansion() {
     assert_eq!(value["evidence"]["policy_version"], 1);
 }
 
+/// Policy version 2 rejects, before expansion and at an authored range, the
+/// two inputs that version 1 lets through to a later failure: a derive before
+/// a KRS attribute (the expander's `krs::expand::attribute-order`) and an
+/// authored item named like the registration table (E0428 in the browser's
+/// generated table, IR-18 finding 3). tour-minimal expands identically under
+/// both versions.
+#[test]
+fn policy_version_2_rejects_expander_mismatches_before_expansion() {
+    let with_version = |source: &str, version: u32| {
+        let mut request = request(source, &json!("whole-file"));
+        request["policy"]["version"] = json!(version);
+        run(&request).2
+    };
+    let (v1, v2) = (with_version(TOUR_MINIMAL, 1), with_version(TOUR_MINIMAL, 2));
+    assert_eq!(v2["ok"], true, "{v2}");
+    assert_eq!(v2["evidence"]["policy_version"], 2);
+    assert_eq!(v1["expanded"], v2["expanded"]);
+    assert_eq!(v1["source_map"], v2["source_map"]);
+    assert_eq!(v1["registrations"], v2["registrations"]);
+
+    let derive_first = TOUR_MINIMAL.replacen(
+        "#[k::configuration]",
+        "#[derive(Clone)]\n#[k::configuration]",
+        1,
+    );
+    let derive_start = derive_first.find("#[derive(Clone)]").unwrap();
+    let v1 = with_version(&derive_first, 1);
+    assert_eq!(v1["ok"], false);
+    assert_eq!(v1["diagnostics"][0]["origin"], "expander");
+    assert_eq!(v1["diagnostics"][0]["code"], "krs::expand::attribute-order");
+    let v2 = with_version(&derive_first, 2);
+    assert_eq!(v2["ok"], false);
+    assert_eq!(v2["diagnostics"].as_array().unwrap().len(), 1, "{v2}");
+    assert_eq!(v2["diagnostics"][0]["origin"], "policy");
+    assert_eq!(v2["diagnostics"][0]["code"], "krs::policy::attribute-order");
+    assert_eq!(
+        v2["diagnostics"][0]["authored"],
+        json!([derive_start, derive_start + "#[derive(Clone)]".len()])
+    );
+
+    let table_name = format!("{TOUR_MINIMAL}\npub static __KRS_REGISTRATIONS: u8 = 0;\n");
+    let name_start = table_name.rfind("__KRS_REGISTRATIONS").unwrap();
+    assert_eq!(with_version(&table_name, 1)["ok"], true);
+    let v2 = with_version(&table_name, 2);
+    assert_eq!(v2["ok"], false);
+    assert_eq!(v2["diagnostics"].as_array().unwrap().len(), 1, "{v2}");
+    assert_eq!(v2["diagnostics"][0]["origin"], "policy");
+    assert_eq!(v2["diagnostics"][0]["code"], "krs::policy::reserved-name");
+    assert_eq!(
+        v2["diagnostics"][0]["authored"],
+        json!([name_start, name_start + "__KRS_REGISTRATIONS".len()])
+    );
+}
+
 #[test]
 fn inconsistent_requests_are_protocol_errors() {
     let mut cases = Vec::new();

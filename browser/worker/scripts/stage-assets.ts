@@ -3,10 +3,12 @@
 // tour-minimal lesson manifest. No file is downloaded; large binaries stay out
 // of git.
 //
-//   bun scripts/stage-assets.ts [--out DIR] [--pack DIR] [--krs-rev REV]
+//   bun scripts/stage-assets.ts [--out DIR] [--pack DIR] [--krs-rev REV] [--policy-version N]
 //
 // Inputs:
 //   --pack               an IR-14 pack root (holds pack-manifest.toml; default /var/tmp/krs-ir14-pack-a/pack)
+//   --policy-version     the lesson manifest's [policy] version (default 2, IR-28; 1 reproduces the
+//                        IR-15..IR-18 manifests)
 //   KRS_IR15_POLICY      krs_lesson_policy.wasm built from the pack's crates/ tree
 //   KRS_IR15_EXPANDER    krs_expand_wasm.wasm built from the pack's crates/ tree
 //   KRS_IR15_REPO        KRS checkout holding --krs-rev (module revision and the tour-minimal lesson)
@@ -27,11 +29,14 @@ const { values } = parseArgs({
     out: { type: "string", default: "/var/tmp/krs-ir15-assets" },
     pack: { type: "string", default: "/var/tmp/krs-ir14-pack-a/pack" },
     "krs-rev": { type: "string", default: "3501f86cf5c219c300107302ab76c1b2854464c4" },
+    "policy-version": { type: "string", default: "2" },
   },
 });
 const OUT = values.out!;
 const PACK = values.pack!;
 const KRS_REV = values["krs-rev"]!;
+const POLICY_VERSION = Number(values["policy-version"]);
+if (!Number.isInteger(POLICY_VERSION) || POLICY_VERSION < 1) throw new Error(`--policy-version: ${values["policy-version"]}`);
 const env = (name: string, fallback: string) => process.env[name] ?? fallback;
 const inputs = {
   policy: env("KRS_IR15_POLICY", "/var/tmp/krs-ir15-target/krs-lesson-policy/wasm32-unknown-unknown/release/krs_lesson_policy.wasm"),
@@ -120,7 +125,7 @@ const lesson: LessonManifest = {
   },
   facade: { alias: facadeAlias, path: `::${facadeAlias}` },
   display_file: "src/lib.rs",
-  policy: { version: 1, editable_files: ["src/lib.rs"], facade_alias: facadeAlias },
+  policy: { version: POLICY_VERSION, editable_files: ["src/lib.rs"], facade_alias: facadeAlias },
   rustc_lint_flags: lintFlags,
 };
 await place("lessons/tour-minimal/lesson.json", new TextEncoder().encode(`${JSON.stringify(lesson, null, 1)}\n`));
@@ -134,4 +139,5 @@ console.log(JSON.stringify({
   crates_tree: pack.crates_tree,
   artifacts: pack.artifacts.length,
   lint_flags: lintFlags,
+  policy_version: POLICY_VERSION,
 }, null, 1));

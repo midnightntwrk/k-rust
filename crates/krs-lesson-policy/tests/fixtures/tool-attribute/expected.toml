@@ -1,0 +1,31 @@
+# Rejected in every version: only the bare `rustfmt::skip` path is a version 2 tool attribute.
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 2
+end = 23
+text = "rustfmt::skip::macros"
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 47
+end = 61
+text = "rustfmt::other"
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 80
+end = 92
+text = "clippy::skip"
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 111
+end = 126
+text = "::rustfmt::skip"
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 145
+end = 158
+text = "rustfmt::skip"
