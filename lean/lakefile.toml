@@ -1,0 +1,11 @@
+name = "krust"
+version = "0.1.0"
+defaultTargets = ["KRust"]
+
+[[lean_lib]]
+name = "KRust"
+
+[[lean_exe]]
+name = "krust-audit"
+root = "Audit"
+supportInterpreter = true
