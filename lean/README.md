@@ -11,6 +11,9 @@ The method, its limits and the case studies are in `draft/lean-verification/READ
 | `lakefile.toml` | library `KRust` and executable `krust-audit`; core Lean only, no Mathlib yet |
 | `KRust.lean` | root module; imports every module under `KRust/` |
 | `KRust/SubsortEncoding.lean` | the Z3 ground-side subsort encoding (`new_equiv`) |
+| `KRust/TermAttributes.lean` | the backend `Term` model; `ceilFree_sound` (OT-01), `hasMacro_iff`, `macro_shortcut_eq` and `rule_index_same` (OT-02) |
+| `KRust/SynthAttr.lean` | the generic synthesized-attribute lemma `fold_rel`, with case 3 restated through it |
+| `KRust/Examples.lean` | `#guard` checks that run the term model at build time |
 | `Audit.lean` | `krust-audit`: the `sorry` and axiom audit that `scripts/lean-check.sh` runs |
 
 A new dependency (Mathlib, say) is a `[[require]]` entry in `lakefile.toml`, and `lean-toolchain` must then name the Lean release that dependency's version pins.
@@ -43,4 +46,28 @@ theorem = "KRust.SubsortEncoding.new_equiv"
 hypothesis = "hI : Injective I"
 meaning = "distinct cached ground sort values (constructor terms of KRustInferenceSort) denote distinct elements in every Z3 model"
 rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::ground_side_encoding_is_equivalent"
+
+[[hypothesis]]
+theorem = "KRust.TermAttributes.ceilFree_sound"
+hypothesis = "hle : TotalOrder le (field trans)"
+meaning = "Ord for Term (term.rs:1133-1137) is transitive"
+rust_test = "crates/k-rust-backend/tests/backend/term_order.rs ord_for_term_is_transitive"
+
+[[hypothesis]]
+theorem = "KRust.TermAttributes.ceilFree_sound"
+hypothesis = "hle : TotalOrder le (field antisym)"
+meaning = "a.cmp(b) == Equal exactly when a == b (term.rs:1118-1137), and a == b exactly when the kinds are structurally equal"
+rust_test = "crates/k-rust-backend/tests/backend/term_order.rs ord_for_term_equal_is_eq"
+
+[[hypothesis]]
+theorem = "KRust.TermAttributes.ceilFree_sound"
+hypothesis = "WF le t"
+meaning = "every term the public constructors build has map entries sorted by (key, value) (Term::map, term.rs:471-509) and set elements sorted with adjacent elements distinct (Term::set, term.rs:562-595), at every depth"
+rust_test = "crates/k-rust-backend/tests/backend/term_order.rs constructed_collections_are_sorted"
+
+[[hypothesis]]
+theorem = "KRust.TermAttributes.ceilFree_sound"
+hypothesis = "O : Oracles (field dedup_nil)"
+meaning = "deduplicate (definedness.rs:307-310) of an empty vector is empty"
+rust_test = "crates/k-rust-backend/src/definedness.rs tests::deduplicate_keeps_an_empty_vector_empty"
 ```
