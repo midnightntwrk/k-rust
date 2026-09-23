@@ -181,6 +181,71 @@ endmodule
     assert!(stderr.contains("fresh runnable artifact"), "{stderr}");
 
     fs::write(compiled.join("frontend.json"), frontend).unwrap();
+
+    // The execution definition is decoded only to compile a search pattern: a payload that
+    // passes its digest check but does not decode fails the run that reads it, not every run.
+    let execution = fs::read(compiled.join("execution.json")).unwrap();
+    let undecodable = b"{}";
+    let mut rehashed: serde_json::Value = serde_json::from_slice(&manifest).unwrap();
+    rehashed["execution"]["sha256"] = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(undecodable)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+            .into()
+    };
+    fs::write(compiled.join("execution.json"), undecodable).unwrap();
+    fs::write(
+        compiled.join("runtime.json"),
+        serde_json::to_vec(&rehashed).unwrap(),
+    )
+    .unwrap();
+    let without_pattern = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "-s",
+            "Input",
+            "-e",
+            "zero",
+            "-c",
+            "ENV=zero",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        without_pattern.status.success(),
+        "{}",
+        String::from_utf8_lossy(&without_pattern.stderr)
+    );
+    let with_pattern = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "-s",
+            "Input",
+            "-e",
+            "zero",
+            "-c",
+            "ENV=zero",
+            "--search-final",
+            "--pattern",
+            "<k> ?K:K </k>",
+        ])
+        .output()
+        .unwrap();
+    assert!(!with_pattern.status.success());
+    let stderr = String::from_utf8(with_pattern.stderr).unwrap();
+    assert!(
+        stderr.contains("runnable artifact payload `execution.json` is corrupt"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("fresh runnable artifact"), "{stderr}");
+    fs::write(compiled.join("execution.json"), execution).unwrap();
+
     let mut incompatible: serde_json::Value = serde_json::from_slice(&manifest).unwrap();
     incompatible["version"] = 2.into();
     fs::write(

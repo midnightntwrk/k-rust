@@ -73,7 +73,8 @@ use k_rust::{
         printer::Printer as KorePrinter,
     },
     native::{
-        FileResolver, load_runnable_artifact, unpublish_runnable_artifact, write_runnable_artifact,
+        ExecutionPayload, FileResolver, load_runnable_artifact, unpublish_runnable_artifact,
+        write_runnable_artifact,
     },
     outer::{
         LoadOptions, PreparedModuleDeclaration, SourceResolver, SyntaxModule,
@@ -1138,11 +1139,29 @@ struct KrunCompiledInput {
     main_module: String,
     syntax_module: String,
     frontend_definition: k_rust::definition::Definition,
-    execution_definition: k_rust::definition::Definition,
+    execution_definition: KrunExecutionDefinition,
     configuration_variables: BTreeMap<String, KastSort>,
     execution_rewrite_order: Vec<String>,
     definition_kore: String,
     timings: CompileTimings,
+}
+
+/// The execution definition krun reads only to compile a `--pattern`: built in-process from a
+/// source definition, or still encoded in a runnable artifact.
+enum KrunExecutionDefinition {
+    Built(k_rust::definition::Definition),
+    Artifact(ExecutionPayload),
+}
+
+impl KrunExecutionDefinition {
+    fn resolve(&self) -> Result<k_rust::definition::ResolvedDefinition, Box<dyn Error>> {
+        Ok(match self {
+            Self::Built(definition) => k_rust::definition::ResolvedDefinition::resolve(definition)?,
+            Self::Artifact(payload) => {
+                k_rust::definition::ResolvedDefinition::resolve(&payload.decode()?)?
+            }
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -2148,7 +2167,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             main_module: artifact.main_module,
             syntax_module: artifact.syntax_module,
             frontend_definition: artifact.frontend_definition,
-            execution_definition: artifact.execution_definition,
+            execution_definition: KrunExecutionDefinition::Artifact(artifact.execution),
             configuration_variables: artifact.configuration_variables,
             execution_rewrite_order: artifact.execution_rewrite_order,
             definition_kore: artifact.definition_kore,
@@ -2196,7 +2215,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             main_module: common.module.clone(),
             syntax_module: syntax_module.name,
             frontend_definition: loaded.definition,
-            execution_definition: artifacts.execution_definition,
+            execution_definition: KrunExecutionDefinition::Built(artifacts.execution_definition),
             configuration_variables: artifacts.configuration_variables,
             execution_rewrite_order: artifacts.execution_rewrite_order,
             definition_kore: artifacts.definition_kore,
@@ -2224,8 +2243,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let program_definition = definition_with_named_projections(&compiled.frontend_definition);
     let program_resolved = k_rust::definition::ResolvedDefinition::resolve(&program_definition)?;
     let compiled_surface_pattern = if let Some(contents) = options.surface_pattern.as_deref() {
-        let execution_resolved =
-            k_rust::definition::ResolvedDefinition::resolve(&compiled.execution_definition)?;
+        let execution_resolved = compiled.execution_definition.resolve()?;
         let attributes = command_line_pattern_attributes(contents);
         match compile_search_pattern(
             &program_resolved,

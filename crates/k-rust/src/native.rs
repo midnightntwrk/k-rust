@@ -30,6 +30,7 @@ const RUNTIME_VERSION: u32 = 1;
 const FRONTEND_PAYLOAD: &str = "frontend.json";
 const EXECUTION_PAYLOAD: &str = "execution.json";
 const KORE_PAYLOAD: &str = "definition.kore";
+const RECOMPILE_REMEDY: &str = "run `krust kcompile` again to create a fresh runnable artifact";
 
 #[derive(Clone, Debug)]
 pub struct RunnableArtifact {
@@ -37,10 +38,35 @@ pub struct RunnableArtifact {
     pub syntax_module: String,
     pub frontend_definition: Definition,
     pub source_table: SourceTable,
-    pub execution_definition: Definition,
+    pub execution: ExecutionPayload,
     pub configuration_variables: BTreeMap<String, Sort>,
     pub execution_rewrite_order: Vec<String>,
     pub definition_kore: String,
+}
+
+/// The execution definition of a runnable artifact, as its digest-checked payload.
+///
+/// Execution runs from `definition.kore`; the execution definition is read only to compile a
+/// search pattern, so it is decoded by the command that needs it rather than on every load.
+/// Skipping the decode loses no load-time check of the artifact's compatibility: the payload's
+/// digest is still verified at load, and `frontend.json`, which is always decoded, is written in
+/// the same provenance format and version by the same `kcompile`, so an artifact from an
+/// incompatible writer is still rejected at load.
+#[derive(Clone, Debug)]
+pub struct ExecutionPayload {
+    file: String,
+    bytes: Vec<u8>,
+}
+
+impl ExecutionPayload {
+    /// Decode the execution definition.
+    pub fn decode(&self) -> Result<Definition, Box<dyn std::error::Error>> {
+        let text = std::str::from_utf8(&self.bytes)
+            .map_err(|error| corrupt_payload_error(&self.file, error, RECOMPILE_REMEDY))?;
+        Ok(definition_json::from_provenance_str(text)
+            .map_err(|error| corrupt_payload_error(&self.file, error, RECOMPILE_REMEDY))?
+            .definition)
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -158,7 +184,7 @@ fn retain_pattern_sentences(definition: &mut Definition) {
 pub fn load_runnable_artifact(
     directory: &Path,
 ) -> Result<RunnableArtifact, Box<dyn std::error::Error>> {
-    let remedy = "run `krust kcompile` again to create a fresh runnable artifact";
+    let remedy = RECOMPILE_REMEDY;
     let manifest_path = directory.join(RUNTIME_MANIFEST);
     let bytes = fs::read(&manifest_path).map_err(|error| {
         io::Error::new(
@@ -206,10 +232,6 @@ pub fn load_runnable_artifact(
         .map_err(|error| corrupt_payload_error(&manifest.frontend.file, error, remedy))?;
     let frontend = definition_json::from_provenance_str(frontend)
         .map_err(|error| corrupt_payload_error(&manifest.frontend.file, error, remedy))?;
-    let execution = std::str::from_utf8(&execution)
-        .map_err(|error| corrupt_payload_error(&manifest.execution.file, error, remedy))?;
-    let execution = definition_json::from_provenance_str(execution)
-        .map_err(|error| corrupt_payload_error(&manifest.execution.file, error, remedy))?;
     let configuration_variables = manifest
         .configuration_variables
         .into_iter()
@@ -230,7 +252,10 @@ pub fn load_runnable_artifact(
         syntax_module: manifest.syntax_module,
         frontend_definition: frontend.definition,
         source_table: frontend.source_table,
-        execution_definition: execution.definition,
+        execution: ExecutionPayload {
+            file: manifest.execution.file,
+            bytes: execution,
+        },
         configuration_variables,
         execution_rewrite_order: manifest.execution_rewrite_order,
         definition_kore: String::from_utf8(definition_kore).map_err(|error| {
