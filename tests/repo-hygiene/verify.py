@@ -40,18 +40,6 @@ REMOVED_LEDGERS = re.compile(
 SPIKE_PATH = re.compile(r"\bspikes[/]")
 # A local ticket id. The bracket keeps this pattern out of its own search.
 LOCAL_TICKET_ID = re.compile(r"\b(?:IR|BL|CQ)[-][0-9]{2,3}\b")
-# Program text and output that recorded expectations pin byte for byte; changing
-# it needs a re-recorded expectation, so these exact strings are exempt.
-_B01 = "tests/browser-backend/cases/B01-registration-explicit/"
-_B01_PINNED = ("deliberate BL-003 trap", "BL-003 reads these exact authored bytes")
-PINNED_TICKET_TEXT = {
-    # The expander's tour-minimal output hash in browser/worker/test/unit/pipeline.test.ts.
-    "crates/krs-expand/src/whole_file.rs": ("registration table (IR-07)",),
-    _B01 + "runner.rs": _B01_PINNED,
-    _B01 + "vfs/workspace/src/lesson.krs": _B01_PINNED,
-    _B01 + "oracle-success.json": _B01_PINNED,
-    _B01 + "expected.json": _B01_PINNED,
-}
 # A shell command that runs a gate, as a gate README must state one.
 RUN_COMMAND = re.compile(r"\b(?:python3|cargo|bun|node)\s+\S")
 
@@ -108,15 +96,11 @@ def main() -> int:
                 (DRAFT_PATH, "references draft/"),
                 (REMOVED_LEDGERS, "references a removed root ledger"),
                 (SPIKE_PATH, "references a local-only spike path"),
+                (LOCAL_TICKET_ID, "cites a local ticket id"),
             ):
                 match = pattern.search(line)
                 if match:
                     problems.append(f"{relative}:{number}: {what}: {line.strip()[:160]}")
-            unpinned = line
-            for pinned in PINNED_TICKET_TEXT.get(relative, ()):
-                unpinned = unpinned.replace(pinned, "")
-            if LOCAL_TICKET_ID.search(unpinned):
-                problems.append(f"{relative}:{number}: cites a local ticket id: {line.strip()[:160]}")
     if problems:
         for problem in problems:
             print(problem, file=sys.stderr)
