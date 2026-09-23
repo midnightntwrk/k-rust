@@ -394,7 +394,6 @@ files = ["${run}/compiled/definition.kore"]
 name = "wasm-compile-rust"
 command = "kcompile"
 weight = "heavy"
-memory_gib = 40
 pins = ["k", "wasm"]
 args = [
   "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md",
@@ -412,7 +411,6 @@ files = ["${run}/compiled/definition.kore", "${run}/compiled/execution.json"]
 name = "mir-compile-rust"
 command = "kcompile"
 weight = "heavy"
-memory_gib = 40
 pins = ["k", "mir"]
 args = [
   "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md",
