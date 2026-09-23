@@ -1,0 +1,25 @@
+# Rejected in every version: version 2 accepts a bare `#[default]` on an enum variant only.
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 21
+end = 28
+text = "default"
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 98
+end = 105
+text = "default"
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 154
+end = 161
+text = "default"
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 207
+end = 214
+text = "default"

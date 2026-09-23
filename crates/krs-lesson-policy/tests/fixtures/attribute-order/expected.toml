@@ -1,0 +1,13 @@
+versions = [2]
+
+[[diagnostic]]
+code = "krs::policy::attribute-order"
+start = 0
+end = 23
+text = "#[derive(Clone, Debug)]"
+
+[[diagnostic]]
+code = "krs::policy::attribute-order"
+start = 117
+end = 135
+text = "#[derive(Default)]"

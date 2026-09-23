@@ -2,8 +2,11 @@ schema = 1
 id = "B25-narrow-signed-div"
 behavior = "sdiv, srem, sshr (register and immediate forms) on i8 and i16."
 basis = "found by IR-16 (operation sweep against the twin)"
-gap = { class = "backend", summary = "silent miscompile: -100_i8 / 7 = 22 (twin -14), -100_i8 % 7 = 2 (-2), -100_i8 >> 7 = 0 (-1); i16 alike; compiles and exits 0 at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff: narrow ints are kept zero-extended in i32 (comment at line 184) but the Binary arm maps Sdiv/Srem/Sshr on i8/i16 straight to I32DivS/I32RemS/I32ShrS without sign_extend_narrow, and BinaryImm64 does the same for SdivImm/SremImm (SshrImm alone sign-extends, line 799; SdivImm/SremImm at 807/809)" }
-expected_status = "known-gap"
+gap = { class = "backend", summary = "silent miscompile: -100_i8 / 7 = 22 (twin -14), -100_i8 % 7 = 2 (-2), -100_i8 >> 7 = 0 (-1); i16 alike; compiles and exits 0 at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff: narrow ints are kept zero-extended in i32 (comment at line 184) but the Binary arm maps Sdiv/Srem/Sshr on i8/i16 straight to I32DivS/I32RemS/I32ShrS without sign_extend_narrow, and BinaryImm64 does the same for SdivImm/SremImm (SshrImm alone sign-extends, line 799; SdivImm/SremImm at 807/809)", fixed_in = "eb8eda0400b8015a0751e48597eb0969dbbd7b36" }
+# Fixed by IR-27 (fork eb8eda040, commit 654b704 of krs/ir-27-clif2wasm-gaps): passes from that
+# revision on and is the recorded known gap of 195111dff (R-k) and 0ce51e933 (R-26).
+expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "known-gap", "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" = "known-gap" }
 
 [[crate]]
 name = "b25_repro"

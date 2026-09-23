@@ -223,6 +223,117 @@
     }
    },
    "stable_differs": []
+  },
+  "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (eb8eda040 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: eb8eda0400b8015a0751e48597eb0969dbbd7b36",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:a6155f58b7424a819d0dfacceb3018cfe9c8eb03453c49726f2bc54301ce61a9",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b05_vfs_reads",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "canonicalize existing-file: Ok(\"/data/dir/file.txt\")\ncanonicalize existing-directory: Ok(\"/data/dir\")\ncanonicalize directory-trailing-slash: Ok(\"/data/dir\")\ncanonicalize missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\ncanonicalize dot-dot: Ok(\"/data/dir/file.txt\")\ncanonicalize dot-component: Ok(\"/data/dir/file.txt\")\ncanonicalize missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\ncanonicalize root: Ok(\"/\")\nread existing-file: Ok((23, \"hello from the B05 VFS\\n\"))\nread existing-directory: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nread directory-trailing-slash: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nread missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nread dot-dot: Ok((23, \"hello from the B05 VFS\\n\"))\nread dot-component: Ok((23, \"hello from the B05 VFS\\n\"))\nread missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nread root: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nmetadata existing-file: Ok((true, false, 23))\nmetadata existing-directory: Ok((false, true, 0))\nmetadata directory-trailing-slash: Ok((false, true, 0))\nmetadata missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nmetadata dot-dot: Ok((true, false, 23))\nmetadata dot-component: Ok((true, false, 23))\nmetadata missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nmetadata root: Ok((false, true, 0))\nread_dir /data/dir: Ok([\"file.txt\", \"sub\"])\nread_to_string missing: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\n{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/data/dir/missing.txt\"}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b05_vfs_reads",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "canonicalize existing-file: Ok(\"/data/dir/file.txt\")\ncanonicalize existing-directory: Ok(\"/data/dir\")\ncanonicalize directory-trailing-slash: Ok(\"/data/dir\")\ncanonicalize missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\ncanonicalize dot-dot: Ok(\"/data/dir/file.txt\")\ncanonicalize dot-component: Ok(\"/data/dir/file.txt\")\ncanonicalize missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\ncanonicalize root: Ok(\"/\")\nread existing-file: Ok((23, \"hello from the B05 VFS\\n\"))\nread existing-directory: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nread directory-trailing-slash: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nread missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nread dot-dot: Ok((23, \"hello from the B05 VFS\\n\"))\nread dot-component: Ok((23, \"hello from the B05 VFS\\n\"))\nread missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nread root: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nmetadata existing-file: Ok((true, false, 23))\nmetadata existing-directory: Ok((false, true, 0))\nmetadata directory-trailing-slash: Ok((false, true, 0))\nmetadata missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nmetadata dot-dot: Ok((true, false, 23))\nmetadata dot-component: Ok((true, false, 23))\nmetadata missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nmetadata root: Ok((false, true, 0))\nread_dir /data/dir: Ok([\"file.txt\", \"sub\"])\nread_to_string missing: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\n{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/data/dir/missing.txt\"}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b05_vfs_reads",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "canonicalize existing-file: Ok(\"/data/dir/file.txt\")\ncanonicalize existing-directory: Ok(\"/data/dir\")\ncanonicalize directory-trailing-slash: Ok(\"/data/dir\")\ncanonicalize missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\ncanonicalize dot-dot: Ok(\"/data/dir/file.txt\")\ncanonicalize dot-component: Ok(\"/data/dir/file.txt\")\ncanonicalize missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\ncanonicalize root: Ok(\"/\")\nread existing-file: Ok((23, \"hello from the B05 VFS\\n\"))\nread existing-directory: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nread directory-trailing-slash: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nread missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nread dot-dot: Ok((23, \"hello from the B05 VFS\\n\"))\nread dot-component: Ok((23, \"hello from the B05 VFS\\n\"))\nread missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nread root: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nmetadata existing-file: Ok((true, false, 23))\nmetadata existing-directory: Ok((false, true, 0))\nmetadata directory-trailing-slash: Ok((false, true, 0))\nmetadata missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nmetadata dot-dot: Ok((true, false, 23))\nmetadata dot-component: Ok((true, false, 23))\nmetadata missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nmetadata root: Ok((false, true, 0))\nread_dir /data/dir: Ok([\"file.txt\", \"sub\"])\nread_to_string missing: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\n{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/data/dir/missing.txt\"}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b05_vfs_reads",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "canonicalize existing-file: Ok(\"/data/dir/file.txt\")\ncanonicalize existing-directory: Ok(\"/data/dir\")\ncanonicalize directory-trailing-slash: Ok(\"/data/dir\")\ncanonicalize missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\ncanonicalize dot-dot: Ok(\"/data/dir/file.txt\")\ncanonicalize dot-component: Ok(\"/data/dir/file.txt\")\ncanonicalize missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\ncanonicalize root: Ok(\"/\")\nread existing-file: Ok((23, \"hello from the B05 VFS\\n\"))\nread existing-directory: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nread directory-trailing-slash: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nread missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nread dot-dot: Ok((23, \"hello from the B05 VFS\\n\"))\nread dot-component: Ok((23, \"hello from the B05 VFS\\n\"))\nread missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nread root: Err(kind=Uncategorized, os=Some(8), message=\"Bad file descriptor (os error 8)\")\nmetadata existing-file: Ok((true, false, 23))\nmetadata existing-directory: Ok((false, true, 0))\nmetadata directory-trailing-slash: Ok((false, true, 0))\nmetadata missing-file: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nmetadata dot-dot: Ok((true, false, 23))\nmetadata dot-component: Ok((true, false, 23))\nmetadata missing-parent: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\nmetadata root: Ok((false, true, 0))\nread_dir /data/dir: Ok([\"file.txt\", \"sub\"])\nread_to_string missing: Err(kind=NotFound, os=Some(44), message=\"No such file or directory (os error 44)\")\n{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/data/dir/missing.txt\"}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
   }
  }
 }
