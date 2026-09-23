@@ -10,7 +10,9 @@ name = "algo-graph"
 path = "src/main.rs"
 
 [dependencies]
+addr2line = { version = "0.25", default-features = false, features = ["loader"] }
 clap.workspace = true
+flate2 = "1"
 k-rust = { path = "../k-rust", default-features = false }
 k-rust-kore.workspace = true
 proc-macro2 = { version = "1.0", features = ["span-locations"] }

@@ -19,6 +19,7 @@ mod html;
 mod join;
 mod map;
 mod model;
+mod profile;
 pub mod query;
 mod render;
 
@@ -58,6 +59,12 @@ use k_rust::kompile::pipeline::{
 use k_rust_kore::measure::{Algorithm, Counter};
 pub use map::{MAP_COMMAND, MAP_PATH, render_map};
 pub use model::{Anchor, Cost, Edge, Graph, Node};
+pub use profile::{
+    DwarfSymbolizer, NO_ALGORITHM, OWNERSHIP_RULE, PROFILE_SCHEMA_VERSION, STACKS_SCHEMA_VERSION,
+    SampledAlgorithm, SampledProfile, SampledStack, StackFrame, Stacks, Symbolizer,
+    UncardedFunction, Under, attribute, fold_samply, fold_samply_json, read_profile, read_stacks,
+    under_text,
+};
 pub use render::{
     Filters, render_composition, render_composition_focus, render_module_map, render_pipeline,
 };

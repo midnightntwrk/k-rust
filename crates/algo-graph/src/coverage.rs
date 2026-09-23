@@ -390,7 +390,7 @@ pub(crate) fn site_state(
 }
 
 /// `crates/<crate>/src/**.rs`.
-fn is_workspace_source(relative: &str) -> bool {
+pub(crate) fn is_workspace_source(relative: &str) -> bool {
     let parts = relative.split('/').collect::<Vec<_>>();
     parts.len() >= 4
         && parts[0] == "crates"

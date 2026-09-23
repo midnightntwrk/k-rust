@@ -4,12 +4,13 @@ use std::{
 };
 
 use algo_graph::{
-    Filters, MAP_PATH, atlas, build_graph, canonical_coverage_toml, canonical_join_toml,
-    canonical_toml, check_staleness, diff, drift, join_files, normalize_export,
+    DwarfSymbolizer, Filters, MAP_PATH, atlas, attribute, build_graph, canonical_coverage_toml,
+    canonical_join_toml, canonical_toml, check_staleness, diff, drift, fold_samply, join_files,
+    normalize_export,
     query::{self, Answer, HotOrder, NotFound},
-    read_atlas_index, read_join_file, receipt_graph, render_composition, render_composition_focus,
-    render_drift, render_html, render_map, render_module_map, render_pipeline, render_run_overlay,
-    workspace_root, write_output, write_report,
+    read_atlas_index, read_join_file, read_stacks, receipt_graph, render_composition,
+    render_composition_focus, render_drift, render_html, render_map, render_module_map,
+    render_pipeline, render_run_overlay, workspace_root, write_output, write_report,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -89,6 +90,22 @@ Examples:
   algo-graph atlas --index receipts/<commit>/atlas.toml --toml atlas.toml
   algo-graph atlas --index receipts/<commit>/atlas.toml --check")]
     Atlas(AtlasArgs),
+    /// Attribute the CPU samples of a `samply record` profile to algorithm cards.
+    ///
+    /// Resolves every address of the profiled binary to its source frames, one per inlined call,
+    /// from the binary's DWARF line tables (build it with the `profiling` profile), and folds equal
+    /// stacks. A workspace frame belongs to the algorithm whose card site item contains its line;
+    /// a sample's self owner is the innermost owned frame, and every owner on the stack gets a
+    /// total sample. Workspace frames no card owns are uncarded code, reported as leaf functions
+    /// (the innermost workspace frame) with the algorithm they run under, and by inclusive samples.
+    /// Site items are read from the sources below --root, which must be the sources the binary
+    /// was built from. Without -o, prints a text summary.
+    #[command(after_help = "\
+Examples:
+  taskset -c 0-15 samply record --save-only -o profile.json.gz -- target/profiling/krust krun ...
+  algo-graph profile --samply profile.json.gz --binary target/profiling/krust --stacks stacks.json -o profile.toml
+  algo-graph profile --from-stacks stacks.json --graph receipt/graph.toml")]
+    Profile(ProfileArgs),
 }
 
 const QUERY_ABOUT: &str = "\
@@ -389,6 +406,37 @@ struct JoinArgs {
 }
 
 #[derive(Debug, Args)]
+struct ProfileArgs {
+    /// Profile written by `samply record --save-only` (`.json` or `.json.gz`).
+    #[arg(
+        long,
+        value_name = "profile.json.gz",
+        required_unless_present = "from_stacks",
+        conflicts_with = "from_stacks",
+        requires = "binary"
+    )]
+    samply: Option<PathBuf>,
+    /// The profiled executable; its DWARF line tables resolve the profile's addresses.
+    #[arg(long, value_name = "krust")]
+    binary: Option<PathBuf>,
+    /// Read stacks that an earlier --stacks wrote instead of a samply profile.
+    #[arg(long, value_name = "stacks.json")]
+    from_stacks: Option<PathBuf>,
+    /// Write the symbolicated, folded stacks here (JSON, one stack per line).
+    #[arg(long, value_name = "stacks.json", conflicts_with = "from_stacks")]
+    stacks: Option<PathBuf>,
+    /// Graph TOML whose algorithm sites own frames. Defaults to the graph built from --root.
+    #[arg(long, value_name = "graph.toml")]
+    graph: Option<PathBuf>,
+    /// Write the attribution as TOML here instead of printing a summary.
+    #[arg(short, long, value_name = "profile.toml")]
+    output: Option<PathBuf>,
+    /// Rows per table in the printed summary.
+    #[arg(long, default_value_t = 15)]
+    limit: usize,
+}
+
+#[derive(Debug, Args)]
 struct CoverageArgs {
     /// JSON written by `llvm-cov export --format=text` for the instrumented binary.
     #[arg(long)]
@@ -565,6 +613,46 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
                 }
             );
         }
+        Command::Profile(arguments) => {
+            let stacks = match (&arguments.samply, &arguments.from_stacks) {
+                (Some(profile), _) => {
+                    let binary = arguments.binary.as_deref().expect("clap requires --binary");
+                    let name = binary
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let mut symbolizer = DwarfSymbolizer::new(binary, &root)?;
+                    let stacks = fold_samply(profile, &name, &mut symbolizer)?;
+                    if let Some(path) = &arguments.stacks {
+                        write_output(path, &stacks.json()?)?;
+                    }
+                    stacks
+                }
+                (None, Some(path)) => read_stacks(path)?,
+                (None, None) => unreachable!("clap requires --samply or --from-stacks"),
+            };
+            let graph = match &arguments.graph {
+                Some(path) => {
+                    let source = std::fs::read_to_string(path).map_err(|error| {
+                        algo_graph::Error::Invalid(format!("{}: {error}", path.display()))
+                    })?;
+                    toml::from_str(&source).map_err(|error| {
+                        algo_graph::Error::Invalid(format!("{}: {error}", path.display()))
+                    })?
+                }
+                None => build_graph(&root)?.graph,
+            };
+            let mut profile = attribute(&stacks, &graph, &root)?;
+            match &arguments.output {
+                Some(output) => {
+                    let stacks_path = arguments.stacks.as_ref().or(arguments.from_stacks.as_ref());
+                    profile.stacks = stacks_path.map(|path| relative_to(path, output));
+                    write_output(output, &profile.toml()?)?;
+                    eprintln!("wrote {}", output.display());
+                }
+                None => print!("{}", profile.text(arguments.limit)),
+            }
+        }
         Command::Query(_) | Command::Atlas(_) => unreachable!("main dispatches query and atlas"),
     }
     Ok(())
@@ -717,6 +805,20 @@ impl RenderArgs {
             counters: self.counters.clone(),
         }
     }
+}
+
+/// `path` relative to the directory of `file` when both are in one directory tree, else `path`.
+fn relative_to(path: &Path, file: &Path) -> String {
+    let absolute = |path: &Path| std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
+    let path = absolute(path);
+    let directory = absolute(file)
+        .parent()
+        .map(Path::to_owned)
+        .unwrap_or_default();
+    path.strip_prefix(&directory)
+        .map_or_else(|_| path.clone(), Path::to_owned)
+        .display()
+        .to_string()
 }
 
 fn default_output(root: &Path, name: &str) -> PathBuf {
