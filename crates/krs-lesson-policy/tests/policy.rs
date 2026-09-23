@@ -297,7 +297,7 @@ fn tour_imp_passes_version_2_and_fails_version_1_only_for_rustfmt_skip() {
 }
 
 #[test]
-fn bl006_d007_is_rejected_at_the_external_derive_path() {
+fn d007_is_rejected_at_the_external_derive_path() {
     let source = include_str!("fixtures/d007-external-proc-macro/source.rs");
     for policy in [
         LessonPolicy::single_file_v1(),
