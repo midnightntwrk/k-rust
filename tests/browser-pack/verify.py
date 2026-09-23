@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import hashlib
 import importlib.util
 import json
 import os
@@ -42,8 +41,13 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT  # noqa: E402
+from support.checkouts import git, git_revision  # noqa: E402
+from support.hashing import sha256_bytes, sha256_file, sha256_text  # noqa: E402
+from support.process import run  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 LOAD_MAX = float(os.environ.get("LOAD_MAX", "40"))
 
 
@@ -59,16 +63,8 @@ manifest_py = load_module("krs_pack_manifest", ROOT / "browser/pack/manifest.py"
 release_py = load_module("krs_release", ROOT / "browser/release/release.py")
 
 
-def sha256_file(path: Path) -> str:
-    return release_py.sha256_file(path)
-
-
 def log(message: str) -> None:
     print(f"[browser-pack] {message}", file=sys.stderr, flush=True)
-
-
-def git(*args: str) -> str:
-    return subprocess.run(["git", "-C", str(ROOT), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
 # ------------------------------------------------------------------ --check
@@ -109,14 +105,14 @@ def check_pack_json(staged: Path, manifest: dict[str, Any], require_checkout: bo
             problems.append(f"{a['path']}: bytes or sha256 differ from pack.json")
     root = pack["integrity"]["root"] + "/"
     lines = sorted(f"{a['sha256']}  {a['path'][len(root):]}\n" for a in assets if a["path"].startswith(root))
-    recomputed = "sha256:" + hashlib.sha256("".join(lines).encode()).hexdigest()
+    recomputed = "sha256:" + sha256_text("".join(lines))
     if recomputed != pack["pack_id"]:
         problems.append(f"pack.json assets recompute to {recomputed}, not {pack['pack_id']}")
     trees = {i["name"]: i.get("git_tree") for i in manifest["input"] if i["kind"] == "git-tree"}
     crates = {"pack-manifest.toml": trees.get("KRS crates/ tree"), "pack.json": pack["crates_tree"], "modules": pack["modules"]["crates_tree"]}
     if require_checkout:
-        crates["checkout HEAD"] = git("rev-parse", "HEAD:crates")
-        if git("status", "--porcelain", "--", "crates", "Cargo.lock"):
+        crates["checkout HEAD"] = git(ROOT, "rev-parse", "HEAD:crates")
+        if git(ROOT, "status", "--porcelain", "--", "crates", "Cargo.lock"):
             problems.append("crates/ or Cargo.lock has uncommitted changes")
     if len(set(crates.values())) != 1:
         problems.append("crates/ trees differ: " + ", ".join(f"{k} {v}" for k, v in crates.items()))
@@ -186,8 +182,8 @@ def check_licenses(staged: Path, manifest: dict[str, Any]) -> tuple[list[str], d
 def check_oracle(oracle_path: Path, require_checkout: bool) -> tuple[list[str], dict[str, Any]]:
     problems = []
     oracle = tomllib.loads(oracle_path.read_text())
-    if require_checkout and oracle["validity"]["crates_tree"] != git("rev-parse", "HEAD:crates"):
-        problems.append(f"oracle.toml is for crates tree {oracle['validity']['crates_tree']}, the checkout has {git('rev-parse', 'HEAD:crates')}")
+    if require_checkout and oracle["validity"]["crates_tree"] != git(ROOT, "rev-parse", "HEAD:crates"):
+        problems.append(f"oracle.toml is for crates tree {oracle['validity']['crates_tree']}, the checkout has {git(ROOT, 'rev-parse', 'HEAD:crates')}")
     for key in ("oracle", "oracle_e1"):
         rec = oracle[key]
         f = Path(rec["bundle"])
@@ -203,7 +199,7 @@ def check_publish(publish: Path, staged: Path, oracle: dict[str, Any] | None, re
         problems.append("index.json has the wrong kind")
     rpath = publish / index["active"]["release"]
     raw = rpath.read_bytes()
-    rsha = hashlib.sha256(raw).hexdigest()
+    rsha = sha256_bytes(raw)
     if rpath.name != f"{rsha}.json" or index["active"]["sha256"] != rsha:
         problems.append(f"release {rpath.name} hashes to {rsha}")
     release = json.loads(raw)
@@ -240,7 +236,7 @@ def check_publish(publish: Path, staged: Path, oracle: dict[str, Any] | None, re
     for role, entry in release["roles"].items():
         if entry.get("status") == "present" and not entry.get("assets"):
             problems.append(f"role {role} is present without assets")
-    if require_checkout and release["krs"]["crates_tree"] != git("rev-parse", "HEAD:crates"):
+    if require_checkout and release["krs"]["crates_tree"] != git(ROOT, "rev-parse", "HEAD:crates"):
         problems.append("release crates_tree differs from the checkout")
     if oracle is not None and (release["oracle"]["bundle_sha256"] != oracle["oracle"]["bundle_sha256"]
                                or release["oracle"]["e1_bundle_sha256"] != oracle["oracle_e1"]["bundle_sha256"]):
@@ -318,7 +314,7 @@ def run_falsify(staged: Path, scratch: Path) -> dict[str, Any]:
 # ------------------------------------------------------------------ --rebuild
 
 def wait_for_load() -> str:
-    uptime = subprocess.run(["uptime"], capture_output=True, text=True).stdout.strip()
+    uptime = run(["uptime"], check=False).stdout.strip()
     log(f"uptime: {uptime}")
     while os.getloadavg()[0] > LOAD_MAX:
         log(f"1-minute load {os.getloadavg()[0]:.1f} > {LOAD_MAX}; waiting 60 s")
@@ -327,7 +323,7 @@ def wait_for_load() -> str:
 
 
 def du_bytes(path: Path) -> int:
-    return int(subprocess.run(["du", "-sb", str(path)], check=True, capture_output=True, text=True).stdout.split()[0])
+    return int(run(["du", "-sb", path]).stdout.split()[0])
 
 
 def pack_files(pack: Path) -> dict[str, str]:
@@ -373,7 +369,7 @@ def run_rebuild(args: argparse.Namespace) -> dict[str, Any]:
         for label, files in (("a", a), ("b", b)):
             (args.evidence / f"rebuild-{label}.sha256").write_text("".join(f"{h}  {p}\n" for p, h in files.items()))
     return {"mode": "rebuild", "pass": not problems, "files": len(a), "problems": problems, "runs": runs, "against": against,
-            "date": datetime.date.today().isoformat(), "krs_revision": git("rev-parse", "HEAD")}
+            "date": datetime.date.today().isoformat(), "krs_revision": git_revision(ROOT)}
 
 
 def main() -> int:

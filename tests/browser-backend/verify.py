@@ -32,21 +32,24 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime
-import hashlib
 import json
 import os
 from pathlib import Path
 import platform
 import re
 import shutil
-import subprocess
 import sys
 import time
 import tomllib
-from typing import Any
+from typing import Any, Mapping
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT  # noqa: E402
+from support.checkouts import git_revision  # noqa: E402
+from support.hashing import json_sha256  # noqa: E402
+from support.process import run  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 CASES = HERE / "cases"
 RUNNER = HERE / "runner"
 DEFAULT_PACK = Path("/var/tmp/krs-browser-pack/pack")
@@ -71,13 +74,11 @@ def wait_for_load() -> str:
         time.sleep(30)
 
 
-def sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+def niced(command: list[str], environment: Mapping[str, str] | None = None) -> None:
+    """Run one suite step at lower priority, streaming its output."""
 
-
-def run(command: list[str], **kwargs: Any) -> None:
     log("$ " + " ".join(str(part) for part in command))
-    subprocess.run(["nice", "-n", "10", *command], check=True, **kwargs)
+    run(["nice", "-n", "10", *command], environment=environment, timeout=None, capture=False)
 
 
 # ---------------------------------------------------------------- suite.json
@@ -235,8 +236,6 @@ def case_status(case: dict[str, Any], revision: str) -> str:
     return case.get("fork_status", {}).get(revision, case["expected_status"])
 
 
-def digest(value: Any) -> str:
-    return sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
 
 
 def differences(expected: Any, actual: Any, path: str = "") -> list[str]:
@@ -276,18 +275,18 @@ def node_host(suite_path: Path, out: Path, compiler: str, only: list[str], args:
     if compiler == "stable":
         command += ["--stable-deps", str(stable_deps)]
     wait_for_load()
-    run(command)
+    niced(command)
     return json.loads(out.read_text())
 
 
 def browser_host(browser: str, suite_path: Path, out: Path, only: list[str], args: argparse.Namespace) -> dict[str, Any]:
     site = args.scratch / f"site-{browser}"
-    run(["bun", str(RUNNER / "build-site.ts"), "--out", str(site), "--suite", str(suite_path), "--pack", str(args.pack)])
+    niced(["bun", str(RUNNER / "build-site.ts"), "--out", str(site), "--suite", str(suite_path), "--pack", str(args.pack)])
     command = ["bun", str(RUNNER / "browser.ts"), "--browser", browser, "--site", str(site), "--out", str(out)]
     if only:
         command += ["--only", ",".join(only)]
     wait_for_load()
-    run(command)
+    niced(command)
     return json.loads(out.read_text())
 
 
@@ -302,8 +301,8 @@ def stable_deps(args: argparse.Namespace) -> Path:
         f"[dependencies]\n{dependencies}\n\n[workspace]\n\n[profile.release]\npanic = \"abort\"\n"
     )
     wait_for_load()
-    run(["cargo", "+stable", "build", "--offline", "--release", "--target", "wasm32-wasip1", "-j", "4", "--manifest-path", str(project / "Cargo.toml")],
-        env={**os.environ, "CARGO_TARGET_DIR": str(project / "target")})
+    niced(["cargo", "+stable", "build", "--offline", "--release", "--target", "wasm32-wasip1", "-j", "4", "--manifest-path", str(project / "Cargo.toml")],
+           environment={"CARGO_TARGET_DIR": str(project / "target")})
     return project / "target" / "wasm32-wasip1" / "release" / "deps"
 
 
@@ -389,7 +388,7 @@ def write_toml_rows(path: Path, comment: list[str], header: dict[str, Any], tabl
 
 
 def native_commit(rustc: Path) -> str:
-    output = subprocess.run([str(rustc), "-vV"], capture_output=True, text=True, check=True).stdout
+    output = run([rustc, "-vV"]).stdout
     return re.search(r"^commit-hash: (\S+)$", output, re.M).group(1)
 
 
@@ -505,12 +504,12 @@ def main() -> int:
                 "case": case["id"],
                 "fork_revision": other,
                 "status": other_entry["status"],
-                "twin_sha256": digest(other_entry["twin"]),
-                "stable_sha256": digest(other_entry["stable"]),
+                "twin_sha256": json_sha256(other_entry["twin"]),
+                "stable_sha256": json_sha256(other_entry["stable"]),
                 "twin_equals_stable": not other_entry["stable_differs"],
                 "stable_differs": other_entry["stable_differs"][:8],
-                "fork_sha256": digest(other_entry["fork"]) if "fork" in other_entry else "",
-                "twin_equals_current_revision_twin": digest(other_entry["twin"]) == digest(entry["twin"]),
+                "fork_sha256": json_sha256(other_entry["fork"]) if "fork" in other_entry else "",
+                "twin_equals_current_revision_twin": json_sha256(other_entry["twin"]) == json_sha256(entry["twin"]),
             })
 
     rows = []
@@ -549,8 +548,8 @@ def main() -> int:
                     "expected_status": case["_status"],
                     "compile": compile_summary(variant),
                     "run": run_summary(variant),
-                    "output_sha256": digest(actual[name]),
-                    "expected_sha256": digest(expected_variants.get(name)),
+                    "output_sha256": json_sha256(actual[name]),
+                    "expected_sha256": json_sha256(expected_variants.get(name)),
                     "match": match,
                     "verdict": verdict,
                     "problems": problems[:6],
@@ -560,7 +559,7 @@ def main() -> int:
 
     header = {
         "date": datetime.date.today().isoformat(),
-        "krs_revision": subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
+        "krs_revision": git_revision(ROOT),
         "pack": str(args.pack),
         "pack_id": pack["pack_id"],
         "fork_revision": revision,

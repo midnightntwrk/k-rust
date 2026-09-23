@@ -51,7 +51,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import glob
 import json
 import os
 import shutil
@@ -63,8 +62,13 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT  # noqa: E402
+from support.checkouts import git, git_revision  # noqa: E402
+from support.process import run  # noqa: E402
+from support.tools import z3_environment, z3_library_dir  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 WORKER = ROOT / "browser/worker"
 RELEASE = ROOT / "browser/release/release.py"
 LOAD_MAX = float(os.environ.get("LOAD_MAX", "40"))
@@ -75,17 +79,6 @@ HOSTED_STEPS = ["fetch", "expectations", "oracle", "check", "pipeline", "tour-mi
 
 def log(message: str) -> None:
     print(f"[run] {message}", file=sys.stderr, flush=True)
-
-
-def git(*args: str) -> str:
-    return subprocess.run(["git", "-C", str(ROOT), *args], check=True, capture_output=True, text=True).stdout.strip()
-
-
-def z3_lib() -> str:
-    if os.environ.get("KRS_Z3_LIB"):
-        return os.environ["KRS_Z3_LIB"]
-    hits = sorted(glob.glob("/nix/store/*-z3-4.12.5-lib/lib"))
-    return hits[0] if hits else ""
 
 
 def wait_for_load() -> float:
@@ -105,10 +98,8 @@ class Runner:
         self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", "/var/tmp/krs-browser-pack-target"))
         self.cli_target = self.target_root / "cli"
         self.krs_bin = self.cli_target / "debug/krs"
-        z3 = z3_lib()
-        self.env = {**os.environ, "KRS_Z3_LIB": z3, "LOAD_MAX": str(int(LOAD_MAX)), "PYTHONDONTWRITEBYTECODE": "1",
-                    "LIBRARY_PATH": ":".join(p for p in (z3, os.environ.get("LIBRARY_PATH", "")) if p),
-                    "LD_LIBRARY_PATH": ":".join(p for p in (z3, os.environ.get("LD_LIBRARY_PATH", "")) if p)}
+        self.env = {**os.environ, **z3_environment(), "KRS_Z3_LIB": str(z3_library_dir()),
+                    "LOAD_MAX": str(int(LOAD_MAX)), "PYTHONDONTWRITEBYTECODE": "1"}
         self.staged = self.out / "staged"
         self.fetched = self.out / "fetched"
         self.publish = self.out / "publish"
@@ -145,7 +136,7 @@ class Runner:
         return self.target_root / pkg / "wasm32-unknown-unknown/release" / f"{pkg.replace('-', '_')}.wasm"
 
     def stage(self) -> bool:
-        return self.step("stage", ["bun", "scripts/stage-assets.ts", "--out", self.staged, "--pack", self.args.pack.resolve(), "--krs-rev", git("rev-parse", "HEAD")],
+        return self.step("stage", ["bun", "scripts/stage-assets.ts", "--out", self.staged, "--pack", self.args.pack.resolve(), "--krs-rev", git_revision(ROOT)],
                          cwd=WORKER, env={"KRS_STAGE_POLICY": str(self.module_path("krs-lesson-policy")),
                                           "KRS_STAGE_EXPANDER": str(self.module_path("krs-expand-wasm")), "KRS_STAGE_REPO": str(ROOT)})
 
@@ -275,14 +266,14 @@ def main() -> int:
     if args.pack:
         manifest = tomllib.loads((args.pack / "pack-manifest.toml").read_text())
         fork_rev = manifest["compiler"]["fork_revision"]
-        twin_vv = subprocess.run([str(args.fork_build / "build/x86_64-unknown-linux-gnu/stage1/bin/rustc"), "-vV"], capture_output=True, text=True).stdout
+        twin_vv = run([args.fork_build / "build/x86_64-unknown-linux-gnu/stage1/bin/rustc", "-vV"], check=False).stdout
         if f"commit-hash: {fork_rev}" not in twin_vv:
             parser.error(f"--fork-build twin is not at the pack's fork revision {fork_rev}")
-        if git_rev(args.fork_source) != fork_rev:
+        if git_revision(args.fork_source) != fork_rev:
             parser.error(f"--fork-source HEAD is not the pack's fork revision {fork_rev}")
         crates = next(i["git_tree"] for i in manifest["input"] if i["name"] == "KRS crates/ tree")
-        if crates != git("rev-parse", "HEAD:crates"):
-            parser.error(f"the pack was built from crates tree {crates}; this checkout has {git('rev-parse', 'HEAD:crates')} (rebuild the pack with browser/pack/build.sh)")
+        if crates != git(ROOT, "rev-parse", "HEAD:crates"):
+            parser.error(f"the pack was built from crates tree {crates}; this checkout has {git(ROOT, 'rev-parse', 'HEAD:crates')} (rebuild the pack with browser/pack/build.sh)")
     steps = HOSTED_STEPS if hosted else LOCAL_STEPS + (["rebuild"] if args.rebuild else [])
     if args.steps:
         wanted = args.steps.split(",")
@@ -294,11 +285,11 @@ def main() -> int:
     if runner.release_sha is None and (runner.publish / "index.json").is_file():
         runner.release_sha = json.loads((runner.publish / "index.json").read_text())["active"]["sha256"]
     started = time.monotonic()
-    header = {"date": datetime.datetime.now().isoformat(timespec="seconds"), "krs_revision": git("rev-parse", "HEAD"),
-              "crates_tree": git("rev-parse", "HEAD:crates"), "mode": "hosted" if hosted else "local",
+    header = {"date": datetime.datetime.now().isoformat(timespec="seconds"), "krs_revision": git_revision(ROOT),
+              "crates_tree": git(ROOT, "rev-parse", "HEAD:crates"), "mode": "hosted" if hosted else "local",
               "pack": str(args.pack) if args.pack else None, "fork_build": str(args.fork_build) if args.fork_build else None,
               "fork_source": str(args.fork_source) if args.fork_source else None, "base_url": args.base_url,
-              "uptime": subprocess.run(["uptime"], capture_output=True, text=True).stdout.strip(), "steps": steps}
+              "uptime": run(["uptime"], check=False).stdout.strip(), "steps": steps}
     log(json.dumps(header))
     failed = []
     for name in steps:
@@ -324,8 +315,6 @@ def main() -> int:
     return 0 if header["pass"] else 1
 
 
-def git_rev(path: Path) -> str:
-    return subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
 
 if __name__ == "__main__":
