@@ -147,7 +147,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - definition.catalog.rule — O(n^2 x eq + n log n)
 - definition.equivalence.deduplicate — O(n^2 x eq) +1 mode
 - definition.equivalence.sentence — O(N)
-- definition.json.encode — O(N)
+- definition.json.encode — O(N + L)
 - definition.order.partial — O((V + E) log V + C log V)
 - definition.outer.checks — O(N)
 - definition.outer.markdown — O(B)

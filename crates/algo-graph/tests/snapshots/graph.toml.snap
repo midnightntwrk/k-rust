@@ -2760,7 +2760,7 @@ id = "definition.json.encode"
 provenance = "declared"
 area = "definition"
 name = "KAST JSON encoding of flat definitions"
-variable = "N = encoded definition nodes"
+variable = "N = encoded definition nodes; L = links of the distinct origin-set allocations the receipts share"
 table = "Algorithm::ALL"
 registry_name = "DefinitionJsonEncode"
 
@@ -2801,7 +2801,7 @@ symbol = "write_runnable_artifact"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N)"
+bound = "O(N + L)"
 
 [[node]]
 kind = "algorithm"
