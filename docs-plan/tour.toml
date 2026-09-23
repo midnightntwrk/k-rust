@@ -23,6 +23,17 @@ macro_exports = ["alias", "anonymous", "associativity", "bracket", "bytes", "cel
 builtin_operations = ["add", "and", "bit_and", "bit_or", "bit_xor", "concat", "contains", "div", "empty", "eq", "ge", "get", "gt", "in_keys", "item", "le", "length", "log2", "lt", "make", "modulo", "mul", "ne", "not", "or", "pad_right", "pow_mod", "range", "shift_left", "shift_right", "size", "sub", "substr", "update", "update_all"]
 concept_status_sha256 = "d5c8f2e29aa3c5a3ae4480fe1eb1548b9024a94f8687d86f6c664f9f6a075b78"
 
+# Browser lessons: pages that compile a checked fixture in the reader's browser.
+# `seed` is the docs-site mirror the editor starts from; sync-snippets.mjs keeps
+# it byte-identical to `fixture`. A published lesson is in the primary sidebar;
+# a deferred one must stay out of it.
+[[lesson]]
+id = "tour-minimal-browser"
+route = "/lessons/tour-minimal"
+status = "published"
+fixture = "tests/tour-minimal/src/lib.rs"
+seed = "docs-site/src/snippets/tour-minimal.rs"
+
 [[synthesis]]
 id = "five-minute-theory"
 route = "/start/five-minute-theory"

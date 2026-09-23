@@ -278,12 +278,35 @@ export interface VerifiedAssets {
   verified: Record<string, string>;
 }
 
+/**
+ * A worker-readable store of verified pack assets (IR-20). The page verifies
+ * every asset once, writes it to the store, compiles the three modules, and
+ * keeps no asset bytes; each worker reads the rlibs, the sysroot bundle, and
+ * the framework sources from the store itself and verifies them again. Worker
+ * start-up (including replacement after cancel) then clones only the modules,
+ * not about 120 MB of bytes on the page thread (IR-15 finding 5).
+ */
+export interface StoredAssets {
+  packId: string;
+  modules: VerifiedAssets["modules"];
+  /** SHA-256 the page computed for the three module assets (their bytes are not stored for the worker). */
+  verified: Record<string, string>;
+  store: {
+    kind: "cache-storage";
+    /** Cache Storage name; one cache per pack_id (asset-store.ts cacheNameFor). */
+    cacheName: string;
+    /** Pack-relative asset path -> request URL of its cache entry. */
+    urls: Record<string, string>;
+  };
+}
+
 // ---------------------------------------------------------------- worker messages (internal)
 
 export const WORKER_PROTOCOL = 1;
 
 export type ToWorker =
   | { type: "init"; protocol: number; pack: PackManifest; assets: VerifiedAssets }
+  | { type: "init-stored"; protocol: number; pack: PackManifest; stored: StoredAssets }
   | { type: "compile"; request: CompileRequest };
 
 export type FromWorker =

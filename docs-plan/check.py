@@ -138,9 +138,29 @@ def main() -> None:
             if not isinstance(gloss, str) or not gloss.strip():
                 fail(f"{synthesis_id}: requirement {concept_id!r} needs a gloss")
 
+    lessons = ledger.get("lesson", [])
+    repeated = duplicates([lesson.get("id") for lesson in lessons])
+    if repeated:
+        fail(f"duplicate lesson IDs: {repeated}")
+    for lesson in lessons:
+        lesson_id = lesson.get("id")
+        if lesson.get("status") not in {"deferred", "published"}:
+            fail(f"{lesson_id}: lesson status must be deferred or published")
+        route = lesson.get("route")
+        if not isinstance(route, str) or not route.startswith("/"):
+            fail(f"{lesson_id}: lesson route must be an absolute site path: {route!r}")
+        fixture = ROOT / lesson.get("fixture", "")
+        seed = ROOT / lesson.get("seed", "")
+        if not fixture.is_file():
+            fail(f"{lesson_id}: missing fixture {lesson.get('fixture')!r}")
+        if not seed.is_file():
+            fail(f"{lesson_id}: missing seed {lesson.get('seed')!r}")
+        if seed.read_bytes() != fixture.read_bytes():
+            fail(f"{lesson_id}: seed differs from its fixture; run `bun run sync:snippets`")
+
     print(
         f"tour ledger passed: {len(chapters)} chapters, "
-        f"{len(concepts)} concepts, {evidence_count} evidence paths"
+        f"{len(concepts)} concepts, {len(lessons)} lessons, {evidence_count} evidence paths"
     )
 
 

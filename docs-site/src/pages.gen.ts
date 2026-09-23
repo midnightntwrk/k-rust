@@ -14,6 +14,7 @@ type Page =
   | { path: '/imp/machine-rules'; render: 'static' }
   | { path: '/imp/sorts-and-values'; render: 'static' }
   | { path: '/'; render: 'static' }
+  | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
   | { path: '/reference/language'; render: 'static' }
   | { path: '/reference/workflow'; render: 'static' }

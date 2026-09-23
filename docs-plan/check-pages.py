@@ -184,6 +184,7 @@ def main() -> None:
 
     chapters = ledger.get("chapter", [])
     syntheses = ledger.get("synthesis", [])
+    lessons = ledger.get("lesson", [])
     concepts = ledger.get("concept", [])
     pages_by_route = documentation_pages()
     chapter_by_id = {chapter["id"]: chapter for chapter in chapters}
@@ -192,9 +193,12 @@ def main() -> None:
     }
     for concept in concepts:
         concepts_by_chapter.setdefault(concept["chapter"], []).append(concept["id"])
-    declared_routes = ["/"] + [chapter["route"] for chapter in chapters] + [
-        synthesis["route"] for synthesis in syntheses
-    ]
+    declared_routes = (
+        ["/"]
+        + [chapter["route"] for chapter in chapters]
+        + [synthesis["route"] for synthesis in syntheses]
+        + [lesson["route"] for lesson in lessons]
+    )
     duplicate_declared_routes = sorted(
         route for route, count in Counter(declared_routes).items() if count > 1
     )
@@ -259,6 +263,13 @@ def main() -> None:
                         f"has no page at {destination}"
                     )
 
+    for lesson in lessons:
+        lesson_page = page_for_route(lesson["route"])
+        if not lesson_page.is_file():
+            fail(f"lesson {lesson['id']!r} is missing page for {lesson['route']}")
+        if "<BrowserLesson" not in lesson_page.read_text(encoding="utf-8"):
+            fail(f"lesson {lesson['id']!r} page does not render <BrowserLesson />")
+
     config = VOCS_CONFIG.read_text(encoding="utf-8")
     sidebar_routes = re.findall(r"\blink:\s*['\"](/[^'\"]*)['\"]", config)
     duplicates = sorted(
@@ -295,6 +306,13 @@ def main() -> None:
                 "published synthesis must follow every dependency-ordered chapter "
                 f"in the primary sidebar: {route}"
             )
+
+    for lesson in lessons:
+        route = lesson["route"]
+        if lesson["status"] == "deferred" and route in sidebar_routes:
+            fail(f"deferred lesson route must stay out of primary sidebar: {route}")
+        if lesson["status"] == "published" and route not in sidebar_routes:
+            fail(f"published lesson route is absent from primary sidebar: {route}")
 
     actual_routes = set(pages_by_route)
     missing_routes = sorted(known_routes - actual_routes)
@@ -402,7 +420,7 @@ def main() -> None:
 
     print(
         f"tour pages passed: {len(chapters)} chapters, "
-        f"{len(syntheses)} syntheses, {len(pages_by_route)} pages, "
+        f"{len(syntheses)} syntheses, {len(lessons)} lessons, {len(pages_by_route)} pages, "
         f"{len(sidebar_routes)} primary routes, {checked_links} internal links, "
         f"{checked_fragments} anchor links"
     )

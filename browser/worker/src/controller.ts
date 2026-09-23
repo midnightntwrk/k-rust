@@ -16,6 +16,7 @@ import {
   type CompileRequest,
   type FromWorker,
   type PackManifest,
+  type StoredAssets,
   type ToWorker,
   type VerifiedAssets,
   WORKER_PROTOCOL,
@@ -23,6 +24,17 @@ import {
 
 /** The asset loader (hash verification + one module compile per page), re-exported for docs-site. */
 export { loadVerifiedAssets, PackIntegrityError } from "./pack.ts";
+/** The Cache API asset store (IR-20): workers read verified assets themselves. */
+export {
+  assetUrl,
+  cachedAssetCount,
+  cacheNameFor,
+  cacheStorageAvailable,
+  packBytes,
+  storeVerifiedAssets,
+  type StoreProgress,
+  type StoreResult,
+} from "./asset-store.ts";
 
 export interface KrsCompilerOptions {
   /** Creates the module worker (the bundle location differs between hosts). */
@@ -82,7 +94,7 @@ interface WorkerSlot {
 
 export class KrsCompiler {
   private readonly pack: PackManifest;
-  private readonly assets: VerifiedAssets;
+  private readonly assets: VerifiedAssets | StoredAssets;
   private readonly options: KrsCompilerOptions;
   private slot: WorkerSlot;
   private generation = 0;
@@ -92,14 +104,19 @@ export class KrsCompiler {
   /** Number of workers started (1 + replacements); observable for tests. */
   workersStarted = 0;
 
-  private constructor(pack: PackManifest, assets: VerifiedAssets, options: KrsCompilerOptions) {
+  private constructor(pack: PackManifest, assets: VerifiedAssets | StoredAssets, options: KrsCompilerOptions) {
     this.pack = pack;
     this.assets = assets;
     this.options = options;
     this.slot = this.spawn();
   }
 
-  static async create(pack: PackManifest, assets: VerifiedAssets, options: KrsCompilerOptions): Promise<KrsCompiler> {
+  /**
+   * `assets` is either the verified bytes (cloned into every worker) or a
+   * StoredAssets description (each worker reads and verifies the bytes from
+   * the store; only the compiled modules are cloned).
+   */
+  static async create(pack: PackManifest, assets: VerifiedAssets | StoredAssets, options: KrsCompilerOptions): Promise<KrsCompiler> {
     const compiler = new KrsCompiler(pack, assets, options);
     await compiler.slot.ready;
     return compiler;
@@ -121,7 +138,9 @@ export class KrsCompiler {
         if (this.slot?.worker === worker) this.onWorkerCrash(text);
       };
     });
-    const init: ToWorker = { type: "init", protocol: WORKER_PROTOCOL, pack: this.pack, assets: this.assets };
+    const init: ToWorker = "store" in this.assets
+      ? { type: "init-stored", protocol: WORKER_PROTOCOL, pack: this.pack, stored: this.assets }
+      : { type: "init", protocol: WORKER_PROTOCOL, pack: this.pack, assets: this.assets };
     worker.postMessage(init);
     return { worker, ready };
   }

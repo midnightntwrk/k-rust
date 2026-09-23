@@ -1,7 +1,9 @@
-// Dedicated module worker entry: receives the verified assets once, then runs
+// Dedicated module worker entry: receives the verified assets once (or reads
+// them from the page's asset store, asset-store.ts), then runs
 // one build at a time and posts its events. The controller owns generations,
 // queueing, and cancellation (Worker.terminate()).
 
+import { readStoredAssets } from "./asset-store.ts";
 import { createPipelineContext, type PipelineContext, runBuild } from "./pipeline.ts";
 import { type FromWorker, type ToWorker, WORKER_PROTOCOL } from "./protocol.ts";
 
@@ -33,6 +35,20 @@ scope.onmessage = (event) => {
     } catch (error) {
       scope.postMessage({ type: "init-error", message: String(error instanceof Error ? error.message : error) });
     }
+    return;
+  }
+  if (message.type === "init-stored") {
+    if (message.protocol !== WORKER_PROTOCOL) {
+      scope.postMessage({ type: "init-error", message: `worker protocol ${WORKER_PROTOCOL}, controller ${message.protocol}` });
+      return;
+    }
+    readStoredAssets(message.pack, message.stored).then(
+      (assets) => {
+        context = createPipelineContext(message.pack, assets);
+        scope.postMessage({ type: "ready", protocol: WORKER_PROTOCOL });
+      },
+      (error: unknown) => scope.postMessage({ type: "init-error", message: String(error instanceof Error ? error.message : error) }),
+    );
     return;
   }
   if (message.type === "compile") {

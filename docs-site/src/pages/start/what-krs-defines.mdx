@@ -59,6 +59,7 @@ rule [foo-to-bar]: <k> foo => bar ... </k>
 ```
 
 Run `python3 tests/tour-minimal/verify.py` from the repository root to compile, format-check, lower, and emit the owning fixture.
+To edit and compile the same fixture without installing anything, use the [browser lesson](/lessons/tour-minimal).
 The gate also verifies that this emitted sentence maps back to the authored source.
 Moving the rule in its source file does not change its priority; a malformed constructor path fails during Rust or KRS checking rather than becoming an inert host expression.
 

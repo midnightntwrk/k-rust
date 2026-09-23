@@ -25,3 +25,34 @@ The ordinary fixture compiler gate remains mandatory in both modes.
 Twoslash result-cache reuse is intentionally disabled by using a fresh cache directory for every build.
 This avoids the upstream cache key, which does not include the Cargo manifest, lockfile, tool versions, or dependency sources.
 The fail-closed gate also runs on every enabled build rather than trusting cached success.
+
+## Browser lesson assets
+
+`/lessons/tour-minimal` compiles the `tour-minimal` fixture in the reader's browser with the compiler worker in `../browser/worker`.
+The page imports only `browser/worker/src/protocol.ts` and `controller.ts`.
+`bun run build:lesson-worker` bundles `browser/worker/src/worker.ts` to `public/browser-lesson/worker.js` (ignored by Git); `dev` and `build` run it first.
+
+The compiler pack (about 207 MB, including an 88 MB `rustc.wasm`) is not part of the repository or of `dist/`.
+Its location is a build-time setting:
+
+```sh
+VITE_KRS_BROWSER_PACK_BASE=https://example.org/krs-lesson/ bun run build
+```
+
+The value is an absolute URL or an origin-relative path, and it is inlined into the client bundle when Vite builds the site (or when `vocs dev` starts).
+It must name a directory laid out by `browser/worker/scripts/stage-assets.ts`: `pack.json`, `lessons/tour-minimal/lesson.json`, and every file `pack.json` lists under `pack/` and `modules/`.
+A cross-origin base must answer `GET` with `Access-Control-Allow-Origin` for the site's origin.
+When the variable is unset, the build still succeeds and the page renders its "lesson unavailable" state; CI builds this way.
+
+The page fetches the two manifests on load and the pack only after the reader presses the download button.
+Every file is checked against its size and SHA-256 and stored in Cache Storage under one cache per `pack_id`; caches of other packs are deleted.
+Workers read the verified files from that cache themselves, so a cancel or a worker replacement does not copy the pack on the page thread.
+
+For local development, stage the assets outside the repository (the script's header lists its inputs, including the policy and expander modules in `KRS_IR15_POLICY` and `KRS_IR15_EXPANDER`) and serve them with CORS, for example:
+
+```sh
+bun ../browser/worker/scripts/stage-assets.ts --out /var/tmp/krs-lesson-assets --pack <IR-14 pack dir> --krs-rev HEAD
+VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8787/ bun run dev
+```
+
+`bun ../browser/worker/test/lesson/docs-lesson.ts` drives the built page in headless Chromium and Firefox against staged assets served at the same origin (build with `VITE_KRS_BROWSER_PACK_BASE=/krs-pack/`).
