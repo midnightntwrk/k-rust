@@ -29,7 +29,17 @@ scripts/lean-check.sh
 
 It fails when a module under `KRust/` is not imported by `KRust.lean`, when `lake build` fails, when any declaration of a `KRust` module depends on `sorry`, when a `KRust` module declares an `axiom`, or when a `KRust` theorem depends on an axiom other than `propext`, `Classical.choice` and `Quot.sound`.
 The audit enumerates the declarations from the built environment; there is no hand-kept list.
-Exit status 0 is success, 1 a failed check, 2 a missing `lake`.
+Exit status 0 is success, 1 a failed check, 2 a usage error or a missing `lake`.
+
+```sh
+scripts/lean-check.sh --bridge
+```
+
+It also runs the model conformance bridge: `cargo test -p k-rust-backend --lib tests::lean_bridge` with `K_RUST_LEAN_BRIDGE=1`.
+Each test there sends generated terms, built by the public Rust constructors, through one `krust-bridge` process, compares every answer of a `KRust` definition with the Rust function it models, and shrinks a divergence.
+Without `K_RUST_LEAN_BRIDGE=1` those tests are skipped with a message; with it, a missing `lake` is a failure.
+`K_RUST_LEAN_BRIDGE_CASES` sets the number of cases (default 4096).
+The `KRust` modules must not import `KRustBridge`; the check fails when one does.
 
 ## Conventions
 
