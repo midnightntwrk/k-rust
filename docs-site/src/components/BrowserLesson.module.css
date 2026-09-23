@@ -34,10 +34,15 @@
   opacity: 0.5;
 }
 
+/* The Vocs accent is black in the light theme and white in the dark one; accentInvert is its foreground. */
 .root button.primary {
   background: var(--vocs-color-accent);
   border-color: var(--vocs-color-accent);
-  color: white;
+  color: var(--vocs-color-accentInvert);
+}
+
+.root button.primary:hover:not(:disabled) {
+  opacity: 0.9;
 }
 
 .panel {
