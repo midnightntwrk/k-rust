@@ -38,8 +38,10 @@ dependencies = [
  "k-rust-kore",
  "proc-macro2",
  "quote",
+ "rustc-demangle",
  "serde",
  "serde_json",
+ "sha2",
  "strsim",
  "syn 2.0.119",
  "toml",
@@ -1689,6 +1691,12 @@ dependencies = [
  "libc",
  "libm",
 ]
+
+[[package]]
+name = "rustc-demangle"
+version = "0.1.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b74b56ffa8bb2830709a538c2cbcae9aa062db0d2a42563bfb09bdaae44020eb"
 
 [[package]]
 name = "rustc-hash"

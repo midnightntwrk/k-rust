@@ -11,6 +11,7 @@
 //! - Finding 19: drift aborts on one invalid card or unparsable changed file, never checks `algorithm-contract` cards, and compares only the first item of a repeated site name.
 
 mod cards;
+mod coverage;
 mod drift;
 mod html;
 mod join;
@@ -25,6 +26,10 @@ use std::{
 };
 
 use cards::{Card, CardKind, Representation, SourceIndex};
+pub use coverage::{
+    COVERAGE_SCHEMA_VERSION, Coverage, CoveredFile, CoveredFunction, canonical_coverage_toml,
+    normalize_export, read_coverage,
+};
 pub use drift::{DriftFinding, DriftReport, drift, render_drift};
 pub use html::{HTML_DATA_ELEMENT_ID, render_html};
 pub use join::{

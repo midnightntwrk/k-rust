@@ -4,7 +4,8 @@ use std::{
 };
 
 use algo_graph::{
-    Filters, build_graph, canonical_join_toml, canonical_toml, drift, join_files,
+    Filters, build_graph, canonical_coverage_toml, canonical_join_toml, canonical_toml, drift,
+    join_files, normalize_export,
     query::{self, Answer, HotOrder, NotFound},
     render_composition, render_composition_focus, render_drift, render_html, render_module_map,
     render_pipeline, render_run_overlay, workspace_root, write_output, write_report,
@@ -38,6 +39,13 @@ enum Command {
     },
     /// Join a Chrome trace and receipt to a canonical static graph.
     Join(JoinArgs),
+    /// Reduce an `llvm-cov export` JSON document to the canonical coverage.toml the join reads.
+    ///
+    /// Keeps the functions of workspace sources (`crates/*/src/**`) with their workspace-relative
+    /// file, first and last line, demangled name without crate hashes and generic arguments, and
+    /// entry count; the instantiations of a generic function are summed. Each file's SHA-256 is
+    /// recorded so that the join can check that its checkout holds the covered sources.
+    Coverage(CoverageArgs),
     /// Report cards whose site items changed while their fences did not.
     Drift(DriftArgs),
     /// Ask the algorithm graph a question: who owns this code, what does a change affect, where did a run spend time.
@@ -306,6 +314,22 @@ struct JoinArgs {
 }
 
 #[derive(Debug, Args)]
+struct CoverageArgs {
+    /// JSON written by `llvm-cov export --format=text` for the instrumented binary.
+    #[arg(long)]
+    export: PathBuf,
+    /// Checkout that built the binary; file paths are recorded relative to it.
+    #[arg(long)]
+    source_root: PathBuf,
+    /// The instrumented binary, whose SHA-256 is recorded.
+    #[arg(long)]
+    binary: Option<PathBuf>,
+    /// Destination path. Defaults to target/algo/coverage.toml.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
 struct DriftArgs {
     /// Revision from which to inspect changes.
     #[arg(long)]
@@ -425,6 +449,18 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
             write_output(&overlay, &render_run_overlay(&graph, &join))?;
             println!("wrote {}", output.display());
             println!("wrote {}", overlay.display());
+        }
+        Command::Coverage(arguments) => {
+            let coverage = normalize_export(
+                &std::fs::read_to_string(&arguments.export)?,
+                &arguments.source_root,
+                arguments.binary.as_deref(),
+            )?;
+            let output = arguments
+                .output
+                .unwrap_or_else(|| default_output(&root, "coverage.toml"));
+            write_output(&output, &canonical_coverage_toml(&coverage))?;
+            println!("wrote {}", output.display());
         }
         Command::Drift(arguments) => {
             let report = drift(&root, &arguments.since, arguments.until.as_deref())?;
