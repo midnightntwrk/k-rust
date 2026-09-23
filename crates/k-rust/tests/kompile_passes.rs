@@ -21,18 +21,18 @@ use k_rust::{
     },
     kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, printer::Printer},
     kompile::{
-        GeneratedVariableIdentity, add_cool_like_attributes, add_implicit_computation_cell,
-        add_semantics_module, add_sort_injections_to_definition, check_simplification_rules,
-        concretize_cells, concretize_cells_in_sentence, constant_fold, expand_macros,
-        expand_macros_in_term, generate_sort_predicate_rules, generate_sort_predicate_syntax,
-        generate_sort_projections, guard_or_patterns, minimize_term_construction, module_to_kore,
-        number_sentences, propagate_macro_attributes, remove_unit, resolve_anon_vars,
-        resolve_anon_vars_in_sentence, resolve_comm, resolve_config_var, resolve_contexts,
-        resolve_fresh_config_constants, resolve_fresh_constants, resolve_fun,
-        resolve_function_with_config, resolve_heat_cool_attributes, resolve_io,
-        resolve_semantic_casts, resolve_semantic_casts_in_sentence,
-        resolve_semantic_casts_with_predicates_in_sentence, resolve_strict, subsort_kitem,
-        term_to_kore,
+        GeneratedVariableIdentity, MacroExpansionDefinition, add_cool_like_attributes,
+        add_implicit_computation_cell, add_semantics_module, add_sort_injections_to_definition,
+        check_simplification_rules, concretize_cells, concretize_cells_in_sentence, constant_fold,
+        expand_macros, expand_macros_in_term, generate_sort_predicate_rules,
+        generate_sort_predicate_syntax, generate_sort_projections, guard_or_patterns,
+        minimize_term_construction, module_to_kore, number_sentences, propagate_macro_attributes,
+        remove_unit, resolve_anon_vars, resolve_anon_vars_in_sentence, resolve_comm,
+        resolve_config_var, resolve_contexts, resolve_fresh_config_constants,
+        resolve_fresh_constants, resolve_fun, resolve_function_with_config,
+        resolve_heat_cool_attributes, resolve_io, resolve_semantic_casts,
+        resolve_semantic_casts_in_sentence, resolve_semantic_casts_with_predicates_in_sentence,
+        resolve_strict, subsort_kitem, term_to_kore,
     },
     outer::{ResolvedSource, load},
     provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
@@ -3189,6 +3189,40 @@ fn ordinary_rules_still_inherit_every_macro_kind_during_term_expansion() {
             .unwrap(),
             application("f", vec![application("a", Vec::new())]),
             "production attribute {macro_kind}",
+        );
+    }
+}
+
+#[test]
+fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
+    // `g` introduces a right-hand-side variable, so each expansion mints a fresh `_Gen` name;
+    // a prepared definition must restart that allocation for every term.
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "a" [symbol(a)]
+                       | "f(" Exp ")" [symbol(f)]
+                       | "pair(" Exp "," Exp ")" [symbol(pair)]
+                       | "m(" Exp ")" [macro, symbol(m)]
+                       | "g(" Exp ")" [macro, symbol(g)]
+          rule m(X:Exp) => f(X:Exp)
+          rule g(X:Exp) => pair(X:Exp, Y:Exp)
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let terms = [
+        application("m", vec![application("a", Vec::new())]),
+        application(
+            "g",
+            vec![application("m", vec![application("a", Vec::new())])],
+        ),
+        application("g", vec![application("a", Vec::new())]),
+    ];
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+
+    for term in terms {
+        assert_eq!(
+            prepared.expand_term("MAIN", term.clone()).unwrap(),
+            expand_macros_in_term(&definition, "MAIN", term).unwrap(),
         );
     }
 }

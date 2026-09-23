@@ -55,8 +55,8 @@ use k_rust::{
     },
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-        SortInjector, compile_loaded_definition, compile_loaded_definition_timed,
-        compile_search_pattern, encode_kore_sort, expand_macros_in_term_with_scope,
+        MacroExpansionDefinition, SortInjector, compile_loaded_definition,
+        compile_loaded_definition_timed, compile_search_pattern, encode_kore_sort,
         initial_configuration::{
             missing_variables, parser_modules, stream_defaults, top_cell_initializer,
         },
@@ -2247,18 +2247,17 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     let match_target_source =
         select_match_target_source(options.search.as_ref(), compiled_surface_pattern);
+    // The macro expander's definition depends on the program definition alone: it is prepared
+    // at the first expansion and reused for the program and every configuration value.
+    let mut macro_definition = None;
     let program = if program_supplied || available_config_vars.contains_key("PGM") {
         let source = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
         let program_parser =
             ProgramParser::from_resolved(&program_resolved, &compiled.syntax_module)?;
         let program = program_parser.parse(&start_sort, &source)?;
-        let program = expand_macros_in_term_with_scope(
-            &program_definition,
-            &compiled.syntax_module,
-            &compiled.main_module,
-            program,
-        )?;
+        let program = prepared_macro_definition(&mut macro_definition, &program_definition)?
+            .expand_term(&compiled.main_module, program)?;
         // Expansion rebases applications into the executable catalog. Tokens remain
         // self-describing, and conversion retains lexical hooks from the parser module.
         let program_injector = SortInjector::new(&program_resolved, &compiled.main_module)?;
@@ -2351,12 +2350,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let value = parser.parse(&parse_sort, source).map_err(|error| {
             format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
         })?;
-        let value = expand_macros_in_term_with_scope(
-            &program_definition,
-            parser_module,
-            &compiled.main_module,
-            value,
-        )?;
+        let value = prepared_macro_definition(&mut macro_definition, &program_definition)?
+            .expand_term(&compiled.main_module, value)?;
         let injector = config_injector
             .as_ref()
             .expect("a configuration assignment creates the main-module injector");
@@ -2527,6 +2522,19 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     }
     .write(options.timings.as_deref())?;
     Ok(ExitCode::from(output.exit_code))
+}
+
+/// Return the macro expander's definition for `definition`, preparing it on first use.
+fn prepared_macro_definition<'slot>(
+    slot: &'slot mut Option<MacroExpansionDefinition>,
+    definition: &k_rust::definition::Definition,
+) -> Result<&'slot MacroExpansionDefinition, String> {
+    if slot.is_none() {
+        *slot = Some(MacroExpansionDefinition::prepare(definition)?);
+    }
+    Ok(slot
+        .as_ref()
+        .expect("the macro definition was prepared above"))
 }
 
 fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {

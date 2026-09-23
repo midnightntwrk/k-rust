@@ -170,25 +170,50 @@ pub fn expand_macros_in_term_with_scope(
     macro_module: &str,
     term: Term,
 ) -> Result<Term, String> {
-    // Rule parsing retains semantic-cast wrappers around variables. The compilation pipeline
-    // removes those wrappers before macro matching, so concrete terms must build their expander
-    // from the same rule shape.
-    let definition = super::resolve_semantic_casts(definition);
-    let definition =
-        super::propagate_macro_attributes(&definition).map_err(|error| error.to_string())?;
-    let resolved = ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
-    let views = resolved.views();
-    let mut expanded = expand_macros_in_terms_from_views_with_scope(
-        &views,
-        macro_module,
-        macro_module,
-        vec![term],
-    )
-    .map_err(|diagnostic| diagnostic.message)?;
-    Ok(expanded
-        .terms
-        .pop()
-        .expect("one input term produces one expanded term"))
+    MacroExpansionDefinition::prepare(definition)?.expand_term(macro_module, term)
+}
+
+/// The definition from which standalone terms, such as a program or a configuration-variable
+/// value, are macro-expanded.
+///
+/// Rule parsing retains semantic-cast wrappers around variables. The compilation pipeline
+/// removes those wrappers and marks each rule of a macro-like production with the production's
+/// macro kind before macro matching, so concrete terms build their expander from the same rule
+/// shape. The prepared value depends on the definition alone and not on the term, so one value
+/// serves every term expanded against the same definition.
+pub struct MacroExpansionDefinition {
+    resolved: ResolvedDefinition,
+}
+
+impl MacroExpansionDefinition {
+    /// Resolve semantic casts, propagate macro attributes, and resolve the result.
+    pub fn prepare(definition: &Definition) -> Result<Self, String> {
+        let definition = super::resolve_semantic_casts(definition);
+        let definition =
+            super::propagate_macro_attributes(&definition).map_err(|error| error.to_string())?;
+        let resolved =
+            ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
+        Ok(Self { resolved })
+    }
+
+    /// Expand the macros of `macro_module` in one standalone term.
+    ///
+    /// Each call builds its own expander and fresh-name allocator, so the result of one call
+    /// does not depend on the terms expanded by earlier calls.
+    pub fn expand_term(&self, macro_module: &str, term: Term) -> Result<Term, String> {
+        let views = self.resolved.views();
+        let mut expanded = expand_macros_in_terms_from_views_with_scope(
+            &views,
+            macro_module,
+            macro_module,
+            vec![term],
+        )
+        .map_err(|diagnostic| diagnostic.message)?;
+        Ok(expanded
+            .terms
+            .pop()
+            .expect("one input term produces one expanded term"))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

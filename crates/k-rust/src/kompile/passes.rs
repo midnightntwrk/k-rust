@@ -51,7 +51,8 @@ pub use constant_folding::{ConstantFoldingError, constant_fold};
 pub(crate) use expand_macros::expand_macros_in_terms_from_resolved;
 pub(crate) use expand_macros::expand_macros_pass;
 pub use expand_macros::{
-    ExpandMacrosError, expand_macros, expand_macros_in_term, expand_macros_in_term_with_scope,
+    ExpandMacrosError, MacroExpansionDefinition, expand_macros, expand_macros_in_term,
+    expand_macros_in_term_with_scope,
 };
 pub use finalize::{add_cool_like_attributes, add_semantics_module, generate_sort_predicate_rules};
 pub(crate) use finalize::{
