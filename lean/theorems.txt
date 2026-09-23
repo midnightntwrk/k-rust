@@ -9,11 +9,8 @@ KRust.MaximalModels.climb_max
 KRust.MaximalModels.isMax_congr
 KRust.MaximalModels.maximal_models_spec
 KRust.MaximalModels.run_spec
-KRust.MaximalModels.runs_agree
 KRust.MaximalModels.runs_agree_candidates
-KRust.MaximalModels.runs_agree_lowered
 KRust.MaximalModels.runs_agree_up_to_pref
-KRust.MaximalModels.uniquePref_loweringConst
 KRust.SubsortEncoding.bothGround_equiv
 KRust.SubsortEncoding.greaterGround_equiv
 KRust.SubsortEncoding.holds_append

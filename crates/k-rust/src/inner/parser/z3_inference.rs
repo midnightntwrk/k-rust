@@ -7,7 +7,7 @@
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //! span = "per problem"
-//! lean = ["KRust.SubsortEncoding.new_equiv", "KRust.MaximalModels.maximal_models_spec", "KRust.MaximalModels.runs_agree_up_to_pref", "KRust.MaximalModels.runs_agree", "KRust.MaximalModels.runs_agree_lowered", "KRust.MaximalModels.runs_agree_candidates"]
+//! lean = ["KRust.SubsortEncoding.new_equiv", "KRust.MaximalModels.maximal_models_spec", "KRust.MaximalModels.runs_agree_up_to_pref", "KRust.MaximalModels.runs_agree_candidates"]
 //!
 //! [[cost]]
 //! mode = "encoding construction"
@@ -1621,10 +1621,9 @@ impl<'a> Encoding<'a> {
     /// `tests::order_constraints_are_equivalent_at_every_call_site`).
     /// `maximal_models` then records the same maximal real typings, each with a parameter
     /// vector that `prefer_parameters` admits under either formula
-    /// (`KRust.MaximalModels.runs_agree_up_to_pref`). The candidate parses are therefore the
-    /// same when each recorded typing admits one parameter vector (`runs_agree`), and their
-    /// lowered terms are the same when lowering does not depend on which admissible vector was
-    /// kept (`runs_agree_lowered`). What may change is what depends on the particular models
+    /// (`KRust.MaximalModels.runs_agree_up_to_pref`). Every admissible vector is applied, so
+    /// the candidate parses are the same (`KRust.MaximalModels.runs_agree_candidates`). What
+    /// may change is what depends on the particular models
     /// Z3 returns: the number of checks (`ParserZ3Checks`), the order of recorded models, and
     /// the sorts named in the diagnostics of a rejected input.
     fn less_than_eq(

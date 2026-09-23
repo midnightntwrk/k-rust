@@ -5973,8 +5973,6 @@ lean = [
     "KRust.SubsortEncoding.new_equiv",
     "KRust.MaximalModels.maximal_models_spec",
     "KRust.MaximalModels.runs_agree_up_to_pref",
-    "KRust.MaximalModels.runs_agree",
-    "KRust.MaximalModels.runs_agree_lowered",
     "KRust.MaximalModels.runs_agree_candidates",
 ]
 

@@ -33,14 +33,13 @@ test behind each):
   * `hP : P.WF`: `less_than_eq(_, _, true)` on model values is reflexive and transitive;
   * `hR : P.RoundTrip`: `sort_value (decode_sort v)` denotes `v` for every value `model.eval`
     returns, so re-encoding a decoded model value gives back the same value;
-  * `e : Equivalent P Q`: two encodings define the same `sat`, `le` and `pref`;
-  * `hu : UniquePref P`: `prefer_parameters` has one admissible answer per maximal real
-    projection;
-  * `hl : LoweringConstOnPref P f`: model application followed by lowering gives the same result
-    for every admissible parameter vector (implied by `hu`).
-`runs_agree_candidates` needs neither `hu` nor `hl`: since cc55d55c the Rust applies every
-admissible parameter vector (`Problem.candidates`), so its output does not read the vector
-`prefer_parameters` keeps.
+  * `e : Equivalent P Q`: two encodings define the same `sat`, `le` and `pref`.
+No hypothesis restricts how many parameter vectors `prefer_parameters` admits: the Rust applies
+every admissible vector (`Problem.candidates`), so its output does not read the one vector a run
+records. An earlier version assumed one admissible vector per maximal real projection, and then
+that lowering erases the choice; both are false on real input (eight WASM sentences admit
+several vectors, and `crates/k-rust/tests/fixtures/sort-inference/parameter-choice.k` has two
+that lower to `f{A}` and `f{B}`), so the Rust was changed instead (LT-09).
 "Z3 decides" (every check answers Sat with a model of the assertions, or Unsat; `Unknown` is an
 error return, :1701-1705, :1766-1770) is the trust base and is not a hypothesis here: a check is
 modelled by its answer.
@@ -274,99 +273,6 @@ theorem runs_agree_up_to_pref {P Q : Problem A B} (hP : P.WF) (hQ : Q.WF)
   rw [hs a, hs' a]
   exact isMax_congr e a
 
-/-- Hypothesis `hu`: `prefer_parameters` has one answer per maximal real projection.
-The Rust does not check it today; ticket LT-05 decides how the Rust enforces it. -/
-def UniquePref (P : Problem A B) : Prop :=
-  ∀ a b b', P.IsMax a → P.pref a b → P.pref a b' → b = b'
-
-/-- **Statement 3 (exact).** Under `UniquePref`, two complete runs over equivalent encodings
-record the same set of models. `infer_packed_sorts_z3` keeps candidates in a `BTreeSet`
-(:198-215) and `infer_sorts_z3` likewise (:410-421), so the result on success is a function of
-that set.
-Equality proved: set equality of the recorded `(real, parameter)` pairs (as a membership iff). -/
-theorem runs_agree (hP : P.WF) {Q : Problem A B} (hQ : Q.WF)
-    (hRP : P.RoundTrip) (hRQ : Q.RoundTrip) (e : Equivalent P Q)
-    (hu : UniquePref P) {out out' : List (A × B)}
-    (h : Run P [] out) (h' : Run Q [] out') :
-    ∀ p, p ∈ out ↔ p ∈ out' := by
-  obtain ⟨hs, _, hp⟩ := maximal_models_spec hP hRP h
-  obtain ⟨hs', _, hp'⟩ := maximal_models_spec hQ hRQ h'
-  have key : ∀ (l l' : List (A × B)),
-      (∀ a, a ∈ l.map Prod.fst → P.IsMax a) →
-      (∀ a, P.IsMax a → a ∈ l'.map Prod.fst) →
-      (∀ p, p ∈ l → P.pref p.1 p.2) → (∀ p, p ∈ l' → P.pref p.1 p.2) →
-      ∀ p, p ∈ l → p ∈ l' := by
-    intro l l' hl hl' hpl hpl' p hin
-    have hmax : P.IsMax p.1 := hl p.1 (List.mem_map.mpr ⟨p, hin, rfl⟩)
-    obtain ⟨q, hq, hqa⟩ := List.mem_map.mp (hl' p.1 hmax)
-    have hb : q.2 = p.2 := hu p.1 q.2 p.2 hmax (hqa ▸ hpl' q hq) (hpl p hin)
-    have : q = p := by
-      cases q; cases p; simp only at hqa hb; subst hqa; subst hb; rfl
-    exact this ▸ hq
-  have hp'P : ∀ p, p ∈ out' → P.pref p.1 p.2 := fun p hin => (e.pref p.1 p.2).mpr (hp' p hin)
-  have hs'P : ∀ a, a ∈ out'.map Prod.fst ↔ P.IsMax a :=
-    fun a => (hs' a).trans (isMax_congr e a).symm
-  intro p
-  exact ⟨key out out' (fun a => (hs a).mp) (fun a => (hs'P a).mpr) hp hp'P p,
-    key out' out (fun a => (hs'P a).mp) (fun a => (hs a).mpr) hp'P hp p⟩
-
-/-- Hypothesis `hl`: what a recorded model contributes to the output does not depend on which
-admissible parameter vector `prefer_parameters` keeps.
-`f a b` is model application followed by lowering, as an opaque function: `apply_model_packed`
-(:1813-2021, called at :201-214) builds the applied term for the recorded model, `none` standing
-for an application error, and lowering maps it to the KAST term that the compiled rule is built
-from (`lower_term`, `parser.rs:1490-1492` drops transparent and bracket productions, `:1517-1520`
-lowers `#KRewrite` to a `Term::Rewrite` without a sort); neither is opened here.
-The hypothesis is weaker than `UniquePref` (`uniquePref_loweringConst`): it also holds when the
-free parameter is erased by lowering, as for the parameter of `#KRewrite` inside a bracket.
-The hypothesis is false in general: `crates/k-rust/tests/fixtures/sort-inference/parameter-choice.k`
-has two admissible vectors that lower to `f{A}` and `f{B}`. LT-05 enforced it at run time; since
-cc55d55c (LT-09) the Rust no longer does, and relies on `runs_agree_candidates` instead, which does
-not assume it. -/
-def LoweringConstOnPref {C : Type} (P : Problem A B) (f : A → B → Option C) : Prop :=
-  ∀ a b b', P.IsMax a → P.pref a b → P.pref a b' → f a b = f a b'
-
-/-- `UniquePref` is the special case of `LoweringConstOnPref` that holds for every `f`
-(implication, no equality). -/
-theorem uniquePref_loweringConst {C : Type} (hu : UniquePref P) (f : A → B → Option C) :
-    LoweringConstOnPref P f := by
-  intro a b b' ha hb hb'
-  rw [hu a b b' ha hb hb']
-
-/-- **Statement 4 (exact after lowering).** If model application followed by lowering is constant
-on each admissible parameter set (hypothesis `hl`), two complete runs over equivalent encodings
-give the same set of lowered candidates.
-Equality proved: set equality (as a membership iff) of `out.filterMap (f · ·)`, the lowered
-candidates of the models that application accepts. That the compiled rule is a function of this
-set, rather than of the set of applied terms that `infer_packed_sorts_z3` collects (:198-223), is
-not opened here. -/
-theorem runs_agree_lowered {C : Type} (hP : P.WF) {Q : Problem A B} (hQ : Q.WF)
-    (hRP : P.RoundTrip) (hRQ : Q.RoundTrip) (e : Equivalent P Q)
-    (f : A → B → Option C) (hl : LoweringConstOnPref P f) {out out' : List (A × B)}
-    (h : Run P [] out) (h' : Run Q [] out') :
-    ∀ c, c ∈ out.filterMap (fun p => f p.1 p.2) ↔ c ∈ out'.filterMap (fun p => f p.1 p.2) := by
-  obtain ⟨hs, _, hp⟩ := maximal_models_spec hP hRP h
-  obtain ⟨hs', _, hp'⟩ := maximal_models_spec hQ hRQ h'
-  have hp'P : ∀ p, p ∈ out' → P.pref p.1 p.2 := fun p hin => (e.pref p.1 p.2).mpr (hp' p hin)
-  have hs'P : ∀ a, a ∈ out'.map Prod.fst ↔ P.IsMax a :=
-    fun a => (hs' a).trans (isMax_congr e a).symm
-  have key : ∀ (l l' : List (A × B)),
-      (∀ a, a ∈ l.map Prod.fst → P.IsMax a) →
-      (∀ a, P.IsMax a → a ∈ l'.map Prod.fst) →
-      (∀ p, p ∈ l → P.pref p.1 p.2) → (∀ p, p ∈ l' → P.pref p.1 p.2) →
-      ∀ c, c ∈ l.filterMap (fun p => f p.1 p.2) → c ∈ l'.filterMap (fun p => f p.1 p.2) := by
-    intro l l' hl' hcov hpl hpl' c hc
-    obtain ⟨p, hin, hfp⟩ := List.mem_filterMap.mp hc
-    have hmax : P.IsMax p.1 := hl' p.1 (List.mem_map.mpr ⟨p, hin, rfl⟩)
-    obtain ⟨q, hq, hqa⟩ := List.mem_map.mp (hcov p.1 hmax)
-    have hfq : f q.1 q.2 = some c := by
-      rw [hqa, hl p.1 q.2 p.2 hmax (hqa ▸ hpl' q hq) (hpl p hin)]
-      exact hfp
-    exact List.mem_filterMap.mpr ⟨q, hq, hfq⟩
-  intro c
-  exact ⟨key out out' (fun a => (hs a).mp) (fun a => (hs'P a).mpr) hp hp'P c,
-    key out' out (fun a => (hs'P a).mp) (fun a => (hs a).mpr) hp'P hp c⟩
-
 /-- The candidate set of a run: `c` is a candidate when some recorded real projection `a` of
 `out` and some parameter vector `b` that `prefer_parameters` admits for it (`P.pref a b`) give
 `f a b = some c`.
@@ -391,11 +297,11 @@ def Problem.candidates {C : Type} (P : Problem A B) (out : List (A × B)) (f : A
     (c : C) : Prop :=
   ∃ a, a ∈ out.map Prod.fst ∧ ∃ b, P.pref a b ∧ f a b = some c
 
-/-- **Statement 5 (exact, over the admissible sets).** Two complete runs over equivalent
+/-- **Statement 3 (exact, over the admissible sets).** Two complete runs over equivalent
 encodings, with any Z3 answers, have the same candidate set, for any model application `f`.
-Neither `UniquePref` nor `LoweringConstOnPref` is assumed: every admissible parameter vector of
-every recorded real projection contributes its candidate, so the choice `prefer_parameters`
-happens to keep is not read.
+No uniqueness of the admissible parameter vector is assumed: every admissible vector of every
+recorded real projection contributes its candidate, so the vector a run happens to record is not
+read.
 Equality proved: set equality (as a membership iff) of `P.candidates out f` and
 `Q.candidates out' f`. -/
 theorem runs_agree_candidates {C : Type} (hP : P.WF) {Q : Problem A B} (hQ : Q.WF)
