@@ -510,7 +510,8 @@ record_memory() {
     | ([.results[] | select(.command == "canonical-haskell")][0]) as $canonical
     | ([.results[] | select(.command == "krust")][0]) as $rust
     | if $canonical == null or $rust == null then .
-      else .krust_over_canonical = {
+      else .speedup = ratio($canonical.mean; $rust.mean)
+      | .krust_over_canonical = {
           mean_time: ratio($rust.mean; $canonical.mean),
           tree_peak_median: ratio($rust.peak_memory.tree_peak_median_bytes; $canonical.peak_memory.tree_peak_median_bytes)
         }
@@ -656,18 +657,25 @@ append_summary() {
         $case_name,
         ($canonical.mean | tostring),
         ($rust.mean | tostring),
-        ($rust.mean / $canonical.mean | tostring),
+        ($canonical.mean / $rust.mean | tostring),
         cell($canonical.peak_memory; "tree_peak_median_bytes"; "tree_peak_max_bytes"),
         cell($rust.peak_memory; "tree_peak_median_bytes"; "tree_peak_max_bytes"),
         ratio_cell(.krust_over_canonical.tree_peak_median)
       ]
     | @tsv
   ' "$result_json")
-  IFS=$'\t' read -r row_suite row_case canonical_mean rust_mean relative \
+  IFS=$'\t' read -r row_suite row_case canonical_mean rust_mean speedup \
     canonical_tree rust_tree tree_relative <<<"$row"
   [[ "$tree_relative" == unknown ]] || printf -v tree_relative '%.2fx' "$tree_relative"
-  printf '| %s | %s | %.3f | %.3f | %.2fx | %s | %s | %s |\n' \
-    "$row_suite" "$row_case" "$canonical_mean" "$rust_mean" "$relative" \
+  # Time is reported as a speedup, canonical / krust, so the cell says how many times faster
+  # krust is; a case where krust is slower says so with the inverse factor.
+  if awk -v s="$speedup" 'BEGIN { exit !(s >= 1) }'; then
+    printf -v speedup '%.2fx faster' "$speedup"
+  else
+    speedup=$(awk -v s="$speedup" 'BEGIN { printf "%.2fx slower", 1 / s }')
+  fi
+  printf '| %s | %s | %.3f | %.3f | %s | %s | %s | %s |\n' \
+    "$row_suite" "$row_case" "$canonical_mean" "$rust_mean" "$speedup" \
     "$canonical_tree" "$rust_tree" "$tree_relative" \
     >>"$results_root/summary.md"
 }
@@ -1051,7 +1059,7 @@ if [[ "$dry_run" != 1 ]]; then
   cat >"$results_root/summary.md" <<EOF
 # krust versus canonical K/Haskell
 
-Times are arithmetic means in seconds. Relative values are \`krust / canonical\`; values below 1 mean krust was faster or smaller.
+Times are arithmetic means in seconds. The speedup is \`canonical / krust\` mean time: how many times faster krust is (a case where krust is slower says "slower" with the inverse factor). The memory ratio is \`krust / canonical\` median peak: the fraction of canonical's memory krust uses.
 
 ${tree_method_text}
 Memory cells are the median over the timed runs, with the maximum in parentheses, in MiB; the memory ratio compares medians.
@@ -1060,7 +1068,7 @@ hyperfine's own \`memory_usage_byte\` in \`results.json\` is not used: it is the
 The canonical JVM runs with \`K_OPTS=${REFERENCE_K_OPTS}\`, so its heap limit is ${heap_limit:-the JVM default}.
 A JVM grows its heap toward that limit before it collects hard, so the canonical peak reflects the limit as well as the data the workload keeps live; a smaller limit could lower it at some cost in time, and the benchmark does not tune it for either side.
 
-| Suite | Case | Canonical mean | krust mean | krust / canonical | Canonical peak MiB | krust peak MiB | krust / canonical peak |
+| Suite | Case | Canonical mean | krust mean | krust speedup | Canonical peak MiB | krust peak MiB | krust / canonical peak |
 |:--|:--|--:|--:|--:|--:|--:|--:|
 EOF
 fi

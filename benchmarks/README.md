@@ -65,8 +65,9 @@ scripts/benchmark.sh --suite imp --phase execute --claim IMP-SIMPLE-SPEC.sum-loo
 ```
 
 Results are written under `target/benchmarks/results/<timestamp>/`. The top-level `summary.md`
-reports both means, the peak memory of each side, and the `krust / canonical` ratios; values below
-one mean krust was faster or smaller. Each case retains its full sample distribution, including the
+reports both means with krust's speedup (`canonical / krust` mean time, "N.NNx faster", or
+"slower" with the inverse factor when krust is slower), and the peak memory of each side with the
+`krust / canonical` memory ratio (the fraction of canonical's memory krust uses). Each case retains its full sample distribution, including the
 per-run memory samples, in `results.json`. Keep the generated `metadata.json`
 beside it: timings without revisions, hardware, and runtime settings are not meaningful
 comparisons.
@@ -89,7 +90,8 @@ dropped.
 
 `results.json` gains, per command, a `peak_memory` object (`tree_peak_bytes` per timed run, its
 median and maximum, and `tree_page_cache_at_exit_bytes`), a top-level `memory_method`, and, for paired
-cases, `krust_over_canonical` with the time and median-memory ratios. `summary.md` shows the median
+cases, `speedup` (`canonical / krust` mean time) and `krust_over_canonical` with the time and
+median-memory ratios. `summary.md` shows the median
 with the maximum in parentheses, in MiB, next to the mean time.
 
 What the figure includes: anonymous and kernel memory of every process in the tree, summed at the
