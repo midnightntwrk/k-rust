@@ -76,8 +76,8 @@ id = "fork:clif2wasm"
 name = "clif2wasm (vendored into the fork by commit 57f0242ea6a)"
 origin = "fork"
 spdx = "MIT OR Apache-2.0"
-license_status = "inferred"
-basis = "Inference, not a declaration by its authors: <fork-source>/compiler/rustc_codegen_cranelift/clif2wasm/Cargo.toml has no license field and the directory has no license file. It lies inside compiler/rustc_codegen_cranelift, whose LICENSE-APACHE, LICENSE-MIT, and Readme.md (\"Licensed under either of Apache License, Version 2.0 or MIT license at your option\") state MIT OR Apache-2.0 for cg_clif, and under the fork's REUSE.toml blanket annotation compiler/** = MIT OR Apache-2.0; both predate the vendoring commit 57f0242ea6a (Forest Anderson, 2026-07-21; canonical source rust-in-wasm crates/clif2wasm, not on this host). Later commits in the fork are by Sebastien Guillemot. The notices are the enclosing cg_clif license texts."
+license_status = "declared"
+basis = "License approved by the fork author (AngelOnFira), relayed by Sebastien on 2026-09-23, under the fork's MIT OR Apache-2.0 terms (<fork-source>/REUSE.toml compiler/** and the enclosing compiler/rustc_codegen_cranelift LICENSE-APACHE and LICENSE-MIT). <fork-source>/compiler/rustc_codegen_cranelift/clif2wasm/Cargo.toml has no license field and the directory has no license file of its own; the notices are the enclosing cg_clif license texts."
 notices = ["<fork-source>/compiler/rustc_codegen_cranelift/LICENSE-APACHE", "<fork-source>/compiler/rustc_codegen_cranelift/LICENSE-MIT"]
 assets = ["pack/compiler/rustc.wasm"]
 
@@ -86,41 +86,64 @@ id = "fork:riwl"
 name = "riwl, the in-process Wasm linker (vendored into the fork by commit 45e90e17e8f)"
 origin = "fork"
 spdx = "MIT OR Apache-2.0"
-license_status = "inferred"
-basis = "Inference, not a declaration by its author: <fork-source>/compiler/rustc_codegen_cranelift/riwl/Cargo.toml has no license field and the directory has no license file. It lies inside compiler/rustc_codegen_cranelift, whose LICENSE-APACHE, LICENSE-MIT, and Readme.md state MIT OR Apache-2.0 for cg_clif, and under the fork's REUSE.toml blanket annotation compiler/** = MIT OR Apache-2.0; both predate the vendoring commit 45e90e17e8f (Forest Anderson, 2026-07-21; canonical source rust-in-wasm crates/riwl, not on this host). The notices are the enclosing cg_clif license texts."
+license_status = "declared"
+basis = "License approved by the fork author (AngelOnFira), relayed by Sebastien on 2026-09-23, under the fork's MIT OR Apache-2.0 terms (<fork-source>/REUSE.toml compiler/** and the enclosing compiler/rustc_codegen_cranelift LICENSE-APACHE and LICENSE-MIT). <fork-source>/compiler/rustc_codegen_cranelift/riwl/Cargo.toml has no license field and the directory has no license file of its own; the notices are the enclosing cg_clif license texts."
 notices = ["<fork-source>/compiler/rustc_codegen_cranelift/LICENSE-APACHE", "<fork-source>/compiler/rustc_codegen_cranelift/LICENSE-MIT"]
 assets = ["pack/compiler/rustc.wasm"]
 
 # ------------------------------------------------------------------ wasi-sdk 32.0 (wasi-libc, compiler-rt)
+
+# The texts below were fetched from wasi-libc 2fc32bc81b9f (the wasi-libc submodule of the
+# wasi-sdk-32 tag) on 2026-09-23; <repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/SOURCES.toml records URL and sha256 of each.
 
 [[component]]
 id = "wasi-sdk:wasi-libc"
 name = "wasi-libc (wasi-sdk 32.0, wasi-libc 2fc32bc81b9f): libc.a and crt1-command.o"
 origin = "wasi-sdk"
 spdx = "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
-license_status = "inferred"
-basis = "The bundle's lib/rustlib/wasm32-wasip1/lib/self-contained/libc.a (12d34112...) and crt1-command.o (f817b0c2...) are byte-identical to <fork-source>/wasi-sdk-32.0-x86_64-linux/share/wasi-sysroot/lib/wasm32-wasip1/ (VERSION: wasi-libc 2fc32bc81b9f). The wasi-sdk distribution on this host carries no license or notice file, so the expression is the ticket's assumption, not read from a file. rustc.wasm is itself a wasm32-wasip1 program linked by <fork-source>/wasi-sdk-32.0-x86_64-linux/bin/clang against the same self-contained libc (bootstrap.krs.toml [target.'wasm32-wasip1'] wasi-root and linker)."
-notices = []
+license_status = "declared"
+basis = "wasi-libc 2fc32bc81b9f LICENSE (\"multi-licensed under the Apache License v2.0 with LLVM Exceptions, the Apache License v2.0, and the MIT License\"); the revision is the wasi-sdk-32 tag's src/wasi-libc submodule and the VERSION file of the extracted wasi-sdk. The bundle's lib/rustlib/wasm32-wasip1/lib/self-contained/libc.a (12d34112...) and crt1-command.o (f817b0c2...) are byte-identical to <fork-source>/wasi-sdk-32.0-x86_64-linux/share/wasi-sysroot/lib/wasm32-wasip1/. rustc.wasm is itself a wasm32-wasip1 program linked by <fork-source>/wasi-sdk-32.0-x86_64-linux/bin/clang against the same self-contained libc (bootstrap.krs.toml [target.'wasm32-wasip1'] wasi-root and linker)."
+notices = ["<repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/LICENSE", "<repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/LICENSE-APACHE", "<repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/LICENSE-APACHE-LLVM", "<repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/LICENSE-MIT"]
 assets = ["pack/sysroot/sysroot-wasip1.bundle", "pack/compiler/rustc.wasm"]
 
 [[component]]
 id = "wasi-sdk:wasi-libc-musl"
-name = "musl-derived portions of wasi-libc"
+name = "musl 1.2.5 portions of wasi-libc (libc-top-half/musl)"
 origin = "wasi-sdk"
 spdx = "MIT"
-license_status = "inferred"
-basis = "wasi-libc derives most of libc-top-half from musl (MIT); no license text for it is on this host"
-notices = []
+license_status = "declared"
+basis = "wasi-libc 2fc32bc81b9f LICENSE (\"libc-top-half/musl/ - MIT; see the COPYRIGHT file\") and libc-top-half/musl/COPYRIGHT, byte-identical to musl v1.2.5's COPYRIGHT on git.musl-libc.org"
+notices = ["<repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/libc-top-half/musl/COPYRIGHT"]
 assets = ["pack/sysroot/sysroot-wasip1.bundle", "pack/compiler/rustc.wasm"]
 
 [[component]]
 id = "wasi-sdk:wasi-libc-dlmalloc"
-name = "dlmalloc portion of wasi-libc (malloc)"
+name = "dlmalloc 2.8.6 portion of wasi-libc (malloc; libc.a member dlmalloc.c.obj)"
 origin = "wasi-sdk"
 spdx = "CC0-1.0"
-license_status = "inferred"
-basis = "wasi-libc's malloc is Doug Lea's dlmalloc (public domain dedication, CC0-1.0); no license text for it is on this host"
-notices = []
+license_status = "declared"
+basis = "wasi-libc 2fc32bc81b9f LICENSE (\"dlmalloc/ - CC0; see the notice in malloc.c\") and the notice at the head of dlmalloc/src/malloc.c (public domain, CC0 1.0)"
+notices = ["<repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/dlmalloc-notice.txt"]
+assets = ["pack/sysroot/sysroot-wasip1.bundle", "pack/compiler/rustc.wasm"]
+
+[[component]]
+id = "wasi-sdk:wasi-libc-cloudlibc"
+name = "cloudlibc portions of wasi-libc (libc-bottom-half/cloudlibc)"
+origin = "wasi-sdk"
+spdx = "BSD-2-Clause"
+license_status = "declared"
+basis = "wasi-libc 2fc32bc81b9f LICENSE (\"libc-bottom-half/cloudlibc/ - BSD-2-Clause\") and libc-bottom-half/cloudlibc/LICENSE; libc.a contains members built from it (e.g. opendirat.c.obj, scandirat.c.obj, fdclosedir.c.obj, whose sources exist only under cloudlibc)"
+notices = ["<repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/libc-bottom-half/cloudlibc/LICENSE"]
+assets = ["pack/sysroot/sysroot-wasip1.bundle", "pack/compiler/rustc.wasm"]
+
+[[component]]
+id = "wasi-sdk:wasi-libc-musl-fts"
+name = "musl-fts 1.2.7 portion of wasi-libc (fts; libc.a member fts.c.obj)"
+origin = "wasi-sdk"
+spdx = "BSD-3-Clause"
+license_status = "declared"
+basis = "wasi-libc 2fc32bc81b9f LICENSE (\"fts/musl-fts/ - BSD-3-Clause; see the COPYING file\") and fts/musl-fts/COPYING"
+notices = ["<repo>/browser/release/third-party/wasi-libc-2fc32bc81b9f/fts/musl-fts/COPYING"]
 assets = ["pack/sysroot/sysroot-wasip1.bundle", "pack/compiler/rustc.wasm"]
 
 [[component]]
@@ -159,9 +182,9 @@ id = "npm:browser_wasi_shim"
 name = "@bjorn3/browser_wasi_shim (minified copy vendored by Weblings, patched by IR-12)"
 origin = "vendored-js"
 spdx = "MIT OR Apache-2.0"
-license_status = "inferred"
-basis = "<repo>/browser/worker/vendor/browser_wasi_shim/VENDOR.toml [license]: upstream package metadata, not verifiable offline; the vendored copy carries no license file, and no other copy of the package (node_modules, the Bun cache, the Weblings source staged by BL-001) is on this host"
-notices = []
+license_status = "declared"
+basis = "Upstream https://github.com/bjorn3/browser_wasi_shim at b068ec2c22 (the revision the vendored copy was built from; <repo>/browser/worker/vendor/browser_wasi_shim/VENDOR.toml [upstream_revision]): package.json license \"MIT OR Apache-2.0\" and LICENSE-MIT and LICENSE-APACHE, fetched 2026-09-23 into the vendored directory"
+notices = ["<repo>/browser/worker/vendor/browser_wasi_shim/LICENSE-APACHE", "<repo>/browser/worker/vendor/browser_wasi_shim/LICENSE-MIT"]
 assets = ["site:worker.js"]
 
 [[component]]
@@ -188,33 +211,5 @@ assets = ["site:worker.js"]
 # The generator fails on any component whose license is not declared or whose notice
 # text is missing, unless it is listed here. Each entry is a decision to ship the
 # inventory as incomplete, not a resolution.
-
-[[acknowledged_gap]]
-component = "fork:clif2wasm"
-kind = "license-inferred"
-reason = "No license statement by the author of the vendored code; the expression and notices are those of the enclosing cg_clif directory and the fork's REUSE blanket annotation. Needs confirmation from the fork author (AngelOnFira), or a license file added to the vendored directory, before publication."
-
-[[acknowledged_gap]]
-component = "fork:riwl"
-kind = "license-inferred"
-reason = "No license statement by the author of the vendored code; the expression and notices are those of the enclosing cg_clif directory and the fork's REUSE blanket annotation. Needs confirmation from the fork author (AngelOnFira), or a license file added to the vendored directory, before publication."
-
-[[acknowledged_gap]]
-component = "wasi-sdk:*"
-kind = "license-inferred"
-reason = "wasi-libc, musl, dlmalloc: the wasi-sdk 32.0 tarball and its extracted copy in the fork carry no license file, no wasi-libc source is on this host, and the Nix store has no musl source; the expressions are assumptions until read from wasi-libc 2fc32bc81b9f (its LICENSE-* and COPYRIGHT files carry the musl and dlmalloc notices). Nothing may be downloaded for this."
-
-[[acknowledged_gap]]
-component = "wasi-sdk:*"
-kind = "notice-missing"
-reason = "No license text for wasi-libc, musl, or dlmalloc is on this host (searched 2026-09-23: the wasi-sdk tarball and sysroot, the fork, the Nix store, and the filesystem; the only dlmalloc trees are AOSP's, a different distribution). compiler-rt's text is present (src/llvm-project)."
-
-[[acknowledged_gap]]
-component = "npm:browser_wasi_shim"
-kind = "license-inferred"
-reason = "VENDOR.toml records the expression from upstream package metadata that could not be verified offline."
-
-[[acknowledged_gap]]
-component = "npm:browser_wasi_shim"
-kind = "notice-missing"
-reason = "The Weblings copy ships no license file for the shim; the upstream text must be added before distribution (IR-15 finding 8)."
+# None open (2026-09-23): the fork author approved clif2wasm and riwl, and the wasi-libc and
+# browser_wasi_shim texts were fetched from upstream.
