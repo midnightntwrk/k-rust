@@ -3,17 +3,17 @@
 // the page's own controls, and records bundles, diagnostics, cancel latency,
 // cache behaviour, network requests, memory, and screenshots.
 //
-//   bun test/lesson/docs-lesson.ts --site DOCS_SITE_DIR --assets STAGED_ASSETS --out DIR \
+//   bun test/lesson/docs-lesson.ts --site DOCS_SITE_DIR --assets RELEASE_ROOT --out DIR \
 //     [--oracle BUNDLE] [--oracle-e1 BUNDLE] [--browsers chromium,firefox] [--port N] [--expect configured|unconfigured]
 //
 // DOCS_SITE_DIR is docs-site/ after `vocs build` (dist/serve-node.js runs the
-// site). A Bun front server on --port proxies the site and serves STAGED_ASSETS
-// (browser/worker/scripts/stage-assets.ts) at /krs-pack/, so the build must use
+// site). A Bun front server on --port proxies the site and serves RELEASE_ROOT
+// (a browser/release/release.py publication: index.json, releases/, blobs/) at /krs-pack/, so the build must use
 // VITE_KRS_BROWSER_PACK_BASE=/krs-pack/ (same origin). Every request that
 // reaches the front server is logged, and BiDi network.beforeRequestSent
 // events are recorded per browser. Fresh /var/tmp profiles; no visible window.
 
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -23,7 +23,7 @@ const { values } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
     site: { type: "string" },
-    assets: { type: "string", default: "/var/tmp/krs-ir20-assets" },
+    assets: { type: "string", default: "/var/tmp/krs-ir21-run/publish" },
     out: { type: "string" },
     oracle: { type: "string", default: "/var/tmp/krs-ir17-oracle-final/native/descriptor-bundle.json" },
     "oracle-e1": { type: "string", default: "/var/tmp/krs-ir17-oracle-final/native-e1/descriptor-bundle.json" },
@@ -69,6 +69,12 @@ function startServers(browser: string) {
     stdout: "ignore",
     stderr: Bun.file(join(OUT, `${browser}-site-server.log`)),
   });
+  const releasePort = PORT + 60;
+  const releaseHost = Bun.spawn(["python3", join(import.meta.dir, "../../../release/release.py"), "serve", ASSETS, "--port", String(releasePort)], {
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    stdout: "ignore",
+    stderr: "ignore",
+  });
   const entries: ServerLogEntry[] = [];
   const started = performance.now();
   const server = Bun.serve({
@@ -80,17 +86,12 @@ function startServers(browser: string) {
       const entry: ServerLogEntry = { atMs: performance.now() - started, method: request.method, url: url.pathname + url.search, status: 404, bytes: 0, requestBodyBytes: body.byteLength };
       entries.push(entry);
       if (url.pathname.startsWith("/krs-pack/")) {
-        const target = resolve(ASSETS, `.${decodeURIComponent(url.pathname.slice("/krs-pack".length))}`);
-        try {
-          const real = realpathSync(target);
-          if (!real.startsWith(`${ASSETS}/`) || !statSync(real).isFile()) throw new Error("outside");
-          const file = Bun.file(real);
-          entry.status = 200;
-          entry.bytes = file.size;
-          return new Response(file, { headers: { "content-type": real.endsWith(".json") ? "application/json" : "application/octet-stream", "cache-control": "no-store" } });
-        } catch {
-          return new Response("not found", { status: 404 });
-        }
+        // The release host: browser/release/release.py serve, which applies hosting.toml headers.
+        const upstream = await fetch(`http://127.0.0.1:${releasePort}${url.pathname.slice("/krs-pack".length)}`);
+        const bytes = new Uint8Array(await upstream.arrayBuffer());
+        entry.status = upstream.status;
+        entry.bytes = bytes.byteLength;
+        return new Response(bytes, { status: upstream.status, headers: upstream.headers });
       }
       const upstream = await fetch(`http://127.0.0.1:${sitePort}${url.pathname}${url.search}`, {
         method: request.method,
@@ -120,10 +121,21 @@ function startServers(browser: string) {
       }
       throw new Error("docs site server did not start");
     },
+    async releaseReady() {
+      for (let i = 0; i < 200; i += 1) {
+        try {
+          if ((await fetch(`http://127.0.0.1:${releasePort}/index.json`)).ok) return;
+        } catch {}
+        await Bun.sleep(100);
+      }
+      throw new Error("release host did not start");
+    },
     async stop() {
       server.stop(true);
       site.kill();
+      releaseHost.kill();
       await site.exited;
+      await releaseHost.exited;
     },
   };
 }
@@ -361,8 +373,15 @@ interface Check {
   detail: string;
 }
 
-const stagedPack = JSON.parse(readFileSync(join(ASSETS, "pack.json"), "utf8"));
-const TOTAL_ASSETS = 4 + stagedPack.artifacts.length + stagedPack.framework_sources.length;
+// ASSETS is a release root (browser/release/release.py assemble): index.json -> releases/<sha>.json -> blobs/.
+const releaseIndex = JSON.parse(readFileSync(join(ASSETS, "index.json"), "utf8"));
+const release = JSON.parse(readFileSync(join(ASSETS, releaseIndex.active.release), "utf8"));
+const OPTIONAL_ROLES = new Set(["license-inventory", "notice", "pack-manifest"]);
+const requiredAssets: Array<{ id: string; url: string }> = release.assets.filter((a: any) => !OPTIONAL_ROLES.has(a.role));
+const TOTAL_ASSETS = requiredAssets.length;
+const MANIFEST_URLS = ["/krs-pack/index.json", `/krs-pack/${releaseIndex.active.release}`];
+const CORRUPT_TARGET = requiredAssets.find((a) => a.id.startsWith("pack/deps/") && a.id.endsWith(".rlib"))!;
+const NAMESPACE = `krs-pack-${String(releaseIndex.active.pack_id).replace(/^sha256:/, "")}`;
 const seedSource = readFileSync(join(SITE, "src/snippets/tour-minimal.rs"), "utf8");
 const oracle = new Uint8Array(readFileSync(values.oracle!));
 const oracleE1 = new Uint8Array(readFileSync(values["oracle-e1"]!));
@@ -382,6 +401,7 @@ for (const [name, text] of [["e1", e1Source], ["x1", x1Source], ["policy", polic
 async function runBrowser(browser: "chromium" | "firefox") {
   const servers = startServers(browser);
   await servers.ready();
+  await servers.releaseReady();
   const checks: Check[] = [];
   const steps: Record<string, unknown> = {};
   const check = (name: string, pass: boolean, detail: unknown) => {
@@ -421,13 +441,13 @@ async function runBrowser(browser: "chromium" | "firefox") {
     }
     check("page hydrates to the download prompt", phase === "idle", phase);
     const beforeDownload = servers.entries.filter((e) => e.url.startsWith("/krs-pack/")).map((e) => e.url);
-    check("only the two manifests load before the download button", JSON.stringify(beforeDownload.sort()) === JSON.stringify(["/krs-pack/lessons/tour-minimal/lesson.json", "/krs-pack/pack.json"]), beforeDownload);
+    check("only index.json and the release manifest load before the download button", JSON.stringify([...beforeDownload].sort()) === JSON.stringify([...MANIFEST_URLS].sort()), beforeDownload);
     await screenshot(s, "01-download-prompt");
 
     const cold = await step("download-cold", () =>
-      evaluate(s, `click('download'); await waitFor(() => ['ready', 'load-failed'].includes(root().dataset.lessonPhase), 600000, 'ready'); const p = $('[data-panel]'); return { phase: root().dataset.lessonPhase, readyMs: Number(p.dataset.readyMs), fromNetwork: Number(p.dataset.fromNetwork), fromCache: Number(p.dataset.fromCache), mode: p.dataset.mode, text: p.innerText };`),
+      evaluate(s, `click('download'); await waitFor(() => ['ready', 'load-failed'].includes(root().dataset.lessonPhase), 600000, 'ready'); const p = $('[data-panel]'); return { phase: root().dataset.lessonPhase, readyMs: Number(p.dataset.readyMs), fromNetwork: Number(p.dataset.fromNetwork), fromCache: Number(p.dataset.fromCache), release: p.dataset.release, text: p.innerText };`),
     );
-    check("cold download verifies every asset into the cache", cold?.phase === "ready" && cold.mode === "cache" && cold.fromNetwork === TOTAL_ASSETS, cold);
+    check("cold download verifies every asset into the cache", cold?.phase === "ready" && cold.release === releaseIndex.active.release && cold.fromNetwork === TOTAL_ASSETS, cold);
 
     const s0 = await step("S0-seed-cold", async () => {
       const r = await evaluate(s, `const r = await compileAndWait(); return { ...r, stages: stageStates(), sha: $('[data-bundle-sha256]')?.dataset.bundleSha256 ?? null, bundle: await bundleBytes() };`);
@@ -531,14 +551,13 @@ async function runBrowser(browser: "chromium" | "firefox") {
     });
     check(
       "reload loads the compiler from Cache Storage (only the manifests are fetched) and compiles the oracle",
-      reload?.phase === "ready" && reload.fromNetwork === 0 && reload.fromCache === TOTAL_ASSETS && reload.packRequests.length === 2 && reload.sha === sha256(oracle) && reload.prompt === "Load the compiler",
+      reload?.phase === "ready" && reload.fromNetwork === 0 && reload.fromCache === TOTAL_ASSETS && reload.packRequests.every((u: string) => u === "/krs-pack/index.json") && reload.sha === sha256(oracle) && reload.prompt === "Load the compiler",
       reload,
     );
 
     const corrupt = await step("corrupted-cache-entry", async () => {
-      const target = "pack/deps/";
-      const r1 = await evaluate(s, `const names = (await caches.keys()).filter((n) => n.startsWith('krs-lesson-pack-')); const cache = await caches.open(names[0]);
-        const key = (await cache.keys()).map((r) => r.url).find((u) => u.includes(${JSON.stringify(target)}) && u.endsWith('.rlib'));
+      const r1 = await evaluate(s, `const names = (await caches.keys()).filter((n) => n === ${JSON.stringify(NAMESPACE)}); const cache = await caches.open(names[0]);
+        const key = (await cache.keys()).map((r) => r.url).find((u) => u.endsWith(${JSON.stringify("/" + CORRUPT_TARGET.url)}));
         const bytes = new Uint8Array(await (await cache.match(key)).arrayBuffer()); bytes[bytes.length >> 1] ^= 0xff;
         await cache.put(key, new Response(bytes));
         return { cache: names[0], key };`);
@@ -563,7 +582,8 @@ async function runBrowser(browser: "chromium" | "firefox") {
     );
     check(
       "on reload the page replaces exactly the corrupted entry from the network",
-      corrupt?.pageSide?.phase === "ready" && corrupt.pageSide.fromNetwork === 1 && corrupt.pageSide.packRequests.length === 3 && corrupt.pageSide.sha === sha256(oracle) && corrupt.corrupted && corrupt.corrupted.key.endsWith(corrupt.pageSide.replaced),
+      corrupt?.pageSide?.phase === "ready" && corrupt.pageSide.fromNetwork === 1 && corrupt.pageSide.replaced === CORRUPT_TARGET.id && corrupt.pageSide.sha === sha256(oracle) &&
+        JSON.stringify(corrupt.pageSide.packRequests.filter((u: string) => u !== "/krs-pack/index.json")) === JSON.stringify([`/krs-pack/${CORRUPT_TARGET.url}`]),
       corrupt?.pageSide,
     );
 
@@ -573,13 +593,11 @@ async function runBrowser(browser: "chromium" | "firefox") {
     const nonGet = events.filter((e) => e.method !== "GET").concat(servers.entries.filter((e) => e.method !== "GET") as any);
     const withBody = servers.entries.filter((e) => e.requestBodyBytes > 0);
     const canaryHits = [...events.map((e) => JSON.stringify(e)), ...servers.entries.map((e) => JSON.stringify(e))].filter((t) => t.includes(canary));
-    const listed = new Set<string>(["/krs-pack/pack.json", "/krs-pack/lessons/tour-minimal/lesson.json"]);
-    const pack = JSON.parse(readFileSync(join(ASSETS, "pack.json"), "utf8"));
-    for (const a of [pack.compiler.rustc, pack.compiler.sysroot_bundle, pack.modules.policy, pack.modules.expander, ...pack.artifacts, ...pack.framework_sources]) listed.add(`/krs-pack/${a.path}`);
+    const listed = new Set<string>([...MANIFEST_URLS, ...requiredAssets.map((a) => `/krs-pack/${a.url}`)]);
     const unlisted = servers.entries.filter((e) => e.url.startsWith("/krs-pack/") && !listed.has(e.url));
     check("every request is a GET to the page origin", foreign.length === 0 && nonGet.length === 0, { foreign, nonGet });
     check("no request carries a body", withBody.length === 0, withBody);
-    check("every pack request is listed in the active manifest", unlisted.length === 0, unlisted);
+    check("every pack request is index.json, the active release, or one of its required assets", unlisted.length === 0, unlisted);
     check("the canary in the edited source appears in no request", canaryHits.length === 0, { canary, hits: canaryHits.length });
     return { checks, steps, canary, network: s.bidi.network, server: servers.entries, version: s.version, memory: s.sampler.summary() };
   } catch (error) {

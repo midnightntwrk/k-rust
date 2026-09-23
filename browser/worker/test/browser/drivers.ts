@@ -114,7 +114,7 @@ export async function launchFirefox(options: LaunchOptions): Promise<BrowserSess
   const profile = mkdtempSync(`${options.profilePrefix}firefox-profile.`);
   const bidiPort = options.port + 1;
   const firefox = Bun.spawn(
-    [options.firefox ?? "/usr/lib/firefox/firefox", "--headless", "--new-instance", "--profile", profile, "--remote-debugging-port", String(bidiPort), "--remote-allow-hosts", "127.0.0.1,localhost", "about:blank"],
+    [options.firefox ?? process.env.KRS_FIREFOX ?? "/usr/lib/firefox/firefox", "--headless", "--new-instance", "--profile", profile, "--remote-debugging-port", String(bidiPort), "--remote-allow-hosts", "127.0.0.1,localhost", "about:blank"],
     { stdout: "ignore", stderr: "ignore", env: { ...process.env, MOZ_HEADLESS: "1", DISPLAY: "", WAYLAND_DISPLAY: "" } },
   );
   const sampler = new TreeSampler(() => firefox.pid);

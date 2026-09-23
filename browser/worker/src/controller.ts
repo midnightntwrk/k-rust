@@ -24,21 +24,25 @@ import {
 
 /** The asset loader (hash verification + one module compile per page), re-exported for docs-site. */
 export { loadVerifiedAssets, PackIntegrityError } from "./pack.ts";
-/** The Cache API asset store (IR-20): workers read verified assets themselves. */
+/** The release cache (IR-21); PackCache.storedAssets lets workers read verified assets themselves (IR-20). */
 export {
-  assetUrl,
-  cachedAssetCount,
-  cacheNameFor,
-  cacheStorageAvailable,
-  packBytes,
-  storeVerifiedAssets,
-  type StoreProgress,
-  type StoreResult,
-} from "./asset-store.ts";
+  type CacheEvent,
+  InstalledRelease,
+  PackCache,
+  PackCacheError,
+  packFailureEvent,
+  type ReleasePreview,
+} from "./pack-cache.ts";
 
 export interface KrsCompilerOptions {
   /** Creates the module worker (the bundle location differs between hosts). */
   createWorker: () => Worker;
+  /**
+   * Web Locks lease each worker holds (shared) for its lifetime, e.g.
+   * InstalledRelease.lease: PackCache.cleanup() never deletes the namespace of
+   * a pack while a worker built from it is alive (IR-21).
+   */
+  lease?: string;
 }
 
 /** Push-based async iterable with an explicit end. */
@@ -138,9 +142,10 @@ export class KrsCompiler {
         if (this.slot?.worker === worker) this.onWorkerCrash(text);
       };
     });
+    const lease = this.options.lease ? { lease: this.options.lease } : {};
     const init: ToWorker = "store" in this.assets
-      ? { type: "init-stored", protocol: WORKER_PROTOCOL, pack: this.pack, stored: this.assets }
-      : { type: "init", protocol: WORKER_PROTOCOL, pack: this.pack, assets: this.assets };
+      ? { type: "init-stored", protocol: WORKER_PROTOCOL, pack: this.pack, stored: this.assets, ...lease }
+      : { type: "init", protocol: WORKER_PROTOCOL, pack: this.pack, assets: this.assets, ...lease };
     worker.postMessage(init);
     return { worker, ready };
   }

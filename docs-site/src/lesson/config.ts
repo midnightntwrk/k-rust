@@ -1,16 +1,17 @@
 // Build-time configuration of the browser lesson (IR-20).
 //
 // VITE_KRS_BROWSER_PACK_BASE is read by Vite when the site is built (or when
-// `vocs dev` starts) and inlined into the client bundle. It names the
-// directory that browser/worker/scripts/stage-assets.ts produces:
+// `vocs dev` starts) and inlined into the client bundle. It names the root of a
+// content-addressed release publication (browser/release/release.py assemble,
+// format browser/release/release-format.toml):
 //
-//   <base>/pack.json                        normalized pack manifest (worker schema 1)
-//   <base>/lessons/tour-minimal/lesson.json lesson manifest (pack_id, Cargo.toml, lint flags)
-//   <base>/pack/..., <base>/modules/...     every asset pack.json lists, with its size and SHA-256
+//   <base>/index.json               mutable pointer to the active release (no-cache)
+//   <base>/releases/<sha256>.json   release manifest; its assets include pack.json and lessons/tour-minimal/lesson.json
+//   <base>/blobs/<sha256>.<ext>     every asset, named by the SHA-256 of its bytes
 //
-// A cross-origin base must send CORS headers (Access-Control-Allow-Origin) for
-// GET. Nothing is fetched from it until the learner presses the download button,
-// except the two manifests.
+// A cross-origin base must send CORS headers for GET (browser/release/hosting.toml).
+// Before the learner presses the download button the page fetches only
+// index.json and the release manifest.
 
 const raw = import.meta.env.VITE_KRS_BROWSER_PACK_BASE
 

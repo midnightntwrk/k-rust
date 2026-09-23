@@ -279,12 +279,13 @@ export interface VerifiedAssets {
 }
 
 /**
- * A worker-readable store of verified pack assets (IR-20). The page verifies
- * every asset once, writes it to the store, compiles the three modules, and
- * keeps no asset bytes; each worker reads the rlibs, the sysroot bundle, and
- * the framework sources from the store itself and verifies them again. Worker
- * start-up (including replacement after cancel) then clones only the modules,
- * not about 120 MB of bytes on the page thread (IR-15 finding 5).
+ * Verified pack assets that each worker reads from Cache Storage itself
+ * (IR-20). The page installs a release through PackCache (pack-cache.ts),
+ * compiles the three modules, and keeps no asset bytes; each worker reads the
+ * rlibs, the sysroot bundle, and the framework sources from the release's
+ * cache namespace and verifies them again (readStoredAssets). Starting or
+ * replacing a worker then clones only the compiled modules, not about 120 MB
+ * of bytes on the page thread (IR-15 finding 5).
  */
 export interface StoredAssets {
   packId: string;
@@ -293,9 +294,9 @@ export interface StoredAssets {
   verified: Record<string, string>;
   store: {
     kind: "cache-storage";
-    /** Cache Storage name; one cache per pack_id (asset-store.ts cacheNameFor). */
+    /** Cache Storage name: the pack's PackCache namespace (namespaceFor). */
     cacheName: string;
-    /** Pack-relative asset path -> request URL of its cache entry. */
+    /** PackManifest asset path (= release asset id) -> absolute content-addressed URL of its cache entry. */
     urls: Record<string, string>;
   };
 }
@@ -305,8 +306,22 @@ export interface StoredAssets {
 export const WORKER_PROTOCOL = 1;
 
 export type ToWorker =
-  | { type: "init"; protocol: number; pack: PackManifest; assets: VerifiedAssets }
-  | { type: "init-stored"; protocol: number; pack: PackManifest; stored: StoredAssets }
+  | {
+      type: "init";
+      protocol: number;
+      pack: PackManifest;
+      assets: VerifiedAssets;
+      /** Web Locks name the worker holds in shared mode for its lifetime (pack-cache.ts cleanup lease). */
+      lease?: string;
+    }
+  | {
+      type: "init-stored";
+      protocol: number;
+      pack: PackManifest;
+      stored: StoredAssets;
+      /** As for init; taken before the worker reads the store, so cleanup cannot delete it mid-read. */
+      lease?: string;
+    }
   | { type: "compile"; request: CompileRequest };
 
 export type FromWorker =

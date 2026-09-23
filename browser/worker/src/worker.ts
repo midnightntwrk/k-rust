@@ -1,9 +1,9 @@
 // Dedicated module worker entry: receives the verified assets once (or reads
-// them from the page's asset store, asset-store.ts), then runs
+// them from the pack's Cache Storage namespace, pack-cache.ts), then runs
 // one build at a time and posts its events. The controller owns generations,
 // queueing, and cancellation (Worker.terminate()).
 
-import { readStoredAssets } from "./asset-store.ts";
+import { readStoredAssets } from "./pack-cache.ts";
 import { createPipelineContext, type PipelineContext, runBuild } from "./pipeline.ts";
 import { type FromWorker, type ToWorker, WORKER_PROTOCOL } from "./protocol.ts";
 
@@ -22,33 +22,42 @@ function memoryProbe(): Record<string, number> | null {
   return memory ? { usedJSHeapSize: memory.usedJSHeapSize, totalJSHeapSize: memory.totalJSHeapSize } : null;
 }
 
-scope.onmessage = (event) => {
-  const message = event.data;
-  if (message.type === "init") {
-    if (message.protocol !== WORKER_PROTOCOL) {
-      scope.postMessage({ type: "init-error", message: `worker protocol ${WORKER_PROTOCOL}, controller ${message.protocol}` });
-      return;
-    }
-    try {
-      context = createPipelineContext(message.pack, message.assets);
-      scope.postMessage({ type: "ready", protocol: WORKER_PROTOCOL });
-    } catch (error) {
-      scope.postMessage({ type: "init-error", message: String(error instanceof Error ? error.message : error) });
-    }
+/**
+ * Takes the pack lease (shared Web Lock, held until the worker is terminated)
+ * when one is requested, then runs `start`. The lease is taken first so that
+ * PackCache.cleanup() cannot delete a namespace the worker is about to read.
+ */
+function withLease(lease: string | undefined, start: () => Promise<void>): void {
+  const fail = (error: unknown) =>
+    scope.postMessage({ type: "init-error", message: String(error instanceof Error ? error.message : error) });
+  const ready = () => scope.postMessage({ type: "ready", protocol: WORKER_PROTOCOL });
+  if (lease === undefined) {
+    start().then(ready, fail);
     return;
   }
-  if (message.type === "init-stored") {
+  const locks = (globalThis.navigator as Navigator | undefined)?.locks;
+  if (!locks) {
+    fail(`lease ${lease} requested but Web Locks are unavailable`);
+    return;
+  }
+  // Held until the worker is terminated; the browser releases a context's locks when it goes away.
+  void locks.request(lease, { mode: "shared" }, () => {
+    start().then(ready, fail);
+    return new Promise<never>(() => {});
+  });
+}
+
+scope.onmessage = (event) => {
+  const message = event.data;
+  if (message.type === "init" || message.type === "init-stored") {
     if (message.protocol !== WORKER_PROTOCOL) {
       scope.postMessage({ type: "init-error", message: `worker protocol ${WORKER_PROTOCOL}, controller ${message.protocol}` });
       return;
     }
-    readStoredAssets(message.pack, message.stored).then(
-      (assets) => {
-        context = createPipelineContext(message.pack, assets);
-        scope.postMessage({ type: "ready", protocol: WORKER_PROTOCOL });
-      },
-      (error: unknown) => scope.postMessage({ type: "init-error", message: String(error instanceof Error ? error.message : error) }),
-    );
+    withLease(message.lease, async () => {
+      const assets = message.type === "init" ? message.assets : await readStoredAssets(message.pack, message.stored);
+      context = createPipelineContext(message.pack, assets);
+    });
     return;
   }
   if (message.type === "compile") {

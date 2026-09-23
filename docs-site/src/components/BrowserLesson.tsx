@@ -8,7 +8,7 @@
 
 import { type KeyboardEvent, type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { KrsCompiler, StoreProgress } from '../../../browser/worker/src/controller.ts'
+import type { KrsCompiler } from '../../../browser/worker/src/controller.ts'
 import type { CompileEvent, Diagnostic, MappingClass, Stage } from '../../../browser/worker/src/protocol.ts'
 import { packBase } from '../lesson/config'
 import {
@@ -23,6 +23,7 @@ import {
   fetchManifests,
   LessonEnvironmentError,
   type LessonManifests,
+  type LoadProgress,
   type StartedCompiler,
   startCompiler,
   unsupportedReason,
@@ -65,7 +66,7 @@ type Phase =
   | { kind: 'manifest' }
   | { kind: 'unavailable'; error: LessonEnvironmentError }
   | { kind: 'idle'; manifests: LessonManifests }
-  | { kind: 'loading'; manifests: LessonManifests; progress: StoreProgress | null }
+  | { kind: 'loading'; manifests: LessonManifests; progress: LoadProgress | null }
   | { kind: 'load-failed'; manifests: LessonManifests; error: LessonEnvironmentError }
   | { kind: 'ready'; manifests: LessonManifests; started: StartedCompiler }
 
@@ -221,7 +222,7 @@ function Editor({
   )
 }
 
-function Progress({ progress }: { progress: StoreProgress | null }) {
+function Progress({ progress }: { progress: LoadProgress | null }) {
   const fraction = progress && progress.totalBytes > 0 ? progress.loadedBytes / progress.totalBytes : 0
   return (
     <div className={styles.progress}>
@@ -335,7 +336,7 @@ function BuildOutcome({
             </dd>
             <dt>Pack</dt>
             <dd>
-              <code>{manifests.pack.pack_id}</code>
+              <code>{manifests.packId}</code>
             </dd>
             <dt>Stages</dt>
             <dd>
@@ -383,7 +384,7 @@ function BuildOutcome({
             The worker's failure record. A rustc diagnostic's <code>rendered</code> text names the generated file and its coordinates; the
             locations above come from the source map instead.
           </p>
-          <RawRecord value={{ pack_id: manifests.pack.pack_id, ...failure }} />
+          <RawRecord value={{ pack_id: manifests.packId, ...failure }} />
         </details>
       </details>
     </div>
@@ -397,7 +398,6 @@ export function BrowserLesson() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const generationRef = useRef(0)
   const cancelAtRef = useRef<number | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const compilerRef = useRef<KrsCompiler | null>(null)
   const execution = useMemo(() => executionStatus(), [])
 
@@ -419,15 +419,12 @@ export function BrowserLesson() {
   useEffect(() => {
     loadManifests()
     return () => {
-      abortRef.current?.abort()
       compilerRef.current?.dispose()
       compilerRef.current = null
     }
   }, [loadManifests])
 
   const download = (manifests: LessonManifests) => {
-    const controller = new AbortController()
-    abortRef.current = controller
     setPhase({ kind: 'loading', manifests, progress: null })
     let last = 0
     startCompiler(
@@ -438,7 +435,6 @@ export function BrowserLesson() {
         last = now
         setPhase((current) => (current.kind === 'loading' ? { ...current, progress } : current))
       },
-      controller.signal,
     ).then(
       (started) => {
         compilerRef.current = started.compiler
@@ -456,7 +452,7 @@ export function BrowserLesson() {
   const compile = async () => {
     if (phase.kind !== 'ready') return
     const { compiler } = phase.started
-    const { lesson } = phase.manifests
+    const { lesson } = phase.started
     const text = source
     const events = compiler.compile({ lesson, files: { [lesson.display_file]: text } })
     const generation = compiler.currentGeneration
@@ -535,7 +531,7 @@ export function BrowserLesson() {
       data-build-status={build?.status ?? 'none'}
       data-lesson-phase={phase.kind}
     >
-      <PackPanel phase={phase} onDownload={download} onRetry={loadManifests} onStop={() => abortRef.current?.abort()} />
+      <PackPanel phase={phase} onDownload={download} onRetry={loadManifests} />
 
       <div className={styles.fileBar}>
         <span className={styles.fileName}>tests/tour-minimal/src/lib.rs</span>
@@ -592,12 +588,10 @@ export function BrowserLesson() {
 function PackPanel({
   onDownload,
   onRetry,
-  onStop,
   phase,
 }: {
   onDownload: (manifests: LessonManifests) => void
   onRetry: () => void
-  onStop: () => void
   phase: Phase
 }) {
   switch (phase.kind) {
@@ -661,7 +655,6 @@ function PackPanel({
               ? 'The compiler is already in this browser’s cache; it is verified again before use.'
               : `The compiler is a one-time ${formatBytes(manifests.totalBytes)} download (${manifests.totalAssets} files, each checked against its SHA-256), kept in this browser’s cache for later visits.`}{' '}
             Compiling uses up to about 2 GB of memory.
-            {manifests.cacheAvailable ? '' : ' This browser does not offer Cache Storage here, so the files are kept in memory for this visit only.'}
           </p>
           <button className={styles.primary} data-action="download" onClick={() => onDownload(manifests)} type="button">
             {cached ? 'Load the compiler' : `Download the compiler (${formatBytes(manifests.totalBytes)})`}
@@ -673,9 +666,6 @@ function PackPanel({
       return (
         <div className={styles.panel} data-panel="loading">
           <Progress progress={phase.progress} />
-          <button data-action="stop-download" onClick={onStop} type="button">
-            Stop
-          </button>
         </div>
       )
     case 'load-failed':
@@ -694,7 +684,7 @@ function PackPanel({
             <p className={styles.note}>{phase.error.message}</p>
             <details className={styles.level}>
               <summary>Raw record</summary>
-              <RawRecord value={{ kind: phase.error.kind, message: phase.error.message, pack_id: phase.manifests.pack.pack_id }} />
+              <RawRecord value={{ kind: phase.error.kind, message: phase.error.message, pack_id: phase.manifests.packId }} />
             </details>
           </details>
           <button data-action="download" onClick={() => onDownload(phase.manifests)} type="button">
@@ -709,8 +699,8 @@ function PackPanel({
           className={`${styles.panel} ${styles.panelReady}`}
           data-from-cache={started.fromCache}
           data-from-network={started.fromNetwork}
-          data-mode={started.mode}
-          data-pack-id={manifests.pack.pack_id}
+          data-release={started.release}
+          data-pack-id={manifests.packId}
           data-panel="ready"
           data-ready-ms={Math.round(started.ms)}
           data-replaced={started.replaced.join(' ')}
@@ -718,7 +708,6 @@ function PackPanel({
           <p>
             <span className={styles.ok}>Compiler ready</span> in {formatMs(started.ms)} ·{' '}
             {started.fromNetwork === 0 ? 'from this browser’s cache' : `${started.fromNetwork} of ${manifests.totalAssets} files downloaded`}
-            {started.mode === 'memory' ? ' · held in memory' : ''}
           </p>
         </div>
       )
@@ -773,8 +762,8 @@ function ExecutionPanel({
     setRun({ generation, status: 'running', stages: {}, diagnostics: [] })
     const update = (apply: (view: RunView) => RunView) => setRun((current) => (current && current.generation === generation ? apply(current) : current))
     try {
-      executorRef.current ??= await execution.create({ packBase: manifests.base, packId: manifests.pack.pack_id })
-      const events = executorRef.current.run({ generation, bundle: bundle.bundle, bundleSha256: bundle.sha256, packId: manifests.pack.pack_id, signal: abort.signal })
+      executorRef.current ??= await execution.create({ packBase: manifests.base, packId: manifests.packId })
+      const events = executorRef.current.run({ generation, bundle: bundle.bundle, bundleSha256: bundle.sha256, packId: manifests.packId, signal: abort.signal })
       for await (const event of events) {
         if (abort.signal.aborted) break
         if (event.type === 'progress') {
@@ -858,7 +847,7 @@ function ExecutionPanel({
             </ol>
             <details className={styles.level}>
               <summary>Raw record</summary>
-              <RawRecord value={{ pack_id: manifests?.pack.pack_id, bundle_sha256: bundle?.sha256, ...run.failure }} />
+              <RawRecord value={{ pack_id: manifests?.packId, bundle_sha256: bundle?.sha256, ...run.failure }} />
             </details>
           </details>
         </div>

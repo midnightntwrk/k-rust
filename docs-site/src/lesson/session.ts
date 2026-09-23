@@ -1,16 +1,16 @@
-// Loading the browser lesson: manifests, the asset store, and the compiler.
+// Loading the browser lesson from a content-addressed release (IR-21 layout:
+// index.json -> releases/<sha256>.json -> blobs/<sha256>.<ext>) through
+// PackCache, then starting the compiler with workers that read the verified
+// assets from the release's Cache Storage namespace themselves (IR-20).
 // Everything here runs only in the browser, from effects or event handlers.
 
 import {
-  assetUrl,
-  cachedAssetCount,
-  cacheStorageAvailable,
+  type CacheEvent,
   KrsCompiler,
-  loadVerifiedAssets,
+  PackCache,
+  PackCacheError,
   PackIntegrityError,
-  packBytes,
-  type StoreProgress,
-  storeVerifiedAssets,
+  type ReleasePreview,
 } from '../../../browser/worker/src/controller.ts'
 import type { LessonManifest, PackManifest } from '../../../browser/worker/src/protocol.ts'
 import { LESSON_ID, workerUrl } from './config'
@@ -18,10 +18,12 @@ import { LESSON_ID, workerUrl } from './config'
 /** An environment failure: distinct from errors in the learner's source. */
 export class LessonEnvironmentError extends Error {
   readonly kind: 'unsupported' | 'manifest' | 'download' | 'integrity' | 'worker'
-  constructor(kind: LessonEnvironmentError['kind'], message: string) {
+  readonly detail: unknown
+  constructor(kind: LessonEnvironmentError['kind'], message: string, detail: unknown = null) {
     super(message)
     this.name = 'LessonEnvironmentError'
     this.kind = kind
+    this.detail = detail
   }
 }
 
@@ -32,117 +34,114 @@ export function unsupportedReason(): string | null {
   if (!window.isSecureContext || !globalThis.crypto?.subtle) {
     return 'The lesson needs a secure context (HTTPS or localhost) to verify the compiler files.'
   }
+  if (typeof caches === 'undefined') return 'The lesson needs Cache Storage, which this browser does not offer here (for example in a private window).'
   return null
+}
+
+function classify(error: unknown, fallback: LessonEnvironmentError['kind']): LessonEnvironmentError {
+  if (error instanceof LessonEnvironmentError) return error
+  if (error instanceof PackCacheError) {
+    return new LessonEnvironmentError(error.code === 'pack-integrity' ? 'integrity' : fallback, error.message, error.toJSON())
+  }
+  if (error instanceof PackIntegrityError) return new LessonEnvironmentError('integrity', error.message)
+  return new LessonEnvironmentError(fallback, error instanceof Error ? error.message : String(error))
 }
 
 export interface LessonManifests {
   base: string
-  pack: PackManifest
-  lesson: LessonManifest
+  preview: ReleasePreview
+  packId: string
   totalBytes: number
   totalAssets: number
-  /** Assets already present in this pack's cache (not yet verified). */
+  /** Required assets already present in this pack's cache (verified again on load). */
   cachedAssets: number
-  cacheAvailable: boolean
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  let response: Response
-  try {
-    response = await fetch(url, { credentials: 'omit' })
-  } catch (error) {
-    throw new LessonEnvironmentError('manifest', `${url} could not be fetched (${String(error)}).`)
-  }
-  if (!response.ok) throw new LessonEnvironmentError('manifest', `${url} answered HTTP ${response.status}.`)
-  try {
-    return (await response.json()) as T
-  } catch {
-    throw new LessonEnvironmentError('manifest', `${url} is not JSON.`)
-  }
-}
-
-/** Fetches and checks the two small manifests; downloads nothing else. */
+/** Reads index.json and the release manifest (both small); fetches no asset. */
 export async function fetchManifests(base: string): Promise<LessonManifests> {
-  const pack = await fetchJson<PackManifest>(assetUrl(base, 'pack.json'))
-  const lesson = await fetchJson<LessonManifest>(assetUrl(base, `lessons/${LESSON_ID}/lesson.json`))
-  if (pack.schema !== 1 || pack.kind !== 'krs-browser-worker-pack') {
-    throw new LessonEnvironmentError('manifest', `pack.json is not a worker pack manifest (schema ${String(pack.schema)}).`)
+  try {
+    const preview = await new PackCache({ baseUrl: base }).inspect()
+    return {
+      base,
+      preview,
+      packId: preview.ref.pack_id,
+      totalBytes: preview.requiredBytes,
+      totalAssets: preview.requiredAssets,
+      cachedAssets: preview.cachedAssets,
+    }
+  } catch (error) {
+    throw classify(error, 'manifest')
   }
-  if (lesson.schema !== 1 || lesson.lesson !== LESSON_ID) {
-    throw new LessonEnvironmentError('manifest', `lesson.json describes ${String(lesson.lesson)}, not ${LESSON_ID}.`)
-  }
-  if (lesson.pack_id !== pack.pack_id) {
-    throw new LessonEnvironmentError('manifest', `lesson.json was staged for pack ${lesson.pack_id}, the base serves ${pack.pack_id}.`)
-  }
-  const cacheAvailable = await cacheStorageAvailable()
-  return {
-    base,
-    pack,
-    lesson,
-    totalBytes: packBytes(pack),
-    totalAssets: 4 + pack.artifacts.length + pack.framework_sources.length,
-    cachedAssets: cacheAvailable ? await cachedAssetCount(pack, base) : 0,
-    cacheAvailable,
-  }
+}
+
+export interface LoadProgress {
+  loadedBytes: number
+  totalBytes: number
+  verifiedAssets: number
+  totalAssets: number
 }
 
 export interface StartedCompiler {
   compiler: KrsCompiler
-  /** "cache": workers read verified assets from Cache Storage; "memory": the page holds them and clones them into each worker. */
-  mode: 'cache' | 'memory'
+  pack: PackManifest
+  lesson: LessonManifest
+  release: string
   fromCache: number
   fromNetwork: number
+  /** Cached entries that failed verification and were refetched. */
   replaced: string[]
   ms: number
 }
 
-function classify(error: unknown): LessonEnvironmentError {
-  if (error instanceof LessonEnvironmentError) return error
-  if (error instanceof PackIntegrityError) return new LessonEnvironmentError('integrity', error.message)
-  if (error instanceof DOMException && error.name === 'AbortError') return new LessonEnvironmentError('download', 'Download stopped.')
-  return new LessonEnvironmentError('download', error instanceof Error ? error.message : String(error))
-}
-
-/** Downloads (or reads from the cache), verifies, compiles the modules, and starts the worker. */
-export async function startCompiler(
-  manifests: LessonManifests,
-  onProgress: (progress: StoreProgress) => void,
-  signal: AbortSignal,
-): Promise<StartedCompiler> {
+/**
+ * Installs the current release (verifying every required asset, fetching only
+ * what is missing or corrupt), compiles the modules, and starts the worker,
+ * which holds the pack's lease and reads the other assets from the cache.
+ */
+export async function startCompiler(manifests: LessonManifests, onProgress: (progress: LoadProgress) => void): Promise<StartedCompiler> {
   const started = performance.now()
-  const createWorker = () => new Worker(workerUrl(), { type: 'module' })
-  const { pack, base } = manifests
-  try {
-    if (manifests.cacheAvailable) {
-      const result = await storeVerifiedAssets(pack, { baseUrl: base, onProgress, signal })
-      const compiler = await KrsCompiler.create(pack, result.stored, { createWorker }).catch((error: unknown) => {
-        throw new LessonEnvironmentError('worker', `The compiler worker did not start: ${String(error)}`)
-      })
-      return { compiler, mode: 'cache', fromCache: result.fromCache, fromNetwork: result.fromNetwork, replaced: result.replaced, ms: performance.now() - started }
-    }
-    const progress: StoreProgress = {
-      loadedBytes: 0,
-      totalBytes: manifests.totalBytes,
-      verifiedAssets: 0,
-      totalAssets: manifests.totalAssets,
-      fromCache: 0,
-      fromNetwork: 0,
-    }
-    const assets = await loadVerifiedAssets(pack, async (path) => {
-      const response = await fetch(assetUrl(base, path), { signal, credentials: 'omit' })
-      if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`)
-      const bytes = new Uint8Array(await response.arrayBuffer())
-      progress.loadedBytes += bytes.byteLength
+  const progress: LoadProgress = { loadedBytes: 0, totalBytes: manifests.totalBytes, verifiedAssets: 0, totalAssets: manifests.totalAssets }
+  let fromCache = 0
+  let fromNetwork = 0
+  const replaced: string[] = []
+  const onEvent = (event: CacheEvent) => {
+    if (event.type === 'verified') {
+      if (event.from === 'cache') fromCache += 1
+      else fromNetwork += 1
       progress.verifiedAssets += 1
-      progress.fromNetwork += 1
+      progress.loadedBytes += manifests.preview.sizes[event.id] ?? 0
       onProgress({ ...progress })
-      return bytes
-    })
-    const compiler = await KrsCompiler.create(pack, assets, { createWorker }).catch((error: unknown) => {
-      throw new LessonEnvironmentError('worker', `The compiler worker did not start: ${String(error)}`)
-    })
-    return { compiler, mode: 'memory', fromCache: 0, fromNetwork: progress.fromNetwork, replaced: [], ms: performance.now() - started }
-  } catch (error) {
-    throw classify(error)
+    } else if (event.type === 'evict') {
+      replaced.push(event.id)
+    }
   }
+  const cache = new PackCache({ baseUrl: manifests.base, onEvent })
+  let pack: PackManifest
+  let lesson: LessonManifest
+  let stored: Awaited<ReturnType<PackCache['storedAssets']>>
+  let lease: string
+  let release: string
+  try {
+    const installed = await cache.open()
+    pack = installed.workerPack()
+    lesson = JSON.parse(installed.text(`lessons/${LESSON_ID}/lesson.json`)) as LessonManifest
+    if (lesson.lesson !== LESSON_ID || lesson.pack_id !== pack.pack_id) {
+      throw new LessonEnvironmentError('manifest', `the release's lesson.json describes ${String(lesson.lesson)} for pack ${lesson.pack_id}, not ${LESSON_ID} for ${pack.pack_id}`)
+    }
+    stored = await cache.storedAssets(installed, pack)
+    lease = installed.lease
+    release = installed.ref.release
+    // `installed` (and its asset bytes) is not kept: workers read from Cache Storage.
+  } catch (error) {
+    throw classify(error, 'download')
+  }
+  const compiler = await KrsCompiler.create(pack, stored, {
+    createWorker: () => new Worker(workerUrl(), { type: 'module' }),
+    lease,
+  }).catch((error: unknown) => {
+    throw new LessonEnvironmentError('worker', `The compiler worker did not start: ${String(error)}`)
+  })
+  // Inactive pack generations whose lease nobody holds; failures here never block the lesson.
+  void cache.cleanup().catch(() => {})
+  return { compiler, pack, lesson, release, fromCache, fromNetwork, replaced, ms: performance.now() - started }
 }

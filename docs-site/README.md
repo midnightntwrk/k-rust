@@ -40,19 +40,19 @@ VITE_KRS_BROWSER_PACK_BASE=https://example.org/krs-lesson/ bun run build
 ```
 
 The value is an absolute URL or an origin-relative path, and it is inlined into the client bundle when Vite builds the site (or when `vocs dev` starts).
-It must name a directory laid out by `browser/worker/scripts/stage-assets.ts`: `pack.json`, `lessons/tour-minimal/lesson.json`, and every file `pack.json` lists under `pack/` and `modules/`.
-A cross-origin base must answer `GET` with `Access-Control-Allow-Origin` for the site's origin.
+It must name the root of a release publication assembled by `browser/release/release.py assemble` (format: `browser/release/release-format.toml`): `index.json` points to `releases/<sha256>.json`, whose assets are served from `blobs/<sha256>.<ext>`.
+Serve it with the headers in `browser/release/hosting.toml`; a cross-origin base must answer `GET` with `Access-Control-Allow-Origin` for the site's origin.
 When the variable is unset, the build still succeeds and the page renders its "lesson unavailable" state; CI builds this way.
 
-The page fetches the two manifests on load and the pack only after the reader presses the download button.
-Every file is checked against its size and SHA-256 and stored in Cache Storage under one cache per `pack_id`; caches of other packs are deleted.
-Workers read the verified files from that cache themselves, so a cancel or a worker replacement does not copy the pack on the page thread.
+The page fetches `index.json` and the release manifest on load, and the assets only after the reader presses the download button.
+`browser/worker/src/pack-cache.ts` verifies every required asset against the release, keeps it in one Cache Storage namespace per `pack_id`, and deletes inactive namespaces that no worker leases.
+Workers hold that lease and read the verified files from the namespace themselves, so a cancel or a worker replacement does not copy the pack on the page thread.
 
-For local development, stage the assets outside the repository (the script's header lists its inputs, including the policy and expander modules in `KRS_IR15_POLICY` and `KRS_IR15_EXPANDER`) and serve them with CORS, for example:
+For local development, serve a publication and point the site at it, for example:
 
 ```sh
-bun ../browser/worker/scripts/stage-assets.ts --out /var/tmp/krs-lesson-assets --pack <IR-14 pack dir> --krs-rev HEAD
-VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8787/ bun run dev
+python3 ../browser/release/release.py serve <publish dir> --port 8741
+VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8741/ bun run dev
 ```
 
-`bun ../browser/worker/test/lesson/docs-lesson.ts` drives the built page in headless Chromium and Firefox against staged assets served at the same origin (build with `VITE_KRS_BROWSER_PACK_BASE=/krs-pack/`).
+`bun ../browser/worker/test/lesson/docs-lesson.ts` drives the built page in headless Chromium and Firefox against a release publication served at the same origin (build with `VITE_KRS_BROWSER_PACK_BASE=/krs-pack/`).
