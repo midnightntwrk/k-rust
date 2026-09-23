@@ -44,17 +44,17 @@ use super::{
 
 const MODULE: &str = "KRS-ADAPTER-TEST";
 
-fn m2_definition() -> DefinitionIr {
-    m2_definition_with_cell(SentenceKind::Transition, "initKCell", "k")
+fn smoke_definition() -> DefinitionIr {
+    smoke_definition_with_cell(SentenceKind::Transition, "initKCell", "k")
 }
 
 #[allow(clippy::too_many_lines)]
-fn m2_definition_with(rule_kind: SentenceKind, initializer_name: &str) -> DefinitionIr {
-    m2_definition_with_cell(rule_kind, initializer_name, "k")
+fn smoke_definition_with(rule_kind: SentenceKind, initializer_name: &str) -> DefinitionIr {
+    smoke_definition_with_cell(rule_kind, initializer_name, "k")
 }
 
 #[allow(clippy::too_many_lines)]
-fn m2_definition_with_cell(
+fn smoke_definition_with_cell(
     rule_kind: SentenceKind,
     initializer_name: &str,
     cell_name: &str,
@@ -310,7 +310,7 @@ fn typed_hook_maps_to_the_exact_native_frontend_attribute() {
         ],
     )
     .unwrap();
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production { attributes, .. } = native else {
@@ -350,7 +350,7 @@ fn typed_sha256_hook_maps_to_the_exact_native_frontend_attribute() {
         ],
     )
     .unwrap();
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production { attributes, .. } = native else {
@@ -394,7 +394,7 @@ fn typed_ripemd160_hook_maps_to_the_exact_native_frontend_attribute() {
         ],
     )
     .unwrap();
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production { attributes, .. } = native else {
@@ -456,7 +456,7 @@ fn typed_ecdsa_recover_hook_maps_to_the_exact_native_frontend_attribute() {
         ],
     )
     .unwrap();
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production { attributes, .. } = native else {
@@ -585,7 +585,7 @@ fn typed_bn128_hooks_map_to_exact_native_frontend_attributes() {
         attributes(HookOperation::KryptoBn128Ate),
     )
     .unwrap();
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     for (index, (production, expected)) in [
         (&valid, "KRYPTO.bn128valid"),
@@ -755,7 +755,7 @@ fn pin_and_portable_capabilities_are_explicit() {
 #[test]
 #[allow(clippy::too_many_lines)] // Qualifies all structured builtin families in one definition.
 fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let int =
         |key, value| DefinitionTerm::token(node(key), DefinitionSortRef::int(), value).unwrap();
@@ -1183,7 +1183,7 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
 
 #[test]
 fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
-    let adapted = adapt_definition(&m2_definition()).unwrap();
+    let adapted = adapt_definition(&smoke_definition()).unwrap();
     let loaded = prepare_definition(adapted.definition, Backend::Llvm).unwrap();
     let labels = loaded
         .definition
@@ -1234,7 +1234,7 @@ fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn grammar_items_attributes_and_group_sentences_map_structurally() {
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let application_group = ProductionGroupId::new("group.application").unwrap();
     let atom_group = ProductionGroupId::new("group.atom").unwrap();
@@ -1380,7 +1380,7 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
 
 #[test]
 fn fixed_configuration_preserves_config_variables_and_cell_properties() {
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let cell = SymbolId::new("schema9.cell.k").unwrap();
     let program = semantic_id("program");
@@ -1480,7 +1480,7 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
         body
     }
 
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let parent = SymbolId::new("schema26.cell.parent").unwrap();
     let left = SymbolId::new("schema26.cell.left").unwrap();
@@ -1531,7 +1531,7 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let universal = semantic_id("_B__krs_0");
     let existential = semantic_id("n");
@@ -1683,7 +1683,7 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
 
 #[test]
 fn alias_clause_relies_on_aliased_production_propagation() {
-    let definition = m2_definition();
+    let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition);
     let body = DefinitionTerm::rewrite(
         node("schema9.alias.body"),
@@ -1713,7 +1713,7 @@ fn alias_clause_relies_on_aliased_production_propagation() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn definition_ir_maps_structurally_without_frontend_metadata() {
-    let adapted = adapt_definition(&m2_definition()).expect("M2 IR must adapt");
+    let adapted = adapt_definition(&smoke_definition()).expect("the smoke IR must adapt");
     let native = adapted.definition();
     assert_eq!(native.main_module, "SMOKE");
     assert_eq!(native.modules.len(), 2);
@@ -1842,7 +1842,7 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
 
 #[test]
 fn permanent_structured_compile_uses_the_pinned_compatibility_layer() {
-    let artifacts = compile_definition(&m2_definition(), CompileOptions::default())
+    let artifacts = compile_definition(&smoke_definition(), CompileOptions::default())
         .expect("permanent compilation uses public pinned preparation primitives");
     assert!(!artifacts.definition_kore.is_empty());
     assert!(!artifacts.syntax_definition_kore.is_empty());
@@ -1850,7 +1850,8 @@ fn permanent_structured_compile_uses_the_pinned_compatibility_layer() {
 
 #[test]
 fn permanent_structured_compile_replaces_the_bootstrap_default_configuration() {
-    let definition = m2_definition_with_cell(SentenceKind::Transition, "initInstrsCell", "instrs");
+    let definition =
+        smoke_definition_with_cell(SentenceKind::Transition, "initInstrsCell", "instrs");
     let adapted = adapt_definition(&definition).unwrap();
     let loaded = prepare_definition(adapted.definition, Backend::Llvm).unwrap();
     assert!(
@@ -1924,7 +1925,7 @@ fn permanent_compile_disambiguates_generated_names_reused_at_different_sorts() {
 
 #[test]
 fn transition_sentence_is_preserved_as_a_native_rule() {
-    let adapted = adapt_definition(&m2_definition()).expect("transitions adapt natively");
+    let adapted = adapt_definition(&smoke_definition()).expect("transitions adapt natively");
     assert!(adapted.definition().modules.iter().any(|module| {
         module
             .local_sentences
@@ -1936,8 +1937,8 @@ fn transition_sentence_is_preserved_as_a_native_rule() {
 #[test]
 fn provisional_ir_oracle_compiles_and_reparses_both_kore_artifacts() {
     let artifacts =
-        compile_definition_provisional_oracle(&m2_definition(), CompileOptions::default())
-            .expect("frozen M2 IR must compile through the explicit provisional oracle");
+        compile_definition_provisional_oracle(&smoke_definition(), CompileOptions::default())
+            .expect("the smoke IR must compile through the explicit provisional oracle");
     parse_definition(&artifacts.definition_kore).unwrap();
     parse_definition(&artifacts.syntax_definition_kore).unwrap();
     assert!(artifacts.definition_kore.contains("Lblfoo"));
@@ -1951,7 +1952,7 @@ fn provisional_ir_oracle_compiles_and_reparses_both_kore_artifacts() {
 #[test]
 fn provisional_oracle_rejects_initializer_identity_drift() {
     let error = compile_definition_provisional_oracle(
-        &m2_definition_with(SentenceKind::Transition, "initMachine"),
+        &smoke_definition_with(SentenceKind::Transition, "initMachine"),
         CompileOptions::default(),
     )
     .expect_err("frontend-derived initializer identity must not replace the IR identity");

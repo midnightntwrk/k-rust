@@ -5,7 +5,7 @@
 //! pinned frontend's public structured loader.
 //!
 //! [`compile_definition_provisional_oracle`] exists only as an explicitly
-//! provisional M2 oracle. It parses no K source (and in particular never
+//! provisional single-cell oracle. It parses no K source (and in particular never
 //! parses emitted candidate `.k`); it uses the public configuration-expansion
 //! and graph-resolution passes before isolating the unavoidable public-field
 //! assembly in one function.
@@ -133,7 +133,7 @@ pub const FRONTEND_CAPABILITIES: FrontendCapabilities = FrontendCapabilities {
     structured_definition_preparation: CapabilityAvailability::Available,
 };
 
-/// Import policy of the provisional M2 preparation route.
+/// Import policy of the provisional-oracle preparation route.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortablePreludePolicy {
     /// Resolve structured IR against the pinned native builtin closure.
@@ -250,7 +250,7 @@ impl AdaptedDefinition {
 }
 
 /// A native capability boundary retained for compatibility with the
-/// provisional M2 oracle harness.
+/// provisional oracle harness.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CapabilityError {
     /// The pinned frontend has no direct upstream structured-preparation
@@ -473,7 +473,7 @@ impl Error for DefinitionCompileError {
     }
 }
 
-/// Failure from the explicitly provisional M2 oracle route.
+/// Failure from the explicitly provisional oracle route.
 #[derive(Clone, Debug)]
 pub enum ProvisionalCompileError {
     /// Definition IR could not be adapted.
@@ -841,7 +841,7 @@ fn native_source_map_key(source: &str) -> Option<&str> {
         .filter(|key| !key.is_empty())
 }
 
-/// Provisional M2 test-oracle compilation through public frontend passes.
+/// Provisional test-oracle compilation through public frontend passes.
 ///
 /// This function parses **no source fragment**. In particular, emitted
 /// candidate `.k` is never an input. It structurally adapts Definition IR,
