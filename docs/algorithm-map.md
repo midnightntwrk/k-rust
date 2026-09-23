@@ -86,7 +86,7 @@ Representation flow into [prepared definition manifest], [compiled definition]:
 - [0] parser.programs.parse — O(g + sum p) — out: [parsed program]
 - [1] definition.outer.lower — O(S + I x c + g x t log t) — in: [parsed source] → out: [lowered source]
 - [1] parser.inference.portable — O(V x E) +1 mode — in: [packed forest] → out: [sorted tree]
-- [1] parser.inference.z3 — O(H + G^2 + R) plus two PartialOrder::new… +3 modes — in: [packed forest] → out: [sorted tree]
+- [1] parser.inference.z3 — O(H + G^2 + R) plus two PartialOrder::new… +4 modes — in: [packed forest] → out: [sorted tree]
 - [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles]
 - [2] parser.lower.term — O(N x h), one subtree clone per lowered node — in: [sorted tree] → out: [parsed term]
 - [3] = definition.configuration.expand (phase 14)

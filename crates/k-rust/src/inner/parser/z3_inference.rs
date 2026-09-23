@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
-//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "Encoding::assert_packed_hard_constraints", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::prefer_parameters", "Encoding::maximal_models", "Encoding::check_parameter_choice", "Encoding::read_model", "or_all"]
-//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = admissible parameter vectors of one maximal typing, at most 256"
+//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::assert_packed_hard_constraints", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::prefer_parameters", "Encoding::maximal_models", "Encoding::check_parameter_choice", "Encoding::read_model", "or_all"]
+//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -18,8 +18,12 @@
 //! bound = "O(N x M + c)"
 //!
 //! [[cost]]
+//! mode = "one order constraint (less_than_eq)"
+//! bound = "O(U) when a side is closed, O(P) otherwise"
+//!
+//! [[cost]]
 //! mode = "parameter-choice check of one recorded model with formal parameters"
-//! bound = "P solver checks, plus P model applications and post-inference lowerings of O(N) nodes each when P > 1; the compile fails at the first lowering that differs, or when P exceeds 256"
+//! bound = "A solver checks, plus A model applications and post-inference lowerings of O(N) nodes each when A > 1; the compile fails at the first lowering that differs, or when A exceeds 256"
 //!
 //! [[cost]]
 //! mode = "cached encoding base that does not cover the term sorts"
@@ -30,8 +34,11 @@
 //!
 //! Each check is counted by `Counter::ParserZ3Checks`; model enumeration is proportional to
 //! the number of maximal typings times solver checks. Grammar-determined encoding construction is
-//! O(heads + ground sorts squared) once per grammar generation and top sort on each thread; each
-//! attempt then constructs O(term nodes) constraints. `ParserZ3EncodingBuilds` counts base builds.
+//! O(heads + ground sorts squared) once per grammar generation and top sort on each thread,
+//! including the up- and down-set of every ground sort value in both subsort relations; each
+//! attempt then constructs O(term nodes) constraints. An order constraint with a closed side is
+//! built from that side's up- or down-set rather than from the whole relation
+//! (`Encoding::less_than_eq`). `ParserZ3EncodingBuilds` counts base builds.
 //! The unpacked path remains a checked oracle.
 
 use std::cell::RefCell;
@@ -74,11 +81,59 @@ struct EncodingBase {
     semantic: PartialOrder<Sort>,
     syntactic: PartialOrder<Sort>,
     ground_values: RefCell<BTreeMap<Sort, Datatype>>,
-    semantic_relation: Vec<(Datatype, Datatype)>,
-    syntactic_relation: Vec<(Datatype, Datatype)>,
+    /// The values of `ground_values`, filled once `build` has cached every ground sort: the
+    /// closed constructor terms that `less_than_eq` treats as a closed side.
+    closed_values: HashSet<Datatype>,
+    semantic_relation: OrderRelation,
+    syntactic_relation: OrderRelation,
     /// Numeric sort names declared by the grammar as parameters of an instantiated parametric
     /// sort (`Module.definedSorts` keeps the Nat heads of `definedInstantiations`).
     declared_nat_sorts: BTreeSet<String>,
+}
+
+/// One subsort order over the real ground sort values (`EncodingBase::order_relation`), with the
+/// up-set and the down-set of each value, built once with the encoding base.
+/// `up[l]` lists the `r` of the pairs `(l, r)` and `down[r]` the `l` of the pairs `(l, r)`, both in
+/// the order of `pairs`; a value in no pair has no entry.
+struct OrderRelation {
+    pairs: Vec<(Datatype, Datatype)>,
+    up: HashMap<Datatype, Vec<Datatype>>,
+    down: HashMap<Datatype, Vec<Datatype>>,
+}
+
+impl OrderRelation {
+    fn new(pairs: Vec<(Datatype, Datatype)>) -> Self {
+        let mut up = HashMap::<Datatype, Vec<Datatype>>::new();
+        let mut down = HashMap::<Datatype, Vec<Datatype>>::new();
+        for (lesser, greater) in &pairs {
+            up.entry(lesser.clone()).or_default().push(greater.clone());
+            down.entry(greater.clone())
+                .or_default()
+                .push(lesser.clone());
+        }
+        Self { pairs, up, down }
+    }
+
+    fn up(&self, lesser: &Datatype) -> &[Datatype] {
+        self.up.get(lesser).map_or(&[], Vec::as_slice)
+    }
+
+    fn down(&self, greater: &Datatype) -> &[Datatype] {
+        self.down.get(greater).map_or(&[], Vec::as_slice)
+    }
+
+    /// `OR over (l, r) in pairs of (lesser = l and greater = r)`, then `or lesser = greater`: the
+    /// order constraint written over the whole relation, which `Encoding::less_than_eq` keeps
+    /// when neither side is a closed value.
+    fn full_disjunction(&self, lesser: &Datatype, greater: &Datatype) -> Bool {
+        let mut cases = self
+            .pairs
+            .iter()
+            .map(|(left, right)| Bool::and(&[lesser.eq(left), greater.eq(right)]))
+            .collect::<Vec<_>>();
+        cases.push(lesser.eq(greater));
+        or_all(&cases)
+    }
 }
 
 #[derive(Default)]
@@ -126,6 +181,9 @@ thread_local! {
     };
     #[cfg(test)]
     static FORCE_UNCACHED_BASE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Test switch: `less_than_eq` writes every order constraint over the whole relation.
+    #[cfg(test)]
+    static FORCE_FULL_DISJUNCTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 const ENCODING_BASE_CACHE_CAPACITY: usize = 8;
@@ -554,15 +612,19 @@ impl EncodingBase {
             semantic,
             syntactic,
             ground_values: RefCell::new(BTreeMap::new()),
-            semantic_relation: Vec::new(),
-            syntactic_relation: Vec::new(),
+            closed_values: HashSet::new(),
+            semantic_relation: OrderRelation::new(Vec::new()),
+            syntactic_relation: OrderRelation::new(Vec::new()),
             declared_nat_sorts,
         };
         for sort in &base.ground_sorts {
             base.sort_value(sort, &BTreeMap::new())?;
         }
-        base.semantic_relation = base.order_relation(false)?;
-        base.syntactic_relation = base.order_relation(true)?;
+        // `sort_value` caches exactly the sorts of `ground_sorts`, all cached above, so
+        // `ground_values` does not grow after this point.
+        base.closed_values = base.ground_values.borrow().values().cloned().collect();
+        base.semantic_relation = OrderRelation::new(base.order_relation(false)?);
+        base.syntactic_relation = OrderRelation::new(base.order_relation(true)?);
         Ok(base)
     }
 
@@ -1543,6 +1605,46 @@ impl<'a> Encoding<'a> {
         self.decode_sort(&value)
     }
 
+    /// The order constraint `lesser <= greater` in the semantic or the syntactic subsort order:
+    /// true exactly in the models where the two values are equal or are a pair `(l, r)` of the
+    /// relation `R` (`order_relation`).
+    ///
+    /// The formula over the whole relation, `OR over (l, r) in R of (lesser = l and greater =
+    /// r)` then `or lesser = greater` (`OrderRelation::full_disjunction`), costs `|R|` disjuncts.
+    /// When a side is a closed value `c`, one of the cached constructor terms of `closed_values`,
+    /// a smaller formula is equivalent to it:
+    ///
+    /// - `lesser = c`: `OR over r in up(c) of greater = r`, then `or c = greater`;
+    /// - `greater = c`: `OR over l in down(c) of lesser = l`, then `or lesser = c`;
+    /// - both closed: the constant `lesser == greater or (lesser, greater) in R`.
+    ///
+    /// Equivalence argument. `KRustInferenceSort` is a Z3 algebraic datatype, which is free:
+    /// two syntactically distinct constructor terms denote distinct elements in every model.
+    /// Every value in `R` and in `closed_values` is a constructor term that `sort_value` builds,
+    /// and Z3 shares structurally equal terms, so AST identity (`==` and `Hash` on `Datatype`)
+    /// is syntactic identity. With `lesser = c`, the disjunct `(c = l and greater = r)` is
+    /// therefore false in every model when `l` is not `c`, and is `greater = r` when it is; the
+    /// remaining disjuncts are the up-set's. Symmetrically for a closed `greater`. With both
+    /// sides closed every equality between them is decided by identity, so the formula is the
+    /// constant. No property of `R` is used (not transitivity, not reflexivity), only that the
+    /// side treated as closed is a constructor term; a closed term that is not one (an accessor
+    /// applied to a value, say) is not in `closed_values` and gets the full disjunction.
+    /// Lean: `KRust.SubsortEncoding.new_equiv` (lean/KRust/SubsortEncoding.lean); Rust test:
+    /// `tests::ground_side_encoding_is_equivalent`.
+    ///
+    /// Output argument. Every caller combines these formulas with `and`, `not`, `or` and
+    /// pseudo-Boolean bounds, so replacing each by an equivalent one leaves every asserted
+    /// formula equivalent: the hard constraints, the climbing and blocking clauses of
+    /// `maximal_models` and the preferences of `top_preferences`, hence the same satisfiable
+    /// problems, order and preference counts (`KRust.MaximalModels.Equivalent`).
+    /// `maximal_models` then records the same maximal real typings, each with a parameter
+    /// vector that `prefer_parameters` admits under either formula
+    /// (`KRust.MaximalModels.runs_agree_up_to_pref`). The candidate parses are therefore the
+    /// same when each recorded typing admits one parameter vector (`runs_agree`), and their
+    /// lowered terms are the same when lowering does not depend on which admissible vector was
+    /// kept (`runs_agree_lowered`). What may change is what depends on the particular models
+    /// Z3 returns: the number of checks (`ParserZ3Checks`), the order of recorded models, and
+    /// the sorts named in the diagnostics of a rejected input.
     fn less_than_eq(
         &self,
         lesser: &Datatype,
@@ -1554,12 +1656,38 @@ impl<'a> Encoding<'a> {
         } else {
             &self.semantic_relation
         };
-        let mut cases = relation
-            .iter()
-            .map(|(left, right)| Bool::and(&[lesser.eq(left), greater.eq(right)]))
-            .collect::<Vec<_>>();
-        cases.push(lesser.eq(greater));
-        Ok(or_all(&cases))
+        #[cfg(test)]
+        if FORCE_FULL_DISJUNCTION.with(std::cell::Cell::get) {
+            return Ok(relation.full_disjunction(lesser, greater));
+        }
+        let formula = match (
+            self.closed_values.contains(lesser),
+            self.closed_values.contains(greater),
+        ) {
+            (true, true) => {
+                Bool::from_bool(lesser == greater || relation.up(lesser).contains(greater))
+            }
+            (true, false) => {
+                let mut cases = relation
+                    .up(lesser)
+                    .iter()
+                    .map(|right| greater.eq(right))
+                    .collect::<Vec<_>>();
+                cases.push(lesser.eq(greater));
+                or_all(&cases)
+            }
+            (false, true) => {
+                let mut cases = relation
+                    .down(greater)
+                    .iter()
+                    .map(|left| lesser.eq(left))
+                    .collect::<Vec<_>>();
+                cases.push(lesser.eq(greater));
+                or_all(&cases)
+            }
+            (false, false) => relation.full_disjunction(lesser, greater),
+        };
+        Ok(formula)
     }
 
     /// `TypeInferencer` declares its Z3 `Sort` datatype from the module's sorts filtered by
@@ -3216,12 +3344,12 @@ mod tests {
                 .collect::<Vec<_>>();
             prop_assert_eq!(cached_variants, uncached_variants);
             prop_assert_eq!(
-                decoded_relation(&cached, &cached.semantic_relation).unwrap(),
-                decoded_relation(&uncached, &uncached.semantic_relation).unwrap()
+                decoded_relation(&cached, &cached.semantic_relation.pairs).unwrap(),
+                decoded_relation(&uncached, &uncached.semantic_relation.pairs).unwrap()
             );
             prop_assert_eq!(
-                decoded_relation(&cached, &cached.syntactic_relation).unwrap(),
-                decoded_relation(&uncached, &uncached.syntactic_relation).unwrap()
+                decoded_relation(&cached, &cached.syntactic_relation.pairs).unwrap(),
+                decoded_relation(&uncached, &uncached.syntactic_relation.pairs).unwrap()
             );
         }
 
@@ -3269,88 +3397,50 @@ mod tests {
         }
     }
 
-    /// The ground-side subsort encoding of ticket OT-03, built in test code only; it mirrors
-    /// `KRust.SubsortEncoding.new` (lean/KRust/SubsortEncoding.lean).
-    /// A side is ground when it is one of the cached constructor terms in `ground_values`, by AST
-    /// identity: a lesser ground value `l` gives `OR over (l, r) in R of greater = r`, a greater
-    /// ground value `r` gives `OR over (l, r) in R of lesser = l`, each followed by
-    /// `lesser = greater`; two ground sides are decided here; otherwise it is today's
-    /// `Encoding::less_than_eq`.
-    fn ground_side_less_than_eq(
-        encoding: &Encoding<'_>,
-        lesser: &Datatype,
-        greater: &Datatype,
-    ) -> Result<Bool, ParseError> {
-        let relation = &encoding.semantic_relation;
-        let cached = |side: &Datatype| {
-            encoding
-                .ground_values
-                .borrow()
-                .values()
-                .find(|value| *value == side)
-                .cloned()
-        };
-        match (cached(lesser), cached(greater)) {
-            (Some(l), Some(r)) => Ok(Bool::from_bool(
-                l == r
-                    || relation
-                        .iter()
-                        .any(|(left, right)| *left == l && *right == r),
-            )),
-            (Some(l), None) => {
-                let mut cases = relation
-                    .iter()
-                    .filter(|(left, _)| *left == l)
-                    .map(|(_, right)| greater.eq(right))
-                    .collect::<Vec<_>>();
-                cases.push(lesser.eq(greater));
-                Ok(or_all(&cases))
-            }
-            (None, Some(r)) => {
-                let mut cases = relation
-                    .iter()
-                    .filter(|(_, right)| *right == r)
-                    .map(|(left, _)| lesser.eq(left))
-                    .collect::<Vec<_>>();
-                cases.push(lesser.eq(greater));
-                Ok(or_all(&cases))
-            }
-            (None, None) => encoding.less_than_eq(lesser, greater, false),
-        }
-    }
-
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(48))]
 
         /// Rust side of the Lean theorem `KRust.SubsortEncoding.new_equiv`
         /// (lean/KRust/SubsortEncoding.lean): for every relation `R` over cached ground sort
-        /// values, today's `Encoding::less_than_eq` and the ground-side encoding
-        /// (`ground_side_less_than_eq`) are logically equivalent, so Z3 must report
-        /// `¬(old ⇔ new)` unsatisfiable.
+        /// values, `Encoding::less_than_eq`, which encodes a constraint with a closed side from
+        /// that side's up- or down-set (the model's `new`), and the full disjunction over `R`
+        /// (`OrderRelation::full_disjunction`, the model's `old`) are logically equivalent, so
+        /// Z3 must report `¬(old ⇔ new)` unsatisfiable.
         /// The Lean proof says this test cannot fail as long as its one hypothesis `hI` holds
         /// (distinct cached constructor terms denote distinct values in every Z3 model); the test
         /// checks that the Rust code matches the Lean model and that Z3 satisfies `hI`.
         /// `R` is arbitrary, not a closed partial order, because the theorem needs no hypothesis
-        /// on it. The sides are every cached ground value and, for the model's `other` case, two
-        /// variables, a constructor applied to a variable, and an accessor applied to a cached
-        /// value (a closed term that is not a cached constructor term).
+        /// on it; the semantic and the syntactic relation are generated separately. The sides
+        /// are every cached ground value and, for the model's `other` case, two variables, a
+        /// constructor applied to a variable, and an accessor applied to a cached value (a
+        /// closed term that is not a cached constructor term), so every pair of kinds
+        /// (closed/closed, closed/open, open/closed, open/open) occurs.
         #[test]
         fn ground_side_encoding_is_equivalent(
             sort_count in 2usize..5,
-            pairs in proptest::collection::vec((0usize..16, 0usize..16), 0..12),
+            semantic in proptest::collection::vec((0usize..16, 0usize..16), 0..12),
+            syntactic in proptest::collection::vec((0usize..16, 0usize..16), 0..12),
         ) {
             let (grammar, term, top_sort) = cached_encoding_fixture(sort_count);
             let mut term_sorts = TermSorts::default();
             collect_packed_term_sorts(&term, &mut term_sorts.heads, &mut term_sorts.ground);
             let mut base = EncodingBase::build(&grammar, &top_sort, &term_sorts).unwrap();
             let ground = base.ground_values.borrow().values().cloned().collect::<Vec<_>>();
-            let relation = pairs
-                .iter()
-                .map(|(left, right)| {
-                    (ground[left % ground.len()].clone(), ground[right % ground.len()].clone())
-                })
-                .collect::<Vec<_>>();
-            base.semantic_relation = relation;
+            let relation = |pairs: &[(usize, usize)]| {
+                OrderRelation::new(
+                    pairs
+                        .iter()
+                        .map(|(left, right)| {
+                            (
+                                ground[left % ground.len()].clone(),
+                                ground[right % ground.len()].clone(),
+                            )
+                        })
+                        .collect(),
+                )
+            };
+            base.semantic_relation = relation(&semantic);
+            base.syntactic_relation = relation(&syntactic);
             let mut encoding =
                 Encoding::new_with_term_sorts(&grammar, &top_sort, false, &term_sorts).unwrap();
             encoding.base = Rc::new(base);
@@ -3367,19 +3457,27 @@ mod tests {
                 box_variant.accessors[0].apply(&[&boxed]).as_datatype().unwrap(),
             ];
             let sides = ground.iter().chain(&others).collect::<Vec<_>>();
-            for lesser in &sides {
-                for greater in &sides {
-                    let old = encoding.less_than_eq(lesser, greater, false).unwrap();
-                    let new = ground_side_less_than_eq(&encoding, lesser, greater).unwrap();
-                    let solver = Solver::new();
-                    solver.assert(old.iff(&new).not());
-                    prop_assert_eq!(
-                        solver.check(),
-                        SatResult::Unsat,
-                        "old and new differ for {} <= {}",
-                        lesser,
-                        greater
-                    );
+            for syntactic in [false, true] {
+                let relation = if syntactic {
+                    &encoding.syntactic_relation
+                } else {
+                    &encoding.semantic_relation
+                };
+                for lesser in &sides {
+                    for greater in &sides {
+                        let old = relation.full_disjunction(lesser, greater);
+                        let new = encoding.less_than_eq(lesser, greater, syntactic).unwrap();
+                        let solver = Solver::new();
+                        solver.assert(old.iff(&new).not());
+                        prop_assert_eq!(
+                            solver.check(),
+                            SatResult::Unsat,
+                            "old and new differ for {} <= {} (syntactic: {})",
+                            lesser,
+                            greater,
+                            syntactic
+                        );
+                    }
                 }
             }
         }
@@ -3683,6 +3781,14 @@ mod tests {
         /// Reverse both subsort relations of the encoding base, which reverses the order of the
         /// disjuncts of every `less_than_eq`.
         reverse_disjuncts: bool,
+        /// Write every order constraint over the whole relation (`FORCE_FULL_DISJUNCTION`), as
+        /// `less_than_eq` did before it used the up- and down-sets of a closed side.
+        full_disjunction: bool,
+    }
+
+    /// Reverse the pairs of a relation, and so the order of its up- and down-sets.
+    fn reversed(relation: &OrderRelation) -> OrderRelation {
+        OrderRelation::new(relation.pairs.iter().rev().cloned().collect())
     }
 
     /// The inference path of `Grammar::infer_packed_sorts_z3` up to `maximal_models`: the same
@@ -3694,14 +3800,25 @@ mod tests {
         problem: &ConformanceProblem,
         perturbation: Perturbation,
     ) -> Result<Option<Vec<BTreeMap<String, Sort>>>, ParseError> {
+        let previous =
+            FORCE_FULL_DISJUNCTION.with(|force| force.replace(perturbation.full_disjunction));
+        let result = recorded_real_projections_unforced(problem, perturbation);
+        FORCE_FULL_DISJUNCTION.with(|force| force.set(previous));
+        result
+    }
+
+    fn recorded_real_projections_unforced(
+        problem: &ConformanceProblem,
+        perturbation: Perturbation,
+    ) -> Result<Option<Vec<BTreeMap<String, Sort>>>, ParseError> {
         let term = &problem.term;
         let mut encoding = with_uncached_encoding_base(|| {
             Encoding::for_packed_inference(&problem.grammar, term, &problem.top_sort, false)
         })?;
         if perturbation.reverse_disjuncts {
             let base = Rc::get_mut(&mut encoding.base).expect("an uncached base is not shared");
-            base.semantic_relation.reverse();
-            base.syntactic_relation.reverse();
+            base.semantic_relation = reversed(&base.semantic_relation);
+            base.syntactic_relation = reversed(&base.syntactic_relation);
         }
         let solver = Solver::new();
         if let Some(seed) = perturbation.random_seed {
@@ -3841,8 +3958,10 @@ mod tests {
         /// `maximal_models_spec` draws from it: over small generated grammars with ambiguous
         /// parses, the real projections `maximal_models` records are exactly the brute-force
         /// maximal satisfying assignments, with no duplicate; and they stay the same set when
-        /// Z3's `random_seed` changes and when the disjuncts of every `less_than_eq` are
-        /// reversed.
+        /// Z3's `random_seed` changes, when the disjuncts of every `less_than_eq` are reversed,
+        /// and when every order constraint is written over the whole relation instead of from a
+        /// closed side's up- or down-set (the consequence `runs_agree_up_to_pref` draws for
+        /// equivalent encodings).
         #[test]
         fn maximal_models_conform_to_brute_force_maximum(
             sort_count in 3usize..6,
@@ -3864,11 +3983,18 @@ mod tests {
                 wrapper,
             );
             let expected = brute_force_maximal(&problem).unwrap();
+            let perturbation = |random_seed, reverse_disjuncts, full_disjunction| Perturbation {
+                random_seed,
+                reverse_disjuncts,
+                full_disjunction,
+            };
             for perturbation in [
-                Perturbation { random_seed: None, reverse_disjuncts: false },
-                Perturbation { random_seed: Some(seeds.0), reverse_disjuncts: false },
-                Perturbation { random_seed: None, reverse_disjuncts: true },
-                Perturbation { random_seed: Some(seeds.1), reverse_disjuncts: true },
+                perturbation(None, false, false),
+                perturbation(Some(seeds.0), false, false),
+                perturbation(None, true, false),
+                perturbation(Some(seeds.1), true, false),
+                perturbation(None, false, true),
+                perturbation(Some(seeds.1), true, true),
             ] {
                 let recorded = recorded_real_projections(&problem, perturbation).unwrap();
                 match (&expected, recorded) {
