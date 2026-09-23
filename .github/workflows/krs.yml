@@ -1,9 +1,12 @@
-name: KRS tours
+name: KRS
 
 on:
   pull_request:
     paths:
+      - ".github/actions/**"
       - ".github/workflows/krs.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
       - "Krs.lock"
       - "crates/**"
       - "docs-site/src/pages/**"
@@ -29,20 +32,8 @@ jobs:
         with:
           path: starstream-fv/krs
 
-      - name: Check out the pinned native frontend
-        working-directory: .
-        shell: bash
-        run: |
-          mkdir -p starstream-fv/inspirations/midnightntwrk
-          git clone --filter=blob:none https://github.com/midnightntwrk/k-rust.git starstream-fv/inspirations/midnightntwrk/k-rust-krs-main
-          commit="$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("starstream-fv/krs/Krs.lock").read_text())["k_rust"]["commit"])')"
-          git -C starstream-fv/inspirations/midnightntwrk/k-rust-krs-main checkout --detach "$commit"
-
-      - name: Install the pinned solver library
-        run: |
-          python3 -m venv "$RUNNER_TEMP/krs-z3"
-          "$RUNNER_TEMP/krs-z3/bin/pip" install --disable-pip-version-check z3-solver==4.12.5.0
-          "$RUNNER_TEMP/krs-z3/bin/python" -c 'import pathlib,z3; print("KRS_Z3_LIB=" + str(pathlib.Path(z3.__file__).parent / "lib"))' >> "$GITHUB_ENV"
+      - name: Provide the pinned k-rust checkout and solver library
+        uses: ./starstream-fv/krs/.github/actions/krs-inputs
 
       - name: Select Rust
         uses: dtolnay/rust-toolchain@1.88.0
@@ -65,3 +56,51 @@ jobs:
           cargo check --locked --manifest-path tests/m4/rust-definition/Cargo.toml --lib
           cargo check --locked --offline --manifest-path crates/krs-macros/tests/fixtures/positive/Cargo.toml
           cargo check --locked --offline --manifest-path semantics/Cargo.toml -p krs-kevm-semantics
+
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: starstream-fv/krs
+    steps:
+      - name: Check out KRS in its workspace layout
+        uses: actions/checkout@v4
+        with:
+          path: starstream-fv/krs
+
+      - name: Provide the pinned k-rust checkout and solver library
+        uses: ./starstream-fv/krs/.github/actions/krs-inputs
+
+      - name: Put the solver library on the link and load paths
+        run: |
+          echo "LIBRARY_PATH=$KRS_Z3_LIB" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$KRS_Z3_LIB" >> "$GITHUB_ENV"
+
+      - name: Select the minimum supported Rust
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Select current stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Fetch locked dependencies
+        run: |
+          cargo +stable fetch --locked
+          cargo +stable fetch --locked --manifest-path semantics/Cargo.toml
+
+      - name: Check repository hygiene
+        run: python3 tests/repo-hygiene/verify.py
+
+      - name: Test the workspace
+        run: cargo +stable test --workspace --locked --offline
+
+      - name: Lint the workspace
+        run: cargo +stable clippy --workspace --all-targets --locked --offline -- -D warnings
+
+      - name: Check the workspace on the minimum supported Rust
+        run: cargo +1.88.0 check --workspace --all-targets --locked --offline
+
+      - name: Test the semantics workspace
+        run: cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace

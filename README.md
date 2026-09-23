@@ -70,7 +70,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 cargo +stable test --workspace --locked --offline
 cargo +stable clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo +1.88.0 check --workspace --all-targets --locked --offline
-cargo test --manifest-path semantics/Cargo.toml --locked --offline --workspace
+cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace
 ```
 
 ### Gates
