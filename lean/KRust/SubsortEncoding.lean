@@ -1,23 +1,29 @@
 /-
 Case study 2 of `draft/lean-verification/README.md`: the Z3 subsort encoding.
 
-Rust modelled here, with line anchors at 2aec72c7:
+Rust modelled here, with line anchors at bb256f2c:
   crates/k-rust/src/inner/parser/z3_inference.rs
-    EncodingBase                  :64-77     (ground_values, semantic_relation, syntactic_relation)
-    EncodingBase::sort_value      :532-569   (ground values are cached constructor terms)
-    EncodingBase::order_relation  :571-594   (R = pairs of real ground sorts with l = r or l < r)
-    Encoding::less_than_eq        :1467-1484 (the encoding replaced here; the shape is :1478-1483)
-    or_all                        :2857-2863 (the empty disjunction is `false`)
-  crates/k-rust/src/definition/partial_order.rs
+    EncodingBase                  :76-92     (ground_values, closed_values, semantic_relation,
+                                              syntactic_relation)
+    OrderRelation                 :98-137    (pairs; up- and down-sets built once by `new`
+                                              :105-115, read by `up` :117-119, `down` :121-123)
+    OrderRelation::full_disjunction :125-136 (`old`)
+    EncodingBase::build           :637-641   (closed_values = the cached ground values; the two
+                                              relations)
+    EncodingBase::sort_value      :645-682   (ground values are cached constructor terms)
+    EncodingBase::order_relation  :684-707   (R = pairs of real ground sorts with l = r or l < r)
+    Encoding::less_than_eq        :1663-1717 (`new`: the dispatch on closed sides is :1678-1704)
+    or_all                        :3275-3281 (the empty disjunction is `false`)
+  crates/k-rust/src/definition/partial_order.rs (unchanged since 2aec72c7)
     PartialOrder::new closure     :119-137
     PartialOrder::less_than_eq    :179-181
   z3-0.20.2 src/ast/mod.rs
     PartialEq for ASTs            :487-492   (`Z3_is_eq_ast`)
     Hash for ASTs                 :526-533   (`Z3_get_ast_hash`)
-The ground-side encoding (`new`) is not implemented in Rust yet (ticket OT-03).
-Its Rust counterpart is the test-only `ground_side_less_than_eq` in the `tests` module of
-z3_inference.rs, and the property test `ground_side_encoding_is_equivalent` checks it against the
-real `Encoding::less_than_eq`.
+`new` is `Encoding::less_than_eq` (ticket OT-03). `old` is `OrderRelation::full_disjunction`, the
+encoding of every order constraint before OT-03, which `less_than_eq` still uses when neither side
+is a closed value. The property test `ground_side_encoding_is_equivalent` in the `tests` module of
+z3_inference.rs checks the two against each other with Z3.
 -/
 
 namespace KRust.SubsortEncoding
@@ -28,8 +34,8 @@ namespace KRust.SubsortEncoding
 The z3 crate's `PartialEq` and `Hash` on ASTs are `Z3_is_eq_ast` and the AST hash
 (z3-0.20.2 src/ast/mod.rs:487-492, :526-533), so "recognised" means syntactic identity of
 hash-consed terms.
-The values in `ground_values` are constructor applications of the datatype `KRustInferenceSort`
-(z3_inference.rs:532-569).
+The values in `closed_values` (the values of `ground_values`) are constructor applications of the
+datatype `KRustInferenceSort` (z3_inference.rs:645-682).
 
 `D` is the carrier of that datatype in a Z3 model, and `I : G → D` interprets a ground value.
 The only semantic fact about Z3 used below is that `I` is injective: two syntactically distinct
@@ -37,8 +43,8 @@ constructor terms of a free (algebraic) datatype denote distinct elements.
 That is the SMT-LIB datatype theory; it is a trusted assumption about Z3, stated as the hypothesis
 `hI : Injective I`.
 It would be false if a "ground value" could be a non-constructor closed term (an accessor
-application, say), which is why the Rust ground test must stay "is one of the cached constructor
-terms". -/
+application, say), which is why the Rust test for a closed side must stay "is one of the cached
+constructor terms" (`closed_values.contains`). -/
 
 variable {G D : Type}
 
@@ -64,7 +70,7 @@ structure Eqn (G : Type) where
   rhs : Tm G
 
 /-- The shape `less_than_eq` builds: `Bool::or` of `Bool::and` of equalities.
-`[]` is `or_all(&[]) = false` (z3_inference.rs:2857-2863); `[[]]` is `Bool::from_bool(true)`. -/
+`[]` is `or_all(&[]) = false` (z3_inference.rs:3275-3281); `[[]]` is `Bool::from_bool(true)`. -/
 abbrev Dnf (G : Type) := List (List (Eqn G))
 
 /-- An equality holds in a model when both sides denote the same element. -/
@@ -75,12 +81,12 @@ def Eqn.holds (I : G → D) (ρ : Nat → D) (e : Eqn G) : Prop :=
 def Dnf.holds (I : G → D) (ρ : Nat → D) (d : Dnf G) : Prop :=
   ∃ c ∈ d, ∀ e ∈ c, e.holds I ρ
 
-/-! ## Today's encoding -/
+/-! ## The full disjunction -/
 
-/-- Today's encoding (z3_inference.rs:1478-1483):
+/-- The full disjunction (`OrderRelation::full_disjunction`, z3_inference.rs:125-136):
 `OR over (l, r) in R of (lesser = l ∧ greater = r)`, then `∨ lesser = greater`.
-`R` is `semantic_relation` or `syntactic_relation`, built by `order_relation`
-(z3_inference.rs:571-594). -/
+`R` is `semantic_relation` or `syntactic_relation`, whose pairs `order_relation` builds
+(z3_inference.rs:684-707). -/
 def old (R : List (G × G)) (a b : Tm G) : Dnf G :=
   R.map (fun p => [⟨a, .val p.1⟩, ⟨b, .val p.2⟩]) ++ [[⟨a, b⟩]]
 
@@ -126,7 +132,7 @@ theorem holds_true : Dnf.holds I ρ ([[]] : Dnf G) :=
 theorem not_holds_false : ¬ Dnf.holds I ρ ([] : Dnf G) :=
   fun ⟨_, hc, _⟩ => by simp at hc
 
-/-- The relational reading of today's encoding: `old R a b` holds iff the values of `a` and `b`
+/-- The relational reading of the full disjunction: `old R a b` holds iff the values of `a` and `b`
 are the interpretations of a pair in `R`, or are equal. -/
 theorem old_holds (R : List (G × G)) (a b : Tm G) :
     Dnf.holds I ρ (old R a b) ↔
@@ -171,28 +177,32 @@ ground values; in Rust that is AST identity, here decidable equality on `G`. -/
 
 variable [DecidableEq G]
 
-/-- The up-set of a ground value in `R` (the map prototype's `proto_sets`, built once per
-`EncodingBase`). -/
+/-- The up-set of a ground value in `R` (`OrderRelation::up`, z3_inference.rs:117-119; built once
+per relation by `OrderRelation::new`, :101-111, in the order of the pairs). -/
 def up (R : List (G × G)) (l : G) : List G :=
   (R.filter (fun p => decide (p.1 = l))).map Prod.snd
 
-/-- The down-set of a ground value in `R`. -/
+/-- The down-set of a ground value in `R` (`OrderRelation::down`, z3_inference.rs:121-123). -/
 def down (R : List (G × G)) (r : G) : List G :=
   (R.filter (fun p => decide (p.2 = r))).map Prod.fst
 
-/-- Lesser side ground: `OR over r in up(l) of (greater = r)`, then `∨ lesser = greater`. -/
+/-- Lesser side ground: `OR over r in up(l) of (greater = r)`, then `∨ lesser = greater`
+(z3_inference.rs:1685-1693). -/
 def lesserGround (R : List (G × G)) (l : G) (b : Tm G) : Dnf G :=
   (up R l).map (fun r => [⟨b, .val r⟩]) ++ [[⟨.val l, b⟩]]
 
-/-- Greater side ground: `OR over l in down(r) of (lesser = l)`, then `∨ lesser = greater`. -/
+/-- Greater side ground: `OR over l in down(r) of (lesser = l)`, then `∨ lesser = greater`
+(z3_inference.rs:1694-1702). -/
 def greaterGround (R : List (G × G)) (a : Tm G) (r : G) : Dnf G :=
   (down R r).map (fun l => [⟨a, .val l⟩]) ++ [[⟨a, .val r⟩]]
 
-/-- Both sides ground: decided in Rust (map prototype, `Bool::from_bool(related)`). -/
+/-- Both sides ground: decided in Rust (`Bool::from_bool(lesser == greater || up(lesser) contains
+greater)`, z3_inference.rs:1682-1684). -/
 def bothGround (R : List (G × G)) (l r : G) : Dnf G :=
   if l = r ∨ (l, r) ∈ R then [[]] else []
 
-/-- The proposed `less_than_eq`: dispatch on which sides are cached ground values. -/
+/-- `Encoding::less_than_eq` (z3_inference.rs:1678-1704): dispatch on which sides are cached
+ground values (`closed_values.contains`); with neither, the full disjunction (:1651). -/
 def new (R : List (G × G)) : Tm G → Tm G → Dnf G
   | .val l,   .val r   => bothGround R l r
   | .val l,   .other n => lesserGround R l (.other n)
@@ -286,12 +296,13 @@ theorem bothGround_equiv (I : G → D) (hI : Injective I) (ρ : Nat → D)
       exact h (Or.inr hp)
     · exact h (Or.inl (hI _ _ h3))
 
-/-- The ground-side `less_than_eq` is equivalent to today's in every Z3 model of a free datatype:
+/-- The ground-side `less_than_eq` is equivalent to the full disjunction in every Z3 model of a
+free datatype:
 for every relation `R` and every pair of sides, `old R a b` and `new R a b` hold in exactly the
 same models `(I, ρ)` with `I` injective (logical equivalence of the formulas, not syntactic
 equality; the formulas differ whenever a side is ground).
-Rust sites: `Encoding::less_than_eq` (z3_inference.rs:1467-1484) for `old`; the test-only
-`ground_side_less_than_eq` in z3_inference.rs `tests` for `new`.
+Rust sites: `OrderRelation::full_disjunction` (z3_inference.rs:125-136) for `old`;
+`Encoding::less_than_eq` (z3_inference.rs:1663-1717) for `new`.
 Hypothesis `hI` (Z3's datatype theory) is checked on the Rust side by the property test
 `ground_side_encoding_is_equivalent`, which asks Z3 itself to refute `¬(old ⇔ new)`. -/
 theorem new_equiv (I : G → D) (hI : Injective I) (ρ : Nat → D)
@@ -312,7 +323,7 @@ theorem new_equiv (I : G → D) (hI : Injective I) (ρ : Nat → D)
 The base arm proposes giving each real ground sort a bit-vector code of its up-set, so that
 `x ≤ y ⇔ code(x) & code(y) = code(y)`, i.e. `up(y) ⊆ up(x)`.
 Here, unlike above, the relation's properties matter: the equivalence needs reflexivity on the
-real ground sorts (`order_relation` adds `left == right`, z3_inference.rs:587) and transitivity
+real ground sorts (`order_relation` adds `left == right`, z3_inference.rs:700) and transitivity
 (the closure, partial_order.rs:119-137). It also only speaks about values in `S`; the old
 encoding lets a variable take a value outside `S` (a parametric instance, a scaffolding sort)
 related only to itself, and the new encoding must say what such values get. That case is the
