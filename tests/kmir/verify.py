@@ -4,21 +4,25 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import importlib.util
 import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
-import tomllib
 from typing import Any, Mapping
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.checkouts import verify_checkout  # noqa: E402
+from support.hashing import canonical_json, exact_directory, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.kdefinition import EMITTED_ARTIFACTS, normalized_kore_sha256, split_claims  # noqa: E402
+from support.pins import load_toml, table  # noqa: E402
+from support.process import run  # noqa: E402
+from support.tools import k_tool, rust_analyzer, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 MANIFEST = ROOT / "semantics/kmir/Cargo.toml"
 SOURCE = ROOT / "semantics/kmir/src/lib.rs"
 LOCK = ROOT / "semantics/Cargo.lock"
@@ -30,15 +34,6 @@ DEFINITION = "main"
 MODULE = "KRS-KMIR"
 SPEC_MODULE = f"{MODULE}-SPEC"
 DESCRIPTORS = 1228
-ARTIFACTS = (
-    ".krs-artifacts",
-    "definition-ir.json",
-    "definition.k",
-    "descriptor-bundle.json",
-    "semantic-ir.json",
-    "sources.json",
-    "symbols.json",
-)
 SOURCE_LEDGER_PATHS = (
     "crates/krs-compiler/src/collect.rs",
     "crates/krs-compiler/src/emit.rs",
@@ -84,44 +79,19 @@ SOURCE_LEDGER_PATHS = (
     "tests/kmir/verify.py",
 )
 
-spec = importlib.util.spec_from_file_location(
-    "kwasm_gate_support", ROOT / "tests/kwasm/verify.py"
-)
-assert spec is not None and spec.loader is not None
-support = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(support)
-GateError = support.GateError
-
-
-def sha256(path: Path) -> str:
-    return support.sha256(path)
-
-
-def mapping(value: Any, name: str) -> Mapping[str, Any]:
-    return support.mapping(value, name)
-
-
-def run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    return support.run(*args, **kwargs)
-
-
 def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, str]:
     if pins.get("schema") != 1 or corpus.get("schema") != 1:
         raise GateError("KMIR gate schema differs from 1")
-    if sha256(CORPUS_PATH) != pins.get("corpus_sha256"):
+    if sha256_file(CORPUS_PATH) != pins.get("corpus_sha256"):
         raise GateError("corpus.toml differs from its pin")
-    k_pin = mapping(pins.get("k"), "pins.k")
-    kmir_pin = mapping(pins.get("kmir"), "pins.kmir")
-    if support.git_revision(KMIR) != kmir_pin.get("commit"):
-        raise GateError("KMIR checkout revision differs")
-    if run(["git", "status", "--porcelain"], cwd=KMIR, timeout=30).stdout:
-        raise GateError("KMIR evidence checkout is dirty")
+    kmir_pin = table(pins.get("kmir"), "pins.kmir")
+    verify_checkout(KMIR, str(kmir_pin.get("commit")), label="KMIR evidence")
     if (KMIR / "deps/k_release").read_text(encoding="utf-8").strip() != kmir_pin.get(
         "version"
     ):
         raise GateError("KMIR K release differs")
 
-    schemas = mapping(pins.get("schemas"), "pins.schemas")
+    schemas = table(pins.get("schemas"), "pins.schemas")
     protocol = (ROOT / "crates/krs-ir/src/lib.rs").read_text(encoding="utf-8")
     ir = (ROOT / "crates/krs-ir/src/ir.rs").read_text(encoding="utf-8")
     if f"pub const CURRENT: Self = Self({schemas.get('descriptor_protocol')});" not in protocol:
@@ -129,14 +99,14 @@ def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, s
     if f"pub const CURRENT: Self = Self({schemas.get('definition_ir')});" not in ir:
         raise GateError("Definition IR schema differs")
 
-    expected_sources = mapping(pins.get("source_sha256"), "pins.source_sha256")
+    expected_sources = table(pins.get("source_sha256"), "pins.source_sha256")
     if set(expected_sources) != set(SOURCE_LEDGER_PATHS):
         raise GateError("KMIR source-ledger path set differs")
     for relative in SOURCE_LEDGER_PATHS:
-        if sha256(ROOT / relative) != expected_sources[relative]:
+        if sha256_file(ROOT / relative) != expected_sources[relative]:
             raise GateError(f"KMIR source ledger differs: {relative}")
 
-    expected_external = mapping(pins.get("external_sha256"), "pins.external_sha256")
+    expected_external = table(pins.get("external_sha256"), "pins.external_sha256")
     evidence = corpus.get("source_evidence")
     if not isinstance(evidence, list) or not evidence:
         raise GateError("source evidence is empty")
@@ -144,20 +114,10 @@ def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, s
     if set(expected_external) != evidence_paths:
         raise GateError("external evidence-ledger path set differs")
     for relative in evidence_paths:
-        if sha256(KMIR / relative) != expected_external[relative]:
+        if sha256_file(KMIR / relative) != expected_external[relative]:
             raise GateError(f"external KMIR evidence differs: {relative}")
 
-    z3 = support.find_z3_lib()
-    environment = {
-        "LIBRARY_PATH": os.pathsep.join(
-            [os.fspath(z3), os.environ.get("LIBRARY_PATH", "")]
-        ).rstrip(os.pathsep),
-        "LD_LIBRARY_PATH": os.pathsep.join(
-            [os.fspath(z3), os.environ.get("LD_LIBRARY_PATH", "")]
-        ).rstrip(os.pathsep),
-        "CARGO_NET_OFFLINE": "true",
-    }
-    return environment
+    return {**z3_environment(), "CARGO_NET_OFFLINE": "true"}
 
 
 def rust_gate(environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
@@ -200,7 +160,7 @@ def rust_gate(environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
         environment=fixture_env,
         timeout=900,
     )
-    analyzer = support.find_rust_analyzer()
+    analyzer = rust_analyzer()
     lsp_env = {
         **environment,
         "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]]),
@@ -211,18 +171,6 @@ def rust_gate(environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
         root_target / "release/krs-native-compile",
         root_target / "release/krs-native-runner",
     )
-
-
-def exact_directory(first: Path, second: Path) -> dict[str, str]:
-    names_a = sorted(path.name for path in first.iterdir() if path.is_file())
-    names_b = sorted(path.name for path in second.iterdir() if path.is_file())
-    if names_a != list(ARTIFACTS) or names_b != list(ARTIFACTS):
-        raise GateError(f"artifact set differs: first={names_a}, second={names_b}")
-    hashes = {name: sha256(first / name) for name in ARTIFACTS}
-    for name, digest in hashes.items():
-        if sha256(second / name) != digest:
-            raise GateError(f"repeated emission differs: {name}")
-    return hashes
 
 
 def artifact_gate(
@@ -245,7 +193,7 @@ def artifact_gate(
     expansions = [run([krs, "expand", *base], environment=environment).stdout for _ in range(2)]
     if expansions[0] != expansions[1]:
         raise GateError("readable expansion is nondeterministic")
-    digest = hashlib.sha256(expansions[0].encode()).hexdigest()
+    digest = sha256_text(expansions[0])
     if digest != pins.get("expansion_sha256"):
         raise GateError(f"expansion hash differs: {digest}")
 
@@ -278,9 +226,9 @@ def artifact_gate(
     outputs = [workspace / "emit-a", workspace / "emit-b"]
     for output in outputs:
         run([krs, "emit-k", *base, "--output", output], environment=environment)
-    hashes = exact_directory(outputs[0], outputs[1])
-    if hashes != dict(mapping(pins.get("artifact_sha256"), "pins.artifact_sha256")):
-        raise GateError(f"emitted artifact hashes differ: {support.canonical(hashes)}")
+    hashes = exact_directory(outputs[0], outputs[1], EMITTED_ARTIFACTS)
+    if hashes != dict(table(pins.get("artifact_sha256"), "pins.artifact_sha256")):
+        raise GateError(f"emitted artifact hashes differ: {canonical_json(hashes)}")
 
     expanded_output = workspace / "expanded-emit"
     run(
@@ -576,7 +524,7 @@ def compile_native_definition(
         environment=environment,
         timeout=900,
     )
-    kore_hash = sha256(definition)
+    kore_hash = sha256_file(definition)
     if kore_hash != pins.get("native_definition_kore_sha256"):
         raise GateError(f"native K-Rust definition.kore hash differs: {kore_hash}")
     return definition
@@ -606,19 +554,19 @@ def k_rust_gate(
 def java_reference_gate(
     workspace: Path,
     artifacts: Path,
-    k_bin: Path,
+    k: Mapping[str, str],
     pins: Mapping[str, Any],
     corpus: Mapping[str, Any],
 ) -> tuple[int, int]:
-    claim_free, claims = support.split_claims(
-        (artifacts / "definition.k").read_text(encoding="utf-8")
+    claim_free, _, claims = split_claims(
+        (artifacts / "definition.k").read_text(encoding="utf-8"), 1
     )
     semantics = workspace / "semantics.k"
     semantics.write_text(claim_free, encoding="utf-8")
     definition = workspace / "semantics-kompiled"
     run(
         [
-            k_bin / "kompile",
+            k["kompile"],
             semantics,
             "--backend",
             "haskell",
@@ -632,7 +580,7 @@ def java_reference_gate(
         ],
         timeout=900,
     )
-    kore_hash = support.normalized_kore_sha256(
+    kore_hash = normalized_kore_sha256(
         definition / "definition.kore", semantics
     )
     if kore_hash != pins.get("definition_kore_sha256"):
@@ -656,7 +604,7 @@ def java_reference_gate(
         memory = str(case.get("memory", ".Map"))
         result = run(
             [
-                k_bin / "krun",
+                k["krun"],
                 "--definition",
                 definition,
                 "-cPGM=run",
@@ -700,20 +648,20 @@ def java_reference_gate(
                 f"{case['id']} differs: expected={expected}, actual={observed}"
             )
         outcomes.append(observed)
-    behavior_hash = hashlib.sha256(support.canonical(outcomes).encode()).hexdigest()
+    behavior_hash = json_sha256(outcomes)
     if behavior_hash != pins.get("behavior_sha256"):
         raise GateError(
-            f"behavior hash differs: {behavior_hash}; outcomes={support.canonical(outcomes)}"
+            f"behavior hash differs: {behavior_hash}; outcomes={canonical_json(outcomes)}"
         )
 
     spec_path = workspace / "spec.k"
     spec_path.write_text(
-        f'requires "{semantics.name}"\n\nmodule {SPEC_MODULE}\n  imports {MODULE}\n\n{"".join(claims)}endmodule\n',
+        f'requires "{semantics.name}"\n\nmodule {SPEC_MODULE}\n  imports {MODULE}\n\n{claims}endmodule\n',
         encoding="utf-8",
     )
     dry = run(
         [
-            k_bin / "kprove",
+            k["kprove"],
             spec_path,
             "--definition",
             definition,
@@ -727,7 +675,7 @@ def java_reference_gate(
         raise GateError("proof dry run did not select the native Haskell prover")
     proof = run(
         [
-            k_bin / "kprove",
+            k["kprove"],
             spec_path,
             "--definition",
             definition,
@@ -750,10 +698,8 @@ def main() -> int:
     )
     arguments = parser.parse_args()
     try:
-        with PINS_PATH.open("rb") as stream:
-            pins = tomllib.load(stream)
-        with CORPUS_PATH.open("rb") as stream:
-            corpus = tomllib.load(stream)
+        pins = load_toml(PINS_PATH)
+        corpus = load_toml(CORPUS_PATH)
         environment = preflight(pins, corpus)
         with tempfile.TemporaryDirectory(prefix="krs-kmir-", dir="/var/tmp") as temporary:
             workspace = Path(temporary)
@@ -765,13 +711,10 @@ def main() -> int:
             executions = k_rust_gate(runner, definition, pins, corpus, environment)
             proofs = 0
             if arguments.java_reference:
-                k_pin = mapping(pins.get("k"), "pins.k")
-                k_bin = support.find_k_bin(str(k_pin["version"]), str(k_pin["commit"]))
-                observed = run([k_bin / "kompile", "--version"], timeout=30)
-                if f"v{k_pin['version']}" not in observed.stdout + observed.stderr:
-                    raise GateError("K executable version differs")
+                k_version = str(table(pins.get("k"), "pins.k")["version"])
+                k = {name: k_tool(name, k_version) for name in ("kompile", "krun", "kprove")}
                 reference_executions, proofs = java_reference_gate(
-                    workspace, artifacts, k_bin, pins, corpus
+                    workspace, artifacts, k, pins, corpus
                 )
                 if reference_executions != executions:
                     raise GateError("K-Rust and reference execution counts differ")
@@ -784,7 +727,7 @@ def main() -> int:
             f"{pins['schemas']['descriptor_protocol']}"
         )
         return 0
-    except (GateError, OSError, subprocess.TimeoutExpired, AssertionError) as error:
+    except (GateError, OSError) as error:
         print(f"FAIL readable KMIR operational slice: {error}", file=sys.stderr)
         return 1
 

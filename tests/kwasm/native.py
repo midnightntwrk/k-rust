@@ -4,20 +4,16 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
-import subprocess
-import tomllib
+import sys
 from typing import Any, Mapping
 
-
-class NativeError(RuntimeError):
-    """The native runner or its concrete result violated the gate protocol."""
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import GateError  # noqa: E402
+from support.hashing import canonical_json, json_sha256  # noqa: E402
+from support.pins import load_toml  # noqa: E402
+from support.process import run  # noqa: E402
 
 
 def application(name: str, *arguments: str) -> str:
@@ -46,13 +42,13 @@ def instruction(source: str) -> str:
         operations = {"add": "add", "sub": "sub", "mul": "mul", "div_u": "divU"}
         if ty in {"i32", "i64"} and operation in operations:
             return application("binary", application(ty), application(operations[operation]))
-    raise NativeError(f"unsupported concrete KWasm instruction: {source}")
+    raise GateError(f"unsupported concrete KWasm instruction: {source}")
 
 
 def instruction_list(source: str) -> str:
     items = [item.strip() for item in source.split(";")]
     if not items or items.pop() != ".Instrs":
-        raise NativeError(f"unsupported concrete Instrs: {source}")
+        raise GateError(f"unsupported concrete Instrs: {source}")
     result = application("instrEmpty")
     for item in reversed(items):
         result = application("instrCons", instruction(item), result)
@@ -87,10 +83,10 @@ def applications(value: Any, name: str) -> list[Mapping[str, Any]]:
 def cell(state: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     matches = applications(state, f"Lbl'-LT-'{name}'-GT-'")
     if len(matches) != 1:
-        raise NativeError(f"native result contains {len(matches)} <{name}> cells")
+        raise GateError(f"native result contains {len(matches)} <{name}> cells")
     arguments = matches[0].get("args")
     if not isinstance(arguments, list) or len(arguments) != 1 or not isinstance(arguments[0], dict):
-        raise NativeError(f"native <{name}> cell is malformed")
+        raise GateError(f"native <{name}> cell is malformed")
     return arguments[0]
 
 
@@ -98,7 +94,7 @@ def app_arguments(term: Mapping[str, Any], name: str, arity: int) -> list[Mappin
     arguments = term.get("args")
     expected_name = name if name == "kseq" else f"Lbl{name}"
     if term.get("tag") != "App" or term.get("name") != expected_name or not isinstance(arguments, list) or len(arguments) != arity or not all(isinstance(item, dict) for item in arguments):
-        raise NativeError(f"expected {name}/{arity}: {term}")
+        raise GateError(f"expected {name}/{arity}: {term}")
     return arguments
 
 
@@ -106,7 +102,7 @@ def unwrap_injection(term: Mapping[str, Any]) -> Mapping[str, Any]:
     while term.get("tag") == "App" and term.get("name") == "inj":
         arguments = term.get("args")
         if not isinstance(arguments, list) or len(arguments) != 1 or not isinstance(arguments[0], dict):
-            raise NativeError(f"malformed sort injection: {term}")
+            raise GateError(f"malformed sort injection: {term}")
         term = arguments[0]
     return term
 
@@ -114,17 +110,17 @@ def unwrap_injection(term: Mapping[str, Any]) -> Mapping[str, Any]:
 def domain_integer(term: Mapping[str, Any]) -> str:
     sort = term.get("sort")
     if term.get("tag") != "DV" or not isinstance(sort, dict) or sort.get("name") != "SortInt" or not isinstance(term.get("value"), str):
-        raise NativeError(f"expected concrete Int: {term}")
+        raise GateError(f"expected concrete Int: {term}")
     return str(term["value"])
 
 
 def sole_state(result: Mapping[str, Any]) -> Mapping[str, Any]:
     leaves = result.get("leaves")
     if not isinstance(leaves, list) or len(leaves) != 1 or not isinstance(leaves[0], dict):
-        raise NativeError(f"native execution did not produce one leaf: {result}")
+        raise GateError(f"native execution did not produce one leaf: {result}")
     state = leaves[0].get("state")
     if not isinstance(state, dict) or not isinstance(state.get("term"), dict):
-        raise NativeError(f"native execution leaf has no KORE state: {leaves[0]}")
+        raise GateError(f"native execution leaf has no KORE state: {leaves[0]}")
     return state["term"]
 
 
@@ -136,16 +132,16 @@ def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, st
         head, tail = app_arguments(instructions, "kseq", 2)
         empty, end = app_arguments(tail, "kseq", 2)
         if unwrap_injection(head).get("name") != "Lbltrap" or unwrap_injection(empty).get("name") != "LblinstrEmpty" or end.get("name") != "dotk":
-            raise NativeError(f"{case['id']} did not finish with a trap: {instructions}")
+            raise GateError(f"{case['id']} did not finish with a trap: {instructions}")
         if cell(state, "valstack").get("name") != "Lblempty":
-            raise NativeError(f"{case['id']} trapped with an unexpected stack")
+            raise GateError(f"{case['id']} trapped with an unexpected stack")
         return {"id": str(case["id"]), "outcome": "trap"}
 
     if instructions.get("tag") != "App" or instructions.get("name") != "dotk":
-        raise NativeError(f"{case['id']} did not finish its instruction stream: {instructions}")
+        raise GateError(f"{case['id']} did not finish its instruction stream: {instructions}")
     value, tail = app_arguments(cell(state, "valstack"), "cons", 2)
     if tail.get("name") != "Lblempty":
-        raise NativeError(f"{case['id']} left more than one stack value")
+        raise GateError(f"{case['id']} left more than one stack value")
     ty, concrete = app_arguments(value, "integer", 2)
     return {
         "id": str(case["id"]),
@@ -162,41 +158,30 @@ def main() -> int:
     parser.add_argument("module")
     parser.add_argument("corpus", type=Path)
     arguments = parser.parse_args()
-    with arguments.corpus.open("rb") as stream:
-        corpus = tomllib.load(stream)
+    corpus = load_toml(arguments.corpus)
     cases = corpus.get("behavior")
     if not isinstance(cases, list) or not cases:
-        raise NativeError("behavior corpus is empty")
+        raise GateError("behavior corpus is empty")
     requests = "".join(
-        canonical({"id": str(case["id"]), "operation": "execute", "pattern": initial_pattern(case)}) + "\n"
+        canonical_json({"id": str(case["id"]), "operation": "execute", "pattern": initial_pattern(case)}) + "\n"
         for case in cases
     )
-    process = subprocess.run(
-        [arguments.runner, arguments.definition, arguments.module],
-        input=requests,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=600,
-        check=False,
-    )
-    if process.returncode != 0:
-        raise NativeError(f"native runner failed with {process.returncode}: {process.stderr.strip()}")
+    process = run([arguments.runner, arguments.definition, arguments.module], input=requests, timeout=600)
     responses = [json.loads(line) for line in process.stdout.splitlines()]
     if len(responses) != len(cases):
-        raise NativeError(f"native runner returned {len(responses)} responses for {len(cases)} requests")
+        raise GateError(f"native runner returned {len(responses)} responses for {len(cases)} requests")
     outcomes = []
     for case, response in zip(cases, responses, strict=True):
         if response.get("id") != case["id"] or not isinstance(response.get("result"), dict):
-            raise NativeError(f"native response order or shape differs: {response}")
+            raise GateError(f"native response order or shape differs: {response}")
         outcome = observed(case, response["result"])
         expected = {"id": str(case["id"]), "outcome": str(case.get("expected_outcome", "value"))}
         if expected["outcome"] == "value":
             expected.update(type=str(case["expected_type"]), value=str(case["expected_value"]))
         if outcome != expected:
-            raise NativeError(f"{case['id']} differs: expected={expected}, actual={outcome}")
+            raise GateError(f"{case['id']} differs: expected={expected}, actual={outcome}")
         outcomes.append(outcome)
-    digest = hashlib.sha256(canonical(outcomes).encode()).hexdigest()
+    digest = json_sha256(outcomes)
     print(f"PASS native KWasm behavior: {len(outcomes)} executions; sha256={digest}")
     return 0
 

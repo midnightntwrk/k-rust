@@ -5,22 +5,25 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
-import importlib.util
-import json
 import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
-import tomllib
 from typing import Any, Mapping
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.checkouts import verify_checkout  # noqa: E402
+from support.hashing import canonical_json, exact_directory, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.kdefinition import EMITTED_ARTIFACTS, normalized_kore_sha256, split_claims  # noqa: E402
+from support.pins import load_toml, table  # noqa: E402
+from support.process import run  # noqa: E402
+from support.tools import k_tool, rust_analyzer, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 MANIFEST = ROOT / "semantics/kevm/Cargo.toml"
 SOURCE = ROOT / "semantics/kevm/src/lib.rs"
 LOCK = ROOT / "semantics/Cargo.lock"
@@ -33,15 +36,6 @@ MODULE = "KRS-KEVM"
 SPEC_MODULE = f"{MODULE}-SPEC"
 DESCRIPTOR_COUNT = 1100
 CLAIM_COUNT = 8
-ARTIFACTS = (
-    ".krs-artifacts",
-    "definition-ir.json",
-    "definition.k",
-    "descriptor-bundle.json",
-    "semantic-ir.json",
-    "sources.json",
-    "symbols.json",
-)
 SOURCE_LEDGER_PATHS = (
     "Cargo.lock",
     "Krs.lock",
@@ -94,40 +88,17 @@ SOURCE_LEDGER_PATHS = (
     "tests/kevm/verify.py",
 )
 
-spec = importlib.util.spec_from_file_location("kwasm_gate_support", ROOT / "tests/kwasm/verify.py")
-assert spec is not None and spec.loader is not None
-support = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(support)
-GateError = support.GateError
-
-
-def sha256(path: Path) -> str:
-    return support.sha256(path)
-
-
-def mapping(value: Any, name: str) -> Mapping[str, Any]:
-    return support.mapping(value, name)
-
-
-def run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    return support.run(*args, **kwargs)
-
-
 def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, str]:
     if pins.get("schema") != 1 or corpus.get("schema") != 1:
         raise GateError("KEVM gate schema differs from 1")
-    if sha256(CORPUS_PATH) != pins.get("corpus_sha256"):
+    if sha256_file(CORPUS_PATH) != pins.get("corpus_sha256"):
         raise GateError("corpus.toml differs from its pin")
-    k_pin = mapping(pins.get("k"), "pins.k")
-    kevm_pin = mapping(pins.get("kevm"), "pins.kevm")
-    if support.git_revision(KEVM) != kevm_pin.get("commit"):
-        raise GateError("KEVM checkout revision differs")
-    if run(["git", "status", "--porcelain"], cwd=KEVM, timeout=30).stdout:
-        raise GateError("KEVM evidence checkout is dirty")
+    kevm_pin = table(pins.get("kevm"), "pins.kevm")
+    verify_checkout(KEVM, str(kevm_pin.get("commit")), label="KEVM evidence")
     if (KEVM / "deps/k_release").read_text(encoding="utf-8").strip() != kevm_pin.get("version"):
         raise GateError("KEVM K release differs")
 
-    schemas = mapping(pins.get("schemas"), "pins.schemas")
+    schemas = table(pins.get("schemas"), "pins.schemas")
     protocol = (ROOT / "crates/krs-ir/src/lib.rs").read_text(encoding="utf-8")
     ir = (ROOT / "crates/krs-ir/src/ir.rs").read_text(encoding="utf-8")
     if f"pub const CURRENT: Self = Self({schemas.get('descriptor_protocol')});" not in protocol:
@@ -135,14 +106,14 @@ def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, s
     if f"pub const CURRENT: Self = Self({schemas.get('definition_ir')});" not in ir:
         raise GateError("Definition IR schema differs")
 
-    expected_sources = mapping(pins.get("source_sha256"), "pins.source_sha256")
+    expected_sources = table(pins.get("source_sha256"), "pins.source_sha256")
     if set(expected_sources) != set(SOURCE_LEDGER_PATHS):
         raise GateError("KEVM source-ledger path set differs")
     for relative in SOURCE_LEDGER_PATHS:
-        if sha256(ROOT / relative) != expected_sources[relative]:
+        if sha256_file(ROOT / relative) != expected_sources[relative]:
             raise GateError(f"KEVM source ledger differs: {relative}")
 
-    expected_external = mapping(pins.get("external_sha256"), "pins.external_sha256")
+    expected_external = table(pins.get("external_sha256"), "pins.external_sha256")
     evidence = corpus.get("source_evidence")
     if not isinstance(evidence, list) or not evidence:
         raise GateError("source evidence is empty")
@@ -150,16 +121,10 @@ def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, s
     if set(expected_external) != evidence_paths:
         raise GateError("external evidence-ledger path set differs")
     for relative in evidence_paths:
-        if sha256(KEVM / relative) != expected_external[relative]:
+        if sha256_file(KEVM / relative) != expected_external[relative]:
             raise GateError(f"external KEVM evidence differs: {relative}")
 
-    z3 = support.find_z3_lib()
-    environment = {
-        "LIBRARY_PATH": os.pathsep.join([os.fspath(z3), os.environ.get("LIBRARY_PATH", "")]).rstrip(os.pathsep),
-        "LD_LIBRARY_PATH": os.pathsep.join([os.fspath(z3), os.environ.get("LD_LIBRARY_PATH", "")]).rstrip(os.pathsep),
-        "CARGO_NET_OFFLINE": "true",
-    }
-    return environment
+    return {**z3_environment(), "CARGO_NET_OFFLINE": "true"}
 
 
 def rust_gate(environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
@@ -191,7 +156,7 @@ def rust_gate(environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
     run(["cargo", "fmt", "--all", "--", "--check"])
     run([root_target / "debug/krs", "fmt", "--check", "--manifest-path", MANIFEST, SOURCE], environment=environment)
     run(["cargo", "+1.88.0", "check", *common, "--all-targets"], environment=fixture_env, timeout=900)
-    analyzer = support.find_rust_analyzer()
+    analyzer = rust_analyzer()
     lsp_env = {**environment, "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]])}
     run([sys.executable, HERE / "lsp_probe.py"], environment=lsp_env, timeout=900)
     return (
@@ -199,44 +164,6 @@ def rust_gate(environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
         root_target / "release/krs-native-compile",
         root_target / "release/krs-native-runner",
     )
-
-
-def exact_directory(first: Path, second: Path) -> dict[str, str]:
-    names_a = sorted(path.name for path in first.iterdir() if path.is_file())
-    names_b = sorted(path.name for path in second.iterdir() if path.is_file())
-    if names_a != list(ARTIFACTS) or names_b != list(ARTIFACTS):
-        raise GateError(f"artifact set differs: first={names_a}, second={names_b}")
-    hashes = {name: sha256(first / name) for name in ARTIFACTS}
-    for name, digest in hashes.items():
-        if sha256(second / name) != digest:
-            raise GateError(f"repeated emission differs: {name}")
-    return hashes
-
-
-def split_claims(source: str) -> tuple[str, list[str]]:
-    lines = source.splitlines(keepends=True)
-    starters = re.compile(
-        r"^(?:endmodule\b|  (?:syntax\b|configuration\b|context alias\b|rule\b|claim \[))"
-    )
-    semantics: list[str] = []
-    claims: list[str] = []
-    index = 0
-    while index < len(lines):
-        if not lines[index].startswith("  claim ["):
-            semantics.append(lines[index])
-            index += 1
-            continue
-        start = index
-        index += 1
-        while index < len(lines) and starters.match(lines[index]) is None:
-            index += 1
-        claims.extend(lines[start:index])
-    value = "".join(semantics)
-    if sum(line.startswith("  claim [") for line in claims) != CLAIM_COUNT:
-        raise GateError(f"expected exactly {CLAIM_COUNT} emitted KEVM claims")
-    if "  claim [" in value or not value.endswith("endmodule\n"):
-        raise GateError("claim stripping did not preserve a claim-free module")
-    return value, claims
 
 
 def artifact_gate(workspace: Path, krs: Path, pins: Mapping[str, Any], environment: Mapping[str, str]) -> Path:
@@ -247,7 +174,7 @@ def artifact_gate(workspace: Path, krs: Path, pins: Mapping[str, Any], environme
     expansions = [run([krs, "expand", *base], environment=environment).stdout for _ in range(2)]
     if expansions[0] != expansions[1]:
         raise GateError("readable expansion is nondeterministic")
-    digest = hashlib.sha256(expansions[0].encode()).hexdigest()
+    digest = sha256_text(expansions[0])
     if digest != pins.get("expansion_sha256"):
         raise GateError(f"expansion hash differs: {digest}")
 
@@ -269,9 +196,9 @@ def artifact_gate(workspace: Path, krs: Path, pins: Mapping[str, Any], environme
     outputs = [workspace / "emit-a", workspace / "emit-b"]
     for output in outputs:
         run([krs, "emit-k", *base, "--output", output], environment=environment)
-    hashes = exact_directory(outputs[0], outputs[1])
-    if hashes != dict(mapping(pins.get("artifact_sha256"), "pins.artifact_sha256")):
-        raise GateError(f"emitted artifact hashes differ: {support.canonical(hashes)}")
+    hashes = exact_directory(outputs[0], outputs[1], EMITTED_ARTIFACTS)
+    if hashes != dict(table(pins.get("artifact_sha256"), "pins.artifact_sha256")):
+        raise GateError(f"emitted artifact hashes differ: {canonical_json(hashes)}")
 
     expanded_output = workspace / "expanded-emit"
     run(
@@ -424,15 +351,15 @@ def rendered_accessed_storage(values: Any) -> str:
 def compile_java_definition(
     workspace: Path,
     artifacts: Path,
-    k_bin: Path,
+    k: Mapping[str, str],
     pins: Mapping[str, Any],
-) -> tuple[Path, list[str]]:
-    claim_free, claims = split_claims((artifacts / "definition.k").read_text(encoding="utf-8"))
+) -> tuple[Path, str]:
+    claim_free, _, claims = split_claims((artifacts / "definition.k").read_text(encoding="utf-8"), CLAIM_COUNT)
     semantics = workspace / "semantics.k"
     semantics.write_text(claim_free, encoding="utf-8")
     definition = workspace / "semantics-kompiled"
-    run([k_bin / "kompile", semantics, "--backend", "haskell", "--main-module", MODULE, "--syntax-module", MODULE, "--emit-json", "--output-definition", definition], timeout=900)
-    kore_hash = support.normalized_kore_sha256(definition / "definition.kore", semantics)
+    run([k["kompile"], semantics, "--backend", "haskell", "--main-module", MODULE, "--syntax-module", MODULE, "--emit-json", "--output-definition", definition], timeout=900)
+    kore_hash = normalized_kore_sha256(definition / "definition.kore", semantics)
     if kore_hash != pins.get("definition_kore_sha256"):
         raise GateError(f"native definition.kore hash differs: {kore_hash}")
     return definition, claims
@@ -444,17 +371,17 @@ def compile_native_definition(
     compiler: Path,
     pins: Mapping[str, Any],
     environment: Mapping[str, str],
-) -> tuple[Path, list[str]]:
+) -> tuple[Path, str]:
     definition = workspace / "native-definition.kore"
     run(
         [compiler, artifacts / "definition-ir.json", definition],
         environment=environment,
         timeout=900,
     )
-    kore_hash = sha256(definition)
+    kore_hash = sha256_file(definition)
     if kore_hash != pins.get("native_definition_kore_sha256"):
         raise GateError(f"native K-Rust definition.kore hash differs: {kore_hash}")
-    _, claims = split_claims((artifacts / "definition.k").read_text(encoding="utf-8"))
+    _, _, claims = split_claims((artifacts / "definition.k").read_text(encoding="utf-8"), CLAIM_COUNT)
     return definition, claims
 
 
@@ -489,8 +416,8 @@ def k_rust_gate(
 def java_reference_gate(
     workspace: Path,
     definition: Path,
-    claims: list[str],
-    k_bin: Path,
+    claims: str,
+    k: Mapping[str, str],
     pins: Mapping[str, Any],
     corpus: Mapping[str, Any],
 ) -> tuple[int, int]:
@@ -532,7 +459,7 @@ def java_reference_gate(
         ]
         result = run(
             [
-                k_bin / "krun", "--definition", definition,
+                k["krun"], "--definition", definition,
                 "-cPGM=run", f"-cPROGRAM={case['program']}", f"-cSTACK={case['stack']}",
                 f"-cPC={case['pc']}", f"-cGAS={case['gas']}", "-cSTATUS=.StatusCode",
                 *context, "--output", "pretty",
@@ -612,23 +539,23 @@ def java_reference_gate(
         if observed != expected:
             raise GateError(f"{case['id']} differs: expected={expected}, actual={observed}")
         outcomes.append(observed)
-    behavior_hash = hashlib.sha256(support.canonical(outcomes).encode()).hexdigest()
+    behavior_hash = json_sha256(outcomes)
     if behavior_hash != pins.get("behavior_sha256"):
-        raise GateError(f"behavior hash differs: {behavior_hash}; outcomes={support.canonical(outcomes)}")
+        raise GateError(f"behavior hash differs: {behavior_hash}; outcomes={canonical_json(outcomes)}")
 
     spec_path = workspace / "spec.k"
     spec_path.write_text(
         f'requires "semantics.k"\n\nmodule {SPEC_MODULE}\n  imports {MODULE}\n\n'
-        f'{"".join(claims)}endmodule\n',
+        f"{claims}endmodule\n",
         encoding="utf-8",
     )
-    dry = run([k_bin / "kprove", spec_path, "--definition", definition, "--spec-module", SPEC_MODULE, "--dry-run"], timeout=180)
+    dry = run([k["kprove"], spec_path, "--definition", definition, "--spec-module", SPEC_MODULE, "--dry-run"], timeout=180)
     if "kore-exec" not in dry.stdout or "--prove" not in dry.stdout:
         raise GateError("proof dry run did not select the native Haskell prover")
-    proof = run([k_bin / "kprove", spec_path, "--definition", definition, "--spec-module", SPEC_MODULE], timeout=300)
+    proof = run([k["kprove"], spec_path, "--definition", definition, "--spec-module", SPEC_MODULE], timeout=300)
     if proof.stdout.strip() != "#Top":
         raise GateError(f"KEVM claim did not close: {proof.stdout.strip()}")
-    return len(outcomes), sum(line.startswith("  claim [") for line in claims)
+    return len(outcomes), CLAIM_COUNT
 
 
 def main() -> int:
@@ -640,26 +567,19 @@ def main() -> int:
     )
     arguments = parser.parse_args()
     try:
-        with PINS_PATH.open("rb") as stream:
-            pins = tomllib.load(stream)
-        with CORPUS_PATH.open("rb") as stream:
-            corpus = tomllib.load(stream)
+        pins = load_toml(PINS_PATH)
+        corpus = load_toml(CORPUS_PATH)
         environment = preflight(pins, corpus)
         krs, compiler, runner = rust_gate(environment)
         with tempfile.TemporaryDirectory(prefix="krs-kevm-", dir="/var/tmp") as temporary:
             workspace = Path(temporary)
             artifacts = artifact_gate(workspace, krs, pins, environment)
             if arguments.java_reference:
-                k_pin = mapping(pins.get("k"), "pins.k")
-                k_bin = support.find_k_bin(str(k_pin["version"]), str(k_pin["commit"]))
-                observed = run([k_bin / "kompile", "--version"], timeout=30)
-                if f"v{k_pin['version']}" not in observed.stdout + observed.stderr:
-                    raise GateError("K executable version differs")
-                definition, claims = compile_java_definition(
-                    workspace, artifacts, k_bin, pins
-                )
+                k_version = str(table(pins.get("k"), "pins.k")["version"])
+                k = {name: k_tool(name, k_version) for name in ("kompile", "krun", "kprove")}
+                definition, claims = compile_java_definition(workspace, artifacts, k, pins)
                 executions, proofs = java_reference_gate(
-                    workspace, definition, claims, k_bin, pins, corpus
+                    workspace, definition, claims, k, pins, corpus
                 )
                 qualification = f"{executions} Java reference executions; {proofs} Java reference proofs"
             else:
@@ -667,7 +587,7 @@ def main() -> int:
                     workspace, artifacts, compiler, pins, environment
                 )
                 executions = k_rust_gate(runner, definition, pins, corpus, environment)
-                deferred_proofs = sum(line.startswith("  claim [") for line in claims)
+                deferred_proofs = CLAIM_COUNT
                 qualification = (
                     f"{executions} K-Rust executions; "
                     f"{deferred_proofs} Java reference proofs deferred to --java-reference"
@@ -677,7 +597,7 @@ def main() -> int:
             f"protocol {pins['schemas']['descriptor_protocol']}; K {pins['k']['version']}"
         )
         return 0
-    except (GateError, OSError, subprocess.TimeoutExpired, AssertionError) as error:
+    except (GateError, OSError) as error:
         print(f"FAIL readable KEVM operational slice: {error}", file=sys.stderr)
         return 1
 

@@ -4,21 +4,25 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
-import tomllib
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.checkouts import verify_checkout  # noqa: E402
+from support.hashing import canonical_json, exact_directory, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.kdefinition import EMITTED_ARTIFACTS, normalized_kore_sha256, split_claims  # noqa: E402
+from support.pins import load_toml, table  # noqa: E402
+from support.process import run  # noqa: E402
+from support.tools import k_tool, rust_analyzer, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 MANIFEST = ROOT / "semantics/kwasm/Cargo.toml"
 SOURCE = ROOT / "semantics/kwasm/src/lib.rs"
 LOCK = ROOT / "semantics/Cargo.lock"
@@ -29,15 +33,6 @@ PACKAGE = "krs-kwasm-semantics"
 DEFINITION = "main"
 MODULE = "KRS-KWASM"
 SPEC_MODULE = f"{MODULE}-SPEC"
-ARTIFACTS = (
-    ".krs-artifacts",
-    "definition-ir.json",
-    "definition.k",
-    "descriptor-bundle.json",
-    "semantic-ir.json",
-    "sources.json",
-    "symbols.json",
-)
 SOURCE_LEDGER_PATHS = (
     "crates/krs-compiler/src/collect.rs",
     "crates/krs-compiler/src/emit.rs",
@@ -85,196 +80,18 @@ SOURCE_LEDGER_PATHS = (
 )
 
 
-class GateError(RuntimeError):
-    """One required qualification layer failed."""
-
-
-def sha256(path: Path) -> str:
-    if not path.is_file():
-        raise GateError(f"required file is missing: {path}")
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def normalized_kore_sha256(path: Path, semantics: Path) -> str:
-    if not path.is_file():
-        raise GateError(f"required file is missing: {path}")
-    contents = path.read_bytes()
-    temporary_source = os.fsencode(semantics.absolute())
-    if temporary_source not in contents:
-        raise GateError("native definition.kore does not record its semantics source")
-    normalized = contents.replace(temporary_source, b"semantics.k")
-
-    generated_binder = re.compile(
-        rb"(?P<prefix>\\exists\{R\} \()"
-        rb"(?P<variable>Var'Unds'Gen[0-9]+)"
-        rb"(?P<sort>:Sort[A-Za-z0-9']+\{\})"
-        rb"(?P<body>,.*?)"
-        rb"(?P=variable)(?P=sort)"
-        rb"(?P<suffix>.*?\\bottom\{R\}\(\))",
-        re.DOTALL,
-    )
-
-    def normalize_generated_binder(match: re.Match[bytes]) -> bytes:
-        variable = match.group("variable") + match.group("sort")
-        if match.group(0).count(variable) != 2:
-            raise GateError("native definition.kore changed a generated binder shape")
-        replacement = b"Var'Unds'KrsAlpha" + match.group("sort")
-        return match.group(0).replace(variable, replacement)
-
-    normalized, binder_count = generated_binder.subn(
-        normalize_generated_binder, normalized
-    )
-    if binder_count == 0:
-        raise GateError("native definition.kore has no generated sort binders")
-    return hashlib.sha256(normalized).hexdigest()
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def run(
-    command: Sequence[str | os.PathLike[str]],
-    *,
-    cwd: Path = ROOT,
-    environment: Mapping[str, str] | None = None,
-    timeout: int = 600,
-) -> subprocess.CompletedProcess[str]:
-    env = {
-        **os.environ,
-        "LC_ALL": "C",
-        "LANG": "C",
-        "PYTHONDONTWRITEBYTECODE": "1",
-    }
-    if environment:
-        env.update(environment)
-    process = subprocess.run(
-        [os.fspath(item) for item in command],
-        cwd=cwd,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-    )
-    if process.returncode != 0:
-        detail = "\n".join(
-            part.strip() for part in (process.stdout, process.stderr) if part.strip()
-        )
-        rendered = " ".join(os.fspath(item) for item in command)
-        raise GateError(f"command failed ({process.returncode}): {rendered}\n{detail}")
-    return process
-
-
-def git_revision(path: Path) -> str:
-    return run(["git", "rev-parse", "HEAD"], cwd=path, timeout=30).stdout.strip()
-
-
-def mapping(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, dict):
-        raise GateError(f"{name} must be a TOML table")
-    return value
-
-
-def find_k_bin(version: str, commit: str) -> Path:
-    configured = os.environ.get("KRS_K_BIN")
-    candidates = []
-    if configured:
-        candidates.append(Path(configured))
-    ambient = shutil.which("kompile")
-    if ambient:
-        candidates.append(Path(ambient).resolve().parent)
-    candidates.extend(
-        path.parent
-        for path in Path("/nix/store").glob(f"*-k-{version}-{commit}/bin/kompile")
-    )
-    for candidate in candidates:
-        if (candidate / "kompile").is_file() and (candidate / "krun").is_file():
-            return candidate
-    raise GateError(f"could not locate the pinned K {version} executable directory")
-
-
-def find_z3_lib() -> Path:
-    configured = os.environ.get("KRS_Z3_LIB")
-    candidates = [Path(configured)] if configured else []
-    candidates.extend(Path("/nix/store").glob("*-z3-4.12.5-lib/lib"))
-    for candidate in candidates:
-        if (candidate / "libz3.so").exists():
-            return candidate
-    raise GateError("could not locate the qualified Z3 4.12.5 library")
-
-
-def find_rust_analyzer() -> Path:
-    candidates = [
-        Path("/var/tmp/krs-ra-1.97.1-bin/rust-analyzer"),
-        Path(
-            "/var/tmp/krs-rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rust-analyzer"
-        ),
-    ]
-    ambient = shutil.which("rust-analyzer")
-    if ambient:
-        candidates.append(Path(ambient))
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate.absolute()
-    raise GateError("could not locate the qualified rust-analyzer")
-
-
-def exact_directory(first: Path, second: Path) -> dict[str, str]:
-    first_names = sorted(path.name for path in first.iterdir() if path.is_file())
-    second_names = sorted(path.name for path in second.iterdir() if path.is_file())
-    if first_names != list(ARTIFACTS) or second_names != list(ARTIFACTS):
-        raise GateError(
-            f"artifact set differs: first={first_names}, second={second_names}"
-        )
-    hashes = {name: sha256(first / name) for name in ARTIFACTS}
-    for name, digest in hashes.items():
-        if sha256(second / name) != digest:
-            raise GateError(f"repeated emission differs: {name}")
-    return hashes
-
-
-def split_claims(source: str) -> tuple[str, list[str]]:
-    lines = source.splitlines(keepends=True)
-    starters = re.compile(
-        r"^(?:endmodule\b|  (?:syntax\b|configuration\b|context alias\b|rule\b|claim \[))"
-    )
-    semantics: list[str] = []
-    claims: list[str] = []
-    index = 0
-    while index < len(lines):
-        if not lines[index].startswith("  claim ["):
-            semantics.append(lines[index])
-            index += 1
-            continue
-        start = index
-        index += 1
-        while index < len(lines) and starters.match(lines[index]) is None:
-            index += 1
-        claims.extend(lines[start:index])
-    value = "".join(semantics)
-    if len([line for line in claims if line.startswith("  claim [")]) != 1:
-        raise GateError("expected exactly one emitted KWasm claim")
-    if "  claim [" in value or not value.endswith("endmodule\n"):
-        raise GateError("claim stripping did not preserve a claim-free module")
-    return value, claims
-
-
 def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, str]:
     if pins.get("schema") != 1 or corpus.get("schema") != 1:
         raise GateError("KWasm gate schema differs from 1")
-    if sha256(CORPUS_PATH) != pins.get("corpus_sha256"):
+    if sha256_file(CORPUS_PATH) != pins.get("corpus_sha256"):
         raise GateError("corpus.toml differs from its pin")
-    k_pin = mapping(pins.get("k"), "pins.k")
-    kwasm_pin = mapping(pins.get("kwasm"), "pins.kwasm")
-    if git_revision(KWASM) != kwasm_pin.get("commit"):
-        raise GateError("KWasm checkout revision differs")
-    if run(["git", "status", "--porcelain"], cwd=KWASM, timeout=30).stdout:
-        raise GateError("KWasm evidence checkout is dirty")
+    kwasm_pin = table(pins.get("kwasm"), "pins.kwasm")
+    verify_checkout(KWASM, str(kwasm_pin.get("commit")), label="KWasm evidence")
     version_path = KWASM / "deps/k_release"
     if version_path.read_text(encoding="utf-8").strip() != kwasm_pin.get("version"):
         raise GateError("KWasm K release differs")
 
-    schemas = mapping(pins.get("schemas"), "pins.schemas")
+    schemas = table(pins.get("schemas"), "pins.schemas")
     protocol = (ROOT / "crates/krs-ir/src/lib.rs").read_text(encoding="utf-8")
     ir = (ROOT / "crates/krs-ir/src/ir.rs").read_text(encoding="utf-8")
     if (
@@ -285,14 +102,14 @@ def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, s
     if f"pub const CURRENT: Self = Self({schemas.get('definition_ir')});" not in ir:
         raise GateError("Definition IR schema differs")
 
-    expected_sources = mapping(pins.get("source_sha256"), "pins.source_sha256")
+    expected_sources = table(pins.get("source_sha256"), "pins.source_sha256")
     if set(expected_sources) != set(SOURCE_LEDGER_PATHS):
         raise GateError("KWasm source-ledger path set differs")
     for relative in SOURCE_LEDGER_PATHS:
-        if sha256(ROOT / relative) != expected_sources[relative]:
+        if sha256_file(ROOT / relative) != expected_sources[relative]:
             raise GateError(f"KWasm source ledger differs: {relative}")
 
-    expected_external = mapping(pins.get("external_sha256"), "pins.external_sha256")
+    expected_external = table(pins.get("external_sha256"), "pins.external_sha256")
     evidence = corpus.get("source_evidence")
     if not isinstance(evidence, list) or not evidence:
         raise GateError("source evidence is empty")
@@ -300,20 +117,10 @@ def preflight(pins: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, s
     if set(expected_external) != evidence_paths:
         raise GateError("external evidence-ledger path set differs")
     for relative in evidence_paths:
-        if sha256(KWASM / relative) != expected_external[relative]:
+        if sha256_file(KWASM / relative) != expected_external[relative]:
             raise GateError(f"external KWasm evidence differs: {relative}")
 
-    z3 = find_z3_lib()
-    environment = {
-        "LIBRARY_PATH": os.pathsep.join(
-            [os.fspath(z3), os.environ.get("LIBRARY_PATH", "")]
-        ).rstrip(os.pathsep),
-        "LD_LIBRARY_PATH": os.pathsep.join(
-            [os.fspath(z3), os.environ.get("LD_LIBRARY_PATH", "")]
-        ).rstrip(os.pathsep),
-        "CARGO_NET_OFFLINE": "true",
-    }
-    return environment
+    return {**z3_environment(), "CARGO_NET_OFFLINE": "true"}
 
 
 def rust_gate(workspace: Path, environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
@@ -358,7 +165,7 @@ def rust_gate(workspace: Path, environment: Mapping[str, str]) -> tuple[Path, Pa
         environment=fixture_env,
         timeout=900,
     )
-    analyzer = find_rust_analyzer()
+    analyzer = rust_analyzer()
     lsp_env = {
         **environment,
         "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]]),
@@ -391,7 +198,7 @@ def artifact_gate(
     expansions = [run([krs, "expand", *base], environment=environment).stdout for _ in range(2)]
     if expansions[0] != expansions[1]:
         raise GateError("readable expansion is nondeterministic")
-    expansion_hash = hashlib.sha256(expansions[0].encode()).hexdigest()
+    expansion_hash = sha256_text(expansions[0])
     if expansion_hash != pins.get("expansion_sha256"):
         raise GateError(f"expansion hash differs: {expansion_hash}")
 
@@ -418,9 +225,9 @@ def artifact_gate(
     outputs = [workspace / "emit-a", workspace / "emit-b"]
     for output in outputs:
         run([krs, "emit-k", *base, "--output", output], environment=environment)
-    hashes = exact_directory(outputs[0], outputs[1])
-    if hashes != dict(mapping(pins.get("artifact_sha256"), "pins.artifact_sha256")):
-        raise GateError(f"emitted artifact hashes differ: {canonical(hashes)}")
+    hashes = exact_directory(outputs[0], outputs[1], EMITTED_ARTIFACTS)
+    if hashes != dict(table(pins.get("artifact_sha256"), "pins.artifact_sha256")):
+        raise GateError(f"emitted artifact hashes differ: {canonical_json(hashes)}")
 
     expanded_output = workspace / "expanded-emit"
     run(
@@ -468,7 +275,7 @@ def compile_native_definition(
         environment=environment,
         timeout=900,
     )
-    kore_hash = sha256(definition)
+    kore_hash = sha256_file(definition)
     if kore_hash != pins.get("native_definition_kore_sha256"):
         raise GateError(f"native K-Rust definition.kore hash differs: {kore_hash}")
     return definition
@@ -498,19 +305,19 @@ def k_rust_gate(
 def java_reference_gate(
     workspace: Path,
     artifacts: Path,
-    k_bin: Path,
+    k: Mapping[str, str],
     pins: Mapping[str, Any],
     corpus: Mapping[str, Any],
 ) -> tuple[int, int]:
-    claim_free, claims = split_claims(
-        (artifacts / "definition.k").read_text(encoding="utf-8")
+    claim_free, _, claims = split_claims(
+        (artifacts / "definition.k").read_text(encoding="utf-8"), 1
     )
     semantics = workspace / "semantics.k"
     semantics.write_text(claim_free, encoding="utf-8")
     definition = workspace / "semantics-kompiled"
     run(
         [
-            k_bin / "kompile",
+            k["kompile"],
             semantics,
             "--backend",
             "haskell",
@@ -539,7 +346,7 @@ def java_reference_gate(
             raise GateError(f"{case_id} has an unsupported expected outcome")
         result = run(
             [
-                k_bin / "krun",
+                k["krun"],
                 "--definition",
                 definition,
                 f"-cPGM={case['program']}",
@@ -585,19 +392,19 @@ def java_reference_gate(
         if observed != expected:
             raise GateError(f"{case_id} differs: expected={expected}, actual={observed}")
         outcomes.append(observed)
-    behavior_hash = hashlib.sha256(canonical(outcomes).encode()).hexdigest()
+    behavior_hash = json_sha256(outcomes)
     if behavior_hash != pins.get("behavior_sha256"):
         raise GateError(f"behavior hash differs: {behavior_hash}")
 
     spec = workspace / "spec.k"
     spec.write_text(
         f'requires "{semantics.name}"\n\nmodule {SPEC_MODULE}\n'
-        f"  imports {MODULE}\n\n{''.join(claims)}endmodule\n",
+        f"  imports {MODULE}\n\n{claims}endmodule\n",
         encoding="utf-8",
     )
     dry = run(
         [
-            k_bin / "kprove",
+            k["kprove"],
             spec,
             "--definition",
             definition,
@@ -611,7 +418,7 @@ def java_reference_gate(
         raise GateError("proof dry run did not select the native Haskell prover")
     proof = run(
         [
-            k_bin / "kprove",
+            k["kprove"],
             spec,
             "--definition",
             definition,
@@ -634,8 +441,8 @@ def main() -> int:
         help="run the deferred K toolchain behavior comparison and proof",
     )
     arguments = parser.parse_args()
-    pins = tomllib.loads(PINS_PATH.read_text(encoding="utf-8"))
-    corpus = tomllib.loads(CORPUS_PATH.read_text(encoding="utf-8"))
+    pins = load_toml(PINS_PATH)
+    corpus = load_toml(CORPUS_PATH)
     environment = preflight(pins, corpus)
     with tempfile.TemporaryDirectory(prefix="krs-kwasm-gate-", dir="/var/tmp") as temporary:
         workspace = Path(temporary)
@@ -647,13 +454,10 @@ def main() -> int:
         behavior_count = k_rust_gate(runner, definition, pins, corpus, environment)
         proof_count = 0
         if arguments.java_reference:
-            k_pin = mapping(pins.get("k"), "pins.k")
-            k_bin = find_k_bin(str(k_pin["version"]), str(k_pin["commit"]))
-            observed_version = run([k_bin / "kompile", "--version"], timeout=30)
-            if f"v{k_pin['version']}" not in observed_version.stdout + observed_version.stderr:
-                raise GateError("K executable version differs")
+            k_version = str(table(pins.get("k"), "pins.k")["version"])
+            k = {name: k_tool(name, k_version) for name in ("kompile", "krun", "kprove")}
             reference_behavior, proof_count = java_reference_gate(
-                workspace, artifacts, k_bin, pins, corpus
+                workspace, artifacts, k, pins, corpus
             )
             if reference_behavior != behavior_count:
                 raise GateError("K-Rust and reference execution counts differ")
@@ -673,6 +477,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (GateError, OSError, subprocess.TimeoutExpired) as error:
+    except (GateError, OSError) as error:
         print(f"FAIL readable KWasm integer slice: {error}", file=sys.stderr)
         raise SystemExit(1)

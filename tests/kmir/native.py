@@ -5,21 +5,17 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import json
 from pathlib import Path
 import re
-import subprocess
-import tomllib
+import sys
 from typing import Any, Mapping
 
-
-class NativeError(RuntimeError):
-    """The native runner or its concrete result violated the gate protocol."""
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import GateError  # noqa: E402
+from support.hashing import canonical_json, json_sha256  # noqa: E402
+from support.pins import load_toml  # noqa: E402
+from support.process import run  # noqa: E402
 
 
 def application(name: str, *arguments: str) -> str:
@@ -32,7 +28,7 @@ def integer(value: str | int) -> str:
 
 def boolean(value: str) -> str:
     if value not in {"true", "false"}:
-        raise NativeError(f"invalid concrete Bool: {value}")
+        raise GateError(f"invalid concrete Bool: {value}")
     return f'\\dv{{SortBool{{}}}}("{value}")'
 
 
@@ -47,11 +43,11 @@ class Parser:
         offset = 0
         for match in TOKEN.finditer(source):
             if source[offset : match.start()].strip():
-                raise NativeError(f"cannot tokenize KMIR term near: {source[offset:]}")
+                raise GateError(f"cannot tokenize KMIR term near: {source[offset:]}")
             self.tokens.append(match.group(1))
             offset = match.end()
         if source[offset:].strip():
-            raise NativeError(f"cannot tokenize KMIR term near: {source[offset:]}")
+            raise GateError(f"cannot tokenize KMIR term near: {source[offset:]}")
         self.index = 0
 
     def peek(self) -> str | None:
@@ -60,7 +56,7 @@ class Parser:
     def take(self, expected: str | None = None) -> str:
         token = self.peek()
         if token is None or expected is not None and token != expected:
-            raise NativeError(f"expected {expected!r}, found {token!r} in {self.tokens}")
+            raise GateError(f"expected {expected!r}, found {token!r} in {self.tokens}")
         self.index += 1
         return token
 
@@ -92,13 +88,13 @@ class Parser:
                 items.append(("Tys", []))
                 continue
             if not isinstance(first, tuple) or first[0] != "ty":
-                raise NativeError(f"unsupported Tys head: {first}")
+                raise GateError(f"unsupported Tys head: {first}")
             fields = [first]
             while self.peek() == "ty":
                 fields.append(self.term())
             self.take(".Tys")
             items.append(("Tys", fields))
-        raise NativeError("Tyss sequence has no .Tyss terminator")
+        raise GateError("Tyss sequence has no .Tyss terminator")
 
     def sequence(self) -> Any:
         first = self.term()
@@ -223,7 +219,7 @@ def parse_term(source: str) -> Any:
     parser = Parser(source)
     term = parser.sequence()
     if parser.peek() is not None:
-        raise NativeError(f"unparsed KMIR term suffix: {parser.tokens[parser.index:]}")
+        raise GateError(f"unparsed KMIR term suffix: {parser.tokens[parser.index:]}")
     return term
 
 
@@ -232,25 +228,25 @@ def int_argument(term: Any) -> str:
         return integer(term)
     if isinstance(term, tuple) and term[0] == "local" and len(term[1]) == 1:
         return int_argument(term[1][0])
-    raise NativeError(f"expected concrete local/Int: {term}")
+    raise GateError(f"expected concrete local/Int: {term}")
 
 
 def bytes_argument(term: Any) -> str:
     if not isinstance(term, str):
-        raise NativeError(f"expected concrete Bytes: {term}")
+        raise GateError(f"expected concrete Bytes: {term}")
     value = ast.literal_eval(term)
     if not isinstance(value, bytes):
-        raise NativeError(f"expected concrete Bytes: {term}")
+        raise GateError(f"expected concrete Bytes: {term}")
     encoded = '"' + "".join(f"\\x{byte:02x}" for byte in value) + '"'
     return f"\\dv{{SortBytes{{}}}}({encoded})"
 
 
 def string_argument(term: Any) -> str:
     if not isinstance(term, str):
-        raise NativeError(f"expected concrete String: {term}")
+        raise GateError(f"expected concrete String: {term}")
     value = ast.literal_eval(term)
     if not isinstance(value, str):
-        raise NativeError(f"expected concrete String: {term}")
+        raise GateError(f"expected concrete String: {term}")
     return f"\\dv{{SortString{{}}}}({json.dumps(value)})"
 
 
@@ -258,7 +254,7 @@ def mir_value(term: Any) -> str:
     if term == "Moved":
         return application("moved")
     if not isinstance(term, tuple):
-        raise NativeError(f"unsupported MirValue: {term}")
+        raise GateError(f"unsupported MirValue: {term}")
     if term[0] == "Integer" and len(term[1]) == 3 and term[1][2] in {"true", "false"}:
         return application(
             "integer",
@@ -271,14 +267,14 @@ def mir_value(term: Any) -> str:
     if term[0] == "Aggregate" and len(term[1]) == 2:
         variant = term[1][0]
         if not isinstance(variant, tuple) or variant[0] != "variantIdx" or len(variant[1]) != 1:
-            raise NativeError(f"unsupported aggregate variant: {variant}")
+            raise GateError(f"unsupported aggregate variant: {variant}")
         raw_fields = term[1][1]
         if raw_fields == ".List":
             fields = []
         elif isinstance(raw_fields, tuple) and raw_fields[0] == "List":
             fields = raw_fields[1]
         else:
-            raise NativeError(f"unsupported aggregate fields: {raw_fields}")
+            raise GateError(f"unsupported aggregate fields: {raw_fields}")
         result = application("'Stop'List")
         for field in reversed(fields):
             item = application(
@@ -290,7 +286,7 @@ def mir_value(term: Any) -> str:
     if term[0] == "Union" and len(term[1]) == 2:
         field = term[1][0]
         if not isinstance(field, tuple) or field[0] != "fieldIdx" or len(field[1]) != 1:
-            raise NativeError(f"unsupported union field: {field}")
+            raise GateError(f"unsupported union field: {field}")
         return application(
             "union",
             int_argument(field[1][0]),
@@ -303,7 +299,7 @@ def mir_value(term: Any) -> str:
         elif isinstance(raw_elements, tuple) and raw_elements[0] == "List":
             elements = raw_elements[1]
         else:
-            raise NativeError(f"unsupported range elements: {raw_elements}")
+            raise GateError(f"unsupported range elements: {raw_elements}")
         result = application("'Stop'List")
         for element in reversed(elements):
             item = application(
@@ -335,19 +331,19 @@ def mir_value(term: Any) -> str:
             projections(term[1][1]),
             metadata(term[1][2]),
         )
-    raise NativeError(f"unsupported MirValue: {term}")
+    raise GateError(f"unsupported MirValue: {term}")
 
 
 def alloc_id(term: Any) -> str:
     if isinstance(term, tuple) and term[0] == "allocId" and len(term[1]) == 1:
         return application("allocId", int_argument(term[1][0]))
-    raise NativeError(f"unsupported AllocId: {term}")
+    raise GateError(f"unsupported AllocId: {term}")
 
 
 def ty(term: Any) -> str:
     if isinstance(term, tuple) and term[0] == "ty" and len(term[1]) == 1:
         return application("tyId", int_argument(term[1][0]))
-    raise NativeError(f"unsupported Ty: {term}")
+    raise GateError(f"unsupported Ty: {term}")
 
 
 def type_info(term: Any) -> str:
@@ -400,7 +396,7 @@ def type_info(term: Any) -> str:
         return application("funType", string_argument(term[1][0]))
     if term == "typeInfoVoidType":
         return application("voidType")
-    raise NativeError(f"unsupported TypeInfo: {term}")
+    raise GateError(f"unsupported TypeInfo: {term}")
 
 
 def primitive_type(term: Any) -> str:
@@ -441,13 +437,13 @@ def primitive_type(term: Any) -> str:
         }
         if term[1][0] in names:
             return application("float", application(names[term[1][0]]))
-    raise NativeError(f"unsupported PrimitiveType: {term}")
+    raise GateError(f"unsupported PrimitiveType: {term}")
 
 
 def adt_def(term: Any) -> str:
     if isinstance(term, tuple) and term[0] == "adtDef" and len(term[1]) == 1:
         return application("adtDef", int_argument(term[1][0]))
-    raise NativeError(f"unsupported AdtDef: {term}")
+    raise GateError(f"unsupported AdtDef: {term}")
 
 
 def tys(term: Any) -> str:
@@ -456,7 +452,7 @@ def tys(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "Tys":
         items = term[1]
     else:
-        raise NativeError(f"unsupported Tys: {term}")
+        raise GateError(f"unsupported Tys: {term}")
     result = application("tysEmpty")
     for item in reversed(items):
         result = application("tysCons", ty(item), result)
@@ -469,7 +465,7 @@ def tyss(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "Tyss":
         items = term[1]
     else:
-        raise NativeError(f"unsupported Tyss: {term}")
+        raise GateError(f"unsupported Tyss: {term}")
     result = application("tyssEmpty")
     for item in reversed(items):
         result = application("tyssCons", tys(item), result)
@@ -482,11 +478,11 @@ def discriminants(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "Discriminants":
         items = term[1]
     else:
-        raise NativeError(f"unsupported Discriminants: {term}")
+        raise GateError(f"unsupported Discriminants: {term}")
     result = application("discriminantsEmpty")
     for item in reversed(items):
         if not isinstance(item, tuple) or item[0] != "discriminant" or len(item[1]) != 1:
-            raise NativeError(f"unsupported Discriminant: {item}")
+            raise GateError(f"unsupported Discriminant: {item}")
         result = application(
             "discriminantsCons",
             application("discriminant", int_argument(item[1][0])),
@@ -498,7 +494,7 @@ def discriminants(term: Any) -> str:
 def machine_size(term: Any) -> str:
     if isinstance(term, tuple) and term[0] == "machineSize" and len(term[1]) == 1:
         return application("machineSize", int_argument(term[1][0]))
-    raise NativeError(f"unsupported MachineSize: {term}")
+    raise GateError(f"unsupported MachineSize: {term}")
 
 
 def machine_sizes(term: Any) -> str:
@@ -507,7 +503,7 @@ def machine_sizes(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "MachineSizes":
         items = term[1]
     else:
-        raise NativeError(f"unsupported MachineSizes: {term}")
+        raise GateError(f"unsupported MachineSizes: {term}")
     result = application("machineSizesEmpty")
     for item in reversed(items):
         result = application("machineSizesCons", machine_size(item), result)
@@ -519,21 +515,21 @@ def maybe_layout_shape(term: Any) -> str:
         return application("noLayoutShape")
     if isinstance(term, tuple) and term[0] == "someLayoutShape" and len(term[1]) == 1:
         return application("someLayoutShape", layout_shape(term[1][0]))
-    raise NativeError(f"unsupported MaybeLayoutShape: {term}")
+    raise GateError(f"unsupported MaybeLayoutShape: {term}")
 
 
 def layout_shape(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "layoutShape" or len(term[1]) != 5:
-        raise NativeError(f"unsupported LayoutShape: {term}")
+        raise GateError(f"unsupported LayoutShape: {term}")
     fields = term[1][0]
     if not isinstance(fields, tuple) or fields[0] != "fieldsShapeArbitrary" or len(fields[1]) != 1:
-        raise NativeError(f"unsupported FieldsShape: {fields}")
+        raise GateError(f"unsupported FieldsShape: {fields}")
     arbitrary = fields[1][0]
     if not isinstance(arbitrary, tuple) or arbitrary[0] != "mk" or len(arbitrary[1]) != 1:
-        raise NativeError(f"unsupported FieldsShapeArbitrary: {arbitrary}")
+        raise GateError(f"unsupported FieldsShapeArbitrary: {arbitrary}")
     alignment = term[1][3]
     if not isinstance(alignment, tuple) or alignment[0] != "align" or len(alignment[1]) != 1:
-        raise NativeError(f"unsupported layout Align: {alignment}")
+        raise GateError(f"unsupported layout Align: {alignment}")
     return application(
         "layoutShape",
         application(
@@ -553,7 +549,7 @@ def layout_shapes(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "LayoutShapes":
         items = term[1]
     else:
-        raise NativeError(f"unsupported LayoutShapes: {term}")
+        raise GateError(f"unsupported LayoutShapes: {term}")
     result = application("layoutShapesEmpty")
     for item in reversed(items):
         result = application("layoutShapesCons", layout_shape(item), result)
@@ -562,14 +558,14 @@ def layout_shapes(term: Any) -> str:
 
 def variants_shape(term: Any) -> str:
     if not isinstance(term, tuple) or len(term[1]) != 1:
-        raise NativeError(f"unsupported VariantsShape: {term}")
+        raise GateError(f"unsupported VariantsShape: {term}")
     if term[0] == "variantsShapeSingle":
         single = term[1][0]
         if not isinstance(single, tuple) or single[0] != "mk" or len(single[1]) != 1:
-            raise NativeError(f"unsupported VariantsShapeSingle: {single}")
+            raise GateError(f"unsupported VariantsShapeSingle: {single}")
         variant = single[1][0]
         if not isinstance(variant, tuple) or variant[0] != "variantIdx" or len(variant[1]) != 1:
-            raise NativeError(f"unsupported VariantIdx: {variant}")
+            raise GateError(f"unsupported VariantIdx: {variant}")
         return application(
             "variantsShapeSingle",
             application("singleVariant", int_argument(variant[1][0])),
@@ -577,13 +573,13 @@ def variants_shape(term: Any) -> str:
     if term[0] == "variantsShapeMultiple":
         multiple = term[1][0]
         if not isinstance(multiple, tuple) or multiple[0] != "mk" or len(multiple[1]) != 4:
-            raise NativeError(f"unsupported VariantsShapeMultiple: {multiple}")
+            raise GateError(f"unsupported VariantsShapeMultiple: {multiple}")
         if multiple[1][1] == "tagEncodingDirect":
             tag_encoding = application("direct")
         elif multiple[1][1] == ("tagEncodingNiche", []):
             tag_encoding = application("niche")
         else:
-            raise NativeError(f"unsupported TagEncoding: {multiple[1][1]}")
+            raise GateError(f"unsupported TagEncoding: {multiple[1][1]}")
         return application(
             "variantsShapeMultiple",
             application(
@@ -594,22 +590,22 @@ def variants_shape(term: Any) -> str:
                 layout_shapes(multiple[1][3]),
             ),
         )
-    raise NativeError(f"unsupported VariantsShape: {term}")
+    raise GateError(f"unsupported VariantsShape: {term}")
 
 
 def scalar(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "scalarInitialized" or len(term[1]) != 1:
-        raise NativeError(f"unsupported Scalar: {term}")
+        raise GateError(f"unsupported Scalar: {term}")
     initialized = term[1][0]
     if not isinstance(initialized, tuple) or initialized[0] != "mk" or len(initialized[1]) != 2:
-        raise NativeError(f"unsupported ScalarInitialized: {initialized}")
+        raise GateError(f"unsupported ScalarInitialized: {initialized}")
     primitive = initialized[1][0]
     if not isinstance(primitive, tuple) or len(primitive[1]) != 1:
-        raise NativeError(f"unsupported Primitive: {primitive}")
+        raise GateError(f"unsupported Primitive: {primitive}")
     if primitive[0] == "primitiveInt":
         integer_primitive = primitive[1][0]
         if not isinstance(integer_primitive, tuple) or integer_primitive[0] != "mk" or len(integer_primitive[1]) != 2:
-            raise NativeError(f"unsupported PrimitiveInt: {integer_primitive}")
+            raise GateError(f"unsupported PrimitiveInt: {integer_primitive}")
         lengths = {
             "integerLengthI8": "lengthI8",
             "integerLengthI16": "lengthI16",
@@ -618,7 +614,7 @@ def scalar(term: Any) -> str:
             "integerLengthI128": "lengthI128",
         }
         if integer_primitive[1][0] not in lengths:
-            raise NativeError(f"unsupported IntegerLength: {integer_primitive[1][0]}")
+            raise GateError(f"unsupported IntegerLength: {integer_primitive[1][0]}")
         converted_primitive = application(
             "integerPrimitive",
             application(
@@ -630,16 +626,16 @@ def scalar(term: Any) -> str:
     elif primitive[0] == "primitivePointer":
         address_space = primitive[1][0]
         if not isinstance(address_space, tuple) or address_space[0] != "addressSpace" or len(address_space[1]) != 1:
-            raise NativeError(f"unsupported AddressSpace: {address_space}")
+            raise GateError(f"unsupported AddressSpace: {address_space}")
         converted_primitive = application(
             "pointerPrimitive",
             application("addressSpace", int_argument(address_space[1][0])),
         )
     else:
-        raise NativeError(f"unsupported Primitive: {primitive}")
+        raise GateError(f"unsupported Primitive: {primitive}")
     wrapping_range = initialized[1][1]
     if not isinstance(wrapping_range, tuple) or wrapping_range[0] != "wrappingRange" or len(wrapping_range[1]) != 2:
-        raise NativeError(f"unsupported WrappingRange: {wrapping_range}")
+        raise GateError(f"unsupported WrappingRange: {wrapping_range}")
     return application(
         "initializedScalar",
         application(
@@ -656,18 +652,18 @@ def scalar(term: Any) -> str:
 
 def value_abi(term: Any) -> str:
     if not isinstance(term, tuple) or len(term[1]) != 1:
-        raise NativeError(f"unsupported ValueAbi: {term}")
+        raise GateError(f"unsupported ValueAbi: {term}")
     if term[0] == "valueAbiScalar":
         return application("valueAbiScalar", scalar(term[1][0]))
     if term[0] == "valueAbiAggregate":
         aggregate = term[1][0]
         if not isinstance(aggregate, tuple) or aggregate[0] != "mk" or len(aggregate[1]) != 1 or aggregate[1][0] not in {"true", "false"}:
-            raise NativeError(f"unsupported ValueAbiAggregate: {aggregate}")
+            raise GateError(f"unsupported ValueAbiAggregate: {aggregate}")
         return application(
             "valueAbiAggregate",
             application("aggregateAbi", boolean(aggregate[1][0])),
         )
-    raise NativeError(f"unsupported ValueAbi: {term}")
+    raise GateError(f"unsupported ValueAbi: {term}")
 
 
 def maybe_ty_const(term: Any) -> str:
@@ -675,15 +671,15 @@ def maybe_ty_const(term: Any) -> str:
         return application("noTyConst")
     if isinstance(term, tuple) and term[0] == "someTyConst" and len(term[1]) == 1:
         return application("someTyConst", ty_const(term[1][0]))
-    raise NativeError(f"unsupported MaybeTyConst: {term}")
+    raise GateError(f"unsupported MaybeTyConst: {term}")
 
 
 def ty_const(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "tyConst" or len(term[1]) != 2:
-        raise NativeError(f"unsupported TyConst: {term}")
+        raise GateError(f"unsupported TyConst: {term}")
     identifier = term[1][1]
     if not isinstance(identifier, tuple) or identifier[0] != "tyConstId" or len(identifier[1]) != 1:
-        raise NativeError(f"unsupported TyConstId: {identifier}")
+        raise GateError(f"unsupported TyConstId: {identifier}")
     return application(
         "tyConst",
         ty_const_kind(term[1][0]),
@@ -693,7 +689,7 @@ def ty_const(term: Any) -> str:
 
 def ty_const_kind(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "tyConstKindValue" or len(term[1]) != 2:
-        raise NativeError(f"unsupported TyConstKind: {term}")
+        raise GateError(f"unsupported TyConstKind: {term}")
     return application(
         "value",
         ty(term[1][0]),
@@ -703,10 +699,10 @@ def ty_const_kind(term: Any) -> str:
 
 def allocation(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "allocation" or len(term[1]) != 4:
-        raise NativeError(f"unsupported Allocation: {term}")
+        raise GateError(f"unsupported Allocation: {term}")
     alignment = term[1][2]
     if not isinstance(alignment, tuple) or alignment[0] != "align" or len(alignment[1]) != 1:
-        raise NativeError(f"unsupported Align: {alignment}")
+        raise GateError(f"unsupported Align: {alignment}")
     return application(
         "allocation",
         bytes_argument(term[1][0]),
@@ -718,15 +714,15 @@ def allocation(term: Any) -> str:
 
 def provenance_map(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "provenanceMap" or len(term[1]) != 1:
-        raise NativeError(f"unsupported ProvenanceMap: {term}")
+        raise GateError(f"unsupported ProvenanceMap: {term}")
     entries = term[1][0]
     if entries == ".ProvenanceMapEntries":
         return application("emptyProvenanceMap")
     if not isinstance(entries, tuple) or entries[0] != "ProvenanceMapEntries" or len(entries[1]) != 1:
-        raise NativeError(f"unsupported ProvenanceMap entries: {entries}")
+        raise GateError(f"unsupported ProvenanceMap entries: {entries}")
     entry = entries[1][0]
     if not isinstance(entry, tuple) or entry[0] != "provenanceMapEntry" or len(entry[1]) != 2:
-        raise NativeError(f"unsupported ProvenanceMap entry: {entry}")
+        raise GateError(f"unsupported ProvenanceMap entry: {entry}")
     return application(
         "singletonProvenanceMap",
         int_argument(entry[1][0]),
@@ -739,7 +735,7 @@ def mutability(term: Any) -> str:
         return application("notMutable")
     if term == "mutabilityMut":
         return application("mutable")
-    raise NativeError(f"unsupported Mutability: {term}")
+    raise GateError(f"unsupported Mutability: {term}")
 
 
 def metadata_size(term: Any) -> str:
@@ -747,12 +743,12 @@ def metadata_size(term: Any) -> str:
         return application("noMetadataSize")
     if isinstance(term, tuple) and term[0] in {"staticSize", "dynamicSize"} and len(term[1]) == 1:
         return application(term[0], int_argument(term[1][0]))
-    raise NativeError(f"unsupported MetadataSize: {term}")
+    raise GateError(f"unsupported MetadataSize: {term}")
 
 
 def metadata(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "metadata" or len(term[1]) != 3:
-        raise NativeError(f"unsupported Metadata: {term}")
+        raise GateError(f"unsupported Metadata: {term}")
     return application(
         "metadata",
         metadata_size(term[1][0]),
@@ -764,7 +760,7 @@ def metadata(term: Any) -> str:
 def region(term: Any) -> str:
     if isinstance(term, tuple) and term[0] == "region" and term[1] == ["regionKindReErased"]:
         return application("erased")
-    raise NativeError(f"unsupported Region: {term}")
+    raise GateError(f"unsupported Region: {term}")
 
 
 def borrow_kind(term: Any) -> str:
@@ -772,7 +768,7 @@ def borrow_kind(term: Any) -> str:
         return application("sharedBorrow")
     if isinstance(term, tuple) and term[0] == "borrowKindMut" and term[1] == ["mutBorrowKindDefault"]:
         return application("mutableBorrow")
-    raise NativeError(f"unsupported BorrowKind: {term}")
+    raise GateError(f"unsupported BorrowKind: {term}")
 
 
 def projections(term: Any) -> str:
@@ -794,7 +790,7 @@ def projections(term: Any) -> str:
             elif isinstance(projection, tuple) and projection[0] == "projectionElemField" and len(projection[1]) == 2:
                 index = projection[1][0]
                 if not isinstance(index, tuple) or index[0] != "fieldIdx" or len(index[1]) != 1:
-                    raise NativeError(f"unsupported FieldIdx: {index}")
+                    raise GateError(f"unsupported FieldIdx: {index}")
                 head = application(
                     "field", int_argument(index[1][0]), ty(projection[1][1])
                 )
@@ -839,21 +835,21 @@ def projections(term: Any) -> str:
                     int_argument(projection[1][1]),
                 )
             else:
-                raise NativeError(f"unsupported ProjectionElem: {projection}")
+                raise GateError(f"unsupported ProjectionElem: {projection}")
             result = application("projectionsCons", head, result)
         return result
-    raise NativeError(f"unsupported ProjectionElems: {term}")
+    raise GateError(f"unsupported ProjectionElems: {term}")
 
 
 def place(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "place" or len(term[1]) != 2:
-        raise NativeError(f"unsupported Place: {term}")
+        raise GateError(f"unsupported Place: {term}")
     return application("place", int_argument(term[1][0]), projections(term[1][1]))
 
 
 def typed_local(term: Any) -> str:
     if not isinstance(term, tuple):
-        raise NativeError(f"unsupported TypedLocal: {term}")
+        raise GateError(f"unsupported TypedLocal: {term}")
     if term[0] == "newLocal" and len(term[1]) == 2:
         return application("newLocal", ty(term[1][0]), mutability(term[1][1]))
     if term[0] == "typedValue" and len(term[1]) == 3:
@@ -863,32 +859,32 @@ def typed_local(term: Any) -> str:
         return application(
             "typedValue", mir_value(value), ty(term[1][1]), mutability(term[1][2])
         )
-    raise NativeError(f"unsupported TypedLocal: {term}")
+    raise GateError(f"unsupported TypedLocal: {term}")
 
 
 def operand(term: Any) -> str:
     if not isinstance(term, tuple) or len(term[1]) != 1:
-        raise NativeError(f"unsupported Operand: {term}")
+        raise GateError(f"unsupported Operand: {term}")
     if term[0] == "const":
         return application("constant", mir_value(term[1][0]))
     if term[0] == "operandConstant":
         constant = term[1][0]
         if not isinstance(constant, tuple) or constant[0] != "constOperand" or len(constant[1]) not in {2, 3}:
-            raise NativeError(f"unsupported constOperand: {constant}")
+            raise GateError(f"unsupported constOperand: {constant}")
         span = constant[1][0]
         if not isinstance(span, tuple) or span[0] != "span" or len(span[1]) != 1:
-            raise NativeError(f"unsupported operand span: {span}")
+            raise GateError(f"unsupported operand span: {span}")
         if len(constant[1]) == 3:
             user_ty, constant_value = constant[1][1:]
             if user_ty != "noUserTypeAnnotationIndex":
-                raise NativeError(f"unsupported operand user type: {user_ty}")
+                raise GateError(f"unsupported operand user type: {user_ty}")
         else:
             constant_value = constant[1][1]
         if not isinstance(constant_value, tuple) or constant_value[0] != "mirConst" or len(constant_value[1]) != 3:
-            raise NativeError(f"unsupported operand mirConst: {constant_value}")
+            raise GateError(f"unsupported operand mirConst: {constant_value}")
         kind, constant_ty, identifier = constant_value[1]
         if not isinstance(identifier, tuple) or identifier[0] != "mirConstId" or len(identifier[1]) != 1:
-            raise NativeError(f"unsupported operand mirConstId: {identifier}")
+            raise GateError(f"unsupported operand mirConstId: {identifier}")
         if kind == "constantKindZeroSized":
             return application(
                 "zeroSizedConstant",
@@ -897,7 +893,7 @@ def operand(term: Any) -> str:
                 int_argument(identifier[1][0]),
             )
         if not isinstance(kind, tuple) or kind[0] != "constantKindAllocated" or len(kind[1]) != 1:
-            raise NativeError(f"unsupported operand constant kind: {kind}")
+            raise GateError(f"unsupported operand constant kind: {kind}")
         return application(
             "allocatedConstant",
             int_argument(span[1][0]),
@@ -909,7 +905,7 @@ def operand(term: Any) -> str:
         return application("copy", place(term[1][0]))
     if term[0] == "move":
         return application("move", place(term[1][0]))
-    raise NativeError(f"unsupported Operand: {term}")
+    raise GateError(f"unsupported Operand: {term}")
 
 
 def binary_op(term: Any) -> str:
@@ -939,13 +935,13 @@ def binary_op(term: Any) -> str:
     }
     if isinstance(term, str) and term in names:
         return application(term)
-    raise NativeError(f"unsupported BinaryOp: {term}")
+    raise GateError(f"unsupported BinaryOp: {term}")
 
 
 def unary_op(term: Any) -> str:
     if isinstance(term, str) and term in {"unOpNot", "unOpNeg", "unOpPtrMetadata"}:
         return application(term)
-    raise NativeError(f"unsupported UnaryOp: {term}")
+    raise GateError(f"unsupported UnaryOp: {term}")
 
 
 def nullary_op(term: Any) -> str:
@@ -956,7 +952,7 @@ def nullary_op(term: Any) -> str:
     }
     if isinstance(term, str) and term in names:
         return application(names[term])
-    raise NativeError(f"unsupported NullOp: {term}")
+    raise GateError(f"unsupported NullOp: {term}")
 
 
 def cast_kind(term: Any) -> str:
@@ -972,19 +968,19 @@ def cast_kind(term: Any) -> str:
         return application(
             "pointerCoercion", application("unsize")
         )
-    raise NativeError(f"unsupported CastKind: {term}")
+    raise GateError(f"unsupported CastKind: {term}")
 
 
 def generic_arg(term: Any) -> str:
     if not isinstance(term, tuple) or len(term[1]) != 1:
-        raise NativeError(f"unsupported GenericArg: {term}")
+        raise GateError(f"unsupported GenericArg: {term}")
     if term[0] == "genericArgKindLifetime":
         return application("genericArgLifetime", region(term[1][0]))
     if term[0] == "genericArgKindType":
         return application("genericArgType", ty(term[1][0]))
     if term[0] == "genericArgKindConst":
         return application("genericArgConst", ty_const(term[1][0]))
-    raise NativeError(f"unsupported GenericArg: {term}")
+    raise GateError(f"unsupported GenericArg: {term}")
 
 
 def generic_args(term: Any) -> str:
@@ -993,7 +989,7 @@ def generic_args(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "GenericArgs":
         items = term[1]
     else:
-        raise NativeError(f"unsupported GenericArgs: {term}")
+        raise GateError(f"unsupported GenericArgs: {term}")
     result = application("genericArgsEmpty")
     for item in reversed(items):
         result = application("genericArgsCons", generic_arg(item), result)
@@ -1004,13 +1000,13 @@ def aggregate_kind(term: Any) -> str:
     if term == "aggregateKindTuple":
         return application("aggregateTuple")
     if not isinstance(term, tuple):
-        raise NativeError(f"unsupported AggregateKind: {term}")
+        raise GateError(f"unsupported AggregateKind: {term}")
     if term[0] == "aggregateKindArray" and len(term[1]) == 1:
         return application("aggregateArray", ty(term[1][0]))
     if term[0] == "aggregateKindClosure" and len(term[1]) == 2:
         closure = term[1][0]
         if not isinstance(closure, tuple) or closure[0] != "closureDef" or len(closure[1]) != 1:
-            raise NativeError(f"unsupported ClosureDef: {closure}")
+            raise GateError(f"unsupported ClosureDef: {closure}")
         return application(
             "aggregateClosure",
             application("closureDef", int_argument(closure[1][0])),
@@ -1025,27 +1021,27 @@ def aggregate_kind(term: Any) -> str:
     if term[0] == "aggregateKindAdt" and len(term[1]) == 5:
         variant = term[1][1]
         if not isinstance(variant, tuple) or variant[0] != "variantIdx" or len(variant[1]) != 1:
-            raise NativeError(f"unsupported aggregate VariantIdx: {variant}")
+            raise GateError(f"unsupported aggregate VariantIdx: {variant}")
         user_ty = term[1][3]
         if user_ty == "noUserTypeAnnotationIndex":
             parsed_user_ty = application("noUserTypeAnnotationIndex")
         elif isinstance(user_ty, tuple) and user_ty[0] == "someUserTypeAnnotationIndex" and len(user_ty[1]) == 1:
             index = user_ty[1][0]
             if not isinstance(index, tuple) or index[0] != "userTypeAnnotationIndex" or len(index[1]) != 1:
-                raise NativeError(f"unsupported UserTypeAnnotationIndex: {index}")
+                raise GateError(f"unsupported UserTypeAnnotationIndex: {index}")
             parsed_user_ty = application("someUserTypeAnnotationIndex", int_argument(index[1][0]))
         else:
-            raise NativeError(f"unsupported MaybeUserTypeAnnotationIndex: {user_ty}")
+            raise GateError(f"unsupported MaybeUserTypeAnnotationIndex: {user_ty}")
         field = term[1][4]
         if field == "noFieldIdx":
             parsed_field = application("noFieldIdx")
         elif isinstance(field, tuple) and field[0] == "someFieldIdx" and len(field[1]) == 1:
             index = field[1][0]
             if not isinstance(index, tuple) or index[0] != "fieldIdx" or len(index[1]) != 1:
-                raise NativeError(f"unsupported FieldIdx: {index}")
+                raise GateError(f"unsupported FieldIdx: {index}")
             parsed_field = application("someFieldIdx", int_argument(index[1][0]))
         else:
-            raise NativeError(f"unsupported MaybeFieldIdx: {field}")
+            raise GateError(f"unsupported MaybeFieldIdx: {field}")
         return application(
             "aggregateAdt",
             adt_def(term[1][0]),
@@ -1054,12 +1050,12 @@ def aggregate_kind(term: Any) -> str:
             parsed_user_ty,
             parsed_field,
         )
-    raise NativeError(f"unsupported AggregateKind: {term}")
+    raise GateError(f"unsupported AggregateKind: {term}")
 
 
 def rvalue(term: Any) -> str:
     if not isinstance(term, tuple):
-        raise NativeError(f"unsupported Rvalue: {term}")
+        raise GateError(f"unsupported Rvalue: {term}")
     if term[0] == "rvalueUse" and len(term[1]) == 1:
         return application("use", operand(term[1][0]))
     if term[0] == "rvalueCast" and len(term[1]) == 3:
@@ -1104,19 +1100,19 @@ def rvalue(term: Any) -> str:
         return application("copyForDeref", place(term[1][0]))
     if term[0] == "rvalueDiscriminant" and len(term[1]) == 1:
         return application("discriminantRvalue", place(term[1][0]))
-    raise NativeError(f"unsupported Rvalue: {term}")
+    raise GateError(f"unsupported Rvalue: {term}")
 
 
 def statement(term: Any) -> str:
     if isinstance(term, tuple) and term[0] == "assign" and len(term[1]) == 2:
         return application("assign", place(term[1][0]), rvalue(term[1][1]))
-    raise NativeError(f"unsupported Statement: {term}")
+    raise GateError(f"unsupported Statement: {term}")
 
 
 def statements(term: Any) -> str:
     items = term[1] if isinstance(term, tuple) and term[0] == ";" else [term]
     if not items or items[-1] != ".Statements":
-        raise NativeError(f"unsupported Statements: {term}")
+        raise GateError(f"unsupported Statements: {term}")
     result = application("statementsEmpty")
     for item in reversed(items[:-1]):
         result = application("statementsCons", statement(item), result)
@@ -1129,11 +1125,11 @@ def branches(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "Branches":
         items = term[1]
     else:
-        raise NativeError(f"unsupported Branches: {term}")
+        raise GateError(f"unsupported Branches: {term}")
     result = application("branchesEmpty")
     for item in reversed(items):
         if not isinstance(item, tuple) or item[0] != "branch" or len(item[1]) != 2:
-            raise NativeError(f"unsupported Branch: {item}")
+            raise GateError(f"unsupported Branch: {item}")
         branch = application(
             "branch", int_argument(item[1][0]), int_argument(item[1][1])
         )
@@ -1143,7 +1139,7 @@ def branches(term: Any) -> str:
 
 def switch_targets(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "switchTargets" or len(term[1]) != 2:
-        raise NativeError(f"unsupported SwitchTargets: {term}")
+        raise GateError(f"unsupported SwitchTargets: {term}")
     return application(
         "switchTargets", branches(term[1][0]), int_argument(term[1][1])
     )
@@ -1157,13 +1153,13 @@ def assert_message(term: Any) -> str:
             operand(term[1][1]),
             operand(term[1][2]),
         )
-    raise NativeError(f"unsupported AssertMessage: {term}")
+    raise GateError(f"unsupported AssertMessage: {term}")
 
 
 def unwind_action(term: Any) -> str:
     if term == "unwindActionContinue":
         return application("unwindContinue")
-    raise NativeError(f"unsupported UnwindAction: {term}")
+    raise GateError(f"unsupported UnwindAction: {term}")
 
 
 def maybe_basic_block(term: Any) -> str:
@@ -1171,7 +1167,7 @@ def maybe_basic_block(term: Any) -> str:
         return application("noBasicBlockIdx")
     if isinstance(term, tuple) and term[0] == "someBasicBlockIdx" and len(term[1]) == 1:
         return application("someBasicBlockIdx", int_argument(term[1][0]))
-    raise NativeError(f"unsupported MaybeBasicBlockIdx: {term}")
+    raise GateError(f"unsupported MaybeBasicBlockIdx: {term}")
 
 
 def operands(term: Any) -> str:
@@ -1180,7 +1176,7 @@ def operands(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "Operands":
         items = term[1]
     else:
-        raise NativeError(f"unsupported Operands: {term}")
+        raise GateError(f"unsupported Operands: {term}")
     result = application("operandsEmpty")
     for item in reversed(items):
         result = application("operandsCons", operand(item), result)
@@ -1193,14 +1189,14 @@ def local_decls(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "LocalDecls":
         items = term[1]
     else:
-        raise NativeError(f"unsupported LocalDecls: {term}")
+        raise GateError(f"unsupported LocalDecls: {term}")
     result = application("localDeclsEmpty")
     for item in reversed(items):
         if not isinstance(item, tuple) or item[0] != "localDecl" or len(item[1]) != 3:
-            raise NativeError(f"unsupported LocalDecl: {item}")
+            raise GateError(f"unsupported LocalDecl: {item}")
         span = item[1][1]
         if not isinstance(span, tuple) or span[0] != "span" or len(span[1]) != 1:
-            raise NativeError(f"unsupported local-declaration span: {span}")
+            raise GateError(f"unsupported local-declaration span: {span}")
         declaration = application(
             "localDecl",
             ty(item[1][0]),
@@ -1217,7 +1213,7 @@ def blocks(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "List":
         items = term[1]
     else:
-        raise NativeError(f"unsupported function block list: {term}")
+        raise GateError(f"unsupported function block list: {term}")
     result = application("'Stop'List")
     for item in reversed(items):
         entry = application(
@@ -1230,7 +1226,7 @@ def blocks(term: Any) -> str:
 
 def function_body(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "body" or len(term[1]) != 3:
-        raise NativeError(f"unsupported FunctionBody: {term}")
+        raise GateError(f"unsupported FunctionBody: {term}")
     return application(
         "body",
         blocks(term[1][0]),
@@ -1241,12 +1237,12 @@ def function_body(term: Any) -> str:
 
 def function(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "monoItemFn" or len(term[1]) != 2:
-        raise NativeError(f"unsupported Function: {term}")
+        raise GateError(f"unsupported Function: {term}")
     identifier, body = term[1]
     if not isinstance(identifier, tuple) or identifier[0] != "defId" or len(identifier[1]) != 1:
-        raise NativeError(f"unsupported function DefId: {identifier}")
+        raise GateError(f"unsupported function DefId: {identifier}")
     if not isinstance(body, tuple) or body[0] != "someBody" or len(body[1]) != 1:
-        raise NativeError(f"unsupported function body wrapper: {body}")
+        raise GateError(f"unsupported function body wrapper: {body}")
     return application(
         "monoItemFn",
         int_argument(identifier[1][0]),
@@ -1256,20 +1252,20 @@ def function(term: Any) -> str:
 
 def call_target(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "operandConstant" or len(term[1]) != 1:
-        raise NativeError(f"unsupported CallTarget: {term}")
+        raise GateError(f"unsupported CallTarget: {term}")
     constant = term[1][0]
     if not isinstance(constant, tuple) or constant[0] != "constOperand" or len(constant[1]) != 2:
-        raise NativeError(f"unsupported call constOperand: {constant}")
+        raise GateError(f"unsupported call constOperand: {constant}")
     span, constant_value = constant[1]
     if not isinstance(span, tuple) or span[0] != "span" or len(span[1]) != 1:
-        raise NativeError(f"unsupported call span: {span}")
+        raise GateError(f"unsupported call span: {span}")
     if not isinstance(constant_value, tuple) or constant_value[0] != "mirConst" or len(constant_value[1]) != 3:
-        raise NativeError(f"unsupported call mirConst: {constant_value}")
+        raise GateError(f"unsupported call mirConst: {constant_value}")
     zero_sized, function_ty, identifier = constant_value[1]
     if zero_sized != "constantKindZeroSized":
-        raise NativeError(f"unsupported call constant kind: {zero_sized}")
+        raise GateError(f"unsupported call constant kind: {zero_sized}")
     if not isinstance(identifier, tuple) or identifier[0] != "mirConstId" or len(identifier[1]) != 1:
-        raise NativeError(f"unsupported call mirConstId: {identifier}")
+        raise GateError(f"unsupported call mirConstId: {identifier}")
     return application(
         "constantFunction",
         int_argument(span[1][0]),
@@ -1303,7 +1299,7 @@ def terminator(term: Any) -> str:
     ):
         target = term[1][3]
         if not isinstance(target, tuple) or target[0] != "someBasicBlockIdx" or len(target[1]) != 1:
-            raise NativeError(f"unsupported call target block: {target}")
+            raise GateError(f"unsupported call target block: {target}")
         return application(
             "call",
             call_target(term[1][0]),
@@ -1323,12 +1319,12 @@ def terminator(term: Any) -> str:
             int_argument(term[1][1]),
             unwind_action(term[1][2]),
         )
-    raise NativeError(f"unsupported Terminator: {term}")
+    raise GateError(f"unsupported Terminator: {term}")
 
 
 def basic_block(term: Any) -> str:
     if not isinstance(term, tuple) or term[0] != "basicBlock" or len(term[1]) != 2:
-        raise NativeError(f"unsupported BasicBlock: {term}")
+        raise GateError(f"unsupported BasicBlock: {term}")
     return application("block", statements(term[1][0]), terminator(term[1][1]))
 
 
@@ -1338,11 +1334,11 @@ def program(source: str) -> str:
     while parser.peek() == "ListItem":
         item = parser.term()
         if not isinstance(item, tuple) or len(item[1]) != 1:
-            raise NativeError(f"malformed ListItem: {item}")
+            raise GateError(f"malformed ListItem: {item}")
         blocks.append(basic_block(item[1][0]))
     parser.take(".List")
     if parser.peek() is not None:
-        raise NativeError(f"unparsed Program suffix: {parser.tokens[parser.index:]}")
+        raise GateError(f"unparsed Program suffix: {parser.tokens[parser.index:]}")
     result = application("'Stop'List")
     for block in reversed(blocks):
         item = application("ListItem", f"inj{{SortBasicBlock{{}},SortKItem{{}}}}({block})")
@@ -1356,11 +1352,11 @@ def locals_list(source: str) -> str:
     while parser.peek() == "ListItem":
         item = parser.term()
         if not isinstance(item, tuple) or len(item[1]) != 1:
-            raise NativeError(f"malformed local ListItem: {item}")
+            raise GateError(f"malformed local ListItem: {item}")
         entries.append(typed_local(item[1][0]))
     parser.take(".List")
     if parser.peek() is not None:
-        raise NativeError(f"unparsed locals suffix: {parser.tokens[parser.index:]}")
+        raise GateError(f"unparsed locals suffix: {parser.tokens[parser.index:]}")
     result = application("'Stop'List")
     for entry in reversed(entries):
         item = application("ListItem", f"inj{{SortTypedLocal{{}},SortKItem{{}}}}({entry})")
@@ -1374,13 +1370,13 @@ def stack_list(source: str) -> str:
     while parser.peek() == "ListItem":
         item = parser.term()
         if not isinstance(item, tuple) or len(item[1]) != 1:
-            raise NativeError(f"malformed stack ListItem: {item}")
+            raise GateError(f"malformed stack ListItem: {item}")
         frame = item[1][0]
         if not isinstance(frame, tuple) or frame[0] != "StackFrame" or len(frame[1]) != 6:
-            raise NativeError(f"unsupported StackFrame: {frame}")
+            raise GateError(f"unsupported StackFrame: {frame}")
         frame_span = frame[1][5]
         if not isinstance(frame_span, tuple) or frame_span[0] != "span" or len(frame_span[1]) != 1:
-            raise NativeError(f"unsupported stack-frame span: {frame_span}")
+            raise GateError(f"unsupported stack-frame span: {frame_span}")
         frames.append(
             application(
                 "stackFrame",
@@ -1394,7 +1390,7 @@ def stack_list(source: str) -> str:
         )
     parser.take(".List")
     if parser.peek() is not None:
-        raise NativeError(f"unparsed stack suffix: {parser.tokens[parser.index:]}")
+        raise GateError(f"unparsed stack suffix: {parser.tokens[parser.index:]}")
     result = application("'Stop'List")
     for frame in reversed(frames):
         item = application("ListItem", f"inj{{SortStackFrame{{}},SortKItem{{}}}}({frame})")
@@ -1408,7 +1404,7 @@ def locals_list_from_term(term: Any) -> str:
     elif isinstance(term, tuple) and term[0] == "List":
         entries = term[1]
     else:
-        raise NativeError(f"unsupported stack-frame locals: {term}")
+        raise GateError(f"unsupported stack-frame locals: {term}")
     result = application("'Stop'List")
     for entry in reversed(entries):
         item = application(
@@ -1426,7 +1422,7 @@ def functions_map(source: str) -> str:
     elif isinstance(term, tuple) and term[0] == "Map":
         items = term[1]
     else:
-        raise NativeError(f"unsupported function map: {term}")
+        raise GateError(f"unsupported function map: {term}")
     result = application("'Stop'Map")
     for key, value in items:
         entry = application(
@@ -1445,7 +1441,7 @@ def types_map(source: str) -> str:
     elif isinstance(term, tuple) and term[0] == "Map":
         items = term[1]
     else:
-        raise NativeError(f"unsupported type map: {term}")
+        raise GateError(f"unsupported type map: {term}")
     result = application("'Stop'Map")
     for key, value in items:
         entry = application(
@@ -1464,7 +1460,7 @@ def memory_map(source: str) -> str:
     elif isinstance(term, tuple) and term[0] == "Map":
         items = term[1]
     else:
-        raise NativeError(f"unsupported allocation memory map: {term}")
+        raise GateError(f"unsupported allocation memory map: {term}")
     result = application("'Stop'Map")
     for key, value in items:
         entry = application(
@@ -1543,10 +1539,10 @@ def applications(value: Any, name: str) -> list[Mapping[str, Any]]:
 def cell(state: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     matches = applications(state, f"Lbl'-LT-'{name}'-GT-'")
     if len(matches) != 1:
-        raise NativeError(f"native result contains {len(matches)} <{name}> cells")
+        raise GateError(f"native result contains {len(matches)} <{name}> cells")
     arguments = matches[0].get("args")
     if not isinstance(arguments, list) or len(arguments) != 1 or not isinstance(arguments[0], dict):
-        raise NativeError(f"native <{name}> cell is malformed")
+        raise GateError(f"native <{name}> cell is malformed")
     return arguments[0]
 
 
@@ -1554,7 +1550,7 @@ def unwrap_injection(term: Mapping[str, Any]) -> Mapping[str, Any]:
     while term.get("tag") == "App" and term.get("name") == "inj":
         arguments = term.get("args")
         if not isinstance(arguments, list) or len(arguments) != 1 or not isinstance(arguments[0], dict):
-            raise NativeError(f"malformed sort injection: {term}")
+            raise GateError(f"malformed sort injection: {term}")
         term = arguments[0]
     return term
 
@@ -1562,14 +1558,14 @@ def unwrap_injection(term: Mapping[str, Any]) -> Mapping[str, Any]:
 def app_arguments(term: Mapping[str, Any], name: str, arity: int) -> list[Mapping[str, Any]]:
     arguments = term.get("args")
     if term.get("tag") != "App" or term.get("name") != f"Lbl{name}" or not isinstance(arguments, list) or len(arguments) != arity or not all(isinstance(item, dict) for item in arguments):
-        raise NativeError(f"expected {name}/{arity}: {term}")
+        raise GateError(f"expected {name}/{arity}: {term}")
     return arguments
 
 
 def domain_value(term: Mapping[str, Any], sort_name: str) -> str:
     sort = term.get("sort")
     if term.get("tag") != "DV" or not isinstance(sort, dict) or sort.get("name") != f"Sort{sort_name}" or not isinstance(term.get("value"), str):
-        raise NativeError(f"expected concrete {sort_name}: {term}")
+        raise GateError(f"expected concrete {sort_name}: {term}")
     return str(term["value"])
 
 
@@ -1626,7 +1622,7 @@ def rendered_mir_value(term: Mapping[str, Any]) -> str:
             f"AllocRef({rendered_alloc_id(value[0])},"
             f"{rendered_projections(value[1])},{rendered_metadata(value[2])})"
         )
-    raise NativeError(f"unsupported concrete MirValue result: {term}")
+    raise GateError(f"unsupported concrete MirValue result: {term}")
 
 
 def rendered_alloc_id(term: Mapping[str, Any]) -> str:
@@ -1664,7 +1660,7 @@ def rendered_binary_op(term: Mapping[str, Any]) -> str:
         rendered = name[3:]
         app_arguments(term, rendered, 0)
         return rendered
-    raise NativeError(f"unsupported concrete BinaryOp result: {term}")
+    raise GateError(f"unsupported concrete BinaryOp result: {term}")
 
 
 def rendered_operand(term: Mapping[str, Any]) -> str:
@@ -1676,7 +1672,7 @@ def rendered_operand(term: Mapping[str, Any]) -> str:
         name = "copy" if term.get("name") == "Lblcopy" else "move"
         value = app_arguments(term, name, 1)
         return f"{name}({rendered_place(value[0])})"
-    raise NativeError(f"unsupported concrete Operand result: {term}")
+    raise GateError(f"unsupported concrete Operand result: {term}")
 
 
 def rendered_assert_message(term: Mapping[str, Any]) -> str:
@@ -1706,7 +1702,7 @@ def list_items(term: Mapping[str, Any]) -> list[Mapping[str, Any]]:
         return list_items(arguments[0]) + list_items(arguments[1])
     if term.get("tag") == "App" and name == "LblListItem" and isinstance(arguments, list) and len(arguments) == 1 and isinstance(arguments[0], dict):
         return [arguments[0]]
-    raise NativeError(f"unsupported concrete List result: {term}")
+    raise GateError(f"unsupported concrete List result: {term}")
 
 
 def rendered_ty(term: Mapping[str, Any]) -> str:
@@ -1722,7 +1718,7 @@ def rendered_mutability(term: Mapping[str, Any]) -> str:
     if term.get("name") == "Lblmutable":
         app_arguments(term, "mutable", 0)
         return "mutabilityMut"
-    raise NativeError(f"unsupported concrete Mutability result: {term}")
+    raise GateError(f"unsupported concrete Mutability result: {term}")
 
 
 def rendered_metadata_size(term: Mapping[str, Any]) -> str:
@@ -1733,7 +1729,7 @@ def rendered_metadata_size(term: Mapping[str, Any]) -> str:
     if term.get("name") in {"LblstaticSize", "LbldynamicSize"}:
         name = "staticSize" if term.get("name") == "LblstaticSize" else "dynamicSize"
         return f"{name}({domain_value(app_arguments(term, name, 1)[0], 'Int')})"
-    raise NativeError(f"unsupported concrete MetadataSize result: {term}")
+    raise GateError(f"unsupported concrete MetadataSize result: {term}")
 
 
 def rendered_metadata(term: Mapping[str, Any]) -> str:
@@ -1798,7 +1794,7 @@ def rendered_projection(term: Mapping[str, Any]) -> str:
     if term.get("name") == "LblfromZst":
         app_arguments(term, "fromZst", 0)
         return "projectionElemFromZST"
-    raise NativeError(f"unsupported concrete ProjectionElem result: {term}")
+    raise GateError(f"unsupported concrete ProjectionElem result: {term}")
 
 
 def rendered_projections(term: Mapping[str, Any]) -> str:
@@ -1830,7 +1826,7 @@ def rendered_typed_local(term: Mapping[str, Any]) -> str:
     if term.get("name") == "LblmovedLocal":
         value = app_arguments(term, "movedLocal", 2)
         return f"typedValue(Moved,{rendered_ty(value[0])},{rendered_mutability(value[1])})"
-    raise NativeError(f"unsupported concrete TypedLocal result: {term}")
+    raise GateError(f"unsupported concrete TypedLocal result: {term}")
 
 
 def rendered_locals(term: Mapping[str, Any]) -> str:
@@ -1847,10 +1843,10 @@ def normalize_term(value: str) -> str:
 def sole_state(result: Mapping[str, Any]) -> Mapping[str, Any]:
     leaves = result.get("leaves")
     if not isinstance(leaves, list) or len(leaves) != 1 or not isinstance(leaves[0], dict):
-        raise NativeError(f"native execution did not produce one leaf: {result}")
+        raise GateError(f"native execution did not produce one leaf: {result}")
     state = leaves[0].get("state")
     if not isinstance(state, dict) or not isinstance(state.get("term"), dict):
-        raise NativeError(f"native execution leaf has no KORE state: {leaves[0]}")
+        raise GateError(f"native execution leaf has no KORE state: {leaves[0]}")
     return state["term"]
 
 
@@ -1868,15 +1864,15 @@ def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, An
     if "expected_error" in case:
         errors = applications(computation, "LblprogramError")
         if len(errors) != 1:
-            raise NativeError(f"{case['id']} contains {len(errors)} program errors")
+            raise GateError(f"{case['id']} contains {len(errors)} program errors")
         error = app_arguments(errors[0], "programError", 1)[0]
         if unwrap_injection(cell(state, "retVal")).get("name") != "LblnoReturn":
-            raise NativeError(f"{case['id']} unexpectedly returned after a program error")
+            raise GateError(f"{case['id']} unexpectedly returned after a program error")
         outcome["error"] = normalize_term(rendered_mir_error(error))
         outcome["return"] = "noReturn"
         return outcome
     if computation.get("name") != "dotk":
-        raise NativeError(f"{case['id']} did not halt")
+        raise GateError(f"{case['id']} did not halt")
     returned = app_arguments(cell(state, "retVal"), "returned", 1)[0]
     outcome["return"] = normalize_term(f"return({rendered_mir_value(returned)})")
     return outcome
@@ -1895,40 +1891,29 @@ def main() -> int:
         help="execute only the named behavior case; repeat to select several cases",
     )
     arguments = parser.parse_args()
-    with arguments.corpus.open("rb") as stream:
-        corpus = tomllib.load(stream)
+    corpus = load_toml(arguments.corpus)
     cases = corpus.get("behavior")
     if not isinstance(cases, list) or not cases:
-        raise NativeError("behavior corpus is empty")
+        raise GateError("behavior corpus is empty")
     if arguments.case_ids:
         requested = set(arguments.case_ids)
         cases = [case for case in cases if str(case.get("id")) in requested]
         found = {str(case["id"]) for case in cases}
         missing = requested - found
         if missing:
-            raise NativeError(f"unknown behavior case ids: {sorted(missing)}")
+            raise GateError(f"unknown behavior case ids: {sorted(missing)}")
     requests = "".join(
-        canonical({"id": str(case["id"]), "operation": "execute", "pattern": initial_pattern(case)}) + "\n"
+        canonical_json({"id": str(case["id"]), "operation": "execute", "pattern": initial_pattern(case)}) + "\n"
         for case in cases
     )
-    process = subprocess.run(
-        [arguments.runner, arguments.definition, arguments.module],
-        input=requests,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=600,
-        check=False,
-    )
-    if process.returncode != 0:
-        raise NativeError(f"native runner failed with {process.returncode}: {process.stderr.strip()}")
+    process = run([arguments.runner, arguments.definition, arguments.module], input=requests, timeout=600)
     responses = [json.loads(line) for line in process.stdout.splitlines()]
     if len(responses) != len(cases):
-        raise NativeError(f"native runner returned {len(responses)} responses for {len(cases)} requests")
+        raise GateError(f"native runner returned {len(responses)} responses for {len(cases)} requests")
     outcomes = []
     for case, response in zip(cases, responses, strict=True):
         if response.get("id") != case["id"] or not isinstance(response.get("result"), dict):
-            raise NativeError(f"native response order or shape differs: {response}")
+            raise GateError(f"native response order or shape differs: {response}")
         outcome = observed(case, response["result"])
         expected: dict[str, Any] = {
             "block_count": int(case["expected_block_count"]),
@@ -1939,9 +1924,9 @@ def main() -> int:
         if "expected_error" in case:
             expected["error"] = normalize_term(str(case["expected_error"]))
         if {key: outcome[key] for key in expected} != expected:
-            raise NativeError(f"{case['id']} differs: expected={expected}, actual={outcome}")
+            raise GateError(f"{case['id']} differs: expected={expected}, actual={outcome}")
         outcomes.append(outcome)
-    digest = hashlib.sha256(canonical(outcomes).encode()).hexdigest()
+    digest = json_sha256(outcomes)
     print(f"PASS native KMIR behavior: {len(outcomes)} executions; sha256={digest}")
     return 0
 

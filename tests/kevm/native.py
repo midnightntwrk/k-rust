@@ -6,28 +6,24 @@ from __future__ import annotations
 import argparse
 import ast
 from concurrent.futures import ThreadPoolExecutor
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import subprocess
-import tomllib
+import sys
 from typing import Any, Mapping
 
-
-class NativeError(RuntimeError):
-    """The native runner or its concrete result violated the gate protocol."""
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import GateError  # noqa: E402
+from support.hashing import canonical_json, json_sha256  # noqa: E402
+from support.pins import load_toml  # noqa: E402
+from support.process import run  # noqa: E402
 
 
 def kore_bytes(source: str) -> str:
     value = ast.literal_eval(source)
     if not isinstance(value, bytes):
-        raise NativeError(f"program is not a Python Bytes literal: {source}")
+        raise GateError(f"program is not a Python Bytes literal: {source}")
     return '"' + "".join(f"\\x{byte:02x}" for byte in value) + '"'
 
 
@@ -35,25 +31,25 @@ def kore_int(value: str) -> str:
     try:
         parsed = int(value)
     except ValueError as error:
-        raise NativeError(f"invalid concrete Int: {value}") from error
+        raise GateError(f"invalid concrete Int: {value}") from error
     return f'\\dv{{SortInt{{}}}}("{parsed}")'
 
 
 def kore_bool(value: Any) -> str:
     if not isinstance(value, bool):
-        raise NativeError(f"invalid concrete Bool: {value}")
+        raise GateError(f"invalid concrete Bool: {value}")
     return f'\\dv{{SortBool{{}}}}("{str(value).lower()}")'
 
 
 def concrete_mapping(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise NativeError(f"{name} is not a string-keyed table: {value}")
+        raise GateError(f"{name} is not a string-keyed table: {value}")
     return value
 
 
 def kore_set(values: Any) -> str:
     if not isinstance(values, list):
-        raise NativeError(f"concrete Set is not an array: {values}")
+        raise GateError(f"concrete Set is not an array: {values}")
     result = "Lbl'Stop'Set{}()"
     for value in sorted((str(value) for value in values), key=int):
         item = f"LblSetItem{{}}(inj{{SortInt{{}},SortKItem{{}}}}({kore_int(value)}))"
@@ -90,7 +86,7 @@ def kore_accessed_storage(values: Any) -> str:
 def kore_stack(source: str) -> str:
     values = source.split(" : ")
     if not values or values.pop() != ".WordStack":
-        raise NativeError(f"unsupported concrete WordStack: {source}")
+        raise GateError(f"unsupported concrete WordStack: {source}")
     result = "LblstackEmpty{}()"
     for value in reversed(values):
         result = f"LblstackCons{{}}({kore_int(value)},{result})"
@@ -99,7 +95,7 @@ def kore_stack(source: str) -> str:
 
 def kore_list(values: Any) -> str:
     if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        raise NativeError(f"block_hashes is not a list of concrete Int strings: {values}")
+        raise GateError(f"block_hashes is not a list of concrete Int strings: {values}")
     result = "Lbl'Stop'List{}()"
     for value in reversed(values):
         item = f"LblListItem{{}}(inj{{SortInt{{}},SortKItem{{}}}}({kore_int(value)}))"
@@ -109,13 +105,13 @@ def kore_list(values: Any) -> str:
 
 def concrete_logs(values: Any, name: str) -> list[Mapping[str, Any]]:
     if not isinstance(values, list):
-        raise NativeError(f"{name} is not an array: {values}")
+        raise GateError(f"{name} is not an array: {values}")
     logs: list[Mapping[str, Any]] = []
     for index, value in enumerate(values):
         entry = concrete_mapping(value, f"{name}[{index}]")
         topics = entry.get("topics", [])
         if not isinstance(topics, list):
-            raise NativeError(f"{name}[{index}].topics is not an array: {topics}")
+            raise GateError(f"{name}[{index}].topics is not an array: {topics}")
         logs.append(entry)
     return logs
 
@@ -240,10 +236,10 @@ def applications(value: Any, name: str) -> list[Mapping[str, Any]]:
 def cell(state: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     matches = applications(state, f"Lbl'-LT-'{name}'-GT-'")
     if len(matches) != 1:
-        raise NativeError(f"native result contains {len(matches)} <{name}> cells")
+        raise GateError(f"native result contains {len(matches)} <{name}> cells")
     arguments = matches[0].get("args")
     if not isinstance(arguments, list) or len(arguments) != 1 or not isinstance(arguments[0], dict):
-        raise NativeError(f"native <{name}> cell is malformed")
+        raise GateError(f"native <{name}> cell is malformed")
     return arguments[0]
 
 
@@ -256,7 +252,7 @@ def domain_value(term: Mapping[str, Any], sort: str) -> str:
         or observed_sort.get("name") != f"Sort{sort}"
         or not isinstance(term.get("value"), str)
     ):
-        raise NativeError(f"expected concrete {sort} domain value: {term}")
+        raise GateError(f"expected concrete {sort} domain value: {term}")
     return str(term["value"])
 
 
@@ -264,7 +260,7 @@ def unwrap_injection(term: Mapping[str, Any]) -> Mapping[str, Any]:
     while term.get("tag") == "App" and term.get("name") == "inj":
         arguments = term.get("args")
         if not isinstance(arguments, list) or len(arguments) != 1 or not isinstance(arguments[0], dict):
-            raise NativeError(f"malformed sort injection: {term}")
+            raise GateError(f"malformed sort injection: {term}")
         term = arguments[0]
     return term
 
@@ -278,7 +274,7 @@ def map_items(term: Mapping[str, Any]) -> list[tuple[Mapping[str, Any], Mapping[
         return [*map_items(arguments[0]), *map_items(arguments[1])]
     if term.get("tag") == "App" and name == "Lbl'UndsPipe'-'-GT-Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
         return [(unwrap_injection(arguments[0]), unwrap_injection(arguments[1]))]
-    raise NativeError(f"malformed concrete Map: {term}")
+    raise GateError(f"malformed concrete Map: {term}")
 
 
 def set_values(term: Mapping[str, Any]) -> list[str]:
@@ -290,7 +286,7 @@ def set_values(term: Mapping[str, Any]) -> list[str]:
         return [*set_values(arguments[0]), *set_values(arguments[1])]
     if term.get("tag") == "App" and name == "LblSetItem" and isinstance(arguments, list) and len(arguments) == 1 and isinstance(arguments[0], dict):
         return [domain_value(unwrap_injection(arguments[0]), "Int")]
-    raise NativeError(f"malformed concrete Set: {term}")
+    raise GateError(f"malformed concrete Set: {term}")
 
 
 def list_values(term: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -302,7 +298,7 @@ def list_values(term: Mapping[str, Any]) -> list[Mapping[str, Any]]:
         return [*list_values(arguments[0]), *list_values(arguments[1])]
     if term.get("tag") == "App" and name == "LblListItem" and isinstance(arguments, list) and len(arguments) == 1 and isinstance(arguments[0], dict):
         return [unwrap_injection(arguments[0])]
-    raise NativeError(f"malformed concrete List: {term}")
+    raise GateError(f"malformed concrete List: {term}")
 
 
 def rendered_int_map(term: Mapping[str, Any]) -> str:
@@ -340,12 +336,12 @@ def rendered_logs(term: Mapping[str, Any]) -> str:
             or len(arguments) != 3
             or not all(isinstance(item, dict) for item in arguments)
         ):
-            raise NativeError(f"malformed log entry: {entry}")
+            raise GateError(f"malformed log entry: {entry}")
         data = domain_value(arguments[2], "Bytes")
         try:
             data_bytes = data.encode("latin-1")
         except UnicodeEncodeError as error:
-            raise NativeError("log entry returned a non-byte Bytes value") from error
+            raise GateError("log entry returned a non-byte Bytes value") from error
         logs.append(
             {
                 "address": domain_value(arguments[0], "Int"),
@@ -353,7 +349,7 @@ def rendered_logs(term: Mapping[str, Any]) -> str:
                 "data": rendered_bytes(data_bytes),
             }
         )
-    return canonical(logs)
+    return canonical_json(logs)
 
 
 def expected_logs(values: Any) -> str:
@@ -361,7 +357,7 @@ def expected_logs(values: Any) -> str:
     for entry in concrete_logs(values, "expected logs"):
         data = ast.literal_eval(str(entry.get("data", 'b""')))
         if not isinstance(data, bytes):
-            raise NativeError(f"log data is not a Bytes literal: {entry.get('data')}")
+            raise GateError(f"log data is not a Bytes literal: {entry.get('data')}")
         logs.append(
             {
                 "address": str(entry.get("address", "0")),
@@ -369,7 +365,7 @@ def expected_logs(values: Any) -> str:
                 "data": rendered_bytes(data),
             }
         )
-    return canonical(logs)
+    return canonical_json(logs)
 
 
 def expected_int_map(values: Any) -> str:
@@ -392,17 +388,17 @@ def word_stack(term: Mapping[str, Any]) -> str:
     while term.get("tag") == "App" and term.get("name") == "LblstackCons":
         arguments = term.get("args")
         if not isinstance(arguments, list) or len(arguments) != 2 or not all(isinstance(item, dict) for item in arguments):
-            raise NativeError(f"malformed stack constructor: {term}")
+            raise GateError(f"malformed stack constructor: {term}")
         values.append(domain_value(arguments[0], "Int"))
         term = arguments[1]
     if term.get("tag") != "App" or term.get("name") != "LblstackEmpty" or term.get("args") != []:
-        raise NativeError(f"malformed stack tail: {term}")
+        raise GateError(f"malformed stack tail: {term}")
     return ":".join([*values, ".WordStack"])
 
 
 def empty_list(term: Mapping[str, Any], name: str) -> str:
     if term.get("tag") != "App" or term.get("name") != "Lbl'Stop'List" or term.get("args") != []:
-        raise NativeError(f"expected empty {name}: {term}")
+        raise GateError(f"expected empty {name}: {term}")
     return ".List"
 
 
@@ -423,19 +419,19 @@ STATUS_LABELS = {
 def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, str]:
     leaves = result.get("leaves")
     if not isinstance(leaves, list) or len(leaves) != 1 or not isinstance(leaves[0], dict):
-        raise NativeError(f"{case['id']} produced {0 if not isinstance(leaves, list) else len(leaves)} leaves")
+        raise GateError(f"{case['id']} produced {0 if not isinstance(leaves, list) else len(leaves)} leaves")
     leaf = leaves[0]
     if leaf.get("reason") != "stuck":
-        raise NativeError(f"{case['id']} halted with {leaf.get('reason')}: {leaf.get('detail')}")
+        raise GateError(f"{case['id']} halted with {leaf.get('reason')}: {leaf.get('detail')}")
     state = leaf.get("state")
     if not isinstance(state, dict) or state.get("format") != "KORE" or not isinstance(state.get("term"), dict):
-        raise NativeError(f"{case['id']} returned malformed KORE JSON")
+        raise GateError(f"{case['id']} returned malformed KORE JSON")
     state = state["term"]
     k = cell(state, "k")
     expected_stuck_operation = case.get("expected_stuck_operation")
     if expected_stuck_operation is None:
         if k.get("tag") != "App" or k.get("name") != "dotk" or k.get("args") != []:
-            raise NativeError(f"{case['id']} did not halt with .K: {k}")
+            raise GateError(f"{case['id']} did not halt with .K: {k}")
     else:
         arguments = k.get("args")
         if (
@@ -448,10 +444,10 @@ def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, st
             or arguments[1].get("name") != "dotk"
             or arguments[1].get("args") != []
         ):
-            raise NativeError(f"{case['id']} did not remain at the expected operation: {k}")
+            raise GateError(f"{case['id']} did not remain at the expected operation: {k}")
         operation = unwrap_injection(arguments[0])
         if operation.get("name") != f"Lbl{expected_stuck_operation}" or operation.get("args") != []:
-            raise NativeError(f"{case['id']} remained at the wrong operation: {operation}")
+            raise GateError(f"{case['id']} remained at the wrong operation: {operation}")
     program = domain_value(cell(state, "program"), "Bytes")
     output = domain_value(cell(state, "output"), "Bytes")
     local_mem = domain_value(cell(state, "localMem"), "Bytes")
@@ -460,11 +456,11 @@ def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, st
         output_bytes = output.encode("latin-1")
         local_mem_bytes = local_mem.encode("latin-1")
     except UnicodeEncodeError as error:
-        raise NativeError(f"{case['id']} returned a non-byte Bytes value") from error
+        raise GateError(f"{case['id']} returned a non-byte Bytes value") from error
     status_term = cell(state, "statusCode")
     status = STATUS_LABELS.get(str(status_term.get("name")))
     if status is None or status_term.get("tag") != "App" or status_term.get("args") != []:
-        raise NativeError(f"{case['id']} returned an unknown status: {status_term}")
+        raise GateError(f"{case['id']} returned an unknown status: {status_term}")
     outcome = {
         "id": str(case["id"]),
         "program": rendered_bytes(program_bytes),
@@ -546,34 +542,24 @@ def execute_batch(
     cases: list[tuple[int, Mapping[str, Any]]],
 ) -> list[tuple[int, dict[str, str]]]:
     requests = "".join(
-        canonical({"id": str(case["id"]), "operation": "execute", "pattern": initial_pattern(case)}) + "\n"
+        canonical_json({"id": str(case["id"]), "operation": "execute", "pattern": initial_pattern(case)}) + "\n"
         for _, case in cases
     )
-    process = subprocess.run(
-        [runner, definition, module],
-        input=requests,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=600,
-        check=False,
-    )
-    if process.returncode != 0:
-        raise NativeError(f"native runner failed with {process.returncode}: {process.stderr.strip()}")
+    process = run([runner, definition, module], input=requests, timeout=600)
     lines = process.stdout.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
     responses = [json.loads(line) for line in lines]
     if len(responses) != len(cases):
-        raise NativeError(f"native runner returned {len(responses)} responses for {len(cases)} requests")
+        raise GateError(f"native runner returned {len(responses)} responses for {len(cases)} requests")
     outcomes: list[tuple[int, dict[str, str]]] = []
     for (index, case), response in zip(cases, responses, strict=True):
         if response.get("id") != case["id"] or not isinstance(response.get("result"), dict):
-            raise NativeError(f"native response order or shape differs: {response}")
+            raise GateError(f"native response order or shape differs: {response}")
         outcome = observed(case, response["result"])
         wanted = expected(case)
         if outcome != wanted:
-            raise NativeError(f"{case['id']} differs: expected={wanted}, actual={outcome}")
+            raise GateError(f"{case['id']} differs: expected={wanted}, actual={outcome}")
         outcomes.append((index, outcome))
     return outcomes
 
@@ -586,7 +572,7 @@ def execute_corpus(
     jobs: int,
 ) -> list[dict[str, str]]:
     if jobs < 1:
-        raise NativeError("jobs must be at least one")
+        raise GateError("jobs must be at least one")
     indexed = list(enumerate(cases))
     chunks = [indexed[offset::jobs] for offset in range(min(jobs, len(indexed)))]
     with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
@@ -618,17 +604,16 @@ def main() -> int:
     parser.add_argument("module")
     parser.add_argument("corpus", type=Path)
     arguments = parser.parse_args()
-    with arguments.corpus.open("rb") as stream:
-        corpus = tomllib.load(stream)
+    corpus = load_toml(arguments.corpus)
     cases = corpus.get("behavior")
     if not isinstance(cases, list) or not cases:
-        raise NativeError("behavior corpus is empty")
+        raise GateError("behavior corpus is empty")
     if arguments.case_ids:
         requested = set(arguments.case_ids)
         known = {str(case.get("id")) for case in cases}
         missing = sorted(requested - known)
         if missing:
-            raise NativeError(f"unknown behavior cases: {', '.join(missing)}")
+            raise GateError(f"unknown behavior cases: {', '.join(missing)}")
         cases = [case for case in cases if case.get("id") in requested]
     outcomes = execute_corpus(
         arguments.runner,
@@ -637,7 +622,7 @@ def main() -> int:
         cases,
         arguments.jobs,
     )
-    digest = hashlib.sha256(canonical(outcomes).encode()).hexdigest()
+    digest = json_sha256(outcomes)
     print(f"PASS native KEVM behavior: {len(outcomes)} executions; sha256={digest}")
     return 0
 
