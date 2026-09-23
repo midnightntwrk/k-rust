@@ -1066,6 +1066,7 @@ dependencies = [
  "proptest",
  "ripemd",
  "rustc-hash",
+ "serde_json",
  "sha2",
  "sha3",
  "substrate-bn",

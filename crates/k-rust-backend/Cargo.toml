@@ -29,6 +29,7 @@ insta.workspace = true
 k-rust-backend = { path = ".", features = ["measure"] }
 k-rust-kore = { workspace = true, features = ["measure"] }
 proptest.workspace = true
+serde_json.workspace = true
 
 [features]
 measure = ["k-rust-kore/measure"]

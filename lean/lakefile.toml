@@ -9,3 +9,10 @@ name = "KRust"
 name = "krust-audit"
 root = "Audit"
 supportInterpreter = true
+
+[[lean_lib]]
+name = "KRustBridge"
+
+[[lean_exe]]
+name = "krust-bridge"
+root = "Bridge"

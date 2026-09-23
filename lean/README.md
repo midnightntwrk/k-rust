@@ -8,13 +8,16 @@ The method, its limits and the case studies are in `draft/lean-verification/READ
 | path | content |
 |---|---|
 | `lean-toolchain` | the Lean release; elan reads it and downloads that toolchain |
-| `lakefile.toml` | library `KRust` and executable `krust-audit`; core Lean only, no Mathlib yet |
+| `lakefile.toml` | libraries `KRust` and `KRustBridge`, executables `krust-audit` and `krust-bridge`; core Lean only, no Mathlib yet |
 | `KRust.lean` | root module; imports every module under `KRust/` |
 | `KRust/SubsortEncoding.lean` | the Z3 ground-side subsort encoding (`new_equiv`) |
 | `KRust/TermAttributes.lean` | the backend `Term` model; `ceilFree_sound` (OT-01), `hasMacro_iff`, `macro_shortcut_eq` and `rule_index_same` (OT-02) |
 | `KRust/SynthAttr.lean` | the generic synthesized-attribute lemma `fold_rel`, with case 3 restated through it |
 | `KRust/Examples.lean` | `#guard` checks that run the term model at build time |
 | `Audit.lean` | `krust-audit`: the `sorry` and axiom audit that `scripts/lean-check.sh` runs |
+| `KRustBridge/Json.lean` | the JSON form of the term model, shared with the Rust encoder of the bridge tests |
+| `KRustBridge/Dispatch.lean` | the bridged models by name; each applies a `KRust` definition, never a copy |
+| `Bridge.lean` | `krust-bridge`: answers JSON-line requests with `KRust.Bridge.answer` |
 
 A new dependency (Mathlib, say) is a `[[require]]` entry in `lakefile.toml`, and `lean-toolchain` must then name the Lean release that dependency's version pins.
 
@@ -36,6 +39,7 @@ Exit status 0 is success, 1 a failed check, 2 a missing `lake`.
 - Every theorem docstring states which equality it proves: equality of the output values, equality up to a named normalization (the same set, the same models), or logical equivalence.
 - Every assumption about Rust or Z3 behaviour that the proof does not open is a named hypothesis of the theorem, never an `axiom`.
   Each such hypothesis must have a Rust property test that checks it against the real code; the table below lists them.
+- A model of a function that exists in Rust is registered in `KRustBridge/Dispatch.lean` and has a test in `crates/k-rust-backend/src/tests/lean_bridge/` that compares it with that function.
 - A theorem about a function not yet implemented in Rust names the test-only Rust function that mirrors the model and the property test that compares it with today's function.
 
 ## Hypotheses and their Rust tests

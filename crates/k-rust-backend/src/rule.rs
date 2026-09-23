@@ -786,7 +786,7 @@ pub fn subject_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
     index
 }
 
-fn find_k_cells<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
+pub(crate) fn find_k_cells<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
     if cells.len() > 1 {
         return;
     }
