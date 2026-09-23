@@ -11,7 +11,8 @@ impl Render for Local {
         format!("local:{}", self.0)
     }
     fn weight(&self) -> u64 {
-        u64::from(self.0) + 100
+        // u8 arithmetic with overflow checks at opt-level 0, and a u8 rotate (B19, B20).
+        u64::from(self.0 * 3 + 1) + u64::from(self.0.rotate_left(4)) + 100
     }
 }
 
@@ -46,7 +47,7 @@ fn main() {
         .collect();
     built.sort();
     println!("{built:?}");
-    let closures: [fn(i64) -> i64; 4] = [|x| x + 1, |x| x.wrapping_mul(x), |x| x.wrapping_neg(), TABLE[1].transform];
+    let closures: [fn(i64) -> i64; 5] = [|x| x + 1, |x| x.wrapping_mul(x), |x| x * -7, |x| x.wrapping_neg(), TABLE[1].transform];
     println!("closures {:?}", apply(&closures, black_box(-5)));
     let objects: Vec<Box<dyn Render>> = vec![Box::new(Local(1)), (TABLE[1].factory)(), Box::new(Pair("mid", 2))];
     let total: u64 = objects.iter().map(|object| object.weight()).sum();

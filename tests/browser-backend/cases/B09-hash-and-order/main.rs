@@ -17,8 +17,8 @@ fn main() {
         hasher.update(black_box([b'a'; 1000]));
     }
     println!("sha256(10^6 x 'a') = {}", hex(&hasher.finalize()));
-    // wrapping_mul: a checked i64 multiply at opt-level 0 needs smulhi.i64 (B17 known gap).
-    let mut numbers: Vec<i64> = (0..64).map(|index: i64| (index.wrapping_mul(7919) + 13) % 101 - 50).collect();
+    // A checked i64 multiply at opt-level 0 (smulhi.i64; B17, fixed in eb8eda040).
+    let mut numbers: Vec<i64> = (0..64).map(|index: i64| (index * 7919 + 13) % 101 - 50).collect();
     numbers.sort_unstable();
     println!("sort_unstable {numbers:?}");
     let mut words = vec!["pear", "apple", "Zebra", "zebra", "apple", "\u{e9}clair", "banana", ""];
@@ -34,4 +34,12 @@ fn main() {
     println!("btreemap {map:?}");
     let set: BTreeSet<i32> = [5, -3, 9, 0, -3, 12].into_iter().collect();
     println!("btreeset {set:?} range {:?}", set.range(0..10).collect::<Vec<_>>());
+    // An FxHash-style u64 hash: rotate, xor, and a checked-by-design wrapping multiply;
+    // the bucket index uses a checked u64 multiply (umulhi.i64; B18, fixed in eb8eda040).
+    let mut state = 0_u64;
+    for byte in black_box("hash and order").bytes() {
+        state = (state.rotate_left(5) ^ u64::from(byte)).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+    let buckets = black_box(1_u64 << 20);
+    println!("fxhash {state:#018x} bucket {} scaled {:?}", state % buckets, (state >> 44).checked_mul(black_box(4096)));
 }

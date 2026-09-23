@@ -3,7 +3,7 @@
  "case": "B04-fn-pointers",
  "revisions": {
   "0ce51e9339ee538c16580fea01ca98dd89f6d7a0": {
-   "status": "pass",
+   "status": "known-gap",
    "reference": {
     "twin": [
      "rustc 1.96.0-dev (0ce51e933 2026-09-23)",
@@ -23,7 +23,7 @@
      "release: 1.98.0",
      "LLVM version: 22.1.8"
     ],
-    "pack_id": "sha256:915c873392d636db5c06761625d934b9c561e0c1e176c91aa90feefe04e6dec1",
+    "pack_id": "sha256:afc69b11dde8f12e4282c42501715b043f177a45a2dafe71c77f402af692466d",
     "run_host": "node:wasi v24.19.0",
     "recorded": "2026-09-23"
    },
@@ -44,7 +44,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -68,7 +68,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -94,7 +94,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -118,7 +118,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -127,10 +127,64 @@
      }
     }
    },
-   "stable_differs": []
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCs3rbyWxOvZlJ_13b04_factories6double`: lowering `v4 = smulhi.i64 v1, v2  ; v2 = 2`: unimplemented binary opcode smulhi on i64"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvXCsdXTJDxWQVFB_15b04_fn_pointersNtB2_5LocalNtCs3rbyWxOvZlJ_13b04_factories6Render6weight`: lowering `v9 = rotl.i8 v2, v8  ; v8 = 4`: narrow-int rotate (i8) unimplemented"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "compile failure on forks before eb8eda040: the case uses constructs of IR-16 gaps B17/B18/B19/B20",
+    "root_cause": "see the case.toml files of B17/B18/B19/B20",
+    "fixed_in": "eb8eda0400b8015a0751e48597eb0969dbbd7b36"
+   }
   },
   "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
-   "status": "pass",
+   "status": "known-gap",
    "reference": {
     "twin": [
      "rustc 1.96.0-dev (195111dff 2026-09-23)",
@@ -171,7 +225,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -195,7 +249,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -221,7 +275,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -245,7 +299,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -254,7 +308,61 @@
      }
     }
    },
-   "stable_differs": []
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "error",
+       "exit": "trap",
+       "summary": false,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCs2zFEEBDlqI3_13b04_factories6double`: lowering `v4 = smulhi.i64 v1, v2  ; v2 = 2`: unimplemented binary opcode smulhi on i64"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "error",
+       "exit": "trap",
+       "summary": false,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvXCs2aCdmUlGcmG_15b04_fn_pointersNtB2_5LocalNtCs2zFEEBDlqI3_13b04_factories6Render6weight`: lowering `v9 = rotl.i8 v2, v8  ; v8 = 4`: narrow-int rotate (i8) unimplemented"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "compile failure on forks before eb8eda040: the case uses constructs of IR-16 gaps B17/B18/B19/B20",
+    "root_cause": "see the case.toml files of B17/B18/B19/B20",
+    "fixed_in": "eb8eda0400b8015a0751e48597eb0969dbbd7b36"
+   }
   },
   "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
    "status": "pass",
@@ -277,7 +385,7 @@
      "release: 1.98.0",
      "LLVM version: 22.1.8"
     ],
-    "pack_id": "sha256:a6155f58b7424a819d0dfacceb3018cfe9c8eb03453c49726f2bc54301ce61a9",
+    "pack_id": "sha256:d45edf965fcf1cc7a4466ee7c75330c2b7386103822506f6d949c2ea4cd5b36d",
     "run_host": "node:wasi v24.19.0",
     "recorded": "2026-09-23"
    },
@@ -298,7 +406,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -322,7 +430,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -348,7 +456,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
@@ -372,7 +480,7 @@
        "status": "exit",
        "exit_code": 0,
        "stdout": {
-        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 109), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 5, 5]\ndyn total weight=128 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
        },
        "stderr": {
         "utf8": ""
