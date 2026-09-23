@@ -123,8 +123,7 @@ impl<'de> Deserialize<'de> for SemanticTheory {
 }
 
 impl SemanticTheory {
-    /// Validates a complete theory. Exactly one configuration is required by
-    /// the M2 contract.
+    /// Validates a complete theory. Exactly one configuration is required.
     ///
     /// # Errors
     ///
@@ -786,17 +785,17 @@ impl SemanticProduction {
     }
 }
 
-/// One legacy M2 configuration or general ordered fixed configuration tree.
+/// One legacy single-cell configuration or general ordered fixed configuration tree.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SemanticConfiguration {
-    /// Compatibility representation for the original one-cell M2 surface.
+    /// Compatibility representation for the original one-cell surface.
     Legacy(Box<SemanticLegacyConfiguration>),
-    /// General M3B fixed/nested configuration.
+    /// General fixed/nested configuration.
     Fixed(Box<FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>>),
 }
 
-/// The legacy M2 one-cell representation.
+/// The legacy one-cell representation.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SemanticLegacyConfiguration {
@@ -846,7 +845,7 @@ impl SemanticConfiguration {
             Self::Fixed(configuration) => configuration.origin(),
         }
     }
-    /// Returns the sole legacy fixed cell, when this is the M2 form.
+    /// Returns the sole legacy fixed cell, when this is the one-cell form.
     #[must_use]
     pub const fn cell(&self) -> Option<&SemanticCell> {
         match self {
@@ -854,7 +853,7 @@ impl SemanticConfiguration {
             Self::Fixed(_) => None,
         }
     }
-    /// Returns the legacy initializer, when this is the M2 form.
+    /// Returns the legacy initializer, when this is the one-cell form.
     #[must_use]
     pub const fn initializer(&self) -> Option<&SemanticInitializer> {
         match self {
@@ -1881,7 +1880,7 @@ pub enum SemanticValidationError {
     PrecedenceCycle(ProductionGroupId),
     /// The strict subsort relation contained a cycle.
     SubsortCycle(Box<SemanticSortRef>),
-    /// M2 requires exactly one selected configuration.
+    /// A theory requires exactly one selected configuration.
     ConfigurationCount(usize),
     /// A variable was declared more than once.
     DuplicateVariable(SemanticId),

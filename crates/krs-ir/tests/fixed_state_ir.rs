@@ -1,4 +1,4 @@
-//! Hand-built M3 Slice B fixed-state Definition IR contract.
+//! Hand-built fixed-state Definition IR contract.
 
 use krs_ir::{
     CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, ConfigurationSentence,

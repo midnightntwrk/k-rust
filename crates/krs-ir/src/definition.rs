@@ -302,7 +302,7 @@ impl<'de> Deserialize<'de> for DefinitionIr {
 
 impl DefinitionIr {
     /// Validates modules, symbols, labels, origins, references, and the sole
-    /// M2 configuration.
+    /// configuration.
     ///
     /// # Errors
     ///
@@ -1072,17 +1072,17 @@ impl InitializerDeclaration {
     }
 }
 
-/// Legacy M2 or general fixed/nested source configuration sentence.
+/// Legacy single-cell or general fixed/nested source configuration sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ConfigurationSentence {
-    /// Compatibility representation for the original one-cell M2 form.
+    /// Compatibility representation for the original one-cell form.
     Legacy(LegacyConfigurationSentence),
-    /// General M3B fixed/nested configuration.
+    /// General fixed/nested configuration.
     Fixed(FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>),
 }
 
-/// Legacy M2 one-cell source configuration.
+/// Legacy one-cell source configuration.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LegacyConfigurationSentence {
@@ -1091,7 +1091,7 @@ pub struct LegacyConfigurationSentence {
     initializer: InitializerDeclaration,
 }
 impl ConfigurationSentence {
-    /// Creates the M2 one-cell configuration.
+    /// Creates the legacy one-cell configuration.
     #[must_use]
     pub const fn new(
         origin: NodeOrigin,
@@ -1119,7 +1119,7 @@ impl ConfigurationSentence {
             Self::Fixed(value) => value.origin(),
         }
     }
-    /// Returns the legacy cell, when this is the M2 form.
+    /// Returns the legacy cell, when this is the one-cell form.
     #[must_use]
     pub const fn cell(&self) -> Option<&CellDeclaration> {
         match self {
@@ -1127,7 +1127,7 @@ impl ConfigurationSentence {
             Self::Fixed(_) => None,
         }
     }
-    /// Returns the legacy initializer, when this is the M2 form.
+    /// Returns the legacy initializer, when this is the one-cell form.
     #[must_use]
     pub const fn initializer(&self) -> Option<&InitializerDeclaration> {
         match self {
@@ -1880,7 +1880,7 @@ pub enum DefinitionValidationError {
         /// Declared symbol role.
         actual: SymbolKind,
     },
-    /// M2 requires exactly one configuration.
+    /// A definition requires exactly one configuration.
     ConfigurationCount(usize),
     /// A production has no terminal/nonterminal items.
     EmptyProduction(SymbolId),

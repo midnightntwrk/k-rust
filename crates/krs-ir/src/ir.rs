@@ -12,15 +12,15 @@ use crate::OriginStack;
 /// This is deliberately independent of [`crate::ProtocolVersion`]. Changing
 /// collector transport does not change lowering meaning, and changing lowering
 /// meaning does not require adding a descriptor protocol variant. Schema v1
-/// was the M2-only model: declared-only production/variable sorts, unclassified
+/// was the single-cell model: declared-only production/variable sorts, unclassified
 /// syntax strings, and declared-only applications. Schema v2 added typed
-/// builtin sorts and applications plus classified M3 object grammar. Schema v3
+/// builtin sorts and applications plus classified object grammar. Schema v3
 /// adds structured fixed configurations, cell-framed rewrites, K-sequence
 /// matching, and typed Map terms. No compatibility reader reinterprets older
 /// data as newer meaning. Schema v4 adds typed rule conditions. Schema v5 adds
 /// functional-production totality, explicit equation priorities, and
 /// reversible static alias productions and clauses.
-/// Schema v6 adds M3D context, simplification, and claims. Schema v7 extends
+/// Schema v6 adds context aliases, simplification, and claims. Schema v7 extends
 /// the closed builtin-operation catalog with object-language Boolean
 /// conjunction. Schema v8 carries exact Rust declaration visibility and
 /// explicit stable-symbol identity on semantic sorts and productions. Schema

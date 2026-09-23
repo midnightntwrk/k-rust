@@ -678,7 +678,7 @@ pub struct ConstructorFieldDescriptor {
 pub struct ConfigurationCellDescriptor {
     /// Exact authored field name (`k`).
     pub name: String,
-    /// Intrinsic content sort, always builtin `KSequence` in M2.
+    /// Intrinsic content sort, always builtin `KSequence` in the single-cell configuration.
     pub content_sort: BuiltinSort,
 }
 
@@ -735,7 +735,7 @@ impl<'de> Deserialize<'de> for ConfigurationDescriptor {
 }
 
 impl ConfigurationDescriptor {
-    /// Validates the closed M2 shape, reference keys, and stable target kinds.
+    /// Validates the closed single-cell shape, reference keys, and stable target kinds.
     ///
     /// The shared syntax parser remains responsible for reparsing `term` and
     /// proving that its complete path set matches `references`; the protocol

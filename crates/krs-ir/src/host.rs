@@ -634,7 +634,7 @@ pub(crate) fn validate_unique_reference_keys<'a>(
 pub(crate) const CONFIGURATION_VARIABLE_TYPE_ROLE: &str = "configuration_variable_type";
 pub(crate) const INITIALIZER_TERM_PATH_ROLE: &str = "initializer_term_path";
 
-/// Invalid fixed M2 configuration descriptor data.
+/// Invalid single-cell configuration descriptor data.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConfigurationDescriptorError {
     /// The authored root-cell name was blank.
@@ -682,11 +682,11 @@ impl fmt::Display for ConfigurationDescriptorError {
             Self::EmptyRoot => formatter.write_str("configuration root name must not be blank"),
             Self::InvalidCellName(name) => write!(
                 formatter,
-                "M2 configuration cell must be named `k`, not `{name}`"
+                "configuration cell must be named `k`, not `{name}`"
             ),
             Self::InvalidCellSort(sort) => write!(
                 formatter,
-                "M2 configuration cell must use builtin KSequence, not {sort:?}"
+                "configuration cell must use builtin KSequence, not {sort:?}"
             ),
             Self::EmptyVariableBinding => {
                 formatter.write_str("configuration-variable binding must not be blank")
@@ -701,7 +701,7 @@ impl fmt::Display for ConfigurationDescriptorError {
             ),
             Self::InvalidInitializerName(name) => write!(
                 formatter,
-                "M2 paired initializer must be named `init`, not `{name}`"
+                "paired initializer must be named `init`, not `{name}`"
             ),
             Self::EmptyInitializerTerm => {
                 formatter.write_str("initializer term spelling must not be blank")

@@ -1,4 +1,4 @@
-//! Hand-built M3 Slice A Definition IR contract.
+//! Hand-built expression-grammar Definition IR contract.
 
 use krs_ir::{
     ApplicationRef, BuiltinOperation, CellDeclaration, ConfigurationSentence, DefinitionIr,

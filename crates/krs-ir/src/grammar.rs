@@ -1,6 +1,6 @@
 //! Target-neutral object-grammar contracts shared by semantic and Definition IR.
 //!
-//! These types classify every K attribute needed by the M3 expression slice.
+//! These types classify every K attribute the expression grammar needs.
 //! In particular, an adapter cannot smuggle raw attribute names, K labels, or
 //! parser-internal production IDs through this layer.
 
