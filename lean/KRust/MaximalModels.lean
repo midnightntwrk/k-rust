@@ -314,8 +314,12 @@ from (`lower_term`, `parser.rs:1490-1492` drops transparent and bracket producti
 lowers `#KRewrite` to a `Term::Rewrite` without a sort); neither is opened here.
 The hypothesis is weaker than `UniquePref` (`uniquePref_loweringConst`): it also holds when the
 free parameter is erased by lowering, as for the parameter of `#KRewrite` inside a bracket.
-Rust test: none yet; the check that compares lowered terms per recorded model is owed to
-ticket LT-05. -/
+Rust check: `Encoding::check_parameter_choice` (`z3_inference.rs`, LT-05) enumerates the
+admissible parameter vectors of every recorded model, lowers each with `Grammar::lower_inferred`
+(`parser.rs`), and fails the compile when two lowered terms differ, so a compile that succeeds
+satisfies this hypothesis for the `f` it computes; `none` there also covers a lowering error.
+Rust test: `crates/k-rust/tests/inner_rules.rs`
+`sort_parameter_choice_visible_after_lowering_is_rejected`. -/
 def LoweringConstOnPref {C : Type} (P : Problem A B) (f : A → B → Option C) : Prop :=
   ∀ a b b', P.IsMax a → P.pref a b → P.pref a b' → f a b = f a b'
 

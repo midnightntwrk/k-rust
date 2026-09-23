@@ -133,6 +133,6 @@ note = "false in general (8 WASM sentences, S4b); LT-05 decides how the Rust enf
 theorem = "KRust.MaximalModels.runs_agree_lowered"
 hypothesis = "hl : LoweringConstOnPref P f"
 meaning = "model application followed by lowering gives the same result for every admissible parameter vector of a recorded maximal real projection; implied by UniquePref"
-owed_by = "LT-05"
-note = "a check that compares the lowered terms of the admissible parameter vectors per recorded model"
+rust_test = "crates/k-rust/tests/inner_rules.rs sort_parameter_choice_visible_after_lowering_is_rejected"
+note = "enforced at run time, not only tested: Encoding::check_parameter_choice (z3_inference.rs) enumerates every admissible parameter vector of each recorded model, lowers each with Grammar::lower_inferred, and fails the compile with ParseError::ParameterChoice when two differ; inner_rules.rs sort_parameter_choice_erased_by_lowering_compiles covers a non-singleton admissible set that lowers to one term"
 ```
