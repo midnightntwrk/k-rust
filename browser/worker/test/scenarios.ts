@@ -39,6 +39,9 @@ export const FORK_IR26 = "0ce51e9339ee538c16580fea01ca98dd89f6d7a0";
 /** Fork eb8eda040 (IR-27): clif2wasm gaps B17-B27 closed; error exits as on 0ce51e933. */
 export const FORK_IR27 = "eb8eda0400b8015a0751e48597eb0969dbbd7b36";
 
+/** Fork 8bf3c69b3 (IR-22): WASM_INIT_FUNCS for .init_array, std::simd fma; error exits as on 0ce51e933. */
+export const FORK_IR22 = "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826";
+
 export class MissingForkExpectation extends Error {
   constructor(scenario: string, forkRevision: string, known: string[]) {
     super(`scenario ${scenario} has no expectation for fork ${forkRevision} (recorded: ${known.join(", ")}); add an expectByFork entry in browser/worker/test/scenarios.ts`);
@@ -117,13 +120,15 @@ export const SCENARIOS: Scenario[] = [
   {
     // BL-006 D002 shape (`sort = missing::M2Obj`). rustc.wasm at 195111dff traps
     // with no output on E0433 in a type path (the twin reports E0433): compiler-trap.
-    // The IR-26 fork (0ce51e933) and IR-27 (eb8eda040) report the E0433 and exit 1, as the twin does.
+    // The IR-26 fork (0ce51e933), IR-27 (eb8eda040), and IR-22 (8bf3c69b3) report the E0433 and exit 1,
+    // as the twin does.
     name: "rustc-e0433-type-path-trap",
     fixture: "rustc-e0433-type-path.rs",
     expectByFork: {
       [FORK_IR04]: { outcome: "failure", stage: "rustc-lesson", code: "compiler-trap" },
       [FORK_IR26]: E0433_TYPE_PATH,
       [FORK_IR27]: E0433_TYPE_PATH,
+      [FORK_IR22]: E0433_TYPE_PATH,
     },
   },
   {

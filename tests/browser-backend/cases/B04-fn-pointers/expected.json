@@ -364,6 +364,133 @@
     "fixed_in": "eb8eda0400b8015a0751e48597eb0969dbbd7b36"
    }
   },
+  "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (8bf3c69b3 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:f5eb664bc8972b5e1245a353515ea77dcb5d4b16a0ead8b1c823b3eb365c4335",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
+  },
   "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
    "status": "pass",
    "reference": {

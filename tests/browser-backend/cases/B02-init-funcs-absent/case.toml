@@ -2,11 +2,13 @@ schema = 1
 id = "B02-init-funcs-absent"
 behavior = "inventory-style `.init_array` registration from a library crate, plus the registration crate's object inspected for a WASM_INIT_FUNCS subsection."
 basis = "spikes/BL-003 backend-control/init-array.rs and the original collector-ab (inventory); IR-03 M1/M2, IR-06 finding"
-# Recorded limitation: clif2wasm drops .init_array, so rustc.wasm gives zero
-# registrations and an object without init functions. It flips to the twin's
-# result only when IR-22 lands, which must be recorded as an intentional expectation change.
-expected_status = "limitation"
-gap = { class = "backend", ticket = "IR-22", summary = "clif2wasm emits no WASM_INIT_FUNCS for .init_array statics; riwl's __wasm_call_ctors therefore calls nothing from browser-compiled code", root_cause = "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (results/BL-003/backend-limitations.md; IR-03 M0/M2 init_funcs_in_object = false)" }
+# Recorded limitation up to eb8eda040: clif2wasm dropped .init_array, so rustc.wasm gave zero
+# registrations and an object without init functions. IR-22 (commit 2544ad0 of
+# krs/ir-22-init-funcs) emits WASM_INIT_FUNCS; from that revision on the case equals the twin
+# (2 init functions, both registrations).
+expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "limitation", "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" = "limitation", "eb8eda0400b8015a0751e48597eb0969dbbd7b36" = "limitation" }
+gap = { class = "backend", ticket = "IR-22", summary = "clif2wasm emits no WASM_INIT_FUNCS for .init_array statics; riwl's __wasm_call_ctors therefore calls nothing from browser-compiled code", root_cause = "fork clif2wasm object writer: no init-funcs subsection is produced for `#[link_section = \".init_array\"]` data (results/BL-003/backend-limitations.md; IR-03 M0/M2 init_funcs_in_object = false)", fixed_in = "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826" }
 
 [[crate]]
 name = "b02_registry"
