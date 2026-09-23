@@ -2,7 +2,12 @@ schema = 1
 id = "B04-fn-pointers"
 behavior = "Static tables of fn pointers across crates, indirect calls, dyn Trait dispatch, closures coerced to fn."
 basis = "BL-003 factory and render pointers; krs HostRegistration::new (crates/krs/src/lib.rs)"
+# Widened by IR-22 with constructs fixed in eb8eda040 (IR-27; B17/B18/B19/B20: checked i64 and u64 multiplies at opt-level 0 (smulhi/umulhi.i64), u8 arithmetic, and a u8 rotate).
+# It passes from eb8eda040 on and is a known gap of 195111dff (R-k) and 0ce51e933 (R-26),
+# whose recorded fork outcome is the first compile failure.
 expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "known-gap", "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" = "known-gap" }
+gap = { class = "backend", summary = "compile failure on forks before eb8eda040: the case uses constructs of IR-16 gaps B17/B18/B19/B20", root_cause = "see the case.toml files of B17/B18/B19/B20", fixed_in = "eb8eda0400b8015a0751e48597eb0969dbbd7b36" }
 
 [[crate]]
 name = "b04_factories"

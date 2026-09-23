@@ -438,6 +438,224 @@
     "/O2/runs/capacity-overflow/stderr/utf8: expected \"\\nthread 'main' (1) panicked at /rustc/<fork-commit>/library/alloc/src/raw_vec/mod.rs:28:5:\\ncapacity overflow\\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\\n\", got \"\\nthread 'main' (1) panicked at /rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/alloc/src/raw_vec/mod.rs:28:5:\\ncapacity overflow\\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\\n\""
    ]
   },
+  "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (8bf3c69b3 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:f5eb664bc8972b5e1245a353515ea77dcb5d4b16a0ead8b1c823b3eb365c4335",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b12_stack_and_memory",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "shadow-stack": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=shadow-stack\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "native-stack": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=native-stack\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "alloc": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=alloc\n"
+       },
+       "stderr": {
+        "utf8": "memory allocation of 1879048192 bytes failed\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      },
+      "capacity-overflow": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=capacity-overflow\n"
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /rustc/<fork-commit>/library/alloc/src/raw_vec/mod.rs:28:5:\ncapacity overflow\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b12_stack_and_memory",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "shadow-stack": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=shadow-stack\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "native-stack": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=native-stack\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "alloc": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=alloc\n"
+       },
+       "stderr": {
+        "utf8": "memory allocation of 1879048192 bytes failed\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      },
+      "capacity-overflow": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=capacity-overflow\n"
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /rustc/<fork-commit>/library/alloc/src/raw_vec/mod.rs:28:5:\ncapacity overflow\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b12_stack_and_memory",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "shadow-stack": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=shadow-stack\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "native-stack": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=native-stack\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "alloc": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=alloc\n"
+       },
+       "stderr": {
+        "utf8": "memory allocation of 1879048192 bytes failed\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      },
+      "capacity-overflow": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=capacity-overflow\n"
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/alloc/src/raw_vec/mod.rs:28:5:\ncapacity overflow\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b12_stack_and_memory",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "shadow-stack": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=shadow-stack\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "native-stack": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=native-stack\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "alloc": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=alloc\n"
+       },
+       "stderr": {
+        "utf8": "memory allocation of 1879048192 bytes failed\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      },
+      "capacity-overflow": {
+       "status": "trap",
+       "stdout": {
+        "utf8": "mode=capacity-overflow\n"
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/alloc/src/raw_vec/mod.rs:28:5:\ncapacity overflow\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [
+    "/O0/runs/capacity-overflow/stderr/utf8: expected \"\\nthread 'main' (1) panicked at /rustc/<fork-commit>/library/alloc/src/raw_vec/mod.rs:28:5:\\ncapacity overflow\\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\\n\", got \"\\nthread 'main' (1) panicked at /rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/alloc/src/raw_vec/mod.rs:28:5:\\ncapacity overflow\\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\\n\"",
+    "/O2/runs/capacity-overflow/stderr/utf8: expected \"\\nthread 'main' (1) panicked at /rustc/<fork-commit>/library/alloc/src/raw_vec/mod.rs:28:5:\\ncapacity overflow\\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\\n\", got \"\\nthread 'main' (1) panicked at /rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/alloc/src/raw_vec/mod.rs:28:5:\\ncapacity overflow\\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\\n\""
+   ]
+  },
   "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
    "status": "pass",
    "reference": {

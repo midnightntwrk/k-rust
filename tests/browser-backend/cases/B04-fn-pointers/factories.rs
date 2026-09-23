@@ -26,8 +26,8 @@ impl Render for Pair {
         format!("pair:{}:{}", self.0, self.1)
     }
     fn weight(&self) -> u64 {
-        // wrapping: a checked u64 multiply needs umulhi.i64 (B18 known gap)
-        u64::from(self.1).wrapping_mul(3)
+        // A checked u64 multiply at opt-level 0 (umulhi.i64; B18, fixed in eb8eda040).
+        u64::from(self.1) * 3
     }
 }
 
@@ -48,8 +48,8 @@ pub struct Registration {
 }
 
 fn double(value: i64) -> i64 {
-    // wrapping: a checked i64 multiply at opt-level 0 needs smulhi.i64 (B17 known gap)
-    value.wrapping_mul(2)
+    // A checked i64 multiply at opt-level 0 (smulhi.i64; B17, fixed in eb8eda040).
+    value * 2
 }
 
 fn negate(value: i64) -> i64 {

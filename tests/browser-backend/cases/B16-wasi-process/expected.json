@@ -224,6 +224,117 @@
    },
    "stable_differs": []
   },
+  "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (8bf3c69b3 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:f5eb664bc8972b5e1245a353515ea77dcb5d4b16a0ead8b1c823b3eb365c4335",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b16_wasi_process",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "base64": "YXJncz1bImIxNl93YXNpX3Byb2Nlc3MiLCAiZmlyc3QiLCAic2Vjb25kIGFyZyIsICItLWZsYWc9dmFsdWUiXQp2YXJzPVsoIkVNUFRZIiwgIiIpLCAoIktSU19DQVNFIiwgIkIxNiIpXQpLUlNfQ0FTRT1PaygiQjE2IikgTUlTU0lORz10cnVlCnN0ZGluPU9rKDApCmN1cnJlbnRfZGlyPU9rKCIvIikKbm8gdHJhaWxpbmcgbmV3bGluZSwgdGhlbiBieXRlczogAAH/"
+       },
+       "stderr": {
+        "utf8": "stderr line 1\nstderr partial"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b16_wasi_process",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "base64": "YXJncz1bImIxNl93YXNpX3Byb2Nlc3MiLCAiZmlyc3QiLCAic2Vjb25kIGFyZyIsICItLWZsYWc9dmFsdWUiXQp2YXJzPVsoIkVNUFRZIiwgIiIpLCAoIktSU19DQVNFIiwgIkIxNiIpXQpLUlNfQ0FTRT1PaygiQjE2IikgTUlTU0lORz10cnVlCnN0ZGluPU9rKDApCmN1cnJlbnRfZGlyPU9rKCIvIikKbm8gdHJhaWxpbmcgbmV3bGluZSwgdGhlbiBieXRlczogAAH/"
+       },
+       "stderr": {
+        "utf8": "stderr line 1\nstderr partial"
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b16_wasi_process",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "base64": "YXJncz1bImIxNl93YXNpX3Byb2Nlc3MiLCAiZmlyc3QiLCAic2Vjb25kIGFyZyIsICItLWZsYWc9dmFsdWUiXQp2YXJzPVsoIkVNUFRZIiwgIiIpLCAoIktSU19DQVNFIiwgIkIxNiIpXQpLUlNfQ0FTRT1PaygiQjE2IikgTUlTU0lORz10cnVlCnN0ZGluPU9rKDApCmN1cnJlbnRfZGlyPU9rKCIvIikKbm8gdHJhaWxpbmcgbmV3bGluZSwgdGhlbiBieXRlczogAAH/"
+       },
+       "stderr": {
+        "utf8": "stderr line 1\nstderr partial"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b16_wasi_process",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "base64": "YXJncz1bImIxNl93YXNpX3Byb2Nlc3MiLCAiZmlyc3QiLCAic2Vjb25kIGFyZyIsICItLWZsYWc9dmFsdWUiXQp2YXJzPVsoIkVNUFRZIiwgIiIpLCAoIktSU19DQVNFIiwgIkIxNiIpXQpLUlNfQ0FTRT1PaygiQjE2IikgTUlTU0lORz10cnVlCnN0ZGluPU9rKDApCmN1cnJlbnRfZGlyPU9rKCIvIikKbm8gdHJhaWxpbmcgbmV3bGluZSwgdGhlbiBieXRlczogAAH/"
+       },
+       "stderr": {
+        "utf8": "stderr line 1\nstderr partial"
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
+  },
   "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
    "status": "pass",
    "reference": {

@@ -28,8 +28,10 @@ narrow!(u32_u8, u32 => u8);
 narrow!(i16_i8, i16 => i8);
 narrow!(u16_u8, u16 => u8);
 narrow!(i16_u8, i16 => u8);
-// Extensions (uextend / sextend). i8 -> i16 and u8 -> u16 are the B19 known gap
-// (clif2wasm: "extend to i16 unimplemented") and are not repeated here.
+// Extensions (uextend / sextend), including i8 -> i16 and u8 -> u16 (B19, fixed in eb8eda040).
+narrow!(i8_i16, i8 => i16);
+narrow!(u8_u16, u8 => u16);
+narrow!(i8_u16, i8 => u16);
 narrow!(i8_i32, i8 => i32);
 narrow!(i8_i64, i8 => i64);
 narrow!(i8_i128, i8 => i128);
@@ -78,7 +80,10 @@ fn main() {
     for value in [0_i8, -1, i8::MIN, i8::MAX, 0x55] {
         let value = black_box(value);
         println!(
-            "i8 {value}: i32={} i64={} i128={} u128={} u8->u64={} u8->u128={}",
+            "i8 {value}: i16={} i8->u16={} u8->u16={} i32={} i64={} i128={} u128={} u8->u64={} u8->u128={}",
+            i8_i16(value),
+            i8_u16(value),
+            u8_u16(value as u8),
             i8_i32(value),
             i8_i64(value),
             i8_i128(value),
@@ -102,7 +107,6 @@ fn main() {
     // The BL-003 control: narrow(0x1234) = 52, narrow(0xffff) = 255.
     println!("bl003 narrow(0x1234)={} narrow(0xffff)={}", u16_u8(black_box(0x1234)), u16_u8(black_box(0xffff)));
     // Wrapping arithmetic in narrow types (i8/i16 results of add, sub, mul, neg, unsigned shr).
-    // Narrow shl, signed div/rem/shr, and rotates are the B20, B25, and B26 known gaps.
     let a = black_box(100_i8);
     let b = black_box(-3_i16);
     println!(
@@ -113,5 +117,31 @@ fn main() {
         b.wrapping_mul(20000),
         b.wrapping_neg(),
         (b as u16) >> 3
+    );
+    // Checked narrow arithmetic (overflow checks at opt-level 0; i8 multiply sign-extends to i16,
+    // B19), narrow shl, signed div/rem/shr (B25, B26), and rotates (B20), all fixed in eb8eda040.
+    let c = black_box(-100_i8);
+    let d = black_box(7_i8);
+    let e = black_box(0xab_u8);
+    let f = black_box(-1234_i16);
+    println!(
+        "narrow checked: {} {} {:?} {:?} {:?} {:?}",
+        c / d * 2 + 1,
+        c % d - 3,
+        c.checked_mul(d),
+        d.checked_mul(black_box(18)),
+        e.checked_add(black_box(0x60)),
+        f.checked_mul(black_box(30))
+    );
+    println!(
+        "narrow shifts: {} {} {} {} {} {} {} {}",
+        (e << black_box(4)) >> 4,
+        c >> black_box(7),
+        f >> black_box(3),
+        f / black_box(-7),
+        f % black_box(100),
+        e.rotate_left(black_box(3)),
+        (f as u16).rotate_right(black_box(5)),
+        c.rotate_left(black_box(9))
     );
 }
