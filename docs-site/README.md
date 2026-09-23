@@ -62,7 +62,7 @@ python3 browser/release/serve-local.py
 # lesson: http://127.0.0.1:8740/lessons/tour-minimal (release.py serve on http://127.0.0.1:8741/); Ctrl-C stops both servers
 ```
 
-The defaults are the fork build `/var/tmp/krs-browser-fork/R-22`, its source checkout `../inspirations/AngelOnFira/rust-22`, and the pack `/var/tmp/krs-ir22/packbuild/pack`; `--fork-build`, `--fork-source`, and `--pack` override them, and `--help` lists the ports and the rest.
+The defaults are the fork build `/var/tmp/krs-browser-fork/R-22`, its source checkout `../inspirations/AngelOnFira/rust-22`, and the pack `/var/tmp/krs-browser-release/packbuild/pack`; `--fork-build`, `--fork-source`, and `--pack` override them, and `--help` lists the ports and the rest.
 The launcher reuses the pack only when its `crates/` and `browser/pack/` trees are the checkout's and its fork revision is the fork build's; otherwise it builds one with `browser/pack/build.sh` (heavy-build flock, `nice -n 19`, `-j 4`) under its state directory (`/var/tmp/krs-local-site-<checkout name>/`).
 It stages and assembles the release with `tests/browser-pack/run.py --steps modules,stage,oracle,licenses,release` when its inputs changed, and builds the site with `bun run build:lesson-worker` and `vocs build` with `VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8741/` when the site or the base changed.
 It runs neither the release gates (`run.py` without `--steps`) nor the docs `check` step of `bun run build`.
