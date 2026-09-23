@@ -2,18 +2,18 @@
 // verifies every pack artifact and the pack_id, compiles rustc.wasm once, and
 // runs the suite through an executor worker (browser_wasi_shim). A cancelled
 // step terminates the worker; the next step starts a fresh one in the same page.
-// The WebDriver/BiDi driver calls window.ir16.run(only) and reads the HostRecord.
+// The WebDriver/BiDi driver calls window.krsBackend.run(only) and reads the HostRecord.
 
-import { ir14PackId, sha256Hex } from "../../../browser/worker/src/pack.ts";
+import { computePackId, sha256Hex } from "../../../browser/worker/src/pack.ts";
 import type { HostRecord, SuiteFile } from "../runner/protocol.ts";
 import { runSuite } from "../runner/suite.ts";
 import { WorkerClient, type Port, type WorkerReply } from "../runner/worker-client.ts";
 
 declare global {
   interface Window {
-    ir16Ready?: boolean;
-    ir16Error?: string;
-    ir16?: { run(only: string[]): Promise<string>; log: string[] };
+    krsBackendReady?: boolean;
+    krsBackendError?: string;
+    krsBackend?: { run(only: string[]): Promise<string>; log: string[] };
   }
 }
 
@@ -54,7 +54,7 @@ async function prepare() {
     else if (artifact.path === suite.pack.sysroot_bundle.path) bundle = bytes;
     else if (/^(deps|proc-macro-meta)\//.test(artifact.path)) files[artifact.path] = bytes;
   }));
-  const packIdRecomputed = await ir14PackId(suite.pack.artifacts);
+  const packIdRecomputed = await computePackId(suite.pack.artifacts);
   if (packIdRecomputed !== suite.pack.pack_id) throw new Error(`pack_id ${suite.pack.pack_id} != ${packIdRecomputed}`);
   if (!rustcBytes || !bundle) throw new Error("the pack has no rustc.wasm or sysroot bundle");
   const compileStarted = performance.now();
@@ -77,7 +77,7 @@ async function prepare() {
 
 const prepared = prepare();
 
-window.ir16 = {
+window.krsBackend = {
   log,
   async run(only: string[]): Promise<string> {
     const started = performance.now();
@@ -113,10 +113,10 @@ window.ir16 = {
 prepared.then(
   () => {
     status.textContent = "ready";
-    window.ir16Ready = true;
+    window.krsBackendReady = true;
   },
   (error: unknown) => {
-    window.ir16Error = String(error instanceof Error ? error.stack ?? error.message : error);
-    status.textContent = `failed: ${window.ir16Error}`;
+    window.krsBackendError = String(error instanceof Error ? error.stack ?? error.message : error);
+    status.textContent = `failed: ${window.krsBackendError}`;
   },
 );

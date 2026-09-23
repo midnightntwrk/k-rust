@@ -1,7 +1,7 @@
 schema = 1
 id = "B14-e0433-type-path"
 behavior = "An unresolved module in a type path (`fn f(_: missing::T)`) must be a compile error E0433."
-basis = "rustc.wasm 195111dff trapped silently on diagnostic case D002 (`sort = missing::Expr`); /var/tmp/krs-ir15-scratch/w/work/p3.rs"
+basis = "rustc.wasm 195111dff trapped silently on diagnostic case D002 (`sort = missing::Expr`)"
 # Regression case for the panic=abort error-exit fix (fork 0ce51e933): passes from that revision on and
 # is the recorded known gap of 195111dff (R-k).
 expected_status = "pass"

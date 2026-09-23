@@ -49,7 +49,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 CASES = HERE / "cases"
 RUNNER = HERE / "runner"
-DEFAULT_PACK = Path("/var/tmp/krs-ir14-pack-a/pack")
+DEFAULT_PACK = Path("/var/tmp/krs-browser-pack/pack")
 DEFAULT_FORK_BUILD = Path("/var/tmp/krs-browser-fork/R-k")
 DEFAULT_FORK_SOURCE = ROOT.parent / "inspirations" / "AngelOnFira" / "rust-krs"
 LOAD_MAX = 40.0
@@ -123,7 +123,7 @@ def pack_section(pack_root: Path) -> dict[str, Any]:
         "artifacts": artifacts,
         "sysroot_mount": manifest["sysroot"]["mount"],
         "fork_flags": fork_flags,
-        # as browser/worker/src/pack-ir14.ts sets them
+        # as browser/worker/src/pack-manifest.ts sets them
         "fork_env": ["CLIF2WASM_OBJECT=1", "RIWL_TIMINGS=1"],
         "externs": externs,
         "_manifest": manifest,
@@ -298,7 +298,7 @@ def stable_deps(args: argparse.Namespace) -> Path:
     (project / "src" / "lib.rs").write_text("")
     dependencies = "\n".join(f'{name} = "{version}"' for name, version in STABLE_DEPS.items())
     (project / "Cargo.toml").write_text(
-        "[package]\nname = \"krs-ir16-stable-deps\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n"
+        "[package]\nname = \"krs-backend-stable-deps\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n"
         f"[dependencies]\n{dependencies}\n\n[workspace]\n\n[profile.release]\npanic = \"abort\"\n"
     )
     wait_for_load()
@@ -405,8 +405,8 @@ def main() -> int:
     parser.add_argument("--fork-build", type=Path, default=DEFAULT_FORK_BUILD, help="fork build root of the same commit as the pack (its stage1 twin is the reference)")
     parser.add_argument("--twin", type=Path, default=None, help="native twin rustc (default: FORK_BUILD/build/x86_64-unknown-linux-gnu/stage1/bin/rustc)")
     parser.add_argument("--fork-source", type=Path, default=DEFAULT_FORK_SOURCE, help="only its wasi-sdk wasm-ld is used (twin links)")
-    parser.add_argument("--scratch", type=Path, default=Path("/var/tmp/krs-ir16-scratch"))
-    parser.add_argument("--out", type=Path, default=Path("/var/tmp/krs-ir16-run"))
+    parser.add_argument("--scratch", type=Path, default=Path("/var/tmp/krs-backend-scratch"))
+    parser.add_argument("--out", type=Path, default=Path("/var/tmp/krs-backend-run"))
     parser.add_argument("--evidence", type=Path, default=None, help="also copy host records, matrix.toml, and expectations.toml here")
     args = parser.parse_args()
 

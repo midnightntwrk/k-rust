@@ -29,7 +29,7 @@ if (!["chromium", "firefox"].includes(browser) || !values.site || !values.out) {
 const port = Number(values.port || (browser === "chromium" ? 4616 : 4626));
 const only = values.only ? values.only.split(",") : [];
 const { server, log, origin } = serveSite(values.site, port);
-const profile = mkdtempSync(`/var/tmp/krs-ir16-${browser}-profile.`);
+const profile = mkdtempSync(`/var/tmp/krs-backend-${browser}-profile.`);
 const started = performance.now();
 
 interface Session {
@@ -165,14 +165,14 @@ try {
   sampler = new TreeSampler(() => session!.pid);
   sampler.start(250);
   for (let i = 0; ; i += 1) {
-    const state = (await session.evaluate("window.ir16Ready === true ? 'ready' : (window.ir16Error ?? 'loading')")) as string;
+    const state = (await session.evaluate("window.krsBackendReady === true ? 'ready' : (window.krsBackendError ?? 'loading')")) as string;
     if (state === "ready") break;
     if (state !== "loading") throw new Error(`page failed: ${state}`);
     if (i > 1200) throw new Error("page did not become ready");
     await Bun.sleep(250);
   }
   sampler.phase = "suite";
-  const text = (await session.evaluate(`window.ir16.run(${JSON.stringify(only)})`)) as string;
+  const text = (await session.evaluate(`window.krsBackend.run(${JSON.stringify(only)})`)) as string;
   record = JSON.parse(text) as HostRecord;
 } catch (error) {
   failure = String(error instanceof Error ? error.stack : error);

@@ -105,7 +105,7 @@ fn main() {
         println!("i64 ext {value}: i128={} u64->u128={}", i64_i128(value), u64_u128(value as u64));
     }
     // The ireduce control: narrow(0x1234) = 52, narrow(0xffff) = 255.
-    println!("bl003 narrow(0x1234)={} narrow(0xffff)={}", u16_u8(black_box(0x1234)), u16_u8(black_box(0xffff)));
+    println!("narrow(0x1234)={} narrow(0xffff)={}", u16_u8(black_box(0x1234)), u16_u8(black_box(0xffff)));
     // Wrapping arithmetic in narrow types (i8/i16 results of add, sub, mul, neg, unsigned shr).
     let a = black_box(100_i8);
     let b = black_box(-3_i16);

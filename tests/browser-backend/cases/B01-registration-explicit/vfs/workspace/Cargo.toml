@@ -1,5 +1,5 @@
 [package]
-name = "bl003-mounted-workspace"
+name = "mounted-workspace"
 version = "0.0.0"
 edition = "2024"
 

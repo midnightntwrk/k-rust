@@ -22,7 +22,7 @@ struct ObservedRegistration {
 
 pub fn run(table: &[&'static Registration]) -> Result<String, Failure> {
     match env::var("COLLECTOR_MODE").as_deref() {
-        Ok("trap") => panic!("deliberate BL-003 trap"),
+        Ok("trap") => panic!("deliberate collector trap"),
         Ok("spin") => loop {
             std::hint::spin_loop();
         },

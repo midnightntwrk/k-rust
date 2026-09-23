@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Worker } from "node:worker_threads";
-import { ir14PackId, sha256Hex } from "../../../browser/worker/src/pack.ts";
+import { computePackId, sha256Hex } from "../../../browser/worker/src/pack.ts";
 import { parseSysrootBundle } from "../../../browser/worker/src/vfs.ts";
 import type { Compiler, HostRecord, RustcRequest, StepResult, SuiteFile } from "./protocol.ts";
 import { runSuite } from "./suite.ts";
@@ -26,7 +26,7 @@ const { values } = parseArgs({
     out: { type: "string" },
     compiler: { type: "string", default: "fork" },
     only: { type: "string", default: "" },
-    scratch: { type: "string", default: "/var/tmp/krs-ir16-node" },
+    scratch: { type: "string", default: "/var/tmp/krs-backend-node" },
     twin: { type: "string", default: "/var/tmp/krs-browser-fork/R-k/build/x86_64-unknown-linux-gnu/stage1/bin/rustc" },
     "wasm-ld": { type: "string", default: "" },
     "stable-deps": { type: "string", default: "" },
@@ -52,7 +52,7 @@ for (const artifact of suite.pack.artifacts) {
   if (bytes.byteLength !== artifact.bytes || digest !== artifact.sha256) throw new Error(`pack artifact ${artifact.path} does not match the manifest`);
   verifiedArtifacts += 1;
 }
-const packIdRecomputed = await ir14PackId(suite.pack.artifacts);
+const packIdRecomputed = await computePackId(suite.pack.artifacts);
 if (packIdRecomputed !== suite.pack.pack_id) throw new Error(`pack_id ${suite.pack.pack_id} != recomputed ${packIdRecomputed}`);
 
 // ---------------------------------------------------------------- executor
