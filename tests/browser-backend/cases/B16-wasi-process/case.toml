@@ -1,0 +1,17 @@
+schema = 1
+id = "B16-wasi-process"
+behavior = "argv, environ, empty stdin, current directory, and byte-exact stdout/stderr including non-UTF-8 bytes and a missing trailing newline."
+basis = "IR-15 runCommand (byte-exact capture); the collector runs with args [collector] and env []"
+expected_status = "pass"
+
+[[crate]]
+name = "b16_wasi_process"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b16_wasi_process"
+args = ["first", "second arg", "--flag=value"]
+env = ["KRS_CASE=B16", "EMPTY="]
+vfs = "vfs"

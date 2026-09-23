@@ -1,0 +1,13 @@
+schema = 1
+id = "B28-deny-lint-exit"
+behavior = "A lint denied by -D warnings is an error exit: the diagnostic, rustc's `aborting due to` summary, exit status 1, no trap."
+basis = "IR-15 lesson flags (-D warnings); IR-06 deny-only control; IR-26"
+expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "known-gap" }
+gap = { class = "backend", summary = "at 195111dff rustc.wasm prints the lint error, then traps with no summary line", root_cause = "IR-26; fixed by 0ce51e933", fixed_in = "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" }
+
+[[crate]]
+name = "b28_deny_lint"
+src = "lib.rs"
+type = "rlib"
+flags = ["-D", "warnings"]

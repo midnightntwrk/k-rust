@@ -1,0 +1,15 @@
+schema = 1
+id = "B08-float-format"
+behavior = "serde_json f64/f32 output for 0.1, 1.5, 1e300, -0.0, subnormals, f64::MAX, non-finite values, and a parse round trip; core float Display/Debug/LowerExp."
+basis = "zmij 1.0.23 as a serde_json 1.0.151 dependency (Cargo.lock)"
+expected_status = "pass"
+
+[[crate]]
+name = "b08_float_format"
+src = "main.rs"
+type = "bin"
+pack = ["serde_json"]
+
+[[run]]
+name = "default"
+bin = "b08_float_format"

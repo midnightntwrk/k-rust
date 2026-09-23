@@ -1,0 +1,133 @@
+# Format of a published KRS browser-lesson release (IR-21).
+#
+# Producer: browser/release/release.py (licenses, assemble). Consumers: release.py fetch,
+# tests/browser-pack/verify.py --check, and browser/worker/src/pack-cache.ts.
+# This file is normative; release.py is the reference writer and verify.py the reference checker.
+# It promotes draft/browser-lessons/spikes/BL-009/pack-manifest.example.toml: the BL-009
+# [schema_contract] required asset fields, url rule, activation, cache, and cleanup rules are
+# kept, and every BL-009 missing_final_role has an entry in the release's `roles`.
+#
+# Layers (each names the one below by content):
+#   index.json                    mutable pointer, the only no-cache file
+#   releases/<sha256>.json        release manifest; <sha256> is the SHA-256 of its bytes
+#   blobs/<sha256>[.ext]          assets; <sha256> is the SHA-256 of the decoded bytes
+#   (inside the release) pack/pack-manifest.toml, the IR-14 pack manifest
+#   (browser/pack/manifest-format.toml), whose pack_id is the content address of the
+#   compiler inputs, and licenses/licenses.toml, the license inventory.
+# Two releases of the same pack share pack_id and blobs; they differ when the modules,
+# lessons, licenses, oracle, or KRS revision differ.
+
+schema_version = 1
+
+# ------------------------------------------------------------------ index.json
+
+[index]
+schema = "integer: 1"
+kind = "string: \"krs-browser-lesson-index\""
+"active.release" = "string: releases/<sha256>.json"
+"active.sha256" = "string: SHA-256 of that file's bytes (a consumer verifies it before parsing)"
+"active.pack_id" = "string: the release's pack_id, so a page can decide whether its cached generation is current without fetching the release"
+cache = "no-cache (hosting.toml); the only mutable file"
+
+# ------------------------------------------------------------------ releases/<sha256>.json
+
+[release]
+encoding = "UTF-8 JSON, written by release.py assemble with a trailing newline; the bytes are the identity"
+schema = "integer: 1"
+kind = "string: \"krs-browser-lesson-release\""
+pack_id = "string: \"sha256:<hex>\", equal to pack/pack-manifest.toml pack_id and pack.json pack_id"
+worker_pack_asset = "string: the asset id of the worker's PackManifest (\"pack.json\"); a PackManifest asset path is a release asset id"
+
+[release.krs]
+revision = "string: the KRS commit the release was assembled from"
+crates_tree = "string: git tree id of crates/ at that commit; must equal the pack's and the modules' crates tree"
+pack_producer_revision = "string: pack-manifest.toml producer.krs_revision (may differ from revision when crates/ did not change)"
+krs_lock_k_rust_commit = "string: Krs.lock [k_rust].commit"
+descriptor_protocol_version = "integer: DescriptorBundle protocol of the oracle (krs-ir ProtocolVersion::CURRENT)"
+
+[release.oracle]
+description = "The IR-17 native oracle for this crates/ tree (regenerate-oracle.sh oracle.toml)."
+recipe = "string"
+krs_revision = "string: oracle.toml krs_revision"
+bundle_sha256 = "string: tour-minimal descriptor bundle"
+bundle_bytes = "integer"
+e1_bundle_sha256 = "string: the E1 edit's bundle"
+
+[release.compiler]
+description = "Copied from pack-manifest.toml [compiler]: fork_repository, fork_revision, fork_commits (the patch set: IR-02, IR-04, IR-26 commits over krs/base), cfg_version, native_twin_rustc_vv, wasip1_host_rustc_vv, target_codegen_backend."
+
+[release.roles]
+description = """One entry per role; each has `status` ("present", "absent", or "in-worker-bundle") and, when present, \
+`assets` (asset ids). An unknown or absent value is encoded as a status plus an omitted value (BL-009 \
+unknown_value_encoding)."""
+krs-target-dependencies = "target-rlib, sysroot-supplement, and proc-macro-metadata assets of the pack"
+krs-expander = "the IR-11 expander module (path C, G1); `protocol` names its JSON protocol"
+lesson-policy = "the IR-13 policy module; `version` is the policy version every staged lesson.json selects"
+collector-template = "status in-worker-bundle: browser/worker/src/collector-template.ts is compiled into worker.js; `source_git_blob` identifies it"
+direct-rustc-arguments = "the [direct_rustc] tables of pack-manifest.toml and pack.json"
+runtime-wasm = "status absent until IR-19 produces krs-lower-wasm and k-rust for Wasm; `reason` says why"
+source-map-protocol = "the IR-10 source map returned by the expander and read by krs_expand_lookup"
+compiler = "compiler/rustc.wasm"
+sysroot = "the RIWB1 bundle and its mount"
+
+[release.licenses]
+asset = "string: \"licenses/licenses.toml\""
+status = "string: \"complete\" or \"incomplete\" (copied)"
+publication_review = "string: always \"required\"; set by no tool"
+components_with_gaps = "array of strings (copied)"
+
+[release.delivery]
+description = "Prose copy of the url rule and header contract (hosting.toml)."
+
+[release.application_cache]
+description = "The BL-009 [application_cache] rules, as browser/worker/src/pack-cache.ts implements them."
+namespace = "string: \"krs-pack-<pack_id hex>\" (Cache API cache name)"
+
+[release.asset]
+description = "Array `assets`, one object per file of the staged asset directory (including licenses/), sorted by id."
+id = "string: path relative to the staged directory (pack/..., modules/..., pack.json, lessons/..., licenses/...)"
+role = "string: an IR-14 artifact role, or pack-manifest, worker-pack-manifest, krs-expander, lesson-policy, lesson, license-inventory, notice"
+url = "string: blobs/<decoded_sha256>[.ext], relative to the base URL (BL-009 url_rule)"
+required_media_type = "string: the Content-Type hosting.toml assigns to url (application/wasm for .wasm)"
+decoded_bytes = "integer"
+decoded_sha256 = "string"
+cache_policy = "string: \"immutable-content-addressed\""
+virtual_path = "string: framework-source only"
+mount_path = "string: sysroot-bundle only"
+load_mode = "string: compiler only"
+
+# ------------------------------------------------------------------ licenses/licenses.toml
+
+[licenses]
+description = "Generated by release.py licenses; never edited by hand. Hand input lives in browser/release/licenses-manual.toml."
+schema_version = "integer: 1"
+kind = "string: \"krs-browser-lesson-licenses\""
+pack_id = "string"
+status = "string: \"complete\" when no component has a gap, else \"incomplete\""
+publication_review = "string: \"required\""
+generator = "table: command, krs_crates_tree, krs_pack_tree, fork_revision, manual_sha256, cargo_version, and [[generator.input]] { name, command, stdout_sha256 } for every raw cargo metadata / cargo tree output"
+summary = "table: components, release_assets, components_with_gaps, license_inferred, notice_missing"
+
+[licenses.component]
+description = "Array of tables, one per shipped or build-time component, sorted by id."
+id = "string: crate:<name>@<version> (crates.io), krs:<package>, fork:<name>, fork-library:<package>, wasi-sdk:<name>, npm:<name>, or a manual id"
+spdx = "string: SPDX expression as declared (Cargo's legacy '/' kept verbatim); never empty"
+license_status = "string: declared (read from a license field or license file) | inferred (read from no file of the component; see basis)"
+basis = "string: where the expression comes from"
+notice_status = "string: present | missing"
+sections = """array of strings: pack-target-rlib, pack-proc-macro-metadata-only, pack-framework-source, pack-build-time, \
+module-linked, module-build-time, fork-sysroot, fork-compiler, release, site. Build-time sections ship nothing by \
+themselves (proc macros ship only as metadata, path C)."""
+assets = "array of strings: release asset ids (or site:<file>) the component ships in"
+notice = "array of tables { path (relative to licenses/), sha256, source }"
+gap = "array of tables { kind (license-inferred | notice-missing), reason } copied from an acknowledged gap"
+
+[licenses.asset]
+description = "Array of tables, one per release asset except licenses/: { id, sha256, components }. Every asset has at least one component."
+
+[licenses.fail_closed]
+generator = """release.py licenses exits 1 and writes no licenses.toml when: a crate in a closure has no license field \
+(license_file only) and no [[crate_override]]; any component has no expression; a component's license is inferred \
+or its notice is missing without a matching [[acknowledged_gap]]; an acknowledged gap matches nothing; a staged \
+asset has no component; the cargo metadata walk and the pack's artifacts disagree; a module closure links z3."""
+checker = "verify.py --check fails when licenses.toml does not cover exactly the release's assets, when a notice file is missing or has another hash, or when a component has an empty expression."

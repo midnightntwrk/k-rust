@@ -1,0 +1,29 @@
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 63
+end = 68
+text = "serde"
+
+[[diagnostic]]
+code = "krs::policy::include"
+start = 138
+end = 155
+text = "include_str!(\"x\")"
+
+[[diagnostic]]
+code = "krs::policy::env"
+start = 157
+end = 171
+text = "env ! (\"HOME\")"
+
+[[diagnostic]]
+code = "krs::policy::extern-crate"
+start = 203
+end = 222
+text = "extern crate alloc;"
+
+[[diagnostic]]
+code = "krs::policy::non-krs-proc-macro"
+start = 233
+end = 237
+text = "lazy"

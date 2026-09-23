@@ -1,0 +1,1394 @@
+{
+ "schema": 2,
+ "case": "B01-registration-explicit",
+ "revisions": {
+  "0ce51e9339ee538c16580fea01ca98dd89f6d7a0": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (0ce51e933 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 0ce51e9339ee538c16580fea01ca98dd89f6d7a0",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:915c873392d636db5c06761625d934b9c561e0c1e176c91aa90feefe04e6dec1",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
+  },
+  "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (195111dff 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
+  },
+  "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (8bf3c69b3 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:f5eb664bc8972b5e1245a353515ea77dcb5d4b16a0ead8b1c823b3eb365c4335",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
+  },
+  "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (eb8eda040 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: eb8eda0400b8015a0751e48597eb0969dbbd7b36",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:a6155f58b7424a819d0dfacceb3018cfe9c8eb03453c49726f2bc54301ce61a9",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b01_model",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_alpha",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_registration_beta",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_runner",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ab",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b01_collector_ba",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "ab": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "ba": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "{\"linked_inputs\":[\"alpha\",\"beta\"],\"manifest\":{\"path\":\"/workspace/Cargo.toml\",\"text\":\"[package]\\nname = \\\"bl003-mounted-workspace\\\"\\nversion = \\\"0.0.0\\\"\\nedition = \\\"2024\\\"\\n\\n\"},\"registrations\":[{\"name\":\"alpha\",\"ordinal\":20,\"rendered\":\"alpha:17\",\"type_id_equal\":true,\"type_id_unequal\":true},{\"name\":\"beta\",\"ordinal\":10,\"rendered\":\"beta:ready\",\"type_id_equal\":true,\"type_id_unequal\":true}],\"schema\":\"krs.browser-lessons.collector-primitives.v1\",\"source\":{\"path\":\"/workspace/src/lesson.krs\",\"text\":\"// BL-003 reads these exact authored bytes through an absolute guest path.\\nmodule LESSON\\n    syntax Value ::= \\\"ready\\\"\\nendmodule\\n\"},\"type_id_control\":{\"equal\":true,\"unequal\":true}}\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      },
+      "missing-source": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"NotFound\",\"message\":\"No such file or directory (os error 44)\",\"path\":\"/workspace/src/missing.krs\",\"stage\":\"source_canonicalize\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "relative-path": {
+       "status": "exit",
+       "exit_code": 2,
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "{\"error\":{\"kind\":\"RelativePath\",\"message\":\"COLLECTOR_MANIFEST_PATH must be an absolute guest path\",\"path\":\"workspace/Cargo.toml\",\"stage\":\"input_validation\"},\"schema\":\"krs.browser-lessons.collector-error.v1\"}\n"
+       }
+      },
+      "trap": {
+       "status": "trap",
+       "stdout": {
+        "utf8": ""
+       },
+       "stderr": {
+        "utf8": "\nthread 'main' (1) panicked at /case/runner.rs:25:23:\ndeliberate BL-003 trap\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
+  }
+ }
+}

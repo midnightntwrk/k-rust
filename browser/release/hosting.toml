@@ -1,0 +1,104 @@
+# HTTP response contract for a published browser-lesson release (IR-21).
+#
+# This file is host-neutral. `release.py assemble` renders it as `_headers`
+# (the Netlify / Cloudflare Pages format) into the publication directory,
+# `release.py serve` applies it to a local server, and `release.py fetch
+# --check-headers` checks a live host against it. The supported deployment is
+# local: `release.py serve` on the build machine (docs-site/README.md, "Browser
+# lesson assets"). Sebastien deferred the choice of a public host until he has
+# reviewed the local deployment, so nothing here names a host.
+#
+# Layout of a publication directory (the base URL points at its root):
+#   index.json                  the mutable pointer to the active release
+#   releases/<sha256>.json      a release manifest, named by the SHA-256 of its bytes
+#   blobs/<sha256>.<ext>        every asset, named by the SHA-256 of its decoded bytes
+#
+# Rules are disjoint: every published path matches exactly one pattern (fnmatch
+# syntax, relative to the base URL), because static-host header files (`_headers`)
+# apply every matching rule and would merge conflicting Content-Type values.
+# Every blob therefore carries an extension (`.bin` when the asset has none), and
+# notice texts are always `.txt`. verify.py --check rejects a path matched by zero
+# or several rules.
+# Content-Encoding is a host choice: if a host compresses, integrity is still
+# checked against the decoded bytes that the release manifest records
+# (BL-009 "Hosting contract"), and Vary: Accept-Encoding is required.
+
+schema_version = 1
+
+# Cross-origin hosting (asset host differs from the page origin) needs CORS.
+# The value is a deployment parameter; "*" is safe here because every asset is
+# public and requests carry no credentials. Same-origin hosts may omit it.
+[cors]
+allow_origin = "*"
+expose_headers = ["Content-Length"]
+
+[[rule]]
+pattern = "index.json"
+content_type = "application/json"
+cache_control = "no-cache"
+immutable = false
+
+[[rule]]
+pattern = "releases/*.json"
+content_type = "application/json"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.wasm"
+# WebAssembly.compileStreaming requires application/wasm.
+content_type = "application/wasm"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.json"
+content_type = "application/json"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.toml"
+content_type = "application/toml"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.txt"
+content_type = "text/plain; charset=utf-8"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.rs"
+content_type = "text/plain; charset=utf-8"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.rlib"
+content_type = "application/octet-stream"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.rmeta"
+content_type = "application/octet-stream"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.bundle"
+content_type = "application/octet-stream"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+[[rule]]
+pattern = "blobs/*.bin"
+content_type = "application/octet-stream"
+cache_control = "public, max-age=31536000, immutable"
+immutable = true
+
+# Every response also carries these.
+[common]
+x_content_type_options = "nosniff"

@@ -1,0 +1,18 @@
+schema = 1
+id = "B29-simd-fma"
+behavior = "std::simd f32x4/f64x2 mul_add (simd_fma), fused per lane."
+basis = "found by IR-22 (reachability probe for a raw fma reaching clif2wasm after IR-27's scalar fix)"
+gap = { class = "backend", summary = "clif2wasm: `lowering fma.f32: unimplemented opcode fma` (and fma.f64) at opt-levels 0 and 2; std::simd mul_add and simd_relaxed_fma fail to compile", root_cause = "compiler/rustc_codegen_cranelift/src/intrinsics/simd.rs (simd_fma, simd_relaxed_fma), intrinsics/llvm.rs (llvm.fma.v*), and codegen_f16_f128.rs (fma_f16) emitted the fma instruction on wasm32; 32d4fc1 only routed the scalar f32/f64 intrinsics to fma/fmaf", fixed_in = "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826" }
+# Fixed by IR-22 (commit e85ebab of krs/ir-22-init-funcs): passes from that revision on and is the
+# recorded known gap of 195111dff (R-k), 0ce51e933 (R-26), and eb8eda040 (R-27).
+expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "known-gap", "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" = "known-gap", "eb8eda0400b8015a0751e48597eb0969dbbd7b36" = "known-gap" }
+
+[[crate]]
+name = "b29_simd_fma"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "default"
+bin = "b29_simd_fma"

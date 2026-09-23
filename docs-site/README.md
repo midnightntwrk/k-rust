@@ -25,3 +25,56 @@ The ordinary fixture compiler gate remains mandatory in both modes.
 Twoslash result-cache reuse is intentionally disabled by using a fresh cache directory for every build.
 This avoids the upstream cache key, which does not include the Cargo manifest, lockfile, tool versions, or dependency sources.
 The fail-closed gate also runs on every enabled build rather than trusting cached success.
+
+## Browser lesson assets
+
+`/lessons/tour-minimal` compiles the `tour-minimal` fixture in the reader's browser with the compiler worker in `../browser/worker`.
+The page imports only `browser/worker/src/protocol.ts` and `controller.ts`.
+`bun run build:lesson-worker` bundles `browser/worker/src/worker.ts` to `public/browser-lesson/worker.js` (ignored by Git); `dev` and `build` run it first.
+
+The compiler pack (about 207 MB, including an 88 MB `rustc.wasm`) is not part of the repository or of `dist/`.
+No CI job builds it.
+The compiler fork and the pack are built by hand on a machine that meets the IR-01 fork-build recipe (LLVM built from source; about 19 minutes at `-j 8`, 17 GB peak memory, and 17 GB of disk), and `../tests/browser-pack/run.py` runs every browser-lesson gate over the result.
+Its location is a build-time setting:
+
+```sh
+VITE_KRS_BROWSER_PACK_BASE=https://example.org/krs-lesson/ bun run build
+```
+
+The value is an absolute URL or an origin-relative path, and it is inlined into the client bundle when Vite builds the site (or when `vocs dev` starts).
+It must name the root of a release publication assembled by `browser/release/release.py assemble` (format: `browser/release/release-format.toml`): `index.json` points to `releases/<sha256>.json`, whose assets are served from `blobs/<sha256>.<ext>`.
+Serve it with the headers in `browser/release/hosting.toml`; a cross-origin base must answer `GET` with `Access-Control-Allow-Origin` for the site's origin.
+When the variable is unset, the build still succeeds and the page renders its "lesson unavailable" state; the documentation workflow (`.github/workflows/docs.yml`) builds this way.
+
+The page fetches `index.json` and the release manifest on load, and the assets only after the reader presses the download button.
+`browser/worker/src/pack-cache.ts` verifies every required asset against the release, keeps it in one Cache Storage namespace per `pack_id`, and deletes inactive namespaces that no worker leases.
+Workers hold that lease and read the verified files from the namespace themselves, so a cancel or a worker replacement does not copy the pack on the page thread.
+
+### Local deployment
+
+The supported deployment is local: `release.py serve` on the build machine serves the publication, and the site points at it.
+Sebastien deferred the choice of a public host until he has reviewed this deployment, so `browser/release/hosting.toml` names no host.
+From the repository root, one command builds what is missing and serves both:
+
+```sh
+python3 browser/release/serve-local.py
+# lesson: http://127.0.0.1:8740/lessons/tour-minimal (release.py serve on http://127.0.0.1:8741/); Ctrl-C stops both servers
+```
+
+The defaults are the fork build `/var/tmp/krs-browser-fork/R-22`, its source checkout `../inspirations/AngelOnFira/rust-22`, and the pack `/var/tmp/krs-ir22/packbuild/pack`; `--fork-build`, `--fork-source`, and `--pack` override them, and `--help` lists the ports and the rest.
+The launcher reuses the pack only when its `crates/` and `browser/pack/` trees are the checkout's and its fork revision is the fork build's; otherwise it builds one with `browser/pack/build.sh` (heavy-build flock, `nice -n 19`, `-j 4`) under its state directory (`/var/tmp/krs-local-site-<checkout name>/`).
+It stages and assembles the release with `tests/browser-pack/run.py --steps modules,stage,oracle,licenses,release` when its inputs changed, and builds the site with `bun run build:lesson-worker` and `vocs build` with `VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8741/` when the site or the base changed.
+It runs neither the release gates (`run.py` without `--steps`) nor the docs `check` step of `bun run build`.
+`CARGO_TARGET_ROOT` is private to the checkout, because a `krs` binary built in another worktree makes the oracle step fail with a Cargo package collision.
+Both servers bind `127.0.0.1`.
+
+`bun ../browser/worker/test/lesson/docs-lesson.ts --site . --assets <publish dir> --out <dir>` drives the built page in headless Chromium and Firefox.
+By default the publication is proxied at the same origin (build with `VITE_KRS_BROWSER_PACK_BASE=/krs-pack/`).
+With `--pack-origin cross` it is a second origin, as in the local deployment, at `http://127.0.0.1:<port + 70>/` (default 5380; build with `VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:5380/`).
+With `--attach` it drives servers that are already running, as the launcher starts them:
+
+```sh
+python3 browser/release/serve-local.py --site-port 5360 --pack-port 5370 --pack-base http://127.0.0.1:5380/ &
+bun browser/worker/test/lesson/docs-lesson.ts --attach --pack-origin cross --site docs-site \
+    --assets /var/tmp/krs-local-site-<checkout name>/run/publish --oracle <oracle bundle> --oracle-e1 <E1 oracle bundle> --out <dir>
+```

@@ -427,6 +427,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-expand"
+version = "0.1.0"
+dependencies = [
+ "krs-ir",
+ "krs-syntax",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "sha2 0.10.9",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "krs-expand-wasm"
+version = "0.1.0"
+dependencies = [
+ "krs-expand",
+ "krs-lesson-policy",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "krs-fmt"
 version = "0.1.0"
 dependencies = [
@@ -459,11 +485,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-lesson-policy"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "toml_edit",
+]
+
+[[package]]
 name = "krs-macros"
 version = "0.1.0"
 dependencies = [
- "krs-ir",
- "krs-syntax",
+ "krs-expand",
  "proc-macro-crate",
  "proc-macro2",
  "quote",

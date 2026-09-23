@@ -1,0 +1,621 @@
+#!/usr/bin/env python3
+"""Native parity gate for explicit descriptor registration.
+
+An inventory-mode census of a copy of `tests/tour-minimal` lists every
+registered descriptor factory, and a generated crate-root registration table is
+appended to that copy. Inventory-mode collection of the copy (configuration A,
+default `krs` features) and explicit-mode collection of the same copy with
+`default-features = false` (configuration B) must produce byte-identical
+canonical descriptor bundles.
+
+Both configurations compile the same absolute path: `krs-macros` hashes
+`Span::file()` into factory names, so a table is valid only for the path the
+crate is compiled from.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+from typing import Any, Sequence
+
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+FIXTURE = ROOT / "tests" / "tour-minimal"
+FACADE = ROOT / "crates" / "krs"
+PACKAGE = "krs-tour-minimal"
+DEFINITION = "main"
+BUNDLE = "descriptor-bundle.json"
+FACADE_DEPENDENCY = 'k = { package = "krs", path = "../../crates/krs" }'
+HIDDEN_CONSTRUCTOR = """
+// Gate-local cfg check: this constructor must be absent from both bundles.
+#[cfg(any())]
+#[k::constructor(sort = M2Obj, syntax = "hidden")]
+pub struct Hidden;
+"""
+CENSUS_MAIN = """\
+//! Lists every inventory registration linked into this process.
+
+#[allow(unused_extern_crates)]
+extern crate lesson as _;
+
+fn main() {
+    let census = krs::__private::registration_census();
+    for registration in &census.registrations {
+        println!("registration\\t{}\\t{}", registration.path, registration.manifest_dir);
+    }
+    for manifest_dir in &census.framework_requests {
+        println!("framework\\t{manifest_dir}");
+    }
+}
+"""
+
+
+class GateError(RuntimeError):
+    """A required explicit-registration parity step failed."""
+
+
+def compact(process: subprocess.CompletedProcess[str], limit: int = 2400) -> str:
+    output = "\n".join(
+        part.strip() for part in (process.stdout, process.stderr) if part.strip()
+    )
+    for path in (ROOT, Path(tempfile.gettempdir())):
+        output = output.replace(str(path), "<PATH>")
+    return output[:limit] + ("..." if len(output) > limit else "")
+
+
+def run(
+    command: Sequence[str | os.PathLike[str]],
+    *,
+    environment: dict[str, str],
+    cwd: Path = ROOT,
+    timeout: int = 1200,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.run(
+        [os.fspath(part) for part in command],
+        cwd=cwd,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    if check and process.returncode != 0:
+        raise GateError(
+            f"command failed ({process.returncode}): {command!r}\n{compact(process)}"
+        )
+    return process
+
+
+def executable(name: str) -> str:
+    result = shutil.which(name)
+    if result is None:
+        raise GateError(f"required executable is unavailable: {name}")
+    return result
+
+
+def z3_library_directory() -> Path:
+    configured = os.environ.get("KRS_Z3_LIB")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend(Path("/nix/store").glob("*-z3-4.12.5-lib/lib"))
+    for candidate in candidates:
+        if candidate.joinpath("libz3.so").is_file():
+            return candidate
+        nested = candidate / "lib"
+        if nested.joinpath("libz3.so").is_file():
+            return nested
+    raise GateError(
+        "Z3 4.12.5 was not found; set KRS_Z3_LIB to its shared-library directory"
+    )
+
+
+def cli_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    z3 = os.fspath(z3_library_directory())
+    for name in ("LD_LIBRARY_PATH", "LIBRARY_PATH"):
+        existing = environment.get(name)
+        environment[name] = os.pathsep.join(
+            item for item in (z3, existing) if item
+        )
+    environment["CARGO_TERM_COLOR"] = "never"
+    environment["CARGO_NET_OFFLINE"] = "true"
+    return environment
+
+
+def production_binary(override: Path | None, environment: dict[str, str]) -> Path:
+    if override is not None:
+        binary = override.resolve()
+        if not binary.is_file():
+            raise GateError(f"requested KRS binary does not exist: {binary}")
+        return binary
+    built = run(
+        [
+            executable("cargo"),
+            "+stable",
+            "build",
+            "--locked",
+            "--offline",
+            "-p",
+            "krs-cli",
+            "--bin",
+            "krs",
+            "--message-format=json-render-diagnostics",
+        ],
+        environment=environment,
+    )
+    for line in built.stdout.splitlines():
+        message = json.loads(line)
+        if (
+            message.get("reason") == "compiler-artifact"
+            and message.get("target", {}).get("name") == "krs"
+            and message.get("executable")
+        ):
+            return Path(message["executable"])
+    raise GateError("Cargo did not report the KRS binary")
+
+
+def facade_dependency(*, inventory: bool) -> str:
+    features = "" if inventory else ", default-features = false"
+    return f'k = {{ package = "krs", path = {json.dumps(os.fspath(FACADE))}{features} }}'
+
+
+def set_inventory(copy: Path, *, inventory: bool) -> None:
+    """Switches the copy's `krs` dependency between configurations A and B."""
+
+    manifest = copy / "Cargo.toml"
+    text = manifest.read_text(encoding="utf-8")
+    current = facade_dependency(inventory=not inventory)
+    if text.count(current) == 1:
+        manifest.write_text(
+            text.replace(current, facade_dependency(inventory=inventory)),
+            encoding="utf-8",
+        )
+    elif text.count(facade_dependency(inventory=inventory)) != 1:
+        raise GateError("the copy's facade dependency was not rewritten as expected")
+
+
+def copy_fixture(destination: Path, *, extra_source: str) -> Path:
+    shutil.copytree(
+        FIXTURE,
+        destination,
+        ignore=shutil.ignore_patterns("target", "verify.py", "__pycache__"),
+    )
+    manifest = destination / "Cargo.toml"
+    text = manifest.read_text(encoding="utf-8")
+    if text.count(FACADE_DEPENDENCY) != 1:
+        raise GateError("tour-minimal no longer declares the expected facade dependency")
+    manifest.write_text(
+        text.replace(FACADE_DEPENDENCY, facade_dependency(inventory=True)),
+        encoding="utf-8",
+    )
+    if extra_source:
+        with (destination / "src" / "lib.rs").open("a", encoding="utf-8") as source:
+            source.write(extra_source)
+    return destination
+
+
+def cargo_metadata(manifest: Path, environment: dict[str, str]) -> dict[str, Any]:
+    output = run(
+        [
+            executable("cargo"),
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--offline",
+            "--manifest-path",
+            manifest,
+        ],
+        environment=environment,
+    )
+    return json.loads(output.stdout)
+
+
+def fixture_identity(copy: Path, environment: dict[str, str]) -> tuple[str, str]:
+    """Returns the library crate root and the `krs` dependency alias."""
+
+    metadata = cargo_metadata(copy / "Cargo.toml", environment)
+    [package] = [item for item in metadata["packages"] if item["name"] == PACKAGE]
+    [library] = [
+        target["name"] for target in package["targets"] if "lib" in target["kind"]
+    ]
+    [facade] = [
+        dependency.get("rename") or dependency["name"]
+        for dependency in package["dependencies"]
+        if dependency["name"] == "krs"
+    ]
+    return library, facade
+
+
+def take_census(
+    lesson: Path, workspace: Path, environment: dict[str, str]
+) -> dict[str, Any]:
+    census = workspace / "census"
+    (census / "src").mkdir(parents=True)
+    (census / "Cargo.toml").write_text(
+        "[package]\n"
+        'name = "krs-registration-census"\n'
+        'version = "0.0.0"\n'
+        'edition = "2024"\n'
+        "publish = false\n\n"
+        "[dependencies]\n"
+        f'lesson = {{ package = "{PACKAGE}", path = {json.dumps(os.fspath(lesson))} }}\n'
+        f"krs = {{ path = {json.dumps(os.fspath(FACADE))} }}\n\n"
+        "[workspace]\n",
+        encoding="utf-8",
+    )
+    (census / "src" / "main.rs").write_text(CENSUS_MAIN, encoding="utf-8")
+    output = run(
+        [
+            executable("cargo"),
+            "run",
+            "--quiet",
+            "--offline",
+            "--manifest-path",
+            census / "Cargo.toml",
+        ],
+        environment=environment,
+        cwd=census,
+    )
+    registrations = []
+    framework_requests = []
+    for line in output.stdout.splitlines():
+        kind, *fields = line.split("\t")
+        if kind == "registration" and len(fields) == 2:
+            registrations.append({"path": fields[0], "manifest_dir": fields[1]})
+        elif kind == "framework" and len(fields) == 1:
+            framework_requests.append(fields[0])
+        else:
+            raise GateError(f"unexpected census line: {line!r}")
+    if not registrations:
+        raise GateError("the census found no registrations")
+    return {"registrations": registrations, "framework_requests": framework_requests}
+
+
+def generate_table(
+    census: dict[str, Any], lesson: Path, crate_root: str, facade: str
+) -> str:
+    """Renders the crate-root registration table for one census.
+
+    `krs_tour_minimal::x` becomes `crate::x`. A factory in a module is private
+    to that module and unreachable from the crate root, so it is rejected.
+    """
+
+    manifest_dir = os.fspath(lesson.resolve())
+    prefix = f"{crate_root}::"
+    paths = []
+    for registration in census["registrations"]:
+        if os.fspath(Path(registration["manifest_dir"]).resolve()) != manifest_dir:
+            continue
+        path = registration["path"]
+        if not path.startswith(prefix):
+            raise GateError(f"census path {path!r} is outside crate root {crate_root}")
+        relative = path[len(prefix) :]
+        if "::" in relative:
+            raise GateError(
+                f"census factory {path!r} is in a module; explicit tables reach only root factories"
+            )
+        paths.append(f"crate::{relative}")
+    if not paths:
+        raise GateError("the census has no registrations from the lesson crate")
+    requests_framework = any(
+        os.fspath(Path(directory).resolve()) == manifest_dir
+        for directory in census["framework_requests"]
+    )
+    lines = [
+        "",
+        "// @generated by tests/explicit-registration/verify.py from an inventory census.",
+        "#[doc(hidden)]",
+        f"pub static __KRS_REGISTRATIONS: {facade}::__private::RegistrationTable =",
+        f"    {facade}::__private::RegistrationTable {{",
+        '        manifest_dir: env!("CARGO_MANIFEST_DIR"),',
+        f"        requests_framework: {'true' if requests_framework else 'false'},",
+        "        register: __krs_register_descriptors,",
+        "    };",
+        "",
+        "#[doc(hidden)]",
+        f"fn __krs_register_descriptors(registrar: &mut {facade}::__private::Registrar) {{",
+        *(f"    registrar.factory({path});" for path in sorted(paths)),
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def append_table(copy: Path, table: str) -> None:
+    with (copy / "src" / "lib.rs").open("a", encoding="utf-8") as source:
+        source.write(table)
+
+
+def emit_bundle(
+    binary: Path,
+    copy: Path,
+    output: Path,
+    registration: str,
+    environment: dict[str, str],
+    *,
+    check: bool = True,
+) -> bytes | None:
+    process = run(
+        [
+            binary,
+            "emit-k",
+            "--manifest-path",
+            copy / "Cargo.toml",
+            "--package",
+            PACKAGE,
+            "--definition",
+            DEFINITION,
+            "--registration",
+            registration,
+            "--output",
+            output,
+        ],
+        environment=environment,
+        check=check,
+    )
+    if process.returncode != 0:
+        return None
+    return (output / BUNDLE).read_bytes()
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def descriptor_ids(bundle: bytes) -> list[str]:
+    document = json.loads(bundle)
+    return sorted(
+        json.dumps(descriptor["id"], sort_keys=True)
+        for descriptor in document["descriptors"]
+    )
+
+
+def collect_both(
+    binary: Path, copy: Path, output: Path, environment: dict[str, str]
+) -> tuple[bytes, bytes | None]:
+    """Collects configuration A, then configuration B, of one copy."""
+
+    set_inventory(copy, inventory=True)
+    inventory_bundle = emit_bundle(
+        binary, copy, output / "inventory", "inventory", environment
+    )
+    assert inventory_bundle is not None
+    set_inventory(copy, inventory=False)
+    explicit_bundle = emit_bundle(
+        binary, copy, output / "explicit", "explicit", environment, check=False
+    )
+    set_inventory(copy, inventory=True)
+    return inventory_bundle, explicit_bundle
+
+
+def parity(
+    binary: Path,
+    workspace: Path,
+    name: str,
+    extra_source: str,
+    environment: dict[str, str],
+) -> dict[str, Any]:
+    """Runs census, table generation, and both collections for one fixture variant."""
+
+    root = workspace / name
+    root.mkdir()
+    copy = copy_fixture(root / "lesson", extra_source=extra_source)
+    crate_root, facade = fixture_identity(copy, environment)
+    census = take_census(copy, root, environment)
+    table = generate_table(census, copy, crate_root, facade)
+    source = copy / "src" / "lib.rs"
+    authored = source.read_bytes()
+    append_table(copy, table)
+    inventory_bundle, explicit_bundle = collect_both(
+        binary, copy, root / "out", environment
+    )
+    if explicit_bundle is None:
+        raise GateError(f"{name}: explicit-mode collection failed")
+    if inventory_bundle != explicit_bundle:
+        raise GateError(
+            f"{name}: explicit bundle {digest(explicit_bundle)} differs from inventory bundle {digest(inventory_bundle)}"
+        )
+    return {
+        "root": root,
+        "copy": copy,
+        "authored": authored,
+        "census": census,
+        "table": table,
+        "bundle": inventory_bundle,
+        "source": source.read_bytes(),
+    }
+
+
+def verify_rejects_inventory(
+    binary: Path, workspace: Path, environment: dict[str, str]
+) -> None:
+    copy = copy_fixture(workspace / "rejected", extra_source="")
+    process = run(
+        [
+            binary,
+            "emit-k",
+            "--manifest-path",
+            copy / "Cargo.toml",
+            "--package",
+            PACKAGE,
+            "--definition",
+            DEFINITION,
+            "--registration",
+            "explicit",
+            "--output",
+            workspace / "rejected-out",
+        ],
+        environment=environment,
+        check=False,
+    )
+    if process.returncode == 0 or "inventory" not in process.stderr:
+        raise GateError(
+            f"explicit mode accepted a graph with `inventory` enabled: {compact(process)}"
+        )
+
+
+def verify_sensitivity(
+    binary: Path, base: dict[str, Any], environment: dict[str, str]
+) -> tuple[str, str]:
+    """Removes one table line and requires the parity comparison to fail.
+
+    The mutation is applied at the base copy's own path so that the remaining
+    factory names stay valid.
+    """
+
+    lines = base["table"].splitlines(keepends=True)
+    factories = [index for index, line in enumerate(lines) if "registrar.factory(" in line]
+    # The rule descriptor is referenced by no other descriptor, so omitting it
+    # still collects successfully and exercises byte comparison itself.
+    rules = [index for index in factories if "head_rule_descriptor" in lines[index]]
+    removed = lines.pop((rules or factories)[-1]).strip()
+    source = base["copy"] / "src" / "lib.rs"
+    source.write_bytes(base["authored"] + "".join(lines).encode("utf-8"))
+    try:
+        inventory_bundle, explicit_bundle = collect_both(
+            binary, base["copy"], base["root"] / "sensitivity", environment
+        )
+    finally:
+        source.write_bytes(base["source"])
+    if explicit_bundle is None:
+        return removed, "explicit collection failed"
+    if explicit_bundle == inventory_bundle:
+        raise GateError(f"removing `{removed}` did not change the explicit bundle")
+    missing = sorted(
+        set(descriptor_ids(inventory_bundle)) - set(descriptor_ids(explicit_bundle))
+    )
+    return removed, f"explicit bundle lacks {len(missing)} descriptor(s)"
+
+
+def verify_fixture_difference(
+    binary: Path, workspace: Path, base: dict[str, Any], environment: dict[str, str]
+) -> str:
+    """Requires the copy to differ from the unmodified fixture only in its source hash."""
+
+    run(
+        [
+            binary,
+            "emit-k",
+            "--manifest-path",
+            FIXTURE / "Cargo.toml",
+            "--package",
+            PACKAGE,
+            "--definition",
+            DEFINITION,
+            "--output",
+            workspace / "fixture-out",
+        ],
+        environment=environment,
+    )
+    fixture_bundle = (workspace / "fixture-out" / BUNDLE).read_bytes()
+    original = digest((FIXTURE / "src" / "lib.rs").read_bytes())
+    modified = digest(base["source"])
+    if fixture_bundle.count(original.encode()) == 0:
+        raise GateError("the fixture bundle does not carry the fixture source hash")
+    if fixture_bundle.replace(original.encode(), modified.encode()) != base["bundle"]:
+        raise GateError(
+            "the copy's bundle differs from the unmodified fixture beyond the src/lib.rs hash"
+        )
+    return digest(fixture_bundle)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--krs",
+        type=Path,
+        help="use an existing production KRS binary instead of building one",
+    )
+    parser.add_argument(
+        "--evidence",
+        type=Path,
+        help="directory receiving the census, table, bundles, and hashes",
+    )
+    arguments = parser.parse_args()
+
+    environment = cli_environment()
+    binary = production_binary(arguments.krs, environment)
+
+    with tempfile.TemporaryDirectory(prefix="krs-explicit-registration-") as temporary:
+        workspace = Path(temporary)
+
+        verify_rejects_inventory(binary, workspace, environment)
+        print("PASS planning: explicit mode rejects an active `inventory` feature")
+
+        base = parity(binary, workspace, "base", "", environment)
+        count = sum(
+            1 for line in base["table"].splitlines() if "registrar.factory(" in line
+        )
+        print(
+            f"PASS parity: explicit and inventory bundles are byte-identical "
+            f"({len(base['bundle'])} bytes, sha256 {digest(base['bundle'])}, {count} table entries)"
+        )
+
+        fixture_digest = verify_fixture_difference(binary, workspace, base, environment)
+        print(
+            "PASS fixture: the tabled copy differs from the unmodified fixture only in the src/lib.rs hash"
+        )
+
+        removed, effect = verify_sensitivity(binary, base, environment)
+        print(f"PASS sensitivity: removing `{removed}` breaks parity ({effect})")
+
+        hidden = parity(binary, workspace, "cfg", HIDDEN_CONSTRUCTOR, environment)
+        if any("Hidden" in item["path"] for item in hidden["census"]["registrations"]):
+            raise GateError("the cfg-disabled constructor was registered")
+        if descriptor_ids(hidden["bundle"]) != descriptor_ids(base["bundle"]):
+            raise GateError("the cfg-disabled constructor changed the descriptor set")
+        print("PASS cfg: a cfg-disabled constructor is absent from both bundles")
+
+        if arguments.evidence is not None:
+            evidence = arguments.evidence
+            evidence.mkdir(parents=True, exist_ok=True)
+            census = {
+                "registrations": [
+                    {
+                        "path": item["path"],
+                        "manifest_dir": "<KRS>/crates/krs"
+                        if Path(item["manifest_dir"]).resolve() == FACADE.resolve()
+                        else "<COPY>",
+                    }
+                    for item in base["census"]["registrations"]
+                ],
+                "framework_requests": [
+                    "<COPY>" for _ in base["census"]["framework_requests"]
+                ],
+            }
+            (evidence / "census.json").write_text(
+                json.dumps(census, indent=2) + "\n", encoding="utf-8"
+            )
+            (evidence / "registration-table.rs").write_text(
+                base["table"], encoding="utf-8"
+            )
+            (evidence / "bundle-inventory.json").write_bytes(base["bundle"])
+            (evidence / "bundle-explicit.json").write_bytes(base["bundle"])
+            (evidence / "hashes.txt").write_text(
+                f"{digest(base['bundle'])}  bundle-inventory.json\n"
+                f"{digest(base['bundle'])}  bundle-explicit.json\n"
+                f"{fixture_digest}  unmodified tour-minimal bundle\n"
+                f"{digest(hidden['bundle'])}  cfg-variant bundle (both modes)\n",
+                encoding="utf-8",
+            )
+    print("PASS explicit-registration")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (GateError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+        print(f"FAIL explicit-registration: {error}", file=sys.stderr)
+        raise SystemExit(1) from error

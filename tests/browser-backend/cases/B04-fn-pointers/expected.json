@@ -1,0 +1,622 @@
+{
+ "schema": 2,
+ "case": "B04-fn-pointers",
+ "revisions": {
+  "0ce51e9339ee538c16580fea01ca98dd89f6d7a0": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (0ce51e933 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 0ce51e9339ee538c16580fea01ca98dd89f6d7a0",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:afc69b11dde8f12e4282c42501715b043f177a45a2dafe71c77f402af692466d",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCs3rbyWxOvZlJ_13b04_factories6double`: lowering `v4 = smulhi.i64 v1, v2  ; v2 = 2`: unimplemented binary opcode smulhi on i64"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "error",
+       "exit": 1,
+       "summary": true,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvXCsdXTJDxWQVFB_15b04_fn_pointersNtB2_5LocalNtCs3rbyWxOvZlJ_13b04_factories6Render6weight`: lowering `v9 = rotl.i8 v2, v8  ; v8 = 4`: narrow-int rotate (i8) unimplemented"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "compile failure on forks before eb8eda040: the case uses constructs of IR-16 gaps B17/B18/B19/B20",
+    "root_cause": "see the case.toml files of B17/B18/B19/B20",
+    "fixed_in": "eb8eda0400b8015a0751e48597eb0969dbbd7b36"
+   }
+  },
+  "195111dff60e2ce0c6d71f7302401cc4c07b0365": {
+   "status": "known-gap",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (195111dff 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [],
+   "fork": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "error",
+       "exit": "trap",
+       "summary": false,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvCs2zFEEBDlqI3_13b04_factories6double`: lowering `v4 = smulhi.i64 v1, v2  ; v2 = 2`: unimplemented binary opcode smulhi on i64"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "error",
+       "exit": "trap",
+       "summary": false,
+       "errors": [
+        {
+         "code": null,
+         "message": "wasm emission failed: translating function `_RNvXCs2aCdmUlGcmG_15b04_fn_pointersNtB2_5LocalNtCs2zFEEBDlqI3_13b04_factories6Render6weight`: lowering `v9 = rotl.i8 v2, v8  ; v8 = 4`: narrow-int rotate (i8) unimplemented"
+        }
+       ]
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "not-run"
+      }
+     }
+    }
+   },
+   "gap": {
+    "class": "backend",
+    "summary": "compile failure on forks before eb8eda040: the case uses constructs of IR-16 gaps B17/B18/B19/B20",
+    "root_cause": "see the case.toml files of B17/B18/B19/B20",
+    "fixed_in": "eb8eda0400b8015a0751e48597eb0969dbbd7b36"
+   }
+  },
+  "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (8bf3c69b3 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: 8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:f5eb664bc8972b5e1245a353515ea77dcb5d4b16a0ead8b1c823b3eb365c4335",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
+  },
+  "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (eb8eda040 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: eb8eda0400b8015a0751e48597eb0969dbbd7b36",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:d45edf965fcf1cc7a4466ee7c75330c2b7386103822506f6d949c2ea4cd5b36d",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b04_factories",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b04_fn_pointers",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "constant -> constant:-42 weight=1 debug=Constant(-42) transform(21)=42\npair -> pair:left:7 weight=21 debug=Pair(\"left\", 7) transform(21)=-21\n[(\"constant=constant:-42\", 1), (\"local=local:9\", 272), (\"pair=pair:right:11\", 33)]\nclosures [-4, 25, 35, 5, 5]\ndyn total weight=147 renders=[\"local:1\", \"pair:left:7\", \"pair:mid:2\"]\nfn_addr_eq table=true reloaded=true\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": []
+  }
+ }
+}

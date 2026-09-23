@@ -1,0 +1,15 @@
+schema = 1
+id = "B07-itoa-serde"
+behavior = "itoa 1.0.18 formatting of u8, u16, i16, u64, i128 extremes; serde_json serialization of a struct with those fields (hand-written Serialize) and a parse round trip."
+basis = "the BL-003 itoa failure; krs-ir to_canonical_json"
+expected_status = "pass"
+
+[[crate]]
+name = "b07_itoa_serde"
+src = "main.rs"
+type = "bin"
+pack = ["itoa", "serde", "serde_json"]
+
+[[run]]
+name = "default"
+bin = "b07_itoa_serde"

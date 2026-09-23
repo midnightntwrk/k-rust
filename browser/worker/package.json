@@ -1,0 +1,25 @@
+{
+  "name": "@krs/browser-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KRS browser compiler pipeline (IR-15): editable lesson source to the canonical DescriptorBundle in a module worker.",
+  "exports": {
+    "./protocol": "./src/protocol.ts",
+    "./controller": "./src/controller.ts"
+  },
+  "scripts": {
+    "test": "bun test test/unit",
+    "typecheck": "tsc --noEmit -p .",
+    "stage": "bun scripts/stage-assets.ts",
+    "build:site": "bun scripts/build-site.ts",
+    "pipeline": "bun test/run-pipeline.ts",
+    "verify": "bun test/verify.ts",
+    "summarize": "bun test/summarize.ts",
+    "controller": "bun test/run-controller.ts",
+    "parity:tour-minimal": "bun test/parity/tour-minimal.ts",
+    "parity:native-diagnostics": "bash test/parity/native-diagnostics.sh",
+    "parity:diagnostics": "bun test/parity/diagnostics.ts",
+    "cache": "bun test/cache/run.ts"
+  }
+}

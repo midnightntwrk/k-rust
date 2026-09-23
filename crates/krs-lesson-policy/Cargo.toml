@@ -1,0 +1,38 @@
+[package]
+name = "krs-lesson-policy"
+description = "Versioned syntactic pre-pass that bounds the editable surface of KRS browser lessons"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["abi"]
+# Exports the `krs_lesson_policy_{alloc,run,dealloc}` Wasm ABI. Crates that
+# link the policy as an rlib (the path-C expander) disable it.
+abi = []
+
+[dependencies]
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+serde.workspace = true
+serde_json.workspace = true
+syn = { version = "2.0.119", features = ["full", "parsing", "visit"] }
+
+[dev-dependencies]
+toml_edit = { version = "0.25.13", default-features = false, features = ["parse"] }
+
+# The workspace table forbids `unsafe_code`; the Wasm ABI needs
+# `#[unsafe(no_mangle)]`, which that lint reports and `forbid` cannot allow
+# locally. This table repeats the workspace policy with `deny`, and only the
+# three ABI exports carry `#[allow(unsafe_code)]`. The crate has no `unsafe`
+# block.
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

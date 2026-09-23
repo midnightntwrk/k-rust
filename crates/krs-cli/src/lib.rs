@@ -25,6 +25,6 @@ pub use metadata::{
 };
 pub use plan::{
     CollectorEntrypoint, CollectorPlan, CollectorRequest, CollectorRuntime, DefinitionRequest,
-    FacetSelector, KrsCfg, PackageSelector, PlanningError, PlanningErrorKind, ResolvedFacet,
-    ResolvedPackage,
+    FacetSelector, KrsCfg, PackageSelector, PlanningError, PlanningErrorKind, RegistrationMode,
+    ResolvedFacet, ResolvedPackage,
 };

@@ -1,0 +1,1080 @@
+# KRS browser dependency pack manifest (browser/pack/manifest.py; format: browser/pack/manifest-format.toml).
+# Generated; every path is relative to the pack root unless it is a virtual (namespace) path.
+schema_version = 2
+manifest_kind = "krs-browser-lesson-pack"
+pack_id = "sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117"
+
+[producer]
+builder = "browser/pack/build.sh"
+krs_revision = "0bb086f800c2df782baccb6cb5350e86d0af8dc9"
+krs_source = "git archive 0bb086f800c2df782baccb6cb5350e86d0af8dc9 mounted read-only at /krs"
+krs_worktree_clean = true
+virtual_root = "/krs"
+cargo_version = "cargo 1.98.0 (797e8a9bc 2026-08-05)"
+cargo_args = [
+  "build",
+  "--locked",
+  "--offline",
+  "--release",
+  "--target",
+  "wasm32-wasip1",
+  "-j",
+  "4",
+  "-v",
+  "--message-format=json-render-diagnostics",
+]
+cargo_env = { CARGO_HOME = "/cargo", CARGO_TARGET_DIR = "/pack-target", CARGO_INCREMENTAL = "0", SOURCE_DATE_EPOCH = "0", RUSTC = "/fork/stage1/bin/rustc" }
+rustflags = [
+  "--remap-path-prefix=/cargo/registry/src/index.crates.io-1949cf8c6b5b557f=/registry",
+  "--remap-path-prefix=/pack-target=/target",
+  "-Cdebuginfo=0",
+  "-Ccodegen-units=1",
+  "-Cpanic=abort",
+  "-Cstrip=none",
+]
+host_rustflags = []
+cargo_lock_sha256 = "ffa0d99f803f3bb9fe3fd35e927e0eddb1e9842645283a8e48a51067c9741ef6"
+registry_index = "index.crates.io-1949cf8c6b5b557f"
+
+[compiler]
+fork_repository = "https://github.com/AngelOnFira/rust"
+fork_revision = "195111dff60e2ce0c6d71f7302401cc4c07b0365"
+fork_commits = [
+  "ff3bf83713454681abff4796e36964afeba6e1c9 clif2wasm: lower every narrowing integer ireduce pair",
+  "cdc07a344b5e391ea00a3ac5641ddb543636658b session: add -Zproc-macro-metadata-only",
+  "8311350569ee0ae2c55463fc8818649a2340d1fc expand: let proc-macro clients be obtained on first use",
+  "d22081044adaf34cd0ffc09f907aeb302c4ac915 metadata: register proc-macro crates from metadata only",
+  "195111dff60e2ce0c6d71f7302401cc4c07b0365 tests: add run-make tests for -Zproc-macro-metadata-only",
+]
+cfg_version = "1.96.0-dev (195111dff 2026-09-23)"
+native_twin_rustc_vv = [
+  "rustc 1.96.0-dev (195111dff 2026-09-23)",
+  "binary: rustc",
+  "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+  "commit-date: 2026-09-23",
+  "host: x86_64-unknown-linux-gnu",
+  "release: 1.96.0-dev",
+  "LLVM version: 22.1.2",
+]
+wasip1_host_rustc_vv = [
+  "rustc 1.96.0-dev (195111dff 2026-09-23)",
+  "binary: rustc",
+  "commit-hash: 195111dff60e2ce0c6d71f7302401cc4c07b0365",
+  "commit-date: 2026-09-23",
+  "host: wasm32-wasip1",
+  "release: 1.96.0-dev",
+  "Cranelift version: 0.130.0",
+]
+target = "wasm32-wasip1"
+target_codegen_backend = "llvm"
+rustc_wasm = "compiler/rustc.wasm"
+rustc_wasm_sha256 = "15f3773c37608b39f644dce668855e74d2748d1ebc9021eeb07399582cf1c5ca"
+
+[sysroot]
+bundle = "sysroot/sysroot-wasip1.bundle"
+bundle_sha256 = "6b5b4bde18b0a92e15ae2dc90076d3852bf8f946bd6a0e62f9205c3ba1d4ce38"
+mount = "/sysroot"
+files = 43
+twin_identical = 42
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libadler2-6d2cb2156532e3e7.rlib"
+bytes = 11068
+sha256 = "f169ab6679091a9dcb059a2d02fa8ba7e5339f3f0b764c39924874472e09d72b"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libadler2-6d2cb2156532e3e7.rmeta"
+bytes = 20301
+sha256 = "d7d3cba2ed227b850efb88451cf9b3351bdfeb1a5016c2f6d14d7a14e613f4f1"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/liballoc-e61093b392aca784.rlib"
+bytes = 279704
+sha256 = "5c0a2f631bd1bc839f4ef74f814e3fc86b9c2671dcafab1312b0f4a58cd181ad"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/liballoc-e61093b392aca784.rmeta"
+bytes = 7019633
+sha256 = "c4b0d1e2b95a2961bea3e3368f92a3663c0a1515a9cb5f76e6a679b875d71565"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libcfg_if-b1385d5ca556d959.rlib"
+bytes = 2768
+sha256 = "3b4428109a5946e6cefad2d7108212f60828c726140d6eb32fba8ff9de72b659"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libcfg_if-b1385d5ca556d959.rmeta"
+bytes = 5491
+sha256 = "316e53f5c34926bb1de7197e9ed595aa41857818a5072c437d5fab1e791ff2b5"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libcompiler_builtins-559ca1961dc5baf0.rlib"
+bytes = 1176256
+sha256 = "4999658778cdbd8088689e3caaa1e10150c620af989c3aa6db82909d191208a2"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libcompiler_builtins-559ca1961dc5baf0.rmeta"
+bytes = 1985808
+sha256 = "f36b9e3b569ad2b3de4216ffffb9467ee0c875fbbe7549780eef8b00928a09d1"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libcore-34010c432c1ddef4.rlib"
+bytes = 1101906
+sha256 = "0dd0c750774de9c1fdf1d7efd166e770fc011ef897374b68f5b8e02a244ff829"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libcore-34010c432c1ddef4.rmeta"
+bytes = 41182628
+sha256 = "13792b0419f08bedc62b43c91e73598b94005e2c53d11516c2da2d2e45995392"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libgetopts-a6781e664d646df5.rlib"
+bytes = 222348
+sha256 = "ffe10d090bcfe77fdbba19e2975c631612836f7df4a9aecc03351dfb33951155"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libgetopts-a6781e664d646df5.rmeta"
+bytes = 210136
+sha256 = "b0d52e41e2feb33cdb7088d54ba41c192c2854abf18fb925524f1aec02e75b06"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libhashbrown-9815a98915fb024e.rlib"
+bytes = 21584
+sha256 = "81c420a81e51c3c9da3c1edf8d644caeea3cf559faf6b33d5e3d72388371e3f6"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libhashbrown-9815a98915fb024e.rmeta"
+bytes = 1555514
+sha256 = "b74ecd7a2cbc7ff253a07cf83c78c2e23626f527fffb300f35900abc825914c4"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/liblibc-51291f7101834ac0.rlib"
+bytes = 3572
+sha256 = "229618de43b3fa4f91b49112ba7ab43486858ea024d0cb2e78a0146c7427c154"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/liblibc-51291f7101834ac0.rmeta"
+bytes = 330340
+sha256 = "f1f229c9a11f746e049c797738a6812fb00b2edb5eaf87ef544978b932ee675e"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libminiz_oxide-2b99edbb42282303.rlib"
+bytes = 93588
+sha256 = "c7c3e1dd18c5c95d26e73fa076a5d9b28fbba547d65007950f68328d8c0aa848"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libminiz_oxide-2b99edbb42282303.rmeta"
+bytes = 123985
+sha256 = "b83dfca7305773a4dd14e24899779c2413cf0b33a85e4695907dfd855b642946"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libpanic_abort-552f286434d9cbd2.rlib"
+bytes = 5174
+sha256 = "46eb34ab4d3b5504449ca630e9bf123727b955dc259007066c9ebadcabe96bcc"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libpanic_abort-552f286434d9cbd2.rmeta"
+bytes = 2894
+sha256 = "36d0d92306bc89f6af4d057c266d384e2dda4610bb0cbf754e13b2167377711b"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libpanic_unwind-7bb8d82ecc00d38a.rlib"
+bytes = 9506
+sha256 = "df778a66d8dfec27cfd7a54ce35f7cfa65b418123a730cab688f0636ea40ecac"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libpanic_unwind-7bb8d82ecc00d38a.rmeta"
+bytes = 7080
+sha256 = "8ae53de5f2313bc03c21743f97a22fcb18060b50541dcc5f2f6427f28ad7ed00"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/librustc_demangle-8608e8429982e4f8.rlib"
+bytes = 210852
+sha256 = "a444a6681167487c4efff735a9591b21ad0301ec91b3a21200cebb9740da14dd"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/librustc_demangle-8608e8429982e4f8.rmeta"
+bytes = 91535
+sha256 = "b3f29fc013cb82d0433a3fbc5b241f8fd45799f906b4e9bfeb10ec55d9353837"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/librustc_std_workspace_alloc-45f592360ff1c86a.rlib"
+bytes = 2862
+sha256 = "afff200c7c8c78821bead0f5a9798099b65d6de0224612252215f2ba5df0655b"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/librustc_std_workspace_alloc-45f592360ff1c86a.rmeta"
+bytes = 2144
+sha256 = "5d3937e716caf798542167e51684d3624b13b341229b300c2f6ce32ea82aeced"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/librustc_std_workspace_core-3b96228ffbbfb13c.rlib"
+bytes = 2858
+sha256 = "5b5a6dcdcdcb757e4a97c88f059363d484305b013efd62a182d8e05affae8e2d"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/librustc_std_workspace_core-3b96228ffbbfb13c.rmeta"
+bytes = 5832
+sha256 = "e742ddd31d62613f9b679c1a42e78a2681e1e30e1dc8c37d64daa6a566fa68bd"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/librustc_std_workspace_std-8b0e252ccb017f07.rlib"
+bytes = 2856
+sha256 = "0472e66203e5bda658566708f93debd34d4d1b58b00680ed6ff20c70bb0714ff"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/librustc_std_workspace_std-8b0e252ccb017f07.rmeta"
+bytes = 6922
+sha256 = "76e1e0080991825f589e7c1b50d481b28a8d0af3ea1509f54a9600a503c72055"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libstd-11442917c5a2cb3d.rlib"
+bytes = 1398800
+sha256 = "d5a2b246ebd1397877f9aed55546cd9f8a509d625e96d69cce4ed86ba27244ae"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libstd-11442917c5a2cb3d.rmeta"
+bytes = 7450517
+sha256 = "17878d7cde6006b5bb548c9668d5554ea66e73cc6f0a6539c5e2c702b8062bc6"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libstd_detect-e30ebe539a5f2b3e.rlib"
+bytes = 2784
+sha256 = "6c4411f1920adc4c7ea79e8d5dc8e8ebc6d7c28731dee669164a27904b5307a4"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libstd_detect-e30ebe539a5f2b3e.rmeta"
+bytes = 221384
+sha256 = "d835b3511eba048baee9cc5e8179e6fd387cd1a7026d19e379a27f929d4fce2d"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libtest-0a30f009c0bb4314.rlib"
+bytes = 2140380
+sha256 = "7c9df4001f16ce3577f74bad146d41ae388fc3cc4e28d1d2ec127f48dbe6226b"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libtest-0a30f009c0bb4314.rmeta"
+bytes = 940545
+sha256 = "25375e2f180bad210abbe0b81cfbf92698d33b85bd3f01c434e963835607643e"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libunicode_width-590ce49bfbc533e8.rmeta"
+bytes = 871097
+sha256 = "5158aecaff014650861e837bb09abeb142b29ebc34af1c5b3f82699ec8ac1706"
+twin = "absent"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libunwind-5e3c28a9a62c530e.rlib"
+bytes = 3414
+sha256 = "e696e1cdef56650668b1e88607994618ecdf1f5009a5d27dbfa73068f9142c18"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libunwind-5e3c28a9a62c530e.rmeta"
+bytes = 14615
+sha256 = "d30859ed065e277a5407934aaf04c345c36ac54af148e72d499cb6c92ecd8c34"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libwasi-95ca43a844a15a07.rlib"
+bytes = 167340
+sha256 = "631756a83dae99fd10d2ecb6c140c45120b53ce6bad4ed9f7038ee873e0209d2"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/libwasi-95ca43a844a15a07.rmeta"
+bytes = 245478
+sha256 = "b89b4dc4ab4641f37ffcac1fa2204e33d6c9b646ec3f07e8f6df3b0aff3d8ef8"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/self-contained/crt1-command.o"
+bytes = 1988
+sha256 = "f817b0c21bbc6909ca0906d4d2b24a58b57589349ef30212202e0c08eb43a71f"
+twin = "identical"
+
+[[sysroot.file]]
+path = "lib/rustlib/wasm32-wasip1/lib/self-contained/libc.a"
+bytes = 3085818
+sha256 = "12d341123f7a3a1fcba64c67c51c1a8fc5ea3aaab8a35044342210afd1b1869f"
+twin = "identical"
+
+[direct_rustc]
+path_base = "pack root"
+edition = "2024"
+target = "wasm32-wasip1"
+sysroot = "/sysroot"
+panic = "abort"
+dependency_search_paths = ["deps", "proc-macro-meta"]
+extra_flags = ["-Zproc-macro-metadata-only"]
+rustc_bootstrap_required = false
+collector_flags = ["-C", "opt-level=2"]
+framework_sources = ["/krs/crates/krs/Cargo.toml", "/krs/crates/krs/src/lib.rs"]
+
+[direct_rustc.externs]
+k = "deps/libkrs-add96ba03f57c1b6.rlib"
+__krs_host_runtime = "deps/libkrs-add96ba03f57c1b6.rlib"
+__krs_compiler_runtime = "deps/libkrs_compiler-cb1260d0465cc762.rlib"
+
+[checks]
+so_files = 0
+inventory_in_lock = false
+krs_depends_on_inventory = false
+krs_depends_on_rustversion = false
+proc_macro_hashes_match_dependents = true
+
+[counts]
+compiler = 1
+framework-source = 2
+proc-macro-metadata = 2
+sysroot-bundle = 1
+sysroot-supplement = 4
+target-rlib = 22
+
+[paths]
+declared = [
+  { pattern = "/krs/", class = "virtual-root", roles = [], note = "IR-12 virtual KRS root; never remapped (CARGO_MANIFEST_DIR, file!(), source file names)" },
+  { pattern = "/registry/", class = "remapped-registry", roles = [], note = "target units: --remap-path-prefix of /cargo/registry/src/<index>; also the fork's own vendored crates" },
+  { pattern = "/target/", class = "remapped-target", roles = ["target-rlib"], note = "target units: --remap-path-prefix of /pack-target (build-script OUT_DIR includes)" },
+  { pattern = "/rustc/195111dff60e2ce0c6d71f7302401cc4c07b0365", class = "fork-std", roles = [], note = "the fork's remapped standard-library and compiler source prefix (rust.remap-debuginfo)" },
+  { pattern = "/cargo/registry/src/", class = "namespace-registry", roles = ["proc-macro-metadata"], note = "host units get no RUSTFLAGS: the build namespace's Cargo home (fixed path, not a host path)" },
+  { pattern = "/pack\\-target/", class = "namespace-target", roles = ["proc-macro-metadata"], note = "host units get no RUSTFLAGS: the build namespace's target directory (fixed path, not a host path)" },
+  { pattern = "/usr/bin/env$", class = "string-literal", roles = ["target-rlib"], note = "syn: the `#!/usr/bin/env` shebang literal" },
+  { pattern = "/tmp/dep_graph\\.gv\\)$", class = "string-literal", roles = ["compiler"], note = "rustc: -Zdump-dep-graph default file name" },
+  { pattern = "/(tmp|home|root)/[^\"`]*[\"`]", class = "string-literal", roles = ["sysroot-bundle"], note = "std rustdoc examples kept in metadata (a quote or backtick ends the literal)" },
+]
+
+[[artifact]]
+path = "compiler/rustc.wasm"
+role = "compiler"
+host = "wasm32-wasip1"
+bytes = 88097160
+sha256 = "15f3773c37608b39f644dce668855e74d2748d1ebc9021eeb07399582cf1c5ca"
+
+[[artifact]]
+path = "deps/libblock_buffer-ff927f868ae791b0.rlib"
+role = "target-rlib"
+crate_name = "block_buffer"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#block-buffer@0.10.4"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libblock_buffer-ff927f868ae791b0.rlib"
+bytes = 64418
+sha256 = "0fe3dd59d09f3008ae992b0fb6814a38eb8c19aa76a6ab2c8b5bec42948017ba"
+svh = "ad66585c853189bc01b0ba7415a1f92c"
+
+[[artifact]]
+path = "deps/libcfg_if-59c2bd7bad593c8d.rlib"
+role = "target-rlib"
+crate_name = "cfg_if"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libcfg_if-59c2bd7bad593c8d.rlib"
+bytes = 5932
+sha256 = "4758a8d0ea6e24f890d3cb65865a7e25b285d0a8bb852fa314f34c140d983a06"
+svh = "f89c2442e81a9f118ad1f6911d1c9853"
+
+[[artifact]]
+path = "deps/libcrypto_common-1402d2813c4b552e.rlib"
+role = "target-rlib"
+crate_name = "crypto_common"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#crypto-common@0.1.7"
+features = ["std"]
+source = "/pack-target/wasm32-wasip1/release/deps/libcrypto_common-1402d2813c4b552e.rlib"
+bytes = 31424
+sha256 = "5cfa390887cdf0fc1ab48294f1319018e840aa34999fbb1a0ffea8fad010acab"
+svh = "2b60e55c000521d8b674f2d8ceace54d"
+
+[[artifact]]
+path = "deps/libdigest-d9624ca753c04684.rlib"
+role = "target-rlib"
+crate_name = "digest"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#digest@0.10.7"
+features = ["alloc", "block-buffer", "core-api", "default", "std"]
+source = "/pack-target/wasm32-wasip1/release/deps/libdigest-d9624ca753c04684.rlib"
+bytes = 191496
+sha256 = "2e2ee55429d3f6c7a62dfb4547500a9f3cfc440d04911a3ef81f84f33a9fc86c"
+svh = "ad6465ed50d21913030f1fc75f8f96b6"
+
+[[artifact]]
+path = "deps/libgeneric_array-163c747cf30bf654.rlib"
+role = "target-rlib"
+crate_name = "generic_array"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#generic-array@0.14.7"
+features = ["more_lengths"]
+source = "/pack-target/wasm32-wasip1/release/deps/libgeneric_array-163c747cf30bf654.rlib"
+bytes = 1037358
+sha256 = "4cbf695069cef06e26d38916648147b9588498a1a3eedc98fc365bcd625348d2"
+svh = "2a743c5a4bff2fb798ada2dc18884612"
+
+[[artifact]]
+path = "deps/libitoa-03d8b3febe99b636.rlib"
+role = "target-rlib"
+crate_name = "itoa"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libitoa-03d8b3febe99b636.rlib"
+bytes = 82852
+sha256 = "c695c201954364e4b79193c3bbe84c00f40e179fb235b0f25db9906a9680aae1"
+svh = "11cdb5cb074a1c10d76c56a67d7c66a2"
+
+[[artifact]]
+path = "deps/libkrs-add96ba03f57c1b6.rlib"
+role = "target-rlib"
+crate_name = "krs"
+package_id = "path+file:///krs/crates/krs#0.1.0"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libkrs-add96ba03f57c1b6.rlib"
+bytes = 578402
+sha256 = "69c163592f4effa865f28d044ea33affd99b3c70021f3afc7c648a2c8b93bb8c"
+svh = "c5c009ebd8136b03c6c6d377258aebe9"
+
+[[artifact]]
+path = "deps/libkrs_compiler-cb1260d0465cc762.rlib"
+role = "target-rlib"
+crate_name = "krs_compiler"
+package_id = "path+file:///krs/crates/krs-compiler#0.1.0"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libkrs_compiler-cb1260d0465cc762.rlib"
+bytes = 4036768
+sha256 = "8491492e1f3446be7d7e6eb1627736f249d9a5f630d38a0d3247593b0e64d917"
+svh = "63c548f2b2e922ce4a4032cafaeb7d16"
+
+[[artifact]]
+path = "deps/libkrs_ir-c7472b21d31f090d.rlib"
+role = "target-rlib"
+crate_name = "krs_ir"
+package_id = "path+file:///krs/crates/krs-ir#0.1.0"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libkrs_ir-c7472b21d31f090d.rlib"
+bytes = 16889722
+sha256 = "aadb8a1d83f5a83b5c1ee6d77f2fafeacf3f2d29263111caad4042d368298a89"
+svh = "7df2f1b9531da97fa650d08da836c7f3"
+
+[[artifact]]
+path = "deps/libkrs_syntax-fe94bba5bfe0e8c6.rlib"
+role = "target-rlib"
+crate_name = "krs_syntax"
+package_id = "path+file:///krs/crates/krs-syntax#0.1.0"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libkrs_syntax-fe94bba5bfe0e8c6.rlib"
+bytes = 2375354
+sha256 = "25675f2f64daacf1b647ff91d66c63087a1815ffc052bed9409fa88ad07c3edb"
+svh = "cb6c60a5cdd16512a655a8a344eccd72"
+
+[[artifact]]
+path = "deps/libmemchr-ca110c2b3b92bee0.rlib"
+role = "target-rlib"
+crate_name = "memchr"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#memchr@2.8.3"
+features = ["alloc", "std"]
+source = "/pack-target/wasm32-wasip1/release/deps/libmemchr-ca110c2b3b92bee0.rlib"
+bytes = 624080
+sha256 = "e9149d4b9724e81a9caf86db6cf111a4b1ce109a265d94ff027dbf4ccbfdef1d"
+svh = "7aad734faf36ac02bc7a994036025c17"
+
+[[artifact]]
+path = "deps/libprettyplease-20af60a1a820bb02.rlib"
+role = "target-rlib"
+crate_name = "prettyplease"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#prettyplease@0.2.37"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libprettyplease-20af60a1a820bb02.rlib"
+bytes = 594228
+sha256 = "4d7e3c2b66c019d883148fb74f29209069a59965f71ba1d5efe962984130e08a"
+svh = "28aa6d4ec08987068e99fe92f3e30981"
+
+[[artifact]]
+path = "deps/libproc_macro-a404906d7aacd2f7.rlib"
+role = "sysroot-supplement"
+crate_name = "proc_macro"
+package_id = "twin sysroot wasm32-wasip1"
+features = []
+source = "<stage1>/lib/rustlib/wasm32-wasip1/lib/libproc_macro-a404906d7aacd2f7.rlib"
+bytes = 1025728
+sha256 = "e4750c73eccb837efcd9926538ebc8272fa7fa8aa66833bd9a2f0b2772a298de"
+
+[[artifact]]
+path = "deps/libproc_macro-a404906d7aacd2f7.rmeta"
+role = "sysroot-supplement"
+crate_name = "proc_macro"
+package_id = "twin sysroot wasm32-wasip1"
+features = []
+source = "<stage1>/lib/rustlib/wasm32-wasip1/lib/libproc_macro-a404906d7aacd2f7.rmeta"
+bytes = 1029586
+sha256 = "0a8e4fd62164aa0ebc41ea6ac2d15c4f13512ccf4fde512b3ec97227af15763f"
+
+[[artifact]]
+path = "deps/libproc_macro2-d68c09ad39bc172e.rlib"
+role = "target-rlib"
+crate_name = "proc_macro2"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107"
+features = ["default", "proc-macro", "span-locations"]
+source = "/pack-target/wasm32-wasip1/release/deps/libproc_macro2-d68c09ad39bc172e.rlib"
+bytes = 590496
+sha256 = "1e465ad2f33cfc968a309278951a080dbf8d55466b1b81557ccd9365364d5051"
+svh = "20a6f8cb459f9140bb76bb5f162429ef"
+
+[[artifact]]
+path = "deps/libquote-794d0c17fbfff555.rlib"
+role = "target-rlib"
+crate_name = "quote"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47"
+features = ["default", "proc-macro"]
+source = "/pack-target/wasm32-wasip1/release/deps/libquote-794d0c17fbfff555.rlib"
+bytes = 370620
+sha256 = "02f7ae1028826d246abfa9b1e51bab61ef72999cd694dcfdbcc6f0ce4d33ae7f"
+svh = "728ce13dc049f43bf0d5bfa942dff3e1"
+
+[[artifact]]
+path = "deps/librustc_literal_escaper-b0393d23ee05aa13.rlib"
+role = "sysroot-supplement"
+crate_name = "rustc_literal_escaper"
+package_id = "twin sysroot wasm32-wasip1"
+features = []
+source = "<stage1>/lib/rustlib/wasm32-wasip1/lib/librustc_literal_escaper-b0393d23ee05aa13.rlib"
+bytes = 2846
+sha256 = "f9d351b773cc313cb032fa4c1aca5642b0a45892c36e285fd43379f4af8aaa5c"
+
+[[artifact]]
+path = "deps/librustc_literal_escaper-b0393d23ee05aa13.rmeta"
+role = "sysroot-supplement"
+crate_name = "rustc_literal_escaper"
+package_id = "twin sysroot wasm32-wasip1"
+features = []
+source = "<stage1>/lib/rustlib/wasm32-wasip1/lib/librustc_literal_escaper-b0393d23ee05aa13.rmeta"
+bytes = 124249
+sha256 = "19dc86bfb8dadfc2cb1fa6a9a405d258d7f6eda4255cd62d486876807a1531f4"
+
+[[artifact]]
+path = "deps/libserde-96768df3d4ad88b9.rlib"
+role = "target-rlib"
+crate_name = "serde"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229"
+features = ["default", "derive", "serde_derive", "std"]
+source = "/pack-target/wasm32-wasip1/release/deps/libserde-96768df3d4ad88b9.rlib"
+bytes = 951924
+sha256 = "47468055b9a84ba2d3f2dd1b3adaf0781cc081a6df1ba5e80dc8d782920c3ac8"
+svh = "770b7309e1a10ff82f5cd70d9815eb69"
+
+[[artifact]]
+path = "deps/libserde_core-21e17427cb05b4a9.rlib"
+role = "target-rlib"
+crate_name = "serde_core"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde_core@1.0.229"
+features = ["result", "std"]
+source = "/pack-target/wasm32-wasip1/release/deps/libserde_core-21e17427cb05b4a9.rlib"
+bytes = 5020738
+sha256 = "0d8e356813ea8ca1c1a8d42bb3854b150839c299ba8d3c80773859d6fefca8d0"
+svh = "3eac93040c661a624524b6b56e47dec3"
+
+[[artifact]]
+path = "deps/libserde_json-fdbb125e8347ddae.rlib"
+role = "target-rlib"
+crate_name = "serde_json"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151"
+features = ["default", "std"]
+source = "/pack-target/wasm32-wasip1/release/deps/libserde_json-fdbb125e8347ddae.rlib"
+bytes = 1799572
+sha256 = "ec05481c8929bcab19c3d76ea6b55952806d631173ec67145c13eda95a5d3e47"
+svh = "334d45de2703f7110cbb3da04b17d060"
+
+[[artifact]]
+path = "deps/libsha2-3296f924ab58113e.rlib"
+role = "target-rlib"
+crate_name = "sha2"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#sha2@0.10.9"
+features = ["default", "std"]
+source = "/pack-target/wasm32-wasip1/release/deps/libsha2-3296f924ab58113e.rlib"
+bytes = 159210
+sha256 = "f98c470e21f6e76fbbd33a3d8ecb484401aca016f60deb17afd4421dab0c0eb3"
+svh = "9f95ecd911b6d4ed9ae0884b3449b65d"
+
+[[artifact]]
+path = "deps/libsyn-b2a6df4a1e1a6f0c.rlib"
+role = "target-rlib"
+crate_name = "syn"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119"
+features = [
+  "clone-impls",
+  "default",
+  "derive",
+  "extra-traits",
+  "full",
+  "parsing",
+  "printing",
+  "proc-macro",
+  "visit",
+]
+source = "/pack-target/wasm32-wasip1/release/deps/libsyn-b2a6df4a1e1a6f0c.rlib"
+bytes = 6322530
+sha256 = "5c7d7394cab32a6f380379502191a6851a72f738b9b02e3829fd69e2f2c4e139"
+svh = "2de659141190c5bb3b5836a85940e99e"
+
+[[artifact]]
+path = "deps/libtypenum-2bac321b891818dd.rlib"
+role = "target-rlib"
+crate_name = "typenum"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#typenum@1.20.1"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libtypenum-2bac321b891818dd.rlib"
+bytes = 2767338
+sha256 = "0c44c07c0602e020f6f659a897ebaeb9c70725e587c1c39bfa24ca8a016db462"
+svh = "8848eb2a3e21ca6fc1dc7e2a264ce574"
+
+[[artifact]]
+path = "deps/libunicode_ident-8dce6f0289940cac.rlib"
+role = "target-rlib"
+crate_name = "unicode_ident"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libunicode_ident-8dce6f0289940cac.rlib"
+bytes = 48434
+sha256 = "537b6b704b201acebbcebc363b9f560551b2a671997b6c453129bcee2f5137fb"
+svh = "d5295431d79f965d3a07767a966d4734"
+
+[[artifact]]
+path = "deps/libzmij-0d7032dedd6ea5ad.rlib"
+role = "target-rlib"
+crate_name = "zmij"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#zmij@1.0.23"
+features = []
+source = "/pack-target/wasm32-wasip1/release/deps/libzmij-0d7032dedd6ea5ad.rlib"
+bytes = 162344
+sha256 = "0ffc2adc3a19e8a82b9db04c39f3b5f3ac818f4e15e1d1d7ffaae6e069131b8e"
+svh = "8274c62e5f39c986a395b69d5bd03640"
+
+[[artifact]]
+path = "krs/crates/krs/Cargo.toml"
+role = "framework-source"
+virtual_path = "/krs/crates/krs/Cargo.toml"
+bytes = 609
+sha256 = "63a4f339c6c1f52d4c59813e341e8da70d8d20ccc515527354dd633f730f897b"
+
+[[artifact]]
+path = "krs/crates/krs/src/lib.rs"
+role = "framework-source"
+virtual_path = "/krs/crates/krs/src/lib.rs"
+bytes = 66730
+sha256 = "a7592227c6ccb08c7370fc1777e0ff553b3c35431ec19054e25fc21998b7808c"
+
+[[artifact]]
+path = "proc-macro-meta/libkrs_macros-e5fa7b53b7bfa6e3.rmeta"
+role = "proc-macro-metadata"
+crate_name = "krs_macros"
+package_id = "path+file:///krs/crates/krs-macros#0.1.0"
+features = []
+bytes = 11361
+sha256 = "f0daa4bc2f45830b01e1fd2d512c7887bc351e21316d3a4362a9629c867279fb"
+svh = "ad2ae6f9cd102b19d1074a6773de967d"
+
+[artifact.provenance]
+source_library = "/pack-target/release/deps/libkrs_macros-e5fa7b53b7bfa6e3.so"
+source_library_sha256 = "e52559be981f10bb83991b2fceb09c924286aebd467eaa63f79fe51cac0145c8"
+section = ".rustc"
+section_bytes = 11377
+payload_offset = 16
+payload_bytes = 11361
+host_triple = "x86_64-unknown-linux-gnu"
+recorded_by = ["krs"]
+
+[[artifact]]
+path = "proc-macro-meta/libserde_derive-34455017fa8b0d0c.rmeta"
+role = "proc-macro-metadata"
+crate_name = "serde_derive"
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde_derive@1.0.229"
+features = ["default"]
+bytes = 82928
+sha256 = "ca3b82daafaa2ea6f03f2eb006190d5b0bcea2caf3c5db7b2f5f0f599b83aead"
+svh = "f3c48a6f83ec400c2fa0f479838b2caa"
+
+[artifact.provenance]
+source_library = "/pack-target/release/deps/libserde_derive-34455017fa8b0d0c.so"
+source_library_sha256 = "a039dd22b0cb59d8658f914f2f95100a29025975fe53a7719586d6462680ed42"
+section = ".rustc"
+section_bytes = 82944
+payload_offset = 16
+payload_bytes = 82928
+host_triple = "x86_64-unknown-linux-gnu"
+recorded_by = ["krs", "krs_compiler", "krs_ir", "krs_syntax", "serde"]
+
+[[artifact]]
+path = "sysroot/sysroot-wasip1.bundle"
+role = "sysroot-bundle"
+format = "RIWB1"
+mount = "/sysroot"
+bytes = 72245785
+sha256 = "6b5b4bde18b0a92e15ae2dc90076d3852bf8f946bd6a0e62f9205c3ba1d4ce38"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#generic-array@0.14.7"
+out_dir = "/pack-target/wasm32-wasip1/release/build/generic-array-3ffb9cb5e24ddc68/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#prettyplease@0.2.37"
+out_dir = "/pack-target/wasm32-wasip1/release/build/prettyplease-68c13babf9c1c7af/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107"
+out_dir = "/pack-target/release/build/proc-macro2-20de66d5eeff08d4/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107"
+out_dir = "/pack-target/wasm32-wasip1/release/build/proc-macro2-58e0aa7bff6f9f1c/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47"
+out_dir = "/pack-target/release/build/quote-28861b373f2ab733/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47"
+out_dir = "/pack-target/wasm32-wasip1/release/build/quote-4f6a3fbe29606886/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229"
+out_dir = "/pack-target/release/build/serde-543e711dc1e4df07/out"
+files = 1
+out_dir_sha256 = "a960191ca3de67eb02dcbc00d3b6fe79fb5f0fd377ef72d082276919c3c4a5cf"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229"
+out_dir = "/pack-target/wasm32-wasip1/release/build/serde-5fdb865a75e359f7/out"
+files = 1
+out_dir_sha256 = "a960191ca3de67eb02dcbc00d3b6fe79fb5f0fd377ef72d082276919c3c4a5cf"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde_core@1.0.229"
+out_dir = "/pack-target/release/build/serde_core-1720abb258b79ed5/out"
+files = 1
+out_dir_sha256 = "041c17ac7f7f7c2dc3f1c7c8ed9a822b129077738c885c94e01e0c86f92e1845"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde_core@1.0.229"
+out_dir = "/pack-target/wasm32-wasip1/release/build/serde_core-cf8c966f4246417e/out"
+files = 1
+out_dir_sha256 = "041c17ac7f7f7c2dc3f1c7c8ed9a822b129077738c885c94e01e0c86f92e1845"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151"
+out_dir = "/pack-target/release/build/serde_json-2fa21568713afa05/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151"
+out_dir = "/pack-target/wasm32-wasip1/release/build/serde_json-47dcc147f762e03d/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#zmij@1.0.23"
+out_dir = "/pack-target/release/build/zmij-3a03b2688807fd25/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[build_script]]
+package_id = "registry+https://github.com/rust-lang/crates.io-index#zmij@1.0.23"
+out_dir = "/pack-target/wasm32-wasip1/release/build/zmij-b902c33f27a65c6e/out"
+files = 0
+out_dir_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[input]]
+name = "native-twin rustc"
+kind = "file"
+path = "<stage1>/bin/rustc"
+sha256 = "d78cba05fa3af52a9c87b96e6735c0193dd90657b4648c0c7a50bec5b9bb7929"
+
+[[input]]
+name = "native-twin compiler library"
+kind = "file"
+path = "<stage1>/lib/librustc_driver-eb914253782bcc30.so"
+sha256 = "3c49f113f6b68519315793d9fe88bdfbde72b8dda7491c21f8e24c11145e935b"
+
+[[input]]
+name = "native-twin x86_64-unknown-linux-gnu standard library"
+kind = "tree"
+path = "<stage1>/lib/rustlib/x86_64-unknown-linux-gnu/lib"
+files = 53
+sha256 = "e9a3599a73f94f31e4c5428f37c4849a562d602da03e7dba00fbdb51d3814233"
+
+[[input]]
+name = "native-twin wasm32-wasip1 standard library"
+kind = "tree"
+path = "<stage1>/lib/rustlib/wasm32-wasip1/lib"
+files = 57
+sha256 = "14040450d7a80150d43e0f6b08fe5511cc278c9cd581c0cbe9b0f5673857f475"
+
+[[input]]
+name = "rustc.wasm"
+kind = "file"
+path = "<fork>/out/rustc/rustc.wasm"
+sha256 = "15f3773c37608b39f644dce668855e74d2748d1ebc9021eeb07399582cf1c5ca"
+
+[[input]]
+name = "sysroot bundle"
+kind = "file"
+path = "<fork>/out/wasip1/stage/rustc/sysroot-wasip1.bundle"
+sha256 = "6b5b4bde18b0a92e15ae2dc90076d3852bf8f946bd6a0e62f9205c3ba1d4ce38"
+
+[[input]]
+name = "browser/pack/Cargo.toml"
+kind = "file"
+path = "/krs/browser/pack/Cargo.toml"
+sha256 = "baf21c8fb8e6ff35f0bcb1329ff6d651f6c6a0fd2a029ce109527005c3242fa6"
+
+[[input]]
+name = "browser/pack/Cargo.lock"
+kind = "file"
+path = "/krs/browser/pack/Cargo.lock"
+sha256 = "ffa0d99f803f3bb9fe3fd35e927e0eddb1e9842645283a8e48a51067c9741ef6"
+
+[[input]]
+name = "browser/pack/lib.rs"
+kind = "file"
+path = "/krs/browser/pack/lib.rs"
+sha256 = "3b6e7e3f1ea7bfe1f1065d992624db1f423359f5c972147de13ba7d1d5947dea"
+
+[[input]]
+name = "KRS crates/ tree"
+kind = "git-tree"
+path = "/krs/crates"
+git_tree = "199c07cfc38861110966d0ce99805035602b0a91"
+
+[[input]]
+name = "KRS browser/pack/ tree"
+kind = "git-tree"
+path = "/krs/browser/pack"
+git_tree = "99296d808e602ec0a8b9d45dbbeb9a81b956d9fc"
+
+[[input]]
+name = "block-buffer 0.10.4"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
+
+[[input]]
+name = "cfg-if 1.0.4"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[input]]
+name = "cpufeatures 0.2.17"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+
+[[input]]
+name = "crypto-common 0.1.7"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+
+[[input]]
+name = "digest 0.10.7"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
+
+[[input]]
+name = "equivalent 1.0.2"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+
+[[input]]
+name = "generic-array 0.14.7"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+
+[[input]]
+name = "hashbrown 0.17.1"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[input]]
+name = "indexmap 2.14.0"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
+
+[[input]]
+name = "itoa 1.0.18"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[input]]
+name = "libc 0.2.189"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+
+[[input]]
+name = "memchr 2.8.3"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[input]]
+name = "prettyplease 0.2.37"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
+
+[[input]]
+name = "proc-macro-crate 3.5.0"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
+
+[[input]]
+name = "proc-macro2 1.0.107"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
+
+[[input]]
+name = "quote 1.0.47"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
+
+[[input]]
+name = "serde 1.0.229"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+
+[[input]]
+name = "serde_core 1.0.229"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+
+[[input]]
+name = "serde_derive 1.0.229"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+
+[[input]]
+name = "serde_json 1.0.151"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+
+[[input]]
+name = "sha2 0.10.9"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+
+[[input]]
+name = "syn 2.0.119"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
+
+[[input]]
+name = "syn 3.0.3"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "53e9bae58849f64dfa4f5d5ae372c8341f7305f82a3868709269343628b659a3"
+
+[[input]]
+name = "toml_datetime 1.1.1+spec-1.1.0"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "3165f65f62e28e0115a00b2ebdd37eb6f3b641855f9d636d3cd4103767159ad7"
+
+[[input]]
+name = "toml_edit 0.25.13+spec-1.1.0"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "6975367e4d2ef766d86af01ffad14b622fecc8d4357a998fbc4deb6e9bacaf9b"
+
+[[input]]
+name = "toml_parser 1.1.3+spec-1.1.0"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
+
+[[input]]
+name = "typenum 1.20.1"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[input]]
+name = "unicode-ident 1.0.24"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[input]]
+name = "version_check 0.9.5"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[input]]
+name = "winnow 1.0.4"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+
+[[input]]
+name = "zmij 1.0.23"
+kind = "crate"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+sha256 = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"

@@ -1,0 +1,30 @@
+schema = 1
+id = "B12-stack-and-memory"
+behavior = "Deep recursion exhausting the shadow stack and the engine stack; allocations beyond the wasm32 address space; capacity overflow."
+basis = "new"
+expected_status = "pass"
+
+[[crate]]
+name = "b12_stack_and_memory"
+src = "main.rs"
+type = "bin"
+
+[[run]]
+name = "shadow-stack"
+bin = "b12_stack_and_memory"
+args = ["shadow-stack"]
+
+[[run]]
+name = "native-stack"
+bin = "b12_stack_and_memory"
+args = ["native-stack"]
+
+[[run]]
+name = "alloc"
+bin = "b12_stack_and_memory"
+args = ["alloc"]
+
+[[run]]
+name = "capacity-overflow"
+bin = "b12_stack_and_memory"
+args = ["capacity-overflow"]

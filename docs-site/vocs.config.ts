@@ -70,6 +70,11 @@ export default defineConfig({
       collapsed: false,
       items: [{ text: 'Five-minute theory', link: '/start/five-minute-theory' }],
     },
+    {
+      text: 'Try it',
+      collapsed: false,
+      items: [{ text: 'Compile in the browser', link: '/lessons/tour-minimal' }],
+    },
   ],
   twoslash: rustTwoslashEnabled
     ? {
