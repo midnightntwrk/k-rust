@@ -19,6 +19,7 @@ ALGO_RECEIPT_STDOUT_KEEP_BYTES=${ALGO_RECEIPT_STDOUT_KEEP_BYTES:-1048576}
 usage() {
   cat <<'EOF'
 Usage: scripts/algo-receipt.sh --workload NAME [--param VALUE] [--repeat N] [--output DIR] [OPTIONS]
+       scripts/algo-receipt.sh --workload NAME --profile-only [--param VALUE] [--output DIR] [OPTIONS]
        scripts/algo-receipt.sh --list
 
 Record algorithm cost receipts for one workload of scripts/algo-workloads.toml.
@@ -48,6 +49,21 @@ A ladder workload records every ladder value in order unless --param names one. 
 slower than the ladder's stop_seconds is killed and ends the ladder; that value and the later
 ones are reported as not reached.
 
+With --profile, after the receipts are recorded, the first repeat of each recorded value is run
+a third time, untraced and without --timings or KRUST_COUNTERS, under
+  taskset -c ALGO_RECEIPT_TASKSET SAMPLY record --save-only --rate HZ
+and `algo-graph profile` resolves every sampled address of KRUST_BIN, inlined calls included,
+from its DWARF line tables and attributes the samples to algorithm cards (see
+`algo-graph profile --help`). The receipt gains profile.json.gz (samply's profile; open it with
+`samply load profile.json.gz` while KRUST_BIN is unchanged), stacks.json (the symbolicated,
+folded stacks), profile.toml (sampled self and total shares by algorithm, and the hottest code no
+card names), and the profiled run's stdout, stderr and meta.toml; metadata.json records
+`sampling` and `profiled`, and the atlas entry records `profile`. --profile-only profiles
+receipts recorded earlier (under --output) without recording them again. The profile is taken
+on the host UID only: samply needs perf_event_open. For a heavy workload the receipts are
+recorded by a guarded child invocation, and samply itself runs outside the memory guard (a
+cgroup memory limit breaks samply's perf buffers), after the same wait for available memory.
+
 Options:
   --workload NAME   Workload name from scripts/algo-workloads.toml (see --list)
   --param VALUE     One ladder value (ladder workloads only)
@@ -55,6 +71,9 @@ Options:
   --output DIR      Workload directory (default: target/algo-receipts/COMMIT/NAME)
   --atlas FILE      Add the recorded receipts to this atlas.toml (created when absent; its
                     commit must be the checkout's)
+  --profile         Also record a samply profile of each value's first repeat (see above)
+  --profile-only    Profile the existing receipts of --output instead of recording
+  --profile-rate HZ samply sampling rate (default: 1000)
   --allow-dirty     Record from a checkout with tracked modifications (metadata says so)
   --allow-unpinned  Permit reference checkouts other than the manifest pins
   --list            Print the workloads and exit
@@ -69,6 +88,10 @@ Environment:
   KRUST_FEATURES    The features KRUST_BIN was built with, recorded in the metadata
                     (default: cli,measure)
   ALGO_GRAPH        algo-graph binary (default: cargo run --release -p algo-graph)
+  SAMPLY            samply binary (default: samply)
+  ALGO_RECEIPT_TASKSET
+                    CPU list for the profiled run (default: 0-15; this host's perf buffers
+                    fail with `mmap failed` on more CPUs)
   ALGO_RECEIPT_WORK Work root for prepared definitions and run scratch
                     (default: target/algo-receipts/work)
   K_CHECKOUT, IMP_SEMANTICS_CHECKOUT, WASM_SEMANTICS_CHECKOUT, EVM_SEMANTICS_CHECKOUT,
@@ -84,10 +107,11 @@ ALGO_RECEIPT_HEAVY_WAIT_SECONDS (default 600) they exit 4 without recording.
 
 atlas.toml: schema = 1, commit = the full krust revision, and one [[receipt]] per receipt with
 workload, command, param_name and param (ladder workloads only), repeat, join (the join.toml
-path relative to the atlas), wall_seconds and peak_rss_kib of the measured run. Recording a
-receipt again replaces its entry.
+path relative to the atlas), wall_seconds and peak_rss_kib of the measured run, and profile
+(the profile.toml path relative to the atlas) once profiled. Recording a receipt again replaces
+its entry.
 
-Requires: python3 (3.11 or later), jq, git.
+Requires: python3 (3.11 or later), jq, git; for profiles, samply and taskset.
 EOF
 }
 
@@ -268,7 +292,7 @@ def check_output(check_path, stdout_path, exit_code):
     print(json.dumps({"passed": passed, "expect": check.get("expect"), "checks": results}))
 
 
-def update_atlas(atlas_path, commit, entries_path):
+def update_atlas(atlas_path, commit, entries_path, profiles_path):
     atlas = Path(atlas_path)
     receipts = []
     if atlas.exists():
@@ -276,10 +300,16 @@ def update_atlas(atlas_path, commit, entries_path):
         if existing.get("commit") != commit:
             raise SystemExit(f"error: {atlas} indexes commit {existing.get('commit')}, not {commit}")
         receipts = existing.get("receipt", [])
-    new = [json.loads(line) for line in Path(entries_path).read_text().splitlines() if line]
+    read = lambda path: [json.loads(line) for line in Path(path).read_text().splitlines() if line]
+    new = read(entries_path)
     key = lambda receipt: (receipt["workload"], receipt.get("param"), receipt["repeat"])
     replaced = {key(receipt) for receipt in new}
     receipts = [receipt for receipt in receipts if key(receipt) not in replaced] + new
+    for profile in read(profiles_path):
+        matching = [receipt for receipt in receipts if key(receipt) == key(profile)]
+        if not matching:
+            raise SystemExit(f"error: {atlas} has no receipt {key(profile)} for the profile {profile['profile']}")
+        matching[0]["profile"] = profile["profile"]
     receipts.sort(key=lambda receipt: (receipt["workload"], receipt.get("param", -1), receipt["repeat"]))
 
     def value(item):
@@ -288,7 +318,7 @@ def update_atlas(atlas_path, commit, entries_path):
         return repr(item)
 
     lines = ["schema = 1", f"commit = {json.dumps(commit)}"]
-    order = ["workload", "command", "param_name", "param", "repeat", "join", "wall_seconds", "peak_rss_kib"]
+    order = ["workload", "command", "param_name", "param", "repeat", "join", "wall_seconds", "peak_rss_kib", "profile"]
     for receipt in receipts:
         lines += ["", "[[receipt]]"]
         lines += [f"{field} = {value(receipt[field])}" for field in order if receipt.get(field) is not None]
@@ -312,7 +342,7 @@ elif action == "shape":
 elif action == "check":
     check_output(*sys.argv[2:5])
 elif action == "atlas":
-    update_atlas(*sys.argv[2:5])
+    update_atlas(*sys.argv[2:6])
 elif action == "list":
     list_workloads()
 else:
@@ -324,6 +354,11 @@ shell_command() {
   local output=
   printf -v output '%q ' "$@"
   printf '%s' "${output% }"
+}
+
+# A top-level integer of profile.toml; top-level keys precede its tables.
+profile_field() {
+  awk -v key="$2" '$1 == key && $2 == "=" { print $3; exit }' "$1"
 }
 
 measure_field() {
@@ -346,6 +381,11 @@ allow_dirty=0
 allow_unpinned=0
 list=0
 dry_run=0
+profile=0
+profile_only=0
+profile_rate=1000
+SAMPLY=${SAMPLY:-samply}
+ALGO_RECEIPT_TASKSET=${ALGO_RECEIPT_TASKSET:-0-15}
 
 while (($#)); do
   case "$1" in
@@ -358,6 +398,9 @@ while (($#)); do
     --allow-unpinned) allow_unpinned=1; shift ;;
     --list) list=1; shift ;;
     --dry-run) dry_run=1; shift ;;
+    --profile) profile=1; shift ;;
+    --profile-only) profile_only=1; shift ;;
+    --profile-rate) profile_rate=${2:?}; shift 2 ;;
     -h|--help) usage; exit ;;
     *) fail "unknown option: $1" ;;
   esac
@@ -371,6 +414,8 @@ if [[ "$list" == 1 ]]; then
 fi
 [[ -n "$workload" ]] || fail "--workload is required (see --list)"
 [[ "$repeat" =~ ^[1-9][0-9]*$ ]] || fail "--repeat must be a positive integer"
+[[ "$profile_rate" =~ ^[1-9][0-9]*$ ]] || fail "--profile-rate must be a positive integer"
+[[ "$profile" == 0 || "$profile_only" == 0 ]] || fail "--profile and --profile-only exclude each other"
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 
 # The workload's shape: its weight, command, pins, and ladder values.
@@ -436,26 +481,45 @@ if [[ "$dry_run" == 1 ]]; then
     [[ "$(jq -r .input <<<"$resolved")" == null ]] \
       || printf 'input: %s (the ladder template at %s)\n' "$run-input/$workload.$(input_extension)" "$(jq -r .param_name <<<"$resolved")=$value"
     mapfile -t args < <(jq -r '.args[]' <<<"$resolved")
-    printf 'measured: KRUST_COUNTERS=%q %s < /dev/null\n' "RECEIPT/counters.json" \
-      "$(shell_command "$KRUST_BIN" "$command_kind" "${args[@]}" --timings RECEIPT/timings.json)"
-    printf 'traced: KRUST_COUNTERS=%q %s < /dev/null\n' "RECEIPT/counters.traced.json" \
-      "$(shell_command "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate RECEIPT/trace-aggregate.json)"
-    printf 'check: %s\n' "$(jq -c .check <<<"$resolved")"
-    [[ "$weight" != heavy ]] || echo "guard: the whole job runs under scripts/reference-memory-guard.sh${memory_gib:+ with a $memory_gib GiB scope}"
+    if [[ "$profile_only" == 0 ]]; then
+      printf 'measured: KRUST_COUNTERS=%q %s < /dev/null\n' "RECEIPT/counters.json" \
+        "$(shell_command "$KRUST_BIN" "$command_kind" "${args[@]}" --timings RECEIPT/timings.json)"
+      printf 'traced: KRUST_COUNTERS=%q %s < /dev/null\n' "RECEIPT/counters.traced.json" \
+        "$(shell_command "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate RECEIPT/trace-aggregate.json)"
+    fi
+    if [[ "$profile" == 1 || "$profile_only" == 1 ]]; then
+      printf 'profiled (rep-1): %s < /dev/null\n' \
+        "$(shell_command taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate" -o RECEIPT/profile.json.gz -- "$KRUST_BIN" "$command_kind" "${args[@]}")"
+      printf 'attribution: %s\n' "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply RECEIPT/profile.json.gz --binary "$KRUST_BIN" --graph RECEIPT/graph.toml --stacks RECEIPT/stacks.json -o RECEIPT/profile.toml)"
+    fi
+    [[ "$profile_only" == 1 ]] || printf 'check: %s\n' "$(jq -c .check <<<"$resolved")"
+    if [[ "$weight" == heavy && "$profile_only" == 0 ]]; then
+      echo "guard: the recording runs under scripts/reference-memory-guard.sh${memory_gib:+ with a $memory_gib GiB scope}$([[ "$profile" == 1 ]] && echo '; the profiled run does not')"
+    fi
   done
   exit
 fi
 
-if [[ "$weight" == heavy ]]; then
-  if [[ -n "$memory_gib" ]]; then
-    # The workload's own scope; the fallback's address-space limit and the availability wait
-    # keep the guard's 8 GiB of headroom above it.
-    export REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB=$((memory_gib * 1024 * 1024))
-    export REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB=$((memory_gib * 1024 * 1024))
-    export REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB=$(((memory_gib + 8) * 1024 * 1024))
-    ((ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB >= memory_gib + 8)) \
-      || ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB=$((memory_gib + 8))
-  fi
+if [[ "$weight" == heavy && -n "$memory_gib" ]]; then
+  # The workload's own scope; the fallback's address-space limit and the availability wait
+  # keep the guard's 8 GiB of headroom above it.
+  export REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB=$((memory_gib * 1024 * 1024))
+  export REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB=$((memory_gib * 1024 * 1024))
+  export REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB=$(((memory_gib + 8) * 1024 * 1024))
+  ((ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB >= memory_gib + 8)) \
+    || ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB=$((memory_gib + 8))
+fi
+if [[ "$weight" == heavy && "$profile" == 1 ]]; then
+  # The receipts are recorded by a child that enters the memory guard; samply then runs here,
+  # outside it, because a cgroup memory limit breaks its perf buffers.
+  record_args=()
+  for argument in "${original_args[@]}"; do
+    [[ "$argument" != --profile ]] && record_args+=("$argument")
+  done
+  "$BASH" "${BASH_SOURCE[0]}" "${record_args[@]}" || exit
+  profile=0
+  profile_only=1
+elif [[ "$weight" == heavy && "$profile_only" == 0 ]]; then
   # shellcheck disable=SC1091  # followed by shellcheck -x
   source "$workspace/scripts/reference-memory-guard.sh"
   reference_enter_whole_job "${original_args[@]}"
@@ -469,6 +533,10 @@ fi
   || fail "KRUST_BIN has no --trace-aggregate option; rebuild it from this checkout"
 if [[ "$dirty" == true && "$allow_dirty" != 1 ]]; then
   fail "the checkout has tracked modifications; commit them or pass --allow-dirty"
+fi
+if [[ "$profile" == 1 || "$profile_only" == 1 ]]; then
+  command -v "$SAMPLY" >/dev/null 2>&1 || fail "samply is required for a profile (SAMPLY=$SAMPLY)"
+  command -v taskset >/dev/null 2>&1 || fail "taskset is required for a profile"
 fi
 while IFS=$'\t' read -r pin checkout revision actual; do
   [[ -e "$checkout/.git" ]] || fail "$pin checkout is missing: $checkout"
@@ -510,21 +578,24 @@ fi
 krust_version=$("$KRUST_BIN" --version)
 rustc_version=$(rustc --version 2>/dev/null || echo unavailable)
 atlas_entries=$(mktemp)
-trap 'rm -f "$atlas_entries"' EXIT
+profile_entries=$(mktemp)
+trap 'rm -f "$atlas_entries" "$profile_entries"' EXIT
 not_reached=()
 
-# Record one receipt into $receipt; returns 3 when a ladder run exceeds its stop time.
-record_receipt() {
-  local value=$1
-  local index=$2
-  local resolved step creates timeout traced_timeout
-  local -a step_args args
-  resolved=$(resolve_param "$value" "$(input_extension)")
-  : >"$receipt/command.txt"
+# Run the prepare steps of the resolved workload and write its ladder input; the third
+# argument, when 0, leaves command.txt alone.
+prepare_workload() {
+  local resolved=$1
+  local value=$2
+  local log=${3:-1}
+  local step creates
+  local -a step_args
   while IFS= read -r step; do
     creates=$(jq -r .creates <<<"$step")
     mapfile -t step_args < <(jq -r '.args[]' <<<"$step")
-    log_command prepare "$(shell_command "$KRUST_BIN" "$(jq -r .command <<<"$step")" "${step_args[@]}")${creates:+ (skipped when $creates exists)}"
+    if [[ "$log" == 1 ]]; then
+      log_command prepare "$(shell_command "$KRUST_BIN" "$(jq -r .command <<<"$step")" "${step_args[@]}")${creates:+ (skipped when $creates exists)}"
+    fi
     if [[ ! -e "$creates" ]]; then
       echo "[$workload] preparing $(jq -r .name <<<"$step")"
       "$KRUST_BIN" "$(jq -r .command <<<"$step")" "${step_args[@]}" </dev/null >"$receipt/prepare.log" 2>&1 \
@@ -535,10 +606,24 @@ record_receipt() {
   rm -f "$receipt/prepare.log"
   if [[ "$(jq -r .input <<<"$resolved")" != null ]]; then
     jq -j .input <<<"$resolved" >"$run-input/$workload.$(input_extension)"
-    cp "$run-input/$workload.$(input_extension)" "$receipt/input.$(input_extension)"
-    printf 'input: %s written from the ladder template with %s=%s (copy: input.%s)\n' \
-      "$run-input/$workload.$(input_extension)" "$(jq -r .param_name <<<"$resolved")" "$value" "$(input_extension)" >>"$receipt/command.txt"
+    cmp -s "$run-input/$workload.$(input_extension)" "$receipt/input.$(input_extension)" \
+      || cp "$run-input/$workload.$(input_extension)" "$receipt/input.$(input_extension)"
+    if [[ "$log" == 1 ]]; then
+      printf 'input: %s written from the ladder template with %s=%s (copy: input.%s)\n' \
+        "$run-input/$workload.$(input_extension)" "$(jq -r .param_name <<<"$resolved")" "$value" "$(input_extension)" >>"$receipt/command.txt"
+    fi
   fi
+}
+
+# Record one receipt into $receipt; returns 3 when a ladder run exceeds its stop time.
+record_receipt() {
+  local value=$1
+  local index=$2
+  local resolved timeout traced_timeout
+  local -a args
+  resolved=$(resolve_param "$value" "$(input_extension)")
+  : >"$receipt/command.txt"
+  prepare_workload "$resolved" "$value"
   jq .check <<<"$resolved" >"$receipt/check.json"
   mapfile -t args < <(jq -r '.args[]' <<<"$resolved")
   timeout=()
@@ -712,11 +797,90 @@ record_receipt() {
   echo "[$workload${value:+ $value} rep-$index] $(measure_field "$receipt/measured" wall_seconds) s, $(measure_field "$receipt/measured" peak_rss_mib) MiB; traced $(measure_field "$receipt/traced" wall_seconds) s; $receipt"
 }
 
+# Profile the receipt $receipt of one value with samply, attribute the samples, and record the
+# profile in metadata.json and, with --atlas, in the atlas entries.
+profile_receipt() {
+  local value=$1
+  local resolved timeout exit_code measured_exit stdout_sha256 stdout_match=false samply_version
+  local -a args
+  [[ -f "$receipt/metadata.json" && -f "$receipt/graph.toml" ]] \
+    || { echo "error: $receipt holds no recorded receipt to profile" >&2; return 1; }
+  resolved=$(resolve_param "$value" "$(input_extension)")
+  prepare_workload "$resolved" "$value" 0
+  mapfile -t args < <(jq -r '.args[]' <<<"$resolved")
+  timeout=()
+  if [[ "$(jq -r .stop_seconds <<<"$resolved")" != null ]]; then
+    timeout=(--timeout "$(($(jq -r .stop_seconds <<<"$resolved") * 3))")
+  fi
+  rm -rf "$run" && mkdir -p "$run"
+  rm -f "$receipt/profile.json.gz" "$receipt/stacks.json" "$receipt/profile.toml"
+  local -a record=(taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate"
+    -o "$receipt/profile.json.gz" -- "$KRUST_BIN" "$command_kind" "${args[@]}")
+  log_command profiled "$(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" -- "${record[@]}") < /dev/null"
+  echo "[$workload${value:+ $value} rep-1] profiled run at $profile_rate Hz"
+  python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" -- \
+    "${record[@]}" </dev/null || true
+  rm -rf "$run"
+  exit_code=$(measure_field "$receipt/profiled" exit_code)
+  measured_exit=$(jq -r .unprofiled.exit_code "$receipt/metadata.json")
+  stdout_sha256=$(sha256sum "$receipt/profiled.stdout" | cut -d' ' -f1)
+  [[ "$stdout_sha256" != "$(jq -r .stdout.sha256 "$receipt/metadata.json")" ]] || stdout_match=true
+  if (($(stat -c %s "$receipt/profiled.stdout") > ALGO_RECEIPT_STDOUT_KEEP_BYTES)); then
+    head -c 65536 "$receipt/profiled.stdout" >"$receipt/profiled.stdout.head"
+    rm "$receipt/profiled.stdout"
+  fi
+  if [[ "$exit_code" != "$measured_exit" || ! -s "$receipt/profile.json.gz" ]]; then
+    echo "error: the profiled run exited $exit_code (measured: $measured_exit) or wrote no profile; $receipt/profiled.stderr ends with:" >&2
+    tail -n 5 "$receipt/profiled.stderr" >&2
+    if grep -q 'mmap failed' "$receipt/profiled.stderr"; then
+      echo "hint: samply's perf buffers need a smaller CPU set (ALGO_RECEIPT_TASKSET) and no cgroup memory limit" >&2
+    fi
+    return 1
+  fi
+  log_command attribution "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply "$receipt/profile.json.gz" --binary "$KRUST_BIN" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json" -o "$receipt/profile.toml")"
+  "${algo_graph[@]}" --root "$workspace" profile --samply "$receipt/profile.json.gz" \
+    --binary "$KRUST_BIN" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json" \
+    -o "$receipt/profile.toml" 2>/dev/null \
+    || { echo "error: algo-graph profile failed for $receipt" >&2; return 1; }
+  samply_version=$("$SAMPLY" --version)
+  local metadata
+  metadata=$(jq \
+    --arg samply "$samply_version" \
+    --arg taskset "$ALGO_RECEIPT_TASKSET" \
+    --argjson rate "$profile_rate" \
+    --argjson samples "$(profile_field "$receipt/profile.toml" samples)" \
+    --argjson truncated "$(profile_field "$receipt/profile.toml" truncated_samples)" \
+    --argjson wall "$(measure_field "$receipt/profiled" wall_seconds)" \
+    --argjson rss "$(measure_field "$receipt/profiled" peak_rss_kib)" \
+    --argjson exit_code "$exit_code" \
+    --argjson stdout_match "$stdout_match" \
+    '.tools.samply = $samply
+     | .sampling = {tool: "samply record", rate_hz: $rate, cpus: $taskset, sample_count: $samples,
+                    truncated_samples: $truncated, symbolication: "algo-graph profile (DWARF line tables, inlined frames)"}
+     | .profiled = {wall_seconds: $wall, peak_rss_kib: $rss, exit_code: $exit_code,
+                    stdout_matches_measured: $stdout_match,
+                    note: "untraced, without --timings and KRUST_COUNTERS; wall includes samply start and profile writing, and peak RSS is the larger of samply and krust"}' \
+    "$receipt/metadata.json") || { echo "error: could not record the profile in $receipt/metadata.json" >&2; return 1; }
+  printf '%s\n' "$metadata" >"$receipt/metadata.json"
+  [[ "$stdout_match" == true ]] || echo "warning: the profiled run's stdout differs from the measured run's" >&2
+  if [[ -n "$atlas" ]]; then
+    jq -n -c \
+      --arg workload "$workload" \
+      --arg param "$value" \
+      --arg profile "$(realpath --relative-to="$(dirname "$atlas")" "$receipt/profile.toml")" \
+      '{workload: $workload, param: (if $param == "" then null else ($param | tonumber) end),
+        repeat: 1, profile: $profile}' >>"$profile_entries"
+  fi
+  echo "[$workload${value:+ $value} rep-1] $(profile_field "$receipt/profile.toml" samples) samples; $receipt/profile.toml"
+}
+
 # The join records each receipt directory relative to the parent of the workload directory, so
 # its label is WORKLOAD/VALUE/rep-K wherever the receipts are kept.
 output_root=$(dirname "$output")
 status=0
+recorded=()
 for position in "${!params[@]}"; do
+  [[ "$profile_only" == 0 ]] || break
   value=${params[$position]}
   for ((index = 1; index <= repeat; index++)); do
     receipt="$output/${value:-base}/rep-$index"
@@ -733,10 +897,29 @@ for position in "${!params[@]}"; do
     fi
     ((outcome == 0)) || { status=1; break 2; }
   done
+  recorded+=("$value")
 done
+if [[ "$profile_only" == 1 ]]; then
+  recorded=("${params[@]}")
+fi
 
-if [[ -n "$atlas" && -s "$atlas_entries" ]]; then
-  helper atlas "$atlas" "$commit" "$atlas_entries"
+if [[ "$status" == 0 && ("$profile" == 1 || "$profile_only" == 1) ]]; then
+  for value in "${recorded[@]}"; do
+    receipt="$output/${value:-base}/rep-1"
+    if [[ "$profile_only" == 1 && ! -d "$receipt" ]]; then
+      echo "[$workload${value:+ $value}] no receipt at $receipt; not profiled" >&2
+      continue
+    fi
+    set +e
+    profile_receipt "$value"
+    outcome=$?
+    set -e
+    ((outcome == 0)) || { status=1; break; }
+  done
+fi
+
+if [[ -n "$atlas" && (-s "$atlas_entries" || -s "$profile_entries") ]]; then
+  helper atlas "$atlas" "$commit" "$atlas_entries" "$profile_entries"
   echo "[$workload] indexed in $atlas"
 fi
 if ((${#not_reached[@]})); then
