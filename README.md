@@ -564,6 +564,7 @@ used. Set `K_CHECKOUT` when the ignored reference checkout is not at `k/`.
 
 See [Testing contracts](docs/testing.md) for test placement, subsystem ownership, reference evidence, and the manual conformance acceptance workflow.
 See the generated [algorithm map](docs/algorithm-map.md) first for work that spans algorithms: pipelines, representations, contracts, and cost bounds.
+See [finding structural optimizations](docs/optimization-method.md) for the measurement procedure behind performance work that spans algorithms.
 
 The workspace requires Rust 1.88 or newer.
 CI checks all targets with the locked dependency graph on exactly Rust 1.88 so source and dependency changes cannot silently exceed the declared minimum supported Rust version.
