@@ -317,7 +317,7 @@ args = [
 ]
 [workload.ladder]
 param = "n"
-values = [10, 30, 100, 300]
+values = [10, 30, 100, 300, 1000]
 stop_seconds = 120
 input = """
 datatype 'a mylist = Nil | Cons('a, 'a mylist)
