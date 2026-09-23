@@ -16,6 +16,9 @@ the native twin are skipped):
       --base-url https://<host>/<path>/ --release <release sha256> [--out DIR]
 
 Steps (local mode, in order; --steps selects a subset, dependencies are the caller's concern):
+  expectations        fail first, with the file to edit, when the pack's fork revision has no recorded
+                      expectation: IR-15 scenarios with expectByFork (browser/worker/test/scenarios.ts) and
+                      every IR-16 case (tests/browser-backend/cases/*/expected.json; --record-backend records them)
   modules             krs-lesson-policy and krs-expand-wasm, each in its own cargo invocation (IR-15 finding 3)
   stage               browser/worker/scripts/stage-assets.ts over --pack and the two modules
   oracle              browser/worker/test/parity/regenerate-oracle.sh (IR-17 native oracle for this crates/ tree)
@@ -24,13 +27,14 @@ Steps (local mode, in order; --steps selects a subset, dependencies are the call
   fetch               serve OUT/publish under hosting.toml, fetch the release by its SHA-256 with header checks,
                       and require the fetched directory to equal the staged one; later steps use the fetched copy
   check               tests/browser-pack/verify.py --check (pack, pack.json, licenses, oracle, release) and --falsify
+  pipeline            IR-15 scenarios through the pipeline stage functions under Bun (test/run-pipeline.ts)
   tour-minimal        IR-17 bundle parity, headless Chromium and Firefox
   native-diagnostics  IR-18 native baseline and twin controls (needs the twin of the pack's fork)
   diagnostics         IR-18 diagnostic parity, headless Chromium and Firefox
   backend             IR-16 backend suite: --host all --references (twin; --record-backend adds --record for a new fork commit)
   cache               IR-21 cache and corruption tests, headless Chromium and Firefox
   rebuild             (only with --rebuild) tests/browser-pack/verify.py --rebuild: two clean pack builds compared byte for byte
-Hosted mode runs: fetch, oracle, check, tour-minimal, backend (hosts against expected.json, no references), cache.
+Hosted mode runs: fetch, expectations, oracle, check, pipeline, tour-minimal, backend (hosts against expected.json, no references), cache.
 
 Resource rules: the runner waits while the 1-minute load exceeds LOAD_MAX (default 40) before each step;
 cargo runs at nice -n 19 with -j JOBS (default 4); pack builds take the heavy-build flock (build.sh).
@@ -60,8 +64,8 @@ WORKER = ROOT / "browser/worker"
 RELEASE = ROOT / "browser/release/release.py"
 LOAD_MAX = float(os.environ.get("LOAD_MAX", "40"))
 JOBS = os.environ.get("JOBS", "4")
-LOCAL_STEPS = ["modules", "stage", "oracle", "licenses", "release", "fetch", "check", "tour-minimal", "native-diagnostics", "diagnostics", "backend", "cache"]
-HOSTED_STEPS = ["fetch", "oracle", "check", "tour-minimal", "backend", "cache"]
+LOCAL_STEPS = ["expectations", "modules", "stage", "oracle", "licenses", "release", "fetch", "check", "pipeline", "tour-minimal", "native-diagnostics", "diagnostics", "backend", "cache"]
+HOSTED_STEPS = ["fetch", "expectations", "oracle", "check", "pipeline", "tour-minimal", "backend", "cache"]
 
 
 def log(message: str) -> None:
@@ -173,6 +177,28 @@ class Runner:
         if ok:
             ok = self.step("fetch-equals-staged", ["diff", "-r", "--exclude=.release.json", self.staged, self.fetched])
         return ok
+
+    def fork_revision(self) -> str:
+        manifest = (self.args.pack / "pack-manifest.toml") if self.args.pack else (self.assets / "pack/pack-manifest.toml")
+        return tomllib.loads(manifest.read_text())["compiler"]["fork_revision"]
+
+    def expectations(self) -> bool:
+        fork = self.fork_revision()
+        script = ("import { scenariosMissingFork } from './test/scenarios.ts';"
+                  f"const missing = scenariosMissingFork('{fork}');"
+                  "if (missing.length) { console.error(`IR-15 scenarios without an expectation for fork " + fork + " (add expectByFork entries in browser/worker/test/scenarios.ts): ${missing.join(', ')}`); process.exit(1); }"
+                  "console.log('IR-15 scenarios: every fork-dependent scenario has an expectation for " + fork + "');")
+        ok = self.step("expectations-ir15", ["bun", "-e", script], cwd=WORKER)
+        missing = sorted(p.parent.name for p in (ROOT / "tests/browser-backend/cases").glob("*/expected.json")
+                         if fork not in json.loads(p.read_text()).get("revisions", {}))
+        if missing and not self.args.record_backend:
+            message = (f"IR-16 cases without an expected.json entry for fork {fork}: {', '.join(missing)}; "
+                       "record them with --record-backend (tests/browser-backend/verify.py --record) and review the diff")
+            return self.step("expectations-ir16", ["sh", "-c", f"echo '{message}' >&2; exit 1"]) and False
+        return self.step("expectations-ir16", ["sh", "-c", f"echo 'IR-16: {'recording ' + str(len(missing)) + ' cases' if missing else 'every case has an entry'} for fork {fork}'"]) and ok
+
+    def pipeline(self) -> bool:
+        return self.step("pipeline", ["bun", "test/run-pipeline.ts", "--assets", self.assets, "--out", self.out / "ir15-pipeline-bun.json"], cwd=WORKER)
 
     def check(self) -> bool:
         command = ["python3", HERE / "verify.py", "--check", "--staged", self.assets, "--out", self.out / "check.json"]

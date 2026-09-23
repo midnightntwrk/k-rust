@@ -20,8 +20,14 @@ export interface Expectation {
 export interface Scenario {
   name: string;
   fixture: string;
-  expect: Expectation;
-  /** Expectations that differ by the pack's fork_revision (compiler behaviour changes). */
+  /** The expectation on every fork revision, for a scenario whose outcome does not depend on the fork. */
+  expect?: Expectation;
+  /**
+   * Expectations keyed by the pack's fork_revision, for a scenario whose outcome
+   * depends on the compiler. There is no fallback: a fork revision without an
+   * entry is an error (MissingForkExpectation), so a new fork commit must be
+   * recorded here on purpose (IR-21).
+   */
   expectByFork?: Record<string, Expectation>;
 }
 
@@ -30,10 +36,39 @@ export const FORK_IR04 = "195111dff60e2ce0c6d71f7302401cc4c07b0365";
 /** Fork 0ce51e933 (IR-26): errors finish as natively (summary lines, exit 1, no trap). */
 export const FORK_IR26 = "0ce51e9339ee538c16580fea01ca98dd89f6d7a0";
 
-/** The expectation for a scenario under the pack's fork revision. */
-export function expectationFor(scenario: Scenario, forkRevision: string): Expectation {
-  return scenario.expectByFork?.[forkRevision] ?? scenario.expect;
+/** Fork eb8eda040 (IR-27): clif2wasm gaps B17-B27 closed; error exits as on 0ce51e933. */
+export const FORK_IR27 = "eb8eda0400b8015a0751e48597eb0969dbbd7b36";
+
+export class MissingForkExpectation extends Error {
+  constructor(scenario: string, forkRevision: string, known: string[]) {
+    super(`scenario ${scenario} has no expectation for fork ${forkRevision} (recorded: ${known.join(", ")}); add an expectByFork entry in browser/worker/test/scenarios.ts`);
+    this.name = "MissingForkExpectation";
+  }
 }
+
+/** The expectation for a scenario under the pack's fork revision; throws for an unrecorded fork. */
+export function expectationFor(scenario: Scenario, forkRevision: string): Expectation {
+  if (scenario.expectByFork) {
+    const expectation = scenario.expectByFork[forkRevision];
+    if (!expectation) throw new MissingForkExpectation(scenario.name, forkRevision, Object.keys(scenario.expectByFork));
+    return expectation;
+  }
+  if (!scenario.expect) throw new Error(`scenario ${scenario.name} has no expectation`);
+  return scenario.expect;
+}
+
+/** Names of the scenarios with no expectation for `forkRevision` (empty when the fork is fully recorded). */
+export function scenariosMissingFork(forkRevision: string): string[] {
+  return SCENARIOS.filter((s) => s.expectByFork && !(forkRevision in s.expectByFork)).map((s) => s.name);
+}
+
+const E0433_TYPE_PATH: Expectation = {
+  outcome: "failure",
+  stage: "rustc-lesson",
+  code: "compile-error",
+  diagnostics: [{ origin: "rustc", code: "E0433", class: "exact-authored", authored: [347, 354] }],
+  diagnosticCount: 1,
+};
 
 export const SCENARIOS: Scenario[] = [
   {
@@ -82,18 +117,13 @@ export const SCENARIOS: Scenario[] = [
   {
     // BL-006 D002 shape (`sort = missing::M2Obj`). rustc.wasm at 195111dff traps
     // with no output on E0433 in a type path (the twin reports E0433): compiler-trap.
-    // The IR-26 fork (0ce51e933) reports the E0433 and exits 1, as the twin does.
+    // The IR-26 fork (0ce51e933) and IR-27 (eb8eda040) report the E0433 and exit 1, as the twin does.
     name: "rustc-e0433-type-path-trap",
     fixture: "rustc-e0433-type-path.rs",
-    expect: { outcome: "failure", stage: "rustc-lesson", code: "compiler-trap" },
     expectByFork: {
-      [FORK_IR26]: {
-        outcome: "failure",
-        stage: "rustc-lesson",
-        code: "compile-error",
-        diagnostics: [{ origin: "rustc", code: "E0433", class: "exact-authored", authored: [347, 354] }],
-        diagnosticCount: 1,
-      },
+      [FORK_IR04]: { outcome: "failure", stage: "rustc-lesson", code: "compiler-trap" },
+      [FORK_IR26]: E0433_TYPE_PATH,
+      [FORK_IR27]: E0433_TYPE_PATH,
     },
   },
   {
