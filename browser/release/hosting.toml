@@ -3,9 +3,10 @@
 # This file is host-neutral. `release.py assemble` renders it as `_headers`
 # (the Netlify / Cloudflare Pages format) into the publication directory,
 # `release.py serve` applies it to a local server, and `release.py fetch
-# --check-headers` checks a live host against it. Which host serves the files,
-# and at which base URL, is an open decision (IR-21 result.toml [open_decision]);
-# nothing here names a host.
+# --check-headers` checks a live host against it. The supported deployment is
+# local: `release.py serve` on the build machine (docs-site/README.md, "Browser
+# lesson assets"). Sebastien deferred the choice of a public host until he has
+# reviewed the local deployment, so nothing here names a host.
 #
 # Layout of a publication directory (the base URL points at its root):
 #   index.json                  the mutable pointer to the active release

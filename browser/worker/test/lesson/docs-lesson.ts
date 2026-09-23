@@ -5,6 +5,7 @@
 //
 //   bun test/lesson/docs-lesson.ts --site DOCS_SITE_DIR --assets RELEASE_ROOT --out DIR \
 //     [--oracle BUNDLE] [--oracle-e1 BUNDLE] [--browsers chromium,firefox] [--port N] [--expect configured|unconfigured]
+//     [--pack-origin same|cross]
 //
 // DOCS_SITE_DIR is docs-site/ after `vocs build` (dist/serve-node.js runs the
 // site). A Bun front server on --port proxies the site and serves RELEASE_ROOT
@@ -12,6 +13,12 @@
 // VITE_KRS_BROWSER_PACK_BASE=/krs-pack/ (same origin). Every request that
 // reaches the front server is logged, and BiDi network.beforeRequestSent
 // events are recorded per browser. Fresh /var/tmp profiles; no visible window.
+//
+// --pack-origin cross checks the documented local deployment instead (docs-site/README.md): the pack is
+// a second origin, http://127.0.0.1:<port + 70>/, so the build must use
+// VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:<port + 70>/. That origin is a logging pass-through to
+// release.py serve that forwards the method and returns its status, headers (CORS included), and bytes
+// unchanged; its requests are logged under /krs-pack/ so that every check applies unchanged.
 
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
@@ -31,12 +38,15 @@ const { values } = parseArgs({
     port: { type: "string", default: "5310" },
     firefox: { type: "string", default: "/usr/lib/firefox/firefox" },
     expect: { type: "string", default: "configured" },
+    "pack-origin": { type: "string", default: "same" },
   },
 });
 const SITE = resolve(values.site!);
 const ASSETS = realpathSync(values.assets!);
 const OUT = resolve(values.out!);
 const PORT = Number(values.port);
+const CROSS_ORIGIN = values["pack-origin"] === "cross";
+if (!["same", "cross"].includes(values["pack-origin"]!)) throw new Error("--pack-origin is same or cross");
 mkdirSync(OUT, { recursive: true });
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const log = (text: string) => process.stderr.write(`${new Date().toISOString().slice(11, 19)} ${text}\n`);
@@ -108,9 +118,27 @@ function startServers(browser: string) {
       return new Response(bytes, { status: upstream.status, headers });
     },
   });
+  const packPort = PORT + 70;
+  const packServer = CROSS_ORIGIN
+    ? Bun.serve({
+        hostname: "127.0.0.1",
+        port: packPort,
+        async fetch(request) {
+          const url = new URL(request.url);
+          const entry: ServerLogEntry = { atMs: performance.now() - started, method: request.method, url: `/krs-pack${url.pathname}${url.search}`, status: 404, bytes: 0, requestBodyBytes: 0 };
+          entries.push(entry);
+          const upstream = await fetch(`http://127.0.0.1:${releasePort}${url.pathname}${url.search}`, { method: request.method, headers: request.headers });
+          const bytes = new Uint8Array(await upstream.arrayBuffer());
+          entry.status = upstream.status;
+          entry.bytes = bytes.byteLength;
+          return new Response(bytes, { status: upstream.status, headers: upstream.headers });
+        },
+      })
+    : null;
   return {
     entries,
     origin: `http://127.0.0.1:${PORT}`,
+    packOrigin: CROSS_ORIGIN ? `http://127.0.0.1:${packPort}` : null,
     async ready() {
       for (let i = 0; i < 200; i += 1) {
         try {
@@ -132,6 +160,7 @@ function startServers(browser: string) {
     },
     async stop() {
       server.stop(true);
+      packServer?.stop(true);
       site.kill();
       releaseHost.kill();
       await site.exited;
@@ -589,13 +618,13 @@ async function runBrowser(browser: "chromium" | "firefox") {
 
     // Network assertions over the whole session.
     const events = s.bidi.network.filter((e) => !e.url.startsWith("blob:") && !e.url.startsWith("data:"));
-    const foreign = events.filter((e) => !e.url.startsWith(`${servers.origin}/`));
+    const foreign = events.filter((e) => !e.url.startsWith(`${servers.origin}/`) && !(servers.packOrigin && e.url.startsWith(`${servers.packOrigin}/`)));
     const nonGet = events.filter((e) => e.method !== "GET").concat(servers.entries.filter((e) => e.method !== "GET") as any);
     const withBody = servers.entries.filter((e) => e.requestBodyBytes > 0);
     const canaryHits = [...events.map((e) => JSON.stringify(e)), ...servers.entries.map((e) => JSON.stringify(e))].filter((t) => t.includes(canary));
     const listed = new Set<string>([...MANIFEST_URLS, ...requiredAssets.map((a) => `/krs-pack/${a.url}`)]);
     const unlisted = servers.entries.filter((e) => e.url.startsWith("/krs-pack/") && !listed.has(e.url));
-    check("every request is a GET to the page origin", foreign.length === 0 && nonGet.length === 0, { foreign, nonGet });
+    check(CROSS_ORIGIN ? "every request is a GET to the page origin or the pack origin" : "every request is a GET to the page origin", foreign.length === 0 && nonGet.length === 0, { foreign, nonGet });
     check("no request carries a body", withBody.length === 0, withBody);
     check("every pack request is index.json, the active release, or one of its required assets", unlisted.length === 0, unlisted);
     check("the canary in the edited source appears in no request", canaryHits.length === 0, { canary, hits: canaryHits.length });

@@ -50,11 +50,26 @@ The page fetches `index.json` and the release manifest on load, and the assets o
 `browser/worker/src/pack-cache.ts` verifies every required asset against the release, keeps it in one Cache Storage namespace per `pack_id`, and deletes inactive namespaces that no worker leases.
 Workers hold that lease and read the verified files from the namespace themselves, so a cancel or a worker replacement does not copy the pack on the page thread.
 
-For local development, serve a publication and point the site at it, for example:
+### Local deployment
+
+The supported deployment is local: `release.py serve` on the build machine serves the publication, and the site points at it.
+Sebastien deferred the choice of a public host until he has reviewed this deployment, so `browser/release/hosting.toml` names no host.
+From the repository root, with a fork build `$FORK` (for example `/var/tmp/krs-browser-fork/R-27`) and its source checkout `$FORK_SRC`:
 
 ```sh
-python3 ../browser/release/release.py serve <publish dir> --port 8741
-VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8741/ bun run dev
+# 1. Build the pack with the fork's native twin (heavy-build flock, nice -n 19, -j 4).
+FORK_SOURCE=$FORK_SRC browser/pack/build.sh $FORK /var/tmp/krs-pack
+# 2. Stage it, generate the license inventory, and assemble the publication in /var/tmp/krs-run/publish.
+#    Omit --steps to run every browser-lesson gate as well.
+PYTHONDONTWRITEBYTECODE=1 python3 tests/browser-pack/run.py --pack /var/tmp/krs-pack/pack \
+    --fork-build $FORK --fork-source $FORK_SRC --out /var/tmp/krs-run \
+    --steps expectations,modules,stage,oracle,licenses,release
+# 3. Serve the publication with the hosting.toml headers (CORS included).
+python3 browser/release/release.py serve /var/tmp/krs-run/publish --port 8741
+# 4. In another shell, run the site against it (or `bun run build` and `node dist/serve-node.js`).
+cd docs-site && VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8741/ bun run dev
 ```
 
-`bun ../browser/worker/test/lesson/docs-lesson.ts` drives the built page in headless Chromium and Firefox against a release publication served at the same origin (build with `VITE_KRS_BROWSER_PACK_BASE=/krs-pack/`).
+`bun ../browser/worker/test/lesson/docs-lesson.ts --site . --assets <publish dir> --out <dir>` drives the built page in headless Chromium and Firefox.
+By default the publication is proxied at the same origin (build with `VITE_KRS_BROWSER_PACK_BASE=/krs-pack/`).
+With `--pack-origin cross` it is a second origin, as in the local deployment, at `http://127.0.0.1:<port + 70>/` (default 5380; build with `VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:5380/`).
