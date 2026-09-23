@@ -53,6 +53,8 @@ macro_rules! algorithms {
 algorithms! {
     /// Single-symbol rule selection.
     BackendRuleSelect => "backend.rule.select",
+    /// Search for a macro or alias symbol that survived into an executable term.
+    BackendTermMacroOrAlias => "backend.term.macro_or_alias",
     /// Sort-aware one-way first-order matching by pair decomposition.
     BackendMatchingSyntactic => "backend.matching.syntactic",
     /// Associative and associative-commutative collection matching.

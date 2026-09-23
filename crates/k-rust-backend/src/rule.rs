@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "backend.rule.select"
 //! name = "single-symbol rule selection"
-//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "find_k_cells"]
-//! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; t = subject term nodes"
+//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "first_with_k_cell", "find_k_cells"]
+//! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
 //! counters = []
 //! span = "per call"
 //! no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
@@ -14,7 +14,7 @@
 //!
 //! [[cost]]
 //! mode = "subject_index"
-//! bound = "O(t)"
+//! bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to fetch the cell"
 //! ```
 //!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
@@ -765,10 +765,12 @@ pub fn insert_rewrite_theory(theory: &mut RewriteTheory, rule: RewriteRule, inde
 }
 
 pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
-    let mut cells = Vec::with_capacity(2);
-    find_k_cells(term, &mut cells);
-    let cell = match cells.as_slice() {
-        [cell] => Some(*cell),
+    // The index keys on the one `<k>` cell not nested in a `<k>` cell, and on nothing when there
+    // are none or several. The stored count, saturated at 2, says which case holds, and the cell
+    // is fetched only when it is 1: the same cell as the first that `find_k_cells` collects
+    // (`rule_index_same` of lean/KRust/TermAttributes.lean).
+    let cell = match term.attributes().k_cells() {
+        1 => fetch_k_cell(term),
         _ => None,
     };
     RuleIndex(vec![
@@ -787,6 +789,51 @@ pub fn subject_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
     index
 }
 
+/// The first `<k>` cell of `term` not nested in a `<k>` cell, in the order of `find_k_cells`, or
+/// `None` when there is none: descends only into the first child whose stored `k_cells` count is
+/// not zero (`fetchK` of lean/KRust/TermAttributes.lean).
+pub(crate) fn fetch_k_cell(term: &Term) -> Option<&Term> {
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                return Some(term);
+            }
+            first_with_k_cell(arguments.iter())
+        }
+        TermKind::And(left, right) => first_with_k_cell([left, right].into_iter()),
+        TermKind::Injection { term, .. } => fetch_k_cell(term),
+        TermKind::Map { entries, rest, .. } => first_with_k_cell(
+            entries
+                .iter()
+                .flat_map(|(key, value)| [key, value])
+                .chain(rest.iter()),
+        ),
+        TermKind::List { heads, rest, .. } => first_with_k_cell(
+            heads.iter().chain(
+                rest.iter()
+                    .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails)),
+            ),
+        ),
+        TermKind::Set { elements, rest, .. } => {
+            first_with_k_cell(elements.iter().chain(rest.iter()))
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => None,
+    }
+}
+
+/// `fetch_k_cell` of the first child whose stored `k_cells` count is not zero.
+fn first_with_k_cell<'a>(mut children: impl Iterator<Item = &'a Term>) -> Option<&'a Term> {
+    children
+        .find(|child| child.attributes().k_cells() > 0)
+        .and_then(fetch_k_cell)
+}
+
+/// Every `<k>` cell not nested in a `<k>` cell, stopping after two: the walk that `rule_index`
+/// ran before the stored count replaced it (`findK` of lean/KRust/TermAttributes.lean), kept as
+/// the reference its replacement is tested against.
+#[cfg(test)]
 pub(crate) fn find_k_cells<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
     if cells.len() > 1 {
         return;

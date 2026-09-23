@@ -5,6 +5,7 @@ mod lean_bridge;
 mod matching;
 mod matching_oracle;
 mod rewrite;
+mod walk_flags;
 
 mod alpha;
 mod cascade;

@@ -9,10 +9,33 @@
 //! id = "representation.backend.term"
 //! name = "immutable backend term with a cached structural hash"
 //! type = "k_rust_backend::term::Term"
-//! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set", "Term::with_evaluated_cache", "calculate_hash", "ceil_free", "key_header", "share_one_key_header", "Term::eq", "Term::cmp"]
-//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
+//! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set", "Term::with_evaluated_cache", "calculate_hash", "ceil_free", "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp"]
+//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
 //! tests = ["crates/k-rust-backend/tests/backend/term_order.rs"]
 //! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
+//! ```
+//!
+//! Execution, search and proof check every configuration they reach for a macro or alias symbol
+//! that preprocessing should have removed. The stored `has_macro_or_alias` attribute answers "is
+//! there one" in O(1), and the preorder walk that names the first one runs only when there is:
+//!
+//! ```toml algorithm
+//! id = "backend.term.macro_or_alias"
+//! name = "search for a macro or alias symbol that survived into an executable term"
+//! sites = ["Term::macro_or_alias_symbol", "Term::first_macro_or_alias_symbol", "Term::visit_symbols", "has_macro_or_alias"]
+//! variable = "t = term nodes"
+//! counters = []
+//! no_counter = "the search has no dedicated counter; its callers run it once per configuration they reach"
+//! span = "none"
+//! lean = ["KRust.TermAttributes.hasMacro_iff", "KRust.TermAttributes.macro_shortcut_eq"]
+//!
+//! [[cost]]
+//! mode = "no surviving symbol (stored has_macro_or_alias false)"
+//! bound = "O(1)"
+//!
+//! [[cost]]
+//! mode = "a surviving symbol"
+//! bound = "O(t)"
 //! ```
 
 use std::{
@@ -280,6 +303,10 @@ pub struct TermAttributes {
     pub can_be_evaluated: bool,
     /// See [`TermAttributes::ceil_free`]; set only by `Term::new`, from the kind.
     ceil_free: bool,
+    /// See [`TermAttributes::has_macro_or_alias`]; set only by `Term::new`, from the kind.
+    has_macro_or_alias: bool,
+    /// See [`TermAttributes::k_cells`]; set only by `Term::new`, from the kind.
+    k_cells: u8,
     hash: u64,
 }
 
@@ -292,6 +319,8 @@ impl Default for TermAttributes {
             concrete_after_normalization: false,
             can_be_evaluated: true,
             ceil_free: false,
+            has_macro_or_alias: false,
+            k_cells: 0,
             hash: 0,
         }
     }
@@ -302,6 +331,19 @@ impl TermAttributes {
     /// construction: see `ceil_free`, which `Term::new` stores here.
     pub fn ceil_free(&self) -> bool {
         self.ceil_free
+    }
+
+    /// Whether some application in this term has a symbol with `macro_or_alias`: exactly when
+    /// `Term::first_macro_or_alias_symbol` finds one. See `has_macro_or_alias`, which `Term::new`
+    /// stores here.
+    pub fn has_macro_or_alias(&self) -> bool {
+        self.has_macro_or_alias
+    }
+
+    /// The number of `<k>` cells of this term that are not nested in a `<k>` cell, saturated at
+    /// 2. See `k_cells`, which `Term::new` stores here.
+    pub fn k_cells(&self) -> u8 {
+        self.k_cells
     }
 }
 
@@ -829,7 +871,21 @@ impl Term {
     }
 
     /// Return the first preprocessing symbol that survived into an internal executable term.
+    ///
+    /// The stored `has_macro_or_alias` attribute is false exactly when the walk would find
+    /// nothing (`hasMacro_iff` of `lean/KRust/TermAttributes.lean`, for the attribute and the
+    /// walk as modelled there), so the walk runs only when it will report a symbol, and the
+    /// symbol it reports is unchanged (`macro_shortcut_eq`).
     pub fn macro_or_alias_symbol(&self) -> Option<Name> {
+        if !self.attributes().has_macro_or_alias() {
+            return None;
+        }
+        self.first_macro_or_alias_symbol()
+    }
+
+    /// The first symbol with `macro_or_alias` in the preorder of `visit_symbols`: the walk that
+    /// `macro_or_alias_symbol` guards (`firstMacro` of the Lean model).
+    pub(crate) fn first_macro_or_alias_symbol(&self) -> Option<Name> {
         let mut found = None;
         self.visit_symbols(&mut |symbol| {
             if found.is_none() && symbol.attributes.macro_or_alias {
@@ -943,6 +999,8 @@ impl Term {
     fn new(kind: TermKind, mut attributes: TermAttributes) -> Self {
         measure::bump(Counter::TermConstructed);
         attributes.ceil_free = ceil_free(&kind);
+        attributes.has_macro_or_alias = has_macro_or_alias(&kind);
+        attributes.k_cells = k_cells(&kind);
         attributes.hash = calculate_hash(&kind);
         Self(Arc::new(TermData { attributes, kind }))
     }
@@ -1007,6 +1065,72 @@ fn ceil_free(kind: &TermKind) -> bool {
             rest.is_none() && elements.iter().all(free) && share_one_key_header(elements.iter())
         }
     }
+}
+
+/// Fold `step` over the immediate subterms of a node with this kind, in the order
+/// `Term::visit_symbols` and `rule::find_k_cells` visit them: the arguments; left then right; the
+/// injected term; each key then its value, then the rest; the heads, then the middle and the
+/// tails; the elements, then the rest.
+fn fold_children<B>(kind: &TermKind, init: B, mut step: impl FnMut(B, &Term) -> B) -> B {
+    match kind {
+        TermKind::Application { arguments, .. } => arguments.iter().fold(init, step),
+        TermKind::And(left, right) => {
+            let init = step(init, left);
+            step(init, right)
+        }
+        TermKind::Injection { term, .. } => step(init, term),
+        TermKind::Map { entries, rest, .. } => {
+            let init = entries.iter().fold(init, |acc, (key, value)| {
+                let acc = step(acc, key);
+                step(acc, value)
+            });
+            rest.iter().fold(init, step)
+        }
+        TermKind::List { heads, rest, .. } => {
+            let init = heads.iter().fold(init, &mut step);
+            match rest {
+                Some((middle, tails)) => {
+                    let init = step(init, middle);
+                    tails.iter().fold(init, step)
+                }
+                None => init,
+            }
+        }
+        TermKind::Set { elements, rest, .. } => {
+            let init = elements.iter().fold(init, &mut step);
+            rest.iter().fold(init, step)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => init,
+    }
+}
+
+/// The `has_macro_or_alias` attribute of a node with this kind: the symbol's `macro_or_alias` at
+/// an application, or any child's stored attribute. This is `hasMacro` of
+/// `lean/KRust/TermAttributes.lean`; `tests::lean_bridge` compares the stored attribute with it at
+/// every subterm.
+fn has_macro_or_alias(kind: &TermKind) -> bool {
+    let own =
+        matches!(kind, TermKind::Application { symbol, .. } if symbol.attributes.macro_or_alias);
+    fold_children(kind, own, |found, child| {
+        found || child.attributes().has_macro_or_alias
+    })
+}
+
+/// The `k_cells` attribute of a node with this kind: 1 at a `<k>` cell whatever its arguments
+/// hold, because `rule::find_k_cells` does not descend below a `<k>` cell; otherwise the sum of
+/// the children's stored counts, saturated at 2. This is `kCells` of
+/// `lean/KRust/TermAttributes.lean`, which proves it equal to the number of `<k>` cells not nested
+/// in one, saturated at 2 (`kCells_eq`); `tests::lean_bridge` compares the stored attribute with
+/// it at every subterm.
+fn k_cells(kind: &TermKind) -> u8 {
+    if let TermKind::Application { symbol, .. } = kind
+        && symbol.is(WellKnownSymbol::KCell)
+    {
+        return 1;
+    }
+    fold_children(kind, 0, |count, child| {
+        (count + child.attributes().k_cells).min(2)
+    })
 }
 
 /// The class of a collection key for which `structurally_distinct_after_normalization` decides

@@ -7,7 +7,8 @@ a definition imported from the `KRust` library, and encodes the result. The defi
 ones the proofs are about; this library defines no model function of its own.
 
   "firstMacro": term ↦ `KRust.TermAttributes.firstMacro term`, a name or null; compared with
-                `Term::macro_or_alias_symbol` (term.rs:808-816).
+                the walk `Term::first_macro_or_alias_symbol` (term.rs), which
+                `Term::macro_or_alias_symbol` runs when the stored flag is set.
   "findK":      term ↦ `KRust.TermAttributes.findK term []`, a list of terms; compared with the
                 cells `find_k_cells` (rule.rs:789-840) pushes into an empty vector, as `rule_index`
                 (rule.rs:766-777) calls it.
@@ -15,6 +16,13 @@ ones the proofs are about; this library defines no model function of its own.
                 the Rust sends every subterm of a generated term, and compares each answer with
                 the stored attribute `TermAttributes::ceil_free`, which `Term::new` sets from
                 term.rs `ceil_free`.
+  "hasMacro":   [term, …] ↦ [`KRust.TermAttributes.hasMacro term`, …]; compared with the stored
+                attribute `TermAttributes::has_macro_or_alias` (term.rs `has_macro_or_alias`) of
+                every subterm.
+  "kCells":     [term, …] ↦ [`KRust.TermAttributes.kCells term`, …]; compared with the stored
+                attribute `TermAttributes::k_cells` (term.rs `k_cells`) of every subterm.
+  "fetchK":     term ↦ `KRust.TermAttributes.fetchK term`, a term or null; compared with
+                `rule::fetch_k_cell`, which `rule_index` runs when the stored count is 1.
 -/
 
 namespace KRust.Bridge
@@ -32,7 +40,18 @@ def models : List (String × (Json → Except String Json)) :=
       return Json.arr ((KRust.TermAttributes.findK t []).map termToJson).toArray),
    ("ceilFree", fun input => do
       let ts ← (← input.getArr?).toList.mapM termFromJson
-      return Json.arr (ts.map fun t => Json.bool (KRust.TermAttributes.ceilFree t)).toArray)]
+      return Json.arr (ts.map fun t => Json.bool (KRust.TermAttributes.ceilFree t)).toArray),
+   ("hasMacro", fun input => do
+      let ts ← (← input.getArr?).toList.mapM termFromJson
+      return Json.arr (ts.map fun t => Json.bool (KRust.TermAttributes.hasMacro t)).toArray),
+   ("kCells", fun input => do
+      let ts ← (← input.getArr?).toList.mapM termFromJson
+      return Json.arr (ts.map fun t => Lean.toJson (KRust.TermAttributes.kCells t)).toArray),
+   ("fetchK", fun input => do
+      let t ← termFromJson input
+      return match KRust.TermAttributes.fetchK t with
+        | some cell => termToJson cell
+        | none => Json.null)]
 
 /-- Answer one request `{"id": n, "model": m, "input": x}` with `{"id": n, "output": y}`, or with
 `{"id": n, "error": message}` when the request or its input does not decode. -/

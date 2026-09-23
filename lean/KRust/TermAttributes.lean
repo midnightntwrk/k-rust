@@ -18,8 +18,12 @@ OT-01 implements `ceilFree` as crates/k-rust-backend/src/term.rs `ceil_free` (wi
 and `share_one_key_header` for `keyHeader` and `oneHeader`), stored by `Term::new` in
 `TermAttributes::ceil_free`; `ceil_term_recursive` returns at once when it is set, and the
 walk it replaces is kept as `ceil_term_node`. The lean bridge compares the stored attribute with
-`ceilFree` at every subterm (`tests::lean_bridge::attributes`). `hasMacro`, `kCells` and `fetchK`
-have no Rust counterpart yet.
+`ceilFree` at every subterm (`tests::lean_bridge::attributes`). OT-02 implements `hasMacro` and
+`kCells` as term.rs `has_macro_or_alias` and `k_cells`, stored by `Term::new`, and `fetchK` as
+rule.rs `fetch_k_cell`; `macro_or_alias_symbol` runs the walk (now
+`first_macro_or_alias_symbol`) only when the flag is set, and `rule_index` fetches the cell only
+when the count is 1. The bridge compares the two stored attributes at every subterm and
+`fetch_k_cell` with `fetchK`; `find_k_cells` is kept, test-only, as the walk `findK` models.
 
 Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 2aec72c7):
   crates/k-rust-backend/src/term.rs

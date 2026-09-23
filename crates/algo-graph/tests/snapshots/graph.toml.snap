@@ -1797,7 +1797,7 @@ id = "backend.rule.select"
 provenance = "declared"
 area = "backend"
 name = "single-symbol rule selection"
-variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; t = subject term nodes"
+variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
 no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
 span = "per call"
 table = "Algorithm::ALL"
@@ -1837,6 +1837,16 @@ symbol = "subject_index"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rule.rs"
+symbol = "fetch_k_cell"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "first_with_k_cell"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
 symbol = "find_k_cells"
 
 [[node.cost]]
@@ -1845,7 +1855,7 @@ bound = "O(log k) index lookups plus O(r) covers checks plus O(c) candidate clon
 
 [[node.cost]]
 mode = "subject_index"
-bound = "O(t)"
+bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to fetch the cell"
 
 [[node]]
 kind = "algorithm"
@@ -2222,6 +2232,55 @@ symbol = "normalize_match_condition"
 [[node.cost]]
 mode = "search result normalization"
 bound = "O(c^2 x t)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.term.macro_or_alias"
+provenance = "declared"
+area = "backend"
+name = "search for a macro or alias symbol that survived into an executable term"
+variable = "t = term nodes"
+no_counter = "the search has no dedicated counter; its callers run it once per configuration they reach"
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendTermMacroOrAlias"
+lean = [
+    "KRust.TermAttributes.hasMacro_iff",
+    "KRust.TermAttributes.macro_shortcut_eq",
+]
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::macro_or_alias_symbol"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::macro_or_alias_symbol"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::first_macro_or_alias_symbol"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::visit_symbols"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "has_macro_or_alias"
+
+[[node.cost]]
+mode = "no surviving symbol (stored has_macro_or_alias false)"
+bound = "O(1)"
+
+[[node.cost]]
+mode = "a surviving symbol"
+bound = "O(t)"
 
 [[node]]
 kind = "algorithm"
@@ -6338,7 +6397,7 @@ id = "representation.backend.term"
 provenance = "declared"
 area = "backend"
 name = "immutable backend term with a cached structural hash"
-invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
+invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
 type_path = "k_rust_backend::term::Term"
 lean = [
     "KRust.TermAttributes.ceilFree_sound",
@@ -6400,6 +6459,16 @@ symbol = "key_header"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term.rs"
 symbol = "share_one_key_header"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "fold_children"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "k_cells"
 
 [[node.sites]]
 crate = "k-rust-backend"

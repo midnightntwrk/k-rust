@@ -315,9 +315,9 @@ They intentionally have no primary card:
 
 ```toml
 [[without_primary_card]]
-files = ["crates/k-rust-backend/src/term.rs", "crates/k-rust-backend/src/term/names.rs"]
+files = ["crates/k-rust-backend/src/term/names.rs"]
 classification = "responsibility-only"
-reason = "shared immutable term representation and naming vocabulary; the constructor invariants of term.rs are on its representation card, representation.backend.term"
+reason = "naming vocabulary of the shared term representation; term.rs has the primary card backend.term.macro_or_alias, and its constructor invariants are on its representation card, representation.backend.term"
 
 [[without_primary_card]]
 files = ["crates/k-rust-backend/src/smt.rs"]
