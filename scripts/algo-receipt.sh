@@ -28,20 +28,27 @@ Each receipt runs the workload's prepare steps (unmeasured; their outputs are ke
 ALGO_RECEIPT_WORK and reused while the krust binary is unchanged), then the measured command
 twice:
   measured  with --timings and KRUST_COUNTERS, through scripts/conformance/measure.py, for the
-            wall time, peak RSS, exit status, stdout that the output check reads, timings.json
-            and counters.json;
+            wall time, peak RSS, exit status, stdout size and SHA-256, timings.json and
+            counters.json;
   traced    with --trace-aggregate and KRUST_COUNTERS, for trace-aggregate.json, the per
-            algorithm and per phase span aggregate that algo-graph join reads.
+            algorithm and per phase span aggregate that algo-graph join reads, and the stdout
+            substrings of the output check.
 Span instrumentation costs time per span (about 60 percent on a krun whose backend spans open
 once per call), so the wall time and peak RSS come from the measured run; the traced run's wall
-time is recorded next to it. The counters of both runs must be equal, since krust is
-deterministic on these inputs; the receipt records the comparison.
+time is recorded next to it. The counters and the stdout (size and SHA-256) of both runs must be
+equal, since krust is deterministic on these inputs; the receipt records the comparisons.
 
 A receipt directory holds metadata.json, command.txt, timings.json, counters.json,
 trace-aggregate.json, the measured and traced runs' stdout, stderr and meta.toml, graph.toml
-(algo-graph graph -o), and join.toml and overlay.mmd (algo-graph join). A stdout larger than
-ALGO_RECEIPT_STDOUT_KEEP_BYTES (default 1 MiB) is replaced by its first 64 KiB
-(NAME.stdout.head) after the check; metadata.json records its size and SHA-256.
+(algo-graph graph -o), and join.toml and overlay.mmd (algo-graph join). measure.py reads each
+run's stdout from a pipe as a stream (scripts/conformance/stdout_stream.py): it computes the
+size and SHA-256 and keeps the stdout as NAME.stdout only while it is at most
+ALGO_RECEIPT_STDOUT_KEEP_BYTES (default 1 MiB), otherwise its first 64 KiB as NAME.stdout.head,
+so memory and disk are bounded independently of the stdout's size; metadata.json records the
+size and SHA-256. The output check's stdout substrings are evaluated on the traced run's stream,
+which must have the measured run's size and SHA-256: the text scan then does not hold up the
+measured run, whose stream reader only hashes (the traced run's wall time is not a receipt
+figure).
 Receipts go to DIR/<param value or base>/rep-<k>, k = 1..N. With --atlas FILE, each recorded
 receipt is also indexed in FILE (see below).
 
@@ -270,25 +277,22 @@ def resolve(name, param, prepared, run, input_path, shape=False):
     print(json.dumps(result))
 
 
-def check_output(check_path, stdout_path, exit_code):
+# The files a check names, evaluated right after the measured run (the traced run empties ${run}).
+def check_files(check_path):
     check = json.loads(Path(check_path).read_text())
-    stdout = Path(stdout_path).read_text(errors="replace")
-    squeezed = re.sub(r"\s+", "", stdout)
-    results = []
+    print(json.dumps([{"kind": "file is non-empty", "detail": path,
+                       "passed": os.path.isfile(path) and os.path.getsize(path) > 0}
+                      for path in check.get("files", [])]))
 
-    def record(kind, detail, passed):
-        results.append({"kind": kind, "detail": detail, "passed": passed})
 
+# The stdout substrings are evaluated on the stream by measure.py (scripts/conformance/
+# stdout_stream.py), in the order stdout, stdout_squeezed, stdout_absent.
+def check_output(check_path, stdout_check_path, exit_code, files_path):
+    check = json.loads(Path(check_path).read_text())
     expected_exit = check.get("exit", 0)
-    record("exit", str(expected_exit), int(exit_code) == expected_exit)
-    for text in check.get("stdout", []):
-        record("stdout contains", text, text in stdout)
-    for text in check.get("stdout_squeezed", []):
-        record("stdout contains, whitespace removed", text, re.sub(r"\s+", "", text) in squeezed)
-    for text in check.get("stdout_absent", []):
-        record("stdout lacks", text, text not in stdout)
-    for path in check.get("files", []):
-        record("file is non-empty", path, os.path.isfile(path) and os.path.getsize(path) > 0)
+    results = [{"kind": "exit", "detail": str(expected_exit), "passed": int(exit_code) == expected_exit}]
+    results += json.loads(Path(stdout_check_path).read_text())
+    results += json.loads(Path(files_path).read_text())
     passed = all(result["passed"] for result in results)
     print(json.dumps({"passed": passed, "expect": check.get("expect"), "checks": results}))
 
@@ -341,7 +345,9 @@ if action == "resolve":
 elif action == "shape":
     resolve(sys.argv[4], "", "${prepared}", "${run}", "${input}", shape=True)
 elif action == "check":
-    check_output(*sys.argv[2:5])
+    check_output(*sys.argv[2:6])
+elif action == "check-files":
+    check_files(sys.argv[2])
 elif action == "atlas":
     update_atlas(*sys.argv[2:6])
 elif action == "list":
@@ -639,10 +645,10 @@ record_receipt() {
   local timestamp
   timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   rm -rf "$run" && mkdir -p "$run"
-  log_command measured "KRUST_COUNTERS=$(shell_command "$receipt/counters.json") $(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/measured" "${timeout[@]}" -- "$KRUST_BIN" "$command_kind" "${args[@]}" --timings "$receipt/timings.json") < /dev/null"
+  log_command measured "KRUST_COUNTERS=$(shell_command "$receipt/counters.json") $(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/measured" "${timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- "$KRUST_BIN" "$command_kind" "${args[@]}" --timings "$receipt/timings.json") < /dev/null"
   echo "[$workload${value:+ $value} rep-$index] measured run"
   KRUST_COUNTERS="$receipt/counters.json" python3 "$workspace/scripts/conformance/measure.py" \
-    --log "$receipt/measured" "${timeout[@]}" -- \
+    --log "$receipt/measured" "${timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- \
     "$KRUST_BIN" "$command_kind" "${args[@]}" --timings "$receipt/timings.json" </dev/null || true
   if [[ "$(measure_field "$receipt/measured" timed_out)" == true ]]; then
     echo "[$workload $value] the measured run exceeded $(jq -r .stop_seconds <<<"$resolved") s; the ladder stops" >&2
@@ -650,16 +656,16 @@ record_receipt() {
   fi
   local exit_code
   exit_code=$(measure_field "$receipt/measured" exit_code)
-  local check
-  check=$(helper check "$receipt/check.json" "$receipt/measured.stdout" "$exit_code")
+  helper check-files "$receipt/check.json" >"$receipt/check-files.json"
   local files_ok=true
   [[ -f "$receipt/counters.json" ]] || files_ok=false
 
   rm -rf "$run" && mkdir -p "$run"
-  log_command traced "KRUST_COUNTERS=$(shell_command "$receipt/counters.traced.json") $(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/traced" "${traced_timeout[@]}" -- "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json") < /dev/null"
+  log_command traced "KRUST_COUNTERS=$(shell_command "$receipt/counters.traced.json") $(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/traced" "${traced_timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" --stdout-check "$receipt/check.json" -- "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json") < /dev/null"
   echo "[$workload${value:+ $value} rep-$index] traced run"
   KRUST_COUNTERS="$receipt/counters.traced.json" python3 "$workspace/scripts/conformance/measure.py" \
-    --log "$receipt/traced" "${traced_timeout[@]}" -- \
+    --log "$receipt/traced" "${traced_timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" \
+    --stdout-check "$receipt/check.json" -- \
     "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json" </dev/null || true
   rm -rf "$run"
   local counters_match=false
@@ -667,19 +673,21 @@ record_receipt() {
     && cmp -s "$receipt/counters.json" "$receipt/counters.traced.json"; then
     counters_match=true
   fi
-  # A result can be large (a FUN ladder run prints gigabytes); keep its digest and first
-  # 64 KiB instead once the check has read it.
-  local stdout_bytes stdout_sha256 stdout_match=false stdout_kept=true
-  stdout_bytes=$(stat -c %s "$receipt/measured.stdout")
-  stdout_sha256=$(sha256sum "$receipt/measured.stdout" | cut -d' ' -f1)
-  ! cmp -s "$receipt/measured.stdout" "$receipt/traced.stdout" || stdout_match=true
-  if ((stdout_bytes > ALGO_RECEIPT_STDOUT_KEEP_BYTES)); then
-    stdout_kept=false
-    for name in measured traced; do
-      head -c 65536 "$receipt/$name.stdout" >"$receipt/$name.stdout.head"
-      rm "$receipt/$name.stdout"
-    done
+  # A result can be large (a FUN ladder run prints gigabytes); measure.py streamed it and kept
+  # its size, digest and first 64 KiB. The two runs' stdouts match when their sizes and SHA-256
+  # digests do, and the check read the traced run's stdout.
+  local stdout_bytes stdout_sha256 stdout_match=false stdout_kept check
+  stdout_bytes=$(measure_field "$receipt/measured" stdout_bytes)
+  stdout_sha256=$(measure_field "$receipt/measured" stdout_sha256 | tr -d '"')
+  stdout_kept=$(measure_field "$receipt/measured" stdout_kept)
+  [[ "$stdout_bytes" != "$(measure_field "$receipt/traced" stdout_bytes)" \
+    || "\"$stdout_sha256\"" != "$(measure_field "$receipt/traced" stdout_sha256)" ]] || stdout_match=true
+  if [[ -f "$receipt/traced.stdout-check.json" ]]; then
+    check=$(helper check "$receipt/check.json" "$receipt/traced.stdout-check.json" "$exit_code" "$receipt/check-files.json")
+  else
+    check=$(jq -n '{passed: false, checks: [{kind: "stdout check", detail: "the traced run wrote no traced.stdout-check.json", passed: false}]}')
   fi
+  rm -f "$receipt/traced.stdout-check.json" "$receipt/check-files.json"
 
   jq -n \
     --arg workload "$workload" \
@@ -773,6 +781,8 @@ record_receipt() {
     || { echo "error: the traced run exited $(measure_field "$receipt/traced" exit_code) or wrote no aggregate" >&2; return 1; }
   [[ "$counters_match" == true ]] \
     || { echo "error: the traced run's counters differ from the measured run's" >&2; return 1; }
+  [[ "$stdout_match" == true ]] \
+    || { echo "error: the traced run's stdout differs from the measured run's, and the check read the traced run's" >&2; return 1; }
 
   cp "$graph" "$receipt/graph.toml"
   log_command graph "$(shell_command "${algo_graph[@]}" --root "$workspace" graph -o "$graph") (copied to graph.toml)"
@@ -816,22 +826,20 @@ profile_receipt() {
     timeout=(--timeout "$(($(jq -r .stop_seconds <<<"$resolved") * 3))")
   fi
   rm -rf "$run" && mkdir -p "$run"
-  rm -f "$receipt/profile.json.gz" "$receipt/stacks.json.gz" "$receipt/profile.toml"
+  rm -f "$receipt/profile.json.gz" "$receipt/stacks.json.gz" "$receipt/profile.toml" \
+    "$receipt/profiled.stdout" "$receipt/profiled.stdout.head"
   local -a record=(taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate"
     -o "$receipt/profile.json.gz" -- "$KRUST_BIN" "$command_kind" "${args[@]}")
-  log_command profiled "$(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" -- "${record[@]}") < /dev/null"
+  log_command profiled "$(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- "${record[@]}") < /dev/null"
   echo "[$workload${value:+ $value} rep-1] profiled run at $profile_rate Hz"
-  python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" -- \
+  python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" \
+    --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- \
     "${record[@]}" </dev/null || true
   rm -rf "$run"
   exit_code=$(measure_field "$receipt/profiled" exit_code)
   measured_exit=$(jq -r .unprofiled.exit_code "$receipt/metadata.json")
-  stdout_sha256=$(sha256sum "$receipt/profiled.stdout" | cut -d' ' -f1)
+  stdout_sha256=$(measure_field "$receipt/profiled" stdout_sha256 | tr -d '"')
   [[ "$stdout_sha256" != "$(jq -r .stdout.sha256 "$receipt/metadata.json")" ]] || stdout_match=true
-  if (($(stat -c %s "$receipt/profiled.stdout") > ALGO_RECEIPT_STDOUT_KEEP_BYTES)); then
-    head -c 65536 "$receipt/profiled.stdout" >"$receipt/profiled.stdout.head"
-    rm "$receipt/profiled.stdout"
-  fi
   if [[ "$exit_code" != "$measured_exit" || ! -s "$receipt/profile.json.gz" ]]; then
     echo "error: the profiled run exited $exit_code (measured: $measured_exit) or wrote no profile; $receipt/profiled.stderr ends with:" >&2
     tail -n 5 "$receipt/profiled.stderr" >&2
