@@ -10,6 +10,7 @@
 //! - Finding 17: a stage `call` matches the last `::` segment of any site in any crate, so an unrelated `Foo::call` site gets a `contains` edge.
 //! - Finding 19: drift aborts on one invalid card or unparsable changed file, never checks `algorithm-contract` cards, and compares only the first item of a repeated site name.
 
+mod atlas;
 mod cards;
 mod coverage;
 mod diff;
@@ -26,6 +27,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub use atlas::{
+    AMDAHL_RULE, ATLAS_SCHEMA_VERSION, Atlas, AtlasIndex, CUT_RULE, CounterFit, Fit,
+    INDEX_SCHEMA_VERSION, IndexReceipt, Ladder, LadderRow, LoadedReceipt, MatrixRow, MovedCounter,
+    Rules, SHARE_RULE, SLOPE_RULE, STALENESS_RULE, ShareRow, StaleAlgorithm, Staleness,
+    WorkloadCost, amdahl_ceiling, atlas, check_staleness, fit_power_law, read_atlas_index,
+    receipt_graph,
+};
 use cards::{Card, CardKind, Representation, SourceIndex};
 pub use coverage::{
     COVERAGE_SCHEMA_VERSION, Coverage, CoveredFile, CoveredFunction, canonical_coverage_toml,

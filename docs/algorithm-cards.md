@@ -153,6 +153,32 @@ An algorithm without a row in a join counts as zero spans, zero seconds, and zer
 
 The output lists the added and removed algorithms, every changed span count, algorithm counter, and receipt counter, every changed verdict, then the algorithms with a span on either side by decreasing absolute self-time delta, then the receipt counters that are nonzero on either side.
 
+## Summarizing receipts into a cost atlas
+
+An `atlas.toml` index (schema 1) names the receipts of one commit: per receipt its `workload`, `command`, optional ladder `param_name` and numeric `param`, `repeat`, `join` path relative to the index, `wall_seconds`, and `peak_rss_kib`.
+
+```sh
+cargo run -p algo-graph -- atlas --index <atlas.toml> [-o atlas.md] [--toml atlas.toml] [--check]
+```
+
+The Markdown is written for agents: a header with the rules and the command that regenerates it, then compact tables.
+A workload is its receipts without a parameter, or, for a ladder, its receipts at the largest parameter.
+
+- Share: an algorithm's share of a run is its self seconds divided by the run's span seconds, the sum of self seconds over every algorithm of the join.
+  Because self time subtracts the directly nested algorithm spans, that sum is the time inside outermost algorithm spans.
+  The denominator is span time rather than wall time: both numerator and denominator come from the same spans on the same clock, while wall time also holds process start, unspanned work, and trace writing that no algorithm row can claim.
+  A workload's share is the median of its per-run shares, and each workload table prints its span-to-wall ratio.
+- Ceiling: the Amdahl ceiling is `1 / (1 - share)`, the factor by which span time would shrink if the algorithm's self time were zero; on one thread it also bounds the wall-time speedup `1 / (1 - share x span/wall)`.
+- Cut: a workload lists algorithms by decreasing share until the listed shares reach 90 % of span time, then every further algorithm above 1 %.
+  Each listed algorithm shows its span count and the counters that moved in its spans outside nested algorithm spans, with `?` on a counter its card does not declare.
+- Matrix: every listed algorithm's median share in every workload, ordered by the number of workloads in which it exceeds 1 %.
+- Slope: along a ladder, an algorithm whose median span count is positive at two or more parameter values is fitted by least squares of ln(value) on ln(param) for its span count, self seconds, and each counter its card declares (measured inside its spans including nested spans), over the parameter values where the median value is positive.
+  Each fit prints its slope, its number of points, and R²; a fit from fewer than three points is marked `*`.
+  The card's `[[cost]]` bounds and `variable` are printed beside the fit, not parsed.
+- Staleness: every row records the index commit.
+  `--check` takes the site files of each listed algorithm (its anchor and sites) from the `graph.toml` beside a receipt's join, which is the graph at the receipt commit, runs `git diff --name-only <commit> -- <files>` in the checkout named by `--root`, prints the algorithms with a changed file, and exits 1 when there is one.
+  A change outside the site files, such as in a callee or in a representation the algorithm reads, is not detected.
+
 ## Worked cases
 
 ### One function hosts several algorithms

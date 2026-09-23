@@ -4,12 +4,12 @@ use std::{
 };
 
 use algo_graph::{
-    Filters, build_graph, canonical_coverage_toml, canonical_join_toml, canonical_toml, diff,
-    drift, join_files, normalize_export,
+    Filters, atlas, build_graph, canonical_coverage_toml, canonical_join_toml, canonical_toml,
+    check_staleness, diff, drift, join_files, normalize_export,
     query::{self, Answer, HotOrder, NotFound},
-    read_join_file, render_composition, render_composition_focus, render_drift, render_html,
-    render_module_map, render_pipeline, render_run_overlay, workspace_root, write_output,
-    write_report,
+    read_atlas_index, read_join_file, receipt_graph, render_composition, render_composition_focus,
+    render_drift, render_html, render_module_map, render_pipeline, render_run_overlay,
+    workspace_root, write_output, write_report,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -66,6 +66,21 @@ Examples:
   algo-graph diff --before old/join.toml --after new/join.toml
   algo-graph diff --before a/rep-1/join.toml --before a/rep-2/join.toml --after b/rep-1/join.toml --after b/rep-2/join.toml --format toml")]
     Diff(DiffArgs),
+    /// Summarize an atlas.toml index of receipts into a cost atlas for agents.
+    ///
+    /// Per workload: wall and span time, and the algorithms by median self-time share of the
+    /// workload's span time (the sum of algorithm self seconds), each with its Amdahl ceiling
+    /// 1 / (1 - share), span count, and the counters it moved, cut at 90 % of span time plus
+    /// every share above 1 %. Then a matrix of shares across workloads, and per ladder the
+    /// least-squares slope of ln(span count), ln(self seconds), and ln(each declared counter)
+    /// against ln(param), beside the card's cost bounds. With --check, prints the listed
+    /// algorithms whose site files changed since the index commit and exits 1 when there is one.
+    #[command(after_help = "\
+Examples:
+  algo-graph atlas --index receipts/<commit>/atlas.toml -o atlas.md
+  algo-graph atlas --index receipts/<commit>/atlas.toml --toml atlas.toml
+  algo-graph atlas --index receipts/<commit>/atlas.toml --check")]
+    Atlas(AtlasArgs),
 }
 
 const QUERY_ABOUT: &str = "\
@@ -254,6 +269,23 @@ struct DiffArgs {
 }
 
 #[derive(Debug, Args)]
+struct AtlasArgs {
+    /// Receipt index (schema 1); join paths are relative to it.
+    #[arg(long, value_name = "atlas.toml")]
+    index: PathBuf,
+    /// Write the Markdown atlas here instead of standard output.
+    #[arg(short, long, value_name = "atlas.md")]
+    output: Option<PathBuf>,
+    /// Also write the atlas as TOML here.
+    #[arg(long = "toml", value_name = "atlas.toml")]
+    toml: Option<PathBuf>,
+    /// Print the staleness of the listed algorithms instead of the Markdown, against the
+    /// checkout named by --root, and exit 1 when one is stale.
+    #[arg(long)]
+    check: bool,
+}
+
+#[derive(Debug, Args)]
 struct JoinInput {
     /// Join TOML written by `algo-graph join` for one run.
     #[arg(long = "join", value_name = "join.toml")]
@@ -378,6 +410,7 @@ fn main() -> ExitCode {
     let root = cli.root.clone().unwrap_or_else(workspace_root);
     let result = match cli.command {
         Command::Query(arguments) => return run_query(&root, arguments),
+        Command::Atlas(arguments) => return run_atlas(&root, &arguments),
         command => run(&root, command),
     };
     match result {
@@ -517,9 +550,51 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
                 }
             );
         }
-        Command::Query(_) => unreachable!("main dispatches query"),
+        Command::Query(_) | Command::Atlas(_) => unreachable!("main dispatches query and atlas"),
     }
     Ok(())
+}
+
+/// Write the atlas; with `--check`, exit 1 when a listed algorithm is stale.
+fn run_atlas(root: &Path, arguments: &AtlasArgs) -> ExitCode {
+    let result = (|| -> Result<bool, algo_graph::Error> {
+        let (index, receipts) = read_atlas_index(&arguments.index)?;
+        let mut regenerate = format!("algo-graph atlas --index {}", arguments.index.display());
+        if let Some(output) = &arguments.output {
+            regenerate.push_str(&format!(" -o {}", output.display()));
+        }
+        if let Some(toml) = &arguments.toml {
+            regenerate.push_str(&format!(" --toml {}", toml.display()));
+        }
+        let atlas = atlas(&index, &receipts, &regenerate);
+        if let Some(toml) = &arguments.toml {
+            write_output(toml, &atlas.toml()?)?;
+            eprintln!("wrote {}", toml.display());
+        }
+        match &arguments.output {
+            Some(output) => {
+                write_output(output, &atlas.markdown())?;
+                eprintln!("wrote {}", output.display());
+            }
+            None if !arguments.check => print!("{}", atlas.markdown()),
+            None => {}
+        }
+        if !arguments.check {
+            return Ok(false);
+        }
+        let graph = receipt_graph(&arguments.index, &receipts)?;
+        let staleness = check_staleness(root, &index.commit, graph, &atlas.listed_ids())?;
+        print!("{}", staleness.text());
+        Ok(!staleness.stale.is_empty())
+    })();
+    match result {
+        Ok(false) => ExitCode::SUCCESS,
+        Ok(true) => ExitCode::FAILURE,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Run one query. An unknown id exits 2; an unreadable input exits 1.
