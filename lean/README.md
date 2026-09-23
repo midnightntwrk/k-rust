@@ -18,6 +18,7 @@ The method, its limits and the case studies are in `draft/lean-verification/READ
 | `KRust/MaximalModels.lean` | the maximal-model enumeration of the Z3 sort inference (`maximal_models_spec`, `runs_agree_up_to_pref`, `runs_agree_candidates`) |
 | `Audit.lean` | `krust-audit`: the `sorry` and axiom audit that `scripts/lean-check.sh` runs, and the theorem list |
 | `KRustBridge/Json.lean` | the JSON form of the term model, shared with the Rust encoder of the bridge tests |
+| `KRustBridge/SubsortJson.lean` | the JSON form of the order-constraint model of `KRust/SubsortEncoding.lean`, shared with the Rust encoder of its bridge tests |
 | `KRustBridge/Dispatch.lean` | the bridged models by name; each applies a `KRust` definition, never a copy |
 | `Bridge.lean` | `krust-bridge`: answers JSON-line requests with `KRust.Bridge.answer` |
 
@@ -45,10 +46,34 @@ Exit status 0 is success, 1 a failed check, 2 a usage error or a missing `lake` 
 scripts/lean-check.sh --bridge
 ```
 
-It also runs the model conformance bridge: `cargo test -p k-rust-backend --lib tests::lean_bridge` with `K_RUST_LEAN_BRIDGE=1`.
-Each test there sends generated terms, built by the public Rust constructors, through one `krust-bridge` process, compares every answer of a `KRust` definition with the Rust function it models, and shrinks a divergence.
+It also runs the model conformance bridge, with `K_RUST_LEAN_BRIDGE=1`:
+
+```sh
+cargo test -p k-rust-backend --lib tests::lean_bridge
+cargo test -p k-rust --no-default-features --features z3-inference --lib inner::parser::z3_inference::tests::lean_bridge
+```
+
+The bridge is the third kind of differential test of the workspace.
+The reference differentials (`README.md`, "Compatibility evidence") compare krust with another implementation of K, and a match there is agreement after a normalization that makes both outputs comparable.
+The bridge compares a Rust function with the `KRust` definition that the proofs are about, and a match is JSON equality: on every generated input, the answer of the Lean model equals the answer of the Rust function written in the JSON shape the model prints.
+One driver serves both crates: `lean_conformance::check`, in the workspace crate `crates/lean-conformance`, which is not published and is only a dev-dependency.
+Each check sends generated inputs through one `krust-bridge` process, compares every answer of a `KRust` definition with the Rust function it models, and shrinks a divergence.
 Without `K_RUST_LEAN_BRIDGE=1` those tests are skipped with a message; with it, a missing `lake` is a failure.
 `K_RUST_LEAN_BRIDGE_CASES` sets the number of cases (default 4096).
+
+| model (`KRustBridge/Dispatch.lean`) | `KRust` definition | Rust function | test |
+|---|---|---|---|
+| `firstMacro` | `TermAttributes.firstMacro` | `Term::first_macro_or_alias_symbol` | `k-rust-backend` `tests::lean_bridge::walks` |
+| `findK` | `TermAttributes.findK` | `rule::find_k_cells` | `k-rust-backend` `tests::lean_bridge::walks` |
+| `fetchK` | `TermAttributes.fetchK` | `rule::fetch_k_cell` | `k-rust-backend` `tests::lean_bridge::walks` |
+| `ceilFree` | `TermAttributes.ceilFree` | the stored `TermAttributes::ceil_free` | `k-rust-backend` `tests::lean_bridge::attributes` |
+| `hasMacro` | `TermAttributes.hasMacro` | the stored `TermAttributes::has_macro_or_alias` | `k-rust-backend` `tests::lean_bridge::attributes` |
+| `kCells` | `TermAttributes.kCells` | the stored `TermAttributes::k_cells` | `k-rust-backend` `tests::lean_bridge::attributes` |
+| `lessThanEq` | `SubsortEncoding.new` | `Encoding::less_than_eq` | `k-rust` `inner::parser::z3_inference::tests::lean_bridge` |
+| `fullDisjunction` | `SubsortEncoding.old` | `OrderRelation::full_disjunction` | `k-rust` `inner::parser::z3_inference::tests::lean_bridge` |
+
+`KRust/MaximalModels.lean` has no bridged model: `Run`, `Climb` and `Problem.candidates` are relations over every sequence of Z3 answers, not functions of an input, so there is nothing to evaluate against `Encoding::maximal_models`.
+Its conformance is the hypotheses in the table below, each checked by a Rust property test.
 The `KRust` modules must not import `KRustBridge`; the check fails when one does.
 
 ## Conventions
@@ -61,7 +86,7 @@ The `KRust` modules must not import `KRustBridge`; the check fails when one does
   Each such hypothesis must have a Rust property test that checks it against the real code; the table below lists them.
   A test not written yet is recorded as `owed_by = "<ticket>"`, with an optional `note`, never as prose in `rust_test`.
 - An algorithm card whose sites a model mirrors names the model's theorems in its `lean` key (`docs/algorithm-cards.md`), so `algo-graph drift` names them when one of those sites changes.
-- A model of a function that exists in Rust is registered in `KRustBridge/Dispatch.lean` and has a test in `crates/k-rust-backend/src/tests/lean_bridge/` that compares it with that function.
+- A model of a function that exists in Rust is registered in `KRustBridge/Dispatch.lean`, has a row in the bridge table above, and has a test that compares it with that function through `lean_conformance::check`, in a `lean_bridge` test module of the crate that defines the function; `scripts/lean-check.sh --bridge` runs that module.
 - A theorem about a function not yet implemented in Rust names the test-only Rust function that mirrors the model and the property test that compares it with today's function.
 
 ## Hypotheses and their Rust tests

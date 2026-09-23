@@ -4,8 +4,8 @@ set -euo pipefail
 # Check the Lean proofs under lean/: build the KRust library, audit its declarations for `sorry`
 # and for axioms outside Lean's standard three, compare its theorem names with lean/theorems.txt,
 # and check the theorems and Rust tests that lean/README.md's hypothesis table names. With
-# --bridge, also run the proved definitions against the Rust they model (the k-rust-backend
-# lean_bridge tests).
+# --bridge, also run the proved definitions against the Rust they model (the lean_bridge tests of
+# k-rust-backend and k-rust, through the crates/lean-conformance harness).
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 lean_dir="$workspace/lean"
@@ -33,9 +33,14 @@ Check the Lean project in lean/:
   4. every [[hypothesis]] of lean/README.md's table (scripts/lean-hypotheses.py) names a theorem
      of that list and either a Rust test that exists (`rust_test = "<path> <test>"`, a file that
      declares `fn <test>`) or the ticket that owes it (`owed_by = "LT-05"`);
-  5. with --bridge only: `cargo test -p k-rust-backend --lib tests::lean_bridge` with
-     K_RUST_LEAN_BRIDGE=1, which runs each bridged model of lean/KRust against the Rust function
-     it models on generated cases (K_RUST_LEAN_BRIDGE_CASES sets the count, default 4096).
+  5. with --bridge only, with K_RUST_LEAN_BRIDGE=1:
+       cargo test -p k-rust-backend --lib tests::lean_bridge
+       cargo test -p k-rust --no-default-features --features z3-inference --lib \
+         inner::parser::z3_inference::tests::lean_bridge
+     which run each bridged model of lean/KRust against the Rust function it models on
+     generated cases, through the crates/lean-conformance harness (K_RUST_LEAN_BRIDGE_CASES sets
+     the count, default 4096). The k-rust tests link the Z3 library that the z3-sys build script
+     finds (pkg-config, or its Z3_* environment variables, which this script passes through).
 
 The toolchain is the one lean/lean-toolchain names, selected by elan's `lake` (LAKE overrides the
 executable; CARGO overrides cargo, and CARGO_TARGET_DIR is honoured).
@@ -118,7 +123,13 @@ fi
 if [[ $bridge -eq 1 ]]; then
   if ! (cd "$workspace" && K_RUST_LEAN_BRIDGE=1 LAKE="$LAKE" \
     "$CARGO" test -p k-rust-backend --lib --locked tests::lean_bridge); then
-    echo "lean-check: the model conformance bridge failed" >&2
+    echo "lean-check: the model conformance bridge failed in k-rust-backend" >&2
+    exit 1
+  fi
+  if ! (cd "$workspace" && K_RUST_LEAN_BRIDGE=1 LAKE="$LAKE" \
+    "$CARGO" test -p k-rust --no-default-features --features z3-inference --lib --locked \
+    inner::parser::z3_inference::tests::lean_bridge); then
+    echo "lean-check: the model conformance bridge failed in k-rust" >&2
     exit 1
   fi
 fi
