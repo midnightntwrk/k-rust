@@ -4,21 +4,19 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from support import GateError  # noqa: E402
+from support.hashing import sha256_file  # noqa: E402
+from support.process import run  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "src/lib.rs"
 TOKEN = "Collision"
-
-
-class AnalysisProbeError(RuntimeError):
-    pass
 
 
 def expected_anchor() -> tuple[int, int, int, int, int]:
@@ -43,7 +41,7 @@ def has_expected_range(envelope: dict[str, object]) -> bool:
         authored.get("start_byte") == start
         and authored.get("end_byte") == end
         and file.get("package_relative_path") == "src/lib.rs"
-        and file.get("content_sha256") == hashlib.sha256(SOURCE.read_bytes()).hexdigest()
+        and file.get("content_sha256") == sha256_file(SOURCE)
     )
 
 
@@ -51,23 +49,21 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--krs", type=Path, required=True)
     arguments = parser.parse_args()
-    environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = "/tmp/krs-m4-diagnostics-analysis-target"
-    process = subprocess.run(
+    process = run(
         [
-            str(arguments.krs), "check", "--manifest-path", str(HERE / "Cargo.toml"),
+            arguments.krs, "check", "--manifest-path", HERE / "Cargo.toml",
             "--package", "krs-m4-diagnostic-analysis", "--definition", "main",
             "--backend", "llvm",
         ],
-        cwd=HERE.parents[4], env=environment, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=180, check=False,
+        environment={"CARGO_TARGET_DIR": "/tmp/krs-m4-diagnostics-analysis-target"},
+        timeout=180,
+        check=False,
     )
     output = "\n".join(part for part in (process.stdout, process.stderr) if part)
     if process.returncode == 0 or "emitted symbol name collision" not in output:
-        raise AnalysisProbeError(f"fixture did not reach the intended collision: {output[:1200]}")
+        raise GateError(f"fixture did not reach the intended collision: {output[:1200]}")
     if "/collectors/" in output or "target/krs/collectors" in output:
-        raise AnalysisProbeError("diagnostic leaked a generated collector path")
+        raise GateError("diagnostic leaked a generated collector path")
     envelopes = []
     for line in output.splitlines():
         try:
@@ -82,7 +78,7 @@ def main() -> int:
         if envelope.get("code") == "symbol-name-collision" and has_expected_range(envelope)
     ]
     if len(matching) != 1:
-        raise AnalysisProbeError(
+        raise GateError(
             "collision lacks one stable analysis/code/authored-range envelope; "
             f"expected=src/lib.rs bytes {start}..{end} "
             f"(line {line}, columns {column}..{column + length})"
@@ -94,6 +90,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (AnalysisProbeError, subprocess.TimeoutExpired) as error:
+    except GateError as error:
         print(f"BLOCKED krs-analysis diagnostic: {error}", file=sys.stderr)
         raise SystemExit(1)

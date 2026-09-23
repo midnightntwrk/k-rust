@@ -15,22 +15,12 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 import copy
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
 
-
-class ProjectionError(ValueError):
-    """The input cannot be classified under the frozen projection policy."""
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def digest(value: Any) -> str:
-    return hashlib.sha256(canonical(value).encode()).hexdigest()
+from support import GateError
+from support.hashing import canonical_json, json_sha256
 
 
 # Every supported KAST node has an exact set of allowed field sets.  Optional
@@ -160,27 +150,27 @@ class ProjectionPolicy:
 
     def __post_init__(self) -> None:
         if not self.module_origins:
-            raise ProjectionError("module_origins must not be empty")
+            raise GateError("module_origins must not be empty")
         if not self.metadata_attributes <= self.known_attributes:
-            raise ProjectionError("every removable metadata attribute must be known")
+            raise GateError("every removable metadata attribute must be known")
         origins = {origin for origin in self.module_origins.values() if origin is not None}
         origins.update(self.sentence_origins.values())
         unknown = set(self.imports_by_origin) - origins
         if unknown:
-            raise ProjectionError(f"imports declared for unknown origins: {sorted(unknown)}")
+            raise GateError(f"imports declared for unknown origins: {sorted(unknown)}")
         overlap = set(self.module_origins) & set(self.supplemental_module_origins)
         if overlap:
-            raise ProjectionError(
+            raise GateError(
                 f"modules cannot be both compared and supplemental: {sorted(overlap)}"
             )
         supplemental_origins = set(self.supplemental_module_origins.values())
         unknown = set(self.supplemental_imports_by_origin) - supplemental_origins
         if unknown:
-            raise ProjectionError(
+            raise GateError(
                 f"supplemental imports declared for unknown origins: {sorted(unknown)}"
             )
         if any(not prefix for prefix in self.closed_module_prefixes):
-            raise ProjectionError("closed module prefixes must be nonempty")
+            raise GateError("closed module prefixes must be nonempty")
 
 
 @dataclass(frozen=True)
@@ -193,19 +183,19 @@ class Comparison:
 def _check_node_fields(node: Mapping[str, Any]) -> str:
     kind = node.get("node")
     if not isinstance(kind, str) or kind not in NODE_FIELDS:
-        raise ProjectionError(f"unclassified KAST node {kind!r}")
+        raise GateError(f"unclassified KAST node {kind!r}")
     fields = frozenset(node)
     if fields not in NODE_FIELDS[kind]:
-        raise ProjectionError(f"unknown {kind} fields: {sorted(fields)}")
+        raise GateError(f"unknown {kind} fields: {sorted(fields)}")
     return kind
 
 
 def _attribute_map(node: Mapping[str, Any]) -> Mapping[str, Any]:
     if node.get("node") != "KAtt" or set(node) != {"node", "att"}:
-        raise ProjectionError("expected exact KAtt object")
+        raise GateError("expected exact KAtt object")
     attributes = node["att"]
     if not isinstance(attributes, dict):
-        raise ProjectionError("KAtt.att is not an object")
+        raise GateError("KAtt.att is not an object")
     return attributes
 
 
@@ -228,10 +218,10 @@ def sentence_identity(sentence: Mapping[str, Any]) -> str:
     if kind in {"KSyntaxSort", "KProduction"}:
         sort = sentence.get("sort")
         if isinstance(sort, dict) and isinstance(sort.get("name"), str):
-            return f"{kind}:sort:{sort['name']}:{digest(sentence)[:16]}"
+            return f"{kind}:sort:{sort['name']}:{json_sha256(sentence)[:16]}"
     # Unlabelled grammar groups and generated rules still get an exact key.
     # Root must pin it when their enclosing module has no default origin.
-    return f"{kind}:sha256:{digest(sentence)}"
+    return f"{kind}:sha256:{json_sha256(sentence)}"
 
 
 class _Normalizer:
@@ -250,7 +240,7 @@ class _Normalizer:
             return mapping[value]
         if value in identities:
             return value
-        raise ProjectionError(f"unknown {what} {value!r}")
+        raise GateError(f"unknown {what} {value!r}")
 
     def label(self, value: str) -> str:
         return self._mapped(
@@ -266,7 +256,7 @@ class _Normalizer:
     def attributes(self, value: Mapping[str, Any]) -> dict[str, Any]:
         unknown = set(value) - self.policy.known_attributes
         if unknown:
-            raise ProjectionError(f"unknown attributes: {sorted(unknown)}")
+            raise GateError(f"unknown attributes: {sorted(unknown)}")
         retained: dict[str, Any] = {}
         for name, child in value.items():
             if name in self.policy.metadata_attributes:
@@ -287,13 +277,13 @@ class _Normalizer:
     def variable(self, node: Mapping[str, Any]) -> dict[str, Any]:
         name = node["name"]
         if not isinstance(name, str):
-            raise ProjectionError("KVariable.name is not a string")
+            raise GateError("KVariable.name is not a string")
         raw_sort = node.get("sort")
         if raw_sort is None:
             sort = "<unsorted>"
         else:
             if not isinstance(raw_sort, dict) or raw_sort.get("node") != "KSort":
-                raise ProjectionError("KVariable.sort is not a KSort")
+                raise GateError("KVariable.sort is not a KSort")
             sort = self.sort(raw_sort.get("name"))
         variable_kind = (
             "existential"
@@ -316,10 +306,10 @@ class _Normalizer:
         if not isinstance(value, dict):
             if isinstance(value, (str, int, bool)) or value is None:
                 return value
-            raise ProjectionError(f"unsupported scalar {value!r}")
+            raise GateError(f"unsupported scalar {value!r}")
         if "node" not in value:
             if not attribute_payload:
-                raise ProjectionError(f"unclassified object fields: {sorted(value)}")
+                raise GateError(f"unclassified object fields: {sorted(value)}")
             return {
                 key: self.visit(child, attribute_payload=True)
                 for key, child in sorted(value.items())
@@ -333,19 +323,19 @@ class _Normalizer:
         for key, child in value.items():
             if kind == "KAtt" and key == "att":
                 if not isinstance(child, dict):
-                    raise ProjectionError("KAtt.att is not an object")
+                    raise GateError("KAtt.att is not an object")
                 result[key] = self.attributes(child)
             elif kind == "KLabel" and key == "name":
                 if not isinstance(child, str):
-                    raise ProjectionError("KLabel.name is not a string")
+                    raise GateError("KLabel.name is not a string")
                 result[key] = self.label(child)
             elif kind == "KSort" and key == "name":
                 if not isinstance(child, str):
-                    raise ProjectionError("KSort.name is not a string")
+                    raise GateError("KSort.name is not a string")
                 result[key] = self.sort(child)
             elif kind == "KImport" and key == "name":
                 if not isinstance(child, str):
-                    raise ProjectionError("KImport.name is not a string")
+                    raise GateError("KImport.name is not a string")
                 result[key] = self.name(child)
             else:
                 result[key] = self.visit(child, attribute_payload=attribute_payload)
@@ -353,32 +343,32 @@ class _Normalizer:
         if kind in {"KApply", "KSequence"}:
             items = result["args"] if kind == "KApply" else result["items"]
             if not isinstance(items, list) or result["arity"] != len(items):
-                raise ProjectionError(f"invalid {kind} arity")
+                raise GateError(f"invalid {kind} arity")
         if kind == "KSyntaxAssociativity":
             if not isinstance(result["tags"], list):
-                raise ProjectionError("associativity tags are not a list")
+                raise GateError("associativity tags are not a list")
             result["tags"] = [self.label(tag) for tag in result["tags"]]
-            result["tags"].sort(key=canonical)
+            result["tags"].sort(key=canonical_json)
         if kind == "KSyntaxPriority":
             priorities = result["priorities"]
             if not isinstance(priorities, list) or not all(
                 isinstance(group, list) for group in priorities
             ):
-                raise ProjectionError("priority groups are not lists")
+                raise GateError("priority groups are not lists")
             for group in priorities:
                 group[:] = [self.label(tag) for tag in group]
-                group.sort(key=canonical)
+                group.sort(key=canonical_json)
         return result
 
 
 def _exact_envelope(value: Mapping[str, Any]) -> Mapping[str, Any]:
     if set(value) != {"format", "version", "term"}:
-        raise ProjectionError(f"unexpected KAST envelope fields: {sorted(value)}")
+        raise GateError(f"unexpected KAST envelope fields: {sorted(value)}")
     if value["format"] != "KAST" or value["version"] != 4:
-        raise ProjectionError("definition is not exactly KAST v4")
+        raise GateError("definition is not exactly KAST v4")
     term = value["term"]
     if not isinstance(term, dict) or term.get("node") != "KDefinition":
-        raise ProjectionError("definition envelope does not contain KDefinition")
+        raise GateError("definition envelope does not contain KDefinition")
     _check_node_fields(term)
     return term
 
@@ -387,9 +377,9 @@ def load_definition(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise ProjectionError(f"cannot read {path}: {error}") from error
+        raise GateError(f"cannot read {path}: {error}") from error
     if not isinstance(value, dict):
-        raise ProjectionError(f"{path} does not contain an object")
+        raise GateError(f"{path} does not contain an object")
     _exact_envelope(value)
     return value
 
@@ -402,7 +392,7 @@ def project_definition(
     term = _exact_envelope(definition)
     modules = term["modules"]
     if not isinstance(modules, list):
-        raise ProjectionError("KDefinition.modules is not a list")
+        raise GateError("KDefinition.modules is not a list")
     selected_modules = set(policy.module_origins) | set(
         policy.supplemental_module_origins
     )
@@ -410,25 +400,25 @@ def project_definition(
     all_module_names: set[str] = set()
     for module in modules:
         if not isinstance(module, dict) or module.get("node") != "KFlatModule":
-            raise ProjectionError("KDefinition contains a non-KFlatModule")
+            raise GateError("KDefinition contains a non-KFlatModule")
         _check_node_fields(module)
         name = module.get("name")
         if not isinstance(name, str):
-            raise ProjectionError("KFlatModule.name is not a string")
+            raise GateError("KFlatModule.name is not a string")
         if name in all_module_names:
-            raise ProjectionError(f"duplicate definition module {name!r}")
+            raise GateError(f"duplicate definition module {name!r}")
         all_module_names.add(name)
         if name in selected_modules:
             if name in matches:
-                raise ProjectionError(f"duplicate selected module {name!r}")
+                raise GateError(f"duplicate selected module {name!r}")
             matches[name] = module
         elif any(name.startswith(prefix) for prefix in policy.closed_module_prefixes):
-            raise ProjectionError(
+            raise GateError(
                 f"unclassified closed-namespace module {name!r}"
             )
     missing = selected_modules - set(matches)
     if missing:
-        raise ProjectionError(f"selected modules are absent: {sorted(missing)}")
+        raise GateError(f"selected modules are absent: {sorted(missing)}")
 
     definition_attributes = _Normalizer(policy).visit(copy.deepcopy(term["att"]))["att"]
     # mainModule is layout, not a semantic sentence, but it must still be an
@@ -455,28 +445,28 @@ def project_definition(
         imports = module["imports"]
         sentences = module["localSentences"]
         if not isinstance(imports, list) or not isinstance(sentences, list):
-            raise ProjectionError(f"module {module_name!r} has invalid collections")
+            raise GateError(f"module {module_name!r} has invalid collections")
         module_attributes = _Normalizer(policy).visit(copy.deepcopy(module["att"]))["att"]
         if module_attributes:
             if supplemental:
-                raise ProjectionError(
+                raise GateError(
                     f"supplemental module {module_name!r} has unpinned semantic attributes"
                 )
             if default_origin is None:
-                raise ProjectionError(
+                raise GateError(
                     f"module {module_name!r} has semantic attributes but no module origin"
                 )
             actual_attributes.setdefault(default_origin, []).append(module_attributes)
 
         for sentence in sentences:
             if not isinstance(sentence, dict):
-                raise ProjectionError(f"module {module_name!r} contains a non-object sentence")
+                raise GateError(f"module {module_name!r} contains a non-object sentence")
             identity = sentence_identity(sentence)
             origin = policy.sentence_origins.get(
                 f"{module_name}::{identity}", policy.sentence_origins.get(identity, default_origin)
             )
             if origin is None:
-                raise ProjectionError(
+                raise GateError(
                     f"sentence {module_name}::{identity} has no explicit semantic origin"
                 )
             sentence = copy.deepcopy(sentence)
@@ -494,7 +484,7 @@ def project_definition(
                         {"node": "KTerminal", "value": klabel},
                     ]
                     if not isinstance(items, list) or items[:2] != expected:
-                        raise ProjectionError(
+                        raise GateError(
                             f"joined-terminal production shape differs: {klabel!r}"
                         )
                     sentence["productionItems"] = [
@@ -506,7 +496,7 @@ def project_definition(
                     del sentence["klabel"]
             normalizer = _Normalizer(policy)
             normalized_sentence = normalizer.visit(sentence)
-            normalized_digest = digest(normalized_sentence)
+            normalized_digest = json_sha256(normalized_sentence)
             if supplemental:
                 supplemental_sentences[normalized_digest] += 1
                 continue
@@ -542,7 +532,7 @@ def project_definition(
                 )
                 and imported_name not in selected_modules
             ):
-                raise ProjectionError(
+                raise GateError(
                     f"module {module_name!r} imports unclassified "
                     f"closed-namespace module {imported_name!r}"
                 )
@@ -554,7 +544,7 @@ def project_definition(
                 policy.supplemental_imports_by_origin.get(default_origin, ())
             )
             if normalized_module_imports != expected_imports:
-                raise ProjectionError(
+                raise GateError(
                     f"supplemental module {module_name!r} imports differ: "
                     f"expected={sorted(expected_imports)}, "
                     f"actual={sorted(normalized_module_imports)}"
@@ -571,33 +561,33 @@ def project_definition(
                 normalized_module_imports
             )
         elif normalized_module_imports and not policy.imports_by_origin:
-            raise ProjectionError(
+            raise GateError(
                 f"module {module_name!r} has imports but no origin/import projection"
             )
 
     expected_redundant = Counter({name: 1 for name in policy.redundant_sort_declarations})
     if redundant_sorts != expected_redundant:
-        raise ProjectionError(
+        raise GateError(
             f"redundant sort declarations differ: expected={expected_redundant}, actual={redundant_sorts}"
         )
     expected_klabels = Counter({name: 1 for name in policy.redundant_production_klabels})
     if redundant_klabels != expected_klabels:
-        raise ProjectionError(
+        raise GateError(
             f"redundant production klabels differ: expected={expected_klabels}, actual={redundant_klabels}"
         )
     expected_joined = Counter({name: 1 for name in policy.joined_terminal_productions})
     if joined_terminals != expected_joined:
-        raise ProjectionError(
+        raise GateError(
             f"joined terminal productions differ: expected={expected_joined}, actual={joined_terminals}"
         )
     expected_ignored = Counter(policy.ignored_sentence_sha256)
     if ignored_sentences != expected_ignored:
-        raise ProjectionError(
+        raise GateError(
             f"ignored sentence multiset differs: expected={expected_ignored}, actual={ignored_sentences}"
         )
     expected_supplemental = Counter(policy.supplemental_sentence_sha256)
     if supplemental_sentences != expected_supplemental:
-        raise ProjectionError(
+        raise GateError(
             "supplemental sentence multiset differs: "
             f"expected={expected_supplemental}, actual={supplemental_sentences}"
         )
@@ -606,7 +596,7 @@ def project_definition(
     origins.update(policy.imports_by_origin)
     projected: list[dict[str, Any]] = []
     for origin in sorted(origins):
-        sentences = sorted(grouped.get(origin, []), key=canonical)
+        sentences = sorted(grouped.get(origin, []), key=canonical_json)
         if origin in policy.imports_by_origin:
             imports = sorted(set(policy.imports_by_origin[origin]))
         else:
@@ -614,7 +604,7 @@ def project_definition(
         projected.append(
             {
                 "origin": origin,
-                "attributes": sorted(actual_attributes.get(origin, []), key=canonical),
+                "attributes": sorted(actual_attributes.get(origin, []), key=canonical_json),
                 "imports": imports,
                 "sentences": sentences,
             }
@@ -624,7 +614,7 @@ def project_definition(
         "version": 1,
         "definitionAttributes": definition_attributes,
         "origins": projected,
-        "supplementalModules": sorted(supplemental_evidence, key=canonical),
+        "supplementalModules": sorted(supplemental_evidence, key=canonical_json),
         "supplementalSentenceSha256": dict(sorted(supplemental_sentences.items())),
     }
 
@@ -633,12 +623,12 @@ def _multiset_difference(
     baseline: Mapping[str, Any], actual: Mapping[str, Any]
 ) -> str:
     expected = Counter(
-        (origin["origin"], canonical(sentence))
+        (origin["origin"], canonical_json(sentence))
         for origin in baseline["origins"]
         for sentence in origin["sentences"]
     )
     observed = Counter(
-        (origin["origin"], canonical(sentence))
+        (origin["origin"], canonical_json(sentence))
         for origin in actual["origins"]
         for sentence in origin["sentences"]
     )
@@ -654,7 +644,7 @@ def _multiset_difference(
             for (origin, sentence), count in list(extra.items())[:3]
         ],
     }
-    return canonical(summary)
+    return canonical_json(summary)
 
 
 def compare_definitions(
@@ -677,21 +667,21 @@ def compare_definitions(
         for origin in projection["origins"]:
             origin["sentences"] = []
     if expected_layout != observed_layout:
-        raise ProjectionError("source-definition non-sentence projection differs")
+        raise GateError("source-definition non-sentence projection differs")
 
     expected_sentences = Counter(
-        (origin["origin"], canonical(sentence))
+        (origin["origin"], canonical_json(sentence))
         for origin in expected["origins"]
         for sentence in origin["sentences"]
     )
     observed_sentences = Counter(
-        (origin["origin"], canonical(sentence))
+        (origin["origin"], canonical_json(sentence))
         for origin in observed["origins"]
         for sentence in origin["sentences"]
     )
     for index, pair in enumerate(pairs):
         if set(pair) != {"origin", "reference_sha256", "actual_sha256", "count"}:
-            raise ProjectionError(f"compatible sentence pair {index} has unknown fields")
+            raise GateError(f"compatible sentence pair {index} has unknown fields")
         origin = pair["origin"]
         reference_digest = pair["reference_sha256"]
         actual_digest = pair["actual_sha256"]
@@ -706,15 +696,15 @@ def compare_definitions(
             or isinstance(count, bool)
             or count <= 0
         ):
-            raise ProjectionError(f"compatible sentence pair {index} is malformed")
+            raise GateError(f"compatible sentence pair {index} is malformed")
 
         def exact_key(counter: Counter[tuple[str, str]], wanted: str) -> tuple[str, str]:
             matches = [
                 key for key, available in counter.items()
-                if available and key[0] == origin and digest(json.loads(key[1])) == wanted
+                if available and key[0] == origin and json_sha256(json.loads(key[1])) == wanted
             ]
             if len(matches) != 1 or counter[matches[0]] < count:
-                raise ProjectionError(
+                raise GateError(
                     f"compatible sentence pair {index} has no exact count-{count} witness"
                 )
             return matches[0]
@@ -725,12 +715,12 @@ def compare_definitions(
     expected_sentences += Counter()
     observed_sentences += Counter()
     if expected_sentences != observed_sentences:
-        raise ProjectionError(
+        raise GateError(
             "source-definition projection differs: "
             + _multiset_difference(expected, observed)
         )
     count = sum(len(origin["sentences"]) for origin in expected["origins"])
-    return Comparison(digest(expected), digest(observed), count)
+    return Comparison(json_sha256(expected), json_sha256(observed), count)
 
 
 def compare_parsed_and_compiled(

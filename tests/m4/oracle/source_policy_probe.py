@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 import sys
 
-from source_definition import (
-    DEFAULT_METADATA_ATTRIBUTES, ProjectionPolicy, compare_definitions, digest,
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from source_definition import (  # noqa: E402
+    DEFAULT_METADATA_ATTRIBUTES, ProjectionPolicy, compare_definitions,
     load_definition, project_definition,
 )
+from support.hashing import json_sha256  # noqa: E402
 
 
 REFERENCE_MODULES = {
@@ -108,7 +110,7 @@ def main() -> None:
     baseline_definition = load_definition(reference)
     projected = project_definition(baseline_definition, baseline)
     ignored = {
-        digest(sentence): 1
+        json_sha256(sentence): 1
         for origin in projected["origins"]
         for sentence in origin["sentences"]
         if sentence.get("node") == "KContext"

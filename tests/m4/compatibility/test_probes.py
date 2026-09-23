@@ -29,7 +29,7 @@ class StableNameProbeTests(unittest.TestCase):
         )):
             module.verify(report)
         else:
-            with self.assertRaises(module.StableNameError):
+            with self.assertRaises(module.GateError):
                 module.verify(report)
 
 
@@ -86,26 +86,10 @@ class DiagnosticProbeTests(unittest.TestCase):
         self.assertEqual(generated["start_byte"], generated_start)
 
         entry["origin"][0]["range"]["file"]["content_sha256"] = "0" * 64
-        with self.assertRaisesRegex(module.FrontendProbeError, "expected one exact sidecar mapping"):
+        with self.assertRaisesRegex(module.GateError, "expected one exact sidecar mapping"):
             module.exact_mapping(
                 definition, {"entries": [entry]}, authored, "src/lib.rs", "ExactToken"
             )
-
-    def test_k_frontend_claim_split_preserves_exact_claim_bytes(self) -> None:
-        module = load(HERE / "diagnostics/k-frontend/probe.py", "frontend_claim_split")
-        source = (
-            b"module TEST\n"
-            b"  claim [first]:\n"
-            b"    A => B\n"
-            b"  rule [step]: A => B\n"
-            b"endmodule\n"
-        )
-        execution, claims = module.split_emitted_claims(source, expected_count=1)
-        self.assertEqual(
-            execution,
-            b"module TEST\n  rule [step]: A => B\nendmodule\n",
-        )
-        self.assertEqual(claims, b"  claim [first]:\n    A => B\n")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
   "input_ledgers": {
     "m3b": {"path": "tests/m3b/pins.json", "sha256": "e0bd219dad8606dcd6322f6def39691750bc4eb181e03f783bf0f32498b42bc4"},
     "m3c": {"path": "tests/m3c/pins.json", "sha256": "ef0d598849b1328afa89d55777bdda8ff822a1f443401c3b9d4dcadbb24a208e"},
-    "m3d": {"path": "tests/m3d/pins.json", "sha256": "d333f59de748a6dc22208d25aee68d4384246c5ea8f88f5935ec6afd2239911a"}
+    "m3d": {"path": "tests/m3d/pins.json", "sha256": "ed5c8e471382a403a7fb80b1826de7db0bcffb37864143f52e95e4e303e34fd8"}
   },
   "routes": {
     "reference": {

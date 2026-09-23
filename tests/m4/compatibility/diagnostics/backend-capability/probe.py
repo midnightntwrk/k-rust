@@ -4,17 +4,18 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from support import ROOT, GateError  # noqa: E402
+from support.hashing import sha256_bytes  # noqa: E402
+from support.process import run  # noqa: E402
+
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[4]
 M4_MANIFEST = ROOT / "tests/m4/rust-definition/Cargo.toml"
 M4_CLAIMS = ROOT / "tests/m4/rust-definition/src/claims.rs"
 EXPECTED_LABELS = {
@@ -25,10 +26,6 @@ EXPECTED_LABELS = {
     '"bmc-loop-concrete"',
     '"bmc-loop-symbolic"',
 }
-
-
-class BackendDiagnosticError(RuntimeError):
-    pass
 
 
 def report() -> dict[str, object]:
@@ -60,25 +57,25 @@ def report() -> dict[str, object]:
 
 
 def dynamic_report(krs: Path) -> dict[str, object]:
-    environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = "/tmp/krs-m4-backend-diagnostic-target"
+    environment = {"CARGO_TARGET_DIR": "/tmp/krs-m4-backend-diagnostic-target"}
     with tempfile.TemporaryDirectory(prefix="krs-m4-backend-diag-", dir="/tmp") as directory:
         output_directory = Path(directory)
-        process = subprocess.run(
+        process = run(
             [
-                str(krs), "build", "--manifest-path", str(M4_MANIFEST),
+                krs, "build", "--manifest-path", M4_MANIFEST,
                 "--package", "krs-m4-complete-imp", "--definition", "main",
-                "--backend", "llvm", "--output", str(output_directory),
+                "--backend", "llvm", "--output", output_directory,
             ],
-            cwd=ROOT, env=environment, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=300, check=False,
+            environment=environment,
+            timeout=300,
+            check=False,
         )
         artifacts_absent = not any(output_directory.iterdir())
     output = "\n".join(part for part in (process.stdout, process.stderr) if part)
     if process.returncode == 0:
-        raise BackendDiagnosticError("full M4 LLVM unexpectedly accepted existential claims")
+        raise GateError("full M4 LLVM unexpectedly accepted existential claims")
     if "/collectors/" in output or "target/krs/collectors" in output:
-        raise BackendDiagnosticError("backend diagnostic leaked a generated collector path")
+        raise GateError("backend diagnostic leaked a generated collector path")
 
     envelopes = []
     for line in output.splitlines():
@@ -87,40 +84,40 @@ def dynamic_report(krs: Path) -> dict[str, object]:
         try:
             value = json.loads(line)
         except json.JSONDecodeError as error:
-            raise BackendDiagnosticError(f"backend emitted non-JSON diagnostic text: {line[:240]}") from error
+            raise GateError(f"backend emitted non-JSON diagnostic text: {line[:240]}") from error
         if not isinstance(value, dict):
-            raise BackendDiagnosticError("backend diagnostic envelope is not an object")
+            raise GateError("backend diagnostic envelope is not an object")
         envelopes.append(value)
 
     source = M4_CLAIMS.read_bytes()
-    digest = hashlib.sha256(source).hexdigest()
+    digest = sha256_bytes(source)
     labels = set()
     for envelope in envelopes:
         expected_fields = {
             "schema_version", "stage", "code", "severity", "message", "authored_range",
         }
         if set(envelope) != expected_fields:
-            raise BackendDiagnosticError(f"backend diagnostic has unknown fields: {sorted(envelope)}")
+            raise GateError(f"backend diagnostic has unknown fields: {sorted(envelope)}")
         if (
             envelope.get("schema_version") != 1
             or envelope.get("stage") != "backend-capability"
             or envelope.get("code") != "UnsupportedExistentialVariable"
             or envelope.get("severity") != "error"
         ):
-            raise BackendDiagnosticError("backend diagnostic lost its stable classification")
+            raise GateError("backend diagnostic lost its stable classification")
         authored = envelope.get("authored_range")
         if not isinstance(authored, dict) or set(authored) != {"file", "start_byte", "end_byte"}:
-            raise BackendDiagnosticError("backend diagnostic lacks one exact authored byte range")
+            raise GateError("backend diagnostic lacks one exact authored byte range")
         file = authored["file"]
         if not isinstance(file, dict) or (
             file.get("package_relative_path") != "src/claims.rs"
             or file.get("content_sha256") != digest
         ):
-            raise BackendDiagnosticError("backend diagnostic does not identify the exact authored file")
+            raise GateError("backend diagnostic does not identify the exact authored file")
         start = authored["start_byte"]
         end = authored["end_byte"]
         if not isinstance(start, int) or not isinstance(end, int) or not 0 <= start < end <= len(source):
-            raise BackendDiagnosticError("backend diagnostic authored bounds are invalid")
+            raise GateError("backend diagnostic authored bounds are invalid")
         labels.add(source[start:end].decode("utf-8"))
 
     return {
@@ -162,6 +159,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (BackendDiagnosticError, subprocess.TimeoutExpired) as error:
+    except GateError as error:
         print(f"BLOCKED backend diagnostic: {error}", file=sys.stderr)
         raise SystemExit(1)

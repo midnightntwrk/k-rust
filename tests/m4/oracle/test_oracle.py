@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+import sys
 import unittest
 from unittest.mock import patch
 
-import behavior
-import proofs
-import run_proofs
-import source_definition
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import behavior  # noqa: E402
+import proofs  # noqa: E402
+import run_proofs  # noqa: E402
+import source_definition  # noqa: E402
+from support import GateError  # noqa: E402
+from support.hashing import json_sha256  # noqa: E402
 
 
 def sort(name: str) -> dict[str, object]:
@@ -134,7 +138,7 @@ class SourceDefinitionTests(unittest.TestCase):
         baseline_policy, actual_policy = self.policies()
         malformed = definition("ACT", rule("ACT.rule", "actualFun"))
         malformed["term"]["modules"][0]["localSentences"][0]["mystery"] = True
-        with self.assertRaisesRegex(source_definition.ProjectionError, "unknown KRule fields"):
+        with self.assertRaisesRegex(GateError, "unknown KRule fields"):
             source_definition.compare_definitions(
                 definition("REF", rule("REF.rule", "refFun")),
                 malformed,
@@ -166,8 +170,8 @@ class SourceDefinitionTests(unittest.TestCase):
         )["origins"][0]["sentences"][0]
         pair = [{
             "origin": "imp",
-            "reference_sha256": source_definition.digest(reference_sentence),
-            "actual_sha256": source_definition.digest(actual_sentence),
+            "reference_sha256": json_sha256(reference_sentence),
+            "actual_sha256": json_sha256(actual_sentence),
             "count": 1,
         }]
         result = source_definition.compare_definitions(
@@ -176,7 +180,7 @@ class SourceDefinitionTests(unittest.TestCase):
         self.assertNotEqual(result.baseline_sha256, result.actual_sha256)
         self.assertEqual(result.sentence_count, 1)
         pair[0]["count"] = 2
-        with self.assertRaisesRegex(source_definition.ProjectionError, "exact count-2 witness"):
+        with self.assertRaisesRegex(GateError, "exact count-2 witness"):
             source_definition.compare_definitions(
                 reference_definition, actual_definition, baseline, actual, pair
             )
@@ -186,7 +190,7 @@ class SourceDefinitionTests(unittest.TestCase):
         actual_policy = source_definition.ProjectionPolicy(
             **{**actual_policy.__dict__, "module_origins": {"ACT": None}}
         )
-        with self.assertRaisesRegex(source_definition.ProjectionError, "no explicit semantic origin"):
+        with self.assertRaisesRegex(GateError, "no explicit semantic origin"):
             source_definition.project_definition(
                 definition("ACT", rule("ACT.rule", "actualFun")), actual_policy
             )
@@ -204,7 +208,7 @@ class SourceDefinitionTests(unittest.TestCase):
             "ACT", "KRS-FRAMEWORK", [syntax_sort("KResult")]
         )
         with self.assertRaisesRegex(
-            source_definition.ProjectionError,
+            GateError,
             "unclassified closed-namespace module 'KRS-FRAMEWORK'",
         ):
             source_definition.project_definition(observed, actual)
@@ -226,7 +230,7 @@ class SourceDefinitionTests(unittest.TestCase):
                 identity_sorts=frozenset({"KResult"}),
             ),
         )["origins"][0]["sentences"][0]
-        supplemental_digest = source_definition.digest(framework_projection)
+        supplemental_digest = json_sha256(framework_projection)
         actual = source_definition.ProjectionPolicy(
             **{
                 **common,
@@ -247,7 +251,7 @@ class SourceDefinitionTests(unittest.TestCase):
             copy.deepcopy(framework_sentence)
         )
         with self.assertRaisesRegex(
-            source_definition.ProjectionError, "supplemental sentence multiset differs"
+            GateError, "supplemental sentence multiset differs"
         ):
             source_definition.project_definition(mutated, actual)
 
@@ -277,7 +281,7 @@ class SourceDefinitionTests(unittest.TestCase):
 
     def test_split_priority_missing_edge_fails_closed(self) -> None:
         baseline, actual = self.syntax_policies()
-        with self.assertRaisesRegex(source_definition.ProjectionError, "projection differs"):
+        with self.assertRaisesRegex(GateError, "projection differs"):
             source_definition.compare_definitions(
                 definition("REF", priority([["a"], ["b"], ["c"]])),
                 definition("ACT", priority([["a"], ["b"]])), baseline, actual,
@@ -300,7 +304,7 @@ class SourceDefinitionTests(unittest.TestCase):
             redundant_sort_declarations=frozenset({"Expr"})
         )
         empty = {"node": "badsentence"}
-        with self.assertRaisesRegex(source_definition.ProjectionError, "redundant sort declarations differ"):
+        with self.assertRaisesRegex(GateError, "redundant sort declarations differ"):
             source_definition.compare_definitions(
                 definition("REF", empty),
                 definition_with_sentences("ACT", [empty, syntax_sort("Expr"), syntax_sort("Expr")]),
@@ -327,7 +331,7 @@ class SourceDefinitionTests(unittest.TestCase):
         baseline = source_definition.ProjectionPolicy(
             **{
                 **baseline_base.__dict__,
-                "ignored_sentence_sha256": {source_definition.digest(normalized): 1},
+                "ignored_sentence_sha256": {json_sha256(normalized): 1},
             }
         )
         actual = source_definition.ProjectionPolicy(
@@ -344,7 +348,7 @@ class SourceDefinitionTests(unittest.TestCase):
         )
         mutated = copy.deepcopy(observed)
         mutated["term"]["modules"][0]["localSentences"].pop()
-        with self.assertRaisesRegex(source_definition.ProjectionError, "projection differs"):
+        with self.assertRaisesRegex(GateError, "projection differs"):
             source_definition.compare_definitions(reference, mutated, baseline, actual)
 
     def test_ignored_context_digest_and_count_fail_closed(self) -> None:
@@ -358,13 +362,13 @@ class SourceDefinitionTests(unittest.TestCase):
             identity_names=frozenset({"REF"}),
             ignored_sentence_sha256={"0" * 64: 1},
         )
-        with self.assertRaisesRegex(source_definition.ProjectionError, "ignored sentence multiset differs"):
+        with self.assertRaisesRegex(GateError, "ignored sentence multiset differs"):
             source_definition.project_definition(definition("REF", context), policy)
 
 
 class BehaviorTests(unittest.TestCase):
     def test_llvm_route_lifts_only_the_address_space_limit(self) -> None:
-        with patch.object(behavior.shutil, "which", return_value="/usr/bin/prlimit"):
+        with patch("support.tools.shutil.which", return_value="/usr/bin/prlimit"):
             self.assertEqual(
                 behavior._without_address_space_limit(["krun", "program.imp"]),
                 [
@@ -377,8 +381,8 @@ class BehaviorTests(unittest.TestCase):
             )
 
     def test_llvm_route_requires_prlimit(self) -> None:
-        with patch.object(behavior.shutil, "which", return_value=None):
-            with self.assertRaisesRegex(behavior.BehaviorError, "prlimit is required"):
+        with patch("support.tools.shutil.which", return_value=None):
+            with self.assertRaisesRegex(GateError, "required executable is unavailable: prlimit"):
                 behavior._without_address_space_limit(["krun"])
 
     def test_search_is_compared_as_a_set(self) -> None:
@@ -390,10 +394,6 @@ class BehaviorTests(unittest.TestCase):
         second = behavior.normalize_term(apply("#Or", [apply("b", []), apply("a", [])]), policy)
         self.assertEqual(behavior._search_set(first), behavior._search_set(second))
 
-    def test_frozen_helpers_are_exact(self) -> None:
-        root = Path(__file__).resolve().parents[3]
-        self.assertEqual(set(behavior.load_frozen_helpers(root)), {"m3b", "m3c", "m3d"})
-
     def test_hook_abort_precedes_secondary_wrapper_parse_error(self) -> None:
         stderr = (
             "[hook_INT_tdiv]: Division by zero: 1 / 0\n"
@@ -402,7 +402,7 @@ class BehaviorTests(unittest.TestCase):
         self.assertEqual(behavior._diagnostic_class(stderr), "hook")
 
     def test_unrelated_ambiguous_diagnostic_still_fails_closed(self) -> None:
-        with self.assertRaisesRegex(behavior.BehaviorError, "ambiguous class"):
+        with self.assertRaisesRegex(GateError, "ambiguous class"):
             behavior._diagnostic_class("scanner error followed by unexpected token")
 
 
@@ -473,7 +473,7 @@ class ProofTests(unittest.TestCase):
         self.assertEqual(evidence.frontier_count, 0)
 
     def test_arbitrary_exit_one_is_not_incomplete(self) -> None:
-        with self.assertRaisesRegex(proofs.ProofError, "unclassified proof termination"):
+        with self.assertRaisesRegex(GateError, "unclassified proof termination"):
             proofs.classify(1, "someState", "unrelated backend error")
 
     def test_claim_priority_is_rejected(self) -> None:
@@ -484,7 +484,7 @@ class ProofTests(unittest.TestCase):
             identity_sorts=frozenset({"Int"}),
             known_attributes=proofs.DEFAULT_METADATA_ATTRIBUTES | {"label", "priority"},
         )
-        with self.assertRaisesRegex(proofs.ProofError, "must not carry"):
+        with self.assertRaisesRegex(GateError, "must not carry"):
             proofs.normalize_claim(value, "SPEC.claim", policy)
 
 

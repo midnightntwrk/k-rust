@@ -102,9 +102,6 @@ Run exactly:
 PYTHONDONTWRITEBYTECODE=1 python3 tests/m3b/verify.py
 ```
 
-The frozen verifier SHA-256 is
-`08401de91efba5c39456e094295643b36504a123801c6db5d421667b5762ea05`.
-
 The verifier recompiles the handwritten definition with the LLVM backend and
 fails closed on source drift, revision drift, structural drift, changed parse
 or unparse trees, changed rewrite counts, changed intermediate configurations,

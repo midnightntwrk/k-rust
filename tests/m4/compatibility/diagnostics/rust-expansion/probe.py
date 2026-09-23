@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from support import GateError  # noqa: E402
+from support.process import run  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -24,23 +26,18 @@ def expected_anchor() -> tuple[int, int, int]:
 
 
 def main() -> int:
-    environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = "/tmp/krs-m4-diagnostics-rust-target"
-    process = subprocess.run(
+    process = run(
         [
-            "cargo", "check", "--locked", "--manifest-path", str(HERE / "Cargo.toml"),
+            "cargo", "check", "--locked", "--manifest-path", HERE / "Cargo.toml",
             "--message-format", "json",
         ],
         cwd=HERE,
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        environment={"CARGO_TARGET_DIR": "/tmp/krs-m4-diagnostics-rust-target"},
         timeout=180,
         check=False,
     )
     if process.returncode == 0:
-        raise RuntimeError("malformed Rust-expansion fixture unexpectedly compiled")
+        raise GateError("malformed Rust-expansion fixture unexpectedly compiled")
     expected_line, expected_column, expected_length = expected_anchor()
     matches = []
     for line in process.stdout.splitlines():
@@ -57,7 +54,7 @@ def main() -> int:
             if span.get("is_primary"):
                 matches.append(span)
     if len(matches) != 1:
-        raise RuntimeError(f"expected one primary malformed-attribute span, got {matches!r}")
+        raise GateError(f"expected one primary malformed-attribute span, got {matches!r}")
     span = matches[0]
     actual = (span["line_start"], span["column_start"], span["column_end"] - span["column_start"])
     reported_path = Path(span["file_name"])
@@ -66,7 +63,7 @@ def main() -> int:
     if reported_path.resolve() != SOURCE or actual != (
         expected_line, expected_column, expected_length
     ):
-        raise RuntimeError(f"diagnostic did not select exact authored token: {span!r}")
+        raise GateError(f"diagnostic did not select exact authored token: {span!r}")
     print(f"PASS rust-expansion {SOURCE.name}:{expected_line}:{expected_column} `{TOKEN}`")
     return 0
 
@@ -74,6 +71,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (RuntimeError, subprocess.TimeoutExpired) as error:
+    except GateError as error:
         print(f"FAIL rust-expansion: {error}", file=sys.stderr)
         raise SystemExit(1)

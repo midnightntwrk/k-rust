@@ -4,22 +4,23 @@
 from __future__ import annotations
 
 import argparse
-import copy
-import hashlib
 import json
-import os
 from pathlib import Path
 import re
-import shutil
-import signal
-import subprocess
 import sys
 import tempfile
-from typing import Any, Sequence
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from m3d.normalize import envelope, normalize_claim_spec, normalize_proof  # noqa: E402
+from support import ROOT, GateError  # noqa: E402
+from support.checkouts import verify_checkout  # noqa: E402
+from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.process import run  # noqa: E402
+from support.tools import k_tool  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 WORKSPACE_ROOT = ROOT.parent
 IMP = WORKSPACE_ROOT / "inspirations/runtimeverification/imp-semantics"
 K = WORKSPACE_ROOT / "inspirations/runtimeverification/k"
@@ -30,201 +31,18 @@ STATIC_SPEC = HERE / "claims/static-spec.k"
 STATIC_PROGRAM = HERE / "corpus/static-evaluation.imp"
 PINS = HERE / "pins.json"
 K_VERSION = "7.1.337"
-TERMINATION_GRACE_SECONDS = 5
-EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})
-
-# This is the exact closed metadata set copied from the lost M3D normalizer.
-METADATA = {
-    "org.kframework.attributes.Source",
-    "org.kframework.attributes.Location",
-    "org.kframework.definition.Production",
-    "contentStartLine",
-    "contentStartColumn",
-    "digest",
-    "productionID",
-    "UNIQUE_ID",
-}
-
-
-class VerificationError(RuntimeError):
-    """One recovered input or observed semantic result is not qualified."""
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def digest(value: Any) -> str:
-    return hashlib.sha256(canonical(value).encode()).hexdigest()
-
-
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def envelope(stdout: str) -> dict[str, Any]:
-    value = json.loads(stdout)
-    if (
-        set(value) != {"format", "version", "term"}
-        or value["format"] != "KAST"
-        or value["version"] != 4
-    ):
-        raise ValueError("proof/execution output is not exactly a KAST v4 envelope")
-    return value
-
-
-def normalize_proof(value: dict[str, Any]) -> dict[str, Any]:
-    """Exact recovered M3D proof normalizer, with a closed KAST node set."""
-
-    value = copy.deepcopy(value)
-    variables: dict[tuple[str, str], str] = {}
-
-    def visit(node: Any) -> Any:
-        if isinstance(node, list):
-            return [visit(item) for item in node]
-        if not isinstance(node, dict):
-            return node
-        kind = node.get("node")
-        if kind == "KVariable":
-            if set(node) != {"node", "name", "sort"}:
-                raise ValueError(f"unknown KVariable fields: {sorted(node)}")
-            sort = node["sort"].get("name")
-            if not isinstance(sort, str):
-                raise ValueError("proof variable has no concrete sort name")
-            key = (node["name"], sort)
-            variables.setdefault(key, f"V{len(variables)}")
-            node["name"] = variables[key]
-        elif kind not in {None, "KApply", "KLabel", "KSort", "KToken", "KSequence"}:
-            raise ValueError(f"unclassified proof KAST node {kind!r}")
-        return {key: visit(child) for key, child in node.items()}
-
-    return visit(value)
-
-
-def normalize_claim_spec(value: dict[str, Any]) -> dict[str, Any]:
-    """Exact recovered M3D claim normalizer, including metadata erasure."""
-
-    value = copy.deepcopy(value)
-    variables: dict[tuple[str, str], str] = {}
-    allowed = {
-        None,
-        "KFlatModuleList",
-        "KFlatModule",
-        "KImport",
-        "KClaim",
-        "KRewrite",
-        "KApply",
-        "KLabel",
-        "KSort",
-        "KToken",
-        "KSequence",
-        "KVariable",
-        "KAtt",
-    }
-
-    def visit(node: Any) -> Any:
-        if isinstance(node, list):
-            return [visit(item) for item in node]
-        if not isinstance(node, dict):
-            return node
-        kind = node.get("node")
-        if kind not in allowed:
-            raise ValueError(f"unclassified claim KAST node {kind!r}")
-        result: dict[str, Any] = {}
-        for key, child in node.items():
-            if kind == "KAtt" and key == "att":
-                child = {name: item for name, item in child.items() if name not in METADATA}
-            result[key] = visit(child)
-        if kind == "KVariable":
-            sort = result.get("sort", {}).get("name")
-            if not isinstance(sort, str):
-                raise ValueError("claim variable has no concrete sort")
-            variable_key = (result["name"], sort)
-            variables.setdefault(variable_key, f"V{len(variables)}")
-            result["name"] = variables[variable_key]
-        if isinstance(result.get("imports"), list):
-            result["imports"].sort(key=canonical)
-        if isinstance(result.get("localSentences"), list):
-            result["localSentences"].sort(key=canonical)
-        return result
-
-    return visit(value)
-
-
-def terminate_session(process: subprocess.Popen[str]) -> tuple[str, str]:
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    try:
-        return process.communicate(timeout=TERMINATION_GRACE_SECONDS)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        return process.communicate()
-
-
-def run(
-    command: Sequence[str | Path],
-    *,
-    timeout: int,
-    cwd: Path = ROOT,
-) -> subprocess.CompletedProcess[str]:
-    environment = os.environ.copy()
-    environment.update({"LC_ALL": "C", "LANG": "C", "PYTHONDONTWRITEBYTECODE": "1"})
-    process = subprocess.Popen(
-        [str(part) for part in command],
-        cwd=cwd,
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        stdout, stderr = terminate_session(process)
-        raise VerificationError(
-            f"watchdog expired after {timeout}s; process session was reaped: "
-            f"{list(command)!r}\nstdout={stdout}\nstderr={stderr}"
-        ) from error
-    except BaseException:
-        terminate_session(process)
-        raise
-    return subprocess.CompletedProcess(list(command), process.returncode, stdout, stderr)
-
-
-def required_tool(name: str, timeout: int) -> str:
-    executable = shutil.which(name)
-    if executable is None:
-        raise VerificationError(f"required tool {name!r} is unavailable")
-    version = run([executable, "--version"], timeout=timeout)
-    if version.returncode != 0 or f"v{K_VERSION}" not in version.stdout + version.stderr:
-        raise VerificationError(f"{name} is not pinned to K v{K_VERSION}")
-    return executable
-
-
-def exact_revision(path: Path, expected: str, timeout: int) -> None:
-    process = run(["git", "rev-parse", "HEAD"], cwd=path, timeout=timeout)
-    if process.returncode != 0 or process.stdout.strip() != expected:
-        raise VerificationError(
-            f"revision mismatch for {path}: expected={expected}, observed={process.stdout.strip()}"
-        )
 
 
 def root_label(normalized: dict[str, Any]) -> str | None:
     term = normalized.get("term")
     if not isinstance(term, dict):
-        raise VerificationError("normalized proof has no object term")
+        raise GateError("normalized proof has no object term")
     label = term.get("label")
     if label is None:
         return None
     if not isinstance(label, dict) or not isinstance(label.get("name"), str):
-        raise VerificationError("normalized proof root label is malformed")
+        raise GateError("normalized proof root label is malformed")
     return label["name"]
 
 
@@ -253,10 +71,10 @@ def normalized_frontier(normalized: dict[str, Any]) -> tuple[str, ...]:
             name = conjunct.get("label", {}).get("name") if isinstance(conjunct, dict) else None
             (constraints if name in CONSTRAINT_LABELS else states).append(conjunct)
         frontier.append(
-            canonical(
+            canonical_json(
                 {
-                    "states": sorted(states, key=canonical),
-                    "constraints": sorted(constraints, key=canonical),
+                    "states": sorted(states, key=canonical_json),
+                    "constraints": sorted(constraints, key=canonical_json),
                 }
             )
         )
@@ -271,7 +89,7 @@ def classify(returncode: int, root: str | None, stderr: str) -> str:
     stalled = re.search(r"configuration cannot be\s+rewritten further", stderr) is not None
     if returncode == 1 and root not in {"#Top", "#Bottom"} and stalled:
         return "incomplete"
-    raise VerificationError(
+    raise GateError(
         f"unclassified bounded proof termination: rc={returncode}, root={root!r}"
     )
 
@@ -291,7 +109,7 @@ def unique_claim(value: dict[str, Any]) -> dict[str, Any]:
 
     visit(value)
     if len(found) != 1:
-        raise VerificationError(f"expected one selected KClaim, found {len(found)}")
+        raise GateError(f"expected one selected KClaim, found {len(found)}")
     return found[0]
 
 
@@ -359,25 +177,26 @@ def prove(
             "64",
         ],
         timeout=timeout,
+        check=False,
     )
     try:
         normalized_result = normalize_proof(envelope(process.stdout))
         claim_value = json.loads(spec_json.read_text(encoding="utf-8"))
         selected = unique_claim(claim_value)
         if selected.get("att", {}).get("att", {}).get("label") != case["claim"]:
-            raise VerificationError(f"selected claim differs for {case['name']}")
+            raise GateError(f"selected claim differs for {case['name']}")
         normalized_claim = normalize_claim_spec(claim_value)
     except (OSError, json.JSONDecodeError, ValueError) as error:
-        raise VerificationError(f"incomplete proof evidence for {case['name']}: {error}") from error
+        raise GateError(f"incomplete proof evidence for {case['name']}: {error}") from error
     frontier = normalized_frontier(normalized_result)
     return {
         "status": classify(process.returncode, root_label(normalized_result), process.stderr),
         "bounds": {"depth": case["depth"], "branching_allowed": 64},
         "frontier_count": len(frontier),
-        "frontier_sha256": hashlib.sha256("\n".join(frontier).encode()).hexdigest(),
+        "frontier_sha256": sha256_text("\n".join(frontier)),
         "user_labels": [],
-        "result_sha256": digest(normalized_result),
-        "claim_sha256": digest(normalized_claim),
+        "result_sha256": json_sha256(normalized_result),
+        "claim_sha256": json_sha256(normalized_claim),
     }
 
 
@@ -389,6 +208,7 @@ def source_paths() -> dict[str, Path]:
         "fixtures/induced-definition-error.k": HERE / "fixtures/induced-definition-error.k",
         "fixtures/induced-source-error.k": HERE / "fixtures/induced-source-error.k",
         "fixtures/static-adjunct.k": FIXTURE,
+        "normalize.py": HERE / "normalize.py",
         "verify.py": HERE / "verify.py",
     }
 
@@ -436,8 +256,8 @@ def observed_ledger(outcomes: dict[str, dict[str, Any]]) -> dict[str, Any]:
             "original_spec_sha256": "2b32479b9e982cac3c8ebb0b6e423662219c9d1ed1d387be80050732a522d444",
             "claim": "functional reconstruction; original blobs unavailable",
         },
-        "source_sha256": {name: sha256(path) for name, path in source_paths().items()},
-        "upstream_sha256": {name: sha256(path) for name, path in upstream_paths().items()},
+        "source_sha256": {name: sha256_file(path) for name, path in source_paths().items()},
+        "upstream_sha256": {name: sha256_file(path) for name, path in upstream_paths().items()},
         "static_execution": {
             "program": "corpus/static-evaluation.imp",
             "environment": {"x": 6, "y": 0},
@@ -468,9 +288,10 @@ def verify_diagnostic(
             workspace / module.lower(),
         ],
         timeout=timeout,
+        check=False,
     )
     if process.returncode == 0 or "[Error]" not in process.stderr:
-        raise VerificationError(f"induced diagnostic unexpectedly accepted: {fixture}")
+        raise GateError(f"induced diagnostic unexpectedly accepted: {fixture}")
 
 
 def main() -> int:
@@ -479,13 +300,13 @@ def main() -> int:
     parser.add_argument("--write-proposal", type=Path)
     options = parser.parse_args()
     if options.timeout <= 0:
-        raise VerificationError("--timeout must be positive")
+        raise GateError("--timeout must be positive")
 
-    kompile = required_tool("kompile", options.timeout)
-    kprove = required_tool("kprove", options.timeout)
-    krun = required_tool("krun", options.timeout)
-    exact_revision(K, "4a46d1231473b599c699160132fd6e76a5c46406", options.timeout)
-    exact_revision(IMP, "683a773418add3bcae8ded47c2b24e94494e1988", options.timeout)
+    kompile = k_tool("kompile", K_VERSION)
+    kprove = k_tool("kprove", K_VERSION)
+    krun = k_tool("krun", K_VERSION)
+    verify_checkout(K, "4a46d1231473b599c699160132fd6e76a5c46406", label="K", clean=False)
+    verify_checkout(IMP, "683a773418add3bcae8ded47c2b24e94494e1988", label="IMP", clean=False)
 
     with tempfile.TemporaryDirectory(prefix="krs-m3d-reconstructed-") as temporary:
         workspace = Path(temporary)
@@ -507,18 +328,20 @@ def main() -> int:
                 definition,
             ],
             timeout=options.timeout,
+            check=False,
         )
         if compiled.returncode != 0:
-            raise VerificationError(f"M3D compilation failed:\n{compiled.stderr}")
+            raise GateError(f"M3D compilation failed:\n{compiled.stderr}")
         print("PASS M3D compile: reconstructed static definition")
 
         executed = run(
             [krun, STATIC_PROGRAM, "-cENV=.Map", "-d", definition, "--output", "pretty", "--color", "off"],
             timeout=options.timeout,
+            check=False,
         )
         compact = re.sub(r"\s+", " ", executed.stdout)
         if executed.returncode != 0 or "x |-> 6" not in compact or "y |-> m3dZero" not in compact:
-            raise VerificationError(f"static execution differs:\n{executed.stdout}\n{executed.stderr}")
+            raise GateError(f"static execution differs:\n{executed.stdout}\n{executed.stderr}")
         print("PASS M3D execution: x=6, y=0 (reversible m3dZero unparse)")
 
         verify_diagnostic(
@@ -556,23 +379,23 @@ def main() -> int:
     if options.write_proposal is not None:
         destination = options.write_proposal.resolve()
         if destination.exists():
-            raise VerificationError(f"proposal destination exists: {destination}")
+            raise GateError(f"proposal destination exists: {destination}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(observed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(f"PASS M3D proposal: {destination}")
         return 0
     if not PINS.is_file():
-        raise VerificationError("reconstructed pins are absent; use --write-proposal")
+        raise GateError("reconstructed pins are absent; use --write-proposal")
     expected = json.loads(PINS.read_text(encoding="utf-8"))
     if expected != observed:
-        raise VerificationError("M3D reconstructed pins differ from live evidence")
-    print(f"PASS M3D reconstructed oracle: evidence={digest(observed)}")
+        raise GateError("M3D reconstructed pins differ from live evidence")
+    print(f"PASS M3D reconstructed oracle: evidence={json_sha256(observed)}")
     return 0
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, VerificationError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, GateError, ValueError) as error:
         print(f"FAIL M3D: {error}", file=sys.stderr)
         raise SystemExit(1) from error

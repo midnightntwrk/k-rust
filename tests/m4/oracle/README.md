@@ -8,14 +8,12 @@ fixture or another frontend route.
 
 ## Root integration API
 
-Import the three modules from `tests.m4.oracle` (or put this directory on
-`sys.path` for a directly loaded runner).
+Put `tests/` on `sys.path` (the modules import the shared `support`
+package and `m3d.normalize`), then import the three modules from
+`tests.m4.oracle` or with this directory on `sys.path` for a directly loaded
+runner.
 
-1. Call `behavior.load_frozen_helpers(ROOT)` before compiling M4.  It checks
-   the exact reviewed hashes of the three M3B--M3D verifier modules.  The optional
-   `run_frozen_behavior_gates(ROOT)` entry point runs only bounded M3B--M3C;
-   it intentionally refuses M3D because that script launches proofs.
-2. Compile upstream IMP and KRS-emitted K with the same pinned K frontend.
+1. Compile upstream IMP and KRS-emitted K with the same pinned K frontend.
    Call `source_definition.compare_definitions` independently for
    `parsed.json` and `compiled.json`, because the reviewed exact-count
    omissions and exact reference/actual sentence pairs differ at those two
@@ -25,23 +23,23 @@ Import the three modules from `tests.m4.oracle` (or put this directory on
    attribute-value mapping (for example a renamed `seqstrict` alias), and
    sentence origins for a flattened module.  Unknown structure fails before
    behavior.
-3. Construct `behavior.Route` values for the two compiled source definitions
+2. Construct `behavior.Route` values for the two compiled source definitions
    and one `BehaviorPlan` from the checked corpus manifest.  Call
    `behavior.compare_behavior(kast=..., krun=..., reference=..., actual=...,
    plan=...)`.
-4. Construct one `proofs.ProofCase` per invocation.  Every case requires an
+3. Construct one `proofs.ProofCase` per invocation.  Every case requires an
    explicit `ProofBounds(depth, branching_allowed)`; there is no unbounded
    constructor.  `run_bounded_source_proof` owns and terminates a complete
    process group on timeout.  A timeout is an error, never a pinned status.
    Native/external proof consumers can instead construct evidence with
    `evidence_from_values`.
-5. Call `proofs.compare_proof_evidence(reference, actual,
+4. Call `proofs.compare_proof_evidence(reference, actual,
    pins["proof_outcomes"])`.  It compares the normalized claim, full result,
    proved/failed/incomplete status, frontier states and constraints, semantic
    bounds, and representative applied user labels before checking pins.
 
 `proofs.verify_m3d_selected_pins` additionally requires exact legacy outcomes
-computed with the hash-checked M3D normalizer.  It covers the six individually
+computed with the hash-checked M3D normalizer in `tests/m3d/normalize.py`.  It covers the six individually
 frozen invocations.  The old `static-adjunct` hash represents five claims in
 one module, so root must add five per-claim M4 pins; this library does not
 pretend that the aggregate pin selects them independently.

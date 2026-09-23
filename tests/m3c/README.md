@@ -100,6 +100,3 @@ On a disk-constrained host, set `KRS_M3C_ORACLE_WORKERS=1` to serialize the
 same pinned checks and reduce simultaneous K scanner temporaries. The default
 remains up to eight workers; worker count does not change oracle inputs,
 normalization, hashes, or assertions.
-
-The frozen verifier SHA-256 is
-`9ef82c970a37128ac7b445fae30ee99590d56ae8a8f66190cf62afbcd4e1358b`.

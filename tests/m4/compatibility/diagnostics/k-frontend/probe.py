@@ -4,23 +4,21 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import re
-import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from support import GateError  # noqa: E402
+from support.hashing import sha256_bytes  # noqa: E402
+from support.kdefinition import split_claims  # noqa: E402
+from support.process import run  # noqa: E402
 
 
 LOCATION = re.compile(r"Location\((\d+),(\d+),(\d+),(\d+)\)")
-SENTENCE_START = re.compile(
-    rb"^(?:endmodule\b|  (?:syntax\b|configuration\b|context alias\b|rule\b|claim \[))"
-)
-CLAIM_START = re.compile(rb"^  claim \[([^]]+)\]:\s*$")
-
-
-class FrontendProbeError(RuntimeError):
-    pass
+EMITTED_CLAIMS = 20
 
 
 def ranged_origins(entry: dict[str, object]) -> list[dict[str, object]]:
@@ -48,7 +46,7 @@ def exact_mapping(
         file = origin.get("file", {})
         if not isinstance(file, dict) or file.get("package_relative_path") != source_relative_path:
             continue
-        if file.get("content_sha256") != hashlib.sha256(source).hexdigest():
+        if file.get("content_sha256") != sha256_bytes(source):
             continue
         start, end = int(origin["start_byte"]), int(origin["end_byte"])
         generated_start, generated_end = int(generated["start_byte"]), int(generated["end_byte"])
@@ -61,40 +59,8 @@ def exact_mapping(
         ):
             matches.append((origin, generated))
     if len(matches) != 1:
-        raise FrontendProbeError(f"expected one exact sidecar mapping for {token!r}, got {len(matches)}")
+        raise GateError(f"expected one exact sidecar mapping for {token!r}, got {len(matches)}")
     return matches[0]
-
-
-def split_emitted_claims(
-    definition: bytes, expected_count: int = 20
-) -> tuple[bytes, bytes]:
-    """Separate emitted claims from the executable module without rewriting them."""
-
-    lines = definition.splitlines(keepends=True)
-    execution: list[bytes] = []
-    claims: list[bytes] = []
-    labels: list[bytes] = []
-    index = 0
-    while index < len(lines):
-        match = CLAIM_START.match(lines[index].rstrip(b"\r\n"))
-        if match is None:
-            execution.append(lines[index])
-            index += 1
-            continue
-        labels.append(match.group(1))
-        start = index
-        index += 1
-        while index < len(lines) and SENTENCE_START.match(lines[index]) is None:
-            index += 1
-        claims.extend(lines[start:index])
-    executable = b"".join(execution)
-    if len(labels) != expected_count or len(set(labels)) != expected_count:
-        raise FrontendProbeError(
-            f"expected {expected_count} unique emitted claims, got {len(labels)}"
-        )
-    if b"  claim [" in executable or not executable.endswith(b"endmodule\n"):
-        raise FrontendProbeError("claim-free execution module is malformed")
-    return executable, b"".join(claims)
 
 
 def main() -> int:
@@ -124,17 +90,18 @@ def main() -> int:
         }, sort_keys=True))
         return 0
     if not arguments.module:
-        raise FrontendProbeError("--module is required with --kompile")
+        raise GateError("--module is required with --kompile")
     if arguments.verification_definition is None:
-        raise FrontendProbeError("--verification-definition is required with --kompile")
+        raise GateError("--verification-definition is required with --kompile")
     verification_definition = arguments.verification_definition.resolve()
     if not verification_definition.joinpath("imp-verification.k").is_file():
-        raise FrontendProbeError("verification definition lacks imp-verification.k")
+        raise GateError("verification definition lacks imp-verification.k")
 
-    execution, claims = split_emitted_claims(definition)
+    execution_text, _, claims_text = split_claims(definition.decode("utf-8"), EMITTED_CLAIMS)
+    execution, claims = execution_text.encode("utf-8"), claims_text.encode("utf-8")
     mapped = definition[start:end]
     if not mapped or claims.count(mapped) != 1:
-        raise FrontendProbeError("mapped generated range is not unique in emitted claims")
+        raise GateError("mapped generated range is not unique in emitted claims")
     claim_start = claims.index(mapped)
     broken_claims = claims[:claim_start] + b"+" + claims[claim_start + len(mapped):]
     spec_module = f"{arguments.module}-DIAGNOSTIC-SPEC"
@@ -154,16 +121,17 @@ def main() -> int:
         (temporary / "execution.k").write_bytes(execution)
         broken_path = temporary / "spec.k"
         broken_path.write_bytes(broken)
-        process = subprocess.run(
-            [arguments.kompile, str(broken_path), "-I", str(temporary),
-             "-I", str(verification_definition), "--main-module", spec_module,
+        process = run(
+            [arguments.kompile, broken_path, "-I", temporary,
+             "-I", verification_definition, "--main-module", spec_module,
              "--syntax-module", spec_module, "--backend", "llvm",
-             "--output-definition", str(temporary / "out")],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180, check=False
+             "--output-definition", temporary / "out"],
+            timeout=180,
+            check=False,
         )
     locations = [tuple(map(int, match.groups())) for match in LOCATION.finditer(process.stderr)]
     if process.returncode == 0 or not any(location[:2] == (line, column) for location in locations):
-        raise FrontendProbeError("K frontend failure did not select the exact induced generated range")
+        raise GateError("K frontend failure did not select the exact induced generated range")
     print(json.dumps({
         "artifact_generated_location": [artifact_line, artifact_column],
         "authored_range": origin,

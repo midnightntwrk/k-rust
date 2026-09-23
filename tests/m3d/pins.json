@@ -185,7 +185,8 @@
     "fixtures/induced-definition-error.k": "1eae8e8e5ae92d940047828bbffa87e355ef2e3b2962a4058426b595c567ae24",
     "fixtures/induced-source-error.k": "a79bd5e152247b07153025c5be1626a40338cec4f23b81349384d06b46354a9c",
     "fixtures/static-adjunct.k": "8fbc3493b8d5dc41d05521cc790372bb55c84bebac9d34da1d980ebc8d9d45cf",
-    "verify.py": "aa3ba0824b18d4d6d60c38608b79bc9ff3a69c125308505a9436a44cda353abb"
+    "normalize.py": "1bef613f3fae237240c516d3bcbf2b7fe075a05b3be233bdf7e8cc92dc1d12f6",
+    "verify.py": "9597d62ba8accfe9897ea41c0009a59fcaf1efda1adeebeabd195e4c794e601b"
   },
   "static_execution": {
     "environment": {

@@ -1,42 +1,30 @@
 """Manifest-driven parser, execution, and search differential oracle.
 
 This runner consumes the M4-owned expression corpus and the existing M3B--M3D
-corpus paths; it does not copy their inputs or mutate their module constants.  Frozen verifier modules are
-loaded only after their exact reviewed hashes have been checked.
+corpus paths; it does not copy their inputs or import their verifiers.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
-import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
 import re
-import shutil
-import signal
 import subprocess
 import tempfile
-from types import ModuleType
 from typing import Any, Mapping, Sequence
 
+from support import GateError
+from support.hashing import canonical_json, json_sha256
+from support.process import compact, run
+from support.tools import executable
+
 try:
-    from .source_definition import NODE_FIELDS, canonical, digest
+    from .source_definition import NODE_FIELDS
 except ImportError:  # Direct loading by tests/m4/verify.py.
-    from source_definition import NODE_FIELDS, canonical, digest
-
-
-FROZEN_HELPER_SHA256: Mapping[str, str] = {
-    "m3b": "08401de91efba5c39456e094295643b36504a123801c6db5d421667b5762ea05",
-    "m3c": "4c0db024a7e302706b4ec97d7c4f87292277d31d66114f073dced994ab727bc7",
-    "m3d": "aa3ba0824b18d4d6d60c38608b79bc9ff3a69c125308505a9436a44cda353abb",
-}
-
-
-class BehaviorError(RuntimeError):
-    """Behavioral evidence is unavailable, malformed, or different."""
+    from source_definition import NODE_FIELDS
 
 
 @dataclass(frozen=True)
@@ -109,7 +97,7 @@ class BehaviorPlan:
 
     def __post_init__(self) -> None:
         if self.timeout_seconds <= 0:
-            raise BehaviorError("timeout_seconds must be positive")
+            raise GateError("timeout_seconds must be positive")
         for category in (
             self.parse_cases,
             self.execution_cases,
@@ -119,18 +107,18 @@ class BehaviorPlan:
             names = [case.name for case in category]
             duplicates = sorted(name for name in set(names) if names.count(name) > 1)
             if duplicates:
-                raise BehaviorError(f"duplicate corpus case names: {duplicates}")
+                raise GateError(f"duplicate corpus case names: {duplicates}")
         for case in self.execution_cases:
             if any(depth < 0 for depth in (*case.depths, *case.search_depths)):
-                raise BehaviorError(f"negative depth in {case.name}")
+                raise GateError(f"negative depth in {case.name}")
             if not case.run_to_completion and not (case.depths or case.search_depths):
-                raise BehaviorError(f"bounded-only case {case.name} has no bounds")
+                raise GateError(f"bounded-only case {case.name} has no bounds")
         for case in self.rejection_cases:
             if case.expected_class not in {"scanner", "parser"}:
-                raise BehaviorError(f"invalid rejection class for {case.name}")
+                raise GateError(f"invalid rejection class for {case.name}")
         for case in self.failure_cases:
             if not case.expected_fragment:
-                raise BehaviorError(f"failure case {case.name} needs an exact diagnostic fragment")
+                raise GateError(f"failure case {case.name} needs an exact diagnostic fragment")
 
 
 @dataclass(frozen=True)
@@ -144,126 +132,27 @@ class BehaviorSummary:
     evidence_sha256: str
 
 
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def load_frozen_helpers(root: Path) -> Mapping[str, ModuleType]:
-    """Hash-check and import the reviewed M3 helpers without mutating them."""
-
-    loaded: dict[str, ModuleType] = {}
-    for milestone, expected in FROZEN_HELPER_SHA256.items():
-        path = root / "tests" / milestone / "verify.py"
-        if not path.is_file() or _sha256(path) != expected:
-            actual = _sha256(path) if path.is_file() else "<missing>"
-            raise BehaviorError(
-                f"frozen {milestone} helper hash differs: expected={expected}, actual={actual}"
-            )
-        spec = importlib.util.spec_from_file_location(f"krs_m4_frozen_{milestone}", path)
-        if spec is None or spec.loader is None:
-            raise BehaviorError(f"cannot import frozen helper {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        loaded[milestone] = module
-    return loaded
-
-
-def run_frozen_behavior_gates(
-    root: Path, *, milestones: Sequence[str] = ("m3b", "m3c"), timeout: int = 900
-) -> None:
-    """Re-run prior bounded gates after checking their helper hashes.
-
-    M3D is deliberately rejected here because its top-level verifier launches
-    proofs.  The M4 proof layer consumes proof evidence through ``proofs.py``.
-    """
-
-    load_frozen_helpers(root)
-    unknown = set(milestones) - {"m3b", "m3c"}
-    if unknown:
-        raise BehaviorError(f"not a bounded behavior milestone: {sorted(unknown)}")
-    for milestone in milestones:
-        process = _run(
-            [os.environ.get("PYTHON", "python3"), str(root / "tests" / milestone / "verify.py")],
-            timeout=timeout,
-            cwd=root,
-        )
-        if process.returncode != 0 or "FAIL" in process.stdout:
-            raise BehaviorError(
-                f"frozen {milestone} gate failed: {_compact(process)}"
-            )
-
-
-def _run(
-    command: Sequence[str], *, timeout: int, cwd: Path | None = None
-) -> subprocess.CompletedProcess[str]:
-    environment = os.environ.copy()
-    environment.update({"LC_ALL": "C", "LANG": "C", "PYTHONDONTWRITEBYTECODE": "1"})
-    process = subprocess.Popen(
-        list(command),
-        cwd=cwd,
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            stdout, stderr = process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            stdout, stderr = process.communicate()
-        raise BehaviorError(
-            f"command timed out after {timeout}s and its process group was terminated: {command[0]}"
-        ) from error
-    except BaseException:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.communicate()
-        raise
-    return subprocess.CompletedProcess(list(command), process.returncode, stdout, stderr)
-
-
 def _without_address_space_limit(command: Sequence[str]) -> list[str]:
     """Permit the LLVM runtime's sparse semispace without lifting RAM limits."""
 
-    prlimit = shutil.which("prlimit")
-    if prlimit is None:
-        raise BehaviorError("prlimit is required for the LLVM failure route")
-    return [prlimit, "--as=unlimited", "--", *command]
-
-
-def _compact(process: subprocess.CompletedProcess[str], limit: int = 1200) -> str:
-    text = "\n".join(part.strip() for part in (process.stdout, process.stderr) if part.strip())
-    return text[:limit] + ("…" if len(text) > limit else "")
+    return [executable("prlimit"), "--as=unlimited", "--", *command]
 
 
 def _envelope(output: str) -> dict[str, Any]:
     start = output.find("{")
     if start < 0:
-        raise BehaviorError("KAST output has no JSON envelope")
+        raise GateError("KAST output has no JSON envelope")
     try:
         value = json.loads(output[start:])
     except json.JSONDecodeError as error:
-        raise BehaviorError(f"invalid KAST JSON: {error}") from error
+        raise GateError(f"invalid KAST JSON: {error}") from error
     if (
         not isinstance(value, dict)
         or set(value) != {"format", "version", "term"}
         or value["format"] != "KAST"
         or value["version"] != 4
     ):
-        raise BehaviorError("output is not exactly a KAST v4 envelope")
+        raise GateError("output is not exactly a KAST v4 envelope")
     return value
 
 
@@ -274,12 +163,12 @@ class _TermNormalizer:
 
     def _name(self, raw: Any, mapping: Mapping[str, str], identities: frozenset[str], kind: str) -> str:
         if not isinstance(raw, str):
-            raise BehaviorError(f"{kind} is not a string")
+            raise GateError(f"{kind} is not a string")
         if raw in mapping:
             return mapping[raw]
         if raw in identities:
             return raw
-        raise BehaviorError(f"unknown {kind} {raw!r}")
+        raise GateError(f"unknown {kind} {raw!r}")
 
     def visit(self, value: Any) -> Any:
         if isinstance(value, list):
@@ -287,13 +176,13 @@ class _TermNormalizer:
         if not isinstance(value, dict):
             if isinstance(value, (str, int, bool)) or value is None:
                 return value
-            raise BehaviorError(f"unsupported KAST scalar {value!r}")
+            raise GateError(f"unsupported KAST scalar {value!r}")
         kind = value.get("node")
         if kind not in {"KApply", "KLabel", "KSort", "KToken", "KVariable", "KSequence", "KRewrite"}:
-            raise BehaviorError(f"unclassified behavior KAST node {kind!r}")
+            raise GateError(f"unclassified behavior KAST node {kind!r}")
         fields = frozenset(value)
         if fields not in NODE_FIELDS[kind]:
-            raise BehaviorError(f"unknown {kind} fields: {sorted(fields)}")
+            raise GateError(f"unknown {kind} fields: {sorted(fields)}")
         if kind == "KVariable":
             name = value["name"]
             raw_sort = value.get("sort")
@@ -324,7 +213,7 @@ class _TermNormalizer:
         elif kind in {"KApply", "KSequence"}:
             children = result["args"] if kind == "KApply" else result["items"]
             if result["arity"] != len(children):
-                raise BehaviorError(f"invalid {kind} arity")
+                raise GateError(f"invalid {kind} arity")
         return result
 
 
@@ -335,7 +224,7 @@ def normalize_term(term: Mapping[str, Any], policy: TermPolicy) -> Any:
 def _parse(
     kast: str, route: Route, module: str, sort: str, path: Path, timeout: int
 ) -> subprocess.CompletedProcess[str]:
-    return _run(
+    return run(
         [
             kast,
             "--definition",
@@ -349,11 +238,12 @@ def _parse(
             str(path),
         ],
         timeout=timeout,
+        check=False,
     )
 
 
 def _unparse(kast: str, route: Route, module: str, sort: str, path: Path, timeout: int) -> subprocess.CompletedProcess[str]:
-    return _run(
+    return run(
         [
             kast,
             "--definition",
@@ -367,6 +257,7 @@ def _unparse(kast: str, route: Route, module: str, sort: str, path: Path, timeou
             str(path),
         ],
         timeout=timeout,
+        check=False,
     )
 
 
@@ -399,17 +290,14 @@ def _execute(
         # unlimited soft address-space limit.
         command = _without_address_space_limit(command)
     if kill_after is not None:
-        watchdog = shutil.which("timeout")
-        if watchdog is None:
-            raise BehaviorError("GNU timeout is required to contain a backend hook abort")
-        command = [watchdog, "--signal=KILL", f"{kill_after}s", *command]
+        command = [executable("timeout"), "--signal=KILL", f"{kill_after}s", *command]
         timeout = kill_after + 7
-    return _run(command, timeout=timeout)
+    return run(command, timeout=timeout, check=False)
 
 
 def _normalized_output(process: subprocess.CompletedProcess[str], policy: TermPolicy, name: str) -> Any:
     if process.returncode != 0:
-        raise BehaviorError(f"{name} failed: {_compact(process)}")
+        raise GateError(f"{name} failed: {compact(process)}")
     return normalize_term(_envelope(process.stdout)["term"], policy)
 
 
@@ -423,8 +311,8 @@ def _search_set(term: Any) -> list[str]:
         for child in term["args"]:
             child_values = _search_set(child)
             values.extend(json.loads(item) for item in child_values)
-        return sorted({canonical(value) for value in values})
-    return [canonical(term)]
+        return sorted({canonical_json(value) for value in values})
+    return [canonical_json(term)]
 
 
 def _diagnostic_class(stderr: str) -> str:
@@ -444,7 +332,7 @@ def _diagnostic_class(stderr: str) -> str:
         if any(fragment in text for fragment in fragments)
     ]
     if len(classes) != 1:
-        raise BehaviorError(f"diagnostic has unknown or ambiguous class: {classes}")
+        raise GateError(f"diagnostic has unknown or ambiguous class: {classes}")
     return classes[0]
 
 
@@ -452,7 +340,7 @@ def _diagnostic_range(stderr: str) -> tuple[int, int, int, int]:
     matches = re.findall(r"Location\((\d+),(\d+),(\d+),(\d+)\)", stderr)
     unique = {tuple(map(int, match)) for match in matches}
     if len(unique) != 1:
-        raise BehaviorError(f"diagnostic has {len(unique)} distinct source ranges")
+        raise GateError(f"diagnostic has {len(unique)} distinct source ranges")
     return next(iter(unique))
 
 
@@ -471,9 +359,9 @@ def compare_behavior(
     try:
         worker_limit = int(os.environ.get("KRS_M4_ORACLE_WORKERS", "4"))
     except ValueError as error:
-        raise BehaviorError("KRS_M4_ORACLE_WORKERS must be an integer") from error
+        raise GateError("KRS_M4_ORACLE_WORKERS must be an integer") from error
     if not 1 <= worker_limit <= 8:
-        raise BehaviorError("KRS_M4_ORACLE_WORKERS must be between 1 and 8")
+        raise GateError("KRS_M4_ORACLE_WORKERS must be between 1 and 8")
 
     def parallel(function, values):
         values = list(values)
@@ -488,15 +376,15 @@ def compare_behavior(
             left_term = _normalized_output(left, reference.term_policy, f"reference parse {case.name}")
             right_term = _normalized_output(right, actual.term_policy, f"actual parse {case.name}")
             if left_term != right_term:
-                raise BehaviorError(f"parse tree differs for {case.name}")
+                raise GateError(f"parse tree differs for {case.name}")
 
             unparsed_left = _unparse(kast, reference, case.reference_module, case.sort, case.path, plan.timeout_seconds)
             unparsed_right = _unparse(kast, actual, case.actual_module, case.sort, case.path, plan.timeout_seconds)
             if unparsed_left.returncode != 0 or unparsed_right.returncode != 0:
-                raise BehaviorError(f"unparse failed for {case.name}")
+                raise GateError(f"unparse failed for {case.name}")
             pair = (unparsed_left.stdout.strip(), unparsed_right.stdout.strip())
             if pair[0] != pair[1] and pair != case.allowed_unparse_pair:
-                raise BehaviorError(f"unparse output differs for {case.name}: {pair!r}")
+                raise GateError(f"unparse output differs for {case.name}: {pair!r}")
 
             # Each frontend's output must reparse to its own original term,
             # except for an explicitly frozen parser/unparser mismatch.
@@ -512,7 +400,7 @@ def compare_behavior(
                 process = _parse(kast, route, module, case.sort, path, plan.timeout_seconds)
                 reparsed.append(_normalized_output(process, route.term_policy, f"reparse {case.name}"))
             if case.allowed_unparse_pair is None and reparsed != [left_term, right_term]:
-                raise BehaviorError(f"parse/unparse/parse changed {case.name}")
+                raise GateError(f"parse/unparse/parse changed {case.name}")
             evidence["parse"][case.name] = {"term": left_term, "unparse": pair}
 
         for case in plan.execution_cases:
@@ -535,7 +423,7 @@ def compare_behavior(
                     )
                 full = parallel(complete, ((reference, "reference"), (actual, "actual")))
                 if full[0] != full[1]:
-                    raise BehaviorError(f"final state differs for {case.name}")
+                    raise GateError(f"final state differs for {case.name}")
                 evidence["execution"][case.name] = {"term": full[0]}
 
             def bounded(job):
@@ -553,7 +441,7 @@ def compare_behavior(
             for index, depth in enumerate(case.depths):
                 states = bounded_states[index * 2:index * 2 + 2]
                 if states[0] != states[1]:
-                    raise BehaviorError(f"depth state differs for {case.name}@{depth}")
+                    raise GateError(f"depth state differs for {case.name}@{depth}")
                 evidence["execution"][f"{case.name}@{depth:03d}"] = states[0]
                 depth_count += 1
 
@@ -577,7 +465,7 @@ def compare_behavior(
             for index, depth in enumerate(case.search_depths):
                 searches = search_states[index * 2:index * 2 + 2]
                 if searches[0] != searches[1]:
-                    raise BehaviorError(f"search set differs for {case.name}@{depth}")
+                    raise GateError(f"search set differs for {case.name}@{depth}")
                 evidence["search"][f"{case.name}@{depth:03d}"] = searches[0]
 
         for case in plan.rejection_cases:
@@ -588,11 +476,11 @@ def compare_behavior(
             ):
                 process = _parse(kast, route, module, case.sort, case.path, plan.timeout_seconds)
                 if process.returncode == 0:
-                    raise BehaviorError(f"rejected input parsed successfully: {case.name}")
+                    raise GateError(f"rejected input parsed successfully: {case.name}")
                 observed.append((_diagnostic_class(process.stderr), _diagnostic_range(process.stderr)))
             expected = (case.expected_class, case.expected_range)
             if observed != [expected, expected]:
-                raise BehaviorError(f"rejection differs for {case.name}: {observed}")
+                raise GateError(f"rejection differs for {case.name}: {observed}")
             evidence["rejection"][case.name] = expected
 
         for case in plan.failure_cases:
@@ -608,16 +496,16 @@ def compare_behavior(
                     unlimited_address_space=True,
                 )
                 if process.returncode == 0:
-                    raise BehaviorError(
+                    raise GateError(
                         f"{side} failure input completed successfully: {case.name}"
                     )
                 if case.expected_fragment not in process.stderr:
-                    raise BehaviorError(
-                        f"failure diagnostic fragment differs for {case.name}: {_compact(process)}"
+                    raise GateError(
+                        f"failure diagnostic fragment differs for {case.name}: {compact(process)}"
                     )
                 observed.append(_diagnostic_class(process.stderr))
             if observed != [case.expected_class, case.expected_class]:
-                raise BehaviorError(f"failure class differs for {case.name}: {observed}")
+                raise GateError(f"failure class differs for {case.name}: {observed}")
             evidence["failure"][case.name] = {
                 "class": case.expected_class,
                 "fragment": case.expected_fragment,
@@ -630,7 +518,7 @@ def compare_behavior(
         search_count=sum(len(case.search_depths) for case in plan.execution_cases),
         rejection_count=len(plan.rejection_cases),
         failure_count=len(plan.failure_cases),
-        evidence_sha256=digest(evidence),
+        evidence_sha256=json_sha256(evidence),
     )
 
 
@@ -639,18 +527,18 @@ def term_policies(raw: Mapping[str, Any]) -> tuple[TermPolicy, TermPolicy]:
 
     policies = raw.get("term_policy")
     if not isinstance(policies, dict) or set(policies) != {"reference", "actual"}:
-        raise BehaviorError("behavior.term_policy must name exactly reference and actual")
+        raise GateError("behavior.term_policy must name exactly reference and actual")
 
     def build(side: str) -> TermPolicy:
         value = policies[side]
         if not isinstance(value, dict) or set(value) != {
             "label_map", "identity_labels", "sort_map", "identity_sorts"
         }:
-            raise BehaviorError(f"behavior term policy has unknown shape: {side}")
+            raise GateError(f"behavior term policy has unknown shape: {side}")
         if not isinstance(value["label_map"], dict) or not isinstance(value["sort_map"], dict):
-            raise BehaviorError(f"behavior term maps are not objects: {side}")
+            raise GateError(f"behavior term maps are not objects: {side}")
         if not isinstance(value["identity_labels"], list) or not isinstance(value["identity_sorts"], list):
-            raise BehaviorError(f"behavior identity sets are not arrays: {side}")
+            raise GateError(f"behavior identity sets are not arrays: {side}")
         return TermPolicy(
             label_map=value["label_map"],
             identity_labels=frozenset(value["identity_labels"]),
@@ -667,56 +555,56 @@ def plan_from_manifest(
     """Expand the exact schema-2 root manifest into the complete M4 plan."""
 
     if manifest.get("schema") != 2:
-        raise BehaviorError("behavior manifest is not schema 2")
+        raise GateError("behavior manifest is not schema 2")
     routes = manifest.get("routes")
     parse = manifest.get("parse")
     execution = manifest.get("execution")
     search = manifest.get("search")
     if not all(isinstance(value, dict) for value in (routes, parse, execution, search)):
-        raise BehaviorError("behavior manifest sections are missing")
+        raise GateError("behavior manifest sections are missing")
     reference_module = routes["reference"].get("syntax_module")
     actual_module = routes["actual"].get("syntax_module")
     if not isinstance(reference_module, str) or not isinstance(actual_module, str):
-        raise BehaviorError("behavior routes lack exact syntax modules")
+        raise GateError("behavior routes lack exact syntax modules")
 
     allowed = pins.get("allowed_unparse_pairs", {})
     if not isinstance(allowed, dict):
-        raise BehaviorError("allowed_unparse_pairs is not an object")
+        raise GateError("allowed_unparse_pairs is not an object")
     parse_cases: list[ParseCase] = []
     accepted = parse.get("accepted")
     if not isinstance(accepted, list):
-        raise BehaviorError("parse.accepted is not an array")
+        raise GateError("parse.accepted is not an array")
     for group in accepted:
         if not isinstance(group, dict) or set(group) != {"root", "glob", "sort", "count"}:
-            raise BehaviorError("accepted parse group has an unknown shape")
+            raise GateError("accepted parse group has an unknown shape")
         paths = sorted((root / group["root"]).glob(group["glob"]))
         if len(paths) != group["count"] or any(not path.is_file() for path in paths):
-            raise BehaviorError(f"accepted parse group count differs: {group['root']}")
+            raise GateError(f"accepted parse group count differs: {group['root']}")
         for path in paths:
             pair = allowed.get(path.name)
             if pair is not None and (
                 not isinstance(pair, list) or len(pair) != 2
                 or not all(isinstance(child, str) for child in pair)
             ):
-                raise BehaviorError(f"invalid allowed unparse pair for {path.name}")
+                raise GateError(f"invalid allowed unparse pair for {path.name}")
             parse_cases.append(ParseCase(
                 name=path.name, path=path, sort=group["sort"],
                 reference_module=reference_module, actual_module=actual_module,
                 allowed_unparse_pair=tuple(pair) if pair is not None else None,
             ))
     if set(allowed) - {case.name for case in parse_cases}:
-        raise BehaviorError("allowed unparse pair names an unknown accepted case")
+        raise GateError("allowed unparse pair names an unknown accepted case")
 
     rejection_cases: list[RejectionCase] = []
     rejected = parse.get("rejected")
     if not isinstance(rejected, list):
-        raise BehaviorError("parse.rejected is not an array")
+        raise GateError("parse.rejected is not an array")
     for entry in rejected:
         if not isinstance(entry, dict) or set(entry) != {"path", "sort", "class", "range"}:
-            raise BehaviorError("syntax rejection has an unknown shape")
+            raise GateError("syntax rejection has an unknown shape")
         coordinates = entry["range"]
         if not isinstance(coordinates, list) or len(coordinates) != 4:
-            raise BehaviorError("syntax rejection range is not four coordinates")
+            raise GateError("syntax rejection range is not four coordinates")
         path = root / entry["path"]
         rejection_cases.append(RejectionCase(
             name=path.name, path=path, sort=entry["sort"],
@@ -727,13 +615,13 @@ def plan_from_manifest(
     execution_cases: list[ExecutionCase] = []
     wrapper = execution.get("expression_wrapper")
     if not isinstance(wrapper, str) or wrapper.count("{expression}") != 1:
-        raise BehaviorError("expression wrapper must contain one {expression} field")
+        raise GateError("expression wrapper must contain one {expression} field")
     for category in ("expression_accepted_root", "expression_stuck_root"):
         directory = root / execution[category]
         expected_count = 9 if category == "expression_accepted_root" else 2
         paths = sorted(directory.glob("*.expr"))
         if len(paths) != expected_count:
-            raise BehaviorError(f"expression execution count differs: {category}")
+            raise GateError(f"expression execution count differs: {category}")
         for path in paths:
             expression = path.read_text(encoding="utf-8").strip()
             execution_cases.append(ExecutionCase(
@@ -744,19 +632,19 @@ def plan_from_manifest(
     for level in ("m3b", "m3c"):
         entries = execution.get(level)
         if not isinstance(entries, dict):
-            raise BehaviorError(f"execution.{level} is not an object")
+            raise GateError(f"execution.{level} is not an object")
         for relative, raw in entries.items():
             if level == "m3b":
                 if not isinstance(raw, dict) or set(raw) != {"environment", "steps"}:
-                    raise BehaviorError(f"M3B execution case has an unknown shape: {relative}")
+                    raise GateError(f"M3B execution case has an unknown shape: {relative}")
                 environment, steps = raw["environment"], raw["steps"]
             else:
                 environment, steps = ".Map", raw
             if not isinstance(environment, str) or not isinstance(steps, int) or steps < 0:
-                raise BehaviorError(f"invalid execution expectation: {relative}")
+                raise GateError(f"invalid execution expectation: {relative}")
             finite = search.get("finite", {}).get(relative, [])
             if not isinstance(finite, list) or not all(isinstance(value, int) for value in finite):
-                raise BehaviorError(f"invalid finite search depths: {relative}")
+                raise GateError(f"invalid finite search depths: {relative}")
             path = root / relative
             execution_cases.append(ExecutionCase(
                 name=path.name, path=path, configurations=(f"ENV={environment}",),
@@ -766,7 +654,7 @@ def plan_from_manifest(
     bounded = execution.get("bounded_live")
     bounded_search = search.get("bounded_live")
     if not isinstance(bounded, dict) or not isinstance(bounded_search, dict) or bounded.get("path") != bounded_search.get("path"):
-        raise BehaviorError("bounded-live execution/search paths differ")
+        raise GateError("bounded-live execution/search paths differ")
     execution_cases.append(ExecutionCase(
         name="infinite-loop.imp", path=root / bounded["path"],
         depths=tuple(bounded["depths"]), search_depths=tuple(bounded_search["depths"]),
@@ -775,7 +663,7 @@ def plan_from_manifest(
 
     stuck = execution.get("stuck")
     if not isinstance(stuck, list) or len(stuck) != 5:
-        raise BehaviorError("expected five Stmt stuck cases")
+        raise GateError("expected five Stmt stuck cases")
     for relative in stuck:
         path = root / relative
         execution_cases.append(ExecutionCase(
@@ -786,7 +674,7 @@ def plan_from_manifest(
 
     failures = manifest.get("failures")
     if not isinstance(failures, list) or len(failures) != 1:
-        raise BehaviorError("expected one exact failure case")
+        raise GateError("expected one exact failure case")
     failure_cases = tuple(FailureCase(
         name=entry["name"], path=root / entry["path"],
         expected_class=entry["class"], expected_fragment=entry["fragment"],
@@ -801,9 +689,9 @@ def plan_from_manifest(
     search_count = sum(len(case.search_depths) for case in plan.execution_cases)
     declared_depths = execution.get("depth_state_counts", {})
     if depth_count != 246 or declared_depths.get("total") != 246:
-        raise BehaviorError(f"expected 246 depth states, constructed {depth_count}")
+        raise GateError(f"expected 246 depth states, constructed {depth_count}")
     if search_count != 16 or search.get("frontier_count") != 16:
-        raise BehaviorError(f"expected 16 search frontiers, constructed {search_count}")
+        raise GateError(f"expected 16 search frontiers, constructed {search_count}")
     if len(plan.parse_cases) != 23 or len(plan.rejection_cases) != 8:
-        raise BehaviorError("parse/rejection corpus coverage differs")
+        raise GateError("parse/rejection corpus coverage differs")
     return plan

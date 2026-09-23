@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import select
-import subprocess
+import sys
 import time
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from support import GateError  # noqa: E402
+from support.lsp import Client, locations, meaningful_hover, version  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,100 +20,6 @@ LIB = ROOT / "src/lib.rs"
 SOURCES = (IMP, LIB)
 TEXT = {path: path.read_text(encoding="utf-8") for path in SOURCES}
 LINES = {path: text.splitlines() for path, text in TEXT.items()}
-
-
-class Client:
-    def __init__(self) -> None:
-        self.process = subprocess.Popen(
-            ["rust-analyzer"],
-            cwd=ROOT,
-            env={**os.environ, "RUSTUP_TOOLCHAIN": "stable"},
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        self.next_id = 1
-
-    def send(self, message: dict[str, Any]) -> None:
-        assert self.process.stdin is not None
-        body = json.dumps(message, separators=(",", ":")).encode()
-        self.process.stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
-        self.process.stdin.flush()
-
-    def receive(self, timeout: float) -> dict[str, Any] | None:
-        assert self.process.stdout is not None
-        if timeout <= 0 or not select.select([self.process.stdout], [], [], timeout)[0]:
-            return None
-        headers: dict[str, str] = {}
-        while True:
-            line = self.process.stdout.readline()
-            if line == b"\r\n":
-                break
-            if not line:
-                raise AssertionError("rust-analyzer closed stdout")
-            key, value = line.decode().split(":", 1)
-            headers[key.lower()] = value.strip()
-        return json.loads(self.process.stdout.read(int(headers["content-length"])))
-
-    def handle(self, message: dict[str, Any]) -> None:
-        if "method" not in message or "id" not in message:
-            return
-        count = len(message.get("params", {}).get("items", []))
-        result: Any = (
-            [{} for _ in range(count)]
-            if message["method"] == "workspace/configuration"
-            else None
-        )
-        self.send({"jsonrpc": "2.0", "id": message["id"], "result": result})
-
-    def request(self, method: str, params: Any, timeout: float = 60) -> Any:
-        request_id = self.next_id
-        self.next_id += 1
-        self.send(
-            {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
-        )
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            message = self.receive(deadline - time.monotonic())
-            if message is None:
-                break
-            if message.get("id") == request_id and "method" not in message:
-                if "error" in message:
-                    raise AssertionError(f"{method} failed: {message['error']}")
-                return message.get("result")
-            self.handle(message)
-        raise AssertionError(f"timed out waiting for {method}")
-
-    def wait_for_priming(self) -> None:
-        deadline = time.monotonic() + 120
-        while time.monotonic() < deadline:
-            message = self.receive(deadline - time.monotonic())
-            if message is None:
-                break
-            self.handle(message)
-            if (
-                message.get("method") == "$/progress"
-                and message.get("params", {}).get("token") == "rustAnalyzer/cachePriming"
-                and message.get("params", {}).get("value", {}).get("kind") == "end"
-            ):
-                return
-        raise AssertionError("rust-analyzer did not finish cache priming")
-
-    def close(self) -> None:
-        if self.process.poll() is not None:
-            stderr = (
-                self.process.stderr.read().decode(errors="replace")
-                if self.process.stderr
-                else ""
-            )
-            raise AssertionError(f"rust-analyzer exited early:\n{stderr}")
-        try:
-            self.request("shutdown", None, timeout=10)
-            self.send({"jsonrpc": "2.0", "method": "exit", "params": None})
-            self.process.wait(timeout=10)
-        except BaseException:
-            self.process.kill()
-            raise
 
 
 def utf16_length(value: str) -> int:
@@ -146,32 +54,6 @@ def params(path: Path, at: dict[str, int]) -> dict[str, Any]:
     return {"textDocument": {"uri": path.as_uri()}, "position": at}
 
 
-def locations(result: Any) -> list[tuple[str, dict[str, Any]]]:
-    if result is None:
-        return []
-    entries = result if isinstance(result, list) else [result]
-    output = []
-    for entry in entries:
-        if "targetUri" in entry:
-            output.append((entry["targetUri"], entry["targetSelectionRange"]))
-        else:
-            output.append((entry["uri"], entry["range"]))
-    return output
-
-
-def meaningful_hover(result: Any) -> bool:
-    if not result:
-        return False
-    contents = result.get("contents")
-    if isinstance(contents, str):
-        return bool(contents.strip())
-    if isinstance(contents, dict):
-        return bool(str(contents.get("value", "")).strip())
-    if isinstance(contents, list):
-        return any(meaningful_hover({"contents": child}) for child in contents)
-    return False
-
-
 def edit_locations(edit: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     output: list[tuple[str, dict[str, Any]]] = []
     for uri, edits in edit.get("changes", {}).items():
@@ -190,7 +72,7 @@ def rename(client: Client, path: Path, at: dict[str, int], new_name: str) -> Any
             return client.request(
                 "textDocument/rename", {**params(path, at), "newName": new_name}
             )
-        except AssertionError as error:
+        except GateError as error:
             if "content modified" not in str(error).lower() or attempt == 3:
                 raise
             time.sleep(0.5)
@@ -198,15 +80,8 @@ def rename(client: Client, path: Path, at: dict[str, int], new_name: str) -> Any
 
 
 def main() -> None:
-    version = subprocess.run(
-        ["rust-analyzer", "--version"],
-        check=True,
-        text=True,
-        capture_output=True,
-        timeout=10,
-        env={**os.environ, "RUSTUP_TOOLCHAIN": "stable"},
-    ).stdout.strip()
-    client = Client()
+    analyzer = version()
+    client = Client(ROOT)
     try:
         client.request(
             "initialize",
@@ -551,7 +426,7 @@ def main() -> None:
         print(
             json.dumps(
                 {
-                    "rust_analyzer": version,
+                    "rust_analyzer": analyzer,
                     "diagnostics": {name: 0 for name in diagnostics},
                     "definitions_and_hovers": definition_counts,
                     "completion": "map::update",

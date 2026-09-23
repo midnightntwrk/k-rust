@@ -4,21 +4,27 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
 import re
-import shutil
-import signal
 import subprocess
 import sys
 from typing import Any, Mapping, Sequence
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from m3d import normalize as normalizer  # noqa: E402
+import proofs  # noqa: E402
+from support import ROOT, GateError  # noqa: E402
+from support.checkouts import verify_checkout  # noqa: E402
+from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.kdefinition import split_claims  # noqa: E402
+from support.pins import load_json  # noqa: E402
+from support.process import run  # noqa: E402
+from support.tools import k_executable, k_tool  # noqa: E402
+
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[2]
 IMP = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
 K = ROOT.parent / "inspirations/runtimeverification/k"
 IMP_DEFINITION = IMP / "src/kimp/kdist/imp-semantics"
@@ -28,13 +34,12 @@ ADJUNCT_SPEC = ROOT / "tests/m3d/claims/static-spec.k"
 ARTIFACT_MANIFEST = ROOT / "tests/m4/oracle/artifact-probe/Cargo.toml"
 RUST_MANIFEST = ROOT / "tests/m4/rust-definition/Cargo.toml"
 NATIVE_MANIFEST = ROOT / "tests/m4/native/Cargo.toml"
-M3D_NORMALIZER = ROOT / "tests/m3d/verify.py"
 
 ACTUAL_MODULE = "KRS-M4-COMPLETE-IMP"
 ACTUAL_SPEC_MODULE = f"{ACTUAL_MODULE}-SPEC"
 REFERENCE_MODULE = "KRS-M3D-STATIC"
 REFERENCE_SYNTAX_MODULE = "KRS-M3D-STATIC-SYNTAX"
-K_VERSION = "v7.1.337"
+K_VERSION = "7.1.337"
 WATCHDOG_SECONDS = 900
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})
 ADJUNCT_NAMES = frozenset(
@@ -43,124 +48,21 @@ ADJUNCT_NAMES = frozenset(
 SUM_SPEC_NAMES = frozenset({"sum-spec", "two-sum-spec"})
 
 
-class ProofGateError(RuntimeError):
-    """A proof input, invocation, result, or pin is incomplete or different."""
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def digest(value: Any) -> str:
-    return hashlib.sha256(canonical(value).encode()).hexdigest()
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ProofGateError(f"cannot load {path}: {error}") from error
-    if not isinstance(value, dict):
-        raise ProofGateError(f"{path} must contain one JSON object")
-    return value
-
-
-def terminate(process: subprocess.Popen[str]) -> tuple[str, str]:
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    try:
-        return process.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        return process.communicate()
-
-
-def run(
-    command: Sequence[str | os.PathLike[str]],
-    *,
-    timeout: int = WATCHDOG_SECONDS,
-    cwd: Path = ROOT,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    if timeout <= 0:
-        raise ProofGateError("tool watchdog must be positive")
-    argv = [os.fspath(item) for item in command]
-    environment = os.environ.copy()
-    environment.update({"LC_ALL": "C", "LANG": "C", "PYTHONDONTWRITEBYTECODE": "1"})
-    process = subprocess.Popen(
-        argv,
-        cwd=cwd,
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        stdout, stderr = terminate(process)
-        raise ProofGateError(
-            "tool watchdog expired; no semantic status was accepted and the complete "
-            f"process group was terminated: {argv!r}\n{stderr}"
-        ) from error
-    except BaseException:
-        terminate(process)
-        raise
-    result = subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
-    if check and result.returncode != 0:
-        detail = "\n".join(part for part in (stdout, stderr) if part)
-        raise ProofGateError(f"command failed with rc={result.returncode}: {argv!r}\n{detail[:5000]}")
-    return result
-
-
-def tool(name: str) -> str:
-    value = shutil.which(name)
-    if value is None:
-        raise ProofGateError(f"required proof tool is missing: {name}")
-    return value
-
-
-def exact_revision(path: Path, expected: str) -> None:
-    observed = run(["git", "-C", path, "rev-parse", "HEAD"], timeout=30).stdout.strip()
-    if observed != expected:
-        raise ProofGateError(f"revision differs for {path}: expected={expected}, observed={observed}")
-
-
 def prepare_workspace(path: Path) -> None:
     if path.exists() and any(path.iterdir()):
-        raise ProofGateError(f"refusing nonempty proof workspace {path}")
+        raise GateError(f"refusing nonempty proof workspace {path}")
     path.mkdir(parents=True, exist_ok=True)
-
-
-def load_modules() -> tuple[Any, Any]:
-    sys.path.insert(0, os.fspath(HERE))
-    import proofs
-
-    if hashlib.sha256(M3D_NORMALIZER.read_bytes()).hexdigest() != proofs.M3D_HELPER_SHA256:
-        raise ProofGateError("frozen M3D proof normalizer hash differs")
-    spec = importlib.util.spec_from_file_location("krs_m4_frozen_m3d_normalizer", M3D_NORMALIZER)
-    if spec is None or spec.loader is None:
-        raise ProofGateError("cannot load frozen M3D proof normalizer")
-    normalizer = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(normalizer)
-    return proofs, normalizer
 
 
 def source_cases(pins: Mapping[str, Any], proofs: Any) -> list[dict[str, Any]]:
     outcomes = pins.get("proof_outcomes")
     labels = pins.get("claim_labels")
     if not isinstance(outcomes, dict) or len(outcomes) != 21:
-        raise ProofGateError("pins must contain exactly 21 proof outcomes")
+        raise GateError("pins must contain exactly 21 proof outcomes")
     if not isinstance(labels, list) or len(labels) != 20 or len(set(labels)) != 20:
-        raise ProofGateError("pins must contain exactly 20 ordered unique native claim labels")
+        raise GateError("pins must contain exactly 20 ordered unique native claim labels")
     if set(outcomes) != set(labels) | {"addition-depth-zero"}:
-        raise ProofGateError("proof outcome names are not the 20 claims plus addition-depth-zero")
+        raise GateError("proof outcome names are not the 20 claims plus addition-depth-zero")
     result = []
     for name in outcomes:
         source_name = "addition-1" if name == "addition-depth-zero" else name
@@ -178,13 +80,13 @@ def source_cases(pins: Mapping[str, Any], proofs: Any) -> list[dict[str, Any]]:
             "status", "bounds", "frontier_count", "frontier_sha256",
             "user_labels", "result_sha256", "claim_sha256",
         }:
-            raise ProofGateError(f"malformed proof pin for {name}")
+            raise GateError(f"malformed proof pin for {name}")
         bounds = pin["bounds"]
         if not isinstance(bounds, dict) or set(bounds) != {"depth", "branching_allowed"}:
-            raise ProofGateError(f"malformed proof bounds for {name}")
+            raise GateError(f"malformed proof bounds for {name}")
         expected_depth = 0 if name == "addition-depth-zero" else 100
         if bounds != {"depth": expected_depth, "branching_allowed": 64}:
-            raise ProofGateError(f"unexpected semantic bounds for {name}: {bounds}")
+            raise GateError(f"unexpected semantic bounds for {name}: {bounds}")
         result.append(
             {
                 "name": name,
@@ -198,35 +100,6 @@ def source_cases(pins: Mapping[str, Any], proofs: Any) -> list[dict[str, Any]]:
             }
         )
     return result
-
-
-def split_emitted_source(source: str, expected_labels: Sequence[str]) -> tuple[str, str]:
-    starters = re.compile(
-        r"^(?:endmodule\b|  (?:syntax\b|configuration\b|context alias\b|rule\b|claim \[))"
-    )
-    lines = source.splitlines(keepends=True)
-    execution: list[str] = []
-    claims: list[str] = []
-    labels: list[str] = []
-    index = 0
-    while index < len(lines):
-        match = re.match(r"^  claim \[([^]]+)\]:\s*$", lines[index].rstrip("\r\n"))
-        if match is None:
-            execution.append(lines[index])
-            index += 1
-            continue
-        labels.append(match.group(1))
-        start = index
-        index += 1
-        while index < len(lines) and starters.match(lines[index]) is None:
-            index += 1
-        claims.extend(lines[start:index])
-    if labels != list(expected_labels):
-        raise ProofGateError(f"emitted claims differ from ordered pin: {labels}")
-    execution_source = "".join(execution)
-    if "  claim [" in execution_source or not execution_source.endswith("endmodule\n"):
-        raise ProofGateError("claim-free execution source is malformed")
-    return execution_source, "".join(claims)
 
 
 def actual_spec_source(execution_source: Path, claims: str) -> str:
@@ -246,7 +119,7 @@ def proof_policy(pins: Mapping[str, Any], side: str, cases: Sequence[Mapping[str
     if not isinstance(term_policy, dict) or set(term_policy) != {
         "label_map", "identity_labels", "sort_map", "identity_sorts"
     }:
-        raise ProofGateError(f"missing exact {side} proof term policy")
+        raise GateError(f"missing exact {side} proof term policy")
     label_map = dict(term_policy["label_map"])
     claim_pairs = (
         ((case["source_claim"], case["native_label"]) for case in cases)
@@ -256,7 +129,7 @@ def proof_policy(pins: Mapping[str, Any], side: str, cases: Sequence[Mapping[str
     for source, target in claim_pairs:
         prior = label_map.setdefault(source, target)
         if prior != target:
-            raise ProofGateError(f"conflicting proof claim label mapping {source!r}")
+            raise GateError(f"conflicting proof claim label mapping {source!r}")
     return proofs.ProofPolicy(
         label_map=label_map,
         identity_labels=frozenset(term_policy["identity_labels"]) | CONSTRAINT_LABELS,
@@ -272,10 +145,13 @@ def compile_definitions(
 ) -> tuple[Path, Path, Path]:
     artifacts = workspace / "artifacts"
     run(
-        ["cargo", "run", "--locked", "--quiet", "--manifest-path", ARTIFACT_MANIFEST, "--", artifacts]
+        ["cargo", "run", "--locked", "--quiet", "--manifest-path", ARTIFACT_MANIFEST, "--", artifacts],
+        timeout=WATCHDOG_SECONDS,
     )
     source = artifacts.joinpath("definition.k").read_text(encoding="utf-8")
-    execution_text, claims = split_emitted_source(source, expected_labels)
+    execution_text, labels, claims = split_claims(source, len(expected_labels))
+    if labels != list(expected_labels):
+        raise GateError(f"emitted claims differ from ordered pin: {labels}")
     actual_source = workspace / "actual-execution.k"
     actual_source.write_text(execution_text, encoding="utf-8")
     actual_spec = workspace / "actual-spec.k"
@@ -289,19 +165,21 @@ def compile_definitions(
         [
             kompile, actual_source, "--backend", "haskell", "--main-module", ACTUAL_MODULE,
             "--syntax-module", ACTUAL_MODULE, "--emit-json", "--output-definition", actual_definition,
-        ]
+        ],
+        timeout=WATCHDOG_SECONDS,
     )
     run(
         [
             kompile, REFERENCE_SOURCE, "-I", IMP_DEFINITION, "--backend", "haskell",
             "--main-module", REFERENCE_MODULE, "--syntax-module", REFERENCE_SYNTAX_MODULE,
             "--emit-json", "--output-definition", reference_definition,
-        ]
+        ],
+        timeout=WATCHDOG_SECONDS,
     )
     for definition in (actual_definition, reference_definition):
         for name in ("definition.kore", "parsed.json", "compiled.json"):
             if not definition.joinpath(name).is_file():
-                raise ProofGateError(f"Haskell frontend omitted {definition.name}/{name}")
+                raise GateError(f"Haskell frontend omitted {definition.name}/{name}")
     return reference_definition, actual_definition, actual_spec
 
 
@@ -323,12 +201,12 @@ def invoke_source(
     ]
     for include in includes:
         command.extend(["-I", include])
-    process = run(command, check=False)
+    process = run(command, check=False, timeout=WATCHDOG_SECONDS)
     try:
         result = json.loads(process.stdout)
         emitted_spec = load_json(spec_json)
     except json.JSONDecodeError as error:
-        raise ProofGateError(
+        raise GateError(
             f"{claim}: proof did not emit complete KAST JSON: {error}; "
             f"rc={process.returncode}; stderr={process.stderr[:3000]}"
         ) from error
@@ -338,13 +216,13 @@ def invoke_source(
 def root_label(normalized: Mapping[str, Any]) -> str | None:
     term = normalized.get("term")
     if not isinstance(term, dict):
-        raise ProofGateError("normalized proof has no object term")
+        raise GateError("normalized proof has no object term")
     label = term.get("label")
     if label is None:
         return None
     name = label.get("name") if isinstance(label, dict) else None
     if not isinstance(name, str):
-        raise ProofGateError("normalized proof root label is malformed")
+        raise GateError("normalized proof root label is malformed")
     return name
 
 
@@ -361,7 +239,7 @@ def legacy_pin(
     *, process: subprocess.CompletedProcess[str], result: dict[str, Any], claim: dict[str, Any],
     bounds: Any, normalizer: Any,
 ) -> dict[str, Any]:
-    normalized_result = normalizer.normalize_proof(normalizer.envelope(canonical(result)))
+    normalized_result = normalizer.normalize_proof(normalizer.envelope(canonical_json(result)))
     normalized_claim = normalizer.normalize_claim_spec(claim)
     root = root_label(normalized_result)
     stalled = re.search(r"configuration cannot be\s+rewritten further", process.stderr) is not None
@@ -372,7 +250,7 @@ def legacy_pin(
     elif process.returncode == 1 and root not in {"#Top", "#Bottom"} and stalled:
         status = "incomplete"
     else:
-        raise ProofGateError(
+        raise GateError(
             f"unclassified reference proof termination: rc={process.returncode}, root={root!r}"
         )
     frontier: list[str] = []
@@ -383,19 +261,19 @@ def legacy_pin(
             for conjunct in flatten(branch, "#And"):
                 name = conjunct.get("label", {}).get("name") if isinstance(conjunct, dict) else None
                 (constraints if name in CONSTRAINT_LABELS else states).append(conjunct)
-            frontier.append(canonical({
-                "states": sorted(states, key=canonical),
-                "constraints": sorted(constraints, key=canonical),
+            frontier.append(canonical_json({
+                "states": sorted(states, key=canonical_json),
+                "constraints": sorted(constraints, key=canonical_json),
             }))
     frontier.sort()
     return {
         "status": status,
         "bounds": {"depth": bounds.depth, "branching_allowed": bounds.branching_allowed},
         "frontier_count": len(frontier),
-        "frontier_sha256": hashlib.sha256("\n".join(frontier).encode()).hexdigest(),
+        "frontier_sha256": sha256_text("\n".join(frontier)),
         "user_labels": [],
-        "result_sha256": digest(normalized_result),
-        "claim_sha256": digest(normalized_claim),
+        "result_sha256": json_sha256(normalized_result),
+        "claim_sha256": json_sha256(normalized_claim),
     }
 
 
@@ -420,14 +298,14 @@ def compare_source_evidence(name: str, reference: Any, actual: Any) -> None:
         and reference.status == "proved"
         and name != "addition-depth-zero"
     ):
-        raise ProofGateError(f"actual/reference emitted-source proof evidence differs for {name}")
+        raise GateError(f"actual/reference emitted-source proof evidence differs for {name}")
     if reference.status != "proved" and (
         reference.status != actual.status
         or reference.bounds != actual.bounds
         or reference.frontier_count != actual.frontier_count
         or reference.user_labels != actual.user_labels
     ):
-        raise ProofGateError(f"actual/reference residual proof shape differs for {name}")
+        raise GateError(f"actual/reference residual proof shape differs for {name}")
     if name == "addition-depth-zero":
         # At depth zero the result is the untouched initial claim LHS.  The
         # two independently compiled frontends therefore retain their already
@@ -442,7 +320,7 @@ def compare_source_evidence(name: str, reference: Any, actual: Any) -> None:
             or reference.frontier_count != 1
             or reference.user_labels != actual.user_labels
         ):
-            raise ProofGateError("depth-zero source routes differ in semantic frontier evidence")
+            raise GateError("depth-zero source routes differ in semantic frontier evidence")
 
 
 def dry_run_spec(
@@ -459,10 +337,10 @@ def dry_run_spec(
         "-I", IMP_DEFINITION, "-I", ADJUNCT_SPEC.parent,
         "-I", REFERENCE_SOURCE.parent,
     ]
-    run(command)
+    run(command, timeout=WATCHDOG_SECONDS)
     matches = sorted(output.rglob("spec.kore"))
     if len(matches) != 1:
-        raise ProofGateError(f"{case['name']}: dry-run emitted {len(matches)} spec.kore files")
+        raise GateError(f"{case['name']}: dry-run emitted {len(matches)} spec.kore files")
     run(
         [
             support, "assert-spec", matches[0], case["source_module"],
@@ -473,14 +351,14 @@ def dry_run_spec(
 
 
 def build_support(workspace: Path) -> Path:
-    run(["cargo", "build", "--locked", "--quiet", "--manifest-path", NATIVE_MANIFEST, "--bin", "proof_support"])
+    run(["cargo", "build", "--locked", "--quiet", "--manifest-path", NATIVE_MANIFEST, "--bin", "proof_support"], timeout=WATCHDOG_SECONDS)
     raw_target = os.environ.get("CARGO_TARGET_DIR")
     target = Path(raw_target) if raw_target else NATIVE_MANIFEST.parent / "target"
     if not target.is_absolute():
         target = ROOT / target
     support = target / "debug/proof_support"
     if not support.is_file():
-        raise ProofGateError(f"native proof support binary is absent: {support}")
+        raise GateError(f"native proof support binary is absent: {support}")
     return support
 
 
@@ -491,11 +369,12 @@ def build_native(workspace: Path, support: Path, labels: Sequence[str]) -> tuple
             "cargo", "run", "--locked", "--quiet", "-p", "krs-cli", "--bin", "krs", "--",
             "build", "--manifest-path", RUST_MANIFEST, "--package", "krs-m4-complete-imp",
             "--definition", "main", "--backend", "haskell", "--output", native,
-        ]
+        ],
+        timeout=WATCHDOG_SECONDS,
     )
     native_kore = native / "definition.kore"
     if not native_kore.is_file():
-        raise ProofGateError("native Haskell build omitted definition.kore")
+        raise GateError("native Haskell build omitted definition.kore")
     split = workspace / "native-split"
     run([support, "split", native_kore, split, ACTUAL_MODULE, ACTUAL_SPEC_MODULE, *labels], timeout=300)
     return split / "definition.kore", split / "specs"
@@ -516,9 +395,10 @@ def native_proof(
             "--breadth", str(case["bounds"].branching_allowed),
         ],
         check=False,
+        timeout=WATCHDOG_SECONDS,
     )
     if process.returncode not in {0, 1} or not result.is_file():
-        raise ProofGateError(
+        raise GateError(
             f"{case['name']}: native proof produced rc={process.returncode}, "
             f"result_exists={result.is_file()}\n{process.stderr[:3000]}"
         )
@@ -526,7 +406,7 @@ def native_proof(
     if (process.returncode, classified) not in {
         (0, "proved"), (1, "failed"), (1, "incomplete")
     }:
-        raise ProofGateError(
+        raise GateError(
             f"{case['name']}: unclassified native termination rc={process.returncode}, "
             f"parsed={classified!r}"
         )
@@ -547,15 +427,16 @@ def actual_source_kore_result(
             "-I", workspace, "-I", IMP_DEFINITION,
         ],
         check=False,
+        timeout=WATCHDOG_SECONDS,
     )
     if process.returncode != 1 or not re.search(
         r"configuration cannot be\s+rewritten further", process.stderr
     ):
-        raise ProofGateError(
+        raise GateError(
             f"{case['name']}: source KORE residual had unclassified rc={process.returncode}"
         )
     if not process.stdout.strip():
-        raise ProofGateError(f"{case['name']}: source KORE residual is empty")
+        raise GateError(f"{case['name']}: source KORE residual is empty")
     result.write_text(process.stdout, encoding="utf-8")
     return result
 
@@ -570,21 +451,21 @@ def main() -> int:
     prepare_workspace(workspace)
     pins = load_json(pins_path)
     if pins.get("schema") != 1 or pins.get("milestone") != "M4":
-        raise ProofGateError("proof pins are not the exact M4 schema-1 ledger")
+        raise GateError("proof pins are not the exact M4 schema-1 ledger")
 
     revisions = pins.get("revisions")
     if not isinstance(revisions, dict):
-        raise ProofGateError("proof revision pins are absent")
-    exact_revision(K, revisions["k"]["commit"])
-    exact_revision(IMP, revisions["imp"]["commit"])
-    kompile = tool("kompile")
-    kprove = tool("kprove")
-    kore_exec = tool("kore-exec")
-    version = run([kprove, "--version"], timeout=30).stdout
-    if K_VERSION not in version or revisions["k"].get("version") != K_VERSION.removeprefix("v"):
-        raise ProofGateError(f"K proof tool version differs: {version.strip()!r}")
+        raise GateError("proof revision pins are absent")
+    verify_checkout(K, revisions["k"]["commit"], label="K", clean=False)
+    verify_checkout(IMP, revisions["imp"]["commit"], label="IMP", clean=False)
+    if revisions["k"].get("version") != K_VERSION:
+        raise GateError(f"K proof pin differs from K {K_VERSION}: {revisions['k'].get('version')!r}")
+    kompile = k_executable("kompile")
+    kprove = k_tool("kprove", K_VERSION)
+    kore_exec = k_executable("kore-exec")
+    if sha256_file(ROOT / proofs.M3D_NORMALIZER) != proofs.M3D_NORMALIZER_SHA256:
+        raise GateError("frozen M3D proof normalizer hash differs")
 
-    proofs, normalizer = load_modules()
     cases = source_cases(pins, proofs)
     labels = pins["claim_labels"]
     reference_definition, actual_definition, actual_spec = compile_definitions(
@@ -621,7 +502,7 @@ def main() -> int:
                 user_labels=(), policy=reference_policy,
             )
         except RuntimeError as error:
-            raise ProofGateError(f"{case['name']} reference evidence: {error}") from error
+            raise GateError(f"{case['name']} reference evidence: {error}") from error
         try:
             actual_evidence = proofs.evidence_from_values(
                 case=proofs.ProofCase(
@@ -633,7 +514,7 @@ def main() -> int:
                 user_labels=(), policy=actual_policy,
             )
         except RuntimeError as error:
-            raise ProofGateError(f"{case['name']} actual evidence: {error}") from error
+            raise GateError(f"{case['name']} actual evidence: {error}") from error
         compare_source_evidence(case["name"], reference_evidence, actual_evidence)
         observed_pin = legacy_pin(
             process=reference_process, result=reference_result, claim=reference_claim,
@@ -652,8 +533,8 @@ def main() -> int:
             comparable_pin.pop("result_sha256")
             comparable_expected.pop("result_sha256")
         if comparable_pin != comparable_expected:
-            raise ProofGateError(
-                f"reference proof pin differs for {case['name']}: observed={canonical(observed_pin)}"
+            raise GateError(
+                f"reference proof pin differs for {case['name']}: observed={canonical_json(observed_pin)}"
             )
         dry_run_spec(
             kprove=kprove, definition=reference_definition, case=case,
@@ -668,7 +549,7 @@ def main() -> int:
             specs=native_specs, case=case, workspace=workspace,
         )
         if status != case["pin"]["status"]:
-            raise ProofGateError(
+            raise GateError(
                 f"native proof status differs for {case['name']}: "
                 f"expected={case['pin']['status']}, observed={status}"
             )
@@ -680,7 +561,7 @@ def main() -> int:
             )
             run([support, "compare-patterns", source_result, native_result], timeout=120)
     if set(native_statuses) != {case["name"] for case in cases}:
-        raise ProofGateError("native proof coverage is incomplete")
+        raise GateError("native proof coverage is incomplete")
 
     print(
         "PASS M4 proofs: reference_source=21 actual_source=21 "

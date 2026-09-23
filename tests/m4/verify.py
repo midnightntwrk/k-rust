@@ -11,21 +11,33 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass, field
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import shutil
-import signal
 import subprocess
 import sys
 import tempfile
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.checkouts import git_revision  # noqa: E402
+from support.hashing import (  # noqa: E402
+    canonical_json,
+    exact_directory,
+    json_sha256,
+    sha256_file,
+    sha256_text,
+    tracked_tree_sha256,
+)
+from support.kdefinition import split_claims  # noqa: E402
+from support.pins import load_json, table  # noqa: E402
+from support.process import compact, run  # noqa: E402
+from support.tools import executable, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 PINS_PATH = HERE / "pins.json"
 CORPUS_PATH = HERE / "corpus.json"
 RUST_MANIFEST = HERE / "rust-definition/Cargo.toml"
@@ -40,6 +52,7 @@ MODULE = "KRS-M4-COMPLETE-IMP"
 REFERENCE_MODULE = "KRS-M3D-STATIC"
 REFERENCE_SYNTAX_MODULE = "KRS-M3D-STATIC-SYNTAX"
 EXPANDED_PACKAGE = "krs-m4-expanded-imp"
+CLAIM_COUNT = 20
 IMP_RULE_LABELS = {
     "and_false": "and-false",
     "and_true": "and-true",
@@ -71,37 +84,6 @@ IMP_RULE_LABELS = {
 }
 
 
-class GateError(RuntimeError):
-    """One M4 evidence layer is absent, malformed, or different."""
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def sha256(path: Path) -> str:
-    if not path.is_file():
-        raise GateError(f"required file is missing: {path}")
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise GateError(f"cannot load {path}: {error}") from error
-    if not isinstance(value, dict):
-        raise GateError(f"{path} must contain one JSON object")
-    return value
-
-
-def compact(process: subprocess.CompletedProcess[str], limit: int = 2400) -> str:
-    value = "\n".join(
-        part.strip() for part in (process.stdout, process.stderr) if part.strip()
-    )
-    return value[:limit] + ("…" if len(value) > limit else "")
-
-
 def require_exact_summary(
     process: subprocess.CompletedProcess[str], expected: str, phase: str
 ) -> None:
@@ -109,100 +91,6 @@ def require_exact_summary(
 
     if process.stdout != expected or process.stderr:
         raise GateError(f"{phase} did not report its exact PASS summary: {compact(process)}")
-
-
-def run(
-    command: Sequence[str | os.PathLike[str]],
-    *,
-    timeout: int,
-    cwd: Path = ROOT,
-    environment: Mapping[str, str] | None = None,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env.update(
-        {
-            "LC_ALL": "C",
-            "LANG": "C",
-            "PYTHONDONTWRITEBYTECODE": "1",
-        }
-    )
-    if environment:
-        env.update(environment)
-    argv = [os.fspath(item) for item in command]
-    process = subprocess.Popen(
-        argv,
-        cwd=cwd,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            stdout, stderr = process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            stdout, stderr = process.communicate()
-        raise GateError(
-            f"command timed out after {timeout}s; complete process group terminated: {argv!r}"
-        ) from error
-    except BaseException:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.communicate()
-        raise
-    result = subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
-    if check and result.returncode != 0:
-        raise GateError(f"command failed ({result.returncode}): {argv!r}\n{compact(result)}")
-    return result
-
-
-def executable(name: str) -> str:
-    value = shutil.which(name)
-    if value is None:
-        raise GateError(f"required executable is missing: {name}")
-    return value
-
-
-def z3_library_directory() -> Path:
-    """Locate the qualified Z3 4.12.5 shared library directory."""
-
-    configured = os.environ.get("KRS_Z3_LIB")
-    candidates = [Path(configured)] if configured else []
-    candidates.extend(Path("/nix/store").glob("*-z3-4.12.5-lib/lib"))
-    for candidate in candidates:
-        if candidate.joinpath("libz3.so").is_file():
-            return candidate
-    raise GateError("could not locate the qualified Z3 4.12.5 library")
-
-
-def exact_directory(left: Path, right: Path, names: Sequence[str]) -> dict[str, str]:
-    left_names = sorted(path.name for path in left.iterdir() if path.is_file())
-    right_names = sorted(path.name for path in right.iterdir() if path.is_file())
-    expected = sorted(names)
-    if left_names != expected or right_names != expected:
-        raise GateError(
-            f"artifact set differs: expected={expected}, left={left_names}, right={right_names}"
-        )
-    hashes: dict[str, str] = {}
-    for name in names:
-        if left.joinpath(name).read_bytes() != right.joinpath(name).read_bytes():
-            raise GateError(f"repeated artifact differs byte-for-byte: {name}")
-        hashes[name] = sha256(left / name)
-    return hashes
 
 
 def _normalize_imp_identity(value: Any, alpha_names: Mapping[str, str]) -> Any:
@@ -251,7 +139,7 @@ def _subsort_alpha_names(bundle: Mapping[str, Any]) -> dict[str, str]:
             and isinstance(name, str)
         ):
             grammar = _normalize_imp_identity(payload.get("grammar"), {})
-            relations.append((canonical(grammar), name))
+            relations.append((canonical_json(grammar), name))
     if len(relations) != 3 or len({relation for relation, _ in relations}) != 3:
         raise GateError(
             "replacement parity requires exactly three distinct IMP subsorts"
@@ -299,7 +187,7 @@ def _normalized_imp_non_rules(
         normalized = _normalize_imp_identity(descriptor, alpha_names)
         normalized.pop("provenance", None)
         normalized_descriptors.append(normalized)
-        normalized_ids.add(canonical(normalized.get("id")))
+        normalized_ids.add(canonical_json(normalized.get("id")))
     if len(normalized_ids) != 54:
         raise GateError("replacement parity non-rule identities are not 54 unique items")
 
@@ -308,15 +196,15 @@ def _normalized_imp_non_rules(
         if not isinstance(declaration, dict):
             raise GateError("replacement parity declaration entry is not an object")
         normalized = _normalize_imp_identity(declaration, alpha_names)
-        if canonical(normalized.get("id")) in normalized_ids:
+        if canonical_json(normalized.get("id")) in normalized_ids:
             normalized_declarations.append(normalized)
     if len(normalized_declarations) != 54:
         raise GateError(
             "replacement parity does not contain exactly 54 non-rule declaration records"
         )
     return (
-        sorted(normalized_descriptors, key=canonical),
-        sorted(normalized_declarations, key=canonical),
+        sorted(normalized_descriptors, key=canonical_json),
+        sorted(normalized_declarations, key=canonical_json),
     )
 
 
@@ -445,52 +333,6 @@ def _verify_replacement_parity(authored: Path, replacement: Path) -> None:
         )
 
 
-def git_revision(path: Path) -> str:
-    process = run(["git", "-C", path, "rev-parse", "HEAD"], timeout=30)
-    return process.stdout.strip()
-
-
-def relevant_untracked(paths: Sequence[str]) -> list[str]:
-    """Remove only interpreter-generated Python cache entries."""
-
-    return sorted(
-        relative
-        for relative in paths
-        if "__pycache__" not in Path(relative).parts
-        and Path(relative).suffix != ".pyc"
-    )
-
-
-def tracked_tree_digest(
-    checkout: Path, prefix: str, *, reject_untracked: bool = False
-) -> str:
-    process = run(
-        ["git", "-C", checkout, "ls-files", prefix], timeout=60
-    )
-    paths = sorted(line for line in process.stdout.splitlines() if line)
-    if not paths:
-        raise GateError(f"tracked tree is empty: {checkout}/{prefix}")
-    if reject_untracked:
-        untracked = run(
-            ["git", "-C", checkout, "ls-files", "--others", prefix],
-            timeout=60,
-        ).stdout.splitlines()
-        untracked = relevant_untracked(untracked)
-        if untracked:
-            raise GateError(
-                f"untracked files can affect pinned source tree {checkout}/{prefix}: "
-                f"{sorted(untracked)}"
-            )
-    digest = hashlib.sha256()
-    for relative in paths:
-        path = checkout / relative
-        digest.update(relative.encode())
-        digest.update(b"\0")
-        digest.update(sha256(path).encode())
-        digest.update(b"\n")
-    return digest.hexdigest()
-
-
 def is_crate_source(path: Path) -> bool:
     """Whether one crate-tree file can affect a build, test, or live probe."""
 
@@ -544,46 +386,6 @@ def expected_source_ledger_paths() -> set[str]:
     return paths
 
 
-def _split_emitted_source(source: str) -> tuple[str, list[str], str]:
-    """Split exact top-level claims from one emitted module."""
-
-    starters = re.compile(
-        r"^(?:endmodule\b|  (?:syntax\b|configuration\b|context alias\b|rule\b|claim \[))"
-    )
-    lines = source.splitlines(keepends=True)
-    output: list[str] = []
-    labels: list[str] = []
-    claims: list[str] = []
-    index = 0
-    while index < len(lines):
-        match = re.match(r"^  claim \[([^]]+)\]:\s*$", lines[index].rstrip("\r\n"))
-        if match is None:
-            output.append(lines[index])
-            index += 1
-            continue
-        labels.append(match.group(1))
-        start = index
-        index += 1
-        while index < len(lines) and starters.match(lines[index]) is None:
-            index += 1
-        claims.extend(lines[start:index])
-    if len(labels) != 20 or len(set(labels)) != 20:
-        raise GateError(f"expected 20 unique emitted claims, found {labels!r}")
-    value = "".join(output)
-    if "  claim [" in value:
-        raise GateError("claim stripping left a top-level claim sentence")
-    if not value.endswith("endmodule\n"):
-        raise GateError("claim-free emitted definition lost its exact module terminator")
-    return value, labels, "".join(claims)
-
-
-def _claim_free_source(source: str) -> tuple[str, list[str]]:
-    """Remove only top-level emitted claim sentences, preserving all other bytes."""
-
-    value, labels, _ = _split_emitted_source(source)
-    return value, labels
-
-
 @dataclass
 class Context:
     pins: dict[str, Any]
@@ -601,12 +403,6 @@ class Context:
     artifact_hashes: dict[str, str] = field(default_factory=dict)
 
 
-def require_mapping(value: Any, name: str) -> Mapping[str, Any]:
-    if not isinstance(value, dict):
-        raise GateError(f"{name} must be an object")
-    return value
-
-
 def phase_preflight(context: Context) -> str:
     pins = context.pins
     corpus = context.corpus
@@ -614,48 +410,48 @@ def phase_preflight(context: Context) -> str:
         raise GateError("pins.json is not the exact M4 schema-1 ledger")
     if corpus.get("schema") != 2:
         raise GateError("corpus.json is not schema 2")
-    if sha256(CORPUS_PATH) != pins.get("corpus_sha256"):
+    if sha256_file(CORPUS_PATH) != pins.get("corpus_sha256"):
         raise GateError("corpus.json hash differs from pins.json")
 
-    ledgers = require_mapping(corpus.get("input_ledgers"), "corpus.input_ledgers")
+    ledgers = table(corpus.get("input_ledgers"), "corpus.input_ledgers")
     if set(ledgers) != {"m3b", "m3c", "m3d"}:
         raise GateError("corpus must name exactly the M3B--M3D input ledgers")
     for name, raw in ledgers.items():
-        entry = require_mapping(raw, f"input ledger {name}")
+        entry = table(raw, f"input ledger {name}")
         path = ROOT / str(entry.get("path"))
-        if sha256(path) != entry.get("sha256"):
+        if sha256_file(path) != entry.get("sha256"):
             raise GateError(f"{name} pin-ledger hash differs")
         ledger = load_json(path)
         base = path.parent
-        for relative, expected in require_mapping(
+        for relative, expected in table(
             ledger.get("source_sha256"), f"{name}.source_sha256"
         ).items():
-            if sha256(base / relative) != expected:
+            if sha256_file(base / relative) != expected:
                 raise GateError(f"{name} corpus hash differs: {relative}")
 
-    source_ledger = require_mapping(pins.get("source_sha256"), "pins.source_sha256")
+    source_ledger = table(pins.get("source_sha256"), "pins.source_sha256")
     expected_paths = expected_source_ledger_paths()
     if set(source_ledger) != expected_paths:
         missing = sorted(expected_paths - set(source_ledger))
         extra = sorted(set(source_ledger) - expected_paths)
         raise GateError(f"M4 source ledger path set differs: missing={missing}, extra={extra}")
     for relative, expected in source_ledger.items():
-        if sha256(ROOT / relative) != expected:
+        if sha256_file(ROOT / relative) != expected:
             raise GateError(f"M4 source hash differs: {relative}")
 
-    for name, entry_raw in require_mapping(
+    for name, entry_raw in table(
         pins.get("proof_ledgers"), "pins.proof_ledgers"
     ).items():
-        entry = require_mapping(entry_raw, f"proof ledger {name}")
+        entry = table(entry_raw, f"proof ledger {name}")
         path = ROOT / str(entry.get("path"))
-        if sha256(path) != entry.get("sha256"):
+        if sha256_file(path) != entry.get("sha256"):
             raise GateError(f"proof ledger hash differs: {name}")
         proof_ledger = load_json(path)
         declared = proof_ledger.get("proof_outcomes")
         if not isinstance(declared, dict) or not declared:
             raise GateError(f"proof ledger is empty: {name}")
 
-    revisions = require_mapping(pins.get("revisions"), "pins.revisions")
+    revisions = table(pins.get("revisions"), "pins.revisions")
     imp = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
     k_checkout = ROOT.parent / "inspirations/runtimeverification/k"
     native = ROOT.parent / "inspirations/midnightntwrk/k-rust-krs-main"
@@ -665,9 +461,9 @@ def phase_preflight(context: Context) -> str:
         "k_rust": git_revision(native),
     }
     expected = {
-        "k": require_mapping(revisions.get("k"), "revisions.k").get("commit"),
-        "imp": require_mapping(revisions.get("imp"), "revisions.imp").get("commit"),
-        "k_rust": require_mapping(revisions.get("k_rust"), "revisions.k_rust").get("commit"),
+        "k": table(revisions.get("k"), "revisions.k").get("commit"),
+        "imp": table(revisions.get("imp"), "revisions.imp").get("commit"),
+        "k_rust": table(revisions.get("k_rust"), "revisions.k_rust").get("commit"),
     }
     if observed != expected:
         raise GateError(f"checkout revision differs: expected={expected}, actual={observed}")
@@ -678,18 +474,18 @@ def phase_preflight(context: Context) -> str:
     )
     context.tools = {name: executable(name) for name in tools}
     version = run([context.tools["kompile"], "--version"], timeout=30)
-    k_version = require_mapping(revisions.get("k"), "revisions.k").get("version")
+    k_version = table(revisions.get("k"), "revisions.k").get("version")
     if f"v{k_version}" not in version.stdout + version.stderr:
         raise GateError(f"K tool version differs: {compact(version)}")
 
     protocol = (ROOT / "crates/krs-ir/src/lib.rs").read_text(encoding="utf-8")
     ir = (ROOT / "crates/krs-ir/src/ir.rs").read_text(encoding="utf-8")
-    schemas = require_mapping(pins.get("schemas"), "pins.schemas")
+    schemas = table(pins.get("schemas"), "pins.schemas")
     if f"pub const CURRENT: Self = Self({schemas.get('protocol')});" not in protocol:
         raise GateError("ProtocolVersion::CURRENT differs from its M4 pin")
     if f"pub const CURRENT: Self = Self({schemas.get('ir')});" not in ir:
         raise GateError("IrSchemaVersion::CURRENT differs from its M4 pin")
-    toolchain = require_mapping(
+    toolchain = table(
         pins.get("toolchain_compatibility"), "pins.toolchain_compatibility"
     )
     expected_toolchain = {
@@ -713,7 +509,7 @@ def phase_preflight(context: Context) -> str:
         "schema": 1,
         "schemas": {"descriptor_protocol": 35, "definition_ir": 27, "kast_json": 4},
         "cargo": {
-            "lock_sha256": sha256(ROOT / "Cargo.lock"),
+            "lock_sha256": sha256_file(ROOT / "Cargo.lock"),
             "msrv": "1.88.0",
             "native_frontend_rust": "1.98.0",
             "native_frontend_msrv_status": "msrv-compatible",
@@ -724,21 +520,21 @@ def phase_preflight(context: Context) -> str:
             "pyk_version": "7.1.337",
             "kore_exec_version": "0.1.155",
             "llvm_backend_version": "0.1.140",
-            "pyk_source_sha256": tracked_tree_digest(
+            "pyk_source_sha256": tracked_tree_sha256(
                 k_checkout, "pyk/src", reject_untracked=True
             ),
         },
         "k_rust": {
             "version": "0.4.0",
             "commit": expected["k_rust"],
-            "tracked_crate_sha256": tracked_tree_digest(native, "crates/k-rust"),
+            "tracked_crate_sha256": tracked_tree_sha256(native, "crates/k-rust"),
             "backend_version": "0.3.0",
-            "tracked_backend_sha256": tracked_tree_digest(native, "crates/k-rust-backend"),
+            "tracked_backend_sha256": tracked_tree_sha256(native, "crates/k-rust-backend"),
             "kore_version": "0.4.0",
-            "tracked_kore_sha256": tracked_tree_digest(native, "crates/k-rust-kore"),
+            "tracked_kore_sha256": tracked_tree_sha256(native, "crates/k-rust-kore"),
         },
         "builtin_registry": {
-            "source_sha256": sha256(ROOT / "crates/krs/src/lib.rs"),
+            "source_sha256": sha256_file(ROOT / "crates/krs/src/lib.rs"),
             "sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"],
         },
         "solver": {"profile": "z3-inference", "version": "4.12.5"},
@@ -814,15 +610,7 @@ llvm_existential_claims = "typed-backend-capability-error"
     z3 = run([context.tools["z3"], "--version"], timeout=30).stdout.strip()
     if z3 != f"Z3 version {lock['solver']['version']} - 64 bit":
         raise GateError(f"Z3 version differs from Krs.lock: {z3}")
-    z3_lib = os.fspath(z3_library_directory())
-    context.environment = {
-        "LIBRARY_PATH": os.pathsep.join(
-            [z3_lib, os.environ.get("LIBRARY_PATH", "")]
-        ).rstrip(os.pathsep),
-        "LD_LIBRARY_PATH": os.pathsep.join(
-            [z3_lib, os.environ.get("LD_LIBRARY_PATH", "")]
-        ).rstrip(os.pathsep),
-    }
+    context.environment = z3_environment()
     context.tools["pyk_python"] = os.fspath(pyk_python)
     context.tools["python"] = os.fspath(pyk_python)
     msrv = run(["rustc", "+1.88.0", "--version"], timeout=30).stdout.strip()
@@ -1062,10 +850,10 @@ def phase_artifacts(context: Context) -> str:
         "symbols.json",
     )
     emitted_hashes = exact_directory(emit_a, emit_b, emitted_names)
-    expected_artifacts = require_mapping(
+    expected_artifacts = table(
         context.pins.get("artifact_sha256"), "pins.artifact_sha256"
     )
-    expected_native = require_mapping(
+    expected_native = table(
         context.pins.get("native_artifact_sha256"), "pins.native_artifact_sha256"
     )
     expected_emitted = {
@@ -1108,14 +896,14 @@ def phase_artifacts(context: Context) -> str:
         raise GateError(f"artifact pins differ: expected={expected}, actual={probe_hashes}")
     context.artifacts = probes[0]
     context.artifact_hashes = probe_hashes
-    return f"124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; six repeated CLI/API source artifacts; sha256={hashlib.sha256(canonical(probe_hashes).encode()).hexdigest()}"
+    return f"124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; six repeated CLI/API source artifacts; sha256={json_sha256(probe_hashes)}"
 
 
 def compile_source_definitions(context: Context) -> None:
     if context.artifacts is None:
         raise GateError("source compilation lacks deterministic artifacts")
     definition_source = context.artifacts / "definition.k"
-    claim_free, labels = _claim_free_source(definition_source.read_text(encoding="utf-8"))
+    claim_free, labels, _ = split_claims(definition_source.read_text(encoding="utf-8"), CLAIM_COUNT)
     actual_source = context.workspace / "actual-execution.k"
     actual_source.write_text(claim_free, encoding="utf-8")
     if labels != context.pins.get("claim_labels"):
@@ -1181,7 +969,7 @@ def _projection_policy(raw: Any):
     sys.path.insert(0, os.fspath(HERE / "oracle"))
     from source_definition import ProjectionPolicy
 
-    value = dict(require_mapping(raw, "projection policy"))
+    value = dict(table(raw, "projection policy"))
     for key in (
         "identity_labels", "identity_sorts", "identity_names",
         "known_attributes", "metadata_attributes",
@@ -1204,36 +992,36 @@ def phase_source_definition(context: Context) -> str:
     sys.path.insert(0, os.fspath(HERE / "oracle"))
     from source_definition import compare_definitions, load_definition
 
-    policies = require_mapping(context.pins.get("source_definition"), "pins.source_definition")
+    policies = table(context.pins.get("source_definition"), "pins.source_definition")
     if policies.get("status") != "ready":
         raise GateError(str(policies.get("blocker", "source-definition policy is not ready")))
-    files = require_mapping(policies.get("files"), "source_definition.files")
+    files = table(policies.get("files"), "source_definition.files")
     if set(files) != {"parsed.json", "compiled.json"}:
         raise GateError("source-definition policies must cover parsed.json and compiled.json")
     comparison = {}
     for filename in ("parsed.json", "compiled.json"):
-        file_policy = require_mapping(files[filename], f"source_definition.files.{filename}")
+        file_policy = table(files[filename], f"source_definition.files.{filename}")
         if set(file_policy) != {
             "reference_ignored_sha256", "actual_ignored_sha256",
             "reference_supplemental_sha256", "actual_supplemental_sha256",
             "compatible_sentence_pairs",
         }:
             raise GateError(f"{filename} source compatibility policy has unknown fields")
-        reference_raw = dict(require_mapping(policies.get("reference"), "source_definition.reference"))
-        actual_raw = dict(require_mapping(policies.get("actual"), "source_definition.actual"))
-        reference_raw["ignored_sentence_sha256"] = require_mapping(
+        reference_raw = dict(table(policies.get("reference"), "source_definition.reference"))
+        actual_raw = dict(table(policies.get("actual"), "source_definition.actual"))
+        reference_raw["ignored_sentence_sha256"] = table(
             file_policy["reference_ignored_sha256"],
             f"source_definition.files.{filename}.reference_ignored_sha256",
         )
-        actual_raw["ignored_sentence_sha256"] = require_mapping(
+        actual_raw["ignored_sentence_sha256"] = table(
             file_policy["actual_ignored_sha256"],
             f"source_definition.files.{filename}.actual_ignored_sha256",
         )
-        reference_raw["supplemental_sentence_sha256"] = require_mapping(
+        reference_raw["supplemental_sentence_sha256"] = table(
             file_policy["reference_supplemental_sha256"],
             f"source_definition.files.{filename}.reference_supplemental_sha256",
         )
-        actual_raw["supplemental_sentence_sha256"] = require_mapping(
+        actual_raw["supplemental_sentence_sha256"] = table(
             file_policy["actual_supplemental_sha256"],
             f"source_definition.files.{filename}.actual_supplemental_sha256",
         )
@@ -1244,7 +1032,7 @@ def phase_source_definition(context: Context) -> str:
             _projection_policy(actual_raw),
             file_policy["compatible_sentence_pairs"],
         )
-    expected = require_mapping(policies.get("expected"), "source_definition.expected")
+    expected = table(policies.get("expected"), "source_definition.expected")
     observed = {
         "parsed_reference_sha256": comparison["parsed.json"].baseline_sha256,
         "parsed_actual_sha256": comparison["parsed.json"].actual_sha256,
@@ -1302,7 +1090,7 @@ def phase_native(context: Context) -> str:
         envelopes.append(value)
     if len(envelopes) != 6:
         raise GateError(f"expected six deduplicated LLVM diagnostics, found {len(envelopes)}")
-    llvm_digest = hashlib.sha256(diagnostic_text.encode()).hexdigest()
+    llvm_digest = sha256_text(diagnostic_text)
     expected_llvm = context.pins.get("native_comparison", {}).get("llvm_failure_sha256")
     if llvm_digest != expected_llvm:
         raise GateError(
@@ -1332,7 +1120,7 @@ def phase_native(context: Context) -> str:
         "--bin", "krs-m4-native-comparator", "--",
         reference_kore, native_kore, MODULE,
     ]
-    native_policy = require_mapping(context.pins.get("native_comparison"), "pins.native_comparison")
+    native_policy = table(context.pins.get("native_comparison"), "pins.native_comparison")
     expected_native_policy_fields = {
         "status", "label_map", "reference_claims_module", "llvm_failure_sha256"
     }
@@ -1343,8 +1131,8 @@ def phase_native(context: Context) -> str:
     # kprove --dry-run route, then require the comparator to merge only that
     # one-import/claims-only KORE module.
     execution_source = context.workspace / "actual-execution.k"
-    _, labels, claim_source = _split_emitted_source(
-        context.artifacts.joinpath("definition.k").read_text(encoding="utf-8")
+    _, labels, claim_source = split_claims(
+        context.artifacts.joinpath("definition.k").read_text(encoding="utf-8"), CLAIM_COUNT
     )
     if labels != context.pins.get("claim_labels"):
         raise GateError("native supplemental claim order differs")
@@ -1384,7 +1172,7 @@ def phase_native(context: Context) -> str:
     if len(spec_matches) != 1:
         raise GateError(f"kprove --dry-run emitted {len(spec_matches)} spec.kore files")
     comparator.extend(["--reference-claims", spec_matches[0], spec_module])
-    for source, target in require_mapping(native_policy.get("label_map", {}), "native label map").items():
+    for source, target in table(native_policy.get("label_map", {}), "native label map").items():
         comparator.extend(["--label", f"{source}={target}"])
     result = run(comparator, timeout=600, environment=env)
     expected_summary = (
@@ -1428,7 +1216,7 @@ def phase_behavior(context: Context) -> str:
         ),
         plan=plan,
     )
-    expected = require_mapping(context.pins["behavior"].get("expected"), "behavior.expected")
+    expected = table(context.pins["behavior"].get("expected"), "behavior.expected")
     observed = {
         "parse_count": summary.parse_count,
         "execution_count": summary.execution_count,
@@ -1440,11 +1228,11 @@ def phase_behavior(context: Context) -> str:
     }
     if observed != expected:
         raise GateError(f"behavior summary differs from pins: {observed}")
-    return canonical(observed)
+    return canonical_json(observed)
 
 
 def phase_proofs(context: Context) -> str:
-    proof_pins = require_mapping(context.pins.get("proof_outcomes"), "pins.proof_outcomes")
+    proof_pins = table(context.pins.get("proof_outcomes"), "pins.proof_outcomes")
     if len(proof_pins) != 21:
         raise GateError(f"expected 21 proof invocations, found {len(proof_pins)}")
     harness = HERE / "oracle/run_proofs.py"
@@ -1491,8 +1279,8 @@ def phase_compatibility(context: Context) -> str:
     reports = []
     for command in commands:
         reports.append(run(command, timeout=900, environment=env).stdout.strip())
-    digest = hashlib.sha256("\n".join(reports).encode()).hexdigest()
-    expected = require_mapping(context.pins.get("compatibility"), "pins.compatibility")
+    digest = sha256_text("\n".join(reports))
+    expected = table(context.pins.get("compatibility"), "pins.compatibility")
     if expected.get("policy_version") != 1 or digest != expected.get("report_sha256"):
         raise GateError(f"live compatibility report hash differs: {digest}")
     return f"seven live compatibility probes; policy=1; sha256={digest}"
@@ -1555,7 +1343,7 @@ def main() -> int:
         "artifacts": context.artifact_hashes,
         "compatibility_policy": pins["compatibility"]["policy_version"],
     }
-    print(f"PASS M4 complete IMP: {canonical(summary)}")
+    print(f"PASS M4 complete IMP: {canonical_json(summary)}")
     return 0
 
 

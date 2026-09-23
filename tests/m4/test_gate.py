@@ -7,6 +7,7 @@ from pathlib import Path
 import unittest
 
 import verify
+from support.hashing import relevant_untracked
 
 
 class SourceLedgerTests(unittest.TestCase):
@@ -31,7 +32,7 @@ class SourceLedgerTests(unittest.TestCase):
 
     def test_only_python_cache_is_ignored_in_external_source_tree(self) -> None:
         self.assertEqual(
-            verify.relevant_untracked(
+            relevant_untracked(
                 [
                     "pyk/src/pyk/__pycache__/cli.cpython-313.pyc",
                     "pyk/src/pyk/injected.py",

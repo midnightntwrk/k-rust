@@ -6,19 +6,17 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from support import ROOT, GateError  # noqa: E402
+from support.process import run  # noqa: E402
+
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[3]
-
-
-class StableNameError(RuntimeError):
-    pass
+PROBE_TARGET = {"CARGO_TARGET_DIR": "/tmp/krs-m4-stable-probe-target"}
 
 
 def capability_report(root: Path = ROOT) -> dict[str, object]:
@@ -79,56 +77,54 @@ def normalized_descriptor(descriptor: dict[str, object]) -> dict[str, object]:
 
 
 def descriptor_bundle_fixture(krs: Path, name: str) -> dict[str, object]:
-    environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = "/tmp/krs-m4-stable-probe-target"
     with tempfile.TemporaryDirectory(prefix=f"krs-m4-stable-{name}-", dir="/tmp") as temporary:
         output = Path(temporary) / "emit"
-        process = subprocess.run(
+        process = run(
             [
-                str(krs), "emit-k", "--manifest-path", str(HERE / name / "Cargo.toml"),
+                krs, "emit-k", "--manifest-path", HERE / name / "Cargo.toml",
                 "--package", FIXTURE_PACKAGES[name], "--definition", "main",
-                "--backend", "llvm", "--output", str(output),
+                "--backend", "llvm", "--output", output,
             ],
-            cwd=ROOT, env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=180, check=False,
+            environment=PROBE_TARGET,
+            timeout=180,
+            check=False,
         )
         if process.returncode != 0:
-            raise StableNameError(f"{name} descriptor emission failed: {process.stderr[:1200]}")
+            raise GateError(f"{name} descriptor emission failed: {process.stderr[:1200]}")
         try:
             value = json.loads(
                 (output / "descriptor-bundle.json").read_text(encoding="utf-8")
             )
         except (OSError, json.JSONDecodeError) as error:
-            raise StableNameError(f"{name} descriptor bundle is invalid: {error}") from error
+            raise GateError(f"{name} descriptor bundle is invalid: {error}") from error
     if set(value) != {"protocol_version", "descriptors", "declarations"}:
-        raise StableNameError(f"{name} descriptor bundle has an unknown envelope")
+        raise GateError(f"{name} descriptor bundle has an unknown envelope")
     if not isinstance(value["descriptors"], list) or not isinstance(value["declarations"], list):
-        raise StableNameError(f"{name} descriptor bundle has non-list descriptor data")
+        raise GateError(f"{name} descriptor bundle has non-list descriptor data")
     if len(value["descriptors"]) != len(value["declarations"]):
-        raise StableNameError(f"{name} declaration metadata does not cover every descriptor")
+        raise GateError(f"{name} declaration metadata does not cover every descriptor")
     return value
 
 
 def emit_fixture(krs: Path, name: str, backend: str, output: Path) -> dict[str, object]:
-    environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = "/tmp/krs-m4-stable-probe-target"
-    process = subprocess.run(
+    process = run(
         [
-            str(krs), "emit-k", "--manifest-path", str(HERE / name / "Cargo.toml"),
+            krs, "emit-k", "--manifest-path", HERE / name / "Cargo.toml",
             "--package", FIXTURE_PACKAGES[name], "--definition", "main",
-            "--backend", backend, "--output", str(output),
+            "--backend", backend, "--output", output,
         ],
-        cwd=ROOT, env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=180, check=False,
+        environment=PROBE_TARGET,
+        timeout=180,
+        check=False,
     )
     if process.returncode != 0:
-        raise StableNameError(f"{name}/{backend} emission failed: {process.stderr[:1200]}")
+        raise GateError(f"{name}/{backend} emission failed: {process.stderr[:1200]}")
     try:
         value = json.loads((output / "symbols.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise StableNameError(f"{name}/{backend} symbols sidecar is invalid: {error}") from error
+        raise GateError(f"{name}/{backend} symbols sidecar is invalid: {error}") from error
     if set(value) != {"schema_version", "entries"} or not isinstance(value["entries"], list):
-        raise StableNameError(f"{name}/{backend} symbols sidecar has an unknown envelope")
+        raise GateError(f"{name}/{backend} symbols sidecar has an unknown envelope")
     return value
 
 
@@ -168,7 +164,7 @@ def move_evidence(krs: Path) -> dict[str, object]:
             if entry.get("emitted_name") in {"Expr", "publicValue"}
         ]
         if len(selected) != 2:
-            raise StableNameError("stable-name sidecar must expose exactly Expr and publicValue")
+            raise GateError("stable-name sidecar must expose exactly Expr and publicValue")
         return sorted(selected, key=lambda entry: json.dumps(entry, sort_keys=True))
 
     def stable_symbol_source_keys(sidecar: dict[str, object]) -> list[str]:
@@ -177,7 +173,7 @@ def move_evidence(krs: Path) -> dict[str, object]:
             if entry.get("emitted_name") in {"Expr", "publicValue"}
         ]
         if len(keys) != 2 or not all(isinstance(key, str) for key in keys):
-            raise StableNameError("stable-name sidecar lacks exact public source-map keys")
+            raise GateError("stable-name sidecar lacks exact public source-map keys")
         return sorted(keys)
 
     baseline_keys = {stable_key(value) for value in bundles["baseline"]["descriptors"]}
@@ -250,9 +246,9 @@ def move_evidence(krs: Path) -> dict[str, object]:
 def verify(report: dict[str, object]) -> None:
     fixtures = report.get("fixtures")
     if not isinstance(fixtures, dict) or not fixtures or not all(fixtures.values()):
-        raise StableNameError("all four stable-name move fixtures are required")
+        raise GateError("all four stable-name move fixtures are required")
     if report.get("stable_id_has_module_path") is not True:
-        raise StableNameError("StableItemId no longer carries a canonical module path")
+        raise GateError("StableItemId no longer carries a canonical module path")
     blockers = []
     if report.get("descriptor_has_visibility") is not True:
         blockers.append("descriptor visibility is absent")
@@ -261,17 +257,17 @@ def verify(report: dict[str, object]) -> None:
     if report.get("explicit_symbol_lowered") is not True:
         blockers.append("explicit stable symbols do not reach the lowering naming pass")
     if blockers:
-        raise StableNameError("; ".join(blockers))
+        raise GateError("; ".join(blockers))
     evidence = report.get("move_evidence")
     if evidence is not None:
         if not isinstance(evidence, dict):
-            raise StableNameError("move evidence has an unknown shape")
+            raise GateError("move evidence has an unknown shape")
         failed = sorted(
             key for key, value in evidence.items()
             if key != "baseline_descriptors" and value is not True
         )
         if evidence.get("baseline_descriptors") != 6 or failed:
-            raise StableNameError(f"stable-name move evidence failed: {failed}")
+            raise GateError(f"stable-name move evidence failed: {failed}")
 
 
 def main() -> int:
@@ -291,6 +287,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except StableNameError as error:
+    except GateError as error:
         print(f"BLOCKED stable names: {error}", file=sys.stderr)
         raise SystemExit(1)
