@@ -5,7 +5,7 @@
 //
 //   bun test/lesson/docs-lesson.ts --site DOCS_SITE_DIR --assets RELEASE_ROOT --out DIR \
 //     [--oracle BUNDLE] [--oracle-e1 BUNDLE] [--browsers chromium,firefox] [--port N] [--expect configured|unconfigured]
-//     [--pack-origin same|cross]
+//     [--pack-origin same|cross] [--attach]
 //
 // DOCS_SITE_DIR is docs-site/ after `vocs build` (dist/serve-node.js runs the
 // site). A Bun front server on --port proxies the site and serves RELEASE_ROOT
@@ -19,6 +19,12 @@
 // VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:<port + 70>/. That origin is a logging pass-through to
 // release.py serve that forwards the method and returns its status, headers (CORS included), and bytes
 // unchanged; its requests are logged under /krs-pack/ so that every check applies unchanged.
+//
+// --attach drives servers that are already running instead of starting them: the built site on
+// 127.0.0.1:<port + 50> and release.py serve on 127.0.0.1:<port + 60>, which is what
+// `browser/release/serve-local.py --site-port <port + 50> --pack-port <port + 60>` starts (with
+// --pack-base http://127.0.0.1:<port + 70>/ for --pack-origin cross). The logging front servers are the same;
+// --assets must be the directory those servers publish, and the servers are left running.
 
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
@@ -39,6 +45,7 @@ const { values } = parseArgs({
     firefox: { type: "string", default: "/usr/lib/firefox/firefox" },
     expect: { type: "string", default: "configured" },
     "pack-origin": { type: "string", default: "same" },
+    attach: { type: "boolean", default: false },
   },
 });
 const SITE = resolve(values.site!);
@@ -46,6 +53,7 @@ const ASSETS = realpathSync(values.assets!);
 const OUT = resolve(values.out!);
 const PORT = Number(values.port);
 const CROSS_ORIGIN = values["pack-origin"] === "cross";
+const ATTACH = values.attach!;
 if (!["same", "cross"].includes(values["pack-origin"]!)) throw new Error("--pack-origin is same or cross");
 mkdirSync(OUT, { recursive: true });
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -73,18 +81,22 @@ interface ServerLogEntry {
 
 function startServers(browser: string) {
   const sitePort = PORT + 50;
-  const site = Bun.spawn(["node", "dist/serve-node.js"], {
-    cwd: SITE,
-    env: { ...process.env, PORT: String(sitePort), HOST: "127.0.0.1" },
-    stdout: "ignore",
-    stderr: Bun.file(join(OUT, `${browser}-site-server.log`)),
-  });
+  const site = ATTACH
+    ? null
+    : Bun.spawn(["node", "dist/serve-node.js"], {
+        cwd: SITE,
+        env: { ...process.env, PORT: String(sitePort), HOST: "127.0.0.1" },
+        stdout: "ignore",
+        stderr: Bun.file(join(OUT, `${browser}-site-server.log`)),
+      });
   const releasePort = PORT + 60;
-  const releaseHost = Bun.spawn(["python3", join(import.meta.dir, "../../../release/release.py"), "serve", ASSETS, "--port", String(releasePort)], {
-    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  const releaseHost = ATTACH
+    ? null
+    : Bun.spawn(["python3", join(import.meta.dir, "../../../release/release.py"), "serve", ASSETS, "--port", String(releasePort)], {
+        env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+        stdout: "ignore",
+        stderr: "ignore",
+      });
   const entries: ServerLogEntry[] = [];
   const started = performance.now();
   const server = Bun.serve({
@@ -161,10 +173,10 @@ function startServers(browser: string) {
     async stop() {
       server.stop(true);
       packServer?.stop(true);
-      site.kill();
-      releaseHost.kill();
-      await site.exited;
-      await releaseHost.exited;
+      site?.kill();
+      releaseHost?.kill();
+      await site?.exited;
+      await releaseHost?.exited;
     },
   };
 }
@@ -484,6 +496,19 @@ async function runBrowser(browser: "chromium" | "firefox") {
     });
     const s0Bytes = s0?.bundle ? new Uint8Array(Buffer.from(s0.bundle.base64, "base64")) : new Uint8Array();
     check("S0 bundle equals the native oracle (cmp)", s0?.status === "success" && Buffer.compare(Buffer.from(s0Bytes), Buffer.from(oracle)) === 0 && s0.sha === sha256(oracle), { status: s0?.status, sha: s0?.sha, bytes: s0Bytes.byteLength });
+    // Execution (IR-19, k-rust) does not exist yet: the page must say so and offer nothing to run.
+    const execution = await step("execution-unavailable", () =>
+      evaluate(s, `const e = $('[data-execution]'); return { execution: e?.dataset.execution ?? null,
+        stages: [...(e?.querySelectorAll('[data-stage]') ?? [])].map((li) => [li.dataset.stage, li.dataset.state, li.innerText.includes('not yet available')]),
+        runDisabled: e?.querySelector('[data-action="run"]')?.disabled ?? null,
+        outcomes: [...(e?.querySelectorAll('[data-outcome]') ?? [])].map((o) => o.dataset.outcome) };`),
+    );
+    check(
+      "execution (k-rust) shows as not yet available after a successful compile",
+      execution?.execution === "unavailable" && execution.runDisabled === true && execution.outcomes.length === 0 &&
+        JSON.stringify(execution.stages) === JSON.stringify([["lower", "unavailable", true], ["kore", "unavailable", true], ["execute", "unavailable", true]]),
+      execution,
+    );
     await evaluate(s, `$$('details').forEach((d) => { if (d.closest('[data-outcome="success"]')) d.open = true; }); return true;`);
     await scrollTo(s, "[data-lesson-editor]");
     await screenshot(s, "02-compiled-bundle");

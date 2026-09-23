@@ -54,22 +54,27 @@ Workers hold that lease and read the verified files from the namespace themselve
 
 The supported deployment is local: `release.py serve` on the build machine serves the publication, and the site points at it.
 Sebastien deferred the choice of a public host until he has reviewed this deployment, so `browser/release/hosting.toml` names no host.
-From the repository root, with a fork build `$FORK` (for example `/var/tmp/krs-browser-fork/R-27`) and its source checkout `$FORK_SRC`:
+From the repository root, one command builds what is missing and serves both:
 
 ```sh
-# 1. Build the pack with the fork's native twin (heavy-build flock, nice -n 19, -j 4).
-FORK_SOURCE=$FORK_SRC browser/pack/build.sh $FORK /var/tmp/krs-pack
-# 2. Stage it, generate the license inventory, and assemble the publication in /var/tmp/krs-run/publish.
-#    Omit --steps to run every browser-lesson gate as well.
-PYTHONDONTWRITEBYTECODE=1 python3 tests/browser-pack/run.py --pack /var/tmp/krs-pack/pack \
-    --fork-build $FORK --fork-source $FORK_SRC --out /var/tmp/krs-run \
-    --steps expectations,modules,stage,oracle,licenses,release
-# 3. Serve the publication with the hosting.toml headers (CORS included).
-python3 browser/release/release.py serve /var/tmp/krs-run/publish --port 8741
-# 4. In another shell, run the site against it (or `bun run build` and `node dist/serve-node.js`).
-cd docs-site && VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8741/ bun run dev
+python3 browser/release/serve-local.py
+# lesson: http://127.0.0.1:8740/lessons/tour-minimal (release.py serve on http://127.0.0.1:8741/); Ctrl-C stops both servers
 ```
+
+The defaults are the fork build `/var/tmp/krs-browser-fork/R-22`, its source checkout `../inspirations/AngelOnFira/rust-22`, and the pack `/var/tmp/krs-ir22/packbuild/pack`; `--fork-build`, `--fork-source`, and `--pack` override them, and `--help` lists the ports and the rest.
+The launcher reuses the pack only when its `crates/` and `browser/pack/` trees are the checkout's and its fork revision is the fork build's; otherwise it builds one with `browser/pack/build.sh` (heavy-build flock, `nice -n 19`, `-j 4`) under its state directory (`/var/tmp/krs-local-site-<checkout name>/`).
+It stages and assembles the release with `tests/browser-pack/run.py --steps modules,stage,oracle,licenses,release` when its inputs changed, and builds the site with `bun run build:lesson-worker` and `vocs build` with `VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:8741/` when the site or the base changed.
+It runs neither the release gates (`run.py` without `--steps`) nor the docs `check` step of `bun run build`.
+`CARGO_TARGET_ROOT` is private to the checkout, because a `krs` binary built in another worktree makes the oracle step fail with a Cargo package collision.
+Both servers bind `127.0.0.1`.
 
 `bun ../browser/worker/test/lesson/docs-lesson.ts --site . --assets <publish dir> --out <dir>` drives the built page in headless Chromium and Firefox.
 By default the publication is proxied at the same origin (build with `VITE_KRS_BROWSER_PACK_BASE=/krs-pack/`).
 With `--pack-origin cross` it is a second origin, as in the local deployment, at `http://127.0.0.1:<port + 70>/` (default 5380; build with `VITE_KRS_BROWSER_PACK_BASE=http://127.0.0.1:5380/`).
+With `--attach` it drives servers that are already running, as the launcher starts them:
+
+```sh
+python3 browser/release/serve-local.py --site-port 5360 --pack-port 5370 --pack-base http://127.0.0.1:5380/ &
+bun browser/worker/test/lesson/docs-lesson.ts --attach --pack-origin cross --site docs-site \
+    --assets /var/tmp/krs-local-site-<checkout name>/run/publish --oracle <oracle bundle> --oracle-e1 <E1 oracle bundle> --out <dir>
+```
