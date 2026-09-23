@@ -37,7 +37,7 @@ Compiling needs up to about 2 GB of memory; a compile after the first usually ta
   The definition still compiles, and the bundle's hash changes because the rule's stable identity changed.
 - Change the initial configuration to `k::k![Object::Missing()]`.
   rustc reports that `Object` has no variant `Missing`, and the editor highlights the `Missing` you typed.
-- Add `#[derive(serde::Serialize)]` above `pub enum Object`.
+- Add `#[derive(serde::Serialize)]` on the line directly above `pub enum Object`.
   The lesson policy rejects it before rustc runs, because a browser lesson cannot run external procedural macros.
 
 ## Reading diagnostics

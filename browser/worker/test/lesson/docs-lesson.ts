@@ -368,8 +368,11 @@ const oracle = new Uint8Array(readFileSync(values.oracle!));
 const oracleE1 = new Uint8Array(readFileSync(values["oracle-e1"]!));
 const e1Source = seedSource.replace("foo_to_bar: Foo() => Bar();", "foo_to_baz: Foo() => Bar();");
 const x1Source = seedSource.replace("k: k::k![Object::Foo()],", "k: k::k![Object::Missing()],");
-const policySource = seedSource.replace("#[k::constructors(sort = M2Obj, result = KResult)]", "#[derive(serde::Serialize)]\n#[k::constructors(sort = M2Obj, result = KResult)]");
-const generatedOnlySource = `${seedSource}\npub static __KRS_REGISTRATIONS: u8 = 0;\n`;
+// Directly above the item, after the KRS attributes (policy v2 rejects a derive before a KRS attribute separately).
+const policySource = seedSource.replace("pub enum Object {", "#[derive(serde::Serialize)]\npub enum Object {");
+// Before policy v2 (IR-28) this reached rustc as E0428 in the generated registration table (generated-only);
+// policy v2 rejects the reserved name at its authored range.
+const reservedNameSource = `${seedSource}\npub static __KRS_REGISTRATIONS: u8 = 0;\n`;
 const canary = `krs-canary-${randomBytes(16).toString("hex")}`;
 const canarySource = `${seedSource}\n// ${canary}\n`;
 for (const [name, text] of [["e1", e1Source], ["x1", x1Source], ["policy", policySource]] as const) {
@@ -476,21 +479,22 @@ async function runBrowser(browser: "chromium" | "firefox") {
     );
     check(
       "policy error (external derive) is reported before rustc with an authored highlight",
-      policy?.status === "failure" && policy.summary === "Lesson policy: 1 error" && policy.diagnostics[0]?.class === "exact-authored" && policy.marks.length === 1 && policy.marks[0].text.startsWith("serde::Serialize"),
+      policy?.status === "failure" && policy.summary === "Lesson policy: 1 error" && policy.diagnostics[0]?.class === "exact-authored" && policy.marks.length === 1 && policy.marks[0].text === "serde::Serialize",
       policy,
     );
 
-    const generated = await step("generated-only-diagnostic", () =>
-      evaluate(s, `setSource(${JSON.stringify(generatedOnlySource)}); await sleep(50); const r = await compileAndWait(); return { ...r, summary: $('[data-failure-summary]')?.innerText ?? null, diagnostics: diagnostics(), marks: marks() };`),
+    const reserved = await step("reserved-name-policy", () =>
+      evaluate(s, `setSource(${JSON.stringify(reservedNameSource)}); await sleep(50); const r = await compileAndWait(); return { ...r, summary: $('[data-failure-summary]')?.innerText ?? null, diagnostics: diagnostics(), marks: marks() };`),
     );
     check(
-      "a generated-only diagnostic shows the generated location and no editor highlight",
-      generated?.status === "failure" && generated.diagnostics.length >= 1 && generated.diagnostics.every((d: any) => d.class === "generated-only" && d.location === null && /generated \/work\/expanded\/tour-minimal\/src\/lib\.rs, bytes \d+–\d+/.test(d.text)) && generated.marks.length === 0,
-      generated,
+      "an authored reserved name is a policy error at its authored range (no generated-only diagnostic)",
+      reserved?.status === "failure" && reserved.summary === "Lesson policy: 1 error" && reserved.diagnostics.length === 1 && reserved.diagnostics[0].class === "exact-authored" &&
+        reserved.marks.length === 1 && reserved.marks[0].text === "__KRS_REGISTRATIONS",
+      reserved,
     );
     await evaluate(s, `$$('[data-outcome] details').forEach((d, i) => (d.open = i === 0)); return true;`);
     await scrollTo(s, "[data-outcome]");
-    await screenshot(s, "06-generated-only");
+    await screenshot(s, "06-reserved-name-policy");
 
     const cancel = await step("cancel-during-rustc", () =>
       evaluate(s, `click('reset'); await sleep(50);
