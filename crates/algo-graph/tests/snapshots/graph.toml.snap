@@ -6690,12 +6690,6 @@ to = "k_rust_backend::term::Term [internalized term]"
 provenance = "declared"
 
 [[edge]]
-kind = "variant-of"
-from = "backend.fresh.variables"
-to = "backend.fresh.variables"
-provenance = "declared"
-
-[[edge]]
 kind = "consumes"
 from = "backend.implication.check"
 to = "k_rust_backend::matching::MatchResult [match result]"

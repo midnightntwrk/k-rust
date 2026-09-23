@@ -542,7 +542,13 @@ fn validate_card(
         }
     }
     for target in card.body.variant_of.iter().chain(&card.body.falls_back_to) {
-        if !algorithms.contains_key(target) {
+        if *target == card.body.id {
+            failures.push(format!(
+                "{}: {} names itself as a variant or fallback target",
+                card_location(card),
+                card.body.id
+            ));
+        } else if !algorithms.contains_key(target) {
             failures.push(format!(
                 "{}: algorithm reference {target} does not resolve for {}",
                 card_location(card),

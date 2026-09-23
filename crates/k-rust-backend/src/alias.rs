@@ -474,7 +474,6 @@ fn expand_binder(
 /// ```toml algorithm-site
 /// id = "backend.fresh.variables"
 /// role = "variant"
-/// variant_of = "backend.fresh.variables"
 /// sites = ["fresh_variable"]
 /// ```
 fn fresh_variable(
