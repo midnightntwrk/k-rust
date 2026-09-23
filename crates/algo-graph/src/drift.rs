@@ -22,6 +22,8 @@ pub struct DriftFinding {
     pub file: String,
     pub item: String,
     pub hunks: Vec<String>,
+    /// The card's `lean` theorems: their models mirror the changed site and must be re-checked.
+    pub lean: Vec<String>,
 }
 
 /// The report produced for a Git revision range.
@@ -66,6 +68,13 @@ pub fn render_drift(report: &DriftReport) -> String {
             "card {} ({}): site {} changed while its card did not",
             finding.card_id, finding.file, finding.item
         );
+        if !finding.lean.is_empty() {
+            let _ = writeln!(
+                output,
+                "  re-check the Lean models of: {}",
+                finding.lean.join(", ")
+            );
+        }
         for hunk in &finding.hunks {
             for line in hunk.lines() {
                 let _ = writeln!(output, "  {line}");
@@ -301,6 +310,7 @@ fn drift_file(
                 file: diff.file.clone(),
                 item: site.clone(),
                 hunks: relevant.iter().map(|hunk| hunk.text.clone()).collect(),
+                lean: card.lean.clone(),
             });
         }
     }
@@ -318,6 +328,7 @@ struct LocatedCard {
     kind: CardKind,
     id: String,
     sites: Vec<String>,
+    lean: Vec<String>,
     range: ItemRange,
 }
 
@@ -325,6 +336,7 @@ struct LocatedCard {
 enum CardKind {
     Primary,
     Site,
+    Representation,
 }
 
 #[derive(Clone, Debug)]
@@ -504,6 +516,7 @@ fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
                     kind: *kind,
                     id: body.id,
                     sites: body.sites,
+                    lean: body.lean,
                     range: ItemRange {
                         start: *start,
                         end: doc.range.end,
@@ -531,6 +544,12 @@ fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
                 doc.range.end,
                 String::new(),
             )),
+            "```toml algorithm-representation" | "```algorithm-representation" => Some((
+                CardKind::Representation,
+                doc.range.start,
+                doc.range.end,
+                String::new(),
+            )),
             _ => None,
         };
     }
@@ -541,6 +560,8 @@ fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
 struct DriftCardBody {
     id: String,
     sites: Vec<String>,
+    #[serde(default)]
+    lean: Vec<String>,
 }
 
 fn is_cfg_test(attribute: &syn::Attribute) -> bool {
@@ -642,6 +663,42 @@ fn run() -> usize {
         assert_eq!(report.findings[0].item, "run");
         assert!(report.findings[0].hunks[0].contains("-    1"));
         assert!(report.findings[0].hunks[0].contains("+    2"));
+    }
+
+    #[test]
+    fn names_the_lean_theorems_of_a_representation_card_whose_site_changed() {
+        let Some(repository) = TestRepository::new() else {
+            return;
+        };
+        let original = r#"/// ```toml algorithm-representation
+/// id = "representation.example.value"
+/// name = "one value"
+/// type = "example::Value"
+/// sites = ["Value::new"]
+/// invariant = "the field is positive"
+/// lean = ["KRust.Example.positive"]
+/// ```
+pub struct Value(u32);
+
+impl Value {
+    fn new() -> Self {
+        Value(1)
+    }
+}
+"#;
+        if !repository.commit_source(original) {
+            return;
+        }
+        repository.write_source(&original.replace("Value(1)", "Value(0)"));
+
+        let report = drift(&repository.path, "HEAD", None).unwrap();
+        assert_eq!(report.findings.len(), 1, "{report:?}");
+        assert_eq!(report.findings[0].card_id, "representation.example.value");
+        assert_eq!(report.findings[0].item, "Value::new");
+        assert_eq!(report.findings[0].lean, ["KRust.Example.positive"]);
+        assert!(
+            render_drift(&report).contains("re-check the Lean models of: KRust.Example.positive")
+        );
     }
 
     #[test]

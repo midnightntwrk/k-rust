@@ -630,6 +630,9 @@ impl Answer for ShowAnswer {
         }
         field(&mut out, "variable", node.variable.as_deref());
         field(&mut out, "invariant", node.invariant.as_deref());
+        if !node.lean.is_empty() {
+            field(&mut out, "lean", Some(&node.lean.join(", ")));
+        }
         if node.kind == "algorithm" {
             line(
                 &mut out,
@@ -2329,6 +2332,7 @@ mod tests {
             role: None,
             registry_name: None,
             sequence: None,
+            lean: Vec::new(),
         }
     }
 

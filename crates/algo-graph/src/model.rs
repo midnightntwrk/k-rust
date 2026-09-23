@@ -55,6 +55,9 @@ pub struct Node {
     pub registry_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence: Option<usize>,
+    /// Lean theorems (names from `lean/theorems.txt`) whose models mirror this node's sites.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub lean: Vec<String>,
 }
 
 /// One canonical, typed relationship between graph nodes.

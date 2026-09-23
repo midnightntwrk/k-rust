@@ -109,6 +109,13 @@ pub(crate) struct CardBody {
     pub tests: Vec<String>,
     #[serde(default)]
     pub cost: Vec<CardCost>,
+    /// Lean theorems whose models mirror the card's sites; each must be a line of
+    /// `lean/theorems.txt`.
+    #[serde(default)]
+    pub lean: Vec<String>,
+    /// The workspace type a representation card describes.
+    #[serde(default, rename = "type")]
+    pub type_path: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,6 +123,9 @@ pub(crate) enum CardKind {
     Primary,
     Site,
     Contract,
+    /// An `algorithm-representation` fence: the invariants every value of one workspace type
+    /// satisfies, anchored at the sites that establish them.
+    Representation,
 }
 
 #[derive(Clone, Debug)]
@@ -500,6 +510,9 @@ fn extract_fences(docs: &[String]) -> Vec<(CardKind, String)> {
             "```toml algorithm-site" | "```algorithm-site" => Some((CardKind::Site, String::new())),
             "```toml algorithm-contract" | "```algorithm-contract" => {
                 Some((CardKind::Contract, String::new()))
+            }
+            "```toml algorithm-representation" | "```algorithm-representation" => {
+                Some((CardKind::Representation, String::new()))
             }
             _ => None,
         };
@@ -960,6 +973,31 @@ fn run() {}
         let fences = extract_fences(&visitor.docs);
         assert_eq!(fences.len(), 1);
         assert_eq!(fences[0].0, CardKind::Contract);
+    }
+
+    #[test]
+    fn extracts_representation_cards_with_type_and_lean_keys() {
+        let source = r#"
+//! ```toml algorithm-representation
+//! id = "representation.example.value"
+//! name = "one value"
+//! type = "k_rust::Value"
+//! sites = ["Value::new"]
+//! invariant = "fields are sorted"
+//! lean = ["KRust.Example.sorted"]
+//! ```
+struct Value;
+impl Value { fn new() -> Self { Value } }
+"#;
+        let file = syn::parse_file(source).unwrap();
+        let mut visitor = ItemVisitor::default();
+        visitor.visit_file(&file);
+        let fences = extract_fences(&visitor.docs);
+        assert_eq!(fences.len(), 1);
+        assert_eq!(fences[0].0, CardKind::Representation);
+        let body = toml::from_str::<CardBody>(&fences[0].1).unwrap();
+        assert_eq!(body.type_path.as_deref(), Some("k_rust::Value"));
+        assert_eq!(body.lean, ["KRust.Example.sorted"]);
     }
 
     #[test]

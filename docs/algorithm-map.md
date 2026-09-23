@@ -254,6 +254,18 @@ Each group names a producer whose output later algorithms or contracts rely on w
   - → backend.definition.internalize: the UNIQUE_ID attribute survives KORE emission and determines source rewrite order
   - → kompile.modules.rewrite_order: the UNIQUE_ID attribute set by number_sentences
 
+## Representation invariants
+
+Each `algorithm-representation` card states what every value of one type satisfies and names the sites that establish it; `query show <id>` prints the site anchors and tests.
+
+None declared.
+
+## Lean proofs
+
+Each card with a `lean` key names theorems of `lean/theorems.txt` whose models mirror its sites. When `algo-graph drift` reports one of those sites, re-check the models against the Rust (`lean/README.md`, "Conventions").
+
+None declared.
+
 ## Fallbacks and variants
 
 - parser.inference.portable falls back to parser.inference.z3 (fallback 1)

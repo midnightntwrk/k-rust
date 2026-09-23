@@ -164,12 +164,28 @@ fn find_workspace_root(start: &Path) -> Option<PathBuf> {
     })
 }
 
+/// Workspace-relative path of the tracked list of Lean theorem names that card `lean` keys name.
+///
+/// `scripts/lean-check.sh` fails when the list differs from the theorems the Lean project proves,
+/// so the graph checks the names without running Lean.
+pub const LEAN_THEOREMS_PATH: &str = "lean/theorems.txt";
+
+/// The theorem names of [`LEAN_THEOREMS_PATH`], one per line, or `None` when the file is absent.
+fn read_lean_theorems(root: &Path) -> Result<Option<BTreeSet<String>>, Error> {
+    match fs::read_to_string(root.join(LEAN_THEOREMS_PATH)) {
+        Ok(text) => Ok(Some(text.lines().map(ToOwned::to_owned).collect())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// Build the static graph from source cards and linked registries.
 ///
 pub fn build_graph(root: &Path) -> Result<Build, Error> {
     let mut failures = Vec::new();
     let mut report = Vec::new();
     let (cards, index) = cards::read_cards(root, &mut failures)?;
+    let lean_theorems = read_lean_theorems(root)?;
     let algorithm_registry = Algorithm::ALL
         .iter()
         .map(|algorithm| (algorithm.as_str().to_owned(), format!("{algorithm:?}")))
@@ -209,6 +225,7 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
                 role: None,
                 registry_name: Some(variant.clone()),
                 sequence: None,
+                lean: Vec::new(),
             },
         );
     }
@@ -240,6 +257,7 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
                 role: None,
                 registry_name: Some(name.clone()),
                 sequence: None,
+                lean: Vec::new(),
             },
         );
     }
@@ -270,6 +288,7 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
             role: None,
             registry_name: None,
             sequence: None,
+            lean: Vec::new(),
         },
     );
     let constraint_producers = algorithm_registry
@@ -279,7 +298,7 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
         .collect::<BTreeSet<_>>();
 
     let mut primary_cards = BTreeMap::<String, Vec<&Card>>::new();
-    let mut contract_cards = BTreeMap::<String, Vec<&Card>>::new();
+    let mut anchored_cards = BTreeMap::<String, Vec<&Card>>::new();
     let mut claimed_counters = BTreeSet::new();
     for card in &cards {
         validate_card(
@@ -291,6 +310,7 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
             &constraint_producers,
             &mut failures,
         );
+        validate_lean_key(card, lean_theorems.as_ref(), &mut failures);
         match card.kind {
             CardKind::Primary => {
                 primary_cards
@@ -301,13 +321,21 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
             }
             CardKind::Site => apply_site_card(&mut nodes, card, &mut failures),
             CardKind::Contract => {
-                contract_cards
+                anchored_cards
                     .entry(card.body.id.clone())
                     .or_default()
                     .push(card);
                 apply_contract_card(&mut nodes, card);
             }
+            CardKind::Representation => {
+                anchored_cards
+                    .entry(card.body.id.clone())
+                    .or_default()
+                    .push(card);
+                apply_representation_card(&mut nodes, card, &index);
+            }
         }
+        add_lean(&mut nodes, card);
         add_card_edges(
             &mut nodes,
             &mut edges,
@@ -336,11 +364,16 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
             )),
         }
     }
-    for (id, declarations) in contract_cards {
+    for (id, declarations) in anchored_cards {
         if declarations.len() != 1 {
             failures.push(format!(
-                "{}: contract {id} has {} declarations: {}",
+                "{}: {} {id} has {} declarations: {}",
                 card_location(declarations[0]),
+                if declarations[0].kind == CardKind::Contract {
+                    "contract"
+                } else {
+                    "representation card"
+                },
                 declarations.len(),
                 declarations
                     .iter()
@@ -434,7 +467,9 @@ fn validate_card(
     constraint_producers: &BTreeSet<String>,
     failures: &mut Vec<String>,
 ) {
-    if card.kind != CardKind::Contract && !algorithms.contains_key(&card.body.id) {
+    if !matches!(card.kind, CardKind::Contract | CardKind::Representation)
+        && !algorithms.contains_key(&card.body.id)
+    {
         failures.push(format!(
             "{}: card id {} is absent from Algorithm::ALL",
             card_location(card),
@@ -513,6 +548,15 @@ fn validate_card(
     }
     if card.kind == CardKind::Primary {
         validate_primary_contract(card, failures);
+    }
+    if card.kind == CardKind::Representation {
+        validate_representation_card(card, index, failures);
+    } else if let Some(type_path) = &card.body.type_path {
+        failures.push(format!(
+            "{}: type {type_path} for {}: only an algorithm-representation card declares a type",
+            card_location(card),
+            card.body.id
+        ));
     }
     for test in &card.body.tests {
         if !is_workspace_file(root, test) {
@@ -616,6 +660,95 @@ fn validate_primary_contract(card: &Card, failures: &mut Vec<String>) {
     }
 }
 
+/// Enforce the representation-card contract: a `representation.` id, a name, a workspace type
+/// that resolves to one item, the sites that establish the invariant, and the invariant itself;
+/// cost, counters, relations, and span policy belong to algorithm cards.
+fn validate_representation_card(card: &Card, index: &SourceIndex, failures: &mut Vec<String>) {
+    let location = card_location(card);
+    let body = &card.body;
+    let id = &body.id;
+    if !id.starts_with("representation.") {
+        failures.push(format!(
+            "{location}: representation card id {id} must start with representation."
+        ));
+    }
+    if body.name.as_deref().is_none_or(str::is_empty) {
+        failures.push(format!("{location}: representation card {id} has no name"));
+    }
+    if body.sites.is_empty() {
+        failures.push(format!("{location}: representation card {id} has no sites"));
+    }
+    if body.invariant.as_deref().is_none_or(str::is_empty) {
+        failures.push(format!(
+            "{location}: representation card {id} has no invariant"
+        ));
+    }
+    match &body.type_path {
+        None => failures.push(format!("{location}: representation card {id} has no type")),
+        Some(type_path) => {
+            let resolved = representation_parts(type_path)
+                .map(|(crate_name, symbol)| index.resolve_type(&crate_name, &symbol).len());
+            if resolved != Some(1) {
+                failures.push(format!(
+                    "{location}: representation card {id}: type {type_path} does not resolve to one workspace type"
+                ));
+            }
+        }
+    }
+    let forbidden = [
+        ("cost", !body.cost.is_empty()),
+        ("counters", !body.counters.is_empty()),
+        ("no_counter", body.no_counter.is_some()),
+        ("variable", body.variable.is_some()),
+        ("consumes", !body.consumes.is_empty()),
+        ("produces", !body.produces.is_empty()),
+        ("constrains", !body.constrains.is_empty()),
+        ("variant_of", body.variant_of.is_some()),
+        ("falls_back_to", !body.falls_back_to.is_empty()),
+        ("span", body.span.is_some()),
+        ("role", body.role.is_some()),
+    ];
+    for (key, present) in forbidden {
+        if present {
+            failures.push(format!(
+                "{location}: representation card {id} must not declare {key}"
+            ));
+        }
+    }
+}
+
+/// Every `lean` entry must be a line of [`LEAN_THEOREMS_PATH`], once per card.
+fn validate_lean_key(
+    card: &Card,
+    lean_theorems: Option<&BTreeSet<String>>,
+    failures: &mut Vec<String>,
+) {
+    let mut seen = BTreeSet::new();
+    for theorem in &card.body.lean {
+        if !seen.insert(theorem) {
+            failures.push(format!(
+                "{}: lean theorem {theorem} is named twice for {}",
+                card_location(card),
+                card.body.id
+            ));
+            continue;
+        }
+        match lean_theorems {
+            None => failures.push(format!(
+                "{}: lean theorem {theorem} for {}: {LEAN_THEOREMS_PATH} is absent",
+                card_location(card),
+                card.body.id
+            )),
+            Some(theorems) if !theorems.contains(theorem) => failures.push(format!(
+                "{}: lean theorem {theorem} for {} is not in {LEAN_THEOREMS_PATH}",
+                card_location(card),
+                card.body.id
+            )),
+            Some(_) => {}
+        }
+    }
+}
+
 /// A bound names a variable when one of its words is a single letter other than `O` (the
 /// asymptotic operator) and `x` (the multiplication sign cards write).
 fn bound_names_variable(bound: &str) -> bool {
@@ -711,8 +844,69 @@ fn apply_contract_card(nodes: &mut BTreeMap<(String, String), Node>, card: &Card
             role: None,
             registry_name: None,
             sequence: None,
+            lean: Vec::new(),
         },
     );
+}
+
+fn apply_representation_card(
+    nodes: &mut BTreeMap<(String, String), Node>,
+    card: &Card,
+    index: &SourceIndex,
+) {
+    let type_path = card.body.type_path.clone().unwrap_or_default();
+    let parts = representation_parts(&type_path);
+    let anchor = parts
+        .as_ref()
+        .and_then(
+            |(crate_name, symbol)| match index.resolve_type(crate_name, symbol) {
+                [anchor] => Some(anchor.clone()),
+                _ => None,
+            },
+        )
+        .unwrap_or_else(|| Anchor {
+            crate_name: card.crate_name.clone(),
+            file: card.file.clone(),
+            symbol: type_path.clone(),
+        });
+    insert_node(
+        nodes,
+        Node {
+            kind: "invariant".to_owned(),
+            id: card.body.id.clone(),
+            provenance: "declared".to_owned(),
+            anchor,
+            area: parts.and_then(|(crate_name, _)| crate_area(&crate_name)),
+            name: card.body.name.clone(),
+            sites: card.site_anchors(),
+            cost: Vec::new(),
+            variable: None,
+            invariant: card.body.invariant.clone(),
+            no_counter: None,
+            span: None,
+            table: None,
+            call: None,
+            behavior: None,
+            generating_passes: Vec::new(),
+            type_path: Some(type_path),
+            role: None,
+            registry_name: None,
+            sequence: None,
+            lean: Vec::new(),
+        },
+    );
+}
+
+/// Add a card's `lean` theorems to the node the card declares or extends.
+fn add_lean(nodes: &mut BTreeMap<(String, String), Node>, card: &Card) {
+    let kind = match card.kind {
+        CardKind::Primary | CardKind::Site => "algorithm",
+        CardKind::Contract => "contract",
+        CardKind::Representation => "invariant",
+    };
+    if let Some(node) = nodes.get_mut(&(card.body.id.clone(), kind.to_owned())) {
+        extend_unique(&mut node.lean, card.body.lean.iter().cloned());
+    }
 }
 
 fn empty_algorithm(card: &Card, anchor: Anchor) -> Node {
@@ -737,6 +931,7 @@ fn empty_algorithm(card: &Card, anchor: Anchor) -> Node {
         role: None,
         registry_name: None,
         sequence: None,
+        lean: Vec::new(),
     }
 }
 
@@ -777,7 +972,7 @@ fn add_card_edges(
                     file: test.clone(),
                     symbol: test.clone(),
                 },
-                area: area(&card.body.id),
+                area: card_area(card),
                 name: Some(test.clone()),
                 sites: Vec::new(),
                 cost: Vec::new(),
@@ -793,6 +988,7 @@ fn add_card_edges(
                 role: None,
                 registry_name: None,
                 sequence: None,
+                lean: Vec::new(),
             },
         );
         edges.push(edge("measured-by", &card.body.id, &test_id, "declared"));
@@ -866,6 +1062,7 @@ fn add_representation(
             role: representation.role().map(ToOwned::to_owned),
             registry_name: None,
             sequence: None,
+            lean: Vec::new(),
         },
     );
     edges.push(edge(edge_kind, &card.body.id, &id, "declared"));
@@ -931,6 +1128,7 @@ fn simple_phase(name: &str, table: &str, sequence: usize) -> Node {
         role: None,
         registry_name: None,
         sequence: Some(sequence),
+        lean: Vec::new(),
     }
 }
 
@@ -964,6 +1162,7 @@ fn described_phase(description: StageDescription, sequence: usize) -> Node {
         role: None,
         registry_name: None,
         sequence: Some(sequence),
+        lean: Vec::new(),
     }
 }
 
@@ -1016,6 +1215,7 @@ fn validate_source_contract(
 
     let card_files = cards
         .iter()
+        .filter(|card| card.kind != CardKind::Representation)
         .map(|card| card.file.as_str())
         .collect::<BTreeSet<_>>();
     for (file, facts) in &index.files {
@@ -1148,7 +1348,7 @@ fn report_undeclared_representation_uses(
     for (file, facts) in &index.files {
         let file_cards = cards
             .iter()
-            .filter(|card| card.file == *file)
+            .filter(|card| card.file == *file && card.kind != CardKind::Representation)
             .collect::<Vec<_>>();
         for pattern in &facts.outcome_patterns {
             let resolved = index.resolve_path(file, &pattern.path);
@@ -1278,6 +1478,15 @@ fn extend_unique<T: Eq>(values: &mut Vec<T>, additions: impl IntoIterator<Item =
     }
 }
 
+/// The area of a card's node: the first segment of an algorithm or contract id, and the crate
+/// area of a representation card, whose id segment is `representation`.
+fn card_area(card: &Card) -> Option<String> {
+    match card.kind {
+        CardKind::Representation => crate_area(&card.crate_name),
+        _ => area(&card.body.id),
+    }
+}
+
 fn area(id: &str) -> Option<String> {
     id.split_once('.').map(|(area, _)| area.to_owned())
 }
@@ -1381,6 +1590,81 @@ mod tests {
             &mut failures,
         );
         assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    fn representation_card(source: &str) -> Card {
+        Card {
+            kind: CardKind::Representation,
+            ..primary_card(source)
+        }
+    }
+
+    fn type_index() -> SourceIndex {
+        let mut index = SourceIndex::default();
+        index.types.insert(
+            ("k-rust-backend".to_owned(), "Value".to_owned()),
+            vec![Anchor {
+                crate_name: "k-rust-backend".to_owned(),
+                file: "crates/k-rust-backend/src/example.rs".to_owned(),
+                symbol: "Value".to_owned(),
+            }],
+        );
+        index
+    }
+
+    #[test]
+    fn representation_cards_must_meet_their_contract() {
+        let mut failures = Vec::new();
+        validate_representation_card(
+            &representation_card(
+                "id = \"backend.value\"\ntype = \"k_rust_backend::example::Missing\"\ncounters = []\nspan = \"none\"\n",
+            ),
+            &type_index(),
+            &mut failures,
+        );
+        let expected = [
+            "id backend.value must start with representation.",
+            "has no name",
+            "has no sites",
+            "has no invariant",
+            "type k_rust_backend::example::Missing does not resolve to one workspace type",
+            "must not declare span",
+        ];
+        assert_eq!(failures.len(), expected.len(), "{failures:?}");
+        for (failure, end) in failures.iter().zip(expected) {
+            assert!(failure.ends_with(end), "{failure} should end with {end}");
+        }
+
+        let mut failures = Vec::new();
+        validate_representation_card(
+            &representation_card(
+                "id = \"representation.backend.value\"\nname = \"v\"\ntype = \"k_rust_backend::example::Value\"\nsites = [\"Value::new\"]\ninvariant = \"sorted\"\n",
+            ),
+            &type_index(),
+            &mut failures,
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    #[test]
+    fn lean_keys_must_name_listed_theorems_once() {
+        let card = primary_card(
+            "id = \"backend.x\"\nsites = [\"run\"]\nlean = [\"KRust.A.proved\", \"KRust.A.missing\", \"KRust.A.proved\"]\n",
+        );
+        let theorems = BTreeSet::from(["KRust.A.proved".to_owned()]);
+        let mut failures = Vec::new();
+        validate_lean_key(&card, Some(&theorems), &mut failures);
+        assert_eq!(
+            failures,
+            [
+                "crates/k-rust-backend/src/example.rs:run: lean theorem KRust.A.missing for backend.x is not in lean/theorems.txt",
+                "crates/k-rust-backend/src/example.rs:run: lean theorem KRust.A.proved is named twice for backend.x",
+            ]
+        );
+        let mut failures = Vec::new();
+        validate_lean_key(&card, None, &mut failures);
+        assert_eq!(failures.len(), 3, "{failures:?}");
+        assert!(failures[0].ends_with("lean/theorems.txt is absent"));
     }
 
     #[test]

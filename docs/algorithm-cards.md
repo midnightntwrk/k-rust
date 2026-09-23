@@ -40,10 +40,52 @@ The optional primary-card keys are:
 - `consumes` and `produces`, for representation boundaries;
 - `constrains = [{ id, site, via }]`, for a contract or ordering dependency without a call;
 - `variant_of = "algorithm.id"` and `falls_back_to = ["algorithm.id", ...]`, for declared relationships to another algorithm; fallback order is list order;
-- `span`, for the runtime instrumentation policy; and
-- `tests`, for repository-relative test paths.
+- `span`, for the runtime instrumentation policy;
+- `tests`, for repository-relative test paths; and
+- `lean`, for the Lean theorems whose models mirror the card's sites.
 
 Every `tests` entry must be a relative path, without `..`, to a file under the workspace root.
+
+## Lean proofs on cards
+
+A card whose sites a Lean model mirrors names the model's theorems:
+
+```toml
+lean = ["KRust.MaximalModels.maximal_models_spec", "KRust.SubsortEncoding.new_equiv"]
+```
+
+Every `lean` entry must be a line of `lean/theorems.txt`, at most once per card.
+That file is the sorted list of the theorems written in the `KRust` modules; `scripts/lean-check.sh` fails when it differs from what the Lean project proves (`lean/README.md`, "Checking"), so the freshness gate checks the names without running Lean.
+Primary, site, contract, and representation cards may carry the key; put it on the card whose `sites` include the Rust items the model's anchors name, and add those items to `sites` when they are missing, because `algo-graph drift` only watches named sites.
+A drift finding for such a card ends with `re-check the Lean models of: …`: the model must be compared with the changed Rust, and its anchors updated (`lean/README.md`, "Conventions").
+The generated map lists every card with a `lean` key under "Lean proofs".
+
+## Representation cards
+
+A representation card records what every value of one workspace type satisfies, and names the sites that establish it.
+It is a TOML fence tagged `algorithm-representation` in the `//!` head of the type's home module:
+
+```toml
+id = "representation.backend.term"
+name = "immutable hash-consed backend term"
+type = "k_rust_backend::term::Term"
+sites = ["Term::new", "Term::map", "Term::set"]
+invariant = "…"
+tests = ["crates/k-rust-backend/tests/backend/term_order.rs"]
+lean = ["KRust.TermAttributes.ceilFree_sound"]
+```
+
+A representation card must contain:
+
+- `id`, beginning with `representation.`, declared once;
+- `name`;
+- `type`, a workspace type path that resolves to one item;
+- `sites`, a non-empty list of symbols in the same file, the items that establish or could break the invariant; and
+- `invariant`, the statement itself.
+
+`tests` and `lean` are optional; cost, counters, span policy, and relations are not allowed, because a representation card is not an algorithm and needs no `Algorithm` identity.
+The generator adds one `invariant` node per card; the map lists them under "Representation invariants", and `algo-graph drift` reports a changed site as it does for algorithm cards.
+A module with a representation card and no primary card stays listed under the modules without primary cards below.
 
 `span` is either `"per problem"`, `"per call"`, or `"none"`.
 The key may be absent until the ticket responsible for instrumentation chooses the policy.

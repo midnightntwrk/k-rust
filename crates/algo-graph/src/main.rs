@@ -57,6 +57,9 @@ enum Command {
     /// recorded so that the join can check that its checkout holds the covered sources.
     Coverage(CoverageArgs),
     /// Report cards whose site items changed while their fences did not.
+    ///
+    /// A finding for a card with a `lean` key also names those theorems: their models mirror the
+    /// changed site and must be re-checked against the Rust.
     Drift(DriftArgs),
     /// Ask the algorithm graph a question: who owns this code, what does a change affect, where did a run spend time.
     #[command(long_about = QUERY_ABOUT, after_help = QUERY_AFTER)]
@@ -116,7 +119,9 @@ home module (docs/algorithm-cards.md). A card names the algorithm id (such as
 backend.matching.syntactic), its sites (functions and methods that implement it), its cost
 bounds and cost variable, its counters (crates/k-rust-kore/src/measure.rs Counter), its span
 policy, and its relations: produces and consumes (representation types), constrains, falls back
-to, and variant of. Phases come from the kompile stage table, which also gives phase order.
+to, and variant of. A card may name Lean theorems (lean) whose models mirror its sites; an
+`algorithm-representation` card states the invariants every value of one type satisfies.
+Phases come from the kompile stage table, which also gives phase order.
 
 Every relation carries a provenance: declared (written on a card), table (read from a registry),
 or derived (computed by the tool). An absent relation proves nothing: there is no call graph, and
