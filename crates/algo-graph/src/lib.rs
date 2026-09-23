@@ -12,6 +12,7 @@
 
 mod cards;
 mod coverage;
+mod diff;
 mod drift;
 mod html;
 mod join;
@@ -29,6 +30,10 @@ use cards::{Card, CardKind, Representation, SourceIndex};
 pub use coverage::{
     COVERAGE_SCHEMA_VERSION, Coverage, CoveredFile, CoveredFunction, canonical_coverage_toml,
     normalize_export, read_coverage,
+};
+pub use diff::{
+    AlgorithmDelta, ChangedCount, CountDelta, DIFF_RULE, DiffAnswer, Side, Spread, TimeClass,
+    TimeDelta, VerdictChange, diff, read_join_file,
 };
 pub use drift::{DriftFinding, DriftReport, drift, render_drift};
 pub use html::{HTML_DATA_ELEMENT_ID, render_html};

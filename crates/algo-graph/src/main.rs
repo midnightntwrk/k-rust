@@ -4,11 +4,12 @@ use std::{
 };
 
 use algo_graph::{
-    Filters, build_graph, canonical_coverage_toml, canonical_join_toml, canonical_toml, drift,
-    join_files, normalize_export,
+    Filters, build_graph, canonical_coverage_toml, canonical_join_toml, canonical_toml, diff,
+    drift, join_files, normalize_export,
     query::{self, Answer, HotOrder, NotFound},
-    render_composition, render_composition_focus, render_drift, render_html, render_module_map,
-    render_pipeline, render_run_overlay, workspace_root, write_output, write_report,
+    read_join_file, render_composition, render_composition_focus, render_drift, render_html,
+    render_module_map, render_pipeline, render_run_overlay, workspace_root, write_output,
+    write_report,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -51,6 +52,20 @@ enum Command {
     /// Ask the algorithm graph a question: who owns this code, what does a change affect, where did a run spend time.
     #[command(long_about = QUERY_ABOUT, after_help = QUERY_AFTER)]
     Query(QueryArgs),
+    /// Compare joins of one workload by algorithm: span counts, counters, self and total time, verdicts.
+    ///
+    /// Each flag is repeatable; the joins of one side are repeats of one workload. A side's value
+    /// is the median over its repeats with the min..max range. Span counts and counters are
+    /// deterministic, so their deltas are exact; a time delta is `unreplicated` when a side has
+    /// one join, `within noise` when the two ranges overlap, and `faster` or `slower` otherwise.
+    /// Algorithms are sorted by absolute self-time delta; every changed count is listed in its
+    /// own section, and algorithms declared by only one side's graph are reported as added or
+    /// removed.
+    #[command(after_help = "\
+Examples:
+  algo-graph diff --before old/join.toml --after new/join.toml
+  algo-graph diff --before a/rep-1/join.toml --before a/rep-2/join.toml --after b/rep-1/join.toml --after b/rep-2/join.toml --format toml")]
+    Diff(DiffArgs),
 }
 
 const QUERY_ABOUT: &str = "\
@@ -223,6 +238,19 @@ Examples:
         #[arg(long, default_value_t = 40)]
         limit: usize,
     },
+}
+
+#[derive(Debug, Args)]
+struct DiffArgs {
+    /// Join TOML of the baseline; repeat for repeated runs of the workload.
+    #[arg(long = "before", value_name = "join.toml", required = true)]
+    before: Vec<PathBuf>,
+    /// Join TOML of the changed build; repeat for repeated runs of the workload.
+    #[arg(long = "after", value_name = "join.toml", required = true)]
+    after: Vec<PathBuf>,
+    /// Output format: plain text for reading, or TOML with the same content for parsing.
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    format: Format,
 }
 
 #[derive(Debug, Args)]
@@ -472,6 +500,22 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
         Command::Drift(arguments) => {
             let report = drift(&root, &arguments.since, arguments.until.as_deref())?;
             print!("{}", render_drift(&report));
+        }
+        Command::Diff(arguments) => {
+            let read = |paths: &[PathBuf]| {
+                paths
+                    .iter()
+                    .map(|path| Ok((path.display().to_string(), read_join_file(path)?)))
+                    .collect::<Result<Vec<_>, algo_graph::Error>>()
+            };
+            let answer = diff(&read(&arguments.before)?, &read(&arguments.after)?)?;
+            print!(
+                "{}",
+                match arguments.format {
+                    Format::Text => Answer::text(&answer),
+                    Format::Toml => Answer::toml(&answer)?,
+                }
+            );
         }
         Command::Query(_) => unreachable!("main dispatches query"),
     }

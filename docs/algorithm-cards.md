@@ -133,6 +133,26 @@ constrains = [
 ]
 ```
 
+## Comparing runs by algorithm
+
+`algo-graph join` projects one run's trace and receipt onto the graph as a `join.toml` of schema 2, and `algo-graph query hot --join` reads one join.
+To compare two builds on one workload, run:
+
+```sh
+cargo run -p algo-graph -- diff --before <join.toml>... --after <join.toml>... [--format text|toml]
+```
+
+Each flag is repeatable, and the joins of one side must be repeats of one workload and claim; a side that mixes workloads is refused, and a join of another schema is refused with its path.
+For every quantity, a side's value is the median over its repeats, the mean of the two middle values for an even number, with the min..max range.
+An algorithm without a row in a join counts as zero spans, zero seconds, and zero counters in that join.
+
+- Span counts and counters are deterministic: the delta is the after median minus the before median, and it is exact when every repeat of each side agrees; otherwise it is marked `varies`.
+- A self or total time delta is `unreplicated` when either side has fewer than two joins, `within noise` when the before and after ranges overlap, and `faster` or `slower` otherwise.
+- An algorithm's counters are the counters its card declares, measured inside its spans including nested spans (`trace_total`); receipt counters are the process-wide totals of `counters.json`.
+- An algorithm is added when some after join declares it and no before join does, and removed conversely.
+
+The output lists the added and removed algorithms, every changed span count, algorithm counter, and receipt counter, every changed verdict, then the algorithms with a span on either side by decreasing absolute self-time delta, then the receipt counters that are nonzero on either side.
+
 ## Worked cases
 
 ### One function hosts several algorithms
