@@ -135,7 +135,7 @@ order = 8
 route = "/semantics/applicability-and-failure"
 title = "Applicability, fallback, and failure"
 outcome = "Distinguish guards, overlap, fallback, stuck states, traps, authoring errors, and backend capability errors."
-specimen = "tests/m3c-requires and current positive fixtures"
+specimen = "the M4 static adjunct and current positive fixtures"
 
 [[chapter]]
 id = "lowering"
@@ -595,7 +595,7 @@ status = "current"
 coverage = "spine"
 chapter = "applicability"
 prerequisites = ["rule-tables", "core-builtins"]
-evidence = ["tests/m3c-requires", "crates/krs-syntax/tests/rules.rs"]
+evidence = ["tests/m4/rust-definition/src/static_adjunct.rs", "crates/krs-syntax/tests/rules.rs"]
 
 [[concept]]
 id = "overlap"

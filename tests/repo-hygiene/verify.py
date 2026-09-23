@@ -10,7 +10,10 @@ staged additions and ignores untracked files.
 
 Every `tests/<gate>/` directory must also have an entry point: a `verify.py`,
 or a `README.md` that states the command that runs it. A directory with
-neither is a gate nobody can run, so its rot goes unnoticed.
+neither is a gate nobody can run, so its rot goes unnoticed. Every script a
+gate README runs (`python3 tests/...`) must be tracked, so a README cannot
+keep naming a verifier that was removed. `tests/support/` is the shared
+verifier library, not a gate.
 
     PYTHONDONTWRITEBYTECODE=1 python3 tests/repo-hygiene/verify.py
 """
@@ -19,12 +22,13 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT  # noqa: E402
+from support.process import run  # noqa: E402
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+
 SELF = Path(__file__).resolve().relative_to(ROOT).as_posix()
 
 # A `draft/` path segment (not, for example, the npm scope `@open-draft/`),
@@ -42,14 +46,14 @@ SPIKE_PATH = re.compile(r"\bspikes[/]")
 LOCAL_TICKET_ID = re.compile(r"\b(?:IR|BL|CQ)[-][0-9]{2,3}\b")
 # A shell command that runs a gate, as a gate README must state one.
 RUN_COMMAND = re.compile(r"\b(?:python3|cargo|bun|node)\s+\S")
+# A repository script a README runs with python3, as `python3 tests/<gate>/<script>.py`.
+PYTHON_SCRIPT = re.compile(r"\bpython3\s+(tests/[^\s`'\"]+\.py)\b")
+# Directories under tests/ that are libraries rather than gates.
+NOT_GATES = {"support"}
 
 
 def tracked_files() -> list[str]:
-    output = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "-z"],
-        check=True,
-        capture_output=True,
-    ).stdout
+    output = run(["git", "-C", ROOT, "ls-files", "-z"], text=False).stdout
     return [name for name in output.decode("utf-8").split("\0") if name]
 
 
@@ -59,15 +63,17 @@ def gate_entry_problems(files: list[str]) -> list[str]:
         {
             parts[1]
             for parts in (name.split("/") for name in files)
-            if parts[0] == "tests" and len(parts) > 2
+            if parts[0] == "tests" and len(parts) > 2 and parts[1] not in NOT_GATES
         }
     )
     problems: list[str] = []
     for gate in gates:
-        if f"tests/{gate}/verify.py" in tracked:
-            continue
         readme = f"tests/{gate}/README.md"
-        if readme in tracked and RUN_COMMAND.search((ROOT / readme).read_text(encoding="utf-8")):
+        text = (ROOT / readme).read_text(encoding="utf-8") if readme in tracked else ""
+        for script in sorted(set(PYTHON_SCRIPT.findall(text))):
+            if script not in tracked:
+                problems.append(f"{readme}: runs {script}, which is not tracked")
+        if f"tests/{gate}/verify.py" in tracked or RUN_COMMAND.search(text):
             continue
         problems.append(
             f"tests/{gate}/: gate has neither a verify.py nor a README.md stating the command that runs it"
