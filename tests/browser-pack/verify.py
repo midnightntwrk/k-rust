@@ -7,7 +7,7 @@
   PYTHONDONTWRITEBYTECODE=1 python3 tests/browser-pack/verify.py --rebuild --fork-build DIR
       [--fork-source DIR] [--scratch DIR] [--against PACK] [--evidence DIR]
 
---check (light; runs on a hosted runner) verifies a staged asset directory
+--check (light; needs no fork build) verifies a staged asset directory
 (browser/worker/scripts/stage-assets.ts output, or `release.py fetch` output):
   * pack/: every [[artifact]] byte count and SHA-256, no extra file, pack_id (browser/pack/manifest.py verify);
   * pack.json: pack_id, every PackAsset's bytes and SHA-256, the recomputed IR-14 pack_id, and one crates/

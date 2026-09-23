@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Top-level browser-lesson regression runner (IR-21): every browser gate, in order, against one pack.
 
+No CI job builds or tests the browser pack. The fork build (IR-01 recipe: LLVM built from source, about
+19 min at -j 8, 17 GB peak memory, 17 GB disk) and the pack build (browser/pack/build.sh) run by hand on a
+machine with those resources, and this runner is the regression gate over their output.
+
 Local mode (a pack and the fork build that produced it; this machine):
 
   PYTHONDONTWRITEBYTECODE=1 python3 tests/browser-pack/run.py \\

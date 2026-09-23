@@ -33,6 +33,8 @@ The page imports only `browser/worker/src/protocol.ts` and `controller.ts`.
 `bun run build:lesson-worker` bundles `browser/worker/src/worker.ts` to `public/browser-lesson/worker.js` (ignored by Git); `dev` and `build` run it first.
 
 The compiler pack (about 207 MB, including an 88 MB `rustc.wasm`) is not part of the repository or of `dist/`.
+No CI job builds it.
+The compiler fork and the pack are built by hand on a machine that meets the IR-01 fork-build recipe (LLVM built from source; about 19 minutes at `-j 8`, 17 GB peak memory, and 17 GB of disk), and `../tests/browser-pack/run.py` runs every browser-lesson gate over the result.
 Its location is a build-time setting:
 
 ```sh
@@ -42,7 +44,7 @@ VITE_KRS_BROWSER_PACK_BASE=https://example.org/krs-lesson/ bun run build
 The value is an absolute URL or an origin-relative path, and it is inlined into the client bundle when Vite builds the site (or when `vocs dev` starts).
 It must name the root of a release publication assembled by `browser/release/release.py assemble` (format: `browser/release/release-format.toml`): `index.json` points to `releases/<sha256>.json`, whose assets are served from `blobs/<sha256>.<ext>`.
 Serve it with the headers in `browser/release/hosting.toml`; a cross-origin base must answer `GET` with `Access-Control-Allow-Origin` for the site's origin.
-When the variable is unset, the build still succeeds and the page renders its "lesson unavailable" state; CI builds this way.
+When the variable is unset, the build still succeeds and the page renders its "lesson unavailable" state; the documentation workflow (`.github/workflows/docs.yml`) builds this way.
 
 The page fetches `index.json` and the release manifest on load, and the assets only after the reader presses the download button.
 `browser/worker/src/pack-cache.ts` verifies every required asset against the release, keeps it in one Cache Storage namespace per `pack_id`, and deletes inactive namespaces that no worker leases.
