@@ -274,8 +274,8 @@ prerequisites = ["cargo-package", "rust-names"]
 evidence = [
     "crates/krs-cli/src/main.rs",
     "crates/krs-cli/src/plan.rs",
-    "tests/m1",
     "tests/collector-planning",
+    "tests/tour-composition",
 ]
 note = "A dedicated positive multi-package teaching fixture is required."
 
@@ -290,7 +290,6 @@ evidence = [
     "tests/m4/rust-definition/Cargo.toml",
     "crates/krs-cli/src/main.rs",
     "crates/krs-cli/src/plan.rs",
-    "tests/m1",
     "tests/collector-planning",
     "tests/tour-composition",
 ]

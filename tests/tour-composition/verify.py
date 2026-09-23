@@ -11,8 +11,6 @@ import subprocess
 import sys
 import tempfile
 
-import sync
-
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -113,7 +111,6 @@ def artifacts(directory: Path) -> dict[str, bytes]:
 
 
 def main() -> None:
-    sync.main()
     cargo = shutil.which("cargo")
     if cargo is None:
         raise GateError("cargo is unavailable")
