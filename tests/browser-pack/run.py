@@ -8,10 +8,10 @@ machine with those resources, and this runner is the regression gate over their 
 Local mode (a pack and the fork build that produced it; this machine):
 
   PYTHONDONTWRITEBYTECODE=1 python3 tests/browser-pack/run.py \\
-      --pack /var/tmp/krs-ir18-pack-r26/pack \\
+      --pack /var/tmp/krs-browser-pack-r26/pack \\
       --fork-build /var/tmp/krs-browser-fork/R-26 \\
       --fork-source ../inspirations/AngelOnFira/rust-fix \\
-      [--out /var/tmp/krs-ir21-run] [--rebuild] [--record-backend] [--steps a,b,...] [--keep-going]
+      [--out /var/tmp/krs-browser-pack-run] [--rebuild] [--record-backend] [--steps a,b,...] [--keep-going]
 
 Hosted mode (a published release fetched by content address; no fork build, so the steps that need
 the native twin are skipped):
@@ -44,7 +44,7 @@ Hosted mode runs: fetch, expectations, oracle, check, pipeline, tour-minimal, ba
 Resource rules: the runner waits while the 1-minute load exceeds LOAD_MAX (default 40) before each step;
 cargo runs at nice -n 19 with -j JOBS (default 4); pack builds take the heavy-build flock (build.sh).
 Every step's output goes to OUT/logs/<step>.log; OUT/run.toml records the steps, exit codes, and wall times.
-Environment: KRS_Z3_LIB (default: the Nix store Z3 4.12.5), CARGO_TARGET_ROOT (default /var/tmp/krs-ir21-target).
+Environment: KRS_Z3_LIB (default: the Nix store Z3 4.12.5), CARGO_TARGET_ROOT (default /var/tmp/krs-browser-pack-target).
 """
 
 from __future__ import annotations
@@ -102,7 +102,7 @@ class Runner:
         self.logs = self.out / "logs"
         self.logs.mkdir(parents=True, exist_ok=True)
         self.results: list[dict[str, Any]] = []
-        self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", "/var/tmp/krs-ir21-target"))
+        self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", "/var/tmp/krs-browser-pack-target"))
         self.cli_target = self.target_root / "cli"
         self.krs_bin = self.cli_target / "debug/krs"
         z3 = z3_lib()
@@ -146,8 +146,8 @@ class Runner:
 
     def stage(self) -> bool:
         return self.step("stage", ["bun", "scripts/stage-assets.ts", "--out", self.staged, "--pack", self.args.pack.resolve(), "--krs-rev", git("rev-parse", "HEAD")],
-                         cwd=WORKER, env={"KRS_IR15_POLICY": str(self.module_path("krs-lesson-policy")),
-                                          "KRS_IR15_EXPANDER": str(self.module_path("krs-expand-wasm")), "KRS_IR15_REPO": str(ROOT)})
+                         cwd=WORKER, env={"KRS_STAGE_POLICY": str(self.module_path("krs-lesson-policy")),
+                                          "KRS_STAGE_EXPANDER": str(self.module_path("krs-expand-wasm")), "KRS_STAGE_REPO": str(ROOT)})
 
     def oracle(self) -> bool:
         return self.step("oracle", ["bash", "browser/worker/test/parity/regenerate-oracle.sh", self.oracle_dir],
@@ -193,17 +193,17 @@ class Runner:
                   f"const missing = scenariosMissingFork('{fork}');"
                   "if (missing.length) { console.error(`worker scenarios without an expectation for fork " + fork + " (add expectByFork entries in browser/worker/test/scenarios.ts): ${missing.join(', ')}`); process.exit(1); }"
                   "console.log('worker scenarios: every fork-dependent scenario has an expectation for " + fork + "');")
-        ok = self.step("expectations-ir15", ["bun", "-e", script], cwd=WORKER)
+        ok = self.step("expectations-scenarios", ["bun", "-e", script], cwd=WORKER)
         missing = sorted(p.parent.name for p in (ROOT / "tests/browser-backend/cases").glob("*/expected.json")
                          if fork not in json.loads(p.read_text()).get("revisions", {}))
         if missing and not self.args.record_backend:
             message = (f"backend-suite cases without an expected.json entry for fork {fork}: {', '.join(missing)}; "
                        "record them with --record-backend (tests/browser-backend/verify.py --record) and review the diff")
-            return self.step("expectations-ir16", ["sh", "-c", f"echo '{message}' >&2; exit 1"]) and False
-        return self.step("expectations-ir16", ["sh", "-c", f"echo 'backend suite: {'recording ' + str(len(missing)) + ' cases' if missing else 'every case has an entry'} for fork {fork}'"]) and ok
+            return self.step("expectations-backend", ["sh", "-c", f"echo '{message}' >&2; exit 1"]) and False
+        return self.step("expectations-backend", ["sh", "-c", f"echo 'backend suite: {'recording ' + str(len(missing)) + ' cases' if missing else 'every case has an entry'} for fork {fork}'"]) and ok
 
     def pipeline(self) -> bool:
-        return self.step("pipeline", ["bun", "test/run-pipeline.ts", "--assets", self.assets, "--out", self.out / "ir15-pipeline-bun.json"], cwd=WORKER)
+        return self.step("pipeline", ["bun", "test/run-pipeline.ts", "--assets", self.assets, "--out", self.out / "pipeline-bun.json"], cwd=WORKER)
 
     def check(self) -> bool:
         command = ["python3", HERE / "verify.py", "--check", "--staged", self.assets, "--out", self.out / "check.json"]
@@ -216,23 +216,23 @@ class Runner:
 
     def tour_minimal(self) -> bool:
         return self.step("tour-minimal", ["bun", "test/parity/tour-minimal.ts", "--oracle-dir", self.oracle_dir, "--assets", self.assets,
-                                          "--out", self.out / "ir17", "--bundles", self.out / "ir17-bundles", "--site", self.out / "site-ir17"], cwd=WORKER)
+                                          "--out", self.out / "tour-minimal", "--bundles", self.out / "tour-minimal-bundles", "--site", self.out / "site-tour-minimal"], cwd=WORKER)
 
     def twin(self) -> Path:
         return self.args.fork_build.resolve() / "build/x86_64-unknown-linux-gnu/stage1/bin/rustc"
 
     def native_diagnostics(self) -> bool:
-        return self.step("native-diagnostics", ["bash", "test/parity/native-diagnostics.sh", self.out / "ir18-native"], cwd=WORKER,
+        return self.step("native-diagnostics", ["bash", "test/parity/native-diagnostics.sh", self.out / "diagnostics-native"], cwd=WORKER,
                          env={"ORACLE_DIR": str(self.oracle_dir), "ASSETS": str(self.assets), "TWIN": str(self.twin()), "KRS_BIN": str(self.krs_bin), "REPO": str(ROOT)})
 
     def diagnostics(self) -> bool:
-        return self.step("diagnostics", ["bun", "test/parity/diagnostics.ts", "--native", self.out / "ir18-native", "--assets", self.assets,
-                                         "--site", self.out / "site-ir18", "--out", self.out / "ir18", "--scratch", self.out / "ir18-scratch",
+        return self.step("diagnostics", ["bun", "test/parity/diagnostics.ts", "--native", self.out / "diagnostics-native", "--assets", self.assets,
+                                         "--site", self.out / "site-diagnostics", "--out", self.out / "diagnostics", "--scratch", self.out / "diagnostics-scratch",
                                          "--krs-bin", self.krs_bin], cwd=WORKER)
 
     def backend(self) -> bool:
         command = ["python3", "tests/browser-backend/verify.py", "--pack", self.assets / "pack", "--host", "all",
-                   "--scratch", self.out / "ir16-scratch", "--out", self.out / "ir16"]
+                   "--scratch", self.out / "backend-scratch", "--out", self.out / "backend"]
         if self.args.fork_build:
             command += ["--fork-build", self.args.fork_build.resolve(), "--fork-source", self.args.fork_source.resolve(), "--references"]
             if self.args.record_backend:
@@ -260,7 +260,7 @@ def main() -> int:
     parser.add_argument("--fork-source", type=Path, help="fork source checkout at the pack's fork commit (licenses, wasi-sdk wasm-ld)")
     parser.add_argument("--base-url", help="hosted mode: publication base URL")
     parser.add_argument("--release", help="hosted mode: release manifest sha256")
-    parser.add_argument("--out", type=Path, default=Path("/var/tmp/krs-ir21-run"))
+    parser.add_argument("--out", type=Path, default=Path("/var/tmp/krs-browser-pack-run"))
     parser.add_argument("--steps", default="", help="comma-separated subset")
     parser.add_argument("--rebuild", action="store_true", help="also run the heavy two-build reproducibility gate")
     parser.add_argument("--record-backend", action="store_true", help="backend suite --record: new fork commit; review the expected.json diff by hand")

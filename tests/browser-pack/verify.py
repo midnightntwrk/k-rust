@@ -389,7 +389,7 @@ def main() -> int:
     parser.add_argument("--fork-build", type=Path)
     parser.add_argument("--fork-source", type=Path)
     parser.add_argument("--jobs", type=int, default=4)
-    parser.add_argument("--scratch", type=Path, default=Path("/var/tmp/krs-ir21-rebuild"))
+    parser.add_argument("--scratch", type=Path, default=Path("/var/tmp/krs-browser-pack-rebuild"))
     parser.add_argument("--against", type=Path, help="--rebuild: also compare build A's artifacts with this pack")
     parser.add_argument("--evidence", type=Path, help="--rebuild: write rebuild-a.sha256 and rebuild-b.sha256 here")
     parser.add_argument("--out", type=Path, help="write the JSON result here")
@@ -401,7 +401,7 @@ def main() -> int:
     elif args.falsify:
         if not args.staged:
             parser.error("--falsify needs --staged")
-        result = run_falsify(args.staged.resolve(), Path(f"/var/tmp/krs-ir21-falsify-{os.getpid()}"))
+        result = run_falsify(args.staged.resolve(), Path(f"/var/tmp/krs-browser-pack-falsify-{os.getpid()}"))
     else:
         if not args.fork_build:
             parser.error("--rebuild needs --fork-build")
