@@ -1,7 +1,7 @@
 """Manifest-driven parser, execution, and search differential oracle.
 
-This runner consumes the existing M3A--M3D corpus paths; it does not copy
-their inputs or mutate their module constants.  Frozen verifier modules are
+This runner consumes the M4-owned expression corpus and the existing M3B--M3D
+corpus paths; it does not copy their inputs or mutate their module constants.  Frozen verifier modules are
 loaded only after their exact reviewed hashes have been checked.
 """
 
@@ -29,7 +29,6 @@ except ImportError:  # Direct loading by tests/m4/verify.py.
 
 
 FROZEN_HELPER_SHA256: Mapping[str, str] = {
-    "m3a": "8cf21899e30a9a6f41e13b4310989ee535314907954e50df9c9f325bee6348f9",
     "m3b": "08401de91efba5c39456e094295643b36504a123801c6db5d421667b5762ea05",
     "m3c": "4c0db024a7e302706b4ec97d7c4f87292277d31d66114f073dced994ab727bc7",
     "m3d": "aa3ba0824b18d4d6d60c38608b79bc9ff3a69c125308505a9436a44cda353abb",
@@ -170,7 +169,7 @@ def load_frozen_helpers(root: Path) -> Mapping[str, ModuleType]:
 
 
 def run_frozen_behavior_gates(
-    root: Path, *, milestones: Sequence[str] = ("m3a", "m3b", "m3c"), timeout: int = 900
+    root: Path, *, milestones: Sequence[str] = ("m3b", "m3c"), timeout: int = 900
 ) -> None:
     """Re-run prior bounded gates after checking their helper hashes.
 
@@ -179,7 +178,7 @@ def run_frozen_behavior_gates(
     """
 
     load_frozen_helpers(root)
-    unknown = set(milestones) - {"m3a", "m3b", "m3c"}
+    unknown = set(milestones) - {"m3b", "m3c"}
     if unknown:
         raise BehaviorError(f"not a bounded behavior milestone: {sorted(unknown)}")
     for milestone in milestones:

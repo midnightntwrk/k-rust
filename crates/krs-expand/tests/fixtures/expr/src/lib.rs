@@ -1,6 +1,6 @@
-//! Explicit Rust-authored definition of the M3A IMP expression slice.
+//! Explicit Rust-authored definition of the IMP expression slice.
 //!
-//! The semantic oracle is `../../fixtures/expr.k`. This package is ordinary
+//! It mirrors the upstream IMP `expr.k` module. This package is ordinary
 //! rustc-valid source: KRS attributes attach object-language meaning while
 //! Rust traits, records, functions, imports, and aliases remain visible to
 //! rust-analyzer and other standard Rust tooling.

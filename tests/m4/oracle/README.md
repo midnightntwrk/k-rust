@@ -12,8 +12,8 @@ Import the three modules from `tests.m4.oracle` (or put this directory on
 `sys.path` for a directly loaded runner).
 
 1. Call `behavior.load_frozen_helpers(ROOT)` before compiling M4.  It checks
-   the exact reviewed hashes of all four M3 verifier modules.  The optional
-   `run_frozen_behavior_gates(ROOT)` entry point runs only bounded M3A--M3C;
+   the exact reviewed hashes of the three M3B--M3D verifier modules.  The optional
+   `run_frozen_behavior_gates(ROOT)` entry point runs only bounded M3B--M3C;
    it intentionally refuses M3D because that script launches proofs.
 2. Compile upstream IMP and KRS-emitted K with the same pinned K frontend.
    Call `source_definition.compare_definitions` independently for
@@ -50,9 +50,10 @@ pretend that the aggregate pin selects them independently.
 
 `corpus.json` should construct these cases without copying source files:
 
-- 22 accepted parse cases: M3A 9, M3B 5, M3C 8;
-- all accepted concrete executions plus M3A's two parsed-but-stuck cases,
-  M3B's two stuck cases, M3C's three stuck cases, and M3D static evaluation;
+- 22 accepted parse cases: expression 9, M3B 5, M3C 8;
+- all accepted concrete executions plus the expression corpus's two
+  parsed-but-stuck cases, M3B's two stuck cases, M3C's three stuck cases, and
+  M3D static evaluation;
 - 238 existing M3B/M3C depth states plus the eight bounded infinite-loop
   states (`run_to_completion=False` for the loop);
 - the eight finite M3C search frontiers and eight bounded infinite-loop search
@@ -67,7 +68,7 @@ They restore an unlimited soft address-space limit only for the LLVM interpreter
 Each case needs both its upstream module and KRS module.  `TermPolicy` must map
 every KRS-generated label/sort to the upstream identity; identities are also
 explicit. Unparse differences are permitted only as complete, case-named
-reference/actual strings. This includes the existing M3A unary-binding
+reference/actual strings. This includes the existing expression unary-binding
 round-trip exception and the exact `m3dZero` spelling differences; no generic
 whitespace or token rewrite is allowed.
 

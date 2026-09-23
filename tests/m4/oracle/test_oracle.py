@@ -392,7 +392,7 @@ class BehaviorTests(unittest.TestCase):
 
     def test_frozen_helpers_are_exact(self) -> None:
         root = Path(__file__).resolve().parents[3]
-        self.assertEqual(set(behavior.load_frozen_helpers(root)), {"m3a", "m3b", "m3c", "m3d"})
+        self.assertEqual(set(behavior.load_frozen_helpers(root)), {"m3b", "m3c", "m3d"})
 
     def test_hook_abort_precedes_secondary_wrapper_parse_error(self) -> None:
         stderr = (

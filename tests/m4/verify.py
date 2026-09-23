@@ -618,8 +618,8 @@ def phase_preflight(context: Context) -> str:
         raise GateError("corpus.json hash differs from pins.json")
 
     ledgers = require_mapping(corpus.get("input_ledgers"), "corpus.input_ledgers")
-    if set(ledgers) != {"m3a", "m3b", "m3c", "m3d"}:
-        raise GateError("corpus must name exactly the M3A--M3D input ledgers")
+    if set(ledgers) != {"m3b", "m3c", "m3d"}:
+        raise GateError("corpus must name exactly the M3B--M3D input ledgers")
     for name, raw in ledgers.items():
         entry = require_mapping(raw, f"input ledger {name}")
         path = ROOT / str(entry.get("path"))

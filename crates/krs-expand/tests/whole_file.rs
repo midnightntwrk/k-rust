@@ -437,7 +437,10 @@ fn corpus_matches_the_native_capture() {
             "krs_c7_associativity",
             "tests/c7/rust-definition/src/lib.rs",
         ),
-        ("m3a_expr", "tests/m3a/rust-definition/src/lib.rs"),
+        (
+            "m3a_expr",
+            "crates/krs-expand/tests/fixtures/expr/src/lib.rs",
+        ),
         ("m3b_calc", "tests/m3b/rust-definition/src/lib.rs"),
     ];
     let path = std::env::var("KRS_NATIVE_CAPTURE").expect("KRS_NATIVE_CAPTURE names a capture");

@@ -33,7 +33,7 @@ layer:
    IR, and native artifact determinism;
 4. fail-closed parsed and compiled source-definition comparison;
 5. native Definition/KORE comparison with reviewed constructor-axiom order canonicalization and the closed unused named-projector allowance;
-6. parser and unparser comparison over the M3A--M3C corpus;
+6. parser and unparser comparison over the expression, M3B, and M3C corpora;
 7. concrete execution, all frozen depth states, stuck states, and failures;
 8. finite and bounded-live search frontier comparison;
 9. bounded proof comparison for the 20 claims plus the depth-zero invocation;
@@ -59,8 +59,10 @@ fallback, or unclassified difference fails the gate.
   `reference`, and `adjunct`) that `pins.json` hash-pins as provenance; M4
   re-proves all 21 outcomes from `pins.json` itself.
 
-The M3 corpora and upstream IMP sources remain the canonical input files.
-`corpus.json` points to and hashes them; M4 does not copy them.
+The expression corpus lives in `corpus/expr/` and is hash-pinned with the rest of
+this directory in `pins.json`. The M3B--M3D corpora and upstream IMP sources
+remain the canonical input files for the other cases; `corpus.json` points to
+them, hashes their pin ledgers, and M4 does not copy them.
 
 ## Proof policy
 
