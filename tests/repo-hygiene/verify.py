@@ -28,8 +28,10 @@ REMOVED_LEDGERS = re.compile(
     r"K_RUST_HANDOFF|K_RUST_UPSTREAM|K_RUST_MORE_SEMANTICS_REQUESTS|"
     r"MIR_SEMANTICS_UPSTREAM|RECOVERY_AUDIT|LAST_KNOWN_PROMPT|RECOVERY_PROVENANCE"
 )
-# Paths inside the browser-lessons spikes and review evidence, which also live in draft/.
-SPIKE_PATH = re.compile(r"spikes/(?:BL|IR)-[0-9]")
+# A path under a spikes directory: the tracked one was removed (git history is its
+# archive) and the browser-lessons spikes live in draft/. The bracket keeps this
+# pattern itself out of a plain text search for the path.
+SPIKE_PATH = re.compile(r"\bspikes[/]")
 
 
 def tracked_files() -> list[str]:

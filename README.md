@@ -39,7 +39,6 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 | `tests/` | Milestone gates (`m1`–`m4`, `c7`, `cli`), port gates (`kwasm`, `kevm`, `kmir`), tour gates (`tour-*`), browser gates, and `repo-hygiene` |
 | `docs-plan/`, `docs-site/` | Tour curriculum, authoring specification, and the Vocs documentation site |
 | `browser/` | Browser-lesson worker, dependency pack, and release format |
-| `spikes/` | Standalone probes kept as evidence for specific design decisions |
 | `Krs.lock` | External toolchain and schema pins |
 
 ## Building and testing
