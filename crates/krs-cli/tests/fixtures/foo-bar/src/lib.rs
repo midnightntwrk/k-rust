@@ -7,12 +7,12 @@ pub trait KItem {}
 pub trait KResult: KItem {}
 
 #[krs::sort]
-pub trait M2Obj: KResult {}
+pub trait Obj: KResult {}
 
-#[krs::constructor(sort = M2Obj, syntax = "foo")]
+#[krs::constructor(sort = Obj, syntax = "foo")]
 pub struct Foo;
 
-#[krs::constructor(sort = M2Obj, syntax = "bar")]
+#[krs::constructor(sort = Obj, syntax = "bar")]
 pub struct Bar;
 
 #[krs::configuration(root = "machine")]
@@ -30,6 +30,6 @@ impl Machine {
 }
 
 #[krs::rule]
-pub fn foo_to_bar(Foo: krs::Term<dyn M2Obj>) -> krs::Term<dyn M2Obj> {
+pub fn foo_to_bar(Foo: krs::Term<dyn Obj>) -> krs::Term<dyn Obj> {
     Bar
 }

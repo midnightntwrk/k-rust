@@ -110,7 +110,12 @@ fn command(target: &Path, manifest: &Path, command: &str, output: Option<&Path>)
         .arg(command)
         .args(["--manifest-path"])
         .arg(manifest)
-        .args(["--package", "krs-cli-m2-fixture", "--definition", "main"])
+        .args([
+            "--package",
+            "krs-cli-foo-bar-fixture",
+            "--definition",
+            "main",
+        ])
         .env("CARGO_TARGET_DIR", target);
     if let Some(output) = output {
         process.arg("--output").arg(output);
@@ -123,7 +128,7 @@ fn materialize_fixture(temporary: &Path) -> PathBuf {
     fs::create_dir_all(project.join("src")).unwrap();
     fs::write(
         project.join("src/lib.rs"),
-        include_bytes!("fixtures/m2/src/lib.rs"),
+        include_bytes!("fixtures/foo-bar/src/lib.rs"),
     )
     .unwrap();
     let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -132,7 +137,7 @@ fn materialize_fixture(temporary: &Path) -> PathBuf {
         .unwrap();
     let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
     let manifest = format!(
-        "[package]\nname = \"krs-cli-m2-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-CLI-M2\"\n\n[package.metadata.krs.definitions.main]\nroot = \"crate\"\nsyntax-root = \"crate\"\n\n[workspace]\n"
+        "[package]\nname = \"krs-cli-foo-bar-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-CLI-FOO-BAR\"\n\n[package.metadata.krs.definitions.main]\nroot = \"crate\"\nsyntax-root = \"crate\"\n\n[workspace]\n"
     );
     fs::write(project.join("Cargo.toml"), manifest).unwrap();
     project.join("Cargo.toml")
