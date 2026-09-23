@@ -184,6 +184,20 @@ thread_local! {
     /// Test switch: `less_than_eq` writes every order constraint over the whole relation.
     #[cfg(test)]
     static FORCE_FULL_DISJUNCTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Test recorder: when `Some`, `less_than_eq` appends each call and the formula it built.
+    #[cfg(test)]
+    static ORDER_CONSTRAINTS: RefCell<Option<Vec<OrderConstraintCall>>> = const {
+        RefCell::new(None)
+    };
+}
+
+/// One `less_than_eq` call, as `ORDER_CONSTRAINTS` records it.
+#[cfg(test)]
+struct OrderConstraintCall {
+    lesser: Datatype,
+    greater: Datatype,
+    syntactic: bool,
+    formula: Bool,
 }
 
 const ENCODING_BASE_CACHE_CAPACITY: usize = 8;
@@ -1636,7 +1650,8 @@ impl<'a> Encoding<'a> {
     /// pseudo-Boolean bounds, so replacing each by an equivalent one leaves every asserted
     /// formula equivalent: the hard constraints, the climbing and blocking clauses of
     /// `maximal_models` and the preferences of `top_preferences`, hence the same satisfiable
-    /// problems, order and preference counts (`KRust.MaximalModels.Equivalent`).
+    /// problems, order and preference counts (`KRust.MaximalModels.Equivalent`, Rust test
+    /// `tests::order_constraints_are_equivalent_at_every_call_site`).
     /// `maximal_models` then records the same maximal real typings, each with a parameter
     /// vector that `prefer_parameters` admits under either formula
     /// (`KRust.MaximalModels.runs_agree_up_to_pref`). The candidate parses are therefore the
@@ -1687,6 +1702,17 @@ impl<'a> Encoding<'a> {
             }
             (false, false) => relation.full_disjunction(lesser, greater),
         };
+        #[cfg(test)]
+        ORDER_CONSTRAINTS.with(|calls| {
+            if let Some(calls) = calls.borrow_mut().as_mut() {
+                calls.push(OrderConstraintCall {
+                    lesser: lesser.clone(),
+                    greater: greater.clone(),
+                    syntactic,
+                    formula: formula.clone(),
+                });
+            }
+        });
         Ok(formula)
     }
 
@@ -3262,6 +3288,7 @@ fn z3_error(message: impl Into<String>) -> ParseError {
 
 #[cfg(test)]
 mod tests {
+    use super::super::ParametricOrigin;
     use super::*;
     use crate::definition::ProductionItem;
     use crate::kast::Label;
@@ -3666,7 +3693,8 @@ mod tests {
 
     /// One generated problem of `maximal_models_conform_to_brute_force_maximum`: an ambiguity
     /// over productions `p{k} : R ::= "p{k}" A B` applied to the variables `X`, `Y`, `Z`,
-    /// optionally under a unary production `w : R ::= "w" A`.
+    /// optionally under a unary production `w : R ::= "w" A`, and optionally under a parametric
+    /// production `q : {P} R ::= "q" P P` whose second child is one of the variables.
     struct ConformanceProblem {
         grammar: Grammar,
         term: Rc<PackedTerm>,
@@ -3675,6 +3703,7 @@ mod tests {
         syntactic: BTreeSet<(Sort, Sort)>,
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn conformance_problem(
         sort_count: usize,
         semantic: &[(usize, usize)],
@@ -3683,6 +3712,7 @@ mod tests {
         productions: &[(usize, usize, usize)],
         alternatives: &[(usize, usize, usize)],
         wrapper: Option<(usize, usize)>,
+        parametric: Option<(usize, usize)>,
     ) -> ConformanceProblem {
         // Sorts `S0..S{n-1}`, and `K` above all of them when `top` is `None`, which also turns
         // on the `K` preferences of `seed_model`.
@@ -3764,6 +3794,44 @@ mod tests {
                 )
                 .unwrap();
             term = PackedTerm::production(index, vec![term], Default::default());
+        }
+        if let Some((result, second)) = parametric {
+            // `{P} R ::= "q" P P`, instantiated at `R` in the grammar; the inference encodes `P`
+            // as a formal parameter.
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    sort(result),
+                    vec![
+                        ProductionItem::Terminal("q".into()),
+                        nonterminal(sort(result).name.as_str()),
+                        nonterminal(sort(result).name.as_str()),
+                    ],
+                    Some(Label::new("q")),
+                    false,
+                    false,
+                )
+                .unwrap();
+            let parameter = Sort::new("P");
+            grammar.productions[index].parametric_origin = Some(ParametricOrigin {
+                label: Some(Label::new("q")),
+                parameters: vec![parameter.clone()],
+                result: sort(result),
+                items: vec![
+                    ProductionItem::Terminal("q".into()),
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                ],
+                attributes: Default::default(),
+                substitution: BTreeMap::from([(parameter, sort(result))]),
+            });
+            term = PackedTerm::production(index, vec![term, variable(second)], Default::default());
         }
         ConformanceProblem {
             grammar,
@@ -3860,8 +3928,9 @@ mod tests {
         let solver = Solver::new();
         encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver)?;
 
-        // The generated grammar has no parametric production, so every value a real variable
-        // can take under `restrict_to_real_sorts` is a nullary real sort of the datatype.
+        // No generated sort has a parametric head (the parametric production `q` has a formal
+        // parameter, not a parametric sort), so every value a real variable can take under
+        // `restrict_to_real_sorts` is a nullary real sort of the datatype.
         let domain = encoding
             .ground_sorts
             .iter()
@@ -3971,6 +4040,7 @@ mod tests {
             productions in proptest::collection::vec((0usize..8, 0usize..8, 0usize..8), 1..5),
             alternatives in proptest::collection::vec((0usize..8, 0usize..3, 0usize..3), 1..5),
             wrapper in proptest::option::of((0usize..8, 0usize..8)),
+            parametric in proptest::option::of((0usize..8, 0usize..3)),
             seeds in (1u32..1000, 1u32..1000),
         ) {
             let problem = conformance_problem(
@@ -3981,6 +4051,7 @@ mod tests {
                 &productions,
                 &alternatives,
                 wrapper,
+                parametric,
             );
             let expected = brute_force_maximal(&problem).unwrap();
             let perturbation = |random_seed, reverse_disjuncts, full_disjunction| Perturbation {
@@ -4018,6 +4089,171 @@ mod tests {
                         recorded
                     ),
                 }
+            }
+        }
+    }
+
+    /// The call sites of `Encoding::less_than_eq` in one packed inference.
+    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    enum OrderSite {
+        /// The term constraint and the variable and token constraints under it
+        /// (`Encoding::assert_packed_hard_constraints`).
+        HardConstraint,
+        /// `top_preferences`, read by `seed_model` and `prefer_parameters`.
+        Preference,
+        /// The climb of `maximal_models`: `current <= variable`.
+        Climbing,
+        /// The blocking clause of `maximal_models`: `variable <= maximal`.
+        Blocking,
+    }
+
+    /// Run `f` with `ORDER_CONSTRAINTS` recording, and return its result and the calls.
+    fn recording<T>(f: impl FnOnce() -> T) -> (T, Vec<OrderConstraintCall>) {
+        let previous = ORDER_CONSTRAINTS.with(|calls| calls.replace(Some(Vec::new())));
+        let result = f();
+        let calls = ORDER_CONSTRAINTS.with(|calls| calls.replace(previous));
+        (result, calls.expect("the recorder was set above"))
+    }
+
+    /// The `less_than_eq` calls of one packed inference, each with its call site.
+    struct OrderConstraintCalls<'a> {
+        encoding: Encoding<'a>,
+        calls: Vec<(OrderSite, OrderConstraintCall)>,
+        /// Whether the hard constraints are satisfiable, so that `maximal_models` ran.
+        satisfiable: bool,
+    }
+
+    /// The `less_than_eq` calls of the inference path of `Grammar::infer_packed_sorts_z3` up
+    /// to `maximal_models`, each with its call site. Inside `maximal_models` a syntactic call is the climb when its greater side
+    /// is an inference variable and the blocking clause when its lesser side is; its semantic
+    /// calls are `prefer_parameters`'s preferences.
+    fn order_constraint_calls(
+        problem: &ConformanceProblem,
+    ) -> Result<OrderConstraintCalls<'_>, ParseError> {
+        let term = &problem.term;
+        let mut encoding = with_uncached_encoding_base(|| {
+            Encoding::for_packed_inference(&problem.grammar, term, &problem.top_sort, false)
+        })?;
+        let solver = Solver::new();
+        let mut sites = Vec::new();
+        let (hard, calls) =
+            recording(|| encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver));
+        hard?;
+        sites.extend(
+            calls
+                .into_iter()
+                .map(|call| (OrderSite::HardConstraint, call)),
+        );
+        let (seed, calls) = recording(|| encoding.seed_model(&solver));
+        let seed = seed?;
+        sites.extend(calls.into_iter().map(|call| (OrderSite::Preference, call)));
+        let satisfiable = match check(&solver) {
+            SatResult::Sat => true,
+            SatResult::Unsat => false,
+            SatResult::Unknown => return Err(z3_error("unknown in a call-site problem")),
+        };
+        if satisfiable {
+            let (models, calls) = recording(|| encoding.maximal_models(&solver, seed, None));
+            models?;
+            let is_variable = |value: &Datatype| encoding.variables.values().any(|v| v == value);
+            for call in calls {
+                let site = match (
+                    call.syntactic,
+                    is_variable(&call.lesser),
+                    is_variable(&call.greater),
+                ) {
+                    (false, _, _) => OrderSite::Preference,
+                    (true, false, true) => OrderSite::Climbing,
+                    (true, true, false) => OrderSite::Blocking,
+                    (true, lesser, greater) => {
+                        return Err(z3_error(format!(
+                            "unclassified order constraint in maximal_models: {} <= {} \
+                             (variables: {lesser}, {greater})",
+                            call.lesser, call.greater
+                        )));
+                    }
+                };
+                sites.push((site, call));
+            }
+        }
+        Ok(OrderConstraintCalls {
+            encoding,
+            calls: sites,
+            satisfiable,
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        /// Rust side of the hypothesis `e : Equivalent P Q` of `KRust.MaximalModels`, for the
+        /// encodings with and without the closed-side rewrite of `Encoding::less_than_eq`: at
+        /// every call site of `less_than_eq` in a packed inference (the hard constraints, the
+        /// preferences, the climb and the blocking clause), the formula it built is logically
+        /// equivalent to the full disjunction over the same relation, so Z3 must report
+        /// `¬(old ⇔ new)` unsatisfiable for each call.
+        /// Each call site asserts a Boolean combination (`and`, `not`, `or`, pseudo-Boolean
+        /// bounds) of these formulas, so equivalence of every call gives equivalent hard
+        /// constraints, climbing order and preferences: the same `sat`, `le` and `pref`.
+        /// The problems are those of `maximal_models_conform_to_brute_force_maximum`, whose
+        /// optional parametric production gives `prefer_parameters` a formal parameter; each
+        /// case also checks that every call site its shape reaches was recorded.
+        #[test]
+        fn order_constraints_are_equivalent_at_every_call_site(
+            sort_count in 3usize..6,
+            semantic in proptest::collection::vec((0usize..8, 0usize..8), 0..8),
+            extra_syntactic in proptest::collection::vec((0usize..8, 0usize..8), 0..4),
+            top in proptest::option::of(0usize..8),
+            productions in proptest::collection::vec((0usize..8, 0usize..8, 0usize..8), 1..5),
+            alternatives in proptest::collection::vec((0usize..8, 0usize..3, 0usize..3), 1..5),
+            wrapper in proptest::option::of((0usize..8, 0usize..8)),
+            parametric in proptest::option::of((0usize..8, 0usize..3)),
+        ) {
+            let problem = conformance_problem(
+                sort_count,
+                &semantic,
+                &extra_syntactic,
+                top,
+                &productions,
+                &alternatives,
+                wrapper,
+                parametric,
+            );
+            let OrderConstraintCalls {
+                encoding,
+                calls,
+                satisfiable,
+            } = order_constraint_calls(&problem).unwrap();
+            for (site, call) in &calls {
+                let relation = if call.syntactic {
+                    &encoding.syntactic_relation
+                } else {
+                    &encoding.semantic_relation
+                };
+                let old = relation.full_disjunction(&call.lesser, &call.greater);
+                let solver = Solver::new();
+                solver.assert(old.iff(&call.formula).not());
+                prop_assert_eq!(
+                    solver.check(),
+                    SatResult::Unsat,
+                    "{:?}: old and new differ for {} <= {} (syntactic: {})",
+                    site,
+                    call.lesser,
+                    call.greater,
+                    call.syntactic
+                );
+            }
+            let reached = calls.iter().map(|(site, _)| *site).collect::<BTreeSet<_>>();
+            prop_assert!(reached.contains(&OrderSite::HardConstraint), "{:?}", reached);
+            // `K` is a ground sort exactly when `top` is `None`, which turns on the preferences.
+            prop_assert_eq!(reached.contains(&OrderSite::Preference), top.is_none(), "{:?}", reached);
+            let real_variables = encoding
+                .variables
+                .keys()
+                .any(|name| !encoding.parameters.contains(name));
+            if satisfiable && real_variables {
+                prop_assert!(reached.contains(&OrderSite::Climbing), "{:?}", reached);
+                prop_assert!(reached.contains(&OrderSite::Blocking), "{:?}", reached);
             }
         }
     }

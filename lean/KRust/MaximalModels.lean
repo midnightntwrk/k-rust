@@ -235,7 +235,9 @@ theorem maximal_models_spec (hP : P.WF) (hR : P.RoundTrip) {out : List (A × B)}
 OT-03 replaces each `less_than_eq` by an equivalent formula (`SubsortEncoding.new_equiv`), so the
 hard constraints, the climbing order and the preference formulas are pointwise equivalent, and
 so are `sat`, `le` and `pref`.
-Rust test: OT-03's per-call-site equivalence test (not yet written). -/
+Rust test: `z3_inference.rs` `tests::order_constraints_are_equivalent_at_every_call_site`, which
+checks each `less_than_eq` call of a packed inference (hard constraints, preferences, climb,
+blocking clause) against the full disjunction. -/
 structure Equivalent (P Q : Problem A B) : Prop where
   le : ∀ a a', P.le a a' ↔ Q.le a a'
   sat : ∀ a b, P.sat a b ↔ Q.sat a b

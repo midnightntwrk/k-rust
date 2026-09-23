@@ -119,8 +119,7 @@ rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::maximal_model
 theorem = "KRust.MaximalModels.runs_agree_up_to_pref"
 hypothesis = "e : Equivalent P Q"
 meaning = "two encodings define the same sat, le and pref; for OT-03, new_equiv at every less_than_eq call site"
-owed_by = "OT-03"
-note = "OT-03's per-call-site equivalence test discharges it"
+rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::order_constraints_are_equivalent_at_every_call_site"
 
 [[hypothesis]]
 theorem = "KRust.MaximalModels.runs_agree"
