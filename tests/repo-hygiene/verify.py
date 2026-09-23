@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail when the tracked tree depends on local-only notes.
+"""Fail when the tracked tree depends on local-only notes or has a dead gate.
 
 `draft/` holds untracked, machine-local working notes, and the former root
 tracking ledgers now live there. A tracked file must not reference either,
@@ -7,6 +7,10 @@ because a fresh clone contains neither. For the same reason a tracked file
 must not cite a local ticket id (`IR-nn`, `BL-nnn`, `CQ-nnn`); it states the
 fact the ticket stood for instead. The check reads the Git index, so it covers
 staged additions and ignores untracked files.
+
+Every `tests/<gate>/` directory must also have an entry point: a `verify.py`,
+or a `README.md` that states the command that runs it. A directory with
+neither is a gate nobody can run, so its rot goes unnoticed.
 
     PYTHONDONTWRITEBYTECODE=1 python3 tests/repo-hygiene/verify.py
 """
@@ -48,6 +52,8 @@ PINNED_TICKET_TEXT = {
     _B01 + "oracle-success.json": _B01_PINNED,
     _B01 + "expected.json": _B01_PINNED,
 }
+# A shell command that runs a gate, as a gate README must state one.
+RUN_COMMAND = re.compile(r"\b(?:python3|cargo|bun|node)\s+\S")
 
 
 def tracked_files() -> list[str]:
@@ -59,9 +65,32 @@ def tracked_files() -> list[str]:
     return [name for name in output.decode("utf-8").split("\0") if name]
 
 
-def main() -> int:
+def gate_entry_problems(files: list[str]) -> list[str]:
+    tracked = set(files)
+    gates = sorted(
+        {
+            parts[1]
+            for parts in (name.split("/") for name in files)
+            if parts[0] == "tests" and len(parts) > 2
+        }
+    )
     problems: list[str] = []
-    for relative in tracked_files():
+    for gate in gates:
+        if f"tests/{gate}/verify.py" in tracked:
+            continue
+        readme = f"tests/{gate}/README.md"
+        if readme in tracked and RUN_COMMAND.search((ROOT / readme).read_text(encoding="utf-8")):
+            continue
+        problems.append(
+            f"tests/{gate}/: gate has neither a verify.py nor a README.md stating the command that runs it"
+        )
+    return problems
+
+
+def main() -> int:
+    files = tracked_files()
+    problems = gate_entry_problems(files)
+    for relative in files:
         if relative == "draft" or relative.startswith("draft/"):
             problems.append(f"{relative}: tracked file under draft/")
             continue
@@ -93,7 +122,10 @@ def main() -> int:
             print(problem, file=sys.stderr)
         print(f"FAIL repository hygiene: {len(problems)} finding(s)", file=sys.stderr)
         return 1
-    print("PASS repository hygiene: no tracked file depends on draft/, a removed root ledger, a spike path, or a local ticket id")
+    print(
+        "PASS repository hygiene: no tracked file depends on draft/, a removed root ledger, "
+        "a spike path, or a local ticket id, and every tests/ gate has an entry point"
+    )
     return 0
 
 

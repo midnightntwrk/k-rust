@@ -36,7 +36,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 | `crates/krs-fmt` | Canonical formatter |
 | `crates/krs-expand-wasm`, `crates/krs-lesson-policy` | Browser-lesson expander and editable-surface policy |
 | `semantics/` | Separate Cargo workspace with the KWasm, KEVM, and KMIR ports and `coverage.toml` |
-| `tests/` | Milestone gates (`m1`–`m4`, `c7`, `cli`), port gates (`kwasm`, `kevm`, `kmir`), tour gates (`tour-*`), browser gates, and `repo-hygiene` |
+| `tests/` | Milestone gates (`m3b`–`m3d`, `m4`, `c7`, `cli`), port gates (`kwasm`, `kevm`, `kmir`), tour gates (`tour-*`), browser gates, and `repo-hygiene` |
 | `docs-plan/`, `docs-site/` | Tour curriculum, authoring specification, and the Vocs documentation site |
 | `browser/` | Browser-lesson worker, dependency pack, and release format |
 | `Krs.lock` | External toolchain and schema pins |
