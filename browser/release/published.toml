@@ -11,10 +11,10 @@
 # the check step refuses a release whose crates tree differs from the checkout.
 
 schema_version = 1
-release_sha256 = "80506e07b04205d65ffca8a5866098543fa0df863d2eabf667d9f26b5e269dc4"
-pack_id = "sha256:d45edf965fcf1cc7a4466ee7c75330c2b7386103822506f6d949c2ea4cd5b36d"
+release_sha256 = "1eda1de18a3d4b8b99aa6835118c8291e66ffcda5e5c62b72307cde1a3608b2a"
+pack_id = "sha256:f5eb664bc8972b5e1245a353515ea77dcb5d4b16a0ead8b1c823b3eb365c4335"
 crates_tree = "34a7b3f7e904d4164aabcac7b9b0716314e696bd"
-fork_revision = "eb8eda0400b8015a0751e48597eb0969dbbd7b36"
-# Assembled at 4d8fa2c by the IR-21 end-to-end run (/var/tmp/krs-ir21-run/publish on Sebastien's machine);
+fork_revision = "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826"
+# Assembled at 31b806a by the IR-22 end-to-end run on R-22 (/var/tmp/krs-ir22/run/publish on Sebastien's machine);
 # not uploaded anywhere yet.
 uploaded = false
