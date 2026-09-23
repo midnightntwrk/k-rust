@@ -21,7 +21,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 MANIFEST = HERE / "Cargo.toml"
 SOURCE = HERE / "src" / "lib.rs"
-M2_SOURCE = ROOT / "tests" / "m2" / "fixtures" / "foo-bar.k"
+REFERENCE_SOURCE = HERE / "foo-bar.k"
 PACKAGE = "krs-tour-minimal"
 DEFINITION = "main"
 MODULE = "KRS-TOUR-MINIMAL"
@@ -300,8 +300,8 @@ def verify_artifacts(directory: Path) -> dict[str, bytes]:
     ) is None:
         raise GateError("emitted theory does not contain the foo-to-bar transition")
 
-    reference = M2_SOURCE.read_text(encoding="utf-8")
-    for source_name, source in (("tour-minimal", theory), ("M2 oracle", reference)):
+    reference = REFERENCE_SOURCE.read_text(encoding="utf-8")
+    for source_name, source in (("tour-minimal", theory), ("reference theory", reference)):
         if source.count('"foo"') != 1 or source.count('"bar"') != 1:
             raise GateError(f"{source_name} does not define exactly one foo/bar terminal pair")
         for edge in ("syntax KItem ::= KResult", "syntax KResult ::= M2Obj"):
@@ -310,7 +310,7 @@ def verify_artifacts(directory: Path) -> dict[str, bytes]:
         if len(re.findall(r"configuration\s+<k>\s+foo\s+</k>", source)) != 1:
             raise GateError(f"{source_name} does not contain exactly one foo initializer")
     if len(re.findall(r"^\s*rule foo => bar\s*$", reference, re.MULTILINE)) != 1:
-        raise GateError("M2 oracle does not contain exactly one bare foo-to-bar transition")
+        raise GateError("reference theory does not contain exactly one bare foo-to-bar transition")
 
     sources = load_json(artifacts, "sources.json")
     expected_digest = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
