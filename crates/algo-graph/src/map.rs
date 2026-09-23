@@ -324,7 +324,7 @@ fn header(output: &mut String, graph: &Graph, commands: &[Command]) {
     output.push_str("An absent edge proves nothing: there is no call graph, and code that no card names belongs to no algorithm.\n");
     output.push_str(&format!("Graph: nodes {nodes}; edges {edges}.\n\n"));
     output.push_str("- `algo-graph query show <id>` prints a whole card (every cost mode, variables, counters, tests); `query impact <id>` prints what a change reaches.\n");
-    output.push_str("- `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload. This map has no measured cost.\n");
+    output.push_str("- `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload, and the algorithm nesting observed on each run, which orders the kprove and krun algorithms this map cannot place. This map has no measured cost.\n");
     output.push_str("- An algorithm line is `id — bound — in: consumed → out: produced`, without a side the card does not declare; `query show` prints the card's name.\n");
     output.push_str(&format!("- A bound is the card's first cost mode, cut at {BOUND_WIDTH} characters with `…`; `+n modes` counts the modes left out.\n"));
     output.push_str("- `[role]` names a representation (`[Type: role]` when types share a role). Paths write `crates/<crate>/src/` as `<crate>/` and types `k_rust_<crate>::` as `<crate>::`, both without the `k-rust-` prefix.\n\n");

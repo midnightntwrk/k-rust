@@ -7,7 +7,7 @@ An absent edge proves nothing: there is no call graph, and code that no card nam
 Graph: nodes 110 algorithm, 3 contract, 59 observation, 62 phase, 1 registry, 31 representation; edges 9 constrains, 56 consumes, 23 contains, 1 falls-back-to, 35 follows, 80 measured-by, 30 produces, 1 variant-of.
 
 - `algo-graph query show <id>` prints a whole card (every cost mode, variables, counters, tests); `query impact <id>` prints what a change reaches.
-- `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload. This map has no measured cost.
+- `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload, and the algorithm nesting observed on each run, which orders the kprove and krun algorithms this map cannot place. This map has no measured cost.
 - An algorithm line is `id — bound — in: consumed → out: produced`, without a side the card does not declare; `query show` prints the card's name.
 - A bound is the card's first cost mode, cut at 50 characters with `…`; `+n modes` counts the modes left out.
 - `[role]` names a representation (`[Type: role]` when types share a role). Paths write `crates/<crate>/src/` as `<crate>/` and types `k_rust_<crate>::` as `<crate>::`, both without the `k-rust-` prefix.
