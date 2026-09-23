@@ -56,9 +56,6 @@ pub const COMMANDS: &[Command] = &[
 /// A bound longer than this many characters is cut.
 const BOUND_WIDTH: usize = 50;
 
-/// The number of claiming cards or constrained consumers at which the `many declarers` rule fires.
-const MANY_DECLARERS: usize = 3;
-
 /// Render the map of `graph` for the workspace commands: kompile, kprove, and krun.
 pub fn render_map(graph: &Graph) -> String {
     render_map_with(graph, COMMANDS)
@@ -74,7 +71,6 @@ pub fn render_map_with(graph: &Graph, commands: &[Command]) -> String {
     contracts(&mut output, &index);
     fallbacks(&mut output, &index);
     entry_sites(&mut output, &index);
-    leads_section(&mut output, &index);
     output
 }
 
@@ -800,194 +796,6 @@ fn entry_sites(output: &mut String, index: &Index) {
     output.push('\n');
 }
 
-fn leads_section(output: &mut String, index: &Index) {
-    output.push_str("## Leads\n\n");
-    output.push_str("A lead is structure computed from the graph that marks a place to look for a structural optimization, not a finding. Each line starts with its rule:\n\n");
-    output.push_str("- `reconversion`: a representation converted into another and back, over two or three representations;\n");
-    output.push_str("- `several producers`: one representation (type and role) produced by algorithms that are not a declared fallback or variant pair;\n");
-    output.push_str(&format!("- `many declarers`: a counter claimed by {MANY_DECLARERS} or more cards, or a producer that {MANY_DECLARERS} or more consumers constrain (one property established or checked in several places);\n"));
-    output.push_str("- `rebuild`: an algorithm that consumes a type and produces the same type with another role.\n\n");
-    let lines = lead_lines(index);
-    if lines.is_empty() {
-        output.push_str("No rule fires.\n");
-    }
-    for line in lines {
-        output.push_str(&format!("- {line}\n"));
-    }
-}
-
-fn lead_lines(index: &Index) -> Vec<String> {
-    let mut lines = reconversions(index);
-    lines.extend(several_producers(index));
-    lines.extend(many_declarers(index));
-    lines.extend(rebuilds(index));
-    lines
-}
-
-/// Representation cycles of length two or three through `consumes A, produces B` steps.
-fn reconversions(index: &Index) -> Vec<String> {
-    let mut steps = BTreeMap::<(&str, &str), BTreeSet<&str>>::new();
-    for (algorithm, consumed) in &index.consumes {
-        for input in consumed {
-            for produced in index.produces.get(algorithm).into_iter().flatten() {
-                if input != produced {
-                    steps
-                        .entry((input, produced))
-                        .or_default()
-                        .insert(algorithm);
-                }
-            }
-        }
-    }
-    let successors = |from: &str| {
-        steps
-            .keys()
-            .filter(move |(source, _)| *source == from)
-            .map(|(_, target)| *target)
-            .collect::<Vec<_>>()
-    };
-    let describe = |cycle: &[&str]| {
-        let mut parts = Vec::new();
-        for (position, from) in cycle.iter().enumerate() {
-            let to = cycle[(position + 1) % cycle.len()];
-            parts.push(format!(
-                "{} → {} by {}",
-                index.label(from),
-                index.label(to),
-                steps[&(*from, to)]
-                    .iter()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        format!("reconversion: {}", parts.join("; "))
-    };
-    let mut lines = Vec::new();
-    let starts = steps
-        .keys()
-        .map(|(source, _)| *source)
-        .collect::<BTreeSet<_>>();
-    for start in starts {
-        for second in successors(start) {
-            if second <= start {
-                continue;
-            }
-            if steps.contains_key(&(second, start)) {
-                lines.push(describe(&[start, second]));
-            }
-            for third in successors(second) {
-                if third <= start || third == second {
-                    continue;
-                }
-                if steps.contains_key(&(third, start)) {
-                    lines.push(describe(&[start, second, third]));
-                }
-            }
-        }
-    }
-    lines
-}
-
-/// Representations produced by more than one algorithm, unless every pair of producers is a
-/// declared fallback or variant pair.
-fn several_producers(index: &Index) -> Vec<String> {
-    let related = index
-        .edges("falls-back-to")
-        .chain(index.edges("variant-of"))
-        .flat_map(|edge| {
-            [
-                (edge.from.as_str(), edge.to.as_str()),
-                (edge.to.as_str(), edge.from.as_str()),
-            ]
-        })
-        .collect::<BTreeSet<_>>();
-    let mut lines = Vec::new();
-    for node in &index.representations {
-        let Some(producers) = index.producers.get(node.id.as_str()) else {
-            continue;
-        };
-        let producers = producers.iter().copied().collect::<Vec<_>>();
-        let alternatives = producers.iter().enumerate().all(|(position, left)| {
-            producers[position + 1..]
-                .iter()
-                .all(|right| related.contains(&(*left, *right)))
-        });
-        if producers.len() > 1 && !alternatives {
-            lines.push(format!(
-                "several producers: {} ← {}",
-                index.label(&node.id),
-                producers.join(", ")
-            ));
-        }
-    }
-    lines
-}
-
-/// Counters claimed by, and producers constrained by, [`MANY_DECLARERS`] or more cards.
-fn many_declarers(index: &Index) -> Vec<String> {
-    let mut claims = BTreeMap::<&str, BTreeSet<&str>>::new();
-    for edge in index.edges("measured-by") {
-        let is_counter = index.nodes.get(edge.to.as_str()).is_some_and(|node| {
-            node.kind == "observation" && node.table.as_deref() == Some("Counter::ALL")
-        });
-        if is_counter {
-            claims.entry(&edge.to).or_default().insert(&edge.from);
-        }
-    }
-    let mut constrained = BTreeMap::<&str, BTreeSet<&str>>::new();
-    for edge in index.edges("constrains") {
-        constrained.entry(&edge.from).or_default().insert(&edge.to);
-    }
-    let mut lines = Vec::new();
-    for (counter, algorithms) in claims {
-        if algorithms.len() >= MANY_DECLARERS {
-            lines.push(format!(
-                "many declarers: counter {counter}, {} cards: {}",
-                algorithms.len(),
-                algorithms.into_iter().collect::<Vec<_>>().join(", ")
-            ));
-        }
-    }
-    for (producer, consumers) in constrained {
-        if consumers.len() >= MANY_DECLARERS {
-            lines.push(format!(
-                "many declarers: {producer} constrains {} consumers: {}",
-                consumers.len(),
-                consumers.into_iter().collect::<Vec<_>>().join(", ")
-            ));
-        }
-    }
-    lines
-}
-
-/// Algorithms that consume a type and produce the same type with another role.
-fn rebuilds(index: &Index) -> Vec<String> {
-    let mut lines = Vec::new();
-    for node in &index.algorithms {
-        let id = node.id.as_str();
-        let plain = |representation: &&str| {
-            index
-                .nodes
-                .get(representation)
-                .and_then(|node| node.type_path.as_deref())
-                .map(plain_type)
-        };
-        for input in index.consumes.get(id).into_iter().flatten() {
-            for output in index.produces.get(id).into_iter().flatten() {
-                if input != output && plain(input).is_some() && plain(input) == plain(output) {
-                    lines.push(format!(
-                        "rebuild: {id} consumes {} and produces {}",
-                        index.label(input),
-                        index.label(output)
-                    ));
-                }
-            }
-        }
-    }
-    lines
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1042,12 +850,6 @@ mod tests {
         let mut node = node("representation", &format!("{type_path} [{role}]"));
         node.type_path = Some(type_path.to_owned());
         node.role = Some(role.to_owned());
-        node
-    }
-
-    fn counter(id: &str) -> Node {
-        let mut node = node("observation", id);
-        node.table = Some("Counter::ALL".to_owned());
         node
     }
 
@@ -1186,112 +988,6 @@ mod tests {
         assert!(
             map.contains("- [two] k_rust::Two: a.lower → a.emit\n"),
             "{map}"
-        );
-    }
-
-    #[test]
-    fn several_producers_fires_unless_the_producers_are_a_fallback_pair() {
-        let mut graph = pipeline_graph();
-        assert!(several_producers(&Index::new(&graph)).is_empty());
-        graph.nodes.push(algorithm("a.alternative", "O(n)"));
-        graph.edges.push(relation("produces", "a.alternative", ONE));
-        graph.sort();
-        assert_eq!(
-            several_producers(&Index::new(&graph)),
-            ["several producers: [one] ← a.alternative, a.parse"]
-        );
-        graph
-            .edges
-            .push(relation("falls-back-to", "a.parse", "a.alternative"));
-        graph.sort();
-        assert!(several_producers(&Index::new(&graph)).is_empty());
-    }
-
-    #[test]
-    fn reconversion_fires_on_two_and_three_representation_cycles_only() {
-        let mut graph = pipeline_graph();
-        assert!(reconversions(&Index::new(&graph)).is_empty());
-        graph.nodes.push(algorithm("a.raise", "O(n)"));
-        graph.edges.push(relation("consumes", "a.raise", TWO));
-        graph.edges.push(relation("produces", "a.raise", ONE));
-        graph.sort();
-        assert_eq!(
-            reconversions(&Index::new(&graph)),
-            ["reconversion: [one] → [two] by a.lower; [two] → [one] by a.raise"]
-        );
-
-        let mut graph = pipeline_graph();
-        graph.nodes.push(algorithm("a.back", "O(n)"));
-        graph.edges.push(relation("consumes", "a.back", OUT));
-        graph.edges.push(relation("produces", "a.back", ONE));
-        graph.sort();
-        assert_eq!(
-            reconversions(&Index::new(&graph)),
-            [
-                "reconversion: [one] → [two] by a.lower; [two] → [out] by a.emit; [out] → [one] by a.back"
-            ]
-        );
-
-        graph.nodes.push(representation("k_rust::Four", "four"));
-        graph
-            .edges
-            .retain(|edge| !(edge.from == "a.back" && edge.kind == "consumes"));
-        graph
-            .edges
-            .push(relation("consumes", "a.back", "k_rust::Four [four]"));
-        graph.nodes.push(algorithm("a.four", "O(n)"));
-        graph.edges.push(relation("consumes", "a.four", OUT));
-        graph
-            .edges
-            .push(relation("produces", "a.four", "k_rust::Four [four]"));
-        graph.sort();
-        assert!(
-            reconversions(&Index::new(&graph)).is_empty(),
-            "a four-representation cycle is not a lead"
-        );
-    }
-
-    #[test]
-    fn many_declarers_fires_at_three_cards_or_consumers() {
-        let mut graph = pipeline_graph();
-        graph.nodes.push(counter("Steps"));
-        for id in ["a.parse", "a.lower"] {
-            graph.edges.push(relation("measured-by", id, "Steps"));
-        }
-        for id in ["a.lower", "a.emit"] {
-            let mut constraint = relation("constrains", "a.parse", id);
-            constraint.detail = Some("a shared table".to_owned());
-            graph.edges.push(constraint);
-        }
-        graph.sort();
-        assert!(many_declarers(&Index::new(&graph)).is_empty());
-
-        graph.edges.push(relation("measured-by", "a.emit", "Steps"));
-        graph
-            .edges
-            .push(relation("constrains", "a.parse", "a.check"));
-        graph.sort();
-        assert_eq!(
-            many_declarers(&Index::new(&graph)),
-            [
-                "many declarers: counter Steps, 3 cards: a.emit, a.lower, a.parse",
-                "many declarers: a.parse constrains 3 consumers: a.check, a.emit, a.lower",
-            ]
-        );
-    }
-
-    #[test]
-    fn rebuild_fires_on_one_type_with_two_roles() {
-        let mut graph = pipeline_graph();
-        assert!(rebuilds(&Index::new(&graph)).is_empty());
-        graph.nodes.push(representation("k_rust::One", "refined"));
-        graph
-            .edges
-            .push(relation("produces", "a.lower", "k_rust::One [refined]"));
-        graph.sort();
-        assert_eq!(
-            rebuilds(&Index::new(&graph)),
-            ["rebuild: a.lower consumes [one] and produces [refined]"]
         );
     }
 

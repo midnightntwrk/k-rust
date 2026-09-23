@@ -344,23 +344,3 @@ The first site of each algorithm's primary card, grouped by file.
 | kore/kore/printer/document.rs | kore.printer.flat_widths `flat_widths`; kore.printer.render `render` |
 | kore/kore/walk.rs | kore.pattern.walk `children` |
 
-## Leads
-
-A lead is structure computed from the graph that marks a place to look for a structural optimization, not a finding. Each line starts with its rule:
-
-- `reconversion`: a representation converted into another and back, over two or three representations;
-- `several producers`: one representation (type and role) produced by algorithms that are not a declared fallback or variant pair;
-- `many declarers`: a counter claimed by 3 or more cards, or a producer that 3 or more consumers constrain (one property established or checked in several places);
-- `rebuild`: an algorithm that consumes a type and produces the same type with another role.
-
-- reconversion: [match result] → [collection solution] by backend.matching.collections; [collection solution] → [match result] by backend.matching.syntactic
-- many declarers: counter KompileResolveCalls, 3 cards: definition.resolve.imports, kompile.kore.convert_term, kompile.kore.declarations
-- many declarers: counter KompileSentenceCopies, 3 cards: definition.provenance.record, kompile.metadata.retarget, kompile.sentences.number
-- many declarers: counter KompileSentenceEquivalenceChecks, 7 cards: definition.catalog.production, definition.catalog.rule, definition.equivalence.deduplicate, definition.equivalence.sentence, definition.relations.build, definition.resolve.imports, definition.resolve.sentences
-- many declarers: counter ParserGrammarBuilds, 4 cards: parser.bubble.configurations, parser.bubble.rules, parser.grammar.build, parser.programs.parse
-- many declarers: counter ParserParseAttempts, 4 cards: parser.bubble.configurations, parser.bubble.rules, parser.earley.recognize, parser.programs.parse
-- many declarers: counter SmtQueries, 3 cards: backend.implication.check, backend.rewrite.apply, backend.smt.cache
-- many declarers: definition.catalog.production constrains 3 consumers: contract.definition.production_catalog_cache, parser.bubble.rules, parser.programs.parse
-- rebuild: definition.configuration.expand consumes [parsed configuration bubbles] and produces [expanded configurations]
-- rebuild: parser.bubble.configurations consumes [lowered source] and produces [parsed configuration bubbles]
-- rebuild: parser.bubble.rules consumes [expanded configurations] and produces [parsed rule bubbles]
