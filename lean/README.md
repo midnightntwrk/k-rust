@@ -14,6 +14,7 @@ The method, its limits and the case studies are in `draft/lean-verification/READ
 | `KRust/TermAttributes.lean` | the backend `Term` model; `ceilFree_sound` (OT-01), `hasMacro_iff`, `macro_shortcut_eq` and `rule_index_same` (OT-02) |
 | `KRust/SynthAttr.lean` | the generic synthesized-attribute lemma `fold_rel`, with case 3 restated through it |
 | `KRust/Examples.lean` | `#guard` checks that run the term model at build time |
+| `KRust/MaximalModels.lean` | the maximal-model enumeration of the Z3 sort inference (`maximal_models_spec`, `runs_agree_up_to_pref`, `runs_agree`) |
 | `Audit.lean` | `krust-audit`: the `sorry` and axiom audit that `scripts/lean-check.sh` runs |
 | `KRustBridge/Json.lean` | the JSON form of the term model, shared with the Rust encoder of the bridge tests |
 | `KRustBridge/Dispatch.lean` | the bridged models by name; each applies a `KRust` definition, never a copy |
@@ -84,4 +85,34 @@ theorem = "KRust.TermAttributes.ceilFree_sound"
 hypothesis = "O : Oracles (field dedup_nil)"
 meaning = "deduplicate (definedness.rs:307-310) of an empty vector is empty"
 rust_test = "crates/k-rust-backend/src/definedness.rs tests::deduplicate_keeps_an_empty_vector_empty"
+
+[[hypothesis]]
+theorem = "KRust.MaximalModels.maximal_models_spec"
+hypothesis = "hP : P.WF"
+meaning = "less_than_eq(_, _, true) is reflexive and transitive on every value of the encoding datatype"
+rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::subsort_order_is_a_preorder_on_model_values"
+
+[[hypothesis]]
+theorem = "KRust.MaximalModels.maximal_models_spec"
+hypothesis = "hR : P.RoundTrip"
+meaning = "sort_value(decode_sort(v)) is the same Z3 term as v for every value v that model.eval returns"
+rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::model_values_round_trip"
+
+[[hypothesis]]
+theorem = "KRust.MaximalModels.maximal_models_spec"
+hypothesis = "model conformance (h : Run P [] out)"
+meaning = "Encoding::maximal_models, entered as infer_packed_sorts_z3 enters it, is one of the runs the relation Run allows; checked through its consequence: the recorded real projections are the brute-force maximal ones, without duplicates, under random_seed and disjunct-order perturbations"
+rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::maximal_models_conform_to_brute_force_maximum"
+
+[[hypothesis]]
+theorem = "KRust.MaximalModels.runs_agree_up_to_pref"
+hypothesis = "e : Equivalent P Q"
+meaning = "two encodings define the same sat, le and pref; for OT-03, new_equiv at every less_than_eq call site"
+rust_test = "none yet: OT-03's per-call-site equivalence test discharges it"
+
+[[hypothesis]]
+theorem = "KRust.MaximalModels.runs_agree"
+hypothesis = "hu : UniquePref P"
+meaning = "prefer_parameters has one admissible parameter vector per maximal real projection"
+rust_test = "none yet: false in general; ticket LT-05 decides how the Rust enforces it"
 ```
