@@ -1,0 +1,384 @@
+# Workloads recorded by scripts/algo-receipt.sh as algorithm cost receipts.
+#
+# Placeholders: the checkout roots of scripts/reference-manifest.py (${workspace}, ${k}, ${imp},
+# ${wasm}, ${evm}, ${mir}, each overridable by the same environment variable), ${builtin} (K's
+# builtin directory), and three directories the recorder supplies:
+#   ${prepared}  prepare-step outputs, shared by the workloads and keyed by the krust binary's
+#                digest, so a rebuilt binary prepares again;
+#   ${run}       the measured command's scratch directory (compiled output), emptied per run;
+#   ${input}     the generated input file of a ladder workload.
+# A ladder workload also substitutes its parameter by name (for example ${n}).
+#
+# Keys of a [[workload]]:
+#   command     kcompile, kprove or krun; the recorder adds --timings, --trace-aggregate and
+#               KRUST_COUNTERS and redirects standard input from /dev/null
+#   weight      light (recorded with --repeat 3) or heavy (once, under the memory guard)
+#   pins        [reference.*] sections of scripts/reference-differential.toml whose checkouts must
+#               be at their pinned revision (k, imp, kevm, kevm-plugin, wasm, mir)
+#   args        the measured command's arguments after the subcommand
+#   prepare     names of [[prepare]] steps, run in order before the measured command; a step has
+#               a command, its args, and the file it creates, and is skipped when that file exists
+#   [workload.check]      the output check: exit status (default 0), stdout substrings,
+#               stdout_squeezed substrings (compared with all whitespace removed from stdout),
+#               stdout_absent substrings, and files that must exist and be non-empty;
+#               ${expect} is the value of `expect` (an integer expression in the ladder parameter)
+#               or, with `expect_out`, the integer that K's `V:K #Equals <int> ~> .K` output file
+#               binds
+#   [workload.ladder]     param, values (ascending), stop_seconds (a run slower than this ends the
+#               ladder), and input: the template written to ${input} for each value
+
+version = 1
+
+# Unmeasured steps a workload names in `prepare`, run in order before it is measured.
+[[prepare]]
+name = "imp-proof-definition"
+command = "kcompile"
+creates = "${prepared}/imp-proof-definition/parsed.json"
+args = [
+  "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--for-proving",
+  "--output-directory", "${prepared}/imp-proof-definition",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+
+[[prepare]]
+name = "imp-specification"
+command = "kcompile"
+creates = "${prepared}/imp-specification/krust.json"
+args = [
+  "${imp}/examples/specs/imp-simple-spec.k",
+  "--compiled-definition", "${prepared}/imp-proof-definition",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--definition-module", "IMP-VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${prepared}/imp-specification",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+
+[[prepare]]
+name = "imp-definition"
+command = "kcompile"
+creates = "${prepared}/imp-definition/runtime.json"
+args = [
+  "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-directory", "${prepared}/imp-definition",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+
+[[prepare]]
+name = "fun-untyped"
+command = "kcompile"
+creates = "${prepared}/fun-untyped/runtime.json"
+args = [
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/fun-untyped.md",
+  "--main-module", "FUN-UNTYPED",
+  "--output-directory", "${prepared}/fun-untyped",
+  "--builtin-directory", "${builtin}",
+  "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
+]
+
+[[workload]]
+name = "imp-compile"
+command = "kcompile"
+weight = "light"
+pins = ["k", "imp"]
+args = [
+  "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--for-proving",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/krust.json"]
+
+[[workload]]
+name = "imp-prove"
+command = "kprove"
+weight = "light"
+prepare = ["imp-proof-definition", "imp-specification"]
+pins = ["k", "imp"]
+args = [
+  "--compiled-definition", "${prepared}/imp-specification",
+  "--main-module", "IMP-SIMPLE-SPEC",
+  "--claim", "IMP-SIMPLE-SPEC.sum-loop",
+  "--depth", "100",
+]
+[workload.check]
+stdout = ["claim IMP-SIMPLE-SPEC.sum-loop: proven"]
+
+[[workload]]
+name = "compile-append"
+command = "kcompile"
+weight = "light"
+pins = ["k"]
+args = [
+  "${k}/k-distribution/tests/regression-new/append/test.k",
+  "--main-module", "TEST",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+name = "compile-cell-map"
+command = "kcompile"
+weight = "light"
+pins = ["k"]
+args = [
+  "${k}/k-distribution/tests/regression-new/cell_map/test.k",
+  "--main-module", "TEST",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+name = "compile-owise-functions"
+command = "kcompile"
+weight = "light"
+pins = ["k"]
+args = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/owise-functions.k",
+  "--main-module", "OWISE-FUNCTIONS",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore"]
+
+# IMP summation loop; the loop runs n + 1 times and the result binds sum to n(n + 1)/2.
+[[workload]]
+name = "imp-krun-sum"
+command = "krun"
+weight = "light"
+prepare = ["imp-definition"]
+pins = ["k", "imp"]
+args = [
+  "--definition", "${prepared}/imp-definition",
+  "--sort", "Stmt",
+  "-c", "ENV=.Map",
+  "${input}",
+]
+[workload.ladder]
+param = "n"
+values = [10, 100, 1000, 3000, 10000]
+stop_seconds = 120
+input = """
+sum = 0;
+n = ${n};
+k = 0;
+while (k <= n) {
+  sum = sum + k;
+  k = k + 1;
+}
+"""
+[workload.check]
+expect = "n * (n + 1) // 2"
+stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
+
+# FUN untyped programs from K's tutorial: CB-14's ackermann.fun and the CB-20 controls, which
+# stay on one branch. Each check requires the one result to bind V to the integer the
+# tutorial's expected output names.
+[[workload]]
+name = "fun-ackermann"
+command = "krun"
+weight = "light"
+prepare = ["fun-untyped"]
+pins = ["k"]
+args = [
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/ackermann.fun",
+]
+[workload.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/ackermann.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+name = "fun-list-nth"
+command = "krun"
+weight = "light"
+prepare = ["fun-untyped"]
+pins = ["k"]
+args = [
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/list-nth.fun",
+]
+[workload.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/list-nth.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+name = "fun-list-1"
+command = "krun"
+weight = "light"
+prepare = ["fun-untyped"]
+pins = ["k"]
+args = [
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/list-1.fun",
+]
+[workload.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/list-1.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+name = "fun-constructor-list-length"
+command = "krun"
+weight = "light"
+prepare = ["fun-untyped"]
+pins = ["k"]
+args = [
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/constructor-list-length.fun",
+]
+[workload.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/constructor-list-length.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+name = "fun-factorial"
+command = "krun"
+weight = "light"
+prepare = ["fun-untyped"]
+pins = ["k"]
+args = [
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/factorial.fun",
+]
+[workload.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/factorial.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+[[workload]]
+name = "fun-references-2"
+command = "krun"
+weight = "light"
+prepare = ["fun-untyped"]
+pins = ["k"]
+args = [
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/programs/references-2.fun",
+]
+[workload.check]
+expect_out = "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/tests/references-2.fun.out"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+# constructor-list-length with the list built by the program: length (build n) is n, and the
+# list of n constructors is the growing input.
+[[workload]]
+name = "fun-build-list-length"
+command = "krun"
+weight = "light"
+prepare = ["fun-untyped"]
+pins = ["k"]
+args = [
+  "--definition", "${prepared}/fun-untyped",
+  "--sort", "Exp",
+  "--pattern", "<k> V:K </k>",
+  "${input}",
+]
+[workload.ladder]
+param = "n"
+values = [10, 30, 100, 300, 1000]
+stop_seconds = 120
+input = """
+datatype 'a mylist = Nil | Cons('a, 'a mylist)
+
+letrec build = fun 0 -> Nil | n -> Cons(n, build (n - 1))
+and length = fun Nil -> 0 | Cons(h,t) -> 1 + length t
+in length (build ${n})
+"""
+[workload.check]
+expect = "n"
+stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
+stdout_absent = ['\or{']
+
+# Heavy compiles: benchmark.sh's KEVM compile phase and the WASM and MIR cases of
+# scripts/reference-differential.toml in their kore/llvm pairing. Their haskell/rust pairing
+# (--backend rust; WASM also with --md-selector "k & ! concrete") exceeded the memory guard's
+# 16 GiB scope at the commit that added this manifest, WASM after about 80 s and MIR after
+# about 55 s, so it cannot be recorded under the guard.
+[[workload]]
+name = "kevm-compile"
+command = "kcompile"
+weight = "heavy"
+pins = ["k", "kevm", "kevm-plugin"]
+args = [
+  "${evm}/tests/specs/functional/slot-updates-spec.k",
+  "--main-module", "VERIFICATION",
+  "--syntax-module", "VERIFICATION",
+  "--for-proving",
+  "--output-directory", "${run}/compiled",
+  "--builtin-directory", "${builtin}",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/evm-semantics",
+  "-I", "${evm}/kevm-pyk/src/kevm_pyk/kproj/plugin",
+  "--hook-namespaces", "JSON,KRYPTO",
+  "--md-selector", "k & ! concrete",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/krust.json"]
+
+[[workload]]
+name = "wasm-compile"
+command = "kcompile"
+weight = "heavy"
+pins = ["k", "wasm"]
+args = [
+  "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md",
+  "--main-module", "WASM-TEST",
+  "--backend", "llvm",
+  "--output-directory", "${run}/compiled",
+  "--emit-json",
+  "--builtin-directory", "${builtin}",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+name = "mir-compile"
+command = "kcompile"
+weight = "heavy"
+pins = ["k", "mir"]
+args = [
+  "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md",
+  "--main-module", "KMIR",
+  "--backend", "llvm",
+  "--output-directory", "${run}/compiled",
+  "--emit-json",
+  "-I", "${mir}/kmir/src/kmir/kdist",
+  "--md-selector", "k & ! concrete",
+  "--syntax-module", "KMIR-AST",
+  "--builtin-directory", "${builtin}",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore"]
